@@ -1,0 +1,31 @@
+[
+  { "key": "A", "title": "Epic A — Produce the v0.1 planning package", "milestone": "M0 — Planning package v0.1", "labels": ["epic","type:docs"],
+    "body": "Execute `docs/planning/PLANNING-PROMPT.md` §9: thirteen self-contained, cross-referenced files under `docs/planning/v0.1/`. This is the blueprint the build phase executes without further architectural decisions.\n\nExit condition: the §11 self-review checklist passes on every item.\n\n**Skills:** `oac`, `oac-planning-package`, `oac-evidence`, `oac-boundaries`" },
+
+  { "key": "B", "title": "Epic B — Stage 0: evidence, pinning, and ADR amendments", "milestone": "M1 — Stage 0: Evidence and pinning", "labels": ["epic","stage:0-evidence","type:decision"],
+    "body": "Pin every external version, re-verify the §3 baseline against those pins, and close the Appendix A conflict register with numbered ADR-001 amendments.\n\nGate: no substantial core or transport code starts before Stage 0 and Stage 1 complete.\n\n**Skills:** `oac`, `oac-evidence`, `oac-boundaries`" },
+
+  { "key": "C", "title": "Epic C — Architecture decisions (PLANNING-PROMPT §5)", "milestone": "M0 — Planning package v0.1", "labels": ["epic","type:decision"],
+    "body": "Every §5 decision recorded with the choice, the decisive evidence, rejected alternatives in one line each, and the condition that would reverse it. No routine choice may be left as an open alternative. Decisions land in `docs/planning/v0.1/03-decisions-and-amendments.md`.\n\n**Skills:** `oac`, `oac-evidence`, `oac-boundaries`" },
+
+  { "key": "D", "title": "Epic D — Stage 1: gates G1-G5 and protocol fixtures", "milestone": "M2 — Stage 1: Provider and transport spikes", "labels": ["epic","stage:1-spikes","type:spike","go-no-go"],
+    "body": "Throwaway, timeboxed spikes that decide the five gates and capture recorded protocol fixtures for the Stage 3 fakes. Risk-first: nothing durable is built until the provider surfaces are proven on pinned versions.\n\nEvery gate produces a written result with version, date, command transcript summary, and verdict. Gates re-run whenever a pinned provider version changes.\n\n**Skills:** `oac`, `oac-gates`, `oac-evidence`" },
+
+  { "key": "E", "title": "Epic E — Stage 2: normative OAC spec v0.1", "milestone": "M3 — Stage 2: Normative spec v0.1", "labels": ["epic","stage:2-spec","type:spec","area:spec"],
+    "body": "The neutral specification and its conformance fixtures. Interfaces (adapter contract, transport contract, core types) are frozen at the end of this stage.\n\nHard rule: no neutral interface or spec text mentions Zenoh keys, MQTT topics, NATS subjects, or provider-specific method names.\n\n**Skills:** `oac`, `oac-spec-authoring`, `oac-boundaries`" },
+
+  { "key": "F", "title": "Epic F — Stage 3: core, fakes, and contract suites", "milestone": "M4 — Stage 3: Core and fakes", "labels": ["epic","stage:3-core","type:code","area:core"],
+    "body": "Core types, policy, identity, duplicate suppression, fake Claude and fake Codex endpoints built from Stage 1 fixtures, an in-memory transport, and the contract test suites.\n\nExit condition: CI green with no live provider, no API key, and no network beyond loopback.\n\n**Skills:** `oac`, `oac-implementation`, `oac-testing`, `oac-boundaries`" },
+
+  { "key": "G", "title": "Epic G — Stage 4: provider adapters and Zenoh transport", "milestone": "M5 — Stage 4: Adapters and Zenoh transport", "labels": ["epic","stage:4-adapters","type:code"],
+    "body": "Real adapters and the reference transport, built against the contracts frozen in Stage 2. Contract suites pass on the real modules; provider integration tests pass on pinned versions behind an explicit opt-in.\n\n**Skills:** `oac`, `oac-implementation`, `oac-claude-channels`, `oac-codex-appserver`, `oac-zenoh`, `oac-boundaries`" },
+
+  { "key": "H", "title": "Epic H — Stage 5: end-to-end and threat verification", "milestone": "M6 — Stage 5: End-to-end and threat verification", "labels": ["epic","stage:5-e2e","type:test","area:security"],
+    "body": "The ADR-001 validation criterion executed on Windows, macOS, and Linux, plus the security test suite. Each of DESIGN acceptance criteria 1-10 maps to a named passing test; each threat-model mitigation maps to the test that proves it.\n\n**Skills:** `oac`, `oac-testing`, `oac-security-work`" },
+
+  { "key": "I", "title": "Epic I — Stage 6: release hygiene", "milestone": "M7 — Stage 6: Release hygiene", "labels": ["epic","stage:6-release","type:docs"],
+    "body": "Docs, license inventory, deferred-work list, known-risk list, and upgrade notes for provider preview surfaces.\n\n**Skills:** `oac`, `oac-release`, `oac-evidence`" },
+
+  { "key": "J", "title": "Epic J — Progressive-disclosure agent skills", "milestone": "M8 — Agent enablement", "labels": ["epic","area:agent-skills","type:docs"],
+    "body": "A tiered skill tree so an agent picking up any work item loads the minimum context needed: an always-on router, two guardrail skills, one skill per stage, and four provider/transport reference skills. See `docs/planning/SKILLS-MODEL.md`.\n\n**Skills:** `oac`, `oac-authoring-skills`" }
+]
