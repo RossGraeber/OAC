@@ -16,13 +16,12 @@ OAC MUST NOT:
 
 Full detail, drift examples, and the grep/lint checks: skill `oac-boundaries`.
 
-## Where the plan lives
-
-- `docs/planning/ADR-001.md` — decisions, boundaries, scope
-- `docs/planning/STATUS.md` — current stage, gate verdicts, pins (read before acting)
-- `docs/planning/backlog/` — labelled work items; each ends with a **Skills:** line
-
 ## Finding the right skill
 
 A work item's own **Skills:** line is authoritative. Missing one, or working outside the
 backlog? Load skill `oac` — it holds the project map and the label -> skill routing table.
+
+When a local skill under `.claude/skills/` covers the topic at hand, load and follow it
+in preference to other internal documentation (docs/, ADRs, backlog notes, prior
+conversation memory, etc.). Skills are the maintained, authoritative source for how to do
+the work; other documentation may be stale or provide only background context.
