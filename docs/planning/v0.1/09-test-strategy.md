@@ -82,11 +82,11 @@ mitigation's proof across two tiers.
 | # | Tier | Proves | Runs against | CI-default or opt-in | Owning backlog task | Stage introduced |
 |---|---|---|---|---|---|---|
 | 1 | Unit | Module-level logic: envelope encode/decode, replay/dedup logic, the delivery-receipt state machine (F2/F4/F6 acceptance boxes) | In-process code only | CI-default | F2-F7 (each carries its own unit-test acceptance box); wired into the default pipeline by F12 | Stage 3 |
-| 2 | Spec conformance | Wire representation matches the frozen closed error taxonomy (`05-interfaces.md` §10, 10 rows), the delivery-state set (§9, 8 states), and the `ttl_ms`-before-replay-window precedence rule (§10) — detail at §6 below | The E8 conformance fixture set | CI-default | E8; wired into CI by F12 | Stage 2 (fixture set built); wired into CI at Stage 3 |
-| 3 | Contract — adapter + transport | The `ProviderAdapter` (`05-interfaces.md` §13) and `Transport` (§15) contracts are obeyed identically by every implementation, including the no-polling rule (§5 below) | Adapter sub-row: fake Claude/Codex endpoints (F8/F9) at Stage 3, real adapters unchanged at Stage 4. Transport sub-row: the in-memory transport (F7) at Stage 3, real Zenoh over loopback unchanged at Stage 4 | CI-default against fakes/in-memory; against real adapters or real Zenoh it is the provider-integration tier (row 6), opt-in, pinned | F10 | Stage 3 (fakes/in-memory); Stage 4 (real, opt-in) |
-| 4 | Security (resilience folded in, see above) | Spoof, replay, duplicate-suppression-including-across-restart, unauthorized-routing, cross-project-leakage, `zid`-never-an-identity, and local-IPC-peer-auth mitigations from `06-security.md` §14 — detail at §7 below | Fakes (F11) at Stage 3; real transport/adapters (H2, and H3 for the resilience sub-row) at Stage 5 | CI-default against fakes; against real providers/transport it is opt-in, pinned | F11; H2; H3 | Stage 3 (fakes); Stage 5 (real, opt-in for provider-touching cases) |
+| 2 | Spec conformance | Wire representation matches the frozen closed error taxonomy (`05-interfaces.md` §10, 10 rows), the delivery-state set (`05-interfaces.md` §9, 8 states), and the `ttl_ms`-before-replay-window precedence rule (`05-interfaces.md` §10) — detail at §6 below | The E8 conformance fixture set | CI-default | E8; wired into CI by F12 | Stage 2 (fixture set built); wired into CI at Stage 3 |
+| 3 | Contract — adapter + transport | The `ProviderAdapter` (`05-interfaces.md` §13) and `Transport` (§15) contracts are obeyed identically by every implementation, including the no-polling rule (§5 below) | Adapter sub-row: fake Claude/Codex endpoints (F8/F9) at Stage 3, real adapters unchanged at Stage 4. Transport sub-row: the in-memory transport (F7) at Stage 3, real Zenoh over loopback unchanged at Stage 4 | CI-default against fakes/in-memory; against real adapters it is the provider-integration tier (row 6), opt-in, pinned — but real Zenoh over loopback stays CI-default (§3's loopback rule: no live provider, no API key, no network beyond loopback) | F10 | Stage 3 (fakes/in-memory, adapter sub-row real at Stage 4 opt-in); Stage 4 (transport sub-row real, CI-default) |
+| 4 | Security (resilience folded in, see above) | Spoof, replay, duplicate-suppression-including-across-restart, unauthorized-routing, cross-project-leakage, `zid`-never-an-identity, and local-IPC-peer-auth mitigations from `06-security.md` §14 — detail at §7 below | Fakes (F11) at Stage 3; real transport/adapters (H2, and H3 for the resilience sub-row) at Stage 5 | CI-default against fakes; against real adapters (Claude Code, Codex) it is opt-in, pinned — but against real Zenoh over loopback, with no live adapter in the path, it stays CI-default (§3's loopback rule) | F11; H2; H3 | Stage 3 (fakes); Stage 5 (real adapters, opt-in; real-Zenoh-only cases CI-default) |
 | 5 | Fake-harness integration | Core + adapter + transport wired together with no live provider — the Stage 3 exit condition | Fake Claude endpoint (F8), fake Codex endpoint (F9), in-memory or loopback transport (F7) | CI-default | F12 | Stage 3 |
-| 6 | Provider integration | Real adapter/transport behaviour against a real, pinned harness version — the runtime half of gates G1/G2/G3 | Real Claude Code / real Codex / real Zenoh, on pinned versions (`docs/planning/PINS.md`) | Opt-in only, explicit flag, pinned versions — never the default `test` run (F12 acceptance: "Provider integration tests exist but are opt-in and pinned") | F12 isolates it as its own target; exercised at Stage 4 | Stage 4 |
+| 6 | Provider integration | Real adapter behaviour against a real, pinned harness version — the runtime half of gates G1/G2 | Real Claude Code / real Codex, on pinned versions (`docs/planning/PINS.md`) | Opt-in only, explicit flag, pinned versions — never the default `test` run (F12 acceptance: "Provider integration tests exist but are opt-in and pinned"). Real Zenoh over loopback is not this row — it needs no live provider, so it is CI-default under row 3/4 (§3's loopback rule), never this opt-in tier | F12 isolates it as its own target; exercised at Stage 4 | Stage 4 |
 | 7 | End-to-end | The ADR-001 Validation criterion, decomposed into individually asserted clauses — detail at §9 below | Real providers, real transport | Opt-in (needs live providers) — the go/no-go test (H1, labelled `go-no-go`) | H1 | Stage 5 |
 | 8 | Cross-platform CLI smoke | One-command startup, `status`/`sessions`/`doctor`, clean shutdown — detail at §10 below | The built CLI binary; no live provider required | CI-default, matrixed on Windows, macOS, Linux | H4 | Stage 5 |
 
@@ -97,8 +97,9 @@ mitigation's proof across two tiers.
 Stated normative-style, binding on the default pipeline F12 stands up:
 
 The default test suite — every tier row above marked CI-default (rows 1, 2, 3's
-fake/in-memory half, 4's fake half, 5, 8) — **runs with no live provider, no API key, and
-no network beyond loopback.**
+fake/in-memory and real-Zenoh-over-loopback transport sub-row, 4's fake half and its
+real-Zenoh-over-loopback-only cases, 5, 8) — **runs with no live provider, no API key,
+and no network beyond loopback.**
 
 **Loopback, defined explicitly.** A Zenoh peer on the local machine talking to another
 Zenoh peer on `127.0.0.1` — the local-mode bind `docs/planning/decisions/
@@ -129,12 +130,14 @@ never a test attribute that merely marks it slow inside the same default run.
 
 **Every opt-in test names its exact pinned provider version, read from
 `docs/planning/PINS.md`, never "latest."** Concretely: the provider-integration tier
-(row 6) names the Claude Code, Codex, or Zenoh pin-table row it runs against
-(`docs/planning/PINS.md` pin table); the end-to-end tier (row 7, §9 below) names all
-three pins it depends on (Claude Code, Codex, and the transport pin, since it crosses
-both adapters and Zenoh). No opt-in test description says "the current release" or
-"latest" — it names the exact pinned version string, the same string
-`docs/planning/gates/README.md`'s per-gate result files record.
+(row 6) names the Claude Code or Codex pin-table row it runs against
+(`docs/planning/PINS.md` pin table) — real Zenoh over loopback is not row 6 (§2's
+loopback carve-out: it is CI-default, so it carries no opt-in pin-naming obligation
+here, though the fixture-refresh trigger below still applies to it); the end-to-end
+tier (row 7, §9 below) names all three pins it depends on (Claude Code, Codex, and the
+transport pin, since it crosses both adapters and Zenoh). No opt-in test description
+says "the current release" or "latest" — it names the exact pinned version string, the
+same string `docs/planning/gates/README.md`'s per-gate result files record.
 
 **A pin move invalidates the recorded opt-in result the same way it invalidates a gate
 — cited, not re-derived.** Per `docs/planning/gates/README.md` "Re-run/invalidation
@@ -203,10 +206,10 @@ conformance fixture set (`docs/planning/backlog/04-tasks-EF.json` task E8) cover
   fixture per row, all ten: `malformed-envelope`, `unsupported-spec-revision`,
   `unsupported-capability`, `signature-verification-failed`, `replay-window-rejected`,
   `duplicate`, `unknown-destination`, `unauthorized`, `expired`, `internal-failure`.
-- **The frozen delivery-state set** (§9, 8 states: `accepted-by-adapter`,
+- **The frozen delivery-state set** (`05-interfaces.md` §9, 8 states: `accepted-by-adapter`,
   `handed-to-harness`, `unknown`, `rejected`, `unreachable`, `expired`, `duplicate`,
   `failed`) — each state reachable from at least one positive or negative fixture.
-- **The `ttl_ms`-before-replay-window precedence rule** (§10): "a receiver `MUST` check
+- **The `ttl_ms`-before-replay-window precedence rule** (`05-interfaces.md` §10): "a receiver `MUST` check
   `ttl_ms` expiry first and emit `expired` if it fails, checking the replay accept-window
   (and emitting `replay-window-rejected` on failure) only once the `ttl_ms` check has
   passed" — a dedicated fixture exercises an envelope that fails both checks, asserting
@@ -229,7 +232,7 @@ mitigation:
   mapping to the `rejected` delivery state (`05-interfaces.md` §10; `docs/planning/
   decisions/C5-envelope-auth.md` §2, §5). Owning tier: F11 (fakes), H2 (real).
 - **Replay.** An envelope outside the `created_at` accept-window is rejected with
-  `replay-window-rejected` (C5 §7). Owning tier: F11, H2.
+  `replay-window-rejected` (C5 §7). Owning tier: F4, per `06-security.md` §14 row 4.
 - **Duplicate suppression by `(key_id, nonce)`, including across a daemon restart.** The
   dedup key is `(security.key_id, security.nonce)`, not `id` alone (C5 §7); the
   cold-restart gap — the window itself, not the dedup store, is the only defence for the
@@ -239,7 +242,7 @@ mitigation:
   holds across restart" is H3's own acceptance box).
 - **Unauthorized routing.** A peer not on a session's allowlist is rejected with
   `unauthorized`, per the default-deny, per-session-id, `working_directory`-scoped
-  allowlist (C5 §11). Owning tier: F11, H2.
+  allowlist (C5 §11). Owning tier: F5, H2, per `06-security.md` §14 row 2.
 - **Cross-project leakage.** A session registered under one `working_directory` is not
   discoverable by a peer not authorized for it — `list_sessions` returns only sessions
   the caller is authorized to see (C5 §11; `docs/planning/decisions/
@@ -395,8 +398,8 @@ quietly marked done."
 | # | Criterion (verbatim) | Named test | Tier | CI-default / opt-in | Current status |
 |---|---|---|---|---|---|
 | 1 | "One-command local startup." | Cross-platform CLI smoke — one-command start (§10) | CLI smoke | CI-default | not-yet-written |
-| 2 | "Claude and Codex adapters expose distinct neutral sessions." | Adapter contract suite (`ProviderAdapter.discover_sessions`/`attach`, `05-interfaces.md` §13) | Contract — adapter | CI-default (fakes); opt-in (real, row 6) | not-yet-written |
-| 3 | "Sessions discover one another through neutral APIs." | Presence/discovery contract assertions (`05-interfaces.md` §6, §15's `watch_presence`) | Contract — transport | CI-default (in-memory); opt-in (real Zenoh) | not-yet-written |
+| 2 | "Claude and Codex adapters expose distinct neutral sessions." | `contract/adapter/discover-sessions-attach` (`ProviderAdapter.discover_sessions`/`attach`, `05-interfaces.md` §13) | Contract — adapter | CI-default (fakes); opt-in (real, row 6) | not-yet-written |
+| 3 | "Sessions discover one another through neutral APIs." | `contract/transport/presence-discovery` (`05-interfaces.md` §6, §15's `watch_presence`) | Contract — transport | CI-default (in-memory and real Zenoh over loopback — §3's loopback rule) | not-yet-written |
 | 4 | "Claude actively messages Codex without receiver polling." | `contract/adapter/no-polling` (§5) + H1's clause 1 (§9) | Contract (CI-default) + end-to-end (opt-in) | CI-default for the contract half; opt-in for the E2E half | not-yet-written |
 | 5 | "Codex actively replies to Claude." | H1's clause 2 (§9) | End-to-end | Opt-in | not-yet-written |
 | 6 | "Authenticated provenance and authorization are enforced." | Security tier's spoof + unauthorized-routing tests (§7) | Security | CI-default (fakes); opt-in (real, H2) | not-yet-written |
@@ -528,7 +531,7 @@ v0.1 Rust test harness:
   calls stay flat, on-demand fetch calls stay zero between arrivals. This is a behaviour
   any adapter implementation must exhibit, not a Rust-specific test-harness detail.
 - The error-code-to-delivery-state mapping (`05-interfaces.md` §10) and the frozen
-  delivery-state set (§9) that §6's fixtures exercise.
+  delivery-state set (`05-interfaces.md` §9) that §6's fixtures exercise.
 - The CI-default rule itself (§3): no live provider, no API key, no network beyond
   loopback — a property of *what a default test run may touch*, not of any one language's
   test runner.
