@@ -752,10 +752,13 @@ entries this document relies on and does not resolve. The `CLAUDE_SESSION_ID` ab
 
 ## Where this folds in
 
-Once `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) exists, this
-file's content moves there unedited in substance (per PLANNING-PROMPT.md §9's output
-package shape) and this file becomes a redirect stub, mirroring how
-`ADR-001-AMENDMENTS.md` already describes its own eventual fold-in. Consumed by C5
+**Superseded note (§0 of `docs/planning/v0.1/03-decisions-and-amendments.md`, issue
+#21).** `docs/planning/v0.1/03-decisions-and-amendments.md` now exists and resolved the
+fold-in tension this section originally anticipated in favor of **cite, not copy**: that
+file is a synthesis that cites this document's sections rather than absorbing them
+unedited, and this file is **not** a redirect stub — it remains the authoritative,
+standalone source for decision 4's choice, evidence, and reversal condition.
+`docs/planning/STATUS.md` was updated to the same effect. Consumed by C5
 (envelope signing keys — the device key this document names as the identity root),
 C6 (pairing/ACL subjects — the registration record and default-deny rule this document
 fixes), D1/D2 (adapter capture paths — §3/§4's end-to-end capture paths), and the

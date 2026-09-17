@@ -713,12 +713,13 @@ Per issue #20's six acceptance boxes (backlog task C7, `docs/planning/backlog/
 
 ## Where this folds in
 
-Once `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) exists, this
-file's content moves there unedited in substance (per `docs/planning/PLANNING-PROMPT.md`
-§9's output package shape) and this file becomes a redirect stub, mirroring how
-`docs/planning/ADR-001-AMENDMENTS.md`, `docs/planning/decisions/C4-session-identity.md`,
-`docs/planning/decisions/C5-envelope-auth.md`, and `docs/planning/decisions/
-C6-trust-rendering.md` already describe their own eventual fold-in. Consumed by: G3 (the
+**Superseded note (§0 of `docs/planning/v0.1/03-decisions-and-amendments.md`, issue
+#21).** `docs/planning/v0.1/03-decisions-and-amendments.md` now exists and resolved the
+fold-in tension this section originally anticipated in favor of **cite, not copy**: that
+file is a synthesis that cites this document's sections rather than absorbing them
+unedited, and this file is **not** a redirect stub — it remains the authoritative,
+standalone source for decision 10's choice, evidence, and reversal condition.
+`docs/planning/STATUS.md` was updated to the same effect. Consumed by: G3 (the
 Zenoh local-peer gate this document's local-mode design and reversal condition directly
 feed, §5, §11), D3 (the gate spike build artifact that resolves the binary-size
 UNVERIFIED item, §12), F11 (transport-layer security suite, §9), H2 (cross-project-

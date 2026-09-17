@@ -997,11 +997,13 @@ Per issue #18's seven acceptance boxes (backlog task C5,
 
 ## Where this folds in
 
-Once `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) exists, this
-file's content moves there unedited in substance (per PLANNING-PROMPT.md §9's output
-package shape) and this file becomes a redirect stub, mirroring how
-`docs/planning/ADR-001-AMENDMENTS.md` and `docs/planning/decisions/
-C4-session-identity.md` already describe their own eventual fold-in. Consumed by: F4
+**Superseded note (§0 of `docs/planning/v0.1/03-decisions-and-amendments.md`, issue
+#21).** `docs/planning/v0.1/03-decisions-and-amendments.md` now exists and resolved the
+fold-in tension this section originally anticipated in favor of **cite, not copy**: that
+file is a synthesis that cites this document's sections rather than absorbing them
+unedited, and this file is **not** a redirect stub — it remains the authoritative,
+standalone source for decisions 5-6's choice, evidence, and reversal condition.
+`docs/planning/STATUS.md` was updated to the same effect. Consumed by: F4
 (replay defence and duplicate-suppression implementation, §7-§8), F5 (authorization
 engine and pairing store implementation, §10-§11), F11 (security test suite, exercising
 every threat-table row in §13), G7 (`turn/steer` authorization gate, §11), G9 (local IPC

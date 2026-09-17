@@ -688,12 +688,13 @@ Per issue #19's six acceptance boxes (backlog task C6, `docs/planning/backlog/
 
 ## Where this folds in
 
-Once `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) exists, this
-file's content moves there unedited in substance (per PLANNING-PROMPT.md §9's output
-package shape) and this file becomes a redirect stub, mirroring how
-`docs/planning/ADR-001-AMENDMENTS.md`, `docs/planning/decisions/C4-session-identity.md`,
-and `docs/planning/decisions/C5-envelope-auth.md` already describe their own eventual
-fold-in. Consumed by: G4 (Claude adapter inbound delivery and provenance rendering, §2-
+**Superseded note (§0 of `docs/planning/v0.1/03-decisions-and-amendments.md`, issue
+#21).** `docs/planning/v0.1/03-decisions-and-amendments.md` now exists and resolved the
+fold-in tension this section originally anticipated in favor of **cite, not copy**: that
+file is a synthesis that cites this document's sections rather than absorbing them
+unedited, and this file is **not** a redirect stub — it remains the authoritative,
+standalone source for decisions 8-9's choice, evidence, and reversal condition.
+`docs/planning/STATUS.md` was updated to the same effect. Consumed by: G4 (Claude adapter inbound delivery and provenance rendering, §2-
 §4), G8 (Codex adapter outbound tool surface and reply correlation, §8-§10), G5 (the
 provenance gate this document's whole rendering design ultimately feeds, §6, §14), G7
 (`turn/steer` authorization gate, §5's exclusion and §12's threat row), H2 (permission-

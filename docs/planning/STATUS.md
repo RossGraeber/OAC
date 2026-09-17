@@ -4,7 +4,12 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A2: `docs/planning/v0.1/01-capability-matrix.md` landed
+**Last updated:** 2026-09-17 (A4: `docs/planning/v0.1/03-decisions-and-amendments.md`
+landed (issue #21) — all twelve §5 decisions assembled and cited (decision 3's dual-era
+sub-element gate-decided at G4, not deferred), ADR-001-A1-A3 reproduced verbatim from the
+amendments ledger, the C1-C10 conflict register and open C11-C12 entries reproduced;
+C1-C7 decision documents remain authoritative, not stubbed; no pin moved, no gate verdict
+changed. A2: `docs/planning/v0.1/01-capability-matrix.md` landed
 (issue #24) — surface labels, shim-boundary carry, full capability matrix, and the C7
 conflict-register row's resolution, which `docs/planning/ADR-001-AMENDMENTS.md`'s
 conflict table already pointed at; no pin moved, no gate verdict changed; C7: Zenoh
@@ -31,12 +36,14 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2 landed), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2, A4 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
 
-ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`. Resolves
+ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`
+(authoritative for verbatim old/new text), assembled and cited (not copied) in
+`docs/planning/v0.1/03-decisions-and-amendments.md`. Resolves
 conflict register entries C1-C3 directly (`RESOLVED-HERE`); C5, C7 assigned or
 resolved-by-evidence per that file's conflict register table; new entries C11-C12 added,
 both open (see below). C8 is closed separately, by `docs/planning/decisions/
@@ -90,26 +97,26 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 - **C1 — language, runtime, packaging, dependency inventory** (issue #13): decided.
   Rust, single self-contained binary (dynamically linked against OS system libraries
   only — not bit-for-bit static, see the file's §9). Full decision, evidence, and
-  dependency inventory: `docs/planning/decisions/C1-language-runtime.md`. Folds into
-  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
-  exists.
+  dependency inventory: `docs/planning/decisions/C1-language-runtime.md`, which remains authoritative;
+  cited (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md` decision 1
+  and decision 12 (Epic A task A4, landed) — this file is not a redirect stub.
 - **C2 — process model, local IPC, CLI surface, config model** (issue #14): decided.
   One long-lived per-device `oac` daemon (Zenoh peer, device identity/keys, policy,
   Codex app-server client) plus thin `oac mcp-shim` stdio child processes; Windows named
   pipe / Unix `AF_UNIX` socket IPC with OS-level peer authentication (candidate crate
   `interprocess` `2.4.4` pinned; final IPC crate a Stage 3 detail, see C2 §4); zero-file
   local default. Full decision and evidence:
-  `docs/planning/decisions/C2-process-model.md`. Folds into
-  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
-  exists.
+  `docs/planning/decisions/C2-process-model.md`, which remains authoritative; cited
+  (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md` decision 2 and
+  decision 11 (Epic A task A4, landed) — this file is not a redirect stub.
 - **C3 — spec packaging and the MCP extension identifier** (issue #16): decided.
   Standalone normative document (`OAC Session Channels`, under `spec/`, normative-of-
   record) plus MCP extension identifier `io.github.rossgraeber/oac-session-channels`
   for capability negotiation, tool surface, and `_meta` provenance only; MCP is not the
   delivery mechanism. Full decision and evidence:
-  `docs/planning/decisions/C3-spec-packaging.md`. Folds into
-  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
-  exists.
+  `docs/planning/decisions/C3-spec-packaging.md`, which remains authoritative; cited
+  (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md` decision 3
+  (Epic A task A4, landed) — this file is not a redirect stub.
 - **C4 — session identity, addressing, discovery, key storage** (issue #17): decided.
   Four-layer identity model (device key, opaque stable session id, display-only URI,
   human alias — only the device key and opaque id carry authority); Claude `session_id`
@@ -119,9 +126,9 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   `session://<device>/<harness>/<id>` resolves conflict C8 (`RESOLVED-IN-DECISION`); key
   storage `keyring` `4.2.0` (per-platform backends) plus `age` `0.12.1` encrypted-file
   fallback. Full decision and evidence:
-  `docs/planning/decisions/C4-session-identity.md`. Folds into
-  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
-  exists.
+  `docs/planning/decisions/C4-session-identity.md`, which remains authoritative; cited
+  (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md` decisions 4 and 7
+  (Epic A task A4, landed) — this file is not a redirect stub.
 - **C5 — envelope authenticity, replay defence, pairing, authorization** (issue #18):
   decided. Ed25519 via `ed25519-dalek` `3.0.0` (`verify_strict`, mandatory) over a
   domain-separated RFC 8785 JCS canonicalization (`serde_jcs` `0.2.0`) of the signed
@@ -135,9 +142,10 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   120-second/5-attempt short code for two devices on a LAN; default-deny, per-OAC-
   session-id, `working_directory`-scoped sender allowlists; OAC policy maps only onto
   authenticated Zenoh ACL subjects (certificate common name or username), never `zid`.
-  Full decision and evidence: `docs/planning/decisions/C5-envelope-auth.md`. Folds into
-  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
-  exists.
+  Full decision and evidence: `docs/planning/decisions/C5-envelope-auth.md`, which
+  remains authoritative; cited (not copied) in `docs/planning/v0.1/
+  03-decisions-and-amendments.md` decisions 5 and 6 (Epic A task A4, landed) — this
+  file is not a redirect stub.
 - **C6 — provider-facing trust rendering, outbound symmetry** (issue #19): decided.
   Claude inbound provenance is a fixed five-key `meta` set (`oac_sender`, `oac_device`,
   `oac_session`, `oac_message_id`, `oac_reply_to`), identifier-safe by a const key table
@@ -151,9 +159,9 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   reply correlation is a layered rule — explicit `in_reply_to`, an adapter-independent
   thread-id/turn-id binding, and an explicit inferred/uncorrelated downgrade rather than
   silent attribution — resolving conflict C9 (`RESOLVED-IN-DECISION`). Full decision and
-  evidence: `docs/planning/decisions/C6-trust-rendering.md`. Folds into
-  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
-  exists.
+  evidence: `docs/planning/decisions/C6-trust-rendering.md`, which remains
+  authoritative; cited (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md`
+  decisions 8 and 9 (Epic A task A4, landed) — this file is not a redirect stub.
 - **C7 — Zenoh transport mapping and containment boundary** (issue #20): decided. Key
   expressions are a one-way hash of the opaque session id, computed only inside
   `transports/zenoh/`, never guessable and never on the wire in reverse; presence maps
@@ -168,9 +176,9 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   certificate-issuance wiring; also adds a local-mode TLS listener (auto-generated
   certificate, no manual management) to satisfy G3's pass criterion. Only the
   stable `zenoh`/`zenoh-ext` surface is used, no `unstable` feature. Full decision and
-  evidence: `docs/planning/decisions/C7-zenoh-transport.md`. Folds into
-  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
-  exists.
+  evidence: `docs/planning/decisions/C7-zenoh-transport.md`, which remains
+  authoritative; cited (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md`
+  decision 10 (Epic A task A4, landed) — this file is not a redirect stub.
 
 ## Open conflicts (oac-evidence §6)
 
@@ -180,25 +188,28 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   (one file per gate) the record, with `02-gating-findings.md` generated from those
   five files rather than hand-authored. Not an ADR-001 claim, so no ADR amendment is
   proposed. Full reconciliation: `docs/planning/gates/README.md` §"Reconciliation with
-  PLANNING-PROMPT.md §9 item 3". Per `oac-evidence` §6 step 5, this is flagged here
-  because `docs/planning/v0.1/03-decisions-and-amendments.md` does not exist yet; move
-  this entry there once it does.
+  PLANNING-PROMPT.md §9 item 3". `docs/planning/v0.1/03-decisions-and-amendments.md`
+  now exists (Epic A task A4, landed); this entry stays recorded here rather than moving,
+  since it is not an ADR-001-decision conflict that file's §5/§ Amendments/§ Conflict
+  register sections scope to — it is a PLANNING-PROMPT.md-vs-evidence-store shape note.
 - **C7 local-mode TLS, caught and resolved in-document (issue #20).** An earlier C7 draft
   said local mode has no TLS/QUIC listener, citing DESIGN.md line 115's "no manual
   certificate management." That conflicted with `PLANNING-PROMPT.md` §4 G3's pass
   criterion, which requires "a TLS listener bound to localhost" even in local mode.
   Resolved in `docs/planning/decisions/C7-zenoh-transport.md` §5: local mode now also
   binds a TLS listener using an auto-generated, unmanaged local certificate — satisfies
-  both sources; no ADR-001 amendment needed. Move to
-  `docs/planning/v0.1/03-decisions-and-amendments.md` once it exists.
+  both sources; no ADR-001 amendment needed. Restated in `docs/planning/v0.1/
+  03-decisions-and-amendments.md` decision 10 (Epic A task A4, landed), citing C7 §5;
+  full resolution stays in C7, not copied here or there.
 - **C7 presence/discovery gaps, open (issue #20).** `docs/planning/decisions/
   C7-zenoh-transport.md` §4 records two unresolved gaps: (1) the liveliness-token
   presence mapping carries only reachability, not the full `PresenceRecord` (harness
   ownership, capabilities, active-inbound support) DESIGN.md lines 104-105 ask for; (2) no
   discovery path is defined by which a peer learns an *unknown* session's opaque id, even
   though ADR-001.md line 61 puts presence/discovery in v0.1 scope. Neither is fixed by
-  this document; a future decision must close them. Move to
-  `docs/planning/v0.1/03-decisions-and-amendments.md` once it exists.
+  this document; a future decision must close them. Restated (not copied) in
+  `docs/planning/v0.1/03-decisions-and-amendments.md` decision 10 (Epic A task A4,
+  landed), citing C7 §4.
 
 ## Open conflict-register items
 
