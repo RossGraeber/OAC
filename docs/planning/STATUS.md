@@ -4,6 +4,77 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-17 (A1/issue #23: `docs/planning/v0.1/00-summary.md` landed,
+closing Epic A — one page, no ADR-001/DESIGN restatement, citing by path throughout; the
+structural finding (no attach to an arbitrary already-running session; both harnesses
+support injection into a session launched OAC-enabled) stated up front, citing
+`PLANNING-PROMPT.md` §4 and `ADR-001-A2`; "what v0.1 proves" as the five-leg
+`ADR-001.md` line 74 validation criterion per `ADR-001-A2`, citing the ten DESIGN
+acceptance criteria by path to `10-stages.md` §11 rather than reproducing them; language
+(Rust, single `oac` binary, toolchain `1.98.1`) and process-model (one daemon plus
+`oac mcp-shim` shims, OS-peer-authenticated local IPC) stated as decisions, each with one
+decisive reason and one reversal condition, rejected alternatives pointed at
+`03-decisions-and-amendments.md` §Decision 1/§Decision 2; top three risks named as the
+first three `11-risks.md` §R1 rows in that file's own presentation order (RISK-G1,
+RISK-G2, RISK-G4), with the file's own caveat restated verbatim — R1 row order is
+presentation order, not a ranking, and the two no-fallback gates (G1, G5) carry equal
+weight regardless of position — so this file does not re-rank the five R1 risks. No pin
+moved, no gate verdict changed, no UNVERIFIED item closed or added.
+
+**Epic A closing self-review** (`.claude/skills/oac-planning-package/SKILL.md` §6,
+`PLANNING-PROMPT.md` §11), run against all thirteen `docs/planning/v0.1/*.md` files now
+present, per issue #23's task 9:
+
+1. Every ADR-001 boundary and every DESIGN non-goal respected-or-amended — **PASS**.
+   `12-deferred.md` §2 restates the nine permanent boundary/non-goal items as
+   "boundary, not backlog," never a v0.2 candidate; `03-decisions-and-amendments.md` §5
+   runs a per-decision boundary self-check against all seven `oac-boundaries` checks and
+   concludes "every boundary check above holds," with the one known gap (containment
+   lint's `snake_case`/`adapters`/`cli` coverage) recorded open, not hidden.
+2. Every DESIGN acceptance criterion 1-10 maps to a named test in `09-test-strategy.md`
+   and a stage in `10-stages.md` — **PASS**. `09-test-strategy.md` §11's ten-row table
+   and `10-stages.md` §11's ten-row table both cover all ten criteria verbatim; criteria
+   9 (lint, not a runtime test) and 10 (doc proof, currently NOT MET) are recorded as
+   such rather than papered over, in both files.
+3. Every §5 decision made, or gate-decided with the gate named — **PASS**.
+   `03-decisions-and-amendments.md` §1 makes all twelve decisions; decision 3's dual-era
+   sub-element is explicitly gate-decided at G4, named, not left open.
+4. Every gate G1-G5 has pass, fail, and fallback text — **PASS**.
+   `02-gating-findings.md` §3-§7 each carry all three; G1 and G5 state "none" for
+   fallback explicitly (go/no-go), which is closed text, not an open end.
+5. Every §3 fact re-verified against the pinned version, every UNVERIFIED item closed or
+   listed as a risk — **PASS**. `11-risks.md`'s closing traceability table disposes all
+   29 "Open UNVERIFIED items" entries below by risk id; none were closed by evidence
+   found while writing the package (per `oac-evidence` §5, none had a first-party
+   re-verification citation available), so all 29 remain open here and also carry a risk
+   row in `11-risks.md`.
+6. No neutral interface mentions Zenoh, Claude, Codex, MCP method names, or key
+   expressions — **PASS**. `05-interfaces.md` §21 runs the `oac-boundaries` mechanical
+   check plus the spec-specific neutral-vocabulary word list against itself and reads
+   every hit; all hits sit inside the labelled binding/mapping annex (§15), the
+   replacement-proof section (§16, §17), or path citations (§19) — none inside normative
+   text (§1-§14), the `ProviderAdapter`/`Transport` signatures, or a core-type field.
+7. No section proposes owning a harness's turn loop, holding provider credentials, or
+   polling an inbox from an adapter that claims active inbound — **PASS**.
+   `03-decisions-and-amendments.md` §5's boundary self-check states this holds for every
+   decision (no model-API call, no credential reuse, no cross-provider context store, no
+   provider-auth abstraction, no polling while claiming active inbound); `06-security.md`
+   and `05-interfaces.md`'s active-delivery no-polling rule carry the same finding for
+   the security and interface surfaces respectively.
+8. The naming resolution (`.claude/skills/oac-planning-package/SKILL.md` §4) applied
+   consistently — **PASS**. A repo-wide sweep of `docs/planning/v0.1/` for bare "Session
+   Channels" and `sessionchannels` found every hit is either a naming-rule statement (the
+   rule text itself, naming the forbidden spelling to forbid it) or sits inside a source
+   document explicitly marked as a pre-rename verbatim quotation (`ADR-001-A1`'s old-text
+   blocks in `03-decisions-and-amendments.md` §2, the `DESIGN.md` legacy-name-site list in
+   §4, `05-interfaces.md`'s two marked `DESIGN.md` quotations, `08-cli-and-deployment.md`'s
+   marked `sessionchannels` CLI example) — no new prose written in the retired name
+   anywhere in the package, including `00-summary.md`.
+
+**Result: 8/8 PASS. Epic A is closed.** No cross-reference sweep failure, no UNVERIFIED
+label dropped; `STATUS.md`'s history block (this entry) is additive only, appended below
+the existing A12 entry, nothing prior removed.
+
 **Last updated:** 2026-09-17 (A12: `docs/planning/v0.1/11-risks.md` and
 `docs/planning/v0.1/12-deferred.md` landed (issue #32) — `11-risks.md`: a ranking
 rule (ability to invalidate the `ADR-001.md` line 74 validation criterion and
