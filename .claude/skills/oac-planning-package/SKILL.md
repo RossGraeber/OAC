@@ -19,7 +19,7 @@ All under `docs/planning/v0.1/`. One line each — the job, not the content.
 |---|---|---|
 | 1 | `00-summary.md` | One page: what v0.1 proves, the §4 structural finding, the language and process-model decisions, top three risks. |
 | 2 | `01-capability-matrix.md` | One row per capability across Claude Code, Codex, MCP, Zenoh, ACP with status/version/source/date/gap. |
-| 3 | `02-gating-findings.md` | G1-G5 pass/fail/fallback criteria and current verdict. |
+| 3 | `02-gating-findings.md` | G1-G5 pass/fail/fallback criteria and current verdict — generated summary of `docs/planning/gates/G<n>-result.md`, not hand-authored (see `docs/planning/gates/README.md` §Reconciliation). |
 | 4 | `03-decisions-and-amendments.md` | Every §5 decision made; ADR-001-A1 onward; the resolved Appendix A conflict register. |
 | 5 | `04-architecture.md` | Components, process boundaries, inbound/outbound data and control flow per provider, deployment topologies. Diagrams in text. |
 | 6 | `05-interfaces.md` | OAC spec surface, adapter contract, transport contract, core types, normative vs reference-implementation text. |

@@ -24,11 +24,15 @@ gate reverts to `NOT RUN` until the gate is re-run against the new pin.
 
 ## Gate-result template
 
-Copy this verbatim into the gate result. One section per gate, in the single
-`docs/planning/v0.1/02-gating-findings.md` (PLANNING-PROMPT.md §9 item 3 mandates one file
-holding G1-G5) — the same change also updates the verdict row for that gate in
-`docs/planning/STATUS.md`'s Gate verdicts table. Do not land a gate result without updating
-STATUS.md in the same change.
+Copy this verbatim into the gate result. This is the base template; results land in
+`docs/planning/gates/G<n>-result.md`, one file per gate, each extending this template
+with three additional fields — see `docs/planning/gates/README.md` §Gate-result
+template for the extended form and the naming convention. The same change that writes
+a gate result also updates the verdict row for that gate in `docs/planning/STATUS.md`'s
+Gate verdicts table. Do not land a gate result without updating STATUS.md in the same
+change. `docs/planning/v0.1/02-gating-findings.md` (PLANNING-PROMPT.md §9 item 3) is
+not hand-authored from this template directly — it is assembled from the five
+`G<n>-result.md` files when Epic A writes the output package.
 
 ```markdown
 ### G<n> <name>
@@ -142,11 +146,16 @@ closes (including UNVERIFIED items), and the fixtures to capture.
 
 - [ ] The gate's own reference file has been loaded and every pass criterion in it evaluated
       individually against the observed spike behaviour.
-- [ ] The gate-result template above is filled in completely — no field left as "TBD."
+- [ ] The gate-result template above is filled in completely — no field left as "TBD" —
+      and written to `docs/planning/gates/G<n>-result.md` using the extended form in
+      `docs/planning/gates/README.md`.
 - [ ] Verdict is PASS, PASS (FALLBACK TAKEN), FAIL, or NOT RUN — never a hedge.
 - [ ] If a fallback exists and the primary path failed, the fallback was attempted and its
       outcome recorded.
 - [ ] `docs/planning/STATUS.md` Gate verdicts table is updated in the same change.
+- [ ] `docs/planning/v0.1/02-gating-findings.md` is not hand-edited for this gate; it is
+      regenerated from `docs/planning/gates/G<n>-result.md` when Epic A assembles the
+      output package.
 - [ ] Any fixtures required for that gate (per its reference file / D6) were captured during
       the spike and committed, redacted of secrets.
 - [ ] Spike code is discarded or quarantined; nothing from it is left wired into a durable
@@ -161,4 +170,6 @@ closes (including UNVERIFIED items), and the fixtures to capture.
 - `docs/planning/backlog/03-tasks-CD.json` — Epic D tasks D1-D7, the per-gate acceptance
   criteria this skill's references are built from.
 - `docs/planning/STATUS.md` — current gate verdicts (today: all `NOT RUN`) and pins.
+- `docs/planning/gates/README.md` — the evidence-store naming convention, the extended
+  gate-result template, and the pin-move re-run/invalidation policy.
 - `oac-boundaries`, `oac-evidence` — guardrail content, not restated here.

@@ -8,19 +8,40 @@ the version the rest of the plan is written against.
 
 **Changing any row in this file is a trigger event.** Per `oac-evidence` §7, a moved
 pin requires re-verifying every §3 fact that depended on it (Epic B2) and, per the
-gate re-run policy (Epic B4, `docs/planning/backlog/02-tasks-AB.json` task B4), re-running
+gate re-run policy (`docs/planning/gates/README.md`), re-running
 every gate whose verdict depended on it. Do not silently bump a version in this file.
+
+## Pin-move checklist
+
+When any pin in the table below changes (version, release date, or a row's
+presence), make all of these edits in the **same commit**:
+
+- [ ] Read the moved row's `Gates affected` cell to find which gate results to
+      invalidate.
+- [ ] Each affected `docs/planning/gates/G<n>-result.md`: set `**Verdict:**` to
+      `NOT RUN`, append the superseded verdict to its `Re-run history` table with
+      `Invalidated by: <surface> pin <old> -> <new>, <YYYY-MM-DD>`, and add a
+      `> INVALIDATED` callout at the top.
+- [ ] `docs/planning/STATUS.md` Gate verdicts row for each affected gate reverts to
+      `NOT RUN`.
+- [ ] This file's `**Last updated:**` (below) is bumped.
+- [ ] If a row was added, removed, or renamed (not just its version or release date
+      changed): update `Pin rows relied on` in each affected `G<n>-result.md` and the
+      `Pins relied on` cell in `docs/planning/STATUS.md`'s Gate verdicts table to match.
+
+Full policy: `docs/planning/gates/README.md`.
 
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-16 (B4: added pin-move checklist and gate-policy pointer;
+no pin changed)
 
 ## Pin table
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17T00:12:02Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | G1; G4 (legacy-MCP negotiation) |
+| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17T00:12:02Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | G1; G4 (legacy-MCP negotiation); G5 |
 | Codex CLI / app-server | experimental (per-method gating) | `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | G2, G5 |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
@@ -77,8 +98,10 @@ carries only a summary pointer back here — see its `## Pins` section.
   Claude Channels preview surface (checked: no "shim" term appears in DESIGN.md).
   `shim boundary: UNNAMED — see DESIGN.md`. Carried to task 12's open-items list below
   and is a B2/C-decision input, not resolved here.
-- Gates affected: **G1** (Claude wake — go/no-go, no fallback), and **G4** via the
-  legacy-MCP negotiation constraint above.
+- Gates affected: **G1** (Claude wake — go/no-go, no fallback), **G4** via the
+  legacy-MCP negotiation constraint above, and **G5** (Provenance: STATUS.md's Gate
+  verdicts table states G5's verdict depends on machine-set provenance rendering on
+  both providers, so it depends on this pin, not only on the Codex pin).
 
 ### Codex CLI and app-server
 

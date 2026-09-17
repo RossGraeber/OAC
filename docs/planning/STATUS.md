@@ -4,7 +4,8 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-16 (B3: conflict register resolved, ADR-001 amendments A1-A3 issued)
+**Last updated:** 2026-09-16 (B4: gate re-run policy and evidence store; B3: conflict
+register resolved, ADR-001 amendments A1-A3 issued)
 
 ## Current stage
 
@@ -28,13 +29,16 @@ amendments file; its body text is unchanged.
 No gate has been run. Every verdict below is `NOT RUN`, and every task labelled `gate:*`
 is blocked until the corresponding spike in Epic D executes.
 
-| Gate | Verdict | Decides |
-|---|---|---|
-| G1 Claude wake | NOT RUN | Claude adapter viability. go/no-go, no fallback. |
-| G2 Codex live inject | NOT RUN | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. |
-| G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. |
-| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. |
-| G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. |
+| Gate | Verdict | Decides | Pins relied on | Result file |
+|---|---|---|---|---|
+| G1 Claude wake | NOT RUN | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era | `docs/planning/gates/G1-result.md` |
+| G2 Codex live inject | NOT RUN | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
+| G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
+| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era | `docs/planning/gates/G4-result.md` |
+| G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
+
+Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
+checklist): `docs/planning/gates/README.md`.
 
 ## Pins
 
@@ -48,6 +52,18 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
+
+## Open conflicts (oac-evidence §6)
+
+- **PLANNING-PROMPT.md §9 item 3 vs. the per-gate evidence store (issue #33).** §9
+  item 3 states G1-G5 land in one file, `docs/planning/v0.1/02-gating-findings.md`.
+  This task's evidence-store design instead makes `docs/planning/gates/G<n>-result.md`
+  (one file per gate) the record, with `02-gating-findings.md` generated from those
+  five files rather than hand-authored. Not an ADR-001 claim, so no ADR amendment is
+  proposed. Full reconciliation: `docs/planning/gates/README.md` §"Reconciliation with
+  PLANNING-PROMPT.md §9 item 3". Per `oac-evidence` §6 step 5, this is flagged here
+  because `docs/planning/v0.1/03-decisions-and-amendments.md` does not exist yet; move
+  this entry there once it does.
 
 ## Open conflict-register items
 
