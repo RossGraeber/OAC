@@ -72,7 +72,7 @@ present, per issue #23's task 9:
    anywhere in the package, including `00-summary.md`.
 
 **Result: 8/8 PASS. Epic A is closed.** No cross-reference sweep failure, no UNVERIFIED
-label dropped; `STATUS.md`'s history block (this entry) is additive only, appended below
+label dropped; `STATUS.md`'s history block (this entry) is additive only, prepended above
 the existing A12 entry, nothing prior removed.
 
 **Last updated:** 2026-09-17 (A12: `docs/planning/v0.1/11-risks.md` and
