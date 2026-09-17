@@ -4,7 +4,26 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A9: `docs/planning/v0.1/08-cli-and-deployment.md` landed
+**Last updated:** 2026-09-17 (A10: `docs/planning/v0.1/09-test-strategy.md` landed
+(issue #30) — the eight-tier test taxonomy (unit, spec conformance, contract
+adapter+transport, security, fake-harness integration, provider integration,
+end-to-end, cross-platform CLI smoke) with resilience decided as a named sub-row of the
+security tier rather than its own row, and the Zenoh-containment criterion (9) decided
+as proven by the `oac-boundaries` CI lint rather than a runtime test, with that lint's
+recorded scope gap (no `snake_case`-embedded `zid`/`zenoh` match, no coverage of
+`adapters/`/`cli/`) carried forward as an open v0.1 gap; the CI-default rule with
+loopback defined explicitly and the anti-exception rule stated; opt-in mechanics
+(separate flag/target, exact pinned version per test, a pin move invalidating a
+recorded opt-in result the same way it invalidates a gate); the
+`contract/adapter/no-polling` no-polling assertion spec; the mandatory
+acceptance-criteria (all ten rows, verbatim criterion text) and threat-mitigation (all
+twenty rows) traceability tables, every row `not-yet-written`/`NOT RUN`, none marked
+done; the fixture capture/refresh process (Stage 1 capture via D6, per-gate location,
+pin-move refresh trigger); and the normative/reference-implementation split and
+deliberately-omitted-from-v0.1 test surface. No pin moved, no gate verdict changed, no
+new UNVERIFIED item added — every UNVERIFIED item this file cites was already open,
+carried from `docs/planning/v0.1/06-security.md`, `08-cli-and-deployment.md`, and
+`05-interfaces.md`. A9: `docs/planning/v0.1/08-cli-and-deployment.md` landed
 (issue #29) — zero-container local path (C2 §9's three-point argument, C7's "no
 `zenohd`", cited not re-derived), zero-file local default and `flag > env > file >
 default` config precedence, the five-row CLI command surface plus the reserved-
@@ -83,7 +102,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2, A4, A5, A6, A7, A8, A9 landed), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2, A4, A5, A6, A7, A8, A9, A10 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
