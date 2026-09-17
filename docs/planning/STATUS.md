@@ -75,6 +75,14 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   `docs/planning/decisions/C2-process-model.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.
+- **C3 — spec packaging and the MCP extension identifier** (issue #16): decided.
+  Standalone normative document (`OAC Session Channels`, under `spec/`, normative-of-
+  record) plus MCP extension identifier `io.github.rossgraeber/oac-session-channels`
+  for capability negotiation, tool surface, and `_meta` provenance only; MCP is not the
+  delivery mechanism. Full decision and evidence:
+  `docs/planning/decisions/C3-spec-packaging.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
 
 ## Open conflicts (oac-evidence §6)
 
