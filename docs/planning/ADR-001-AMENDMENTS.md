@@ -371,6 +371,9 @@ Statuses, defined once:
 
 - **RESOLVED-HERE** — an A-amendment in this file closes it.
 - **RESOLVED-BY-EVIDENCE** — B1/B2 already closed it; nothing left to decide.
+- **RESOLVED-BY-DECISION** — an A-amendment in this file resolved the wording, and a
+  separate, now-landed C-series decision document resolved the remainder; nothing left
+  to decide.
 - **ASSIGNED** — resolution is a named open task; the register entry closes when that
   task lands.
 
@@ -380,7 +383,7 @@ No row below is marked `RESOLVED` where the resolution is an unrun gate.
 |---|---|---|---|---|
 | C1 | Product named OAC in repo, "Session Channels" in ADR/DESIGN, CLI `sessionchannels` | RESOLVED-HERE | `docs/planning/ADR-001-AMENDMENTS.md` §ADR-001-A1; applied to `docs/planning/ADR-001.md` pointer line | PLANNING-PROMPT.md §2 |
 | C2 | ADR Validation criterion says "existing Claude Code session" / "existing Codex harness session" | RESOLVED-HERE | `docs/planning/ADR-001-AMENDMENTS.md` §ADR-001-A2; applied to `docs/planning/ADR-001.md` pointer line | PLANNING-PROMPT.md §3.1, §3.2, §4; `REVERIFICATION-B2.md` issue #21743 close |
-| C3 | ADR names the layer an "MCP Session Channels extension" | RESOLVED-HERE (wording) + ASSIGNED (identifier) | `docs/planning/ADR-001-AMENDMENTS.md` §ADR-001-A3 (wording); decision task C3 in a future `03-decisions-and-amendments.md` / `05-interfaces.md` (extension identifier itself) | PLANNING-PROMPT.md §3.3; `REVERIFICATION-B2.md` §3.3 table |
+| C3 | ADR names the layer an "MCP Session Channels extension" | RESOLVED-BY-DECISION | `docs/planning/ADR-001-AMENDMENTS.md` §ADR-001-A3 (wording); `docs/planning/decisions/C3-spec-packaging.md` (extension identifier `io.github.rossgraeber/oac-session-channels`, issue #16) | PLANNING-PROMPT.md §3.3; `REVERIFICATION-B2.md` §3.3 table |
 | C4 | DESIGN envelope `security.signature` "implementation-defined" vs acceptance criterion 6 (enforced provenance) | ASSIGNED | backlog task C5 (envelope authenticity, replay, pairing, authorization decision); normative MUST lands in a future `spec/security.md` (Epic E) | PLANNING-PROMPT.md §3.4 / `REVERIFICATION-B2.md` §3.4 — "Zenoh provides no application-layer message signing," so the envelope signature is the only authenticity proof |
 | C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | ASSIGNED | gate G4 (`docs/planning/backlog` Epic D), spike task D4; decision tasks C2 (process model) and C3 (spec packaging) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3, both re-verified in `REVERIFICATION-B2.md` §3.1/§3.3 tables; `STATUS.md` G4 fallback "two entry points, one core" |
 | C6 | No Claude acknowledgement vs DESIGN `accepted` delivery state | ASSIGNED | backlog task C5 / PLANNING-PROMPT.md §5 decision 5 (receipt states defined by what is knowable: "accepted by adapter", "handed to harness", "unknown") | PLANNING-PROMPT.md §3.1, "Claude Code sends no acknowledgement; a resolved notification send means 'written to transport', not 'seen by the model'"; re-verified `REVERIFICATION-B2.md` §3.1 table row "No acknowledgement of delivery" — HOLDS |
