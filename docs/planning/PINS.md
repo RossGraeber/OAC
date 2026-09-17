@@ -37,7 +37,9 @@ carries only a summary pointer back here — see its `## Pins` section.
 **Last updated:** 2026-09-17 (C1: added Rust MCP SDK (`rmcp`) and `keyring` pin rows;
 pin-move checklist executed in the same commit, see
 `docs/planning/decisions/C1-language-runtime.md`; C2: added `interprocess` (IPC crate,
-candidate) pin row, see `docs/planning/decisions/C2-process-model.md`)
+candidate) pin row, see `docs/planning/decisions/C2-process-model.md`; C4: added `age`
+(encrypted-file key-storage fallback) pin row, see
+`docs/planning/decisions/C4-session-identity.md`)
 
 ## Pin table
 
@@ -50,6 +52,7 @@ candidate) pin row, see `docs/planning/decisions/C2-process-model.md`)
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
 | `keyring` (credential store) | supported | `4.2.0` | 2026-08-29 | https://crates.io/crates/keyring; https://raw.githubusercontent.com/open-source-cooperative/keyring-rs/v4.2.0/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `interprocess` (IPC crate, candidate) | supported | `2.4.4` | not stated on source page | https://crates.io/api/v1/crates/interprocess; https://raw.githubusercontent.com/kotauskas/interprocess/main/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
+| `age` (encrypted-file key-storage fallback) | supported | `0.12.1` | 2026-07-14 | https://crates.io/api/v1/crates/age; https://raw.githubusercontent.com/str4d/rage/v0.12.1/age/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
@@ -259,6 +262,28 @@ semver, and are recorded verbatim — never reformatted.
   "IPC crate".
 - **Gates affected: none directly** — implementation dependency (Stage 3+ local-IPC
   transport crate for the daemon/`oac mcp-shim` connection), not a gate-spike
+  dependency.
+
+### `age` (encrypted-file key-storage fallback)
+
+- Surface label: **supported** — actively maintained reference implementation of the
+  published `age-encryption.org/v1` format, not a preview/experimental provider
+  surface.
+- Pinned crate version: `0.12.1`. Source:
+  https://raw.githubusercontent.com/str4d/rage/v0.12.1/age/Cargo.toml,
+  `version = "0.12.1"`, retrieved 2026-09-17.
+- Release date: 2026-07-14. Source: crates.io publish metadata for `age` `0.12.1`
+  (`created_at`), retrieved 2026-09-17.
+- License: MIT OR Apache-2.0 (workspace-level, inherited via `license.workspace =
+  true`). Source: https://raw.githubusercontent.com/str4d/rage/v0.12.1/Cargo.toml,
+  `[workspace.package]` `license = "MIT OR Apache-2.0"`, retrieved 2026-09-17. OAC
+  elects the Apache-2.0 arm (same election as `zenoh`, `keyring`, `interprocess`).
+- Passphrase-based encryption: `age::scrypt::Recipient` / `age::scrypt::Identity`.
+  Source: https://docs.rs/age/0.12.1/age/, retrieved 2026-09-17. Full analysis,
+  including when the fallback engages, file location/permissions, and passphrase/KDF
+  source: `docs/planning/decisions/C4-session-identity.md` §11.
+- **Gates affected: none directly** — implementation dependency (Stage 3+ fallback path
+  for OAC's own device key when no OS credential store is reachable), not a gate-spike
   dependency.
 
 ### Zenoh
