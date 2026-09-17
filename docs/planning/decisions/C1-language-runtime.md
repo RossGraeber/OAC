@@ -321,6 +321,7 @@ named dependencies this decision selects.
 | `keyring` | `4.2.0` | MIT OR Apache-2.0 | OS-native credential store facade for OAC's own device keys (Windows Credential Manager / macOS Keychain / Linux Secret Service or keyutils) — identity hierarchy in ADR-001's Security model | No | Yes — OAC elects the Apache-2.0 arm |
 | `keyring-core` | `1.0.0` | MIT OR Apache-2.0 | `keyring`'s only unconditional dependency — the trait/error surface the backend crates implement. Source: https://crates.io/api/v1/crates/keyring-core, retrieved 2026-09-17. | No | Yes |
 | `windows-native-keyring-store` | `1.1.0` | MIT OR Apache-2.0 | The Windows Credential Manager backend `keyring`'s `v1`/default feature pulls in — load-bearing for §8/§12's Windows reversal-condition test. Source: https://crates.io/api/v1/crates/windows-native-keyring-store, retrieved 2026-09-17. | No | Yes |
+| `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, see C2 §4) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` — C2 §4. Source: https://crates.io/api/v1/crates/interprocess, retrieved 2026-09-17. | No | Yes — OAC elects the Apache-2.0 arm |
 
 Full transitive sweep (`cargo deny` or `cargo license` over the resolved dependency
 graph, including everything `rmcp`, the Codex crates, `zenoh`, and `keyring` pull in

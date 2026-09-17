@@ -69,8 +69,9 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 - **C2 — process model, local IPC, CLI surface, config model** (issue #14): decided.
   One long-lived per-device `oac` daemon (Zenoh peer, device identity/keys, policy,
   Codex app-server client) plus thin `oac mcp-shim` stdio child processes; Windows named
-  pipe / Unix `AF_UNIX` socket IPC with OS-level peer authentication (`interprocess`
-  `2.4.4`); zero-file local default. Full decision and evidence:
+  pipe / Unix `AF_UNIX` socket IPC with OS-level peer authentication (candidate crate
+  `interprocess` `2.4.4` pinned; final IPC crate a Stage 3 detail, see C2 §4); zero-file
+  local default. Full decision and evidence:
   `docs/planning/decisions/C2-process-model.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.

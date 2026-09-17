@@ -41,8 +41,9 @@ This is stated as the choice, not offered as one option among several.
 of what sits behind it.** Claude Code spawns the channel server as a child stdio MCP
 process, and "A channel cannot be attached to an already-running session." Source:
 PLANNING-PROMPT.md §3.1, retrieved 2026-09-15 (re-confirmed against
-`https://code.claude.com/docs/en/channels.md`, retrieved 2026-09-17: "Claude Code
-spawns your `webhook.ts` as a subprocess" — the spawn-per-session shape is unchanged).
+`https://code.claude.com/docs/en/channels-reference.md`, retrieved 2026-09-17: "Claude
+Code spawns your `webhook.ts` as a subprocess" — the spawn-per-session shape is
+unchanged).
 This is not itself evidence for (a) over (b) — a per-session process is forced either
 way — but it fixes the question this decision actually answers: what does that
 per-session process talk to, a thing it embeds or a thing it connects to.
@@ -276,9 +277,10 @@ copied from the presumptive shape in the task breakdown:
   This requires the interactive confirmation dialog the source page also documents
   ("Claude Code first shows a full-screen warning dialog listing the development
   channels you're loading") — not a silent flag, consistent with `oac-boundaries` 9's
-  note that this confirmation must not be weakened. **UNVERIFIED — pinning OAC to this
-  flag long-term (rather than an eventual allowlist entry) is a product decision this
-  document does not make;** stated here only as the currently correct documented
+  note that this confirmation must not be weakened. **Deferred, not decided here:**
+  whether OAC pins to this flag long-term or pursues an eventual allowlist entry
+  (`claude-plugins-official` / `allowedChannelPlugins`) is a product decision this
+  document does not make; stated here only as the currently correct documented
   command for a non-allowlisted server at the pinned Claude Code version
   (`docs/planning/PINS.md` — Claude Code Channels, `v2.1.274`).
 - **Codex.** `codex mcp add` is the documented, supported way to register OAC's
@@ -470,8 +472,9 @@ resolved" pattern C1 uses for its own SDK-vs-runtime split.
 
 ## 12. Acceptance boxes, ticked against lines in this file
 
-- [x] IPC mechanism defined per platform, with peer authentication and a verified
-      crate pin — §4 (load-bearing).
+- [x] IPC mechanism defined per platform, with peer authentication and a candidate
+      pinned transport crate (`interprocess` `2.4.4`; final crate selection a Stage 3
+      detail, see §4 "IPC crate") — §4 (load-bearing).
 - [x] Presence lifetime state machine described in neutral vocabulary, with daemon-exit
       and shim-crash-vs-clean-exit behaviour — §5.
 - [x] CLI surface table with purpose and exit-code behaviour per command, plus the two
