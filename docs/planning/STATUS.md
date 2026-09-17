@@ -62,7 +62,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2, A4, A5 landed), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2, A4, A5, A6, A7 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
