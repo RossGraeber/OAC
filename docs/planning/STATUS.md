@@ -4,7 +4,35 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A11: `docs/planning/v0.1/10-stages.md` landed (issue #31) —
+**Last updated:** 2026-09-17 (A12: `docs/planning/v0.1/11-risks.md` and
+`docs/planning/v0.1/12-deferred.md` landed (issue #32) — `11-risks.md`: a ranking
+rule (ability to invalidate the `ADR-001.md` line 74 validation criterion and
+the DESIGN acceptance criteria 1-10, re-derivable from a stated one-sentence
+rule) with five tiers (R1 gate-decided viability G1-G5, R2 preview/experimental
+surface drift, R3 evidence/pin drift, R4 design-parameter/platform-runtime, R5
+low-impact/non-dependency); 21 risk rows, each with risk, what it invalidates,
+an early-warning signal, and a trigger-linked response citing the fallback
+already named in `02-gating-findings.md`/`10-stages.md` rather than
+re-deriving it; a closing traceability table disposing of all 28
+`docs/planning/STATUS.md` "Open UNVERIFIED items" entries by risk id (none
+closed by evidence — no cited merged-package section carried first-party
+evidence closing any of the 28, per `oac-evidence` §5's "never silently
+promoted" rule). `12-deferred.md`: the eight `ADR-001.md` line 63 v0.1
+exclusions (group rooms/broadcast, attachments, durable offline mailboxes,
+federation, full E2E encryption, GUI, production Gemini/ChatGPT/Cursor
+adapters, alternative transports) each as "not in v0.1" with reason and
+reversal condition; the nine `ADR-001.md`/`DESIGN.md` boundary items marked
+"boundary, not backlog" (model inference, model routing, agent
+planning/orchestration, shared context management, replacement provider auth,
+unsupported client impersonation, UI/terminal scraping, undocumented private
+RPCs, Zenoh concepts in the neutral protocol); six package-level v0.1
+exclusions already decided elsewhere, indexed with their citing file
+(permission relay off by default, manual key rotation, transitive license
+sweep deferred to Stage 6, the two C7 presence/discovery gaps, ACP
+forward-compatibility-only, Cursor design-proof-only). No pin moved, no gate
+verdict changed, no UNVERIFIED item closed or added — all 28 items this file
+carries stay open, each now also carrying a risk id in `11-risks.md`. A11:
+`docs/planning/v0.1/10-stages.md` landed (issue #31) —
 the §8 stage-gate pipeline as seven stages (0-6), each with entry criteria, modules
 created or changed by name and responsibility (cited to
 `docs/planning/v0.1/07-repository-and-dependencies.md` §1-§5, not re-derived),
@@ -122,7 +150,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2, A4, A5, A6, A7, A8, A9, A10, A11 landed), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2, A4, A5, A6, A7, A8, A9, A10, A11, A12 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
