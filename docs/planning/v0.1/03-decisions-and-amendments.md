@@ -12,9 +12,9 @@ through `docs/planning/decisions/C7-zenoh-transport.md`. It is **not hand-author
 register resolution below was made in one of those source documents, cited here, not
 recomputed. Where this file quotes a first-party external source verbatim (an ADR-001
 old/new text pair), the quotation is copied only from `ADR-001-AMENDMENTS.md` — this file
-does not independently re-open `ADR-001.md` to re-quote it, per `oac-evidence` §2's rule
-against re-quoting a secondary file where a primary citation already exists and per the
-drift risk that would create.
+does not independently re-open `ADR-001.md` to re-quote it, because
+`ADR-001-AMENDMENTS.md` is the authoritative amendments ledger for that text and
+re-fetching it here would risk drift between two copies.
 
 **Precedence.** Per decision (§5 below), the cited `docs/planning/decisions/C<n>-*.md`
 file is authoritative for the choice, its decisive evidence, and its reversal condition —
@@ -188,7 +188,7 @@ superseded by a new extensions SEP with a different identifier rule; the GitHub 
 `RossGraeber` is renamed. None fired.
 
 **The dual-era sub-element — gate-decided, not deferred.** C3 §7 and conflict-register
-row C5 (§4 below) fix the **process topology** for serving Claude's legacy-MCP channel
+row C5 (§3 below) fix the **process topology** for serving Claude's legacy-MCP channel
 path and Codex's current-MCP tool path simultaneously as **`ASSIGNED` to gate G4**
 (`docs/planning/gates/G4-result.md`, verdict `NOT RUN`): "This document does not claim G4
 passed... This packaging decision is what G4 will test, not evidence that it already
@@ -213,7 +213,7 @@ app-server client's `thread/start`/`thread/started` responses, never from rollou
 resume behaviour differs per harness by evidence, not assumption — Claude resumes mint a
 new OAC session id unless a fresh registration is observed (docs silent on `--resume`
 survival, §6), Codex resumes MAY re-bind the same OAC id because `thread.id` is
-documented to survive restart (§7); the display URI resolves conflict C8 (§8, §4 below).
+documented to survive restart (§7); the display URI resolves conflict C8 (§8, §3 below).
 
 **Rejected alternatives, one line each** (C4 §14): harness-native id used directly as the
 OAC wire address (hostage to a preview/experimental surface's own id scheme); id derived
@@ -245,7 +245,7 @@ wire, avoiding a second signed representation (C5 §3); the signed field set is 
 field-by-field with a stated reason each (C5 §5); the ±300s window equals the envelope's
 own default `ttl_ms` (C5 §7); Claude Code sends no delivery acknowledgement, so a
 resolved notification send is honestly `handed-to-harness`, never "seen by the model"
-(C5 §9, resolving conflict C6, §4 below). This resolves conflict C4 (§4 below): the
+(C5 §9, resolving conflict C6, §3 below). This resolves conflict C4 (§3 below): the
 signature is made normative, replacing DESIGN.md's `"implementation-defined"` placeholder
 (C5 §6).
 
@@ -345,7 +345,7 @@ refusal on OAC's own side (C6 §3); permission relay off by default is justified
 ways — it would collapse two separately-decided authorizations (message delivery vs. tool
 approval), it would weaken the one Claude-side consent step
 (`--dangerously-load-development-channels`), and it restates conflict C10's own finding
-(C6 §7, resolving C10, §4 below).
+(C6 §7, resolving C10, §3 below).
 
 **Rejected alternatives, one line each** (C6 §13): provenance inside the Claude `content`
 string (indistinguishable from a forged claim, defeats `meta`'s entire purpose);
@@ -379,7 +379,7 @@ field — an earlier draft's sender-nonce-derived delimiter is recorded and corr
 C6 §5 as exactly the defect a fixed/static delimiter would have; the layered
 correlation rule exists because Codex has no channel-tag convention and a model-echoed
 `in_reply_to` alone is untrusted content that must be validated against independently-
-tracked thread/turn state (C6 §10, resolving conflict C9, §4 below).
+tracked thread/turn state (C6 §10, resolving conflict C9, §3 below).
 
 **Rejected alternatives, one line each** (C6 §13): a fixed static delimiter (guessable
 and pre-plantable by an attacker — the corrected design's predecessor); trusting
@@ -539,7 +539,7 @@ amendment would take, and is not issued by this file.
 
 Every quotation below is copied from `docs/planning/ADR-001-AMENDMENTS.md`, not
 independently re-fetched from `ADR-001.md` — per this file's own Generated-summary
-notice and `oac-evidence` §2's "cite, do not re-quote a secondary source" rule.
+notice: the amendments ledger is authoritative for this verbatim text.
 
 ### ADR-001-A1 — naming rename
 
@@ -731,7 +731,7 @@ point at the stated section.
 | C2 | ADR Validation criterion says "existing Claude Code session" / "existing Codex harness session" | RESOLVED-HERE | `ADR-001-AMENDMENTS.md` §ADR-001-A2 | PLANNING-PROMPT.md §3.1, §3.2, §4 |
 | C3 | ADR names the layer an "MCP Session Channels extension" | RESOLVED-BY-DECISION | `ADR-001-AMENDMENTS.md` §ADR-001-A3 (wording) + `docs/planning/decisions/C3-spec-packaging.md` (identifier `io.github.rossgraeber/oac-session-channels`) | PLANNING-PROMPT.md §3.3 |
 | C4 | DESIGN envelope `security.signature` "implementation-defined" vs enforced-provenance acceptance criterion | RESOLVED-IN-DECISION | `docs/planning/decisions/C5-envelope-auth.md` §6 | PLANNING-PROMPT.md §3.4 — "Zenoh provides no application-layer message signing" |
-| C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | **ASSIGNED** — gate G4 (`NOT RUN`), decision tasks C2/C3 | Gate `docs/planning/gates/G4-result.md`; decision 3 above (§7 of this file) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3; `STATUS.md` G4 fallback "two entry points, one core" |
+| C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | **ASSIGNED** — gate G4 (`NOT RUN`), decision tasks C2/C3 | Gate `docs/planning/gates/G4-result.md`; decision 3 above (§1 above) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3; `STATUS.md` G4 fallback "two entry points, one core" |
 | C6 | No Claude acknowledgement vs DESIGN `accepted` delivery state | RESOLVED-IN-DECISION | `docs/planning/decisions/C5-envelope-auth.md` §9 | PLANNING-PROMPT.md §3.1, "Claude Code sends no acknowledgement" |
 | C7 | ACP is client-owned-session, not a channel | RESOLVED-BY-EVIDENCE | `docs/planning/v0.1/01-capability-matrix.md` §4 | REVERIFICATION-B2.md §3.5 — HOLDS |
 | C8 | URI leaking device/harness vs no transport-concept leak | RESOLVED-IN-DECISION | `docs/planning/decisions/C4-session-identity.md` §8 | DESIGN.md Addressing section; ADR-001 Boundary |
@@ -829,8 +829,11 @@ tracked item rather than glossed over as closed.
 - **Every provider surface labelled.** Claude Channels = **research preview**; Codex
   app-server = **experimental** (per-method gating via `capabilities.experimentalApi`);
   MCP `2026-07-28` = current/**supported**, `2025-11-25` = legacy/**supported**; Zenoh =
-  **supported**, `1.10.1`. Each label is restated at first mention within this file's
-  decision sections, matching the label each source `C<n>` document already carries.
+  **supported**, `1.10.1`. These labels are stated once, here, matching the label each
+  source `C<n>` document already carries; they are not separately restated at each
+  decision's own first mention of the surface (decisions 2, 8, 9, 10 name Claude
+  Channels, the Codex app-server, and Zenoh without repeating the label inline) — this
+  section is where a reader confirms the label, not each decision subsection.
 - **No UNVERIFIED label dropped.** This file references `docs/planning/STATUS.md`'s
   "Open UNVERIFIED items" list by pointer wherever a decision depends on one (decision 2's
   daemon-attach runtime behaviour, decision 4's Claude-resume behaviour, decision 9's
@@ -856,9 +859,13 @@ tracked item rather than glossed over as closed.
   names its repo-relative path on first use per section; no section assumes the reader
   has `ADR-001.md`, `DESIGN.md`, `PLANNING-PROMPT.md`, `PINS.md`, `STATUS.md`, the
   capability matrix, the gating findings, or any `C<n>` decision document already open.
-- **`sessionchannels`/bare "Session Channels" grep.** This file's only occurrences of
-  bare "Session Channels" or `sessionchannels` are inside the marked ADR-001-A1 old-text
-  verbatim quotation blocks (§2), which are pre-rename quotations by design, consistent
+- **`sessionchannels`/bare "Session Channels" grep.** Bare "Session Channels" or
+  `sessionchannels` occurs in three kinds of place in this file: the marked ADR-001-A1
+  old-text verbatim quotation blocks (§2, pre-rename quotations by design); the C1/C3
+  conflict-register rows (§3) quoting the pre-rename ADR-001 wording those conflicts are
+  *about*; and the `DESIGN.md` legacy-name-site list (§4, C12), which quotes `DESIGN.md`'s
+  own still-unrenamed text verbatim because that is exactly what C12 tracks. All three are
+  legitimate pre-rename quotations, not new prose written in the retired name, consistent
   with the Naming paragraph's stated exception at the top of this file.
 
 ---
