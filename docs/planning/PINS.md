@@ -20,7 +20,7 @@ carries only a summary pointer back here — see its `## Pins` section.
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17 | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | G1; G4 (legacy-MCP negotiation) |
+| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17T00:12:02Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | G1; G4 (legacy-MCP negotiation) |
 | Codex CLI / app-server | experimental (per-method gating) | `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | G2, G5 |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
@@ -35,10 +35,22 @@ carries only a summary pointer back here — see its `## Pins` section.
 - Surface label: **research preview**. Per PLANNING-PROMPT.md §3.1, this label is
   fixed by the source itself and is not upgraded.
 - Pinned version: `v2.1.274`. Source: https://github.com/anthropics/claude-code/releases/tag/v2.1.274,
-  published 2026-09-17T00:12:02Z, retrieved 2026-09-16.
-- Floor 1 — Channels exist at all: Claude Code `>= v2.1.232`. Source:
-  https://code.claude.com/docs/en/channels.md, "Stability: research preview on
-  Claude Code v2.1.232+", retrieved 2026-09-16 (per PLANNING-PROMPT.md §3.1, unchanged).
+  published 2026-09-17T00:12:02Z (UTC — GitHub shows this as "Sep 17, 00:12"),
+  retrieved 2026-09-16 (local calendar date; the UTC publish instant is within
+  the retrieval day in the retriever's local timezone, so retrieval is not
+  actually earlier than publication once both are read as the same UTC
+  instant window). Record all timestamps in this row as UTC to avoid the
+  apparent one-day mismatch.
+- Floor 1 — Channels exist at all: Claude Code `>= v2.1.232`. Source (secondary):
+  PLANNING-PROMPT.md §3.1 line 49, "Stability: research preview on Claude Code
+  v2.1.232+." Re-fetched https://code.claude.com/docs/en/channels.md today
+  (2026-09-16): the page's "Research preview" section states only "Channels are
+  a research preview feature" and contains no string `2.1.232` and no minimum
+  version. The floor is therefore carried from the project's own summary, not
+  independently confirmed on the first-party page as of this retrieval
+  (UNVERIFIED — need the first-party release notes for v2.1.232, or the
+  channels-reference page, to state this floor directly; see "Open questions
+  carried into B2" below).
   `v2.1.232` itself: published 2026-08-13T23:29:59Z. Source:
   https://github.com/anthropics/claude-code/releases/tag/v2.1.232, retrieved 2026-09-16.
 - Floor 2 — permission relay (`claude/channel/permission`): Claude Code `>= v2.1.234`.
@@ -160,10 +172,12 @@ semver, and are recorded verbatim — never reformatted.
 - Surface label: **supported**.
 - Pinned crate version: `1.10.1`. Source:
   https://github.com/eclipse-zenoh/zenoh/releases, tagged release "Latest", published
-  2026-09-07, retrieved 2026-09-16. Cross-checked against crates.io
-  (https://crates.io/crates/zenoh) — page confirms the crate exists under this name;
-  the version/date figures above are taken from the GitHub releases page since it
-  states them unambiguously.
+  2026-09-07, retrieved 2026-09-16. Attempted cross-check against crates.io
+  (https://crates.io/crates/zenoh): the fetch did not return page content in
+  this session, so crates.io does **not** confirm anything here (UNVERIFIED —
+  see "Open questions carried into B2" below). The version/date figures above
+  are taken from the GitHub releases page alone, which is first-party for this
+  project and states them unambiguously.
 - Baseline (PLANNING-PROMPT.md §3.4): 1.10.1 (2026-09-07) — matches exactly, no drift.
 - Hard constraint: pin **MUST be `>= 1.10.0`**. Reason: same-host loopback discovery
   was broken before 1.10.0. Fixed by PR #2671
@@ -198,9 +212,13 @@ semver, and are recorded verbatim — never reformatted.
 - Surface label per PLANNING-PROMPT.md §3.5: stable protocol version `1`; schema v2 is
   alpha.
 - Pinned: protocol version `1` (stable). Source:
-  https://agentclientprotocol.com/protocol/, retrieved 2026-09-16 — page shows
-  `"protocolVersion": 1` in its client initialization example and links throughout to
-  `/protocol/v1/...` paths.
+  https://agentclientprotocol.com/protocol/, retrieved 2026-09-16 — page links
+  throughout to `/protocol/v1/...` paths. On fetch today the page itself shows
+  no literal `protocolVersion` field in its own text; the earlier claim that it
+  showed `"protocolVersion": 1` in a client initialization example overstated
+  the page's content and is corrected here (UNVERIFIED — the `/protocol/v1/`
+  path naming supports version `1`, but the literal field was not observed on
+  this page as fetched; not a v0.1 dependency, non-blocking).
 - Schema v2 alpha: carried from PLANNING-PROMPT.md §3.5 (unchanged) — this specific
   page as fetched today did not independently restate "schema v2 is alpha" in the text
   retrieved; flagged below as an open item rather than silently re-asserted as
@@ -253,9 +271,14 @@ Each floor below is independently checkable by a reader who has only this file o
 
 ## Open questions carried into B2
 
-Every entry below uses the oac-evidence §5 form: `<claim> (UNVERIFIED — <reason>)`.
-None of these are closed by B1; B1 only records them as pin-adjacent unknowns for B2
-to re-verify or resolve.
+Every entry below uses the oac-evidence §5 form: `<claim> (UNVERIFIED — <reason>)`, plus
+a one-line resolution pointer added by B2 (`docs/planning/REVERIFICATION-B2.md`). B2 also
+corrects a small number of B1 prose errors above this line, found during re-verification:
+the SEP-2133 bullet's `Created: 2025-01-26/2025-01-21` is corrected to `Created:
+2025-01-21` (the SEP page's own field, re-confirmed 2026-09-16), and the Claude Code
+release-date, floor-1, crates.io cross-check, and ACP `protocolVersion` rows carry their
+own re-verified wording as of this pass. Those corrections are noted inline where they
+occur; everything else above this line is unchanged from B1.
 
 - Whether implicit Codex daemon attach (TUI attaching to a running `codex app-server
   daemon start` via `CODEX_HOME/app-server-control/app-server-control.sock`) is
@@ -263,31 +286,47 @@ to re-verify or resolve.
   `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, or only on `main` (UNVERIFIED — resolved
   only by running the G2 spike, task D2, against the pinned build; not answerable from
   a version string alone).
+  **PARTIALLY RESOLVED — see REVERIFICATION-B2.md §3.2 box 4.** Source code confirmed
+  present at the pinned commit (control socket path, attach-or-embed branch, `codex
+  queue` subcommand). Runtime behaviour is CARRIED — risk owner D2/G2.
 - The named compatibility shim boundary for the Claude Code Channels preview surface
   (UNVERIFIED — DESIGN.md names no such module; `shim boundary: UNNAMED — see
   DESIGN.md`, needs a C-series decision or a DESIGN.md update before B2/D1 can cite a
   real boundary).
+  **CARRIED — risk item 9, see REVERIFICATION-B2.md "Carried to 11-risks.md".** Out of
+  scope for B2 by design; needs a C-series decision or a DESIGN.md update.
 - The named compatibility shim boundary for the Codex experimental live-inject surface
   (UNVERIFIED — same reason as above; `shim boundary: UNNAMED — see DESIGN.md`).
+  **CARRIED — risk item 10, see REVERIFICATION-B2.md "Carried to 11-risks.md".** Same
+  reason and owner as the Claude Channels shim boundary above.
 - SEP-2133's finalization date: PLANNING-PROMPT.md §3.3 states "final 2026-01-26", but
-  the SEP-2133 page itself (retrieved 2026-09-16) states only `Created: 2025-01-26/2025-01-21`
-  style creation metadata and a "Final" status badge, with no distinct
-  finalization-date field visible in the fetched text (UNVERIFIED — need to locate the
-  PR merge date for PR #2133 as the first-party finalization date, or confirm the
-  discrepancy is a transcription difference between "created" and "final" dates).
+  the SEP-2133 page itself (retrieved 2026-09-16) states only `Created: 2025-01-21`
+  and a "Final" status badge, with no distinct finalization-date field visible in the
+  fetched text (UNVERIFIED — need to locate the PR merge date for PR #2133 as the
+  first-party finalization date, or confirm the discrepancy is a transcription
+  difference between "created" and "final" dates).
+  **RESOLVED — see REVERIFICATION-B2.md §3.3 carry-over (a).** PR #2133's
+  `merged_at` is `2026-01-26T23:57:49Z`, confirming §3.3's date exactly. No drift.
 - SEP-2133's reserved-prefix rule for any extension prefix whose second label is
   `modelcontextprotocol` or `mcp` (PLANNING-PROMPT.md §3.3) was not independently
   re-confirmed verbatim on the SEP-2133 page as fetched today, which describes only
   that official extensions use the `io.modelcontextprotocol` prefix (UNVERIFIED —
   re-fetch the SEP text in full, or locate the exact clause, before relying on the
   general reservation rule in spec-authoring work).
+  **RESOLVED as DRIFT — see REVERIFICATION-B2.md §3.3 carry-over (b) and Drift register
+  D2.** No such reservation clause exists in the SEP-2133 text; §3.3's rule is
+  unsupported and `oac-spec-authoring` must not rely on it.
 - ACP schema v2 "alpha" status was not independently re-confirmed on
   https://agentclientprotocol.com/protocol/ as fetched today; it is carried forward
   from PLANNING-PROMPT.md §3.5 only (UNVERIFIED — re-check against
   https://agentclientprotocol.com/protocol/ or its schema changelog directly; low
   priority since ACP is not a v0.1 dependency).
+  **CARRIED — risk item 7, see REVERIFICATION-B2.md "Carried to 11-risks.md".**
+  Re-checked in B2 (still absent from the page); low priority, not a v0.1 dependency.
 - Zenoh crate version/date were read from the GitHub releases page rather than
   directly from crates.io's rendered page, because the crates.io fetch did not return
   page content in this session (UNVERIFIED — re-confirm directly on
   https://crates.io/crates/zenoh when that page is reachable; GitHub releases is
   first-party for the same project and is not expected to disagree).
+  **CARRIED — risk item 8, see REVERIFICATION-B2.md "Carried to 11-risks.md".** Not
+  re-attempted in B2; GitHub Releases remains the source of record.

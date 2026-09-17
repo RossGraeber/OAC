@@ -148,15 +148,26 @@ mechanically — do not restate them here.
 
 ## Pin
 
-Written against the **pre-verified baseline**, not a confirmed pin: Zenoh
-1.10.1 (2026-09-07); minimum 1.10.0 required for loopback discovery (PR
-#2671). Source: `docs/planning/PLANNING-PROMPT.md` §3.4, Appendix B
-(`https://github.com/eclipse-zenoh/zenoh` releases, `DEFAULT_CONFIG.json5`,
-PR #2671, issue #1432, plus the `zenoh.io/docs/manual/{access-control,tls,
-quic,user-password,configuration}` and `zenoh.io/docs/getting-started/
-deployment` pages and the binding repositories). Retrieved 2026-09-15.
+**Re-verified pin (B2):** Zenoh `1.10.1` (2026-09-07); minimum `1.10.0` required
+for loopback discovery (PR #2671), satisfied. Rust toolchain pinned
+`1.98.1` (2026-09-03), satisfies Zenoh MSRV `1.75.0` at tag `1.10.1`
+(`rust-toolchain.toml` enforces this). B2 re-fetched `DEFAULT_CONFIG.json5`
+at tag `1.10.1` directly and confirmed verbatim: `mode: "peer"` default,
+multicast scouting `address: "224.0.0.224:7446"` with `interface: "auto"`,
+gossip enabled, and the `auth.pubkey` block's six key names
+(`public_key_pem`, `private_key_pem`, `public_key_file`, `private_key_file`,
+`key_size`, `known_keys_file`) — key names are CLOSED, but the config file
+carries no semantics comment for this block, so pubkey-auth **semantics**
+remain UNVERIFIED (`docs/planning/REVERIFICATION-B2.md` §3.4 box 6). Binary
+size estimate (5-15 MB) remains UNVERIFIED — derived, not built by B2
+(`REVERIFICATION-B2.md` §3.4 box 7). Cross-check against crates.io did not
+return page content in B1 and was not re-attempted in B2 (UNVERIFIED —
+GitHub releases used instead; see `docs/planning/PINS.md`). Source:
+`docs/planning/PINS.md` — "Zenoh" and "Rust toolchain" pin records, and
+`docs/planning/REVERIFICATION-B2.md` §3.4, retrieved 2026-09-16.
 
-**Stage 0 (Epic B) has not run.** This is a pre-verified baseline, not a
-confirmed pin. A version bump to Zenoh, or Stage 0 running, invalidates this
-skill — re-verify every fact per `oac-evidence` §7 before trusting it again,
-and update this `## Pin` section, not just the prose.
+Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. A further
+version bump to Zenoh invalidates this pin — re-verify every fact per
+`oac-evidence` §7 before trusting it again, and update this `## Pin` section
+(and `docs/planning/PINS.md`), not just the prose.

@@ -133,14 +133,27 @@ the Agent SDK can drive or receive channels.
 
 ## Pin
 
-Written against the **pre-verified baseline**, not a confirmed pin: Claude
-Code v2.1.232+ (Channels research preview); permission relay v2.1.234+; MCP
-legacy revision `2025-11-25` or earlier required, current revision
-`2026-07-28`. Source: `docs/planning/PLANNING-PROMPT.md` §3.1, Appendix B
-(Claude Code URLs: `channels.md`, `channels-reference.md`, `mcp.md`,
-`hooks.md`, `cross-session-messaging.md`). Retrieved 2026-09-15.
+**Re-verified pin (B2):** Claude Code `v2.1.274` (Channels research preview),
+published 2026-09-17T00:12:02Z UTC. Both floors satisfied: channels-exist
+floor `>= v2.1.232` (UNVERIFIED — re-checked in B2 against the full text of
+`channels.md` as fetched 2026-09-16; still sourced only from
+PLANNING-PROMPT.md §3.1, not independently confirmed on the first-party
+page at this pin; see PINS.md and `docs/planning/REVERIFICATION-B2.md`
+§3.1); permission-relay floor `>= v2.1.234` confirmed verbatim on
+`channels-reference.md`. MCP legacy revision `2025-11-25` or earlier required
+for channel negotiation, current revision `2026-07-28`. B2 also closed two
+adjacent open items: no `CLAUDE_SESSION_ID` environment variable exists
+(`hooks.md` documents `session_id` as a hook-payload field instead), and the
+Agent SDK does not support Channels (confirmed absent from its own
+capability table at `code.claude.com/docs/en/agent-sdk/overview`). Whether
+channels survive `--resume`/`--continue`, and whether one MCP server can
+register more than one logical channel, remain UNVERIFIED — docs silent at
+this pin; see `docs/planning/REVERIFICATION-B2.md` §3.1 boxes 1-2. Source:
+`docs/planning/PINS.md` — "Claude Code Channels" pin record, and
+`docs/planning/REVERIFICATION-B2.md` §3.1, retrieved 2026-09-16.
 
-**Stage 0 (Epic B) has not run.** This is a pre-verified baseline, not a
-confirmed pin. A version bump to Claude Code, or Stage 0 running, invalidates
-this skill — re-verify every fact per `oac-evidence` §7 before trusting it
-again, and update this `## Pin` section, not just the prose.
+Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. A further
+version bump to Claude Code invalidates this pin — re-verify every fact per
+`oac-evidence` §7 before trusting it again, and update this `## Pin` section
+(and `docs/planning/PINS.md`), not just the prose.

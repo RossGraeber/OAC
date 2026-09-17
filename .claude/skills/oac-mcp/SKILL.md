@@ -97,16 +97,35 @@ one is in progress.
 
 - MCP current revision: `2026-07-28`.
 - MCP legacy revisions: `2025-11-25` and earlier.
-- SEP-2133 (extensions): final `2026-01-26`.
+- SEP-2133 (extensions): final `2026-01-26` — **re-verified in B2**: PR #2133's
+  `merged_at` is `2026-01-26T23:57:49Z`, confirming this date directly (the SEP-2133
+  page's own `Created` field, `2025-01-21`, is a different field — when the SEP was
+  opened, not when it finalized). No drift.
+- **Drift found in B2:** the reserved-prefix rule ("prefixes whose second label is
+  `modelcontextprotocol` or `mcp` are reserved") does **not** appear anywhere in the
+  SEP-2133 text. The only normative prefix clause is that the vendor prefix SHOULD be a
+  reversed domain name the extension author owns or controls, and that official
+  extensions use the `io.modelcontextprotocol` prefix. Do not state or enforce a blanket
+  reservation rule for any `*.modelcontextprotocol` / `*.mcp` second label; cite only the
+  domain-ownership SHOULD clause that is actually present. See
+  `docs/planning/REVERIFICATION-B2.md` §3.3 carry-over (b) and Drift register D2.
+- The `subscriptions/listen` mechanism (opt-in `toolsListChanged`, `promptsListChanged`,
+  `resourcesListChanged`, `resourceSubscriptions`, tagged with
+  `io.modelcontextprotocol/subscriptionId`) **replaces** the older `resources/subscribe`
+  / `resources/unsubscribe` / HTTP GET pattern at `2026-07-28`. If you have prior context
+  naming `resources/subscribe` directly, it no longer exists at the current revision. See
+  `docs/planning/REVERIFICATION-B2.md` Drift register D1.
 - Source: `docs/planning/PLANNING-PROMPT.md` §3.3, plus the MCP URLs in Appendix B
   (`https://modelcontextprotocol.io/specification/2026-07-28/changelog`,
   `.../basic/versioning`, `.../basic/patterns/mrtr`,
   `https://modelcontextprotocol.io/extensions/overview`,
-  `https://modelcontextprotocol.io/seps/2133-extensions`).
-- Retrieval date: 2026-09-15.
-- **Stage 0 (Epic B) has NOT run.** This is a pre-verified baseline, not a confirmed pin. A
-  revision bump invalidates this skill and it must be re-verified per `oac-evidence` §7
-  before being trusted again.
+  `https://modelcontextprotocol.io/seps/2133-extensions`), re-verified against
+  `docs/planning/PINS.md` (`2026-07-28` / `2025-11-25`) and
+  `docs/planning/REVERIFICATION-B2.md` §3.3.
+- Retrieval date: 2026-09-16 (B2 re-verification; original baseline 2026-09-15).
+- **Confirmed pin (B2).** The MCP pin is now load-bearing per `docs/planning/PINS.md`.
+  A revision bump invalidates this skill and it must be re-verified per `oac-evidence`
+  §7 before being trusted again, updating this `## Pin` section and `PINS.md` together.
 
 ## Where the content lives
 

@@ -168,17 +168,28 @@ criterion.
 
 ## Pin
 
-`@openai/codex` 0.154.0 (2026-09-09). Source: `docs/planning/PLANNING-PROMPT.md`
-§3.2, plus the Appendix B Codex URLs (`https://learn.chatgpt.com/docs/app-server`,
-`https://learn.chatgpt.com/docs/cli/reference`, `https://learn.chatgpt.com/docs/hooks`,
-`https://learn.chatgpt.com/docs/config-file/config-advanced`,
-`https://github.com/openai/codex` paths `codex-rs/app-server`,
-`codex-rs/app-server-daemon`, `codex-rs/app-server-protocol/schema`,
-`codex-rs/cli/src/queue_cmd.rs`, `codex-rs/tui/src/lib.rs`, and issues/PRs #21743,
-#16614, #33957, #45251, #39092, #39657, #42993). Retrieval date 2026-09-15.
+**Re-verified pin (B2):** `@openai/codex@0.154.0` (published 2026-09-09T22:40:10.746Z),
+cross-checked against GitHub tag `rust-v0.154.0`, commit
+`6b9826e3aa83b1a5947db50f4332cb9c65f1b340` — matches the PLANNING-PROMPT.md
+§3.2 baseline exactly, no drift. B2 read the source tree at this exact
+commit and confirmed the daemon-attach code path is **present**: the
+control socket path `CODEX_HOME/app-server-control/app-server-control.sock`
+is defined verbatim in `codex-rs/app-server-transport/src/transport/mod.rs`,
+`codex-rs/app-server-daemon/README.md` documents the "skip implicit daemon
+attachment... otherwise the TUI starts an embedded server" branch, and a
+`codex queue` CLI subcommand exists in `codex-rs/cli/src/main.rs`. This is a
+source-level, documented close (`docs/planning/REVERIFICATION-B2.md` §3.2
+box 4) — it is **not** a runtime verdict. Whether this path actually
+executes for an ordinary invocation remains UNVERIFIED and is resolved only
+by the G2 spike, task D2. Codex Desktop's control-socket exposure in
+current builds also remains UNVERIFIED — no first-party statement found
+(`REVERIFICATION-B2.md` §3.2 box 5); do not assume a Desktop-hosted thread
+is reachable via the control socket. Source: `docs/planning/PINS.md` —
+"Codex CLI and app-server" pin record, and
+`docs/planning/REVERIFICATION-B2.md` §3.2, retrieved 2026-09-16.
 
-**Stage 0 (Epic B) has NOT run.** This is a pre-verified baseline, not a confirmed
-pin — see `docs/planning/STATUS.md` Pins table ("None of these are confirmed
-pins"). A version bump of `@openai/codex` past 0.154.0, or Stage 0 running,
-invalidates this skill; re-verify per `oac-evidence` §7 before trusting it again,
-and update this Pin section (not just the prose) when you do.
+Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. A version bump
+of `@openai/codex` past 0.154.0 invalidates this pin — re-verify per
+`oac-evidence` §7 before trusting it again, and update this Pin section
+(and `docs/planning/PINS.md`) when you do.
