@@ -4,10 +4,12 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (C1: language/runtime/packaging/dependency-inventory
-decision landed, see `docs/planning/decisions/C1-language-runtime.md`; Rust MCP SDK
-(`rmcp`) pin added; B4: gate re-run policy and evidence store; B3: conflict register
-resolved, ADR-001 amendments A1-A3 issued)
+**Last updated:** 2026-09-17 (C2: process model/local IPC/CLI surface/config model
+decision landed, see `docs/planning/decisions/C2-process-model.md`; C1:
+language/runtime/packaging/dependency-inventory decision landed, see
+`docs/planning/decisions/C1-language-runtime.md`; Rust MCP SDK (`rmcp`) pin added; B4:
+gate re-run policy and evidence store; B3: conflict register resolved, ADR-001
+amendments A1-A3 issued)
 
 ## Current stage
 
@@ -62,6 +64,14 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   Rust, single self-contained binary (dynamically linked against OS system libraries
   only — not bit-for-bit static, see the file's §9). Full decision, evidence, and
   dependency inventory: `docs/planning/decisions/C1-language-runtime.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
+- **C2 — process model, local IPC, CLI surface, config model** (issue #14): decided.
+  One long-lived per-device `oac` daemon (Zenoh peer, device identity/keys, policy,
+  Codex app-server client) plus thin `oac mcp-shim` stdio child processes; Windows named
+  pipe / Unix `AF_UNIX` socket IPC with OS-level peer authentication (`interprocess`
+  `2.4.4`); zero-file local default. Full decision and evidence:
+  `docs/planning/decisions/C2-process-model.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.
 
@@ -155,6 +165,25 @@ without an UNVERIFIED label.
   feature/build target verified only; runtime confirmation belongs to a future
   `oac-implementation`/`oac-testing` task; see
   `docs/planning/decisions/C1-language-runtime.md` §8, §12, §13).
+- Whether `oac mcp-shim`, spawned by Claude Code as a child stdio process, inherits an
+  environment sufficient to locate the daemon's IPC path without extra configuration
+  (UNVERIFIED — depends on Claude Code's channel-spawn environment passthrough, not
+  established by any cited source; see
+  `docs/planning/decisions/C2-process-model.md` §10, §11).
+- Whether the Codex daemon's implicit attach is enabled by default in released
+  `0.154.0`, plus a possible documentation-drift signal: a 2026-09-17 re-fetch of
+  `https://learn.chatgpt.com/docs/app-server` did not surface the `codex app-server
+  daemon start` command or the `app-server-control.sock` control-socket path that
+  PLANNING-PROMPT.md §3.2's pre-verified baseline states (UNVERIFIED — already an open
+  item per gate G2/task D2; this is one added data point, not a resolution; see
+  `docs/planning/decisions/C2-process-model.md` §2, §10).
+- Named-pipe DACL peer-authentication behaviour not yet exercised on a live Windows
+  host (UNVERIFIED — API shape verified against Microsoft Learn only; see
+  `docs/planning/decisions/C2-process-model.md` §4, §10, §11).
+- Whether `interprocess` `2.4.4` (or an alternative IPC crate) exposes a first-party
+  peer-credential accessor (UNVERIFIED — not surfaced in the fetched crate docs; the
+  daemon is expected to call the raw OS API directly instead; see
+  `docs/planning/decisions/C2-process-model.md` §4, §10).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
