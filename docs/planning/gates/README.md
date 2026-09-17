@@ -72,10 +72,14 @@ no fifth value, no hedge (`oac-gates` "never probably" rule).
 A version bump to any pin in `docs/planning/PINS.md` visibly, mechanically invalidates
 the gate results that depend on it. This is not a judgement call.
 
-a. **The rule.** Changing any cell of any row in the `docs/planning/PINS.md` pin table
-   (version, release date, or the row's presence) invalidates every gate named in that
-   row's **`Gates affected`** column. Invalidation is immediate and independent of
-   whether the spike would still pass if re-run.
+a. **The rule.** Changing the **`Pinned version`** cell, the **`Release date`** cell, or
+   a row's presence (added or removed) in the `docs/planning/PINS.md` pin table
+   invalidates every gate named in that row's **`Gates affected`** column. This does
+   **not** include the `Retrieved` or `Observed at (URL)` cells — refreshing a
+   retrieval date or citation URL for the same version/release-date (e.g. a re-
+   verification pass per `oac-evidence` §7 that confirms no drift) does not invalidate
+   the gate. Invalidation is immediate and independent of whether the spike would still
+   pass if re-run.
 
 b. **Required same-change edits.** When a pin moves, all three of the following land
    in the **same commit** as the pin move:
@@ -87,6 +91,12 @@ b. **Required same-change edits.** When a pin moves, all three of the following 
    2. The `docs/planning/STATUS.md` Gate verdicts row for that gate reverts to
       `NOT RUN`.
    3. `docs/planning/PINS.md`'s `**Last updated:**` is bumped.
+   4. If the pin row itself was added, removed, or renamed (not just its version or
+      release date changed), update every affected `G<n>-result.md`'s
+      `Pin rows relied on` field and the matching `docs/planning/STATUS.md` Gate
+      verdicts table `Pins relied on` cell so both keep naming the row by its current
+      name and keep listing exactly the rows the pin table's `Gates affected` column
+      says are relied on.
 
 c. **The partial move is forbidden.** A commit that edits the PINS.md pin table
    without the step-b edits is incomplete and must be rejected in review. This is the

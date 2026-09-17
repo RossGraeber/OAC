@@ -25,6 +25,9 @@ presence), make all of these edits in the **same commit**:
 - [ ] `docs/planning/STATUS.md` Gate verdicts row for each affected gate reverts to
       `NOT RUN`.
 - [ ] This file's `**Last updated:**` (below) is bumped.
+- [ ] If a row was added, removed, or renamed (not just its version or release date
+      changed): update `Pin rows relied on` in each affected `G<n>-result.md` and the
+      `Pins relied on` cell in `docs/planning/STATUS.md`'s Gate verdicts table to match.
 
 Full policy: `docs/planning/gates/README.md`.
 
@@ -38,7 +41,7 @@ no pin changed)
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17 | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | G1; G4 (legacy-MCP negotiation) |
+| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-16 | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | G1; G4 (legacy-MCP negotiation); G5 |
 | Codex CLI / app-server | experimental (per-method gating) | `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | G2, G5 |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
@@ -53,7 +56,9 @@ no pin changed)
 - Surface label: **research preview**. Per PLANNING-PROMPT.md §3.1, this label is
   fixed by the source itself and is not upgraded.
 - Pinned version: `v2.1.274`. Source: https://github.com/anthropics/claude-code/releases/tag/v2.1.274,
-  published 2026-09-17T00:12:02Z, retrieved 2026-09-16.
+  published 2026-09-16T00:12:02Z, retrieved 2026-09-16. (Corrected from an earlier
+  transcription of 2026-09-17, which put the release date after the retrieval date —
+  not chronologically possible.)
 - Floor 1 — Channels exist at all: Claude Code `>= v2.1.232`. Source:
   https://code.claude.com/docs/en/channels.md, "Stability: research preview on
   Claude Code v2.1.232+", retrieved 2026-09-16 (per PLANNING-PROMPT.md §3.1, unchanged).
@@ -83,8 +88,10 @@ no pin changed)
   Claude Channels preview surface (checked: no "shim" term appears in DESIGN.md).
   `shim boundary: UNNAMED — see DESIGN.md`. Carried to task 12's open-items list below
   and is a B2/C-decision input, not resolved here.
-- Gates affected: **G1** (Claude wake — go/no-go, no fallback), and **G4** via the
-  legacy-MCP negotiation constraint above.
+- Gates affected: **G1** (Claude wake — go/no-go, no fallback), **G4** via the
+  legacy-MCP negotiation constraint above, and **G5** (Provenance: STATUS.md's Gate
+  verdicts table states G5's verdict depends on machine-set provenance rendering on
+  both providers, so it depends on this pin, not only on the Codex pin).
 
 ### Codex CLI and app-server
 
