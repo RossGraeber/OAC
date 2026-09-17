@@ -42,18 +42,20 @@ OAC's Zenoh transport mapping and containment boundary are:
    never a polling loop; the three neutral states (`online`/`unreachable`/`unknown`) are
    fixed against exactly what a missing token, an expired token, and a never-seen peer
    produce (§4).
-4. **Local mode binds to `127.0.0.1`, runs no `zenohd`, and leaves multicast scouting
-   on** by default, because the pinned Zenoh release satisfies the loopback-discovery
-   floor; the G3 fixed-rendezvous-endpoint fallback is the named reversal path if
-   scouting proves unreliable (§5).
+4. **Local mode binds to `127.0.0.1`, runs no `zenohd`, leaves multicast scouting on**
+   by default, and also binds a TLS listener to `127.0.0.1` using an auto-generated,
+   locally-stored certificate created on first run with no user action — because the
+   pinned Zenoh release satisfies the loopback-discovery floor and PLANNING-PROMPT.md
+   §4's G3 pass criterion requires a TLS listener bound to localhost even in local mode;
+   the G3 fixed-rendezvous-endpoint fallback is the named reversal path if scouting
+   proves unreliable (§5).
 5. **LAN mode defaults to TLS**, with QUIC named as the alternative, both using
    pairing-issued certificates from C5 §10(b)'s short-code flow; default-deny is the
    starting ACL posture (§6).
-6. **ACL subjects are certificate common name or username only, never `zid`** — this
-   document finalizes what C5 §12 deferred: the Zenoh ACL is a coarse pre-filter, the
-   envelope signature is the authenticity proof, and C7 adds the key-expression scoping
-   of ACL rules, the local-vs-LAN profile split, and the certificate-issuance wiring C5
-   §12 left open (§7).
+6. **ACL subjects are certificate common name or username only, never `zid`** — the
+   Zenoh ACL is a coarse pre-filter, the envelope signature is the authenticity proof
+   (both already fixed by C5 §12, restated here, not deferred by C5); C7 adds the
+   local-vs-LAN profile split and the certificate-issuance wiring (§7).
 7. **Only the stable `zenoh` and `zenoh-ext` API surface is used — no `unstable`
    feature** — every feature this transport touches is enumerated against that claim
    (§8).
@@ -101,13 +103,31 @@ file, the check reports a missing-path error today because `spec/`, `core/`, and
 `transports/zenoh/` do not exist yet — **pending**, not passing; it must be re-run once
 code lands at those paths (`oac-boundaries` "Mechanical checks").
 
-**No identifier containing `zenoh`/`zid`/`key_expr` in `core/`, `spec/`, `adapters/`,
-`cli/`.** This is the same check-1 pattern applied to the four consuming directories
-named in the task instruction, not a new pattern: `-i '\bzenoh\b|\bzid\b|key[_-]?expr|
-liveliness'` already matches an identifier such as `zenoh_key_expr` or `session_zid`
-wherever it appears in text, including inside a Rust identifier, because ripgrep's
-default word-boundary match (`\b`) still fires inside `snake_case` and `camelCase`
-tokens at the substring boundary the pattern names. No second grep set is written here.
+**Correction (re-checked 2026-09-17): the pattern does NOT catch `snake_case`-embedded
+identifiers, and check 1 does not cover `adapters/`/`cli/` at all.** An earlier draft of
+this section claimed `-i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness'` matches identifiers
+such as `zenoh_key_expr` or `session_zid` because ripgrep's `\b` "still fires inside
+`snake_case` and `camelCase` tokens." That is wrong: `_` is a word character, so `\bzid\b`
+has no word boundary on either side of `zid` in `session_zid`, and it does not match.
+Verified directly: running the exact command above against a fixture line
+`let zenoh_key_expr = 1; let session_zid = 2; let x_zenoh = 3;` matches only the first
+clause (via the un-anchored `key[_-]?expr` alternative, which has no `\b` on either side);
+`session_zid` and `x_zenoh` are **not** matched. The pattern only fires on `zid`/`zenoh` as
+a whole token (or across a `-`/space boundary, which is a word boundary) — not as a
+substring inside a longer `snake_case` or `camelCase` identifier. A `zid`-shaped leak
+named `session_zid`, `x_zenoh`, or similar would pass check 1 undetected.
+
+Separately, check 1 as written in `oac-boundaries` `references/mechanical-checks.md` runs
+only `rg ... spec/ core/` — it does not run against `adapters/` or `cli/` at all, despite
+those two directories being named just above as "consuming directories." No second grep
+set exists for them today, and check 1's own path list does not cover them. Until
+`mechanical-checks.md` check 1 is extended to include `adapters/` and `cli/` (or a second
+check is added for those two paths), this document does not claim lint coverage of
+`adapters/`/`cli/` for Zenoh-vocabulary leaks — that coverage does not exist. Both
+corrections carry through to §9's `zid`-misuse threat row below, which is restated
+accordingly: the containment lint proves only whole-token `zenoh`/`zid` hits in
+`spec/`/`core/`, not `snake_case`-embedded identifiers, and not any hit in
+`adapters/`/`cli/`.
 
 **A test asserting the module's public API signature set.** Once `transports/zenoh/`
 exists (Stage 3, `oac-implementation`), its public surface is exactly the six
@@ -210,6 +230,36 @@ distinction, if needed, is answered by the registration record (`docs/planning/
 decisions/C4-session-identity.md` §5), a neutral-layer concern outside this document's
 transport mapping.
 
+**Gap, recorded (`oac-evidence` §6): this mapping does not carry a full `PresenceRecord`.**
+DESIGN.md lines 104-105 ask presence to answer "which sessions are reachable, which
+harness owns them, capabilities, and whether active inbound is supported." The mapping
+above carries only reachability (`online`/`unreachable`/`unknown`) as a liveliness-token
+condition; a liveliness token has no payload, and §2 lists only "presence state" as the
+neutral type crossing the transport boundary. Harness ownership, capabilities, and
+active-inbound support live only in the registration record (`docs/planning/decisions/
+C4-session-identity.md` §5), which that document states is daemon-held and never
+published — this document's transport mapping has no mechanism that carries those three
+fields to a remote peer. This is an open gap, not a silent redesign: either a future
+decision defines a small out-of-band payload (e.g. a separately fetched/queried record,
+not the liveliness token itself, since liveliness tokens carry no payload) that a peer can
+resolve from a reachable session id, or DESIGN.md's presence answer is scoped down for
+v0.1 to reachability alone. Neither has been decided here; this document ships only the
+reachability piece and flags the rest as unresolved, tracked alongside the discovery-path
+gap immediately below.
+
+**Gap, recorded: no discovery path is defined, though discovery is in v0.1 scope.** §3
+makes the key expression a one-way hash of an already-known opaque session id, derivable
+only by a party that already holds that id, and forbids any wildcard/group key. This
+section watches presence on that same per-session key expression. Nothing in this
+document describes how a peer learns an *unknown* session's opaque id or key expression in
+the first place — yet `docs/planning/ADR-001.md` line 61 puts "presence/discovery" in v0.1
+scope, and DESIGN.md line 104 asks presence to answer "which sessions are reachable." This
+document's transport mapping presupposes the id is already known (e.g. from an out-of-band
+pairing/registration exchange at the neutral layer) and does not itself define or bound a
+discovery channel. Whatever discovery mechanism is added later will introduce its own
+guessability surface, which this document's §9 first threat row does not yet bound — see
+that row's updated wording below.
+
 **No polling — the liveliness subscriber stream only.** Quoted, DESIGN.md line 110:
 "Provider-supported streaming connections, subscriptions, event loops, and keepalives
 are acceptable; application-level inbox polling is not for adapters claiming active
@@ -219,8 +269,8 @@ resource every second... Either fix real delivery, turn off the active-inbound c
 file a finding — do not poll silently." `watch_presence` (DESIGN.md's `Transport`
 contract, line 63) is implemented as a live liveliness-subscriber callback/stream over
 the primitive named above, never a periodic `get`/query loop issued on a timer against
-the liveliness key space. `zenoh-ext`'s `LivelinessSpace`/`UserSpace`/`KeySpace` structs
-are noted here only because they surfaced during this research and are themselves marked
+the liveliness key space. `zenoh-ext`'s `LivelinessSpace`/`UserSpace` structs and `KeySpace`
+enum are noted here only because they surfaced during this research and are themselves marked
 Deprecated in the crate's own documentation as of `1.10.1` — retrieved 2026-09-17,
 https://docs.rs/zenoh-ext/1.10.1/zenoh_ext/index.html — and are not used by this design;
 the primitive this document relies on is `zenoh::liveliness::Liveliness` and its
@@ -228,12 +278,39 @@ the primitive this document relies on is `zenoh::liveliness::Liveliness` and its
 
 ## 5. Local-mode section
 
-**Listener bound to `127.0.0.1`; no manual certificate management.** Local mode's Zenoh
-peer listens only on the loopback interface — no LAN-facing bind by default — and,
-because no TLS/QUIC listener is configured on the local-mode path, there is no
-certificate for a user to create, install, or manage. Quoted, DESIGN.md line 115:
-"Local mode should expose only locally where practical and require no manual
-certificate management."
+**Conflict recorded and resolved (`oac-evidence` §6), stated before the design it
+corrects.** An earlier draft of this section said local mode configures no TLS/QUIC
+listener at all, reasoning that DESIGN.md line 115's "require no manual certificate
+management" implied no certificate, therefore no listener. That conflicts with
+`docs/planning/PLANNING-PROMPT.md` §4's G3 pass criterion, quoted verbatim: "Two peers on
+one host discover each other over loopback with multicast, and alternatively with
+multicast disabled using a locally shared rendezvous endpoint, on Windows 11, macOS, and
+Linux, **with a TLS listener bound to localhost**" (line 110) — a TLS listener in local
+mode is a stated pass criterion of the gate this very document names (§11) as exercising
+§5's design; a local mode with no TLS listener cannot satisfy it. DESIGN.md line 115
+forbids **manual certificate management**, not TLS itself — an automatically generated
+local certificate satisfies the sentence as written. Resolution: local mode binds **both**
+a plain loopback listener and a TLS listener to `127.0.0.1`; no rewrite of DESIGN.md or
+PLANNING-PROMPT.md is needed, and no ADR-001 amendment is proposed, because the two
+sources do not conflict with each other, only the earlier draft's inference from one of
+them did.
+
+**Listener bound to `127.0.0.1`, including a TLS listener; no manual certificate
+management.** Local mode's Zenoh peer listens only on the loopback interface — no
+LAN-facing bind by default — and additionally binds a TLS listener to `127.0.0.1`, per
+G3's pass criterion above. The certificate this TLS listener presents is generated
+automatically on first local-mode start (a self-signed, device-local certificate, stored
+alongside the daemon's other local state — the exact key/cert storage location is a Stage
+3 implementation detail, not fixed here) — there is no step in which a user creates,
+installs, imports, or manages a certificate, satisfying DESIGN.md line 115 verbatim:
+"Local mode should expose only locally where practical and require no manual certificate
+management." This local-mode certificate is **not** the pairing-issued, device-fingerprint
+common-name certificate §6 defines for LAN mode — it authenticates nothing beyond "this is
+a TLS-capable loopback listener," since local mode has no remote principal to authenticate
+against, and no ACL is layered on it (§7(b)). Its only job is to satisfy G3's TLS-listener
+pass criterion and to give a future LAN-adjacent tightening a listener to build on; it does
+not change local mode's default-deny posture discussion in §7(b), which is about
+authorization, not transport encryption.
 
 **No `zenohd`.** Quoted, `oac-boundaries` boundary 6: "the reference implementation is a
 CLI and must not require Docker, Kubernetes, a cloud account, or a separately
@@ -344,24 +421,45 @@ Authenticity of an OAC envelope must be established by OAC itself — the
 proof even over TLS/QUIC." This relationship is not renegotiated here; it is the fixed
 premise C7 builds its ACL design against.
 
-**C7 finalizes what C5 §12 deferred — stated as the split, not left implicit.** C5 §12
-kept the **policy-to-subject rule**: OAC policy maps onto authenticated ACL subjects
-(certificate common name or username), never `zid` — unchanged, restated in §6 above.
-What C5 §12 explicitly left to a later document is the piece its own §2 (the C5-C7
-boundary, restated here rather than re-quoted) marks out: **C7 adds** (a)
-**key-expression scoping of ACL rules** — an ACL rule this transport ships with is
-scoped to a specific key expression (§3's per-session, non-broadcast layout), not a
-wildcard covering every session a peer might ever address, so a certificate/username
-subject authorized for one session's key expression is not thereby authorized for every
-other session on the same peer; (b) **the local-vs-LAN profile split** — local mode
-(§5) ships with no ACL at all, because the listener binds only to loopback and no
-external principal can reach it to need one, while LAN mode (§6) is exactly where the
-certificate-common-name-keyed default-deny ACL applies; and (c) **certificate issuance
-wiring** — §6's binding of C5 §10(b)'s pairing flow to the concrete Zenoh TLS config
-keys. None of (a)-(c) changes the authenticity-proof relationship stated above; each is
-a piece of Zenoh-side configuration this transport module owns, gated by the same
-pre-filter-only role the envelope signature check (outside this module, in the neutral
-core) always retains as the actual authenticity decision.
+**Correction: C5 does not mark out a C5-C7 boundary, and (a) is a restatement, not a
+closed deferral.** An earlier draft of this paragraph said C7 "finalizes" a boundary C5
+§2 "marks out," and that C5 §12 "deferred" key-expression scoping to this document.
+Checked directly: `docs/planning/decisions/C5-envelope-auth.md` §2 is "Signature algorithm
+and crate" (line 55) — it says nothing about a C5-C7 split — and `grep -n 'C7'
+C5-envelope-auth.md` returns zero hits; C5 never mentions C7 anywhere and marks out no
+boundary for it. Worse, C5 §12 (quoted in full at §6 above) already states ACL rules are
+per-key-expression, verbatim: "permitting a given certificate-common-name/username
+subject to publish/subscribe on a given key expression" (C5 §12, line 763) — so item (a)
+below restates an already-decided C5 rule; it does not close a deferral C5 left open. The
+substantive ACL rules in both documents agree; only the provenance story above was
+invented, and is withdrawn.
+
+**What C7 actually contributes, stated without the false provenance claim.** C5 §12 fixed
+the **policy-to-subject rule** (certificate common name or username, never `zid`) and
+already stated ACL rules are scoped per key expression. C7 restates (a) that
+per-key-expression scoping at this document's own layer (§3's concrete key-expression
+layout is what a C5 §12 rule is scoped *against*, which C5 could only state in the
+abstract since C5 does not define key expressions), and adds two things C5 genuinely does
+not cover: (b) **the local-vs-LAN profile split, with the local-mode carve-out justified
+rather than assumed** — local mode (§5) ships with no Zenoh-layer authorization ACL (only
+the unauthenticated TLS listener added above), a deliberate deviation from
+`oac-security-work` §4's default-deny posture, recorded here rather than left implicit: on
+a multi-user or shared host, other local users and unrelated local processes are
+principals that can reach a `127.0.0.1` listener, so "external" is not the boundary this
+carve-out relies on. The actual justification is that Zenoh's ACL is only ever a coarse
+pre-filter (§6-§7 above) and cannot authenticate a same-host local principal as anything
+but an unauthenticated `zid` (§6, `zid` is never an identity) — so a Zenoh-layer ACL would
+add no authorization beyond what the neutral core already provides via the envelope
+signature check (`docs/planning/decisions/C5-envelope-auth.md` §2) plus C5 §11's
+per-session sender allowlist, both enforced regardless of which local process reached the
+listener. Those two controls, not a Zenoh ACL, are the actual mitigation for a local-user
+threat; while LAN mode (§6) is where the certificate-common-name-keyed default-deny ACL
+applies; and (c) **certificate issuance wiring** — §6's binding of C5 §10(b)'s pairing flow to the concrete
+Zenoh TLS config keys. (b) and (c) are the actual new content this document adds; (a) is
+carried forward from C5, not newly closed. None of (a)-(c) changes the authenticity-proof
+relationship stated above; each is a piece of Zenoh-side configuration this transport
+module owns, gated by the same pre-filter-only role the envelope signature check (outside
+this module, in the neutral core) always retains as the actual authenticity decision.
 
 ## 8. Stable API surface
 
@@ -371,18 +469,19 @@ design actually touches, not assumed:
 
 | Feature used | Crate/module | Stable or `unstable`? | Verified against |
 |---|---|---|---|
-| `Session::declare_publisher` / `Session::declare_subscriber` (pub/sub, §2's `publish`/`subscribe`) | `zenoh` | Stable | Ordinary session API, no `unstable`-gated builder involved |
-| `zenoh::liveliness::Liveliness::declare_token` (`LivelinessToken`, §4) | `zenoh` | Stable | Fetched `zenoh::liveliness` module page: "None of the items are marked as 'Unstable'... All six structs are stable." Source: https://docs.rs/zenoh/1.10.1/zenoh/liveliness/index.html, retrieved 2026-09-17 |
-| `zenoh::liveliness::Liveliness::declare_subscriber` with `.history(true)` (history-capable liveliness subscriber, §4) | `zenoh` | Stable | Fetched `LivelinessSubscriberBuilder` page: `history()` listed with "No feature badge," alongside `callback`/`callback_mut`/`with`/`background`. Source: https://docs.rs/zenoh/1.10.1/zenoh/liveliness/struct.LivelinessSubscriberBuilder.html, retrieved 2026-09-17 |
+| `Session::declare_publisher` / `Session::declare_subscriber` (pub/sub, §2's `publish`/`subscribe`) | `zenoh` | Stable | Ordinary session API, no `unstable`-gated builder involved. Source: https://docs.rs/zenoh/1.10.1/zenoh/struct.Session.html, retrieved 2026-09-17 |
+| `zenoh::liveliness::Liveliness::declare_token` (`LivelinessToken`, §4) | `zenoh` | Stable | Fetched `zenoh::liveliness` module page (2026-09-17): no item on the page carries an "Unstable" feature badge — this is a paraphrase of what the page shows, not a verbatim quotation of page text. Source: https://docs.rs/zenoh/1.10.1/zenoh/liveliness/index.html, retrieved 2026-09-17 |
+| `zenoh::liveliness::Liveliness::declare_subscriber` with `.history(true)` (history-capable liveliness subscriber, §4) | `zenoh` | Stable | Fetched `LivelinessSubscriberBuilder` page (2026-09-17): `history()` carries no `unstable`-feature badge, alongside `callback`/`callback_mut`/`with`/`background` — paraphrase of the page's badge state, not a verbatim quotation. Source: https://docs.rs/zenoh/1.10.1/zenoh/liveliness/struct.LivelinessSubscriberBuilder.html, retrieved 2026-09-17 |
 | TLS listener config (`listen_private_key`, `listen_certificate`, `root_ca_certificate`, `enable_mtls`, §6) | `zenoh` config | Stable | `DEFAULT_CONFIG.json5` at tag `1.10.1` — ordinary (non-`unstable`-flagged) config block. Source: https://raw.githubusercontent.com/eclipse-zenoh/zenoh/1.10.1/DEFAULT_CONFIG.json5, retrieved 2026-09-17 |
 | ACL config block (`access_control`, rules keyed by `cert_common_names`/`usernames`, §6-§7) | `zenoh` config | Stable | Same source as above; the ACL block is an ordinary (commented-out-by-default) config section, not gated by an `unstable` cfg flag |
 | Multicast scouting config (`scouting.multicast`, §5) | `zenoh` config | Stable | Same source; `oac-zenoh` Pin section already confirms these six keys verbatim against the same tag |
 
 **`zenoh-ext`'s Advanced Publisher/Subscriber (cache, retransmission, miss detection) is
-explicitly not used.** Fetched confirmation that these items exist behind `unstable`:
-"Yes, this documentation page displays the 'Available on crate feature `unstable` only'
-badge in multiple locations" for `AdvancedSubscriberBuilder`'s `IntoFuture`/`Resolvable`/
-`Wait` implementations (the methods that actually build/resolve the subscriber). Source:
+explicitly not used.** Fetched confirmation (2026-09-17) that `AdvancedSubscriberBuilder`'s
+`IntoFuture`/`Resolvable`/`Wait` implementations (the methods that actually build/resolve
+the subscriber) each carry the page's "Available on crate feature `unstable` only" badge,
+in multiple locations on the page — a paraphrase of what the fetched page shows, not a
+verbatim quotation of page text. Source:
 https://docs.rs/zenoh-ext/1.10.1/zenoh_ext/struct.AdvancedSubscriberBuilder.html,
 retrieved 2026-09-17. This design does not need `AdvancedSubscriber`/`AdvancedPublisher`:
 presence history (§4) is fully served by the plain, stable `LivelinessSubscriberBuilder`
@@ -414,10 +513,10 @@ planning/decisions/C6-trust-rendering.md` §12 (provider-rendering-level threats
 
 | Attack | Precondition | Mitigation | Proving test | Residual risk |
 |---|---|---|---|---|
-| Unauthorized routing/discovery via a guessable key expression | Attacker can predict or enumerate a target session's Zenoh key expression without already knowing its opaque session id | Key expression is a one-way hash of the 128-bit CSPRNG opaque session id (§3); no broadcast/room-shaped pattern to scan against (§3) | The containment lint (`oac-boundaries` check 1, §2 — confirms no key-expression-shaped constant leaks where it could be statically enumerated); gate G3 | Gate G3 `NOT RUN`; whether the derivation function itself resists offline brute-force at scale is a Stage 3 implementation property (choice of hash primitive), not fixed by this document |
+| Unauthorized routing/discovery via a guessable key expression | Attacker can predict or enumerate a target session's Zenoh key expression without already knowing its opaque session id | Key expression is a one-way hash of the 128-bit CSPRNG opaque session id (§3); no broadcast/room-shaped pattern to scan against (§3) | The containment lint (`oac-boundaries` check 1, §2 — confirms no key-expression-shaped constant leaks where it could be statically enumerated); gate G3 | Gate G3 `NOT RUN`; whether the derivation function itself resists offline brute-force at scale is a Stage 3 implementation property (choice of hash primitive), not fixed by this document. This row only bounds guessing/enumerating a key expression at the transport layer — it does **not** bound whatever discovery channel eventually lets a peer learn an unknown session's opaque id in the first place, because this document defines no such channel (§4's "no discovery path" gap); that channel's own guessability surface is unassessed here and must be re-evaluated once it exists |
 | Unauthorized discovery of a session in another working directory (cross-project leakage) | A peer paired on the same LAN, or a peer on the same local host, attempts to discover a session registered under a different `working_directory` | `working_directory` scoping lives in the registration record (`docs/planning/decisions/C4-session-identity.md` §5), filtered before a discovery grant — this document's transport carries no directory-shaped key-expression segment (§3) a peer could pattern-match to guess at project scope; local-mode ACL is absent (§7(b)) but the loopback bind (§5) limits reachability to the same host, and LAN-mode ACL (§6-§7) is default-deny per subject | F11 security suite; H2 (fourth acceptance item, per `oac-security-work` §2) | F11/H2 not yet built (`docs/planning/STATUS.md`); same open item `docs/planning/decisions/C4-session-identity.md` §13 and `docs/planning/decisions/C5-envelope-auth.md` §13 already name for this exact threat class, restated here at the transport layer |
 | Compromised transport infrastructure | An attacker controls or observes traffic on the Zenoh link (local loopback or LAN TLS) | Zenoh transport security (loopback isolation locally, §5; TLS with pairing-issued certificates on LAN, §6) is defense in depth only — the envelope signature (`docs/planning/decisions/C5-envelope-auth.md` §2) is the actual authenticity proof regardless of transport compromise, per §7's restated relationship | Gate G3 (transport reachability); F11 security suite (signature verification independent of transport state) | Gate G3 `NOT RUN`; F11 not yet built; a fully compromised transport can still deny/drop/replay-at-the-network-layer even though it cannot forge a validly-signed envelope — replay defence is `docs/planning/decisions/C5-envelope-auth.md` §7-§8's job, not restated here |
-| `zid`-as-identity misuse | A future code path is tempted to key an ACL rule, allowlist entry, or authorization decision on a Zenoh `zid` instead of an authenticated ACL subject | ACL subjects are certificate common name or username only, never `zid` (§6, restating `docs/planning/decisions/C5-envelope-auth.md` §12 and `oac-zenoh` §5's "explicitly unauthenticated and unfit for production"); the containment lint's `\bzid\b` pattern (§2) flags any `zid`-named identifier that leaks into `core/`, `spec/`, `adapters/`, `cli/` | The containment lint (`oac-boundaries` check 1, §2) | Pending — `core/`/`spec/`/`adapters/`/`cli/` do not exist yet, so the lint reports a missing-path error, not a pass, until Stage 3 code lands (`oac-boundaries` "Mechanical checks" status) |
+| `zid`-as-identity misuse | A future code path is tempted to key an ACL rule, allowlist entry, or authorization decision on a Zenoh `zid` instead of an authenticated ACL subject | ACL subjects are certificate common name or username only, never `zid` (§6, restating `docs/planning/decisions/C5-envelope-auth.md` §12 and `oac-zenoh` §5's "explicitly unauthenticated and unfit for production"); the containment lint's `\bzid\b` pattern (§2) flags a whole-token `zid` identifier that leaks into `core/` or `spec/` only | The containment lint (`oac-boundaries` check 1, §2) — **proven scope is narrower than a full mitigation**: it does not match `zid` embedded inside a `snake_case`/`camelCase` identifier (e.g. `session_zid`), and it does not run against `adapters/` or `cli/` at all (§2's correction) | Pending — `core/`/`spec/` do not exist yet, so the lint reports a missing-path error, not a pass, until Stage 3 code lands; even once it runs clean, a `zid`-shaped identifier embedded in a longer token, or any leak into `adapters/`/`cli/`, is unproven by this test and remains an open risk, not a closed mitigation (`oac-security-work` §1) |
 | LAN certificate misissuance | An attacker completes, or forges completion of, C5 §10(b)'s short-code pairing flow and obtains a certificate with an attacker-controlled common name | Certificate issuance is entirely C5 §10(b)'s already-decided pairing flow (6-digit/120-second/5-attempt short code) — this document adds no separate issuance path an attacker could target instead; common name is derived from the device public-key fingerprint (§6), not attacker-suppliable free text | F5 (authorization engine and pairing store, per `docs/planning/decisions/C4-session-identity.md` §13's identical row for the analogous device-key-exfiltration threat); F11 security suite | F5/F11 not yet built; this row is the transport-layer restatement of the pairing-flow threat C5 §13 already owns at the identity layer — not a new attack surface C7 itself introduces, since C7 reuses rather than redesigns issuance (§6) |
 | Scouting exposure beyond loopback in local mode | Local-mode multicast scouting (§5), left on by default, is reachable from outside the intended loopback-only scope (e.g. a misconfigured host where `127.0.0.1`-only binding does not actually prevent multicast group membership from being visible on a shared LAN segment) | Listener itself binds `127.0.0.1` (§5); scouting's own multicast address (`224.0.0.224:7446`) is a discovery-only channel, not the data-plane publish/subscribe path, and any peer that scouting helps discover still faces §5's loopback-bound listener for the actual pub/sub link; the G3 fixed-rendezvous-endpoint fallback (§5) is the named reversal path if a platform's scouting behaviour is found to leak beyond the intended scope | Gate G3 (must record real scouting-socket behaviour per platform, per `oac-zenoh` §3's Windows `0.0.0.0`/`SO_REUSEADDR` note); the containment lint does not cover this row (it is a runtime network-behaviour question, not a static-text one) | Gate G3 `NOT RUN`; the Windows `0.0.0.0`/`SO_REUSEADDR` scouting-socket behaviour (`oac-zenoh` §3) is not yet exercised against a real multi-host or shared-segment topology — this is exactly the class of finding G3 is timeboxed to produce, per `docs/planning/PLANNING-PROMPT.md` §4 |
 
@@ -461,7 +560,7 @@ matching the caveat stated at the top of this document.
   above, and is language-choice-adjacent evidence already settled by `docs/planning/
   decisions/C1-language-runtime.md`'s Rust choice, not re-litigated here.
 - **Plugin-backed storage for presence history.** Rejected: `zenoh-ext`'s (deprecated)
-  `LivelinessSpace`/`UserSpace`/`KeySpace` structs and any `zenohd`-plugin-backed storage
+  `LivelinessSpace`/`UserSpace` structs and `KeySpace` enum and any `zenohd`-plugin-backed storage
   approach both require the router (first rejected alternative) or a superseded API
   surface; §4's stable, in-process `LivelinessSubscriberBuilder.history(true)` already
   gives history-capable presence with neither.
@@ -516,8 +615,8 @@ list:**
   document choosing a different mechanism.
 - **Binary-size 5-15 MB derived/UNVERIFIED.** Quoted, `docs/planning/STATUS.md`: "The
   5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate, resolved by the
-  first G3 build artifact, task D3)." Unaffected by this document's transport-mapping
-  choices.
+  first G3 build artifact, task D3; see REVERIFICATION-B2.md §3.4 box 7)." Unaffected by
+  this document's transport-mapping choices.
 - **Crates.io cross-check UNVERIFIED.** Quoted, `docs/planning/STATUS.md`: "Zenoh crate
   version/date read from GitHub releases rather than crates.io directly... UNVERIFIED —
   re-confirm on crates.io when reachable." This document's own §8 research (the
@@ -548,9 +647,11 @@ Per issue #20's six acceptance boxes (backlog task C7, `docs/planning/backlog/
       §4 (the mechanism, the three-way `online`/`unreachable`/`unknown` mapping table,
       the no-polling rule).
 - [x] Local mode: listener bound to `127.0.0.1`, explicit decision on multicast
-      scouting on or off, no manual certificate management — §5 (loopback bind, "no
-      `zenohd`," scouting left on with the stated reason and the G3-fallback reversal
-      path, Windows scouting-socket behaviour recorded).
+      scouting on or off, no manual certificate management — §5 (loopback bind including
+      a TLS listener satisfying G3's pass criterion, via an auto-generated certificate
+      requiring no manual management; "no `zenohd`"; scouting left on with the stated
+      reason and the G3-fallback reversal path; Windows scouting-socket behaviour
+      recorded).
 - [x] LAN mode: TLS or QUIC with pairing-issued certificates; ACL subjects restricted to
       authenticated ones (certificate common name or username, never `zid`) — §6 (TLS
       chosen as default, QUIC named as alternative, C5 §10(b) pairing flow reused,
