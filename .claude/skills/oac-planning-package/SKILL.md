@@ -59,7 +59,26 @@ rather than assuming prior context.
   rendered as text (e.g. an ASCII/box diagram or a labelled flow list), not an embedded
   image.
 
-## 3. Naming resolution (PLANNING-PROMPT §2) — fixed, apply everywhere
+## 3. Pre-commit mechanical checks — every file, every edit
+
+Recurring defects across Epic A (A5-A9 review cycles) all trace to skipping these.
+Run them after the file's content is final, not mid-draft:
+
+- **Cross-reference sweep.** Grep every `§\d+` (and `(above)`/`(below)`) in the file
+  you are about to commit. For each hit, count sections in the FINAL draft and confirm
+  the target number is still correct — files get renumbered after drafting and pointers
+  silently go stale. A self-check line claiming "all references verified" must be
+  re-run after the last content edit, not written once and trusted.
+- **UNVERIFIED labels travel with the fact.** When citing a fact another package file
+  (or `STATUS.md`) carries as `UNVERIFIED — <reason>`, keep the same label and reason,
+  or add new first-party evidence that closes it and update `STATUS.md`'s ledger in the
+  same commit. Never restate an UNVERIFIED fact as settled just because an earlier file
+  said it plainly elsewhere.
+- **`STATUS.md` history is additive only.** Any edit to its running `**Last updated:**`
+  history block prepends or appends; it never replaces or removes a prior entry. Diff
+  that specific block before committing and confirm nothing existing disappeared.
+
+## 4. Naming resolution (PLANNING-PROMPT §2) — fixed, apply everywhere
 
 Resolved once, recorded as **ADR-001-A1**, then used identically in all thirteen files and
 never reopened within the package:
@@ -74,7 +93,7 @@ Never write "Session Channels" or `sessionchannels` (the ADR-001/DESIGN legacy n
 other spelling in new package text; where an old file is quoted verbatim for context, mark
 the quote as pre-rename.
 
-## 4. Amendment procedure
+## 5. Amendment procedure
 
 When verified evidence contradicts a settled ADR-001 decision, do not silently redesign
 around it. Instead:
@@ -91,7 +110,7 @@ This is also how the Appendix A conflict register (C1-C10 and anything discovere
 writing the package) gets resolved: each entry becomes either an amendment or an explicit
 note that no amendment is needed and why.
 
-## 5. Self-review before declaring the package done (PLANNING-PROMPT §11, verbatim)
+## 6. Self-review before declaring the package done (PLANNING-PROMPT §11, verbatim)
 
 Run this checklist; fix whatever fails before closing Epic A.
 
@@ -102,13 +121,13 @@ Run this checklist; fix whatever fails before closing Epic A.
 - [ ] Every §3 fact you rely on has been re-verified against the pinned version, and every UNVERIFIED item is closed or listed as a risk.
 - [ ] No neutral interface mentions Zenoh, Claude, Codex, MCP method names, or key expressions.
 - [ ] No section proposes owning a harness's turn loop, holding provider credentials, or polling an inbox from an adapter that claims active inbound.
-- [ ] The naming resolution in §2 is applied consistently.
+- [ ] The naming resolution in §4 is applied consistently.
 
 For boundary/non-goal detail behind item 1, and the mechanical grep checks behind items 6-7,
 use `oac-boundaries` rather than re-deriving them here. For the citation/UNVERIFIED standard
 behind item 5, use `oac-evidence`.
 
-## 6. Exit criteria for a work item using this skill
+## 7. Exit criteria for a work item using this skill
 
 A `type:docs` / M0 work item (an Epic A task, per `docs/planning/backlog/02-tasks-AB.json`)
 is done when:
@@ -119,10 +138,10 @@ is done when:
 - House style (§2 above) holds throughout the file: no open routine choices, no code beyond
   interface signatures/message shapes, normative text separated from reference-implementation
   notes wherever interfaces are described.
-- The naming resolution (§3) is applied with no stale spelling.
+- The naming resolution (§4) is applied with no stale spelling.
 - Any conflict the task surfaced is either resolved as a numbered ADR-001 amendment in
   `03-decisions-and-amendments.md` or explicitly noted as not needing one.
-- If this is the last remaining Epic A task, the full §5 self-review checklist has been run
+- If this is the last remaining Epic A task, the full §6 self-review checklist has been run
   against the whole package, not just the one file, and every item passes.
 
 ## Where the content lives
