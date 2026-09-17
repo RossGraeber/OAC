@@ -78,15 +78,28 @@ without an UNVERIFIED label.
   (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
   re-confirmed against the CLI reference in B1 or B2; see REVERIFICATION-B2.md §3.2
   table).
+- No SEP or working-group item for agent-to-agent messaging (UNVERIFIED — carried
+  unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
+  index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
+  item 12).
+- "Research preview on Claude Code v2.1.232+" floor (UNVERIFIED — not confirmable on
+  `channels.md` at `v2.1.274`; `2.1.232` does not appear in its fetched text; see
+  REVERIFICATION-B2.md §3.1 box 7 and PINS.md floor 1).
+- Whether MCP `experimental` capabilities still exist at the current era `2026-07-28`
+  (UNVERIFIED — re-labelled from HOLDS in B2; the prior inference cited Claude Code's own
+  client capability, not the `2026-07-28` schema itself, and Claude Code does not
+  register a channel server negotiating `2026-07-28`; see REVERIFICATION-B2.md §3.3
+  table and "Carried to 11-risks.md" item 13).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
 Agent SDK's own capability table); SEP-2133's finalization date `2026-01-26` (confirmed
 via its PR's `merged_at`); no documented `CLAUDE_SESSION_ID` environment variable
-(confirmed absent from `hooks.md`, `session_id` is the supported path); the floor-1
-`>= v2.1.232` sentence remains UNVERIFIED (re-checked, still not present on `channels.md`
-verbatim — carried, not closed, see REVERIFICATION-B2.md §3.1); Codex issue #21743 status
-(confirmed still open, no drift to the "no attach" premise). SEP-2133's reserved-prefix
-rule for extension prefixes whose second label is `modelcontextprotocol` or `mcp` is
-**drift, not UNVERIFIED** — no such clause exists in the SEP text; see
-REVERIFICATION-B2.md Drift register D2.
+(confirmed absent from `hooks.md`, `session_id` is the supported path); Codex issue
+#21743 status (confirmed still open, no drift to the "no attach" premise). The floor-1
+`>= v2.1.232` sentence was re-checked and remains UNVERIFIED, not closed — still not
+present on `channels.md` verbatim — see REVERIFICATION-B2.md §3.1 box 7; it stays in the
+"Open UNVERIFIED items" list above. SEP-2133's reserved-prefix rule for extension
+prefixes whose second label is `modelcontextprotocol` or `mcp` is **drift, not
+UNVERIFIED** — no such clause exists in the SEP text; see REVERIFICATION-B2.md Drift
+register D2.

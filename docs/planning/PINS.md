@@ -272,8 +272,13 @@ Each floor below is independently checkable by a reader who has only this file o
 ## Open questions carried into B2
 
 Every entry below uses the oac-evidence §5 form: `<claim> (UNVERIFIED — <reason>)`, plus
-a one-line resolution pointer added by B2 (`docs/planning/REVERIFICATION-B2.md`). B1's
-prose is left byte-identical above this line; only the resolution pointers are new.
+a one-line resolution pointer added by B2 (`docs/planning/REVERIFICATION-B2.md`). B2 also
+corrects a small number of B1 prose errors above this line, found during re-verification:
+the SEP-2133 bullet's `Created: 2025-01-26/2025-01-21` is corrected to `Created:
+2025-01-21` (the SEP page's own field, re-confirmed 2026-09-16), and the Claude Code
+release-date, floor-1, crates.io cross-check, and ACP `protocolVersion` rows carry their
+own re-verified wording as of this pass. Those corrections are noted inline where they
+occur; everything else above this line is unchanged from B1.
 
 - Whether implicit Codex daemon attach (TUI attaching to a running `codex app-server
   daemon start` via `CODEX_HOME/app-server-control/app-server-control.sock`) is
