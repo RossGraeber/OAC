@@ -47,7 +47,7 @@ Verbatim, PLANNING-PROMPT.md §4:
 
 This finding is prior to, and outside, the five gates below: **no gate spikes or
 records a FAIL against attach-to-arbitrary-session** — it is not a supported target for
-any gate (`docs/planning/gates/README.md` §"Go/no-go vs. fallback": "Do not spike or
+any gate (`.claude/skills/oac-gates/SKILL.md` §"Go/no-go vs. fallback": "Do not spike or
 record a FAIL against attach-to-arbitrary-session; it is not a supported target for any
 gate"). Each gate instead proves injection into a session launched OAC-enabled: Claude
 Code via `--channels` at session start (G1), Codex via the shared app-server daemon or
@@ -190,16 +190,19 @@ ACLs (`.claude/skills/oac-gates/references/G3-zenoh-peer.md`).
 - The legacy path registers as a channel (negotiates `2025-11-25` or earlier) and
   delivers notifications successfully.
 - The current-revision (`2026-07-28`) path serves `tools/call` correctly, carrying OAC
-  `_meta` provenance (an OAC-defined `_meta` extension key on the response, not the
-  protocol-version mechanism below).
+  `_meta` provenance (D4's own criterion: an OAC-defined `_meta` extension key on the
+  response, not the protocol-version mechanism below). §3.3 notes `_meta` keys carry
+  prefix rules — prefixes whose second label is `modelcontextprotocol` or `mcp` are
+  reserved, so OAC's `_meta` key must not collide with those.
 - Separately, every request on the `2026-07-28` path carries
   `_meta["io.modelcontextprotocol/protocolVersion"]` — this is the stateless-revision
-  carrier every request requires on this path (distinct from the OAC provenance key
-  above; do not conflate the two).
+  carrier §3.3 requires on every request (distinct from the OAC provenance key above; do
+  not conflate the two).
 - Neither path degrades the other across a full session (run both concurrently, not
   sequentially, and confirm neither breaks).
 - A server negotiating `2026-07-28` is confirmed to be **rejected as a channel** — run
-  this negative case explicitly.
+  this negative case explicitly; the constraint is real, not folklore, per PLANNING-PROMPT
+  §3.1's stated MCP version constraint.
 
 **Failure criteria.** Any of the five unmet is a failure of the single-process design;
 take the fallback and record the result as `PASS (FALLBACK TAKEN)` rather than a plain
@@ -280,7 +283,7 @@ this file is invented.
 - [x] Every quoted method name and flag is verbatim: `capabilities.experimental["claude/channel"]`,
       `notifications/claude/channel`, `thread/queue/add`, `turn/start`, `turn/steer`,
       `codex --remote`, `--dangerously-load-development-channels`,
-      `_meta["io.modelcontextprotocol/protocolVersion"]`, `codex mcp add`.
+      `_meta["io.modelcontextprotocol/protocolVersion"]`.
 - [x] Every provider surface named (§3-§7) is labelled: Claude Code (Channels) research
       preview; Codex CLI / app-server experimental; MCP current/legacy supported; Zenoh
       supported.
