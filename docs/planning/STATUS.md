@@ -4,8 +4,12 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (C7: Zenoh transport mapping and containment boundary
-decision landed, see `docs/planning/decisions/C7-zenoh-transport.md`; C6: provider-facing
+**Last updated:** 2026-09-17 (A2: `docs/planning/v0.1/01-capability-matrix.md` landed
+(issue #24) — surface labels, shim-boundary carry, full capability matrix, and the C7
+conflict-register row's resolution, which `docs/planning/ADR-001-AMENDMENTS.md`'s
+conflict table already pointed at; no pin moved, no gate verdict changed; C7: Zenoh
+transport mapping and containment boundary decision landed, see
+`docs/planning/decisions/C7-zenoh-transport.md`; C6: provider-facing
 trust rendering/outbound symmetry decision landed, see
 `docs/planning/decisions/C6-trust-rendering.md`; C5: envelope
 authenticity/replay/pairing/authorization decision landed, see
@@ -27,7 +31,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
