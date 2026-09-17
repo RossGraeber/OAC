@@ -4,7 +4,16 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A5: `docs/planning/v0.1/04-architecture.md` landed
+**Last updated:** 2026-09-17 (A6: `docs/planning/v0.1/05-interfaces.md` landed
+(issue #26) — OAC spec surface (envelope/content model, addressing, capability
+negotiation, presence/discovery with its two recorded gaps, active-delivery no-polling
+rule, replies/correlation, the frozen delivery-state set, the closed error taxonomy,
+versioning policy, unsupported-capability behaviour), the `ProviderAdapter` and
+`Transport` contracts and core neutral types, and the ACP-adapter and NATS/MQTT
+design-for-replacement proofs, all with normative text separated from reference-
+implementation notes; six new NATS/MQTT optional-capability items added below as
+UNVERIFIED; no pin moved, no gate verdict changed. A5:
+`docs/planning/v0.1/04-architecture.md` landed
 (issue #22) — components and responsibilities table, the four things the daemon owns
 (cited to C2 §1), the process-boundary diagram (key material/transport peer location),
 per-provider inbound/outbound flows drawn separately for Claude and Codex, local and LAN
@@ -345,6 +354,18 @@ without an UNVERIFIED label.
   live implementation's actual network conditions (UNVERIFIED — these are OAC's own
   design parameters, not a claim about an external system; runtime validation is a Stage
   3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16).
+
+- NATS reliability, persistence, offline queueing, ordering, multicast discovery, and
+  routing/federation capability claims, for the `05-interfaces.md` transport
+  design-for-replacement proof (task A6, issue #26) (UNVERIFIED — not independently
+  checked against first-party NATS specification/documentation this pass; see
+  `docs/planning/v0.1/05-interfaces.md` §17).
+- MQTT reliability, persistence, offline queueing, ordering, multicast discovery, and
+  routing/federation capability claims, for the same proof (UNVERIFIED — not
+  independently checked against first-party MQTT specification/broker documentation
+  this pass; the multicast-discovery cell additionally carries a structural, unverified
+  observation about MQTT's broker-based client model; see
+  `docs/planning/v0.1/05-interfaces.md` §17).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
