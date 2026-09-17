@@ -4,7 +4,27 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A10: `docs/planning/v0.1/09-test-strategy.md` landed
+**Last updated:** 2026-09-17 (A11: `docs/planning/v0.1/10-stages.md` landed (issue #31) —
+the §8 stage-gate pipeline as seven stages (0-6), each with entry criteria, modules
+created or changed by name and responsibility (cited to
+`docs/planning/v0.1/07-repository-and-dependencies.md` §1-§5, not re-derived),
+prerequisite §5 decisions (cited to `docs/planning/v0.1/03-decisions-and-amendments.md`
+§1, with Stage 0 recorded as having none and Stage 1 as having two informative-only
+inputs), an executable demonstration, exit artifacts, numbered acceptance criteria, and a
+named go/no-go condition; the risk-first ordering rule stated normatively with its three
+consequences and the gate-failure-does-not-reorder rule; stage-exit gates named S0-S6 and
+distinguished from the five provider/transport gates G1-G5, whose pass/fail/fallback text
+stays owned by `docs/planning/v0.1/02-gating-findings.md`; per-spike timebox values
+(D1 3d, D2 4d, D3 3d, D4 3d, D5 2d, D6 2d alongside) decided as OAC's own scheduling
+parameters with a stated reversal condition, plus the five-step expiry rule (stop at the
+box, record as-is, write the honest verdict, never a plain `PASS` on an incomplete run,
+record the expiry in the gate file); the DESIGN acceptance-criteria-1-10-to-stage map
+with criteria 9 (lint) and 10 (doc proof, currently NOT MET) recorded as not
+runtime-tested; and the explicit no-ticket-decomposition statement citing
+`docs/planning/backlog/01-epics.json` and the four task files. No pin moved, no gate
+verdict changed, no new UNVERIFIED item added — the four items this file carries (the two
+C11 shim-boundary items, the E9 NATS/MQTT cells, the Zenoh-containment lint scope gap)
+were already open. A10: `docs/planning/v0.1/09-test-strategy.md` landed
 (issue #30) — the eight-tier test taxonomy (unit, spec conformance, contract
 adapter+transport, security, fake-harness integration, provider integration,
 end-to-end, cross-platform CLI smoke) with resilience decided as a named sub-row of the
@@ -102,7 +122,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2, A4, A5, A6, A7, A8, A9, A10 landed), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2, A4, A5, A6, A7, A8, A9, A10, A11 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
