@@ -136,20 +136,19 @@ model router").
   (`docs/planning/v0.1/02-gating-findings.md` §4); OAC's own identity layer
   (device key, session id) never substitutes for a provider login
   (`docs/planning/decisions/C4-session-identity.md`).
-- **Unsupported client impersonation.** OAC MUST NOT depend on UI/terminal
-  scraping or undocumented private RPCs for supported integrations
-  (`docs/planning/ADR-001.md` line 24); `docs/planning/DESIGN.md` line 15 names
-  this "unsupported client impersonation." Every provider surface OAC uses is
-  labelled supported/research preview/experimental/undocumented per
-  `.claude/skills/oac-evidence/SKILL.md` §4, and an "undocumented" label is
-  itself a finding, not a green light to proceed.
-- **UI/terminal scraping.** Same boundary clause as above, stated separately
-  because it is its own named MUST NOT
-  (`docs/planning/ADR-001.md` line 24): OAC never reads or writes a harness's
-  terminal UI to simulate a user.
-- **Undocumented private RPCs.** Same boundary clause, stated separately: OAC
-  never depends on an RPC surface a provider has not documented, for any
-  integration this project supports.
+- **Unsupported client impersonation.** OAC MUST NOT present itself as a client
+  identity a provider does not support, to reach a surface that provider does
+  not offer it — `docs/planning/DESIGN.md` line 15 names this its own non-goal,
+  distinct from the ADR-001 scraping/private-RPC clause below. Every provider
+  surface OAC uses is labelled supported/research preview/experimental/
+  undocumented per `.claude/skills/oac-evidence/SKILL.md` §4, and an
+  "undocumented" label is itself a finding, not a green light to proceed.
+- **UI/terminal scraping.** OAC MUST NOT depend on UI/terminal scraping for
+  supported integrations (`docs/planning/ADR-001.md` line 24): OAC never reads
+  or writes a harness's terminal UI to simulate a user.
+- **Undocumented private RPCs.** Same ADR-001 line 24 clause: OAC never depends
+  on an RPC surface a provider has not documented, for any integration this
+  project supports.
 - **Zenoh concepts in the neutral protocol.** OAC MUST NOT leak Zenoh-specific
   concepts into the neutral protocol (`docs/planning/ADR-001.md` line 24,
   restated in `docs/planning/DESIGN.md` line 35: "The specification MUST NOT
@@ -222,5 +221,7 @@ this file is the single place a reader checks for "is X deferred."
   credentials, scraping a UI, or polling an inbox from an adapter claiming
   active inbound.
 - All eight ADR-001-line-63 exclusions present (§1); all nine boundary/non-goal
-  items present (§2); all six package-level exclusions from the task breakdown
-  present (§3).
+  items present (§2); all seven package-level exclusions from the task
+  breakdown present (§3) — permission relay, manual key rotation, transitive
+  license sweep, C7 presence/discovery gap 1, C7 presence/discovery gap 2, ACP
+  forward-compat-only, Cursor design-proof-only, counted as separate items.

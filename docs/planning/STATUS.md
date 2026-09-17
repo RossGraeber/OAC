@@ -13,7 +13,7 @@ surface drift, R3 evidence/pin drift, R4 design-parameter/platform-runtime, R5
 low-impact/non-dependency); 21 risk rows, each with risk, what it invalidates,
 an early-warning signal, and a trigger-linked response citing the fallback
 already named in `02-gating-findings.md`/`10-stages.md` rather than
-re-deriving it; a closing traceability table disposing of all 28
+re-deriving it; a closing traceability table disposing of all 29
 `docs/planning/STATUS.md` "Open UNVERIFIED items" entries by risk id (none
 closed by evidence — no cited merged-package section carried first-party
 evidence closing any of the 28, per `oac-evidence` §5's "never silently
@@ -25,13 +25,14 @@ reversal condition; the nine `ADR-001.md`/`DESIGN.md` boundary items marked
 "boundary, not backlog" (model inference, model routing, agent
 planning/orchestration, shared context management, replacement provider auth,
 unsupported client impersonation, UI/terminal scraping, undocumented private
-RPCs, Zenoh concepts in the neutral protocol); six package-level v0.1
+RPCs, Zenoh concepts in the neutral protocol); seven package-level v0.1
 exclusions already decided elsewhere, indexed with their citing file
 (permission relay off by default, manual key rotation, transitive license
-sweep deferred to Stage 6, the two C7 presence/discovery gaps, ACP
-forward-compatibility-only, Cursor design-proof-only). No pin moved, no gate
-verdict changed, no UNVERIFIED item closed or added — all 28 items this file
-carries stay open, each now also carrying a risk id in `11-risks.md`. A11:
+sweep deferred to Stage 6, C7 presence/discovery gap 1, C7 presence/discovery
+gap 2, ACP forward-compatibility-only, Cursor design-proof-only). No pin
+moved, no gate verdict changed, no UNVERIFIED item closed or added — all 29
+items this file carries stay open, each now also carrying a risk id in
+`11-risks.md`. A11:
 `docs/planning/v0.1/10-stages.md` landed (issue #31) —
 the §8 stage-gate pipeline as seven stages (0-6), each with entry criteria, modules
 created or changed by name and responsibility (cited to

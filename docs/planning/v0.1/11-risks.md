@@ -33,7 +33,10 @@ a citation-source or pin-provenance gap.**
 - **R1 — gate-decided viability risks.** G1, G2, G3, G4, G5
   (`docs/planning/v0.1/02-gating-findings.md` §3-§7). Each gate's `NOT RUN`
   verdict decides a named leg of the ADR-001 validation criterion or a DESIGN
-  acceptance criterion outright; G1 and G5 have no fallback.
+  acceptance criterion outright; G1 and G5 have no fallback. The row order
+  within R1 below (G1, G2, G4, G3, G5) is presentation order, following
+  `02-gating-findings.md`'s own §3-§7 sequence — it is not itself a ranking;
+  both no-fallback gates (G1, G5) carry equal weight regardless of position.
 - **R2 — preview/experimental surface drift.** The Claude Code Channels research
   preview and the Codex experimental live-inject surface, including their
   unnamed compatibility-shim boundaries (conflict-register C11,
@@ -100,8 +103,12 @@ list.
   degrading the other, or the `rmcp` SDK does not register a legacy-era live
   channel at runtime (`docs/planning/STATUS.md` "Open UNVERIFIED items" —
   "`rmcp`-based OAC server ... registers as a channel").
-- **What it invalidates.** `docs/planning/DESIGN.md` acceptance criterion 9's
-  single-process assumption; Decision 3's dual-era element
+- **What it invalidates.** `docs/planning/DESIGN.md` acceptance criterion 1's
+  ("One-command local startup") single-process assumption — `docs/planning/
+  v0.1/02-gating-findings.md` §6 states G4 failure is "a failure of the
+  single-process design," naming no criterion; criterion 1 is the nearest
+  stated match, not criterion 9 (Zenoh containment, unrelated); Decision 3's
+  dual-era element
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 3); conflict-
   register row C5.
 - **Early-warning signal.** G4 spike (task D4) records a `FAIL` against any of
@@ -322,8 +329,8 @@ list.
   `docs/planning/PLANNING-PROMPT.md` §3.5 only, not independently re-confirmed.
 - **What it invalidates.** Nothing load-bearing — ACP is explicitly not a v0.1
   dependency (`docs/planning/v0.1/05-interfaces.md` §16).
-- **Early-warning signal.** None tracked before v0.1; low priority per
-  `docs/planning/STATUS.md`.
+- **Early-warning signal.** ACP is named as a dependency in a later milestone —
+  the trigger event the response below already implies.
 - **Response.** No action required before v0.1; re-confirm on
   agentclientprotocol.com only if ACP becomes a dependency in a later milestone
   (`docs/planning/STATUS.md` "Open UNVERIFIED items").
@@ -390,8 +397,8 @@ list.
   against first-party NATS documentation.
 - **What it invalidates.** Only `docs/planning/v0.1/05-interfaces.md` §17's NATS
   replacement-proof table cells — NATS is not a v0.1 dependency.
-- **Early-warning signal.** None tracked before v0.1; would matter only if NATS
-  became a second-transport candidate.
+- **Early-warning signal.** NATS is proposed as a second-transport candidate —
+  the trigger event the response below already implies.
 - **Response.** No action required for v0.1; check every claimed cell against
   first-party NATS specification/documentation before any NATS transport module
   is built (`docs/planning/v0.1/05-interfaces.md` §17).
@@ -405,19 +412,19 @@ list.
   Zenoh-style multicast-discovery primitive.
 - **What it invalidates.** Only `docs/planning/v0.1/05-interfaces.md` §17's MQTT
   replacement-proof table cells — MQTT is not a v0.1 dependency.
-- **Early-warning signal.** None tracked before v0.1; would matter only if MQTT
-  became a second-transport candidate.
+- **Early-warning signal.** MQTT is proposed as a second-transport candidate —
+  the trigger event the response below already implies.
 - **Response.** No action required for v0.1; check every claimed cell against
   first-party MQTT specification/broker documentation before any MQTT transport
   module is built (`docs/planning/v0.1/05-interfaces.md` §17).
 
 ## Traceability — every `docs/planning/STATUS.md` "Open UNVERIFIED items" entry
 
-Mechanical proof for issue #32's first acceptance box: all 28 entries in
+Mechanical proof for issue #32's first acceptance box: all 29 entries in
 `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list, disposed of here. None
 were closed by evidence found while writing this file (per `oac-evidence` §5,
 "never silently promoted" — closing an item requires a re-verification citation
-in the same change, and none of the 28 had one available). Every row below
+in the same change, and none of the 29 had one available). Every row below
 therefore carries a risk id, not a closing file+section; no blank cells.
 
 | # | STATUS.md item (short) | Disposition |
@@ -450,6 +457,7 @@ therefore carries a risk id, not a closing file+section; no blank cells.
 | 26 | 6-digit/120s/5-attempt pairing parameters | RISK-PAIRING |
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
+| 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 
