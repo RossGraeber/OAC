@@ -374,6 +374,11 @@ Statuses, defined once:
 - **RESOLVED-BY-DECISION** — an A-amendment in this file resolved the wording, and a
   separate, now-landed C-series decision document resolved the remainder; nothing left
   to decide.
+- **RESOLVED-IN-DECISION** — closed entirely by a separate, now-landed C-series
+  decision document, with no A-amendment in this file at all, because that document
+  found no `ADR-001.md` text needing correction. Distinct from `RESOLVED-BY-DECISION`
+  (which pairs an A-amendment here with a decision document) and from `RESOLVED-HERE`
+  (which points inside this file).
 - **ASSIGNED** — resolution is a named open task; the register entry closes when that
   task lands.
 
@@ -388,7 +393,7 @@ No row below is marked `RESOLVED` where the resolution is an unrun gate.
 | C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | ASSIGNED | gate G4 (`docs/planning/backlog` Epic D), spike task D4; decision tasks C2 (process model) and C3 (spec packaging) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3, both re-verified in `REVERIFICATION-B2.md` §3.1/§3.3 tables; `STATUS.md` G4 fallback "two entry points, one core" |
 | C6 | No Claude acknowledgement vs DESIGN `accepted` delivery state | ASSIGNED | backlog task C5 / PLANNING-PROMPT.md §5 decision 5 (receipt states defined by what is knowable: "accepted by adapter", "handed to harness", "unknown") | PLANNING-PROMPT.md §3.1, "Claude Code sends no acknowledgement; a resolved notification send means 'written to transport', not 'seen by the model'"; re-verified `REVERIFICATION-B2.md` §3.1 table row "No acknowledgement of delivery" — HOLDS |
 | C7 | ACP is client-owned-session, not a channel | RESOLVED-BY-EVIDENCE | `docs/planning/v0.1/01-capability-matrix.md` (Epic A task A2, not yet written) | `REVERIFICATION-B2.md` §3.5 row "C7 framing: ACP is client-owned-session, not a channel" — HOLDS. ACP is not a v0.1 dependency; ACP schema v2 "alpha" remains UNVERIFIED (`STATUS.md` open list) |
-| C8 | URI leaking device/harness vs no transport-concept leak | ASSIGNED | backlog task C4 (session identity, addressing, discovery, key storage decision) — opaque stable id plus a separate display form | `DESIGN.md` Addressing section; `ADR-001.md` Boundary (no Zenoh concepts in the neutral protocol) |
+| C8 | URI leaking device/harness vs no transport-concept leak | RESOLVED-IN-DECISION | `docs/planning/decisions/C4-session-identity.md` §8 (issue #17) — the display URI's device/harness components are OAC's own neutral vocabulary, not Zenoh concepts; the URI is display-only (never parsed for authorization, never a wire field, never a routing key); no `ADR-001.md` text needs correction, so no new numbered amendment is issued | `DESIGN.md` Addressing section; `ADR-001.md` Boundary (no Zenoh concepts in the neutral protocol) |
 | C9 | Codex has no channel-tag convention | ASSIGNED | backlog task C6 (provider-facing trust rendering and outbound symmetry decision) / PLANNING-PROMPT.md §5 decision 9 | PLANNING-PROMPT.md §3.2 turn/event model; §3.1 Claude correlation is convention-only via `meta` |
 | C10 | Permission relay lets any allowlisted sender approve tools | ASSIGNED (v0.1 default already fixed) | recording site `docs/planning/v0.1/06-security.md` (Epic A task A7) and backlog task C6 | PLANNING-PROMPT.md §3.1 `claude/channel/permission`, v2.1.234+; `REVERIFICATION-B2.md` re-confirmed the `>= v2.1.234` floor is satisfied at `v2.1.274` (`PINS.md` Claude Code Channels pin record); PLANNING-PROMPT.md §5 decision 8 and §7 already fix the v0.1 default: permission relay **off by default in v0.1** |
 

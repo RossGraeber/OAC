@@ -4,8 +4,12 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (C2: process model/local IPC/CLI surface/config model
-decision landed, see `docs/planning/decisions/C2-process-model.md`; C1:
+**Last updated:** 2026-09-17 (C4: session identity/addressing/discovery/key storage
+decision landed, see `docs/planning/decisions/C4-session-identity.md`; C3: spec
+packaging/MCP extension identifier decision landed, see
+`docs/planning/decisions/C3-spec-packaging.md`; C2: process model/local IPC/CLI
+surface/config model decision landed, see
+`docs/planning/decisions/C2-process-model.md`; C1:
 language/runtime/packaging/dependency-inventory decision landed, see
 `docs/planning/decisions/C1-language-runtime.md`; Rust MCP SDK (`rmcp`) pin added; B4:
 gate re-run policy and evidence store; B3: conflict register resolved, ADR-001
@@ -23,9 +27,13 @@ amendments A1-A3 issued)
 ## ADR amendments
 
 ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`. Resolves
-conflict register entries C1-C3 directly (`RESOLVED-HERE`); C4-C10 assigned or
+conflict register entries C1-C3 directly (`RESOLVED-HERE`); C4-C7, C9, C10 assigned or
 resolved-by-evidence per that file's conflict register table; new entries C11-C12 added,
-both open (see below). `docs/planning/ADR-001.md` carries a one-line pointer to the
+both open (see below). C8 is closed separately, by `docs/planning/decisions/
+C4-session-identity.md` §8 (issue #17), with status `RESOLVED-IN-DECISION` — no A-
+amendment, because that document found no `ADR-001.md` text needing correction; see
+that file's conflict-register legend for how `RESOLVED-IN-DECISION` differs from
+`RESOLVED-HERE`. `docs/planning/ADR-001.md` carries a one-line pointer to the
 amendments file; its body text is unchanged.
 
 ## Gate verdicts
@@ -83,6 +91,18 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   `docs/planning/decisions/C3-spec-packaging.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.
+- **C4 — session identity, addressing, discovery, key storage** (issue #17): decided.
+  Four-layer identity model (device key, opaque stable session id, display-only URI,
+  human alias — only the device key and opaque id carry authority); Claude `session_id`
+  and Codex `thread.id` capture paths stated per harness; Claude resume treated as a new
+  OAC session id unless a registration is observed, Codex resume MAY re-bind the same
+  id through the daemon's own authoritative client; display URI form
+  `session://<device>/<harness>/<id>` resolves conflict C8 (`RESOLVED-IN-DECISION`); key
+  storage `keyring` `4.2.0` (per-platform backends) plus `age` `0.12.1` encrypted-file
+  fallback. Full decision and evidence:
+  `docs/planning/decisions/C4-session-identity.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
 
 ## Open conflicts (oac-evidence §6)
 
@@ -106,7 +126,11 @@ states or that are inferred/stale). Closed when the named resolution lands.
   research-preview surface and the Codex experimental live-inject surface is UNNAMED
   (register entry restating the two shim-boundary rows in "Open UNVERIFIED items"
   above; see `ADR-001-AMENDMENTS.md` "New register entries"). Owner: a C-series decision
-  or a DESIGN.md update.
+  or a DESIGN.md update. **Narrowed, not closed, by C4** (issue #17): harness-native-id
+  capture is fixed as daemon-owned-only, reached only via the hook/JSON-RPC surfaces
+  named in `docs/planning/decisions/C4-session-identity.md` §3/§4, over C2's local IPC —
+  the module name/path itself is still unnamed and stays owned by the Epic F/G adapter
+  implementation tasks (see C4 §16).
 - C12: `DESIGN.md` still carries the retired names (`sessionchannels`, "Session
   Channels", "MCP Session Channels extension") after ADR-001-A1 (exact sites listed in
   `ADR-001-AMENDMENTS.md` "Carried to later tasks"). Owner: Epic A task A9 plus a
@@ -193,6 +217,11 @@ without an UNVERIFIED label.
   peer-credential accessor (UNVERIFIED — not surfaced in the fetched crate docs; the
   daemon is expected to call the raw OS API directly instead; see
   `docs/planning/decisions/C2-process-model.md` §4, §10).
+- Whether Codex's `thread` object's `sessionId` field always equals `thread.id`, or
+  denotes something distinct in some other case (UNVERIFIED — only one worked example
+  observed at https://learn.chatgpt.com/docs/app-server, retrieved 2026-09-17; not
+  relied on by any C4 decision; see `docs/planning/decisions/C4-session-identity.md`
+  §4).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
