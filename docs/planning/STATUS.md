@@ -4,7 +4,7 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-16 (B2: baseline re-verified)
+**Last updated:** 2026-09-16 (B3: conflict register resolved, ADR-001 amendments A1-A3 issued)
 
 ## Current stage
 
@@ -14,6 +14,14 @@ verdict, or when a pin moves.
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
 | Open epics | A (planning package), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
+
+## ADR amendments
+
+ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`. Resolves
+conflict register entries C1-C3 directly (`RESOLVED-HERE`); C4-C10 assigned or
+resolved-by-evidence per that file's conflict register table; new entries C11-C12 added,
+both open (see below). `docs/planning/ADR-001.md` carries a one-line pointer to the
+amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
@@ -90,6 +98,15 @@ without an UNVERIFIED label.
   client capability, not the `2026-07-28` schema itself, and Claude Code does not
   register a channel server negotiating `2026-07-28`; see REVERIFICATION-B2.md §3.3
   table and "Carried to 11-risks.md" item 13).
+- C11: the named compatibility shim boundary for the Claude Code Channels
+  research-preview surface and the Codex experimental live-inject surface is UNNAMED
+  (same item as the two shim-boundary rows above, restated as a register entry in B3; see
+  `ADR-001-AMENDMENTS.md` "New register entries"). Owner: a C-series decision or a
+  DESIGN.md update.
+- C12: `DESIGN.md` still carries the retired names (`sessionchannels`, "Session
+  Channels", "MCP Session Channels extension") after ADR-001-A1 (see
+  `ADR-001-AMENDMENTS.md` "Carried to later tasks"). Owner: Epic A task A9 plus a
+  DESIGN.md follow-up edit.
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
