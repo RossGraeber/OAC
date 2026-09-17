@@ -4,8 +4,10 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (C6: provider-facing trust rendering/outbound symmetry
-decision landed, see `docs/planning/decisions/C6-trust-rendering.md`; C5: envelope
+**Last updated:** 2026-09-17 (C7: Zenoh transport mapping and containment boundary
+decision landed, see `docs/planning/decisions/C7-zenoh-transport.md`; C6: provider-facing
+trust rendering/outbound symmetry decision landed, see
+`docs/planning/decisions/C6-trust-rendering.md`; C5: envelope
 authenticity/replay/pairing/authorization decision landed, see
 `docs/planning/decisions/C5-envelope-auth.md`; C4: session
 identity/addressing/discovery/key storage decision landed, see
@@ -146,6 +148,20 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   thread-id/turn-id binding, and an explicit inferred/uncorrelated downgrade rather than
   silent attribution — resolving conflict C9 (`RESOLVED-IN-DECISION`). Full decision and
   evidence: `docs/planning/decisions/C6-trust-rendering.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
+- **C7 — Zenoh transport mapping and containment boundary** (issue #20): decided. Key
+  expressions are a one-way hash of the opaque session id, computed only inside
+  `transports/zenoh/`, never guessable and never on the wire in reverse; presence maps
+  to liveliness tokens plus history-capable liveliness subscribers (stable API, no
+  polling); local mode binds `127.0.0.1`, runs no `zenohd`, leaves multicast scouting on
+  by default (pinned `1.10.1` satisfies the `>= 1.10.0` loopback-discovery floor), with
+  the G3 fixed-rendezvous-endpoint fallback as the named reversal path; LAN mode defaults
+  to TLS (QUIC named as the alternative) with C5 §10(b)'s pairing-issued certificates;
+  ACL subjects are certificate common name or username only, never `zid`, finalizing
+  C5 §12's deferred key-expression scoping/profile-split/issuance-wiring; only the
+  stable `zenoh`/`zenoh-ext` surface is used, no `unstable` feature. Full decision and
+  evidence: `docs/planning/decisions/C7-zenoh-transport.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.
 
