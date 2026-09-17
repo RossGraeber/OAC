@@ -4,7 +4,13 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A4: `docs/planning/v0.1/03-decisions-and-amendments.md`
+**Last updated:** 2026-09-17 (A5: `docs/planning/v0.1/04-architecture.md` landed
+(issue #22) — components and responsibilities table, the four things the daemon owns
+(cited to C2 §1), the process-boundary diagram (key material/transport peer location),
+per-provider inbound/outbound flows drawn separately for Claude and Codex, local and LAN
+deployment topologies, rejected alternatives, and the boundary/evidence self-checks; no
+pin moved, no gate verdict changed, no new UNVERIFIED item added. A4:
+`docs/planning/v0.1/03-decisions-and-amendments.md`
 landed (issue #21) — all twelve §5 decisions assembled and cited (decision 3's dual-era
 sub-element gate-decided at G4, not deferred), ADR-001-A1-A3 reproduced verbatim from the
 amendments ledger, the C1-C10 conflict register and open C11-C12 entries reproduced;
@@ -36,7 +42,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2, A4 landed), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2, A4, A5 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
