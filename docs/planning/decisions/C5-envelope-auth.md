@@ -154,10 +154,12 @@ whitespace must sign identically, or verification breaks on any re-serialization
   crate, not an abandoned one. Source:
   https://crates.io/api/v1/crates/serde_jcs/0.2.0, retrieved 2026-09-17.
 - API surface, quoted from the crate's own docs: top-level description "JSON
-  Canonicalization Scheme (JCS)"; three public functions, `to_string` ("Serializes
-  values as a JSON string"), `to_vec` ("Serializes values as JSON bytes"), `to_writer`
-  ("Serializes values as JSON to an IO stream"), "all three implement the JSON
-  Canonicalization Scheme as defined in RFC 8785." Source:
+  Canonicalization Scheme (JCS)"; three public functions, `to_string` ("Serialize the
+  given value as a String of JSON."), `to_vec` ("Serialize the given value as a JSON
+  byte vector."), `to_writer` ("Serialize the given value as JSON into the IO
+  stream."); the page's References section links RFC 8785, which the crate implements
+  (function names verbatim; the RFC-8785-implements relationship is the page's own
+  References link, not quoted description text). Source:
   https://docs.rs/serde_jcs/0.2.0/serde_jcs/, retrieved 2026-09-17. OAC's signing/
   verification code calls `serde_jcs::to_vec` on the signed field set (§5) to produce
   the exact byte string that is signed and verified.
@@ -171,7 +173,7 @@ whitespace must sign identically, or verification breaks on any re-serialization
 `https://github.com/enarx/ciborium`, per
 https://crates.io/api/v1/crates/ciborium, retrieved 2026-09-17) is a viable
 alternative, but OAC's envelope is already JSON on the wire (DESIGN.md's "Preliminary
-message envelope," `docs/planning/DESIGN.md` lines 72-91) — JCS canonicalizes the exact
+message envelope," `docs/planning/DESIGN.md` lines 72-92) — JCS canonicalizes the exact
 representation already transmitted, so no second serialization format needs to exist
 alongside the wire format. Deterministic CBOR would require either (a) transmitting CBOR
 on the wire instead of JSON (a larger change than this decision's scope), or (b)
@@ -191,7 +193,7 @@ domain_separated_bytes = b"oac-envelope-v1" || 0x00 || jcs_bytes
 
 where `jcs_bytes = serde_jcs::to_vec(signed_field_set)` (§5) and the fixed context
 string `oac-envelope-v1` encodes both a fixed OAC-specific context tag and the envelope
-version (`"version": "0.1"` in the envelope today, per DESIGN.md line 74 — the domain
+version (`"version": "0.1"` in the envelope today, per DESIGN.md line 75 — the domain
 string's own trailing version segment is bumped only when the *signed field set itself*
 changes shape, not on every envelope schema tweak, exactly the way a protocol version
 number is bumped for wire-breaking changes elsewhere in OAC). A single `0x00` byte
@@ -253,7 +255,7 @@ federation-adjacent machinery are deferred for the same reason — see §14).
 
 ## 5. Signed field set
 
-The DESIGN envelope (`docs/planning/DESIGN.md` lines 72-91):
+The DESIGN envelope (`docs/planning/DESIGN.md` lines 72-92):
 
 ```json
 {
@@ -319,7 +321,7 @@ runs in reverse onto the signed wire form.
 
 ## 6. Signature is normative — resolves C4
 
-**Replacement text for `docs/planning/DESIGN.md` lines 85-87** (the `security` block),
+**Replacement text for `docs/planning/DESIGN.md` lines 85-90** (the `security` block),
 to replace the current:
 
 ```json
@@ -340,7 +342,7 @@ with:
   }
 ```
 
-and DESIGN.md's line 91 sentence ("Trusted security metadata must be distinguishable
+and DESIGN.md's line 99 sentence ("Trusted security metadata must be distinguishable
 from user/model-controlled content") is unchanged — this decision does not touch it,
 only the `security` block's shape and the `signature` field's prior placeholder value.
 
@@ -375,7 +377,7 @@ for the reason above, and is not issued by this document.
 
 **Accept-window on `created_at`: ±300 seconds (5 minutes) of the verifying daemon's own
 clock.** Justified against the envelope's existing `ttl_ms: 300000` default
-(`docs/planning/DESIGN.md` line 82) — 300000 ms is exactly 300 seconds, so the replay
+(`docs/planning/DESIGN.md` line 83) — 300000 ms is exactly 300 seconds, so the replay
 accept-window is set equal to the envelope's own default TTL: an envelope outside its
 own stated validity window is, by the envelope's own semantics, no longer something the
 sender considers current, and accepting it past that point would mean OAC enforcing a
@@ -396,7 +398,7 @@ sending and receiving devices, not to extend the sender's own intended validity 
 
 **Outside the window: reject as `expired`.** An envelope whose `created_at` falls
 outside the accept-window is rejected using DESIGN's existing `expired` delivery state
-(`docs/planning/DESIGN.md` line 90's list: `accepted`, `rejected`, `unreachable`,
+(`docs/planning/DESIGN.md` line 108's list: `accepted`, `rejected`, `unreachable`,
 `expired`, `duplicate`, `failed`) — no new delivery state is invented for this case.
 
 **Nonce.** Size: **128 bits (16 bytes) from the OS CSPRNG**, matching
@@ -418,7 +420,7 @@ envelopes with the same `id` but different `(key_id, nonce)` pairs (for example,
 sender that reuses `id` values by mistake) are treated as **distinct** envelopes by the
 duplicate-suppression store (§8); two envelopes with the same `(key_id, nonce)` pair are
 the same envelope, regardless of `id`, and the second is suppressed and reported via the
-existing `duplicate` delivery state (DESIGN.md line 90).
+existing `duplicate` delivery state (DESIGN.md line 108).
 
 ## 8. Duplicate-suppression store
 
@@ -467,7 +469,7 @@ recaptured and replayed by an attacker in the first place (a stronger transport-
 property this decision does not assume).
 
 **Exactly-once is not promised — stated per DESIGN's own "Delivery semantics."**
-Quoted: `docs/planning/DESIGN.md` line 89, "Do not promise exactly-once delivery. Use
+Quoted: `docs/planning/DESIGN.md` line 108, "Do not promise exactly-once delivery. Use
 unique IDs, idempotency, and duplicate suppression." This decision's dedup store is
 exactly the "duplicate suppression" DESIGN already names — it suppresses observed
 duplicates and reports them via the existing `duplicate` state; it does not, and cannot,
@@ -491,7 +493,7 @@ by the cold-restart paragraph above).
 ## 9. `DeliveryReceipt` states — resolves C6
 
 **DESIGN's list, quoted:** `accepted`, `rejected`, `unreachable`, `expired`,
-`duplicate`, `failed` (`docs/planning/DESIGN.md` line 89).
+`duplicate`, `failed` (`docs/planning/DESIGN.md` line 108).
 
 **The knowable states this decision maps onto that list, at minimum:**
 
@@ -566,6 +568,17 @@ harness). No pairing code, no exchanged secret, and no user-visible confirmation
 needed for this flow — it falls entirely out of C2's local-IPC peer-authentication
 design, applied here rather than re-derived.
 
+**This is not a substitute for, and does not touch, the Claude-side consent step.**
+`--dangerously-load-development-channels` (verbatim flag, `oac-security-work` §2: "the
+only user consent step on the Claude side until OAC is on an allowlist; the plan must
+not weaken it") is a separate, provider-side interactive confirmation that a Claude Code
+user grants when loading a development channel at all — it happens before any OAC
+pairing flow runs and gates whether Claude Code loads the channel surface in the first
+place. This section's zero-config local-IPC peer authentication answers a different
+question ("is this connecting process the same OS user as the daemon?"); it neither
+stands in for nor pre-answers that flag's confirmation. Nothing in this decision
+automates past, suppresses, or pre-answers `--dangerously-load-development-channels`.
+
 ### (b) Two devices on a LAN — short code, the chosen default
 
 **Chosen: a short numeric code**, over the file-exchange alternative, because a spoken
@@ -574,16 +587,29 @@ LAN pairing scenario by definition has two devices that may share nothing but ne
 reachability) and matches the "no manual certificate management" requirement DESIGN.md's
 Security section already states for local/LAN mode ("LAN/remote mode requires
 authenticated encryption and explicit pairing/trust establishment," `docs/planning/
-DESIGN.md` line 107) — a short code read aloud or typed by the person pairing the two
+DESIGN.md` line 115) — a short code read aloud or typed by the person pairing the two
 devices is the lowest-friction "explicit" step available.
 
 - **What the code authenticates.** Not the devices' identities directly — it
   authenticates an **exchange of device public keys** (§4's per-device Ed25519 public
   key). Each device computes a fingerprint of the other device's advertised public key
-  (a truncated hash — SHA-256 truncated to a fixed length, exact truncation length a
-  Stage 3 implementation detail this decision does not fix) and the short code is
-  derived from, and must match, both devices' independently-computed fingerprints of
-  each other's key.
+  (a truncated hash — SHA-256 truncated to a fixed length) and the short code is derived
+  from, and must match, both devices' independently-computed fingerprints of each
+  other's key.
+- **Minimum floor on the truncation length — fixed here, not deferred.** The
+  fingerprint carries three security-load-bearing roles: the pairing short code's
+  binding and MITM defeat (this section), the Zenoh TLS/QUIC certificate common name
+  (§12), and the envelope's `security.key_id` (§5-§6). The MITM argument below holds
+  only if an attacker cannot find a second public key whose truncated fingerprint
+  collides with the legitimate key's — a second-preimage/collision-resistance property
+  that a short enough truncation would silently break. **The truncated fingerprint MUST
+  be at least 128 bits (16 bytes) of the SHA-256 output** — the same 128-bit floor this
+  decision already uses for the replay nonce (§7) as OAC's standing minimum for a
+  security-load-bearing random or hash-derived value, chosen because 128 bits of a
+  cryptographic hash keeps both preimage and collision resistance well beyond any
+  practical attack budget. The exact truncation length *at or above* this floor (e.g.
+  128 bits exactly vs. a longer value for display or protocol convenience) remains a
+  Stage 3 implementation detail; the floor itself is not.
 - **Length and entropy.** **6 decimal digits (000000-999999), ~19.9 bits of entropy**
   (`log2(1,000,000) ≈ 19.93`). Chosen as the same order of magnitude widely used for
   short-lived, rate-limited pairing/verification codes (the same shape as a TOTP code or
@@ -885,11 +911,13 @@ one place):
   would only matter for predicting *future* MSRV bumps, which §15 already treats as an
   open reversal condition regardless).
 - The exact byte-truncation length for the device-key-fingerprint hash used in the LAN
-  pairing flow (§10) and in Zenoh certificate common names (§12) is not fixed by this
-  document (UNVERIFIED — deliberately left as a Stage 3 implementation detail; the
-  fingerprint mechanism's existence and role are fixed here, its exact byte length is
-  not, matching the same granularity `docs/planning/decisions/C2-process-model.md` §7
-  already leaves the config-directory-resolution crate open at).
+  pairing flow (§10) and in Zenoh certificate common names (§12), above the 128-bit
+  minimum floor §10(b) fixes, is not pinned to a single value by this document
+  (UNVERIFIED — deliberately left as a Stage 3 implementation detail above the floor;
+  the fingerprint mechanism's existence, role, and minimum collision-resistant length
+  are fixed here, the exact length above that floor is not, matching the same
+  granularity `docs/planning/decisions/C2-process-model.md` §7 already leaves the
+  config-directory-resolution crate open at).
 - Whether the 6-digit/120-second/5-attempt LAN pairing-code parameters (§10) hold up
   against a live implementation's actual network conditions (code-display latency,
   clock sync between the two devices for the 120s window) has not been exercised
@@ -917,7 +945,7 @@ Per issue #18's seven acceptance boxes (backlog task C5,
 - [x] Replay window, nonce handling, and duplicate-suppression store defined;
       exactly-once is not promised — §7 (±300s window, 128-bit nonce, `(key_id, nonce)`
       dedup key), §8 (in-memory per-device store, eviction, cold-restart honesty,
-      exactly-once disclaimer quoting DESIGN.md line 89).
+      exactly-once disclaimer quoting DESIGN.md line 108).
 - [x] Receipt states distinguish 'accepted by adapter', 'handed to harness', and
       'unknown' honestly, given that Claude Code sends no acknowledgement (resolves C6)
       — §9 (the three-state table, per-provider observability, C6 conflict-register
@@ -954,7 +982,7 @@ Per issue #18's seven acceptance boxes (backlog task C5,
   "Last updated"; add the four new UNVERIFIED items from §16 to "Open UNVERIFIED items";
   add the two new pin rows (above) to the "## Pins" summary table.
 - `docs/planning/DESIGN.md`: the `security` block replacement text from §6 (lines
-  85-87) — tracked as this document's own direct follow-up edit, not deferred to a
+  85-90) — tracked as this document's own direct follow-up edit, not deferred to a
   later Epic A task the way C1's/C4's naming-only DESIGN.md sites are (register entry
   C12) — because unlike C12's pure renames, this is the actual conflict C4 names
   (`security.signature: "implementation-defined"`) and leaving it unedited would mean

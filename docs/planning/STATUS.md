@@ -255,9 +255,9 @@ without an UNVERIFIED label.
   field this decision actually relies on is confirmed; see
   `docs/planning/decisions/C5-envelope-auth.md` §2, §16).
 - The exact byte-truncation length for the device-key-fingerprint hash used in LAN
-  pairing and Zenoh certificate common names (UNVERIFIED — deliberately left as a Stage
-  3 implementation detail; see `docs/planning/decisions/C5-envelope-auth.md` §10, §12,
-  §16).
+  pairing and Zenoh certificate common names, above the 128-bit minimum floor C5 §10(b)
+  fixes (UNVERIFIED — deliberately left as a Stage 3 implementation detail above that
+  floor; see `docs/planning/decisions/C5-envelope-auth.md` §10, §12, §16).
 - Whether the 6-digit/120-second/5-attempt LAN pairing-code parameters hold up against a
   live implementation's actual network conditions (UNVERIFIED — these are OAC's own
   design parameters, not a claim about an external system; runtime validation is a Stage
