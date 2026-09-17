@@ -34,8 +34,9 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-17 (C1: added Rust MCP SDK (`rmcp`) pin row; pin-move
-checklist executed in the same commit, see `docs/planning/decisions/C1-language-runtime.md`)
+**Last updated:** 2026-09-17 (C1: added Rust MCP SDK (`rmcp`) and `keyring` pin rows;
+pin-move checklist executed in the same commit, see
+`docs/planning/decisions/C1-language-runtime.md`)
 
 ## Pin table
 
@@ -46,6 +47,7 @@ checklist executed in the same commit, see `docs/planning/decisions/C1-language-
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
+| `keyring` (credential store) | supported | `4.2.0` | 2026-08-29 | https://crates.io/crates/keyring; https://raw.githubusercontent.com/open-source-cooperative/keyring-rs/v4.2.0/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
@@ -212,6 +214,30 @@ semver, and are recorded verbatim — never reformatted.
 - Gates affected: **G4** (dual-era server — this is the SDK the server is built on),
   **G1** (Claude wake — Claude Code requires `MCP_PROTOCOL_NEGOTIATION=legacy`, i.e. a
   server that can negotiate `2025-11-25`).
+
+### `keyring` (credential store)
+
+- Surface label: **supported** — general-purpose, actively maintained OS-credential
+  crate, not a preview/experimental provider surface.
+- Pinned crate version: `4.2.0`. Source: https://crates.io/crates/keyring, retrieved
+  2026-09-17.
+- Release date: 2026-08-29. Source: crates.io publish metadata for `keyring` `4.2.0`,
+  retrieved 2026-09-17.
+- License: MIT OR Apache-2.0. Source:
+  https://raw.githubusercontent.com/open-source-cooperative/keyring-rs/v4.2.0/Cargo.toml,
+  `license = "MIT OR Apache-2.0"`, retrieved 2026-09-17.
+- Windows Credential Manager backend: `windows-native-keyring-store` (crate `1.1.0`,
+  MIT OR Apache-2.0) is the optional dependency crate `keyring`'s `v1`/default feature
+  pulls in on `cfg(windows)`. Source:
+  https://raw.githubusercontent.com/open-source-cooperative/keyring-rs/v4.2.0/Cargo.toml
+  and https://crates.io/api/v1/crates/windows-native-keyring-store, retrieved
+  2026-09-17. Full analysis: `docs/planning/decisions/C1-language-runtime.md` §8.
+- **Gates affected: none directly** — `keyring` is an implementation dependency
+  (Stage 3+ credential-store crate for OAC's own device keys), not a gate-spike
+  dependency the way `rmcp`/Codex crates/Zenoh are. It is load-bearing for the
+  reversal condition's Windows half (§12 of the C1 decision) and for the §9 packaging
+  conclusion in that same file, so a version bump here still requires re-checking
+  that reversal test even though no `G<n>-result.md` verdict is invalidated by it.
 
 ### Zenoh
 

@@ -159,23 +159,40 @@ retrieved 2026-09-17:
   retrieved 2026-09-17): `codex-app-server-client`, `codex-app-server-protocol`,
   `codex-app-server-transport`. Each inherits `version`/`license` from the workspace via
   `{ workspace = true }` — same Apache-2.0 license as the workspace.
-- **crates.io publication check:** `https://crates.io/api/v1/crates/app-server-protocol`
-  returns HTTP 404 (retrieved 2026-09-17) — **not published to crates.io.** These are
-  **workspace members consumed only as a git dependency**
-  (`{ git = "https://github.com/openai/codex", rev = "6b9826e..." }` in `Cargo.toml`),
-  not a registry package.
+- **crates.io publication check, re-run against all three package names (corrected
+  2026-09-17 — the original check queried the directory name
+  `app-server-protocol`, not the package name):**
+  - `https://crates.io/api/v1/crates/codex-app-server-protocol` returns HTTP 200
+    (retrieved 2026-09-17) — **this crate IS published on crates.io.**
+    `max_stable_version` is `0.63.0`, license `Apache-2.0` — **stale** against the
+    pinned workspace version `0.154.0` @ commit
+    `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (§ above).
+  - `https://crates.io/api/v1/crates/codex-app-server-client` returns HTTP 404
+    (retrieved 2026-09-17) — not published to crates.io.
+  - `https://crates.io/api/v1/crates/codex-app-server-transport` returns HTTP 404
+    (retrieved 2026-09-17) — not published to crates.io.
+  - These are **workspace members consumed only as a git dependency**
+    (`{ git = "https://github.com/openai/codex", rev = "6b9826e..." }` in
+    `Cargo.toml`), not a registry dependency — but for
+    `codex-app-server-protocol` this is because the published `0.63.0` is stale
+    relative to the pinned `0.154.0`, not because the crate is absent from
+    crates.io. For `codex-app-server-client` and `codex-app-server-transport` it
+    is because they genuinely do not exist on crates.io at any version.
 
-**Packaging consequence, stated explicitly (acceptance requirement):** a git dependency
-pinned by commit SHA is reproducible (the exact `rev` is fixed, same as a registry
-pin) but has different consequences than a crates.io dependency for a static/self-
-contained binary build: (a) `cargo vendor`/offline builds must vendor the git tree, not
-just a registry tarball; (b) `Cargo.lock` records the git commit, so CI must have network
-access to `github.com` (or a vendored mirror) at first build/lockfile-refresh time, not
-just to `crates.io`; (c) license/version metadata for these three crates will not appear
-in a `crates.io`-only license-inventory sweep (relevant to §9's transitive-license
-method) — they must be swept from the vendored git source directly. None of this blocks
-the choice; it is recorded because the acceptance box requires stating which packaging
-path applies.
+**Packaging consequence, stated explicitly (acceptance requirement), re-derived from
+version staleness rather than from non-publication:** a git dependency pinned by commit
+SHA is reproducible (the exact `rev` is fixed, same as a registry pin) but has different
+consequences than a crates.io dependency for a static/self-contained binary build: (a)
+`cargo vendor`/offline builds must vendor the git tree, not just a registry tarball; (b)
+`Cargo.lock` records the git commit, so CI must have network access to `github.com` (or a
+vendored mirror) at first build/lockfile-refresh time, not just to `crates.io`; (c)
+license/version metadata for all three crates will not appear in a `crates.io`-only
+license-inventory sweep (relevant to §9's transitive-license method) — for
+`codex-app-server-client` and `codex-app-server-transport` there is no crates.io entry
+at all to sweep; for `codex-app-server-protocol` a `crates.io`-only sweep would find the
+stale, wrong `0.63.0` metadata instead of the pinned `0.154.0` — either way, all three
+must be swept from the vendored git source directly. None of this blocks the choice; it
+is recorded because the acceptance box requires stating which packaging path applies.
 
 ## 7. Zenoh: license election
 
@@ -198,18 +215,27 @@ current maintaining organization).
 - Release date: **2026-08-29**. Source: crates.io publish metadata for `keyring`
   `4.2.0`, retrieved 2026-09-17.
 - License: **MIT OR Apache-2.0**. Source:
-  https://raw.githubusercontent.com/hwchen/keyring-rs/master/Cargo.toml,
-  `license = "MIT OR Apache-2.0"`, retrieved 2026-09-17.
-- Per-platform backend support, confirmed from the crate's own `Cargo.toml` feature
-  flags (same source, retrieved 2026-09-17):
-  - Windows: `windows-native-keyring-store` — Windows Credential Manager.
-  - macOS: `apple-native-keyring-store` — macOS/iOS Keychain.
-  - Linux: `zbus-secret-service-keyring-store` / `dbus-secret-service-keyring-store` —
-    Secret Service over D-Bus (two client implementations of the same backend); also
+  https://raw.githubusercontent.com/open-source-cooperative/keyring-rs/v4.2.0/Cargo.toml,
+  `license = "MIT OR Apache-2.0"`, `version = "4.2.0"`, retrieved 2026-09-17.
+- Per-platform backend support, confirmed from the crate's own `Cargo.toml` (same
+  source, retrieved 2026-09-17). At `4.2.0`, `[features]` declares only `default`
+  (= `["v1"]`), `v1`, and `cli` — the per-platform names below are **not** `[features]`
+  entries; each is an **optional dependency crate**, declared under its own
+  `[target.'cfg(...)'.dependencies]` section, that becomes usable as an implicit
+  feature of the same name:
+  - Windows (`[target.'cfg(windows)'.dependencies]`): `windows-native-keyring-store` —
+    Windows Credential Manager.
+  - macOS/iOS (`[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]`):
+    `apple-native-keyring-store` — macOS/iOS Keychain.
+  - Linux/Unix (`[target.'cfg(...)'.dependencies]`, non-Apple/Android Unix):
+    `zbus-secret-service-keyring-store` / `dbus-secret-service-keyring-store` — Secret
+    Service over D-Bus (two client implementations of the same backend); Linux-only:
     `linux-keyutils-keyring-store` — the Linux kernel keyutils backend, which does not
     talk to D-Bus at all.
-  - The `v1` feature (default-adjacent, cross-platform) bundles Apple, Windows-native,
-    and zbus Secret Service support together.
+  - The `v1` feature (declared as `["apple-native-keyring-store/keychain",
+    "windows-native-keyring-store", "zbus-secret-service-keyring-store"]`, and the
+    default via `default = ["v1"]`) bundles Apple, Windows-native, and zbus Secret
+    Service support together.
 
 **This closes the second half of the reversal condition's falsifiable test for
 Windows:** Windows Credential Manager access is a named, verified backend
@@ -288,11 +314,13 @@ named dependencies this decision selects.
 | Crate | Version | License | Why needed | Copyleft? | Apache-2.0 compatible? |
 |---|---|---|---|---|---|
 | `rmcp` | `3.4.0` | Apache-2.0 | Rust MCP SDK — server/client protocol implementation for the OAC Session Channels MCP packaging layer (§3) | No | Yes — same license |
-| `codex-app-server-client` (dir `app-server-client`) | `0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (git dep, not on crates.io) | Apache-2.0 | Codex app-server JSON-RPC client — Codex adapter transport | No | Yes — same license |
-| `codex-app-server-protocol` (dir `app-server-protocol`) | `0.154.0` @ same commit (git dep) | Apache-2.0 | Codex app-server request/response/schema types | No | Yes — same license |
-| `codex-app-server-transport` (dir `app-server-transport`) | `0.154.0` @ same commit (git dep) | Apache-2.0 | Codex app-server transport framing | No | Yes — same license |
+| `codex-app-server-client` (dir `app-server-client`) | `0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (git dep — not on crates.io at any version) | Apache-2.0 | Codex app-server JSON-RPC client — Codex adapter transport | No | Yes — same license |
+| `codex-app-server-protocol` (dir `app-server-protocol`) | `0.154.0` @ same commit (git dep — crates.io has this crate but only at stale `0.63.0`) | Apache-2.0 | Codex app-server request/response/schema types | No | Yes — same license |
+| `codex-app-server-transport` (dir `app-server-transport`) | `0.154.0` @ same commit (git dep — not on crates.io at any version) | Apache-2.0 | Codex app-server transport framing | No | Yes — same license |
 | `zenoh` | `1.10.1` | EPL-2.0 / Apache-2.0 (dual) | Reference peer-to-peer transport plugin (§Zenoh transport, ADR-001) | **Yes — EPL-2.0 is the other arm of the dual license; flagged** | Yes — **OAC elects the Apache-2.0 arm** (§7); the EPL-2.0 arm is not used |
-| `keyring` | `4.2.0` | MIT OR Apache-2.0 | OS-native credential store for OAC's own device keys (Windows Credential Manager / macOS Keychain / Linux Secret Service or keyutils) — identity hierarchy in ADR-001's Security model | No | Yes — OAC elects the Apache-2.0 arm |
+| `keyring` | `4.2.0` | MIT OR Apache-2.0 | OS-native credential store facade for OAC's own device keys (Windows Credential Manager / macOS Keychain / Linux Secret Service or keyutils) — identity hierarchy in ADR-001's Security model | No | Yes — OAC elects the Apache-2.0 arm |
+| `keyring-core` | `1.0.0` | MIT OR Apache-2.0 | `keyring`'s only unconditional dependency — the trait/error surface the backend crates implement. Source: https://crates.io/api/v1/crates/keyring-core, retrieved 2026-09-17. | No | Yes |
+| `windows-native-keyring-store` | `1.1.0` | MIT OR Apache-2.0 | The Windows Credential Manager backend `keyring`'s `v1`/default feature pulls in — load-bearing for §8/§12's Windows reversal-condition test. Source: https://crates.io/api/v1/crates/windows-native-keyring-store, retrieved 2026-09-17. | No | Yes |
 
 Full transitive sweep (`cargo deny` or `cargo license` over the resolved dependency
 graph, including everything `rmcp`, the Codex crates, `zenoh`, and `keyring` pull in
