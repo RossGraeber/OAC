@@ -4,8 +4,10 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (C4: session identity/addressing/discovery/key storage
-decision landed, see `docs/planning/decisions/C4-session-identity.md`; C3: spec
+**Last updated:** 2026-09-17 (C5: envelope authenticity/replay/pairing/authorization
+decision landed, see `docs/planning/decisions/C5-envelope-auth.md`; C4: session
+identity/addressing/discovery/key storage decision landed, see
+`docs/planning/decisions/C4-session-identity.md`; C3: spec
 packaging/MCP extension identifier decision landed, see
 `docs/planning/decisions/C3-spec-packaging.md`; C2: process model/local IPC/CLI
 surface/config model decision landed, see
@@ -27,14 +29,17 @@ amendments A1-A3 issued)
 ## ADR amendments
 
 ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`. Resolves
-conflict register entries C1-C3 directly (`RESOLVED-HERE`); C4-C7, C9, C10 assigned or
+conflict register entries C1-C3 directly (`RESOLVED-HERE`); C5, C7, C9, C10 assigned or
 resolved-by-evidence per that file's conflict register table; new entries C11-C12 added,
 both open (see below). C8 is closed separately, by `docs/planning/decisions/
 C4-session-identity.md` §8 (issue #17), with status `RESOLVED-IN-DECISION` — no A-
-amendment, because that document found no `ADR-001.md` text needing correction; see
-that file's conflict-register legend for how `RESOLVED-IN-DECISION` differs from
-`RESOLVED-HERE`. `docs/planning/ADR-001.md` carries a one-line pointer to the
-amendments file; its body text is unchanged.
+amendment, because that document found no `ADR-001.md` text needing correction. C4 and
+C6 are likewise closed separately, by `docs/planning/decisions/C5-envelope-auth.md` §6
+and §9 (issue #18), also `RESOLVED-IN-DECISION` — no A-amendment, for the same reason
+(`ADR-001.md` carries neither the `implementation-defined` signature text nor a claim
+about Claude acknowledgements). See `ADR-001-AMENDMENTS.md`'s conflict-register legend
+for how `RESOLVED-IN-DECISION` differs from `RESOLVED-HERE`. `docs/planning/ADR-001.md`
+carries a one-line pointer to the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
@@ -65,6 +70,8 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
 | Rust MCP SDK | `rmcp` `3.4.0` (2026-09-15); legacy revision `2025-11-25` supported and is the SDK's default | PINS.md — Rust MCP SDK (`rmcp`) |
+| `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
+| `serde_jcs` | `0.2.0`; RFC 8785 JCS canonicalization; MIT OR Apache-2.0 | PINS.md — `serde_jcs` |
 
 ## Decisions landed
 
@@ -101,6 +108,22 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   storage `keyring` `4.2.0` (per-platform backends) plus `age` `0.12.1` encrypted-file
   fallback. Full decision and evidence:
   `docs/planning/decisions/C4-session-identity.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
+- **C5 — envelope authenticity, replay defence, pairing, authorization** (issue #18):
+  decided. Ed25519 via `ed25519-dalek` `3.0.0` (`verify_strict`, mandatory) over a
+  domain-separated RFC 8785 JCS canonicalization (`serde_jcs` `0.2.0`) of the signed
+  field set (every envelope field except `security.signature` itself); signature made
+  normative, resolving conflict C4 (`RESOLVED-IN-DECISION`); one Ed25519 keypair per
+  device (no v0.1 automatic rotation, manual re-pair); ±300s replay accept-window plus a
+  128-bit CSPRNG nonce deduplicated on `(key_id, nonce)` against an in-memory,
+  per-device, daemon-held duplicate-suppression store; honest `DeliveryReceipt` states
+  (`accepted-by-adapter`, `handed-to-harness`, `unknown`), resolving conflict C6
+  (`RESOLVED-IN-DECISION`); pairing zero-config for same-device multi-harness, a 6-digit/
+  120-second/5-attempt short code for two devices on a LAN; default-deny, per-OAC-
+  session-id, `working_directory`-scoped sender allowlists; OAC policy maps only onto
+  authenticated Zenoh ACL subjects (certificate common name or username), never `zid`.
+  Full decision and evidence: `docs/planning/decisions/C5-envelope-auth.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.
 
@@ -222,6 +245,23 @@ without an UNVERIFIED label.
   observed at https://learn.chatgpt.com/docs/app-server, retrieved 2026-09-17; not
   relied on by any C4 decision; see `docs/planning/decisions/C4-session-identity.md`
   §4).
+- Whether `ed25519-dalek` `3.0.0` builds and links cleanly on the
+  `x86_64-pc-windows-msvc` target (UNVERIFIED — no live Windows build run against this
+  pin; the crate is pure-Rust with no documented C/assembly dependency, which is
+  favorable but not a substitute for an actual build; see
+  `docs/planning/decisions/C5-envelope-auth.md` §15, §16).
+- `dalek-cryptography/curve25519-dalek`'s repository-level MSRV *policy* (UNVERIFIED —
+  not stated on the repository overview page as fetched; the crate-level `rust-version`
+  field this decision actually relies on is confirmed; see
+  `docs/planning/decisions/C5-envelope-auth.md` §2, §16).
+- The exact byte-truncation length for the device-key-fingerprint hash used in LAN
+  pairing and Zenoh certificate common names (UNVERIFIED — deliberately left as a Stage
+  3 implementation detail; see `docs/planning/decisions/C5-envelope-auth.md` §10, §12,
+  §16).
+- Whether the 6-digit/120-second/5-attempt LAN pairing-code parameters hold up against a
+  live implementation's actual network conditions (UNVERIFIED — these are OAC's own
+  design parameters, not a claim about an external system; runtime validation is a Stage
+  3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
