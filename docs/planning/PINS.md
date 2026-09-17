@@ -36,7 +36,8 @@ carries only a summary pointer back here — see its `## Pins` section.
 
 **Last updated:** 2026-09-17 (C1: added Rust MCP SDK (`rmcp`) and `keyring` pin rows;
 pin-move checklist executed in the same commit, see
-`docs/planning/decisions/C1-language-runtime.md`)
+`docs/planning/decisions/C1-language-runtime.md`; C2: added `interprocess` (IPC crate,
+candidate) pin row, see `docs/planning/decisions/C2-process-model.md`)
 
 ## Pin table
 
@@ -48,6 +49,7 @@ pin-move checklist executed in the same commit, see
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
 | `keyring` (credential store) | supported | `4.2.0` | 2026-08-29 | https://crates.io/crates/keyring; https://raw.githubusercontent.com/open-source-cooperative/keyring-rs/v4.2.0/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
+| `interprocess` (IPC crate, candidate) | supported | `2.4.4` | not stated on source page | https://crates.io/api/v1/crates/interprocess; https://raw.githubusercontent.com/kotauskas/interprocess/main/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
@@ -238,6 +240,26 @@ semver, and are recorded verbatim — never reformatted.
   reversal condition's Windows half (§12 of the C1 decision) and for the §9 packaging
   conclusion in that same file, so a version bump here still requires re-checking
   that reversal test even though no `G<n>-result.md` verdict is invalidated by it.
+
+### `interprocess` (IPC crate, candidate)
+
+- Surface label: **supported** — general-purpose, actively maintained crate, not a
+  preview/experimental provider surface.
+- Pinned crate version: **`2.4.4`** (candidate, not final — C2 §4 leaves the final IPC
+  crate open between `interprocess` and `tokio`'s `net::windows::named_pipe` +
+  `UnixListener`; this is a Stage 3 implementation detail). Source:
+  https://crates.io/api/v1/crates/interprocess, `max_stable_version` field, retrieved
+  2026-09-17.
+- License: `0BSD OR Apache-2.0`. Source: same API response, `license` field, retrieved
+  2026-09-17; cross-checked against
+  https://raw.githubusercontent.com/kotauskas/interprocess/main/Cargo.toml, retrieved
+  2026-09-17. OAC elects the Apache-2.0 arm (same election as `zenoh`, `keyring`).
+- Full analysis, including named-pipe/Unix-socket coverage and the unresolved
+  peer-credential-accessor question: `docs/planning/decisions/C2-process-model.md` §4
+  "IPC crate".
+- **Gates affected: none directly** — implementation dependency (Stage 3+ local-IPC
+  transport crate for the daemon/`oac mcp-shim` connection), not a gate-spike
+  dependency.
 
 ### Zenoh
 
