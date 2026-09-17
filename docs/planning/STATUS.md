@@ -4,8 +4,10 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (C6: provider-facing trust rendering/outbound symmetry
-decision landed, see `docs/planning/decisions/C6-trust-rendering.md`; C5: envelope
+**Last updated:** 2026-09-17 (C7: Zenoh transport mapping and containment boundary
+decision landed, see `docs/planning/decisions/C7-zenoh-transport.md`; C6: provider-facing
+trust rendering/outbound symmetry decision landed, see
+`docs/planning/decisions/C6-trust-rendering.md`; C5: envelope
 authenticity/replay/pairing/authorization decision landed, see
 `docs/planning/decisions/C5-envelope-auth.md`; C4: session
 identity/addressing/discovery/key storage decision landed, see
@@ -148,6 +150,23 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   evidence: `docs/planning/decisions/C6-trust-rendering.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.
+- **C7 — Zenoh transport mapping and containment boundary** (issue #20): decided. Key
+  expressions are a one-way hash of the opaque session id, computed only inside
+  `transports/zenoh/`, never guessable and never on the wire in reverse; presence maps
+  to liveliness tokens plus history-capable liveliness subscribers (stable API, no
+  polling); local mode binds `127.0.0.1`, runs no `zenohd`, leaves multicast scouting on
+  by default (pinned `1.10.1` satisfies the `>= 1.10.0` loopback-discovery floor), with
+  the G3 fixed-rendezvous-endpoint fallback as the named reversal path; LAN mode defaults
+  to TLS (QUIC named as the alternative) with C5 §10(b)'s pairing-issued certificates;
+  ACL subjects are certificate common name or username only, never `zid` (restated from
+  C5 §12, which already fixed the policy-to-subject rule and per-key-expression scoping —
+  not a deferral C7 closes); C7 adds the local-vs-LAN profile split and
+  certificate-issuance wiring; also adds a local-mode TLS listener (auto-generated
+  certificate, no manual management) to satisfy G3's pass criterion. Only the
+  stable `zenoh`/`zenoh-ext` surface is used, no `unstable` feature. Full decision and
+  evidence: `docs/planning/decisions/C7-zenoh-transport.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
 
 ## Open conflicts (oac-evidence §6)
 
@@ -160,6 +179,22 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   PLANNING-PROMPT.md §9 item 3". Per `oac-evidence` §6 step 5, this is flagged here
   because `docs/planning/v0.1/03-decisions-and-amendments.md` does not exist yet; move
   this entry there once it does.
+- **C7 local-mode TLS, caught and resolved in-document (issue #20).** An earlier C7 draft
+  said local mode has no TLS/QUIC listener, citing DESIGN.md line 115's "no manual
+  certificate management." That conflicted with `PLANNING-PROMPT.md` §4 G3's pass
+  criterion, which requires "a TLS listener bound to localhost" even in local mode.
+  Resolved in `docs/planning/decisions/C7-zenoh-transport.md` §5: local mode now also
+  binds a TLS listener using an auto-generated, unmanaged local certificate — satisfies
+  both sources; no ADR-001 amendment needed. Move to
+  `docs/planning/v0.1/03-decisions-and-amendments.md` once it exists.
+- **C7 presence/discovery gaps, open (issue #20).** `docs/planning/decisions/
+  C7-zenoh-transport.md` §4 records two unresolved gaps: (1) the liveliness-token
+  presence mapping carries only reachability, not the full `PresenceRecord` (harness
+  ownership, capabilities, active-inbound support) DESIGN.md lines 104-105 ask for; (2) no
+  discovery path is defined by which a peer learns an *unknown* session's opaque id, even
+  though ADR-001.md line 61 puts presence/discovery in v0.1 scope. Neither is fixed by
+  this document; a future decision must close them. Move to
+  `docs/planning/v0.1/03-decisions-and-amendments.md` once it exists.
 
 ## Open conflict-register items
 
