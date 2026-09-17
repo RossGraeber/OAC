@@ -4,8 +4,10 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-16 (B4: gate re-run policy and evidence store; B3: conflict
-register resolved, ADR-001 amendments A1-A3 issued)
+**Last updated:** 2026-09-17 (C1: language/runtime/packaging/dependency-inventory
+decision landed, see `docs/planning/decisions/C1-language-runtime.md`; Rust MCP SDK
+(`rmcp`) pin added; B4: gate re-run policy and evidence store; B3: conflict register
+resolved, ADR-001 amendments A1-A3 issued)
 
 ## Current stage
 
@@ -31,10 +33,10 @@ is blocked until the corresponding spike in Epic D executes.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | NOT RUN | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era | `docs/planning/gates/G1-result.md` |
+| G1 Claude wake | NOT RUN | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | NOT RUN | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
-| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era | `docs/planning/gates/G4-result.md` |
+| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
@@ -52,6 +54,16 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
+| Rust MCP SDK | `rmcp` `3.4.0` (2026-09-15); legacy revision `2025-11-25` supported and is the SDK's default | PINS.md — Rust MCP SDK (`rmcp`) |
+
+## Decisions landed
+
+- **C1 — language, runtime, packaging, dependency inventory** (issue #13): decided.
+  Rust, single self-contained binary (dynamically linked against OS system libraries
+  only — not bit-for-bit static, see the file's §9). Full decision, evidence, and
+  dependency inventory: `docs/planning/decisions/C1-language-runtime.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
 
 ## Open conflicts (oac-evidence §6)
 
@@ -130,6 +142,19 @@ without an UNVERIFIED label.
   client capability, not the `2026-07-28` schema itself, and Claude Code does not
   register a channel server negotiating `2026-07-28`; see REVERIFICATION-B2.md §3.3
   table and "Carried to 11-risks.md" item 13).
+
+- Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
+  from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own
+  `Cargo.toml`/feature docs; see `docs/planning/decisions/C1-language-runtime.md` §9).
+- Whether an `rmcp`-based OAC server, run end-to-end against a live Claude Code
+  instance with `MCP_PROTOCOL_NEGOTIATION=legacy`, actually registers as a channel
+  (UNVERIFIED — SDK capability verified, runtime behaviour is gate G4's job, verdict
+  `NOT RUN`; see `docs/planning/decisions/C1-language-runtime.md` §5, §13).
+- Whether the Windows `windows-native-keyring-store` `keyring` backend has been
+  exercised end-to-end against live Windows Credential Manager (UNVERIFIED — declared
+  feature/build target verified only; runtime confirmation belongs to a future
+  `oac-implementation`/`oac-testing` task; see
+  `docs/planning/decisions/C1-language-runtime.md` §8, §12, §13).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the

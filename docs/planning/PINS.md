@@ -34,8 +34,8 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-16 (B4: added pin-move checklist and gate-policy pointer;
-no pin changed)
+**Last updated:** 2026-09-17 (C1: added Rust MCP SDK (`rmcp`) pin row; pin-move
+checklist executed in the same commit, see `docs/planning/decisions/C1-language-runtime.md`)
 
 ## Pin table
 
@@ -45,6 +45,7 @@ no pin changed)
 | Codex CLI / app-server | experimental (per-method gating) | `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | G2, G5 |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
+| Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
@@ -189,6 +190,28 @@ semver, and are recorded verbatim — never reformatted.
   re-verification input, not resolved here.
 - Gates affected: **G4** (dual-era server), **G1** (Claude channels require
   negotiating legacy per the Claude Code pin record above).
+
+### Rust MCP SDK (`rmcp`)
+
+- Surface label: **supported** — official SDK published under the
+  `modelcontextprotocol` GitHub organization.
+- Pinned crate version: `3.4.0`. Source: https://crates.io/crates/rmcp, retrieved
+  2026-09-17.
+- Release date: 2026-09-15. Source:
+  https://github.com/modelcontextprotocol/rust-sdk/releases, tag `rmcp-v3.4.0`,
+  retrieved 2026-09-17.
+- License: Apache-2.0. Source:
+  https://raw.githubusercontent.com/modelcontextprotocol/rust-sdk/rmcp-v3.4.0/Cargo.toml,
+  `[workspace.package]` `license = "Apache-2.0"`, retrieved 2026-09-17.
+- Legacy-revision support: `ProtocolVersion::V_2025_11_25` is a declared constant at
+  this tag, and `ProtocolVersion::LATEST` resolves to it (not to `V_2026_07_28`).
+  Source:
+  https://raw.githubusercontent.com/modelcontextprotocol/rust-sdk/rmcp-v3.4.0/crates/rmcp/src/model.rs,
+  retrieved 2026-09-17 — full verbatim quote and analysis:
+  `docs/planning/decisions/C1-language-runtime.md` §4-§5.
+- Gates affected: **G4** (dual-era server — this is the SDK the server is built on),
+  **G1** (Claude wake — Claude Code requires `MCP_PROTOCOL_NEGOTIATION=legacy`, i.e. a
+  server that can negotiate `2025-11-25`).
 
 ### Zenoh
 
