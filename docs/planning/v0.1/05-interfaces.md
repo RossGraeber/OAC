@@ -774,9 +774,9 @@ explicit opt-in, pinned to specific provider versions, and run separately from t
 CI-default tier above.
 
 Full test-tier breakdown, CI-default-vs-opt-in split, and fixture-directory ownership:
-`docs/planning/v0.1/09-test-strategy.md` (task A10, not yet landed) — that file is the
-owner of this detail; this section cross-references it rather than duplicating it, per
-this file's own scope statement.
+`docs/planning/v0.1/09-test-strategy.md` (task A10) — that file is the owner of this
+detail; this section cross-references it rather than duplicating it, per this file's own
+scope statement.
 
 ---
 
