@@ -27,9 +27,13 @@ amendments A1-A3 issued)
 ## ADR amendments
 
 ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`. Resolves
-conflict register entries C1-C3 directly (`RESOLVED-HERE`); C4-C10 assigned or
+conflict register entries C1-C3 directly (`RESOLVED-HERE`); C4-C7, C9, C10 assigned or
 resolved-by-evidence per that file's conflict register table; new entries C11-C12 added,
-both open (see below). `docs/planning/ADR-001.md` carries a one-line pointer to the
+both open (see below). C8 is closed separately, by `docs/planning/decisions/
+C4-session-identity.md` §8 (issue #17), with status `RESOLVED-IN-DECISION` — no A-
+amendment, because that document found no `ADR-001.md` text needing correction; see
+that file's conflict-register legend for how `RESOLVED-IN-DECISION` differs from
+`RESOLVED-HERE`. `docs/planning/ADR-001.md` carries a one-line pointer to the
 amendments file; its body text is unchanged.
 
 ## Gate verdicts
@@ -90,10 +94,10 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 - **C4 — session identity, addressing, discovery, key storage** (issue #17): decided.
   Four-layer identity model (device key, opaque stable session id, display-only URI,
   human alias — only the device key and opaque id carry authority); Claude `session_id`
-  and Codex `threadId` capture paths stated per harness; Claude resume treated as a new
+  and Codex `thread.id` capture paths stated per harness; Claude resume treated as a new
   OAC session id unless a registration is observed, Codex resume MAY re-bind the same
   id through the daemon's own authoritative client; display URI form
-  `session://<device>/<harness>/<id>` resolves conflict C8 (`RESOLVED-HERE`); key
+  `session://<device>/<harness>/<id>` resolves conflict C8 (`RESOLVED-IN-DECISION`); key
   storage `keyring` `4.2.0` (per-platform backends) plus `age` `0.12.1` encrypted-file
   fallback. Full decision and evidence:
   `docs/planning/decisions/C4-session-identity.md`. Folds into
@@ -213,6 +217,11 @@ without an UNVERIFIED label.
   peer-credential accessor (UNVERIFIED — not surfaced in the fetched crate docs; the
   daemon is expected to call the raw OS API directly instead; see
   `docs/planning/decisions/C2-process-model.md` §4, §10).
+- Whether Codex's `thread` object's `sessionId` field always equals `thread.id`, or
+  denotes something distinct in some other case (UNVERIFIED — only one worked example
+  observed at https://learn.chatgpt.com/docs/app-server, retrieved 2026-09-17; not
+  relied on by any C4 decision; see `docs/planning/decisions/C4-session-identity.md`
+  §4).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the

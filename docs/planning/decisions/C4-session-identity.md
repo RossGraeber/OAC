@@ -77,7 +77,7 @@ addresses are never exposed publicly":
   the neutral protocol," the wire-level session id and Zenoh's own peer/resource
   addressing are two separate namespaces; the transport module maps between them
   internally (`oac-zenoh`), and that mapping never runs in reverse on the wire.
-- **No harness-native id.** Claude's `session_id` (§3) and Codex's `threadId` (§4) are
+- **No harness-native id.** Claude's `session_id` (§3) and Codex's `thread.id` (§4) are
   captured into the registration record (§5) but are never themselves the OAC session
   id and never appear on the wire in place of it.
 - **No working-directory path.** The working directory scopes discoverability (§5) but
@@ -130,25 +130,57 @@ carries it.
 pinned `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`
 (`docs/planning/PINS.md` — Codex CLI and app-server).
 
-Codex's thread identifier is `threadId`, returned by `thread/start` and delivered again
-in the `thread/started` event; thread ids are UUIDv7 strings and survive restarts.
-Quoted per PLANNING-PROMPT.md §3.2 (retrieved 2026-09-15; carried unchanged into
-`docs/planning/decisions/C2-process-model.md` §2 leg 1 with no drift found in
-`docs/planning/REVERIFICATION-B2.md` §3.2): "Thread and turn model: `thread/start`,
-`thread/resume`, `thread/list`, `thread/loaded/list`, `turn/start` ... Thread ids are
-UUIDv7 strings and survive restarts." **Restart-survival is stated here as carried, not
-independently re-derived by this document** — this is the same fact §7 below relies on
-for resume behaviour, cited once and reused.
+**Field name, verified directly against source, not carried from PLANNING-PROMPT.md.**
+`threadId` does not appear at PLANNING-PROMPT.md §3.2 or anywhere else in this
+repository backed by a first-party citation — the earlier draft of this section named
+`threadId` without a source line, which per `oac-evidence` §3 ("if you cannot point at
+the line in a first-party source you copied it from, it is invented") is exactly an
+invented name. The identifier field is `id`, nested inside the `thread` object, both in
+the `thread/start` response and in the `thread/started` event's `params.thread`. Quoted
+verbatim:
+
+```json
+{ "id": 10, "result": { "thread": {
+  "id": "thr_123",
+  "sessionId": "thr_123",
+  "preview": "",
+  "ephemeral": false,
+  "modelProvider": "openai",
+  "createdAt": 1730910000
+} } }
+{ "method": "thread/started", "params": { "thread": { "id": "thr_123" } } }
+```
+
+Source: https://learn.chatgpt.com/docs/app-server, `@openai/codex@0.154.0`, retrieved
+2026-09-17. This document refers to the field as `thread.id` (dotted path into the
+`thread` object) throughout, not `threadId` — there is no first-party evidence of a
+flat `threadId` field anywhere in the app-server surface.
+
+**Note — a second field, `sessionId`, appears in the same `thread` object** (quoted
+above) and is, per this same source, equal to `thread.id` in the example shown. This
+document does not rely on `sessionId`; it is recorded here only so a future reader does
+not mistake it for a second, different Codex identifier. Whether `sessionId` and
+`thread.id` are always equal, or `sessionId` denotes something distinct in some other
+case, is UNVERIFIED — not needed for this decision, and not run down further here.
+
+Thread ids are UUIDv7 strings and survive restarts. This restart-survival claim is
+**carried, not independently re-verified against source this pass**: per
+`docs/planning/REVERIFICATION-B2.md` §3.2 table, row "UUIDv7 thread ids surviving
+restarts" — "Carried unchanged | PLANNING-PROMPT.md §3.2 (not independently
+re-confirmed against source this pass; not touched by an acceptance box)." §7 below,
+and the re-bind rule it states, rests on this carried-and-unconfirmed claim, not a
+re-verified one — stated here so that strength of backing is explicit rather than
+implied.
 
 **Capture path.** Per `docs/planning/decisions/C2-process-model.md` §1 ("The daemon
 owns... The Codex app-server client — one client of the Codex app-server daemon, not one
 per OAC session") and §2 leg 4: the daemon's Codex app-server client is the process that
 issues or observes `thread/start`/`thread/started` for a Codex session reachable through
-OAC. `threadId` is captured directly from that JSON-RPC response/event — the app-server
+OAC. `thread.id` is captured directly from that JSON-RPC response/event — the app-server
 client the daemon already owns, not a separate connection, and not a read of
 `CODEX_HOME/sessions/` rollout files (explicitly not a supported surface, per
 PLANNING-PROMPT.md §3.2: "the rollout file format is explicitly not a supported
-surface"). The captured `threadId` is written into the registration record (§5) the same
+surface"). The captured `thread.id` is written into the registration record (§5) the same
 way Claude's `session_id` is (§3) — through the daemon, never by a client reading Codex's
 on-disk state.
 
@@ -162,7 +194,7 @@ bookkeeping; `docs/planning/decisions/C2-process-model.md` §1, §5), contains a
 |---|---|
 | `oac_session_id` | the opaque id (§2) |
 | `harness` | which harness registered it (`claude` \| `codex`) |
-| `harness_native_id` | `session_id` (Claude, §3) or `threadId` (Codex, §4) |
+| `harness_native_id` | `session_id` (Claude, §3) or `thread.id` (Codex, §4) |
 | `device_id` | the device this record is bound to |
 | `working_directory` | the harness process's working directory at registration |
 | `registered_at` | timestamp |
@@ -186,7 +218,7 @@ persisted registration record that survives daemon restart would be the same kin
 durable store).
 
 **Default-deny rule.** A native id alone never authorizes anything. Presenting a valid
-`session_id` or `threadId` proves nothing about sender authorization by itself — per
+`session_id` or `thread.id` proves nothing about sender authorization by itself — per
 `oac-security-work` §4, "Default-deny is the standing posture," and §3's "authenticated
 but untrusted" doctrine applies one level down here too: a *registered* session (native
 id captured, record signed) is not yet an *authorized* one. Authorization (allowlists,
@@ -249,10 +281,10 @@ overturning this rule with runtime evidence.
 
 ## 7. Resume behaviour, Codex
 
-`thread/resume` keeps the UUIDv7 `threadId` (§4) — restart-survival is the cited,
+`thread/resume` keeps the UUIDv7 `thread.id` (§4) — restart-survival is the cited,
 carried fact from PLANNING-PROMPT.md §3.2 (§4 above). Because the identifier itself is
 stable across resume, the OAC id **MAY** be re-bound to the same thread: a resumed
-Codex thread whose `threadId` matches an existing registration record's
+Codex thread whose `thread.id` matches an existing registration record's
 `harness_native_id` (§5) is registered against the **same** OAC session id, updating the
 record's `registered_at` rather than minting a new opaque id. This is the opposite
 default from Claude (§6) precisely because the underlying evidence differs — Codex's own
@@ -270,22 +302,22 @@ holds loads history from disk and appends silently; the live process is not noti
 **Which process is authoritative for a re-bind, decided.** The OAC daemon's own Codex
 app-server client (`docs/planning/decisions/C2-process-model.md` §1, "one client of the
 Codex app-server daemon, not one per OAC session") is the only process OAC treats as
-authoritative for a `threadId` re-bind. A `thread/resume` observed by any *other*
+authoritative for a `thread.id` re-bind. A `thread/resume` observed by any *other*
 app-server process — including a second Codex TUI/Desktop instance resuming the same
 thread outside OAC's own client — is not visible to the daemon's client at all (that is
 exactly what issue #21743 names: the live process, here the daemon's client, is not
 notified). OAC therefore **cannot** re-bind on an out-of-band resume it never observes;
-the registration record for that `threadId` stays as last known to the daemon's own
+the registration record for that `thread.id` stays as last known to the daemon's own
 client until the daemon's client itself either re-observes the thread (its own
 `thread/resume`/`thread/started`) or the session is explicitly deregistered.
 
-**On conflict.** If the daemon's own client later observes activity on a `threadId` for
+**On conflict.** If the daemon's own client later observes activity on a `thread.id` for
 which a registration record already exists (i.e., the daemon's client itself performs or
 observes a `thread/resume`/`thread/started` for an already-registered thread), the
 existing registration record is updated in place (same OAC session id, refreshed
 `registered_at`) — there is no conflict in this case because the daemon's own client is
 definitionally authoritative for what it itself observes. **A true conflict — two
-different OAC session ids independently claiming the same `threadId`** — cannot arise
+different OAC session ids independently claiming the same `thread.id`** — cannot arise
 from this rule, because only the daemon's own client ever writes a registration record
 (§5, "daemon-held ... the daemon is the only writer"); it is not a case this decision
 needs to arbitrate between two writers, since there is exactly one. What the rule does
@@ -320,7 +352,7 @@ C2-process-model.md` §6), logs, and debugging output — exactly the use
 `docs/planning/DESIGN.md`'s Addressing section names: "a URI such as
 `session://device/harness/id` may be useful for display."
 
-**C8, stated explicitly.** Conflict C8 (`docs/planning/ADR-001-AMENDMENTS.md` line 391,
+**C8, stated explicitly.** Conflict C8 (`docs/planning/ADR-001-AMENDMENTS.md`, C8 row,
 conflict-register table): "DESIGN suggests session ids may map to a URI containing
 device and harness; ADR requires no leak of transport concepts." The apparent tension:
 `docs/planning/DESIGN.md`'s Addressing section suggests a display URI naming device and
@@ -343,14 +375,19 @@ expression, no liveliness term appears in its form above), is non-authoritative 
 three bullets above), and the wire carries the opaque id only. C8 is **closed as stated,
 with no ADR-001 text needing correction.**
 
-**RESOLVED-HERE, no numbered amendment.** Unlike `ADR-001-A1`/`A2`/`A3`, this resolution
-corrects no verbatim text in `ADR-001.md` — nothing in the ADR's Boundary or Security
-model sections is wrong or contradicted by this section's conclusion (the same test C1
-§2 applies when it declines an amendment for its own single-binary-packaging
+**RESOLVED-IN-DECISION, no numbered amendment.** Unlike `ADR-001-A1`/`A2`/`A3`, this
+resolution corrects no verbatim text in `ADR-001.md` — nothing in the ADR's Boundary or
+Security model sections is wrong or contradicted by this section's conclusion (the same
+test C1 §2 applies when it declines an amendment for its own single-binary-packaging
 clarification: "not the kind of 'evidence invalidates a settled decision' case
-`oac-evidence` §6 amends for"). C8 is marked **`RESOLVED-HERE`** in the conflict
-register, pointing at this section, the same status form C3 used for its own
-wording-versus-identifier split.
+`oac-evidence` §6 amends for"). C8 is marked **`RESOLVED-IN-DECISION`** in the conflict
+register, pointing at this section — a new status distinct from `RESOLVED-HERE` (which
+names an A-amendment inside `ADR-001-AMENDMENTS.md` itself; C1's and C2's rows use it
+because `ADR-001-A1`/`A2` live there) and from C3's own `RESOLVED-BY-DECISION` (which
+pairs an A-amendment, `ADR-001-A3`, with a separate decision document for the
+identifier). C8 has neither: no A-amendment at all, only this decision document. See
+`docs/planning/ADR-001-AMENDMENTS.md`'s conflict-register legend for the exact
+definition.
 
 ## 9. Human aliases
 
@@ -420,8 +457,16 @@ OAC elects the Apache-2.0 arm, the same election pattern as §10 and
 - Passphrase-based encryption support, confirmed from the crate's own published API
   (not asserted from memory): `age::scrypt::Recipient` (encryption) and
   `age::scrypt::Identity` (decryption) — the crate's own documentation states these
-  "should only be used with passphrases that were provided by (or generated for) a
-  human." Source: https://docs.rs/age/0.12.1/age/, retrieved 2026-09-17.
+  "should only be used with a passphrase that was provided by (or generated for) a
+  human." **The same page goes on to say: "For programmatic use cases, instead
+  generate an `x25519::Identity`."** Source:
+  https://docs.rs/age/0.12.1/age/scrypt/struct.Recipient.html, retrieved 2026-09-17.
+  This decision's own passphrase is CSPRNG-generated by OAC, not provided by or
+  generated for a human — it is exactly the programmatic case the source's own text
+  directs elsewhere. This is a direct conflict between this decision and its cited
+  first-party source; see the override paragraph after "Passphrase/KDF source" below,
+  which does not paper over the conflict but states why `scrypt::Recipient` is kept
+  anyway.
 
 **Why `age` over the RustCrypto primitive composition (`chacha20poly1305` `0.11.0` +
 `argon2` `0.6.0`, both MIT OR Apache-2.0, repository `RustCrypto/AEADs` and
@@ -467,11 +512,35 @@ generates a random passphrase itself (CSPRNG, same primitive class as §2's sess
 generation) and stores *that* passphrase — not the device key — as the thing a headless
 deployment's own secret-management story (a systemd credential, an environment variable
 injected by the host's own secrets manager, or an operator-supplied value) is responsible
-for protecting. This keeps OAC from inventing its own interactive-secrets UX while still
-using `age`'s human-passphrase-shaped API correctly; which of the concrete
-delivery mechanisms (systemd credential vs. env var vs. operator-supplied file) a given
-headless deployment uses is a Stage 3/6 implementation and packaging detail
-(`oac-implementation`, `oac-release`), not fixed by this document.
+for protecting. Which of the concrete delivery mechanisms (systemd credential vs. env
+var vs. operator-supplied file) a given headless deployment uses is a Stage 3/6
+implementation and packaging detail (`oac-implementation`, `oac-release`), not fixed by
+this document.
+
+**Override of the source's own guidance, recorded per `oac-evidence` §6 rather than
+silently followed or silently ignored.** `age`'s own documentation, quoted above,
+directs a CSPRNG-generated secret to `x25519::Identity`, not `scrypt::Recipient` — this
+decision uses `scrypt::Recipient` anyway. This is a deliberate override, not an
+oversight, for one reason: switching to `x25519::Identity` does not remove the
+underlying problem `scrypt::Recipient` is chosen to help with, it only relocates it.
+Either way, OAC ends up with one machine-generated secret (a passphrase, or an
+`x25519::Identity`'s private key) that a headless deployment's own secrets
+infrastructure must protect — an `x25519::Identity` private key is not self-protecting
+either. What `scrypt::Recipient` adds that `x25519::Identity` does not is the KDF's
+deliberate work-factor: if the `age`-encrypted file is exfiltrated by itself, without
+the passphrase (the file and the secret it depends on are stored separately, by
+design — the file on disk, the passphrase in the host's secrets manager), `scrypt`
+imposes a real per-guess cost on any offline attack against the exfiltrated file,
+exactly as it would for a weak human passphrase. An `x25519::Identity` gives an
+attacker who obtains the private key immediate, cost-free decryption with no equivalent
+margin. This trades a documented "should only be used with a human ... passphrase"
+recommendation for a specific, stated defense-in-depth property this decision's threat
+model (§13, "Device-key exfiltration from the fallback file") wants: the file alone
+should not be enough. Recorded here as an explicit, evidence-aware deviation, not an
+unexamined reuse of the passphrase API's default-shaped use case — if this reasoning is
+later found wrong (for example, if the KDF work-factor is shown not to matter against
+the real deployment's threat model), reverse to `x25519::Identity` and update this
+section rather than silently keeping the reasoning stale.
 
 **New dependency-inventory rows, added to C1 §12's shape.** Per the task instruction,
 these rows are recorded here so Stage 6 inherits them, in the same table shape C1 §10
@@ -542,7 +611,7 @@ provenance behaviour is proven."
 ## 14. Rejected alternatives
 
 - **Harness-native id used directly as the OAC address.** Rejected: `session_id` and
-  `threadId` are provider-native identifiers OAC does not control the format, stability
+  `thread.id` are provider-native identifiers OAC does not control the format, stability
   guarantees, or lifecycle of; using either directly as OAC's own wire address would
   make OAC's protocol hostage to a research-preview/experimental surface's own id
   scheme, and would leak the harness-native id onto the wire (§2's "no harness-native
@@ -603,7 +672,7 @@ Per `oac-evidence` §4, one label per surface touched by this document:
 | Surface | Label | Note |
 |---|---|---|
 | Claude Code Channels (hook `session_id` capture) | research preview | pinned `v2.1.274`, per §3 |
-| Codex app-server (`threadId` capture, daemon-attach) | experimental (per-method gating via `capabilities.experimentalApi`) | pinned `@openai/codex@0.154.0` / commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, per §4 |
+| Codex app-server (`thread.id` capture, daemon-attach) | experimental (per-method gating via `capabilities.experimentalApi`) | pinned `@openai/codex@0.154.0` / commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, per §4 |
 | `keyring` | supported | already labelled in C1 §13 |
 | `age` | supported | actively maintained reference implementation of a published format; not a preview/experimental provider surface |
 
@@ -631,9 +700,13 @@ in the same change to record this narrowing (§18/Cross-file updates, below).
 
 No new UNVERIFIED items are introduced by this document beyond what is already carried:
 §6's Claude-resume item (REVERIFICATION-B2.md "Carried to 11-risks.md" item 1) and §7's
-Codex cross-process-resume caveat (item 3, plus the still-open issue #21743) are both
-existing entries this document relies on and does not resolve. The
-`CLAUDE_SESSION_ID` absence (§3) is confirmed closed, not reopened.
+Codex cross-process-resume caveat (PLANNING-PROMPT.md §3.2's "Cross-process resume does
+not attach" text, re-confirmed still open at issue #21743 in
+`docs/planning/ADR-001-AMENDMENTS.md` "ADR-001-A2" evidence block — **not** the same fact
+as "Carried to 11-risks.md" item 3, which is the separate, differently-owned question of
+whether implicit Codex daemon attach executes by default at runtime) are both existing
+entries this document relies on and does not resolve. The `CLAUDE_SESSION_ID` absence
+(§3) is confirmed closed, not reopened.
 
 ## 17. Acceptance boxes, ticked against lines in this file
 
@@ -646,10 +719,10 @@ existing entries this document relies on and does not resolve. The
       content not provenance).
 - [x] Capture path stated per harness, using only supported surfaces — §3 (Claude:
       hook stdin `session_id`, no file reads), §4 (Codex: daemon's own app-server client
-      `threadId`, no rollout-file reads).
+      `thread.id`, no rollout-file reads).
 - [x] Resume behaviour stated per harness, or tied to the B2 finding that resolves it —
       §6 (Claude: tied to `REVERIFICATION-B2.md` "Carried to 11-risks.md" item 1;
-      conservative new-id rule decided), §7 (Codex: `thread/resume` keeps `threadId`,
+      conservative new-id rule decided), §7 (Codex: `thread/resume` keeps `thread.id`,
       re-bind/conflict rule decided, #21743 caveat quoted verbatim).
 - [x] Key storage names the library and its license for Windows Credential Manager,
       macOS Keychain, and Linux Secret Service, plus the encrypted-file fallback — §10
@@ -664,10 +737,13 @@ existing entries this document relies on and does not resolve. The
   no new UNVERIFIED items are added (§16) beyond the existing carried items already
   listed; the C11 open-conflict-register entry is amended to note this document's
   narrowing of the capture-path boundary (§16) without closing C11 itself; C8's
-  conflict-register row is updated from `ASSIGNED` to `RESOLVED-HERE`, pointing at §8.
-- `docs/planning/ADR-001-AMENDMENTS.md` line 391 (C8 row): status moves from `ASSIGNED`
-  to `RESOLVED-HERE`, resolution site `docs/planning/decisions/C4-session-identity.md`
-  §8 — no new numbered amendment, per §8's "no ADR-001 text needs correction" finding.
+  conflict-register row is updated from `ASSIGNED` to `RESOLVED-IN-DECISION`, pointing
+  at §8.
+- `docs/planning/ADR-001-AMENDMENTS.md` (C8 row): status moves from `ASSIGNED`
+  to `RESOLVED-IN-DECISION` (a status added to that file's conflict-register legend by
+  this change, distinct from `RESOLVED-HERE`), resolution site
+  `docs/planning/decisions/C4-session-identity.md` §8 — no new numbered amendment, per
+  §8's "no ADR-001 text needs correction" finding.
 - `docs/planning/decisions/C1-language-runtime.md` §12's dependency-inventory shape: the
   new `age` `0.12.1` row (§11 above) is recorded in this document rather than edited
   into C1 directly, per the task instruction "Add the chosen crate as new rows to the
