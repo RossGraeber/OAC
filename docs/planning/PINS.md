@@ -8,13 +8,31 @@ the version the rest of the plan is written against.
 
 **Changing any row in this file is a trigger event.** Per `oac-evidence` §7, a moved
 pin requires re-verifying every §3 fact that depended on it (Epic B2) and, per the
-gate re-run policy (Epic B4, `docs/planning/backlog/02-tasks-AB.json` task B4), re-running
+gate re-run policy (`docs/planning/gates/README.md`), re-running
 every gate whose verdict depended on it. Do not silently bump a version in this file.
+
+## Pin-move checklist
+
+When any pin in the table below changes (version, release date, or a row's
+presence), make all of these edits in the **same commit**:
+
+- [ ] Read the moved row's `Gates affected` cell to find which gate results to
+      invalidate.
+- [ ] Each affected `docs/planning/gates/G<n>-result.md`: set `**Verdict:**` to
+      `NOT RUN`, append the superseded verdict to its `Re-run history` table with
+      `Invalidated by: <surface> pin <old> -> <new>, <YYYY-MM-DD>`, and add a
+      `> INVALIDATED` callout at the top.
+- [ ] `docs/planning/STATUS.md` Gate verdicts row for each affected gate reverts to
+      `NOT RUN`.
+- [ ] This file's `**Last updated:**` (below) is bumped.
+
+Full policy: `docs/planning/gates/README.md`.
 
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-16 (B4: added pin-move checklist and gate-policy pointer;
+no pin changed)
 
 ## Pin table
 

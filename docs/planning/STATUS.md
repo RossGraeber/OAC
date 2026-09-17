@@ -4,7 +4,7 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-16 (B1: pinned versions)
+**Last updated:** 2026-09-16 (B4: gate re-run policy and evidence store)
 
 ## Current stage
 
@@ -20,13 +20,16 @@ verdict, or when a pin moves.
 No gate has been run. Every verdict below is `NOT RUN`, and every task labelled `gate:*`
 is blocked until the corresponding spike in Epic D executes.
 
-| Gate | Verdict | Decides |
-|---|---|---|
-| G1 Claude wake | NOT RUN | Claude adapter viability. go/no-go, no fallback. |
-| G2 Codex live inject | NOT RUN | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. |
-| G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. |
-| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. |
-| G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. |
+| Gate | Verdict | Decides | Pins relied on | Result file |
+|---|---|---|---|---|
+| G1 Claude wake | NOT RUN | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era | `docs/planning/gates/G1-result.md` |
+| G2 Codex live inject | NOT RUN | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
+| G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
+| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era | `docs/planning/gates/G4-result.md` |
+| G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server | `docs/planning/gates/G5-result.md` |
+
+Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
+checklist): `docs/planning/gates/README.md`.
 
 ## Pins
 
