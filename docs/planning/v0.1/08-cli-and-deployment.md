@@ -22,8 +22,8 @@ pre-rename CLI block is quoted verbatim and marked as such.
 ## Gate-verdict caveat, read before the rest of this file
 
 Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G1 (Claude wake) and gate G2
-(Codex live inject) are both `NOT RUN`**. Every launch command in this file — §9's Claude
-Code command, §11's Codex command, §12's daemon-attach target — is a **documented
+(Codex live inject) are both `NOT RUN`**. Every launch command in this file — §7's Claude
+Code command, §9's Codex command, §10's daemon-attach target — is a **documented
 target**, a command verified against first-party syntax, not a proven wake path. Stated
 once here, in the style of `docs/planning/v0.1/04-architecture.md` lines 14-23, rather
 than repeated at each command.
@@ -45,7 +45,7 @@ This is quoted here only to record it as **pre-rename** — it is `DESIGN.md`'s 
 still-unrenamed text (register entry C12,
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4), not a spelling this file or any
 other reuses. Per ADR-001-A1, the resolved binary name is **`oac`**, and the resolved
-command forms are `oac start` / `oac status` / `oac sessions` / `oac doctor` (§7 below).
+command forms are `oac start` / `oac status` / `oac sessions` / `oac doctor` (§5 below).
 
 **`oac` binary-name collision check.** Already performed and recorded, not re-run here:
 `docs/planning/v0.1/03-decisions-and-amendments.md` §2 (ADR-001-A1), "CLI name-conflict
@@ -93,9 +93,9 @@ From `docs/planning/decisions/C2-process-model.md` §7. All of the following app
   store via `keyring` `4.2.0` (`docs/planning/decisions/C1-language-runtime.md` §8) — no
   manual key-generation step, no file to place.
 - **Transport**, local-only by default (loopback-bound where applicable); no LAN/remote
-  transport is enabled without explicit configuration (§14 below).
+  transport is enabled without explicit configuration (§12 below).
 
-**Load-bearing sentence.** Every command in §7's table below is reachable with no config
+**Load-bearing sentence.** Every command in §5's table below is reachable with no config
 file at all — `oac start`, `oac status`, `oac sessions`, `oac doctor`, and
 `oac mcp-shim` all function against pure defaults.
 
@@ -123,7 +123,7 @@ Reproduced from `docs/planning/decisions/C2-process-model.md` §6.
 | `oac start` | Start (or confirm running) the per-device daemon. **Idempotent**: running it while a daemon is already up for this device is a no-op success, not an error. **Foreground by default**; `--detach` self-daemonizes into the background. | `0` on a daemon now running (newly started or already up); non-zero on failure to bind the IPC endpoint or start. |
 | `oac status` | Report daemon up/down, device id, and transport state (peer up/down). | `0` when the daemon is up and reachable over IPC; non-zero when down or unreachable — scriptable as a liveness check. |
 | `oac sessions` | List sessions currently registered with the daemon. | `0` on a successful listing (including an empty list); non-zero if the daemon is unreachable. |
-| `oac doctor` | Preflight check (§8 below expands the check list). | `0` only if every check passes; non-zero and a per-check report otherwise. |
+| `oac doctor` | Preflight check (§6 below expands the check list). | `0` only if every check passes; non-zero and a per-check report otherwise. |
 | `oac mcp-shim` | The stdio MCP server Claude Code and Codex spawn as their child process; connects to the daemon over local IPC. **Not meant to be typed by hand** — a harness config entry invokes it, a person does not run it directly. | N/A as a person-typed command; governed by the spawning harness's own process lifecycle. |
 | *(named, semantics deferred)* | A pairing subcommand and any device-setup subcommand a future launch decision needs. Named here as a reserved placeholder; no flags or output shape are specified. Semantics owned by `docs/planning/decisions/C5-envelope-auth.md` §10(b) (pairing) — not designed here. | Not specified. |
 
@@ -142,12 +142,14 @@ Expanded from the doctor row in §5, per `docs/planning/decisions/C2-process-mod
    `linux-keyutils`), per `docs/planning/decisions/C4-session-identity.md` §10.
 3. **Transport peer able to come up** — the daemon's in-process transport peer can bind
    its local listener, per `docs/planning/decisions/C7-zenoh-transport.md` §5.
-4. **Claude Code version at or above the `docs/planning/PINS.md` floor** — `>= v2.1.232`
-   (Channels exist at all) — **plus** `MCP_PROTOCOL_NEGOTIATION` set correctly
+4. **Claude Code version at/above the floor in `docs/planning/PINS.md`** (UNVERIFIED —
+   `>= v2.1.232` is an open UNVERIFIED item, not confirmable on `channels.md` at
+   `v2.1.274`; see `docs/planning/STATUS.md` "Open UNVERIFIED items" and
+   `docs/planning/PINS.md`) — **plus** `MCP_PROTOCOL_NEGOTIATION` set correctly
    (`legacy`, or unset), per `docs/planning/PINS.md` "Constraint floors" and the Claude
    Code Channels pin record.
 5. **Codex daemon reachability** — whether the Codex app-server's control socket
-   (`CODEX_HOME/app-server-control/app-server-control.sock`, §12 below) is reachable.
+   (`CODEX_HOME/app-server-control/app-server-control.sock`, §10 below) is reachable.
 
 **Report shape.** Each failing check reports on its own; `oac doctor` exits `0` only if
 every check passes, matching §5's exit-code cell for this command.
@@ -376,11 +378,11 @@ Ticked against issue #29's four acceptance boxes, in the style of
 `docs/planning/v0.1/07-repository-and-dependencies.md` §10.
 
 - [x] **One documented command each for Claude/Codex, quoted verbatim with flags** —
-      §9 (Claude: `claude --dangerously-load-development-channels server:oac`), §11
+      §7 (Claude: `claude --dangerously-load-development-channels server:oac`), §9
       (Codex: `codex mcp add oac -- oac mcp-shim`).
-- [x] **Zero-file local default; config optional** — §5-§6.
-- [x] **Command surface stated** — §7-§8.
-- [x] **`--dangerously-load-development-channels` consent step preserved** — §10.
+- [x] **Zero-file local default; config optional** — §3-§4.
+- [x] **Command surface stated** — §5-§6.
+- [x] **`--dangerously-load-development-channels` consent step preserved** — §8.
 
 ---
 
