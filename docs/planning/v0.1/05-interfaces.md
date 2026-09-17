@@ -70,14 +70,19 @@ No neutral interface, type name, field name, or normative sentence in this file 
 Zenoh, a key expression, `zid`, liveliness, MQTT topics, NATS subjects, Claude, Codex, or
 any MCP/provider-specific method name. Quoted, `[ADR-001 Boundary]`: "MUST NOT leak
 Zenoh-specific concepts into the neutral protocol." Quoted, `docs/planning/DESIGN.md`
-§MCP Session Channels extension: "The specification MUST NOT mention Zenoh keys, MQTT
+§MCP Session Channels extension (pre-rename spelling, per this file's Naming paragraph;
+DESIGN.md predates ADR-001-A1): "The specification MUST NOT mention Zenoh keys, MQTT
 topics, NATS subjects, or provider-specific method names."
 
 Provider- and transport-specific detail appears **only** in the clearly-labelled
-**binding/mapping** subsection of §16, and in the design-for-replacement proofs of §17-§18
-— both are explicitly scoped as the exception this file's own §22 boundary pass expects,
-never inside a neutral interface signature or a numbered normative section (§4-§13, §14-
-§15, §16's own non-binding portion).
+**binding/mapping annex** subsection of §15, and in the design-for-replacement proofs of
+§16 (ACP) and §17 (NATS/MQTT) — §18's CI-without-providers proof contains no provider
+vocabulary and is granted no exception, because it needs none. This also covers the one
+normative (RFC-2119) sentence inside §16 that must name an ACP method (`session/prompt`,
+`active_inbound`) to state its own finding — that sentence is part of the §16
+design-for-replacement proof, not a neutral interface. These are explicitly scoped as the
+exception this file's own §21 boundary pass expects, never inside a neutral interface
+signature or a numbered normative section (§3-§14, §15's own non-annex portion).
 
 ---
 
@@ -114,7 +119,7 @@ planning-package` §2 permits):**
 **Required fields — `TODO(fixture)`.** An envelope `MUST` carry `version`, `id`, `from`,
 `to`, `created_at`, `content`, and a `security` object carrying `principal`, `key_id`,
 `nonce`, and `signature`. A peer receiving an envelope missing any of these fields
-`MUST` reject it with the malformed-envelope error (§11).
+`MUST` reject it with the malformed-envelope error (§10).
 
 **Optional fields — `TODO(fixture)`.** `conversation_id`, `reply_to`, `correlation_id`,
 and `ttl_ms` `MAY` be absent. A peer `MUST NOT` treat the absence of any one of these four
@@ -126,13 +131,13 @@ fields as a malformed envelope.
 
 **Content is a typed array — `TODO(fixture)`.** `content` `MUST` be a JSON array of
 objects, each carrying `type` and `text`; the array `MUST NOT` be empty. A future content
-type beyond `{"type":"text","text":...}` `MAY` be added as a non-breaking change (§12) —
+type beyond `{"type":"text","text":...}` `MAY` be added as a non-breaking change (§11) —
 a receiver `MUST` ignore an array entry whose `type` it does not recognize rather than
-rejecting the whole envelope for it, per §13's forward-compatibility rule.
+rejecting the whole envelope for it, per §12's forward-compatibility rule.
 
 **`ttl_ms` semantics — `TODO(fixture)`.** `ttl_ms`, when present, states the sender's own
 application-level validity window in milliseconds from `created_at`. A receiver `MUST`
-treat an envelope as expired (§10's `expired` state) once `created_at + ttl_ms` has
+treat an envelope as expired (§9's `expired` state) once `created_at + ttl_ms` has
 passed, when `ttl_ms` is present. `ttl_ms` absent `MUST NOT` be treated as "never
 expires" by a receiver enforcing its own replay-defence window (next paragraph) — the
 receiver's own window still applies regardless of whether the sender supplied `ttl_ms`.
@@ -143,8 +148,10 @@ explicitly, `TODO(fixture)`.** Per `docs/planning/decisions/C5-envelope-auth.md`
 `created_at + ttl_ms`; the replay accept-window (±300 seconds of the verifying peer's own
 clock, C5 §7) is the receiver's own defence against a captured-and-replayed envelope,
 checked independently of what `ttl_ms` the sender declared. An envelope `MUST` be
-rejected as `expired` (§10) if it fails **either** check — the two are not merged into
-one test.
+rejected as `expired` (§9) if it fails **either** check — the two are not merged into one
+test. §10 fixes which of the two named error codes (`expired` vs. `replay-window-rejected`)
+`MUST` be emitted, and in what order the two checks are evaluated, so the two remain
+distinguishable at the error-code layer despite sharing one delivery state.
 
 > **Reference implementation note:** the reference daemon's replay-window check is fixed
 > at ±300 seconds regardless of a message's own `ttl_ms` value (C5 §7), matching the
@@ -176,7 +183,7 @@ authorization decision. This is conflict **C8**'s resolution, `RESOLVED-IN-DECIS
 `MUST NOT` be transmitted as, or treated as, an identity claim on the wire; per C4 §9, an
 alias is a local, per-device, mutable label resolved only on the device where it was
 created. A peer `MUST` treat an alias string appearing in message content the same as any
-other untrusted content (§9's authenticated-but-untrusted doctrine applies without
+other untrusted content (§8's authenticated-but-untrusted doctrine applies without
 exception).
 
 ---
@@ -188,21 +195,21 @@ exception).
 **The capability model.** A peer `MUST` declare, at connection time: (a) the set of
 capabilities it supports (drawn from the negotiated capability vocabulary this file and
 its Stage 2 successor define — presence, active-inbound delivery, and any optional
-extension); (b) the spec revision it implements (§12); and (c) the extension identifier
+extension); (b) the spec revision it implements (§11); and (c) the extension identifier
 it negotiates under.
 
 **The extension identifier — `TODO(fixture)`.** The identifier `io.github.rossgraeber/
 oac-session-channels` (C3 §2) `MUST` be used for capability negotiation, tool-surface
 registration, and provenance metadata only. A peer `MUST NOT` treat the extension
 identifier's presence or absence as itself authorizing a message — authorization is a
-separate decision (§9's doctrine, C5 §11).
+separate decision (§8's doctrine, C5 §11).
 
 **The standalone document is normative-of-record — stated once, applies throughout this
-file.** Quoted, C3 §1: "The standalone document is normative-of-record. The MCP
-extension registration is packaging — capability negotiation, tool surface, `_meta`
-provenance — never the source of normative text." This M0 draft, and its Stage 2
-successor `spec/session-channels.md`, are that standalone document; the extension
-registration never substitutes for either.
+file.** Per C3 §1: the standalone document is normative-of-record; the extension
+registration is packaging only — capability negotiation, tool surface, and provenance
+metadata — never the source of normative text. This M0 draft, and its Stage 2 successor
+`spec/session-channels.md`, are that standalone document; the extension registration
+never substitutes for either.
 
 > **Reference implementation note:** the identifier's derivation (vendor prefix from
 > GitHub-account-owned domain, extension name `oac-session-channels`) is recorded in
@@ -217,7 +224,7 @@ registration never substitutes for either.
 **Source.** `docs/planning/DESIGN.md` line 105; `docs/planning/decisions/
 C7-zenoh-transport.md` §4.
 
-**Exactly three states — `TODO(fixture)`.** A `PresenceRecord` (§15) `MUST` carry exactly
+**Exactly three states — `TODO(fixture)`.** A `PresenceRecord` (§14) `MUST` carry exactly
 one of three states: `online`, `unreachable`, `unknown`. A peer `MUST NOT` introduce a
 fourth presence state, per C7 §4's observation-based split: a session previously
 observed and now gone `MUST` be reported `unreachable`; a session never observed `MUST`
@@ -249,9 +256,10 @@ These are stated as gaps in the interface, not silently designed around.
 **Active inbound, no application-level polling — `TODO(fixture)`.** A peer advertising
 active-inbound support `MUST` accept an authorized external message as input to the
 addressed live session without application-level polling. Quoted, `docs/planning/
-DESIGN.md` line 33: "a harness advertising active inbound Session Channels support
-accepts an authorized external channel message as input to the addressed live session
-without application-level polling."
+DESIGN.md` line 33 (pre-rename spelling, per this file's Naming paragraph): "a harness
+advertising active inbound Session Channels support accepts an authorized external
+channel message as input to the addressed live session without application-level
+polling."
 
 **An implementation that cannot MUST NOT advertise the capability — `TODO(fixture)`.** A
 peer that cannot deliver without polling `MUST NOT` declare the active-inbound capability
@@ -271,13 +279,13 @@ form is application-level inbox polling specifically, per `docs/planning/DESIGN.
 ## 8. Replies and correlation
 
 **Source.** `docs/planning/decisions/C6-trust-rendering.md` §10 (conflict **C9**'s
-resolution), phrased neutrally here; provider-specific mechanism deferred to §16's
+resolution), phrased neutrally here; provider-specific mechanism deferred to §15's
 binding subsection.
 
 **`reply_to`/`correlation_id` semantics — `TODO(fixture)`.** `reply_to` `MAY` carry the
-`id` of the envelope this message replies to; `correlation_id` `MAY` carry an
-application-supplied correlation value. Neither field, when present, `MUST` be trusted on
-its face by the receiving side's own correlation logic without independent validation
+`id` of the envelope this message replies to. `correlation_id` `MAY` carry an
+application-supplied correlation value. Either field, when present, `MUST NOT` be trusted
+on its face by the receiving side's own correlation logic without independent validation
 (next paragraph).
 
 **A correlation value is untrusted content — `TODO(fixture)`.** A `reply_to` or
@@ -298,7 +306,7 @@ neither (a) nor (b) resolves to a single candidate.
 
 > **Reference implementation note:** the provider-specific half of this rule — which
 > provider gives which signal, and how the reference adapter tracks its own
-> thread/turn-to-envelope binding — is a binding-subsection concern (§16), citing
+> thread/turn-to-envelope binding — is a binding-subsection concern (§15), citing
 > `docs/planning/decisions/C6-trust-rendering.md` §10 directly rather than restated here.
 
 ---
@@ -308,7 +316,7 @@ neither (a) nor (b) resolves to a single candidate.
 **Source.** `docs/planning/DESIGN.md` line 108 (base list); `docs/planning/decisions/
 C5-envelope-auth.md` §9 (honesty refinement, conflict **C6**'s resolution).
 
-**The frozen state set — `TODO(fixture)`.** A `DeliveryReceipt` (§15) `MUST` carry
+**The frozen state set — `TODO(fixture)`.** A `DeliveryReceipt` (§14) `MUST` carry
 exactly one of the following states, and this file fixes the exact set so the error
 taxonomy (§11) and Stage 2 fixtures can cite it by name:
 
@@ -328,10 +336,10 @@ cannot itself observe. Concretely: a peer whose provider surface gives no delive
 acknowledgement past `handed-to-harness` `MUST NOT` report any state beyond
 `handed-to-harness` or `unknown` for that delivery.
 
-**"Seen by the model" is never claimed — `TODO(fixture)`.** No delivery state `MUST` be
-interpreted, documented, or rendered by any implementation as meaning the harness's model
-has processed the message — the state set above stops at `handed-to-harness`
-specifically because no provider surface this file's binding subsection (§16) relies on
+**"Seen by the model" is never claimed — `TODO(fixture)`.** A delivery state `MUST NOT`
+be interpreted, documented, or rendered by any implementation as meaning the harness's
+model has processed the message — the state set above stops at `handed-to-harness`
+specifically because no provider surface this file's binding subsection (§15) relies on
 gives a stronger signal.
 
 **No exactly-once promise — `TODO(fixture)`.** An implementation `MUST NOT` promise
@@ -343,21 +351,31 @@ exactly-once delivery. Use unique IDs, idempotency, and duplicate suppression."
 ## 10. Error taxonomy — closed set
 
 **The set is closed — stated explicitly.** The table below enumerates every error a
-conformant peer `MAY` emit. Adding a member to this set is a **versioning event** (§12) —
+conformant peer `MAY` emit. Adding a member to this set is a **versioning event** (§11) —
 `TODO(fixture)` for every row below marked `MUST`.
 
 | Error | Emitted when (`MUST`) | Retryable | Maps to delivery state (§9) |
 |---|---|---|---|
 | `malformed-envelope` | A required field (§3) is missing or fails to parse | No | `rejected` |
-| `unsupported-spec-revision` | The envelope's `version` (§3) is not one the receiving peer's negotiated spec revision (§12) supports | No | `rejected` |
-| `unsupported-capability` | The message requires a capability (§5) the receiver did not negotiate | No | `rejected` (§13) |
+| `unsupported-spec-revision` | The envelope's `version` (§3) is not one the receiving peer's negotiated spec revision (§11) supports | No | `rejected` |
+| `unsupported-capability` | The message requires a capability (§5) the receiver did not negotiate | No | `rejected` (§12) |
 | `signature-verification-failed` | `security.signature` does not verify against the signed field set | No | `rejected` |
-| `replay-window-rejected` | `created_at` falls outside the receiver's replay accept-window, or `created_at + ttl_ms` has passed (§3) | No | `expired` |
+| `replay-window-rejected` | `created_at` falls outside the receiver's own replay accept-window (§3) — the receiver's-clock check, independent of `ttl_ms` | No | `expired` |
 | `duplicate` | The envelope's `(key_id, nonce)` pair was already observed within the replay window | No | `duplicate` |
 | `unknown-destination` | The addressed `to` session id has no registration record the receiver knows of | No | `unreachable` |
 | `unauthorized` | The sender is not on the addressed session's allowlist (default-deny) | No | `rejected` |
-| `expired` | Same trigger as `replay-window-rejected`'s `ttl_ms` half; kept as a distinct named error for the sender-declared-expiry case specifically | No | `expired` |
+| `expired` | `created_at + ttl_ms` has passed (§3) — the sender-declared-expiry check, independent of the receiver's replay accept-window | No | `expired` |
 | `internal-failure` | An adapter- or transport-internal error unrelated to the envelope's own validity | `MAY` be retryable, at the emitting peer's discretion | `failed` |
+
+**The two `ttl_ms`/replay-window checks are disjoint, by construction.** §3's "two
+separate checks" paragraph is amended by this row split: `replay-window-rejected` is
+emitted **only** for the receiver's-own-clock accept-window failure, and `expired` is
+emitted **only** for the sender-declared `ttl_ms` failure. An envelope `MUST NOT` be
+evaluated as failing both checks at once from a single emitted-error standpoint — a
+receiver `MUST` check `ttl_ms` expiry first and emit `expired` if it fails, checking the
+replay accept-window (and emitting `replay-window-rejected` on failure) only once the
+`ttl_ms` check has passed. This fixes the precedence a conformance fixture needs: no
+input can trigger two mandatory-but-conflicting rows at once.
 
 Each row `MUST` be emitted under the stated condition, and every row's mapping onto §9's
 delivery-state set `MUST` hold — a peer `MUST NOT` map an error onto a delivery state not
@@ -403,8 +421,9 @@ definition this file and its Stage 2 successor use.
 
 ## 12. Unsupported-capability behaviour — explicit, not implied
 
-**Source.** `docs/planning/DESIGN.md` §MCP Session Channels extension (unsupported-
-capability behaviour is named in scope); acceptance box 4 of issue #26.
+**Source.** `docs/planning/DESIGN.md` §MCP Session Channels extension (pre-rename
+spelling, per this file's Naming paragraph; unsupported-capability behaviour is named in
+scope); acceptance box 4 of issue #26.
 
 **Rejection, not silent handling — `TODO(fixture)`.** A peer receiving a message that
 requires a capability it did not negotiate (§5) `MUST` reject it with the
@@ -427,7 +446,7 @@ behaviour that keeps a non-breaking addition (§11) actually non-breaking in pra
 **Two concrete worked pairs — the general rule stated once, applied twice, not
 hand-waved:**
 
-1. **A transport lacking an optional capability (§16, §18).** A transport that does not
+1. **A transport lacking an optional capability (§15, §17).** A transport that does not
    implement, say, ordering or multicast discovery `MUST NOT` advertise it; a core caller
    that requests ordered delivery from such a transport receives the
    `unsupported-capability` rejection above, not a silent best-effort attempt.
@@ -459,7 +478,7 @@ ProviderAdapter
   shutdown() -> Result<(), AdapterError>
 ```
 
-Every parameter and return type above is drawn only from §15's neutral core types (or a
+Every parameter and return type above is drawn only from §14's neutral core types (or a
 primitive — `Result`, a callback handle, a health/error enum carrying no provider- or
 transport-specific meaning). **Zero provider names appear in any signature above.**
 
@@ -468,7 +487,7 @@ transport-specific meaning). **Zero provider names appear in any signature above
 - `discover_sessions` `MUST` return only `SessionDescriptor` values the adapter itself
   observed through a supported provider surface (§13's own contract; never a
   filesystem/rollout-file read, per `[ADR-001 Boundary]`).
-- `attach` `MUST` route session registration through core policy/security (§15's
+- `attach` `MUST` route session registration through core policy/security (§14's
   authorization decision type), never directly through a transport.
 - `capabilities` `MUST` report only capabilities (§5) the adapter can actually honour,
   per §12's over-advertisement rule.
@@ -486,12 +505,12 @@ transport-specific meaning). **Zero provider names appear in any signature above
 stated once for the whole contract.** Quoted, `docs/planning/DESIGN.md`: "Adapters should
 route through core policy/security rather than directly through transports." Restated
 here as normative for this file's purposes: an adapter implementation `MUST NOT` call a
-`Transport` (§16) operation directly — every adapter-to-transport path crosses core.
+`Transport` (§15) operation directly — every adapter-to-transport path crosses core.
 
 > **Reference implementation note:** the v0.1 Rust workspace implements this contract as
-> a trait, `adapters/claude/` and `adapters/codex/` each providing one implementation
-> (`docs/planning/DESIGN.md`'s Suggested repository shape) — the trait/module split is an
-> implementation choice, not part of this normative contract.
+> a trait, with one adapter module per supported harness (`docs/planning/DESIGN.md`'s
+> Suggested repository shape) — the trait/module split is an implementation choice, not
+> part of this normative contract.
 
 ---
 
@@ -541,7 +560,7 @@ metadata plus the identity above:
 |---|---|---|
 | `state` | one of §9's eight states | `MUST NOT` be a value outside that set. |
 | `envelope_id` | string | The `id` of the envelope this receipt is for. |
-| `error` | optional, one of §10's error codes | Present when `state` is `rejected`, `expired`, `duplicate`, or `failed`. |
+| `error` | optional, one of §10's error codes | Present when `state` is `rejected`, `expired`, `duplicate`, `unreachable`, or `failed` — §10's `unknown-destination` row maps onto `unreachable`, so a peer emitting it `MUST` carry `error` here too. |
 
 `DeliveryReceipt` carries **no session address field** — deliberately, per DESIGN's own
 minimal shape; a receipt is correlated to its envelope by `envelope_id`, never by
@@ -598,7 +617,7 @@ outside the module. **Zero transport-specific names appear in any signature abov
 
 **Required semantics — `TODO(fixture)` per item:**
 
-- **Delivery attempt, at-least-once-or-fewer.** `publish` `MUST NOT` be documented or
+- **No delivery-count guarantee.** `publish` `MUST NOT` be documented or
   relied upon as guaranteeing exactly-once or at-least-once delivery (§9's no-exactly-
   once rule applies at this layer too) — a transport `MAY` deliver zero or more times per
   call; core's replay/duplicate handling (§3, §9) is what makes duplicate delivery safe
@@ -680,8 +699,9 @@ so no `Transport` signature or transport module changes to accommodate it.
 **ACP facts cited, with retrieval date.** Per PLANNING-PROMPT.md §3.5, retrieved
 2026-09-15: stable protocol version `1` (schema v2 is alpha); a client (ACP terminology)
 owns the session (`session/prompt` delivers into a session **owned by the ACP client**);
-`session/load` and `session/resume` exist; custom methods are prefixed `_`; unknown
-notifications `MUST` be ignored by an ACP-conformant peer, per that same source. Labelled
+`session/load` and `session/resume` exist; custom methods are prefixed `_`; per that same
+source, unknown notifications "should be ignored" (its own word, lowercase — a
+recommendation, not an RFC-2119 `MUST`, and not upgraded to one here). Labelled
 **supported / forward-compat only** — per `docs/planning/v0.1/01-capability-matrix.md`'s
 existing ACP row and `docs/planning/PINS.md` — "ACP" — ACP is not a v0.1 dependency; this
 proof is a design-for-replacement demonstration, not a build commitment.
@@ -728,7 +748,7 @@ than asserted from memory.** Per `oac-evidence` §1: "if a fact's only backing i
 post, it is not verified, it is a lead." No first-party NATS or MQTT specification/docs
 citation (URL + version + retrieval date) was gathered for this pass. Each `UNVERIFIED`
 cell above is added to `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list in this
-same change (§21's evidence pass records the exact addition), with the reason "NATS/MQTT
+same change (§20's evidence pass records the exact addition), with the reason "NATS/MQTT
 optional-capability claims for the transport design-for-replacement proof (task 18,
 `05-interfaces.md`) are not yet checked against first-party NATS/MQTT specification or
 broker documentation."
@@ -789,13 +809,13 @@ Per `oac-evidence` §8, checked against this file:
   `docs/planning/PLANNING-PROMPT.md` §3.x subsection unchanged (§16's ACP facts, cited
   §3.5, retrieved 2026-09-15).
 - Surface labels at first mention: Claude Code Channels = **research preview**
-  (`v2.1.274`) — cited via §16's binding annex to `docs/planning/decisions/
+  (`v2.1.274`) — cited via §15's binding annex to `docs/planning/decisions/
   C6-trust-rendering.md`, which itself carries the label; Codex app-server =
   **experimental (per-method gating)** (`@openai/codex@0.154.0`) — same citation path;
   MCP `2026-07-28` and SEP-2133 = **supported** — cited via §5, §11 to
   `docs/planning/decisions/C3-spec-packaging.md`; Zenoh `1.10.1` = **supported** — cited
-  via §16 to `docs/planning/decisions/C7-zenoh-transport.md`; ACP = **supported /
-  forward-compat only** — §17.
+  via §15 to `docs/planning/decisions/C7-zenoh-transport.md`; ACP = **supported /
+  forward-compat only** — §16.
 - **Existing UNVERIFIED items this file leans on, carried, not silently promoted:**
   Claude `--resume` channel behaviour (referenced by §4's stable-for-session-life
   addressing rule, via `docs/planning/decisions/C4-session-identity.md` §6); whether
@@ -830,9 +850,9 @@ rg -n -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' docs/planning/v0.1/05-inter
 
 - §2 (the rule's own statement, naming the forbidden words as words being defined, not
   used as vocabulary).
-- §16 (the binding/mapping annex heading, its two labelled paragraphs, and the following
-  reference-implementation note — every hit here sits inside the explicitly labelled
-  "Binding/mapping annex" subsection §2 carves out as the exception).
+- §15's binding/mapping annex (the annex heading, its two labelled paragraphs, and the
+  following reference-implementation note — every hit here sits inside the explicitly
+  labelled "Binding/mapping annex" subsection §2 carves out as the exception).
 - §17 (the NATS/MQTT replacement-proof table's "Zenoh (reference...)" column header and
   cells, and the load-bearing-premise paragraph naming Zenoh once — every hit here sits
   inside the labelled replacement-proof section §2 also carves out).
@@ -840,23 +860,32 @@ rg -n -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' docs/planning/v0.1/05-inter
   similar filenames — a path string, not neutral-interface prose).
 - This §21 boundary-pass section itself, describing the check.
 
-**No hit appears in normative text (§1-§13), a `ProviderAdapter`/`Transport` signature
-(§13, §15), or a core type field (§14).** Every hit above sits inside the task-16 binding
-annex, the task-17/18 replacement proofs, the cross-reference path list, or this section's
-own description of the check — exactly where §2 states hits are expected, and nowhere
-else.
+**No hit appears in normative text (§1-§14), a `ProviderAdapter`/`Transport` signature
+(§13, §15), or a core type field (§14).** Every hit above sits inside §15's binding annex,
+the §17 replacement proof, the cross-reference path list, or this section's own
+description of the check — exactly where §2 states hits are expected, and nowhere else.
+(§13's reference-implementation note and §5's C3 §1 citation, which earlier drafts named
+`adapters/claude/`/`adapters/codex/` and `_meta` respectively, have been genericized to
+carry no such hit, rather than granted an exception — see §13, §5.)
 
 **`Claude`/`Codex`/MQTT/NATS/MCP-method-name check, complete:**
 
-- `claude`/`codex` (bare, case-insensitive): §16's binding annex ("Claude/Codex rendering
-  and correlation detail"), §17's table header ("Claude Code Channels" surface-label
-  bullet in §20), and this §21's own description — all inside labelled binding/proof
-  sections.
+- `claude`/`codex` (bare, case-insensitive): §15's binding annex ("Claude/Codex rendering
+  and correlation detail"); §16, the ACP-adapter proof itself, which names Claude and
+  Codex once each ("nothing in them names Claude, Codex, Zenoh, or ACP") to state what the
+  neutral contract does *not* reference; §17's table header ("Claude Code Channels"
+  surface-label bullet in §20); and this §21's own description — all inside labelled
+  binding/proof sections.
 - `mqtt`/`nats`: §17's replacement-proof table and its surrounding prose — the section §2
   names as the exception for transport-swap detail.
-- No MCP method-name-shaped string (e.g. a `notifications/...` or `thread/...` form)
-  appears anywhere in this file outside §16's citation-by-path to `C6-trust-rendering.md`
-  (which itself carries such names, cited, not repeated verbatim here).
+- MCP/ACP method-name-shaped strings (`session/prompt`, `session/load`, `session/resume`):
+  appear directly in §16's own prose (not only by citation-by-path to
+  `C6-trust-rendering.md`), including inside one normative sentence — "an ACP adapter
+  `MUST NOT` declare `active_inbound: true`" — that names `session/prompt` in its
+  surrounding clause. This is the one place a provider method name sits inside RFC-2119
+  text; it is inside §16's design-for-replacement proof, which §2 (as fixed above)
+  explicitly names as an exception covering this sentence. No such string appears anywhere
+  else in the file.
 
 **No neutral interface mentions Zenoh, Claude, Codex, MCP method names, or key
 expressions.** §13's `ProviderAdapter` and §15's `Transport` signatures, and every §14
@@ -881,23 +910,32 @@ those sections.
 
 ## 22. Acceptance close-out
 
-Ticked against issue #26's four acceptance boxes, section numbers named:
+Checked against issue #26's four acceptance boxes, section numbers named — three met, one
+not yet met (below):
 
 - [x] **Normative spec items separated from reference-implementation notes in every
       section** — §1 (the convention itself: every `MUST` marked `TODO(fixture)`, every
       reference-implementation note a labelled blockquote with no RFC-2119 keyword
       inside it); applied throughout §3-§13, §15-§16.
-- [x] **Design-for-replacement proofs included: ACP adapter added with no transport
-      change; NATS or MQTT replacing Zenoh with no adapter or spec change, with the
-      optional capabilities each candidate lacks** — §16 (ACP proof, shown from §13's
+- [x] **ACP adapter added with no transport change** — §16 (ACP proof, shown from §13's
       signatures, active-inbound finding named, ACP facts cited with retrieval date, C7
-      conflict-register disposition cited); §17 (NATS/MQTT proof, load-bearing premise
-      cited to §2's own rule, six-capability table with every NATS/MQTT cell explicitly
-      `UNVERIFIED` rather than asserted, added to STATUS.md in this change, closed by
-      pointing at §12's defined unsupported-capability behaviour).
+      conflict-register disposition cited).
+- [ ] **NATS or MQTT replacing Zenoh with no adapter or spec change, with the optional
+      capabilities each candidate lacks** — **NOT MET as of this M0 draft.** §17 shows the
+      no-adapter/no-spec-change half (load-bearing premise cited to §2's own rule) and
+      closes the mechanism question by pointing at §12's defined unsupported-capability
+      behaviour, but every one of the twelve NATS/MQTT capability cells in §17's table is
+      `UNVERIFIED` — no concrete capability either candidate actually lacks is named
+      against a first-party source (the one near-concrete cell, MQTT multicast discovery,
+      explicitly retracts itself as not a verified claim). Per `oac-evidence` §1 this is
+      the honest way to record unverified evidence, not a defect in how the gap is
+      handled — but it means the acceptance criterion itself is not satisfied yet. Closing
+      this box requires a follow-up pass citing first-party NATS/MQTT documentation for at
+      least the capabilities claimed lost, tracked as an open item alongside the six
+      `UNVERIFIED` entries this file adds to `docs/planning/STATUS.md` (§17, §20).
 - [x] **No neutral interface mentions Zenoh, Claude, Codex, MCP method names, or key
       expressions** — §2 (the rule), §21 (the mechanical check run and read against this
-      file, every hit accounted for and confined to §16/§17/§19/§21 themselves).
+      file, every hit accounted for and confined to §15/§16/§17/§19/§21 themselves).
 - [x] **Unsupported-capability behaviour defined, not implied** — §12 (its own numbered
       section: rejection not silent handling, rejection reported as a delivery state,
       no over-advertisement, unknown-field forward compatibility, the two concrete
@@ -912,7 +950,7 @@ task E8 (Stage 2) is the owner of closing every one of them.
 
 **Conflicts this file carries as already-resolved, versus still open:**
 
-- **C4 -> C5 §6** (signature made normative). This file's §3 envelope shape and §16's
+- **C4 -> C5 §6** (signature made normative). This file's §3 envelope shape and §15's
   binding-annex citation both build on that resolution without re-litigating it.
 - **C6 -> C5 §9** (honest delivery-receipt states). This file's §9 is exactly that
   resolution's frozen state set.
