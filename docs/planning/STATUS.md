@@ -4,7 +4,18 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A6: `docs/planning/v0.1/05-interfaces.md` landed
+**Last updated:** 2026-09-17 (A7: `docs/planning/v0.1/06-security.md` landed
+(issue #27) — identities (the C4 four-layer model), model-generated text never
+establishes identity as its own named section, trust boundaries per process-boundary
+crossing, pairing (both C5 flows), authorization (default-deny, per-session-id
+allowlists), transport security (the Zenoh-ACL-vs-signature relationship, `zid` never an
+ACL subject), replay and duplicate handling, provenance rendering per provider (Claude
+`meta` keys, Codex header-and-delimiter framing), permission relay off by default with
+its three-strand justification, local IPC peer authentication, cross-project leakage, and
+a twenty-row threat table merging C4 §13/C5 §13/C6 §12; every mitigation stated as
+designed, not proven, per the Pre-Stage 0 gate-verdict caveat; no pin moved, no gate
+verdict changed, no new UNVERIFIED item added — every item this file relies on was
+already open, cited from C4/C5/C6. A6: `docs/planning/v0.1/05-interfaces.md` landed
 (issue #26) — OAC spec surface (envelope/content model, addressing, capability
 negotiation, presence/discovery with its two recorded gaps, active-delivery no-polling
 rule, replies/correlation, the frozen delivery-state set, the closed error taxonomy,
