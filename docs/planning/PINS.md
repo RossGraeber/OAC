@@ -39,7 +39,9 @@ pin-move checklist executed in the same commit, see
 `docs/planning/decisions/C1-language-runtime.md`; C2: added `interprocess` (IPC crate,
 candidate) pin row, see `docs/planning/decisions/C2-process-model.md`; C4: added `age`
 (encrypted-file key-storage fallback) pin row, see
-`docs/planning/decisions/C4-session-identity.md`)
+`docs/planning/decisions/C4-session-identity.md`; C5: added `ed25519-dalek` (envelope
+signature) and `serde_jcs` (canonical serialization) pin rows, see
+`docs/planning/decisions/C5-envelope-auth.md`)
 
 ## Pin table
 
@@ -53,6 +55,8 @@ candidate) pin row, see `docs/planning/decisions/C2-process-model.md`; C4: added
 | `keyring` (credential store) | supported | `4.2.0` | 2026-08-29 | https://crates.io/crates/keyring; https://raw.githubusercontent.com/open-source-cooperative/keyring-rs/v4.2.0/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `interprocess` (IPC crate, candidate) | supported | `2.4.4` | not stated on source page | https://crates.io/api/v1/crates/interprocess; https://raw.githubusercontent.com/kotauskas/interprocess/main/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `age` (encrypted-file key-storage fallback) | supported | `0.12.1` | 2026-07-14 | https://crates.io/api/v1/crates/age; https://raw.githubusercontent.com/str4d/rage/v0.12.1/age/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
+| `ed25519-dalek` (envelope signature) | supported | `3.0.0` | not stated on source page | https://crates.io/api/v1/crates/ed25519-dalek; https://raw.githubusercontent.com/dalek-cryptography/curve25519-dalek/main/ed25519-dalek/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
+| `serde_jcs` (canonical serialization, RFC 8785 JCS) | supported | `0.2.0` | 2026-03-25 | https://crates.io/api/v1/crates/serde_jcs; https://docs.rs/serde_jcs/0.2.0/serde_jcs/ | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
@@ -285,6 +289,48 @@ semver, and are recorded verbatim — never reformatted.
 - **Gates affected: none directly** — implementation dependency (Stage 3+ fallback path
   for OAC's own device key when no OS credential store is reachable), not a gate-spike
   dependency.
+
+### `ed25519-dalek` (envelope signature)
+
+- Surface label: **supported** — general-purpose, actively maintained cryptography
+  crate under `dalek-cryptography`, not a preview/experimental provider surface.
+- Pinned crate version: `3.0.0`. Source:
+  https://crates.io/api/v1/crates/ed25519-dalek, `max_stable_version` field, retrieved
+  2026-09-17.
+- License: **BSD-3-Clause** — flagged separately from OAC's usual `MIT OR Apache-2.0`
+  dual-license shape; permissive and Apache-2.0-compatible, but not an OR-clause dual
+  license to elect an arm of. Source: same crates.io response, `license` field, retrieved
+  2026-09-17; cross-checked against
+  https://raw.githubusercontent.com/dalek-cryptography/curve25519-dalek/main/ed25519-dalek/Cargo.toml,
+  `license = "BSD-3-Clause"`, `rust-version = "1.85"`, retrieved 2026-09-17.
+- MSRV vs Rust toolchain pin: `1.85 <= 1.98.1` — satisfied.
+- RUSTSEC-2022-0093 (double-public-key signing oracle): patched at `>=2`; pinned `3.0.0`
+  is well past the patched floor. Source: https://rustsec.org/advisories/RUSTSEC-2022-0093.html,
+  retrieved 2026-09-17.
+- Strict verification method: `VerifyingKey::verify_strict`, rejects small-order/torsion
+  public keys via the group-equation check. Source:
+  https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html, retrieved
+  2026-09-17. Full analysis: `docs/planning/decisions/C5-envelope-auth.md` §2.
+- **Gates affected: none directly** — implementation dependency (Stage 3+ envelope
+  signing/verification crate), not a gate-spike dependency.
+
+### `serde_jcs` (canonical serialization, RFC 8785 JCS)
+
+- Surface label: **supported** — actively downloaded (1,675,393 downloads at
+  retrieval), not yanked, implements the published RFC 8785 standard.
+- Pinned crate version: `0.2.0`. Source: https://crates.io/api/v1/crates/serde_jcs,
+  `max_stable_version` field, retrieved 2026-09-17.
+- Release date: 2026-03-25. Source: https://crates.io/api/v1/crates/serde_jcs/0.2.0,
+  publish metadata, retrieved 2026-09-17.
+- License: MIT OR Apache-2.0. Source: same crates.io response, `license` field,
+  retrieved 2026-09-17. OAC elects the Apache-2.0 arm (same election as `zenoh`,
+  `keyring`, `interprocess`, `age`).
+- API surface: `to_string`, `to_vec`, `to_writer` — all implement RFC 8785 JCS. Source:
+  https://docs.rs/serde_jcs/0.2.0/serde_jcs/, retrieved 2026-09-17. Full analysis,
+  including the domain-separation prefix built on top: `docs/planning/decisions/
+  C5-envelope-auth.md` §3.
+- **Gates affected: none directly** — implementation dependency (Stage 3+ envelope
+  canonicalization crate), not a gate-spike dependency.
 
 ### Zenoh
 

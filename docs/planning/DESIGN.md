@@ -84,10 +84,18 @@ v0.1 reference transport. Prefer local/peer mode. Session addressing may map pri
   "content": [{"type":"text","text":"Please review scheduler.rs"}],
   "security": {
     "principal": "authenticated-principal-reference",
-    "signature": "implementation-defined"
+    "key_id": "device-public-key-fingerprint",
+    "nonce": "128-bit-csprng-value",
+    "signature": "ed25519-signature-over-domain-separated-jcs-canonicalization"
   }
 }
 ```
+Signature is normative, not implementation-defined: Ed25519 (`ed25519-dalek`), verified
+with `verify_strict`, over a domain-separated RFC 8785 JCS canonicalization of every
+envelope field except `security.signature` itself. Full decision, evidence, and the
+normative-text forecast for `spec/security.md`:
+`docs/planning/decisions/C5-envelope-auth.md` §2-§6.
+
 Trusted security metadata must be distinguishable from user/model-controlled content.
 
 ## Addressing
