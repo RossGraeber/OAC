@@ -4,7 +4,14 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A7: `docs/planning/v0.1/06-security.md` landed
+**Last updated:** 2026-09-17 (A8: `docs/planning/v0.1/07-repository-and-dependencies.md`
+landed (issue #28) — module ownership table and dependency direction rule, the two
+ADR-001 containment boundaries (Zenoh containment; the Claude/Codex compatibility-shim
+boundaries, both still UNVERIFIED per C11 and carried forward, not resolved), the
+ten-row dependency inventory with licenses and consuming modules, the copyleft flag on
+`zenoh`, the Apache-2.0 compatibility verdict for direct dependencies, and the
+transitive-sweep deferral to Stage 6; no pin moved, no gate verdict changed, no new
+UNVERIFIED item added. A7: `docs/planning/v0.1/06-security.md` landed
 (issue #27) — identities (the C4 four-layer model), model-generated text never
 establishes identity as its own named section, trust boundaries per process-boundary
 crossing, pairing (both C5 flows), authorization (default-deny, per-session-id
@@ -62,7 +69,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2, A4, A5, A6, A7 landed), C (decisions), J (agent skills) |
+| Open epics | A (planning package — A2, A4, A5, A6, A7, A8 landed), C (decisions), J (agent skills) |
 | Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
 
 ## ADR amendments
