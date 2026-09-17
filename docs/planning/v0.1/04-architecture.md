@@ -11,8 +11,8 @@ the threat model (`docs/planning/v0.1/06-security.md`'s job), and does not defin
 CLI/launch story (`docs/planning/v0.1/08-cli-and-deployment.md`'s job, though §12-§13 below
 name the topology facts that story is built on).
 
-**Gate caveat, carried from `docs/planning/decisions/C7-zenoh-transport.md`.** Per
-`docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer) is
+**[transport] Gate caveat, carried from `docs/planning/decisions/C7-zenoh-transport.md`.**
+Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer) is
 `NOT RUN`**. Every transport-behavior statement below — loopback discovery, presence
 liveliness, local/LAN security profiles — is a **designed** mechanism this file diagrams,
 not a **proven** one. The same caveat applies to gates G1, G2, G4, and G5, each `NOT RUN`
@@ -39,12 +39,18 @@ types must not escape the transport module." Quoted, `docs/planning/DESIGN.md` l
 "The specification MUST NOT mention Zenoh keys, MQTT topics, NATS subjects, or
 provider-specific method names."
 
-**One deliberate exception, justified in one line.** §5's process-boundary diagram must
-show that the daemon holds the transport peer (`docs/planning/decisions/
+**Two deliberate exceptions, justified in one line each.** §5's process-boundary diagram
+must show that the daemon holds the transport peer (`docs/planning/decisions/
 C2-process-model.md` §1; issue #22 acceptance box 2). To do this without a Zenoh term in
 the daemon box's own label, the diagram draws a **transport box nested inside** the
 daemon's process box — the daemon box itself is labelled only "daemon (`oac`)"; the nested
 box, and only that nested box, is labelled "transport" and may name Zenoh inside it.
+Second, a handful of neutral component descriptions (the §2 component table, §3 item 4,
+§5's daemon box, §12's harness boxes) must state a provider-specific fact (which adapter
+needs a persistent app-server client; which harness maps to which adapter) — each such
+spot carries an explicit `[adapter: <name>]` bracket label, the same convention §5 already
+uses on its two harness boxes, so the surrounding text or box is itself "explicitly
+labelled adapter" rather than a bare neutral mention.
 
 ---
 
@@ -57,7 +63,7 @@ its repo path (`docs/planning/DESIGN.md`'s Suggested repository shape, lines 136
 | Component | Owns | Never owns | Repo path | Key material |
 |---|---|---|---|---|
 | CLI (`oac` binary) | User-facing commands (`oac start`, `status`, `sessions`, `doctor`, `mcp-shim`) — the surface a person or a harness config invokes | Long-lived process state; the transport peer; policy decisions | `cli/` | none |
-| Daemon | The transport peer, device identity/key material, policy/allowlists/pairing state, the single Codex app-server client (§3) — one long-lived process per device | Provider-specific rendering logic; per-session harness state beyond registration | (the daemon binary; hosts `core/` and starts the transport module) | **daemon only** — see §3 |
+| Daemon | The transport peer, device identity/key material, policy/allowlists/pairing state, the single app-server client `[adapter: Codex]` (§3) — one long-lived process per device | Provider-specific rendering logic; per-session harness state beyond registration | (the daemon binary; hosts `core/` and starts the transport module) | **daemon only** — see §3 |
 | `oac mcp-shim` | Nothing beyond a thin stdio connection to the daemon over local IPC, one per harness session | The transport peer; key material; policy; any provider-specific logic | `cli/` (the `mcp-shim` subcommand) | none |
 | Core | Neutral types and policy/authorization: `SessionIdentity`, `SessionDescriptor`, `SessionCapabilities`, `ChannelMessage`, `DeliveryReceipt`, `PresenceRecord`, `SecurityPrincipal` (`docs/planning/DESIGN.md` line 28) | Provider-native vocabulary; transport-native vocabulary | `core/` | none (core holds no key material itself; the daemon process that hosts core does, per §3) |
 | Spec surface | The neutral OAC Session Channels specification text | Implementation code; provider-specific or transport-specific vocabulary | `spec/` | none |
@@ -73,14 +79,14 @@ Cited to `docs/planning/decisions/C2-process-model.md` §1, restated here as the
 this architecture file's component table and process-boundary diagram (§5) depend on:
 
 1. **The transport peer** — the one process per device that holds the transport's
-   discovery, liveliness, and pub/sub state (transport-specific detail: §5's nested
+   discovery, presence, and pub/sub state (transport-specific detail: §5's nested
    transport box, §12).
 2. **Device identity and key material** — the per-device signing key, read from and
    written to the OS credential store via `keyring` `4.2.0`.
 3. **Policy and allowlists** — sender allowlists, pairing state, and ACL decisions, in one
    place instead of duplicated per session.
-4. **The Codex app-server client** — one client of the Codex app-server, not one per OAC
-   session (transport-specific and Codex-specific detail: §9-§10).
+4. **`[adapter: Codex]` The Codex app-server client** — one client of the Codex
+   app-server, not one per OAC session (provider-specific detail: §9-§10).
 
 **The shim owns none of these.** Every "Key material" cell in §2's component table reads
 "none" except the daemon's, which reads "daemon only" — this is the direct consequence of
@@ -102,7 +108,8 @@ quoting DESIGN.md's stale spelling.
 ## 5. Process-boundary diagram
 
 One device, three process kinds, drawn as nested boxes. All process labels are neutral
-except the two adapter boxes and the one transport box (§1's stated exception).
+except the two adapter boxes, the app-server-client line, and the one transport box
+(§1's stated exceptions).
 
 ```
 +-------------------------------------------------------------------+
@@ -129,7 +136,7 @@ except the two adapter boxes and the one transport box (§1's stated exception).
 |  |                                                               |   |
 |  |  device identity / key material   <- daemon only              |   |
 |  |  policy / allowlists / pairing state                          |   |
-|  |  Codex app-server client (one, daemon-held)                   |   |
+|  |  [adapter: Codex] app-server client (one, daemon-held)        |   |
 |  |                                                               |   |
 |  |  +---------------------------------------------------------+ |   |
 |  |  | transport  [transport: Zenoh peer, in-process]           | |   |
@@ -198,8 +205,11 @@ model." Source: PLANNING-PROMPT.md §3.1, retrieved 2026-09-15.
 
 **Surface label, at first mention.** Claude Code Channels is a **research preview**.
 Pinned version: Claude Code `v2.1.274` (`docs/planning/PINS.md` — Claude Code Channels).
-Compatibility shim boundary: `adapters/claude/` — this module is the isolation layer
-between the volatile preview surface and the rest of OAC.
+Compatibility shim boundary: `adapters/claude/` (UNVERIFIED — the module/interface name
+itself is not yet fixed in `DESIGN.md`; open ledger entry C11,
+`docs/planning/v0.1/03-decisions-and-amendments.md` §4, **ASSIGNED**, not closed) — this
+path is this file's working name for the isolation layer between the volatile preview
+surface and the rest of OAC, pending C11's resolution.
 
 ---
 
@@ -262,7 +272,8 @@ daemon-held client does not.
 (per-method gating)** — each method requires `capabilities.experimentalApi` and is
 documented as not durable. Pinned version: `@openai/codex@0.154.0`, commit
 `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (`docs/planning/PINS.md` — Codex CLI and
-app-server). Compatibility shim boundary: `adapters/codex/`.
+app-server). Compatibility shim boundary: `adapters/codex/` (UNVERIFIED — same ledger
+entry C11 as §7; not yet fixed in `DESIGN.md`).
 
 **Open UNVERIFIED item, named rather than assumed.** Whether the Codex daemon's implicit
 attach is enabled by default in released `0.154.0` is UNVERIFIED (`docs/planning/
@@ -285,9 +296,11 @@ Codex session calls the OAC tool registered via `codex mcp add` (the supported o
 ```
 
 **`codex mcp-server` is not the surface used.** It was deprecated 2026-08-20 and deleted
-2026-09-05; `codex mcp add` — registering OAC's `oac mcp-shim` as an **external** MCP
-server Codex can call as a tool — is the supported outbound path. Source:
-PLANNING-PROMPT.md §3.2, retrieved 2026-09-15.
+2026-09-05 (UNVERIFIED — both dates carried unchanged from PLANNING-PROMPT.md §3.2, not
+independently re-confirmed; see `docs/planning/STATUS.md`'s "Open UNVERIFIED items");
+`codex mcp add` — registering OAC's `oac mcp-shim` as an **external** MCP server Codex can
+call as a tool — is the supported outbound path. Source: PLANNING-PROMPT.md §3.2, retrieved
+2026-09-15.
 
 **Credential boundary, stated explicitly.** The Codex app-server uses the saved CLI login
 (`CODEX_HOME/auth.json` or the OS keyring); OAC never holds or reads it. Quoted,
@@ -323,8 +336,8 @@ One device, one user, one daemon, N shims, two harnesses.
 
 ```
 Device
-  Harness A (Claude Code) --spawns--> oac mcp-shim --IPC--> oac daemon
-  Harness B (Codex)        --spawns--> oac mcp-shim --IPC--> oac daemon
+  Harness A [adapter: Claude Code] --spawns--> oac mcp-shim --IPC--> oac daemon
+  Harness B [adapter: Codex]        --spawns--> oac mcp-shim --IPC--> oac daemon
                                                                  |
                                                             [transport: Zenoh peer,
                                                              bound to 127.0.0.1]
@@ -339,11 +352,12 @@ multi-user daemon). And `docs/planning/decisions/C7-zenoh-transport.md` §5's "n
 `zenohd`": OAC's transport peer runs in-process inside the daemon, in peer mode; no router
 process is required for the default local path.
 
-**Loopback bind and local certificate — transport box only.** Quoted,
+**Loopback bind and local certificate — transport box only.** Per
 `docs/planning/decisions/C7-zenoh-transport.md` §5: local mode's Zenoh peer listens only
 on `127.0.0.1`, including a TLS listener bound to `127.0.0.1` presenting an
-automatically-generated, locally-stored certificate created on first run — "there is no
-step in which a user creates, installs, imports, or manages a certificate," satisfying
+automatically-generated, locally-stored certificate created on first run. Quoted,
+`docs/planning/decisions/C7-zenoh-transport.md` §5: "there is no step in which a user
+creates, installs, imports, or manages a certificate," satisfying
 `docs/planning/DESIGN.md` line 115's "require no manual certificate management." This
 paragraph is itself the transport box this file's §1 boundary-discipline rule scopes
 Zenoh vocabulary to.
@@ -364,9 +378,9 @@ this file.
   it diagrams — the pairing flow itself belongs to `06-security.md`.
 - **ACL subjects are certificate common name or username, never `zid`, default-deny.**
   Quoted, `docs/planning/decisions/C7-zenoh-transport.md` §6: "ACL subjects are
-  certificate common name or username only, never `zid`." Default-deny is the starting
-  posture for every ACL rule the transport ships with (`docs/planning/decisions/
-  C7-zenoh-transport.md` §6-§7).
+  certificate common name or username only — never `zid` — restated as finalized here."
+  Default-deny is the starting posture for every ACL rule the transport ships with
+  (`docs/planning/decisions/C7-zenoh-transport.md` §6-§7).
 
 **Explicitly excluded.** Federation, routing, and multi-hop are deferred, per
 `oac-boundaries` 11 ("Group rooms/broadcast... are explicitly deferred, not v0.1 work") —
@@ -391,7 +405,7 @@ rather than restated.
 - **Loopback TCP for local IPC.** Rejected — `docs/planning/decisions/
   C2-process-model.md` §4, "Rejected: loopback TCP" (no OS-level peer authentication).
   Reversal condition: `docs/planning/decisions/C2-process-model.md` §11.
-- **Router process (`zenohd`) on the default local path.** Rejected —
+- **[transport] Router process (`zenohd`) on the default local path.** Rejected —
   `docs/planning/decisions/C7-zenoh-transport.md` §10. Reversal condition:
   `docs/planning/decisions/C7-zenoh-transport.md` §11.
 
@@ -428,15 +442,19 @@ Per `oac-evidence` §8, checked against this file:
   **research preview** (§7); Codex app-server live-inject — **experimental (per-method
   gating)** (§9).
 - Preview/experimental surfaces carry a shim boundary and pinned version: Claude —
-  `adapters/claude/`, `v2.1.274` (§7); Codex — `adapters/codex/`,
-  `@openai/codex@0.154.0` @ `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (§9).
+  `adapters/claude/` (UNVERIFIED — C11, not yet fixed in `DESIGN.md`), `v2.1.274` (§7);
+  Codex — `adapters/codex/` (UNVERIFIED — same C11), `@openai/codex@0.154.0` @
+  `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (§9).
 - Every verbatim API name (`capabilities.experimental["claude/channel"]`,
   `notifications/claude/channel`, `thread/queue/add`, `turn/steer`, `turn/start`,
   `CODEX_HOME/app-server-control/app-server-control.sock`, `codex mcp add`) is traced to
   PLANNING-PROMPT.md §3.1/§3.2, retrieved 2026-09-15 (§7, §9, §10).
-- No new UNVERIFIED item is added by this file. The one UNVERIFIED fact this file cites
-  (Codex implicit daemon-attach default in `0.154.0`, §9) already appears in
-  `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list and is not restated as new
+- No new UNVERIFIED item is added by this file. Three already-open UNVERIFIED facts are
+  carried forward with their label intact, not silently promoted: the Codex implicit
+  daemon-attach default in `0.154.0` (§9), the `codex mcp-server` deprecation/deletion
+  dates (§10), and the named compatibility shim boundary for both preview/experimental
+  surfaces (§7, §9; ledger entry C11). All three already appear in
+  `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list and are not restated as new
   here.
 
 ---
@@ -445,15 +463,25 @@ Per `oac-evidence` §8, checked against this file:
 
 Per `oac-boundaries`' pre-commit self-check, run against this file:
 
-- `rg -n -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness'` hits in this file: §1 (the stated
-  exception's own explanation), §5's nested transport box and its caption, §12's transport
-  box paragraph, §13's ACL paragraph (quoting `zid`'s exclusion, not using it as a subject
-  — the mention is of the *rejected* term). Every hit sits inside a box or paragraph
-  labelled **transport**, or is this file's own boundary-discipline prose describing the
-  rule (§1), never inside a neutral component box or arrow.
-- `Claude`/`Codex`/MCP-method-name hits: confined to §7-§10, each explicitly labelled
-  **adapter**. No neutral-flow arrow (§7's, §8's, §9's, §10's flow-list arrows themselves)
-  names a provider or a transport term — only the paragraph beneath each flow does.
+- `rg -n -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness'` hits in this file, complete: the
+  gate caveat (labelled `[transport]`, preceding §1), §1 (the stated exceptions' own
+  explanation), §5's nested transport box and its caption, §12's transport box paragraph,
+  §13's ACL paragraph (quoting `zid`'s exclusion, not using it as a subject — the mention
+  is of the *rejected* term), §14's `zenohd` bullet (labelled `[transport]`). §3 item 1's
+  daemon-ownership list uses "discovery, presence, and pub/sub state" — "liveliness" was
+  removed from that neutral list so it would not need its own exception. Every remaining
+  hit sits inside a box or paragraph labelled `[transport]`/**transport**, or is this
+  file's own boundary-discipline prose describing the rule (§1), never inside an
+  unlabelled neutral component box or arrow.
+- `Claude`/`Codex`/MCP-method-name hits, complete: §7-§10 prose, each explicitly labelled
+  **adapter**; §2's component table (Daemon row, `[adapter: Codex]`), §3 item 4
+  (`[adapter: Codex]`), §5's diagram (harness boxes' `[adapter: ...]` labels and the
+  daemon box's `[adapter: Codex]` app-server-client line), and §12's diagram (harness
+  boxes' `[adapter: ...]` labels) — each of these four carries the same explicit
+  `[adapter: ...]` bracket label §5 already used for its harness boxes, so every hit sits
+  inside a box or paragraph explicitly labelled adapter. No neutral-flow arrow (§7's,
+  §8's, §9's, §10's flow-list arrows themselves) names a provider or a transport term —
+  only the labelled box or paragraph beneath/beside each flow does.
 - Nothing in this file has OAC owning a turn loop (every inbound/outbound flow ends at, or
   begins from, the harness's own provider-native operation — OAC never runs a turn
   itself), holding provider credentials (§10's credential-boundary paragraph states the
@@ -484,7 +512,9 @@ decisions/C7-zenoh-transport.md` §13.
       rule) with federation/routing/multi-hop and LAN launch mechanics explicitly
       excluded.
 - [x] **Provider and transport names appear only in adapter and transport boxes** —
-      enforced by §1's stated rule and verified by §17's boundary pass.
+      enforced by §1's two stated exceptions (nested transport box; `[adapter: ...]`
+      bracket labels on the four remaining provider-specific mentions) and verified by
+      §17's complete boundary pass.
 
 **Cross-file updates in this change.**
 
