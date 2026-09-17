@@ -46,14 +46,14 @@ for the full pin record behind each row.
 
 | Surface | Label | Pinned version | Release date | Observed-at URL | Retrieved | Shim boundary |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17T00:12:02Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | `shim boundary: UNNAMED — see docs/planning/DESIGN.md` |
-| Codex CLI / app-server | experimental (per-method gating via `capabilities.experimentalApi`) | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | `shim boundary: UNNAMED — see docs/planning/DESIGN.md` |
+| Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17T00:12:02Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | `shim boundary: UNNAMED — see DESIGN.md` |
+| Codex CLI / app-server | experimental (per-method gating via `capabilities.experimentalApi`) | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | `shim boundary: UNNAMED — see DESIGN.md` |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | n/a — `supported` surface |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | n/a — `supported` surface |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | n/a — `supported` surface |
-| ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | n/a — `supported` surface; **not a v0.1 dependency** |
+| ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha, UNVERIFIED — see §5) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | n/a — `supported` surface; **not a v0.1 dependency** |
 
-Five surfaces, five rows, one label each (MCP's two eras are recorded as two rows of the
+Five surfaces, six rows, one label each (MCP's two eras are recorded as two rows of the
 same `supported` label per `docs/planning/PINS.md`'s own pin-table shape, not a second
 surface). Only Claude Code (Channels) and Codex CLI / app-server carry the
 `research preview` / `experimental` labels that require a shim-boundary entry (§2).
@@ -65,7 +65,7 @@ additional things: a named compatibility shim boundary ... and a pinned version.
 pinned versions are in §1. The shim boundary itself is carried exactly as
 `docs/planning/PINS.md` states it for both surfaces:
 
-> `shim boundary: UNNAMED — see docs/planning/DESIGN.md`
+> `shim boundary: UNNAMED — see DESIGN.md`
 
 This is not a placeholder this file invents — it is `docs/planning/PINS.md`'s own
 Claude Code Channels and Codex CLI/app-server pin records, quoted verbatim (both say the
@@ -110,13 +110,13 @@ version | Verbatim API names | First-party source URL | Retrieved | Gap.
 | External event becomes a user turn | Codex | experimental (per-method gating) | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | `thread/queue/add` (queued until idle, experimental), `turn/steer` (injects into an active turn), `turn/start` (when idle); CLI `codex queue --thread <id> --message <text>`; daemon `codex app-server daemon start`; control socket `CODEX_HOME/app-server-control/app-server-control.sock` | https://github.com/openai/codex/releases/tag/rust-v0.154.0 (pin); `docs/planning/PINS.md` — "Codex CLI and app-server" | 2026-09-16 | Whether implicit daemon-attach executes by default at runtime in the pinned build is UNVERIFIED — source-confirmed present at the pinned commit, runtime behaviour is gate G2's go/no-go, owner D2/G2 |
 | External event becomes a user turn | MCP | **no capability** — structural gap | current `2026-07-28` | none — `initialize` is gone at this revision; servers cannot initiate requests or push unsolicited content | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | Structural: no MCP revision defines "external event becomes a user turn" — this is the §4 finding `docs/planning/ADR-001-AMENDMENTS.md` §ADR-001-A3 rests on, not a version-specific limitation that a future MCP revision is expected to lift |
 | External event becomes a user turn | Zenoh | supported — transport only | `1.10.1` | n/a — Zenoh carries bytes; it defines no session-wake semantic | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | No session-wake semantics at this layer by design — wake semantics are entirely provider-native (Claude/Codex rows above); Zenoh is the transport underneath OAC's own protocol, not a wake mechanism itself |
-| External event becomes a user turn | ACP | supported | protocol version `1` (schema v2 alpha) | `session/prompt` (into a session owned by the ACP client), `session/load`, `session/resume` | https://agentclientprotocol.com/protocol/ | 2026-09-16 | No documented API pushes input into a live local Cursor session OAC does not own — `session/prompt` operates only inside a session the calling ACP client itself owns and drives; see §4 for the full C7 record |
+| External event becomes a user turn | ACP | supported | protocol version `1` (schema v2 alpha, UNVERIFIED — see §5) | `session/prompt` (into a session owned by the ACP client), `session/load`, `session/resume` | https://agentclientprotocol.com/protocol/ | 2026-09-16 | No documented API pushes input into a live local Cursor session OAC does not own — `session/prompt` operates only inside a session the calling ACP client itself owns and drives; see §4 for the full C7 record |
 
 ### 3.2 Outbound reply and correlation
 
 | Capability | Surface | Status | Pinned version | Verbatim API names | First-party source URL | Retrieved | Gap |
 |---|---|---|---|---|---|---|---|
-| Outbound reply | Claude Code | research preview | `v2.1.274` | ordinary MCP tools (conventionally `reply`); correlation is convention-only, via `meta` attributes echoed back on the reply | https://code.claude.com/docs/en/channels-reference.md | 2026-09-16 | `meta` keys must be identifier-safe (letters, digits, underscore) or are silently dropped — an OAC provenance key that fails this test never arrives, per `docs/planning/decisions/C6-trust-rendering.md` §2's const key table and refusal-fixture design |
+| Outbound reply | Claude Code | research preview | `v2.1.274` | ordinary MCP tools (conventionally `reply`); correlation is convention-only, via `meta` attributes echoed back on the reply | https://code.claude.com/docs/en/channels-reference.md | 2026-09-16 | `meta` keys must be identifier-safe (letters, digits, underscore) or are silently dropped — an OAC provenance key that fails this test never arrives, per `docs/planning/decisions/C6-trust-rendering.md` §2-§3's const key table and refusal-fixture design |
 | Outbound reply / correlation | Codex | experimental (per-method gating) | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | events `thread/started`, `thread/status/changed`, `turn/started`, `turn/completed` (`completed`\|`interrupted`\|`failed`), `item/started`, `item/completed` (authoritative), `item/agentMessage/delta` | https://github.com/openai/codex/releases/tag/rust-v0.154.0 (pin); `docs/planning/PINS.md` — "Codex CLI and app-server" | 2026-09-16 | No channel-tag convention on Codex the way Claude's `meta` echo provides — correlation is a layered rule (explicit `in_reply_to`, adapter-independent thread-id/turn-id binding, explicit inferred/uncorrelated downgrade), per `docs/planning/decisions/C6-trust-rendering.md` §10 |
 | Outbound reply / provenance | MCP | supported — tool surface + `_meta` provenance | current `2026-07-28` | `_meta["io.modelcontextprotocol/protocolVersion"]` | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | None — `_meta` provenance and the ordinary tool-call surface are the supported mechanism outbound reply rides on for both harnesses; the structural gap is inbound only (§3.1) |
 
@@ -145,9 +145,9 @@ version | Verbatim API names | First-party source URL | Retrieved | Gap.
 | Harness-native session identity | Codex | experimental (per-method gating) | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | `thread.id` (UUIDv7, survives restarts); rollouts under `CODEX_HOME/sessions/` | https://learn.chatgpt.com/docs/app-server | 2026-09-17 | The rollout file format under `CODEX_HOME/sessions/` is explicitly **not** a supported surface — OAC never reads it |
 | Provider credential boundary | Codex | experimental (per-method gating) | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | `CODEX_HOME/auth.json` or OS keyring | PLANNING-PROMPT.md §3.2 | 2026-09-16 | None — OAC never holds OpenAI credentials; this is a fixed boundary (`[ADR-001 Boundary]` "MUST NOT steal or reuse another harness's provider credentials"), not a capability gap |
 | Transport peer discovery | Zenoh | supported | `1.10.1` | peer mode default; scouting `224.0.0.224:7446`; `interface: "auto"`; loopback discovery fix floor `>= 1.10.0` (PR #2671) | https://github.com/eclipse-zenoh/zenoh/pull/2671; `docs/planning/PINS.md` — "Zenoh" | 2026-09-16 | None at the pinned version (`1.10.1 >= 1.10.0`, floor satisfied); Gate G3 (`NOT RUN`) is the runtime proof this floor's real-world behaviour still needs |
-| Stable surface scope | Zenoh | supported | `1.10.1` | `zenoh` + `zenoh-ext` only (stable API); `unstable` feature not used | https://github.com/eclipse-zenoh/zenoh/releases; `docs/planning/decisions/C7-zenoh-transport.md` §8 | 2026-09-16 | None — every feature this design touches is verified stable, per C7 §8's table |
-| ACL subject authentication | Zenoh | supported | `1.10.1` | `zid` (explicitly unauthenticated ACL subject) | `docs/planning/decisions/C5-envelope-auth.md` §12; `docs/planning/decisions/C7-zenoh-transport.md` §6 | 2026-09-16 | `zid` ACL subjects are explicitly unauthenticated — OAC policy maps only onto authenticated ACL subjects (certificate common name or username), never `zid` |
-| Application-layer message signing | Zenoh | supported (transport) — **gap closed by OAC, not by Zenoh** | `1.10.1` | n/a — Zenoh provides no application-layer message signing | `docs/planning/decisions/C7-zenoh-transport.md` §7, quoting `oac-zenoh` §6 | 2026-09-16 | Zenoh itself provides no payload signing; gap closed by OAC's own envelope signature (`docs/planning/decisions/C5-envelope-auth.md`, Ed25519 via `ed25519-dalek`, `verify_strict`). **No Zenoh concept — `zid`, key expression, liveliness token — may leak into the neutral protocol** (`[ADR-001 Boundary]` "MUST NOT leak Zenoh-specific concepts into the neutral protocol"), a boundary this file does not itself violate: every Zenoh-specific term above is confined to this row's own cells, describing the Zenoh surface, not proposing neutral-protocol vocabulary |
+| Stable surface scope | Zenoh | supported | `1.10.1` | `zenoh` + `zenoh-ext` only (stable API); `unstable` feature not used | https://github.com/eclipse-zenoh/zenoh/releases; `docs/planning/decisions/C7-zenoh-transport.md` §8 | 2026-09-17 | None — every feature this design touches is verified stable, per C7 §8's table |
+| ACL subject authentication | Zenoh | supported | `1.10.1` | `zid` (explicitly unauthenticated ACL subject) | PLANNING-PROMPT.md §3.4; `docs/planning/decisions/C5-envelope-auth.md` §12; `docs/planning/decisions/C7-zenoh-transport.md` §6 | 2026-09-17 | `zid` ACL subjects are explicitly unauthenticated — OAC policy maps only onto authenticated ACL subjects (certificate common name or username), never `zid` |
+| Application-layer message signing | Zenoh | supported (transport) — **gap closed by OAC, not by Zenoh** | `1.10.1` | n/a — Zenoh provides no application-layer message signing | PLANNING-PROMPT.md §3.4, §7; `docs/planning/decisions/C7-zenoh-transport.md` §7, quoting `oac-zenoh` §6 | 2026-09-16 | Zenoh itself provides no payload signing; gap closed by OAC's own envelope signature (`docs/planning/decisions/C5-envelope-auth.md`, Ed25519 via `ed25519-dalek`, `verify_strict`). **No Zenoh concept — `zid`, key expression, liveliness token — may leak into the neutral protocol** (`[ADR-001 Boundary]` "MUST NOT leak Zenoh-specific concepts into the neutral protocol"), a boundary this file does not itself violate: every Zenoh-specific term above is confined to this row's own cells, describing the Zenoh surface, not proposing neutral-protocol vocabulary |
 
 ## 4. C7 record — ACP is a client-owned-session protocol, not a channel
 
@@ -160,11 +160,11 @@ the protocol, not a version-specific gap `docs/planning/PINS.md`'s pinned protoc
 version `1` might close in a later revision.
 
 **This file is the named resolution home for conflict-register row C7.** Per
-`docs/planning/ADR-001-AMENDMENTS.md`'s conflict register table, row C7 ("ACP is
-client-owned-session, not a channel") is `RESOLVED-BY-EVIDENCE`, with "Resolution lives
-in `docs/planning/v0.1/01-capability-matrix.md`." Per `docs/planning/
-PLANNING-PROMPT.md` Appendix A, C7's expected resolution is "Note in capability matrix."
-This section is that note.
+`docs/planning/ADR-001-AMENDMENTS.md`'s conflict register table (line 395), row C7
+("ACP is client-owned-session, not a channel") is `RESOLVED-BY-EVIDENCE`, and its
+"Resolution lives in" cell (header + cell, not a quoted sentence) names this file. Per
+`docs/planning/PLANNING-PROMPT.md` Appendix A, C7's expected resolution is "Note in
+capability matrix." This section is that note.
 
 **Evidence.** `docs/planning/REVERIFICATION-B2.md` §3.5 row "C7 framing: ACP is
 client-owned-session, not a channel" — **HOLDS**. Quoted: "Confirmed by the protocol
@@ -235,6 +235,10 @@ items" list):**
 - ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md §3.5 only,
   not independently re-confirmed on agentclientprotocol.com in B1 or B2; low priority,
   ACP is not a v0.1 dependency; see `docs/planning/REVERIFICATION-B2.md` §3.5).
+- `codex mcp-server` deprecation date (2026-08-20) and deletion date (2026-09-05)
+  (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
+  re-confirmed against the CLI reference in B1 or B2; see §3.4's removed-surface row and
+  `docs/planning/STATUS.md`).
 
 **Second required home.** Per the task instruction and `oac-evidence` §5, `docs/planning/
 v0.1/11-risks.md` (Epic A task A12) is the second required home for every UNVERIFIED item
@@ -256,7 +260,7 @@ list is the ledger of record; this file does not remove or promote any entry fro
       `supported` label as two pin-table rows, matching `docs/planning/PINS.md`'s own
       shape, not a sixth surface.
 - [x] Both preview/experimental surfaces (Claude Code Channels, Codex CLI/app-server)
-      name their shim-boundary state (`UNNAMED — see docs/planning/DESIGN.md`) plus C4's
+      name their shim-boundary state (`UNNAMED — see DESIGN.md`) plus C4's
       behavioural narrowing (§2) — no module path invented.
 - [x] C7 (register row) is recorded, with the register-row-vs-backlog-task collision
       warning stated explicitly (§4).
