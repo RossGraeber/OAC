@@ -79,7 +79,7 @@ its own prose.
 | `spec/` | The neutral OAC Session Channels specification text | Normative spec prose (04-architecture.md §2) | Implementation code; provider-specific or transport-specific vocabulary (04-architecture.md §2) | Nothing in-repo |
 | `adapters/claude/` | Translating neutral envelopes to/from Claude Code's provider-native wake and reply operations | Claude-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions — routes through core policy/security instead (04-architecture.md §2, quoting `docs/planning/DESIGN.md`) | `core/` only (§3) |
 | `adapters/codex/` | Translating neutral envelopes to/from the Codex app-server's provider-native turn/thread operations | Codex-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions; OpenAI model-API credentials (04-architecture.md §2) | `core/` only (§3) |
-| `transports/zenoh/` | Every Zenoh-specific type, identifier, and concept, behind the `Transport` contract | The `Transport` contract's six operations over neutral types only (04-architecture.md §2) | Policy/authorization decisions; signature verification; anything visible outside `publish`/`subscribe`/`announce_presence`/`watch_presence`/`health`/`shutdown` (04-architecture.md §2) | `core/` only (§3) |
+| `transports/zenoh/` | Every Zenoh-specific type, identifier, and concept, behind the `Transport` contract | The `Transport` contract's seven operations over neutral types only (05-interfaces.md §15) | Policy/authorization decisions; signature verification; anything visible outside `start`/`publish`/`subscribe`/`announce_presence`/`watch_presence`/`health`/`shutdown` (05-interfaces.md §15) | `core/` only (§3) |
 | `cli/` (including `mcp-shim`) | User-facing commands, and the thin stdio shim a harness spawns | `oac start`, `status`, `sessions`, `doctor`, `mcp-shim` — the `mcp-shim` subcommand carries nothing beyond a thin stdio connection to the daemon over local IPC (04-architecture.md §2) | Long-lived process state; the transport peer; policy decisions; key material (04-architecture.md §2) | `core/` |
 | `tests/` | Protocol, security, and integration test suites (`tests/{protocol,security,integration}/`) | Fixtures and fake endpoints for provider/transport contract tests (`docs/planning/DESIGN.md` "Testing"; `docs/planning/v0.1/09-test-strategy.md`, A10, not yet landed) | Production code; anything shipped in the `oac` binary | `core/`, and whichever module a given test targets |
 
@@ -104,8 +104,8 @@ core/             -> (nothing in-repo)
 **Explicit MUST NOTs.**
 
 - `core/` MUST NOT depend on `adapters/*` or `transports/*`.
-- No adapter MUST depend on another adapter.
-- No adapter MUST depend on `transports/zenoh/` — adapters route through core policy,
+- An adapter MUST NOT depend on another adapter.
+- An adapter MUST NOT depend on `transports/zenoh/` — adapters route through core policy,
   per `docs/planning/DESIGN.md`'s "Adapters should route through core policy/security
   rather than directly through transports," already cited normatively at
   `docs/planning/v0.1/05-interfaces.md` §13.
@@ -122,10 +122,11 @@ this file states the rule, not the enforcement mechanism.
 
 Every Zenoh type, identifier, and key expression stays inside `transports/zenoh/`, per
 `docs/planning/decisions/C7-zenoh-transport.md` §2 and DESIGN acceptance criterion 9.
-The `Transport` contract's six operations are the only visible surface crossing this
-module's boundary:
+The `Transport` contract's seven operations (`docs/planning/v0.1/05-interfaces.md` §15)
+are the only visible surface crossing this module's boundary:
 
 ```text
+start
 publish
 subscribe
 announce_presence
@@ -142,11 +143,14 @@ the neutral protocol."
 
 Per `oac-evidence` §4/§5:
 
-- `adapters/claude/` isolates Claude Channels, labelled **research preview**, pinned
-  per `docs/planning/PINS.md` (Claude Code Channels).
-- `adapters/codex/` isolates the Codex app-server, labelled **experimental,
-  per-method gating**, pinned `0.154.0` @ commit
-  `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`.
+- `adapters/claude/` isolates Claude Channels (UNVERIFIED — the module/interface name
+  itself is not yet fixed in `DESIGN.md`; open ledger entry C11,
+  `docs/planning/v0.1/03-decisions-and-amendments.md` line 755;
+  `docs/planning/STATUS.md` "Open UNVERIFIED items"), labelled **research preview**,
+  pinned `v2.1.274` per `docs/planning/PINS.md` (Claude Code Channels).
+- `adapters/codex/` isolates the Codex app-server (UNVERIFIED — same ledger entry C11;
+  not yet fixed in `DESIGN.md`), labelled **experimental, per-method gating**, pinned
+  `0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`.
 
 Cross-reference `docs/planning/v0.1/05-interfaces.md` for the adapter contract itself
 (`ProviderAdapter`'s seven members) — not restated here.
@@ -161,16 +165,16 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 
 | Crate | Version | License | Why needed | Copyleft? | Apache-2.0 compatible? | Source decision | Consuming module |
 |---|---|---|---|---|---|---|---|
-| `rmcp` | `3.4.0` | Apache-2.0 | Rust MCP SDK — server/client protocol implementation for the OAC Session Channels MCP packaging layer | No | Yes — same license | C1 §3, §10 | `cli/` (`mcp-shim`) + `core/` MCP layer |
+| `rmcp` | `3.4.0` | Apache-2.0 | Rust MCP SDK — server/client protocol implementation for the OAC Session Channels MCP packaging layer | No | Yes — same license | C1 §3, §10 | `cli/` (`mcp-shim`) |
 | `codex-app-server-client` | `0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (git dep — not on crates.io at any version) | Apache-2.0 | Codex app-server JSON-RPC client — Codex adapter transport | No | Yes — same license | C1 §6, §10 | `adapters/codex/` |
 | `codex-app-server-protocol` | `0.154.0` @ same commit (git dep — crates.io has this crate but only at stale `0.63.0`) | Apache-2.0 | Codex app-server request/response/schema types | No | Yes — same license | C1 §6, §10 | `adapters/codex/` |
 | `codex-app-server-transport` | `0.154.0` @ same commit (git dep — not on crates.io at any version) | Apache-2.0 | Codex app-server transport framing | No | Yes — same license | C1 §6, §10 | `adapters/codex/` |
 | `zenoh` | `1.10.1` | EPL-2.0 / Apache-2.0 (dual) | Reference peer-to-peer transport plugin | **Yes — EPL-2.0 is the other arm of the dual license; flagged** (§6) | Yes — OAC elects the Apache-2.0 arm | C1 §7, §10 | `transports/zenoh/` only |
-| `keyring` | `4.2.0` | MIT OR Apache-2.0 | OS-native credential store facade for OAC's own device keys (Windows Credential Manager / macOS Keychain / Linux Secret Service or keyutils) | No | Yes — OAC elects the Apache-2.0 arm | C1 §8, §10 | Daemon identity (hosted in `core/`, per §1's daemon note) |
-| `keyring-core` | `1.0.0` | MIT OR Apache-2.0 | `keyring`'s only unconditional dependency — the trait/error surface the backend crates implement | No | Yes | C1 §10 | Daemon identity |
-| `windows-native-keyring-store` | `1.1.0` | MIT OR Apache-2.0 | The Windows Credential Manager backend `keyring`'s `v1`/default feature pulls in | No | Yes | C1 §10 | Daemon identity |
-| `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, C2 §4) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` | No | Yes — OAC elects the Apache-2.0 arm | C2 §4 | `cli/` (`mcp-shim`) + daemon |
-| `age` | `0.12.1` | MIT OR Apache-2.0 | Encrypted-file key fallback for the device key when no OS credential store is reachable | No | Yes — OAC elects the Apache-2.0 arm | C4 §11 | Daemon identity |
+| `keyring` | `4.2.0` | MIT OR Apache-2.0 | OS-native credential store facade for OAC's own device keys (Windows Credential Manager / macOS Keychain / Linux Secret Service or keyutils) | No | Yes — OAC elects the Apache-2.0 arm | C1 §8, §10 | Daemon binary's own identity code (not `core/`, per §1's daemon note) |
+| `keyring-core` | `1.0.0` | MIT OR Apache-2.0 | `keyring`'s only unconditional dependency — the trait/error surface the backend crates implement | No | Yes | C1 §10 | Daemon binary's own identity code (not `core/`) |
+| `windows-native-keyring-store` | `1.1.0` | MIT OR Apache-2.0 | The Windows Credential Manager backend `keyring`'s `v1`/default feature pulls in | No | Yes | C1 §10 | Daemon binary's own identity code (not `core/`) |
+| `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, C2 §4) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` | No | Yes — OAC elects the Apache-2.0 arm | C2 §4 | `cli/` (`mcp-shim`) + daemon binary |
+| `age` | `0.12.1` | MIT OR Apache-2.0 | Encrypted-file key fallback for the device key when no OS credential store is reachable | No | Yes — OAC elects the Apache-2.0 arm | C4 §11 | Daemon binary's own identity code (not `core/`) |
 
 **Acceptance box 2 ticked here** — "Every third-party dependency: name, version,
 license, reason": every row above carries all four, plus the copyleft flag, the
@@ -239,10 +243,16 @@ Per `oac-evidence` §4/§5, one label per surface this file names:
 | `zenoh` | supported | Already labelled in `docs/planning/PINS.md` (C1 §13) |
 | `keyring` | supported | General-purpose, actively maintained OS-credential crate (C1 §13, C2 §10) |
 | `interprocess` | supported | General-purpose, actively maintained; not a preview/experimental provider surface (C2 §10) |
+| `age` | supported | Actively maintained reference implementation of a published format (C4-session-identity.md line 677) |
 
 **Open UNVERIFIED items carried forward, not re-opened.** Per `docs/planning/
 STATUS.md`, the ledger of record:
 
+- The named compatibility shim boundary for the Claude Code Channels preview surface
+  (UNVERIFIED — `DESIGN.md` names no such module; register entry C11,
+  `docs/planning/v0.1/03-decisions-and-amendments.md` line 755).
+- The named compatibility shim boundary for the Codex experimental live-inject surface
+  (UNVERIFIED — same reason; register entry C11).
 - Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
   from PLANNING-PROMPT.md §3.4 unchanged; C1 §9, §13).
 - Whether the Windows `windows-native-keyring-store` backend has been exercised
@@ -297,8 +307,9 @@ Per `oac-evidence` §8, checked against this file:
   `docs/planning/decisions/C2-process-model.md` §4, or `docs/planning/decisions/
   C4-session-identity.md` §11 — none re-fetched, none given a new retrieval date.
 - Every provider/dependency surface named is labelled — §9.
-- No new UNVERIFIED item is introduced by this file; the three items §9 carries forward
-  already appear in `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list.
+- No new UNVERIFIED item is introduced by this file; the five items §9 carries forward
+  already appear in `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list, including
+  the two compatibility-shim-boundary items (C11) already carried at §4(b).
 
 ---
 
@@ -317,7 +328,7 @@ Per `oac-boundaries`' pre-commit self-check:
 - House naming resolution applied throughout: "Open Agent Channel (OAC)", "OAC Session
   Channels", `oac` binary; no "Session Channels" or `sessionchannels` spelling appears
   outside the §1 verbatim quote (marked as such).
-- No code blocks appear except §1's repository-tree sketch and §4(a)'s six interface
+- No code blocks appear except §1's repository-tree sketch and §4(a)'s seven interface
   operation names.
 - Every cross-reference is a repo-relative path (§11).
 - No dependency fact is re-derived or given a new retrieval date not already present in
@@ -327,11 +338,11 @@ Per `oac-boundaries`' pre-commit self-check:
 
 ## 14. Cross-file updates in this change
 
-- `docs/planning/STATUS.md`: no UNVERIFIED-item wording changed by this file — §9 is
-  carry-forward only, per the task instruction. No new "Last updated" bullet is added by
-  this file beyond noting A8 (issue #28) landed, if `docs/planning/STATUS.md`'s
-  "Decisions landed"/M0-progress list is later updated in a follow-up housekeeping
-  change.
+- `docs/planning/STATUS.md`: "Last updated" bullet and "Open epics" row updated to
+  record A8 (issue #28) landing, matching the precedent set by A7 (`cf24ee6`). No
+  UNVERIFIED-item wording changed — the two compatibility-shim-boundary items (C11) and
+  the three carried §9 items already appear there; §9 of this file restates rather than
+  resolves them.
 - No ADR-001 amendment is made by this file. §2's resolved layout does not contradict
   `docs/planning/DESIGN.md`'s sketch beyond the daemon note (§1) already explained by
   `docs/planning/v0.1/04-architecture.md` §2 — no new conflict is recorded in
