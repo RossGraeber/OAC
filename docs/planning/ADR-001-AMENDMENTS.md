@@ -42,13 +42,13 @@ amendment's rationale depends on to prove what changed and why.
 
 None of A1-A3 changes the ADR-001 Boundary. Quoted verbatim from `ADR-001.md`:
 
-Line 23 (the MUST NOT list):
+Line 24 (the MUST NOT list):
 
 ```
 The project MUST NOT call provider model APIs as a substitute for native harnesses; implement inference/model routing/context management; steal or reuse another harness's provider credentials; depend on UI/terminal scraping or undocumented private RPCs for supported integrations; or leak Zenoh-specific concepts into the neutral protocol.
 ```
 
-Line 25 (the MAY clause):
+Line 26 (the MAY clause):
 
 ```
 It MAY use documented MCP extensions, app-server protocols, ACP, hooks, extensions, or other supported IPC, and translate neutral messages into provider-native live-session input operations.
@@ -78,32 +78,32 @@ Six ADR-001.md sites carry the pre-rename names, each quoted with its line ancho
 # ADR-001: Provider-Neutral Session Channels
 ```
 
-(b) Line 14:
+(b) Line 15:
 
 ```
 Create a provider-neutral **MCP Session Channels extension** with three replaceable layers:
 ```
 
-(c) Lines 16-17, list items 1 and 2:
+(c) Lines 17-18, list items 1 and 2:
 
 ```
 1. **Provider adapters** — translate native harness interfaces to/from Session Channels.
 2. **MCP Session Channels** — define identity, addressing, capabilities, messages, replies/correlation, presence, delivery, and security semantics.
 ```
 
-(d) Line 35, architecture diagram label:
+(d) Line 36, architecture diagram label:
 
 ```
             MCP Session Channels
 ```
 
-(e) Line 43:
+(e) Line 44:
 
 ```
 - **Claude Code:** neutral inbound message -> Claude Channel event; outbound send/reply -> neutral Session Channels operation.
 ```
 
-(f) Line 73, inside the Validation criterion:
+(f) Line 74, inside the Validation criterion:
 
 ```
 Architecture is proven when an existing Claude Code session sends through Session Channels/Zenoh to an existing Codex harness session without receiver polling
@@ -177,7 +177,7 @@ brings them into line with the naming already in force at the repository root.
 
 **Old text (verbatim):**
 
-`ADR-001.md` line 73, the whole Validation criterion sentence, unedited:
+`ADR-001.md` line 74, the whole Validation criterion sentence, unedited:
 
 ```
 Architecture is proven when an existing Claude Code session sends through Session Channels/Zenoh to an existing Codex harness session without receiver polling; Codex responds and Claude receives the response actively; neither side invokes or holds credentials for the other's model API; and sender identity/authorization are enforceable rather than inferred from content.
@@ -274,13 +274,13 @@ task C3 — see the conflict register below).
 
 **Old text (verbatim):**
 
-`ADR-001.md` line 14, in full:
+`ADR-001.md` line 15, in full:
 
 ```
 Create a provider-neutral **MCP Session Channels extension** with three replaceable layers:
 ```
 
-`ADR-001.md` line 17, list item 2, in full:
+`ADR-001.md` line 18, list item 2, in full:
 
 ```
 2. **MCP Session Channels** — define identity, addressing, capabilities, messages, replies/correlation, presence, delivery, and security semantics.
@@ -288,7 +288,7 @@ Create a provider-neutral **MCP Session Channels extension** with three replacea
 
 **New text:**
 
-Line 14 becomes:
+Line 15 becomes:
 
 ```
 Create a provider-neutral **OAC Session Channels specification**, packaged as an MCP extension for capability negotiation, the tool surface, and `_meta` provenance only, with three replaceable layers:

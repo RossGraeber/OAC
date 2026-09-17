@@ -49,6 +49,22 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
 
+## Open conflict-register items
+
+Verified, directly observable open work items from the conflict register — not
+UNVERIFIED claims (per `oac-evidence` §5, that list is for claims no first-party source
+states or that are inferred/stale). Closed when the named resolution lands.
+
+- C11: the named compatibility shim boundary for the Claude Code Channels
+  research-preview surface and the Codex experimental live-inject surface is UNNAMED
+  (register entry restating the two shim-boundary rows in "Open UNVERIFIED items"
+  above; see `ADR-001-AMENDMENTS.md` "New register entries"). Owner: a C-series decision
+  or a DESIGN.md update.
+- C12: `DESIGN.md` still carries the retired names (`sessionchannels`, "Session
+  Channels", "MCP Session Channels extension") after ADR-001-A1 (exact sites listed in
+  `ADR-001-AMENDMENTS.md` "Carried to later tasks"). Owner: Epic A task A9 plus a
+  DESIGN.md follow-up edit.
+
 ## Open UNVERIFIED items
 
 Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
@@ -98,15 +114,6 @@ without an UNVERIFIED label.
   client capability, not the `2026-07-28` schema itself, and Claude Code does not
   register a channel server negotiating `2026-07-28`; see REVERIFICATION-B2.md §3.3
   table and "Carried to 11-risks.md" item 13).
-- C11: the named compatibility shim boundary for the Claude Code Channels
-  research-preview surface and the Codex experimental live-inject surface is UNNAMED
-  (same item as the two shim-boundary rows above, restated as a register entry in B3; see
-  `ADR-001-AMENDMENTS.md` "New register entries"). Owner: a C-series decision or a
-  DESIGN.md update.
-- C12: `DESIGN.md` still carries the retired names (`sessionchannels`, "Session
-  Channels", "MCP Session Channels extension") after ADR-001-A1 (see
-  `ADR-001-AMENDMENTS.md` "Carried to later tasks"). Owner: Epic A task A9 plus a
-  DESIGN.md follow-up edit.
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
