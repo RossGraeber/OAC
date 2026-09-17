@@ -4,8 +4,10 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (C5: envelope authenticity/replay/pairing/authorization
-decision landed, see `docs/planning/decisions/C5-envelope-auth.md`; C4: session
+**Last updated:** 2026-09-17 (C6: provider-facing trust rendering/outbound symmetry
+decision landed, see `docs/planning/decisions/C6-trust-rendering.md`; C5: envelope
+authenticity/replay/pairing/authorization decision landed, see
+`docs/planning/decisions/C5-envelope-auth.md`; C4: session
 identity/addressing/discovery/key storage decision landed, see
 `docs/planning/decisions/C4-session-identity.md`; C3: spec
 packaging/MCP extension identifier decision landed, see
@@ -29,7 +31,7 @@ amendments A1-A3 issued)
 ## ADR amendments
 
 ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`. Resolves
-conflict register entries C1-C3 directly (`RESOLVED-HERE`); C5, C7, C9, C10 assigned or
+conflict register entries C1-C3 directly (`RESOLVED-HERE`); C5, C7 assigned or
 resolved-by-evidence per that file's conflict register table; new entries C11-C12 added,
 both open (see below). C8 is closed separately, by `docs/planning/decisions/
 C4-session-identity.md` §8 (issue #17), with status `RESOLVED-IN-DECISION` — no A-
@@ -37,9 +39,13 @@ amendment, because that document found no `ADR-001.md` text needing correction. 
 C6 are likewise closed separately, by `docs/planning/decisions/C5-envelope-auth.md` §6
 and §9 (issue #18), also `RESOLVED-IN-DECISION` — no A-amendment, for the same reason
 (`ADR-001.md` carries neither the `implementation-defined` signature text nor a claim
-about Claude acknowledgements). See `ADR-001-AMENDMENTS.md`'s conflict-register legend
-for how `RESOLVED-IN-DECISION` differs from `RESOLVED-HERE`. `docs/planning/ADR-001.md`
-carries a one-line pointer to the amendments file; its body text is unchanged.
+about Claude acknowledgements). C9 and C10 are likewise closed separately, by
+`docs/planning/decisions/C6-trust-rendering.md` §10 and §7 (issue #19), also
+`RESOLVED-IN-DECISION` — no A-amendment, for the same reason (`ADR-001.md` carries
+neither Codex-correlation text nor a `claude/channel/permission`-default claim). See
+`ADR-001-AMENDMENTS.md`'s conflict-register legend for how `RESOLVED-IN-DECISION`
+differs from `RESOLVED-HERE`. `docs/planning/ADR-001.md` carries a one-line pointer to
+the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
@@ -124,6 +130,22 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   session-id, `working_directory`-scoped sender allowlists; OAC policy maps only onto
   authenticated Zenoh ACL subjects (certificate common name or username), never `zid`.
   Full decision and evidence: `docs/planning/decisions/C5-envelope-auth.md`. Folds into
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
+  exists.
+- **C6 — provider-facing trust rendering, outbound symmetry** (issue #19): decided.
+  Claude inbound provenance is a fixed five-key `meta` set (`oac_sender`, `oac_device`,
+  `oac_session`, `oac_message_id`, `oac_reply_to`), identifier-safe by a const key table
+  plus a contract test and a refusal fixture (a dropped key refuses delivery rather than
+  shipping unlabelled); Codex inbound provenance rides a machine-generated header plus a
+  `security.nonce`-derived, per-message-unguessable delimiter inside the
+  `{type:"text",text}` item, never `turn/steer`; permission relay
+  (`claude/channel/permission`) stays off by default in v0.1, resolving conflict C10
+  (`RESOLVED-IN-DECISION`); outbound is symmetric through four OAC MCP tools (`send`,
+  `reply`, `list_sessions`, `whoami`), reachable for Codex via `codex mcp add`; Codex
+  reply correlation is a layered rule — explicit `in_reply_to`, an adapter-independent
+  thread-id/turn-id binding, and an explicit inferred/uncorrelated downgrade rather than
+  silent attribution — resolving conflict C9 (`RESOLVED-IN-DECISION`). Full decision and
+  evidence: `docs/planning/decisions/C6-trust-rendering.md`. Folds into
   `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) once that file
   exists.
 
@@ -216,6 +238,11 @@ without an UNVERIFIED label.
   instance with `MCP_PROTOCOL_NEGOTIATION=legacy`, actually registers as a channel
   (UNVERIFIED — SDK capability verified, runtime behaviour is gate G4's job, verdict
   `NOT RUN`; see `docs/planning/decisions/C1-language-runtime.md` §5, §13).
+- Whether Codex reliably reproduces a header-supplied id (`oac_message_id`, per
+  `docs/planning/decisions/C6-trust-rendering.md` §5) in a subsequent `reply` tool call's
+  `in_reply_to` argument (UNVERIFIED — a model-behaviour question, resolved only by a
+  spike exercising real Codex turns against the framing, not by documentation; see
+  `docs/planning/decisions/C6-trust-rendering.md` §10, §15).
 - Whether the Windows `windows-native-keyring-store` `keyring` backend has been
   exercised end-to-end against live Windows Credential Manager (UNVERIFIED — declared
   feature/build target verified only; runtime confirmation belongs to a future
