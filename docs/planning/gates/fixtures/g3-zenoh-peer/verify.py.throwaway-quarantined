@@ -1,0 +1,17 @@
+import json, glob, os, sys, collections
+d = sys.argv[1]
+by = collections.defaultdict(list)
+for f in sorted(glob.glob(os.path.join(d, "*-r*-*.json"))):
+    r = json.load(open(f)); scen, rep, name = os.path.basename(f)[:-5].rsplit("-", 2)
+    by[(scen, rep)].append((name, r))
+for (scen, rep), peers in sorted(by.items()):
+    protos = set(); ports = {}; direct = set()
+    zid2name = {r["zid"]: n for n, r in peers if r.get("zid")}
+    for n, r in peers:
+        for l in r.get("links", []):
+            if isinstance(l, dict):
+                protos.add(l["src"].split("/")[0])
+                ports.setdefault(n, set()).add(l["src"].rsplit(":", 1)[1])
+                other = zid2name.get(l.get("zid"))
+                if other: direct.add(tuple(sorted((n, other))))
+    print(f"{scen:12s} {rep}: link protos={sorted(protos)} direct-links={sorted(direct)}")

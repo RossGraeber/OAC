@@ -1,0 +1,47 @@
+{
+ "name": "a",
+ "platform": "Windows",
+ "platform_release": "11",
+ "python": "3.13.1",
+ "listen": [
+  "tcp/127.0.0.1:0"
+ ],
+ "connect": [],
+ "mcast": "on",
+ "tls": false,
+ "expect": 2,
+ "error": null,
+ "t_open_ms": 71.1,
+ "zid": "2c4be67f61671dc3d732839ba83e74e0",
+ "t_discovery_ms": 75.5,
+ "peers_seen": [
+  "8288b240d25ac3d8a29bdb5e964702e1",
+  "69bb570ae51b204712d3e5fac7e58c15"
+ ],
+ "heard_from": {
+  "c": 88.4,
+  "b": 168.1
+ },
+ "t_all_data_ms": 168.1,
+ "links": [
+  {
+   "src": "tcp/127.0.0.1:57192",
+   "dst": "tcp/127.0.0.1:57196",
+   "zid": "8288b240d25ac3d8a29bdb5e964702e1",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 8288b240d25ac3d8a29bdb5e964702e1, src: tcp/127.0.0.1:57192, dst: tcp/127.0.0.1:57196, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:57192",
+   "dst": "tcp/127.0.0.1:57194",
+   "zid": "69bb570ae51b204712d3e5fac7e58c15",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 69bb570ae51b204712d3e5fac7e58c15, src: tcp/127.0.0.1:57192, dst: tcp/127.0.0.1:57194, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}

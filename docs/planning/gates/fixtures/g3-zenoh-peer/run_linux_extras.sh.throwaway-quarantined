@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -u
+D=<SPIKE_DIR>
+cd "$D" || exit 1
+[ "$(pwd)" = "$D" ] || { echo "WRONG CWD: $(pwd)"; exit 1; }
+PY="$HOME/g3spike/.venv-linux/bin/python"
+echo "=== Linux extras: iface=lo (valid) ==="
+timeout 120 "$PY" extras.py "$D/results-linux-extras-lo" lo
+echo "=== Linux extras: iface=bogus0 (nonexistent) ==="
+timeout 120 "$PY" extras.py "$D/results-linux-extras-bogus" bogus0 2>&1 | grep -v negative
+echo "=== Linux scouting socket bind while 3 peers live ==="
+for n in x y z; do "$PY" peer.py --name $n --listen tcp/127.0.0.1:0 --mcast on --expect 2 --timeout 8 --linger 4 --out "$D/results-linux-extras-lo/bind-$n.json" & done
+sleep 3
+(ss -uanp 2>/dev/null || netstat -uanp 2>/dev/null) | grep -E ':7446\b' | head -10
+wait
+for n in x y z; do "$PY" -c "import json;r=json.load(open('$D/results-linux-extras-lo/bind-$n.json'));print('$n',r['ok'],r['t_discovery_ms'])"; done

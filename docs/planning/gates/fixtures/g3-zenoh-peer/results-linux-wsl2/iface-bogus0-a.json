@@ -1,0 +1,15 @@
+{
+ "name": "a",
+ "platform": "Linux",
+ "platform_release": "6.18.33.2-microsoft-standard-WSL2",
+ "python": "3.12.3",
+ "listen": [
+  "tcp/127.0.0.1:0#iface=bogus0"
+ ],
+ "connect": [],
+ "mcast": "on",
+ "tls": false,
+ "expect": 1,
+ "error": "ZError('Can not create a new TCP listener bound to tcp/127.0.0.1:0#iface=bogus0: [Os { code: 19, kind: Uncategorized, message: \"No such device\" }] at /root/.cargo/git/checkouts/zenoh-9c599d5ef3e0480e/1211779/io/zenoh-links/zenoh-link-tcp/src/unicast.rs:351.')",
+ "ok": false
+}

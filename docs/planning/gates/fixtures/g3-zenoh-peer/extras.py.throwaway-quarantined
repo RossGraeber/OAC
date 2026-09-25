@@ -1,0 +1,17 @@
+"""G3 extras: negative control (mcast off, no rendezvous) and #iface= behaviour."""
+import json, os, subprocess, sys
+HERE = os.path.dirname(os.path.abspath(__file__)); OUT = sys.argv[1]; IFACE = sys.argv[2]
+os.makedirs(OUT, exist_ok=True)
+def run(tag, peers, timeout="6"):
+    procs, outs = [], []
+    for name, listen, mcast, expect in peers:
+        out = os.path.join(OUT, f"{tag}-{name}.json"); outs.append(out)
+        procs.append(subprocess.Popen([sys.executable, os.path.join(HERE, "peer.py"), "--name", name,
+            "--listen", listen, "--mcast", mcast, "--expect", str(expect), "--timeout", timeout,
+            "--linger", "0.3", "--out", out], stdout=subprocess.PIPE, stderr=subprocess.STDOUT))
+    for p in procs: p.communicate(timeout=60)
+    rs = [json.load(open(o)) for o in outs]
+    print(tag, [(r["name"], r["ok"], r.get("t_discovery_ms"), r.get("error"),
+                 [l.get("interfaces") for l in r.get("links", []) if isinstance(l, dict)]) for r in rs])
+run("negative-mcast-off-no-rdv", [("a", "tcp/127.0.0.1:0", "off", 1), ("b", "tcp/127.0.0.1:0", "off", 1)])
+run(f"iface-{IFACE}", [("a", f"tcp/127.0.0.1:0#iface={IFACE}", "on", 1), ("b", f"tcp/127.0.0.1:0#iface={IFACE}", "on", 1)])

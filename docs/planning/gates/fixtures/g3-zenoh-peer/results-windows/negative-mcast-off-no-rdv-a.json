@@ -1,0 +1,22 @@
+{
+ "name": "a",
+ "platform": "Windows",
+ "platform_release": "11",
+ "python": "3.13.1",
+ "listen": [
+  "tcp/127.0.0.1:0"
+ ],
+ "connect": [],
+ "mcast": "off",
+ "tls": false,
+ "expect": 1,
+ "error": null,
+ "t_open_ms": 3.4,
+ "zid": "54751d7e61a0e204287fa4a67932bada",
+ "t_discovery_ms": null,
+ "peers_seen": [],
+ "heard_from": {},
+ "t_all_data_ms": null,
+ "links": [],
+ "ok": false
+}

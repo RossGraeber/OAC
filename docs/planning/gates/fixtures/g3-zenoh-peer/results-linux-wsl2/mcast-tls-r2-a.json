@@ -1,0 +1,36 @@
+{
+ "name": "a",
+ "platform": "Linux",
+ "platform_release": "6.18.33.2-microsoft-standard-WSL2",
+ "python": "3.12.3",
+ "listen": [
+  "tls/127.0.0.1:0"
+ ],
+ "connect": [],
+ "mcast": "on",
+ "tls": true,
+ "expect": 1,
+ "error": null,
+ "t_open_ms": 14.7,
+ "zid": "fe1c6f19efc53f836a9b4e7cab2ff150",
+ "t_discovery_ms": 17.6,
+ "peers_seen": [
+  "d2c5e2909fff86fd889cfb0eeeffe684"
+ ],
+ "heard_from": {
+  "b": 117.8
+ },
+ "t_all_data_ms": 117.8,
+ "links": [
+  {
+   "src": "tls/127.0.0.1:56072",
+   "dst": "tls/127.0.0.1:40507",
+   "zid": "d2c5e2909fff86fd889cfb0eeeffe684",
+   "mtu": "49152",
+   "is_streamed": "True",
+   "interfaces": "['lo']",
+   "repr": "Link { zid: d2c5e2909fff86fd889cfb0eeeffe684, src: tls/127.0.0.1:56072, dst: tls/127.0.0.1:40507, group: None, mtu: 49152, is_streamed: true, interfaces: [\"lo\"], auth_identifier: Some(\"localhost\"), priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}

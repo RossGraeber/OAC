@@ -1,0 +1,56 @@
+{
+ "name": "b",
+ "platform": "Windows",
+ "platform_release": "11",
+ "python": "3.13.1",
+ "listen": [
+  "tcp/127.0.0.1:0"
+ ],
+ "connect": [],
+ "mcast": "on",
+ "tls": false,
+ "expect": 2,
+ "error": null,
+ "t_open_ms": 49.8,
+ "zid": "158ab0e715dbd1f4b5aae605f824002d",
+ "t_discovery_ms": 154.3,
+ "peers_seen": [
+  "417078a50151940cff661f2ee290bd21",
+  "4f0439e22509156012ad89f223944d58"
+ ],
+ "heard_from": {
+  "a": 65.6,
+  "c": 178.3
+ },
+ "t_all_data_ms": 178.3,
+ "links": [
+  {
+   "src": "tcp/127.0.0.1:57187",
+   "dst": "tcp/127.0.0.1:57185",
+   "zid": "417078a50151940cff661f2ee290bd21",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 417078a50151940cff661f2ee290bd21, src: tcp/127.0.0.1:57187, dst: tcp/127.0.0.1:57185, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:57186",
+   "dst": "tcp/127.0.0.1:57190",
+   "zid": "4f0439e22509156012ad89f223944d58",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 4f0439e22509156012ad89f223944d58, src: tcp/127.0.0.1:57186, dst: tcp/127.0.0.1:57190, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:57191",
+   "dst": "tcp/127.0.0.1:57188",
+   "zid": "4f0439e22509156012ad89f223944d58",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 4f0439e22509156012ad89f223944d58, src: tcp/127.0.0.1:57191, dst: tcp/127.0.0.1:57188, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}

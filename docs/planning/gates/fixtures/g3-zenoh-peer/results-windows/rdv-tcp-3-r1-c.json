@@ -1,0 +1,58 @@
+{
+ "name": "c",
+ "platform": "Windows",
+ "platform_release": "11",
+ "python": "3.13.1",
+ "listen": [
+  "tcp/127.0.0.1:0"
+ ],
+ "connect": [
+  "tcp/127.0.0.1:17447"
+ ],
+ "mcast": "off",
+ "tls": false,
+ "expect": 2,
+ "error": null,
+ "t_open_ms": 109.0,
+ "zid": "daba8f147abe10fd8f4f485bef92f1dc",
+ "t_discovery_ms": 113.0,
+ "peers_seen": [
+  "e78a8dc2c35b7d4606f902284fc65242",
+  "caea6cf8c87ba9df28758bed574697c2"
+ ],
+ "heard_from": {
+  "b": 134.7,
+  "a": 181.1
+ },
+ "t_all_data_ms": 181.1,
+ "links": [
+  {
+   "src": "tcp/127.0.0.1:57201",
+   "dst": "tcp/127.0.0.1:57203",
+   "zid": "e78a8dc2c35b7d4606f902284fc65242",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: e78a8dc2c35b7d4606f902284fc65242, src: tcp/127.0.0.1:57201, dst: tcp/127.0.0.1:57203, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:57204",
+   "dst": "tcp/127.0.0.1:57199",
+   "zid": "e78a8dc2c35b7d4606f902284fc65242",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: e78a8dc2c35b7d4606f902284fc65242, src: tcp/127.0.0.1:57204, dst: tcp/127.0.0.1:57199, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:57202",
+   "dst": "tcp/127.0.0.1:17447",
+   "zid": "caea6cf8c87ba9df28758bed574697c2",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: caea6cf8c87ba9df28758bed574697c2, src: tcp/127.0.0.1:57202, dst: tcp/127.0.0.1:17447, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}
