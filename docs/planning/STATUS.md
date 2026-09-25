@@ -4,7 +4,20 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-17 (A1/issue #23: `docs/planning/v0.1/00-summary.md` landed,
+**Last updated:** 2026-09-25 (G1/issue #34/D1: gate spike PASS — a throwaway Claude
+Channels MCP server negotiated legacy MCP `2025-11-25`, declared
+`capabilities.experimental["claude/channel"]`, and all five G1 pass criteria were
+confirmed live against a real Claude Code session: legacy negotiation, idle-session wake
+as a user turn with the correct `<channel>` tag attribute set, mid-turn queueing
+delivered together and in order, a tool-based reply, and the
+`--dangerously-load-development-channels` consent dialog actually exercised. Full result:
+`docs/planning/gates/G1-result.md`; raw transcript:
+`docs/planning/gates/fixtures/g1-claude-wake/transcript.jsonl`. Pin drift found: the
+connecting client reported `v2.1.282`, not the pinned `v2.1.274` — flagged above as a new
+open item, not silently re-pinned. Epic D (Stage 1) is now open; Epic A and C rows
+corrected above to reflect they closed earlier.)
+
+**A1/issue #23:** `docs/planning/v0.1/00-summary.md` landed,
 closing Epic A — one page, no ADR-001/DESIGN restatement, citing by path throughout; the
 structural finding (no attach to an arbitrary already-running session; both harnesses
 support injection into a session launched OAC-enabled) stated up front, citing
@@ -222,8 +235,8 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (planning package — A2, A4, A5, A6, A7, A8, A9, A10, A11, A12 landed), C (decisions), J (agent skills) |
-| Blocked | Stages 1-6. No substantial core or transport code starts before Stage 0 and Stage 1 complete. |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 landed, PASS), J (agent skills) |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D2-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -248,12 +261,13 @@ the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
-No gate has been run. Every verdict below is `NOT RUN`, and every task labelled `gate:*`
-is blocked until the corresponding spike in Epic D executes.
+G1 has run: **PASS** (2026-09-25, issue #34/D1). Every other verdict below is `NOT RUN`,
+and every task labelled `gate:*` (other than G1's own dependents) is blocked until its
+corresponding spike in Epic D executes.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | NOT RUN | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
+| G1 Claude wake | **PASS** | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels) — pin now stale, see below; MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | NOT RUN | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G4-result.md` |
@@ -423,6 +437,23 @@ Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 (`docs/planning/REVERIFICATION-B2.md`). Until closed, no plan or skill may rely on them
 without an UNVERIFIED label.
 
+- **New, from G1 (issue #34/D1):** the Claude Code Channels pin (`docs/planning/PINS.md`
+  — `v2.1.274`) is stale. The client that connected during the G1 spike (2026-09-25)
+  reported itself as `v2.1.282`; the installed surface auto-updates faster than this
+  project re-pins it. A full B2-style re-verification of every §3.1 fact against
+  `2.1.282` has NOT been done — only G1's five pass criteria were checked and passed.
+  UNVERIFIED whether any other §3.1 fact drifted between `v2.1.274` and `v2.1.282`.
+  Owner: a B2-style re-verification pass, not yet scheduled as a task.
+- **New, from G1:** the exact wire framing for Claude Code's MCP stdio transport
+  (newline-delimited JSON, not `Content-Length`-prefixed) — confirmed directly during
+  G1, but not previously stated in any OAC document; carried here as new evidence, not
+  from PLANNING-PROMPT.md. Not currently UNVERIFIED (it's confirmed), noted here as a
+  new fact for anyone relying on the old, wrong assumption.
+- **New, from G1:** the exact wrapper text a mid-turn-delivered channel notification
+  gets (distinct from a bare `<channel>` tag on an idle-wake notification) — observed
+  during G1 but not fully captured verbatim (operator's transcription was partial).
+  UNVERIFIED — re-confirm with a cleaner capture in a future spike or Stage 3 adapter
+  work.
 - Claude channel behaviour across `--resume`/`--continue` (UNVERIFIED — docs silent at
   v2.1.274; see REVERIFICATION-B2.md §3.1 box 1).
 - Whether one MCP server can present more than one logical channel (UNVERIFIED — docs

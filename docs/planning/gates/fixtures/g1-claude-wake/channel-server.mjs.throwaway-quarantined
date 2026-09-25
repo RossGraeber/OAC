@@ -1,0 +1,196 @@
+#!/usr/bin/env node
+// G1 spike — throwaway Claude Channels MCP server. Quarantined: not part of OAC's
+// module tree, discarded after the gate result is written (oac-gates "Throwaway rule").
+//
+// Implements just enough of legacy MCP (stdio, Content-Length framing) to:
+//   - negotiate protocolVersion 2025-11-25 and declare capabilities.experimental["claude/channel"]
+//   - send notifications/claude/channel (content + meta, one identifier-safe key, one not)
+//   - expose a `reply` tool so Claude can respond back over ordinary MCP
+//   - log every JSON-RPC message with a wall-clock offset, for the gate-result transcript
+//     and for D6 fixture capture (redact nothing here — this spike carries no secrets)
+//
+// Two triggers, both file-watched so the human operator (you) controls timing from a
+// second terminal while `claude --channels server:g1spike ...` runs in the first:
+//   touch wake.trigger    -> sends notification #1 (tests: does it wake an idle session?)
+//   touch midturn.trigger -> sends notification #2 (tests: mid-turn queueing/ordering)
+//
+// All JSON-RPC traffic and both trigger events are appended to transcript.jsonl next to
+// this script, one JSON object per line, with an ISO timestamp — this is your gate-result
+// "command transcript summary" source and the raw fixture material for D6.
+
+import { createInterface } from 'node:readline';
+import { appendFileSync, existsSync, watchFile, unwatchFile } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TRANSCRIPT = join(HERE, 'transcript.jsonl');
+const WAKE_TRIGGER = join(HERE, 'wake.trigger');
+const MIDTURN_TRIGGER = join(HERE, 'midturn.trigger');
+
+function log(direction, payload) {
+  const line = JSON.stringify({ t: new Date().toISOString(), direction, payload });
+  appendFileSync(TRANSCRIPT, line + '\n');
+}
+
+// Framing mode is auto-detected from the FIRST bytes we receive from the real client,
+// then locked in — mixing framings mid-stream would be a bug, not a feature.
+//   'ndjson'  : one JSON object per line, no headers (the actual MCP stdio transport)
+//   'lsp'     : Content-Length header + blank line + body (what I originally guessed,
+//               wrong — MCP does not use this, LSP does; kept as a fallback parser only)
+let framingMode = null;
+
+function send(msg) {
+  const json = JSON.stringify(msg);
+  if (framingMode === 'lsp') {
+    const buf = Buffer.from(json, 'utf8');
+    process.stdout.write(`Content-Length: ${buf.length}\r\n\r\n${json}`);
+  } else {
+    // Default to ndjson — this is the mode we expect a real MCP client to use.
+    process.stdout.write(json + '\n');
+  }
+  log('server->client', msg);
+}
+
+let buffer = Buffer.alloc(0);
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+
+  if (framingMode === null) {
+    const asText = buffer.toString('utf8');
+    if (/^Content-Length:/i.test(asText)) {
+      framingMode = 'lsp';
+      log('spike', { note: 'framing detected: lsp (Content-Length headers)' });
+    } else if (buffer.includes(0x0a) || asText.trim().startsWith('{')) {
+      framingMode = 'ndjson';
+      log('spike', { note: 'framing detected: ndjson (newline-delimited JSON)' });
+    } else {
+      return; // not enough data yet to decide
+    }
+  }
+
+  if (framingMode === 'ndjson') {
+    let nl;
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.subarray(0, nl).toString('utf8').trim();
+      buffer = buffer.subarray(nl + 1);
+      if (!line) continue;
+      let msg;
+      try { msg = JSON.parse(line); } catch (e) { log('spike', { note: 'ndjson parse error', line, error: String(e) }); continue; }
+      log('client->server', msg);
+      handleMessage(msg);
+    }
+    return;
+  }
+
+  // lsp framing
+  while (true) {
+    const headerEnd = buffer.indexOf('\r\n\r\n');
+    if (headerEnd === -1) return;
+    const header = buffer.subarray(0, headerEnd).toString('utf8');
+    const match = header.match(/Content-Length:\s*(\d+)/i);
+    if (!match) { buffer = buffer.subarray(headerEnd + 4); continue; }
+    const len = parseInt(match[1], 10);
+    const bodyStart = headerEnd + 4;
+    if (buffer.length < bodyStart + len) return;
+    const body = buffer.subarray(bodyStart, bodyStart + len).toString('utf8');
+    buffer = buffer.subarray(bodyStart + len);
+    let msg;
+    try { msg = JSON.parse(body); } catch { continue; }
+    log('client->server', msg);
+    handleMessage(msg);
+  }
+});
+
+let initialized = false;
+
+function handleMessage(msg) {
+  if (msg.method === 'initialize') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        protocolVersion: '2025-11-25',
+        capabilities: {
+          experimental: { 'claude/channel': {} },
+          tools: {},
+        },
+        serverInfo: { name: 'g1-spike-channel-server', version: '0.0.1-throwaway' },
+      },
+    });
+    return;
+  }
+  if (msg.method === 'notifications/initialized') {
+    initialized = true;
+    armTriggers();
+    return;
+  }
+  if (msg.method === 'tools/list') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        tools: [
+          {
+            name: 'reply',
+            description: 'Reply to the G1 spike channel. Echo back the oac_message_id meta value if you were given one.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                message: { type: 'string', description: 'Your reply text' },
+                in_reply_to: { type: 'string', description: 'Echo the oac_message_id you are replying to, if any' },
+              },
+              required: ['message'],
+            },
+          },
+        ],
+      },
+    });
+    return;
+  }
+  if (msg.method === 'tools/call' && msg.params?.name === 'reply') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        content: [{ type: 'text', text: `g1-spike received reply: ${JSON.stringify(msg.params.arguments)}` }],
+      },
+    });
+    return;
+  }
+  if (msg.id !== undefined) {
+    // Unknown request we must still answer, so Claude doesn't hang.
+    send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `g1-spike: method not implemented: ${msg.method}` } });
+  }
+}
+
+function armTriggers() {
+  log('spike', { note: 'armed — touch wake.trigger then midturn.trigger from another terminal (re-armable: each new mtime re-fires)' });
+  watchFile(WAKE_TRIGGER, { interval: 300 }, (curr, prev) => {
+    if (!existsSync(WAKE_TRIGGER) || curr.mtimeMs === prev.mtimeMs) return;
+    sendChannelNotification('wake-test', 'First notification — tests whether this wakes an idle session as a user turn.');
+  });
+  watchFile(MIDTURN_TRIGGER, { interval: 300 }, (curr, prev) => {
+    if (!existsSync(MIDTURN_TRIGGER) || curr.mtimeMs === prev.mtimeMs) return;
+    sendChannelNotification('midturn-test', 'Second notification — sent while you expect Claude to be mid-turn. Tests queue-then-deliver-in-order, not drop, not interleave.');
+  });
+}
+
+let seq = 0;
+function sendChannelNotification(id, content) {
+  seq += 1;
+  send({
+    jsonrpc: '2.0',
+    method: 'notifications/claude/channel',
+    params: {
+      content,
+      meta: {
+        oac_message_id: `g1-spike-${id}-${seq}`,
+        oac_sender: 'g1-spike-operator',
+        'not identifier safe!': 'this value must be silently dropped, per oac-claude-channels §2',
+      },
+    },
+  });
+}
+
+log('spike', { note: 'g1-spike channel server started', pid: process.pid });
