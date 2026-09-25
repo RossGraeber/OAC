@@ -17,11 +17,30 @@
   terminal — the interactive confirmation dialog cannot be driven from a non-TTY tool).
   The operator approved the "local development" warning dialog at startup. The server
   negotiated MCP `2025-11-25` and declared `capabilities.experimental["claude/channel"]`.
-  Four notifications were sent over the session: one to an idle session (woke it as a new
-  user turn), two sent during a genuinely busy multi-tool-call turn (delivered together,
-  in order, between tool calls, after the busy turn finished), and the operator then asked
-  Claude to use the `reply` tool. Full raw JSON-RPC transcript:
-  `docs/planning/gates/fixtures/g1-claude-wake/transcript.jsonl`.
+
+  This took six-plus session restarts to reach a clean pass, not one continuous run —
+  recorded honestly here since the fixture transcript shows it plainly. The server
+  process was relaunched (fresh `initialize`/`notifications/initialized` handshake each
+  time, new pid) repeatedly: first while an incorrect wire-framing guess was being
+  debugged (pre-fix, no real Claude connection reached the server at all — see "Process
+  notes"), then once more after the CLI invocation was corrected but with the wrong
+  flag combination (`--channels` + `--dangerously-load-development-channels` together),
+  which connected the server as an ordinary MCP tool provider but never registered it
+  as an actual channel — a wake notification was sent at this point
+  (transcript.jsonl line 26, `g1-spike-wake-test-1`) and never observed, because the
+  session never received channel treatment for it. After correcting the invocation to
+  `claude --dangerously-load-development-channels server:g1spike` alone, a fresh session
+  registered the channel correctly and a second wake notification (line 61, same id
+  reused) was confirmed received. A premature mid-turn notification (line 62,
+  `g1-spike-midturn-test-2`) was then sent while Claude was not actually mid-turn — a
+  coordination mistake, not evidence either way — and discarded. After one more
+  `/mcp reconnect` (to pick up a code fix making the mid-turn trigger re-armable) and a
+  deliberately long, genuinely busy foreground turn, the valid mid-turn pair (lines
+  71-72) was captured, followed by the tool-based reply (lines 73-74). In total the raw
+  transcript records seven `notifications/claude/channel` sends across the session; the
+  pass/fail record above is evidenced by the last, valid instance of each test, with the
+  earlier invalid or unobserved attempts disclosed here rather than omitted. Full raw
+  JSON-RPC transcript: `docs/planning/gates/fixtures/g1-claude-wake/transcript.jsonl`.
 - **Pass criteria evaluated:**
   - [x] Server declares `capabilities.experimental["claude/channel"] = {}` and negotiates a
         legacy MCP revision — confirmed directly in the transcript
@@ -118,6 +137,13 @@
   - The first mid-turn-queueing attempt was invalid (the trigger fired after Claude had
     already gone idle, not during a busy turn) and had to be redone with an explicit,
     longer, genuinely-foreground busy task before it produced valid evidence.
+  - Getting from zero to a clean pass took six-plus separate server-process restarts
+    across roughly 40 minutes of live back-and-forth with the operator (see the
+    restart-by-restart account in "Command transcript summary" above) — a fresh MCP
+    handshake each time, most of them spent narrowing down the wrong wire framing and
+    the wrong CLI flag combination rather than testing the actual gate criteria. Once
+    the invocation was correct, every remaining criterion passed on the first or second
+    real attempt.
 - **Re-run history:**
 
   | Date | Pinned versions | Verdict | Invalidated by |
