@@ -156,6 +156,11 @@ This is a **G2 go/no-go input**, resolved by task D2 (the G2 spike) and gate G2
 itself, not by B1. B1's job is only to fix the version and commit the question is
 asked against.
 
+**RESOLVED by G2 (2026-09-25, `docs/planning/gates/G2-result.md`).** Implicit daemon
+attach runs at runtime in the released `0.154.0`. A plainly launched TUI's thread was
+loaded in the running daemon's process. Shown on Windows, with default `CODEX_HOME`, from
+a non-elevated terminal; macOS and Linux were not exercised.
+
 Verbatim API names for this question, quoted exactly (Source: PLANNING-PROMPT.md
 §3.2, unchanged, retrieved 2026-09-16):
 
@@ -454,6 +459,9 @@ occur; everything else above this line is unchanged from B1.
   **PARTIALLY RESOLVED — see REVERIFICATION-B2.md §3.2 box 4.** Source code confirmed
   present at the pinned commit (control socket path, attach-or-embed branch, `codex
   queue` subcommand). Runtime behaviour is CARRIED — risk owner D2/G2.
+  **RESOLVED by G2 (2026-09-25):** runtime attach confirmed on `0.154.0` on Windows,
+  default `CODEX_HOME`, non-elevated terminal; macOS and Linux not exercised. See
+  `docs/planning/gates/G2-result.md`.
 - The named compatibility shim boundary for the Claude Code Channels preview surface
   (UNVERIFIED — DESIGN.md names no such module; `shim boundary: UNNAMED — see
   DESIGN.md`, needs a C-series decision or a DESIGN.md update before B2/D1 can cite a

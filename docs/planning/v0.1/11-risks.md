@@ -176,8 +176,10 @@ list.
 
 ### RISK-CODEX-EXPERIMENTAL — Codex experimental live-inject surface drift
 
-- **Risk.** The Codex experimental live-inject surface changes: whether implicit
-  daemon attach executes by default at runtime in `0.154.0`; whether Codex
+- **Risk.** The Codex experimental live-inject surface changes. Implicit daemon attach
+  at runtime in `0.154.0` is now resolved on Windows by G2
+  (`docs/planning/gates/G2-result.md`). It is unconfirmed on macOS and Linux, and it could
+  change in any version after `0.154.0`. Also still open: whether Codex
   Desktop exposes the control socket; the compatibility-shim boundary for this
   surface stays unnamed (conflict-register C11); whether Codex reliably
   reproduces a header-supplied `oac_message_id` in a subsequent `reply` tool
@@ -431,7 +433,7 @@ therefore carries a risk id, not a closing file+section; no blank cells.
 |---|---|---|
 | 1 | Claude channel behaviour across `--resume`/`--continue` | RISK-CLAUDE-PREVIEW |
 | 2 | One MCP server presenting more than one logical channel | RISK-CLAUDE-PREVIEW |
-| 3 | Implicit Codex daemon attach default at runtime (`0.154.0`) | RISK-CODEX-EXPERIMENTAL |
+| 3 | Implicit Codex daemon attach default at runtime (`0.154.0`) — **closed on Windows by G2** (`docs/planning/gates/G2-result.md`); macOS/Linux open | RISK-CODEX-EXPERIMENTAL |
 | 4 | Codex Desktop control-socket exposure | RISK-CODEX-EXPERIMENTAL |
 | 5 | Zenoh `auth.pubkey` semantics | RISK-ZENOH-AUTH |
 | 6 | 5-15 MB Zenoh binary size estimate | RISK-BIN-SIZE |

@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+// G2 spike — throwaway second client of the local Codex app-server daemon.
+// Quarantined; discarded after the gate result (oac-gates "Throwaway rule").
+//
+// Transport: spawns `codex app-server proxy`, a raw stdio<->UDS byte relay to the daemon's
+// control socket (CODEX_HOME/app-server-control/app-server-control.sock). The socket speaks
+// WebSocket over UDS, so this client does the HTTP/1.1 Upgrade and RFC 6455 framing itself:
+// one JSON-RPC message per WebSocket text frame (learn.chatgpt.com/docs/app-server; shapes
+// from `codex app-server generate-json-schema --experimental` on the pinned 0.154.0).
+//
+// This client never reads CODEX_HOME/auth.json or any credential. The daemon uses the
+// saved CLI login on its own (G2 pass criterion 4 / oac-boundaries).
+//
+// Usage:
+//   node client.mjs list                              -> thread/loaded/list + thread/list
+//   node client.mjs watch <threadId>                  -> thread/resume (subscribe) + log events
+//   node client.mjs queue <threadId> "<text>"         -> thread/queue/add (experimental)
+//   node client.mjs turn  <threadId> "<text>"         -> turn/start
+// Every frame both directions is appended to transcript.jsonl beside this script.
+
+import { spawn } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { randomUUID, randomBytes } from 'node:crypto';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TRANSCRIPT = join(HERE, 'transcript.jsonl');
+const [, , mode, threadId, text] = process.argv;
+
+const log = (direction, payload) =>
+  appendFileSync(TRANSCRIPT, JSON.stringify({ t: new Date().toISOString(), mode, direction, payload }) + '\n');
+
+// `codex app-server proxy` is a raw byte relay to the control socket (codex_stdio_to_uds::run),
+// and the control socket speaks WebSocket over UDS (tokio_tungstenite::accept_hdr_async; any
+// path except /daemon/shutdown is a normal JSON-RPC connection). So this client performs the
+// HTTP/1.1 Upgrade and RFC 6455 framing itself over the proxy's stdio. One JSON-RPC message per
+// text frame (learn.chatgpt.com/docs/app-server, WebSocket transport).
+const proc = spawn('codex', ['app-server', 'proxy'], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+proc.stderr.on('data', (d) => log('proxy-stderr', d.toString()));
+
+function wsSendText(str) {
+  const payload = Buffer.from(str, 'utf8');
+  const mask = randomBytes(4);
+  let header;
+  if (payload.length < 126) header = Buffer.from([0x81, 0x80 | payload.length]);
+  else if (payload.length < 65536) { header = Buffer.alloc(4); header[0] = 0x81; header[1] = 0x80 | 126; header.writeUInt16BE(payload.length, 2); }
+  else { header = Buffer.alloc(10); header[0] = 0x81; header[1] = 0x80 | 127; header.writeBigUInt64BE(BigInt(payload.length), 2); }
+  const masked = Buffer.alloc(payload.length);
+  for (let i = 0; i < payload.length; i++) masked[i] = payload[i] ^ mask[i % 4];
+  proc.stdin.write(Buffer.concat([header, mask, masked]));
+}
+function wsSendControl(opcode, data = Buffer.alloc(0)) {
+  const mask = randomBytes(4);
+  const masked = Buffer.alloc(data.length);
+  for (let i = 0; i < data.length; i++) masked[i] = data[i] ^ mask[i % 4];
+  proc.stdin.write(Buffer.concat([Buffer.from([0x80 | opcode, 0x80 | data.length]), mask, masked]));
+}
+
+let nextId = 0;
+const pending = new Map();
+function request(method, params) {
+  const id = nextId++;
+  const msg = { jsonrpc: '2.0', id, method, params };
+  log('client->daemon', msg);
+  wsSendText(JSON.stringify(msg));
+  return new Promise((resolve) => pending.set(id, resolve));
+}
+function notify(method, params) {
+  const msg = { jsonrpc: '2.0', method, params };
+  log('client->daemon', msg);
+  wsSendText(JSON.stringify(msg));
+}
+
+let upgraded = false;
+let onUpgraded;
+const upgradedP = new Promise((r) => (onUpgraded = r));
+const wsKey = randomBytes(16).toString('base64');
+proc.stdin.write(
+  'GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+  `Sec-WebSocket-Key: ${wsKey}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
+);
+
+let raw = Buffer.alloc(0);
+let fragments = [];
+proc.stdout.on('data', (chunk) => {
+  raw = Buffer.concat([raw, chunk]);
+  if (!upgraded) {
+    const end = raw.indexOf('\r\n\r\n');
+    if (end === -1) return;
+    const head = raw.subarray(0, end).toString('utf8');
+    log('handshake', head);
+    raw = raw.subarray(end + 4);
+    if (!/^HTTP\/1\.1 101/.test(head)) { console.error('[upgrade failed]\n' + head); process.exit(3); }
+    upgraded = true;
+    onUpgraded();
+  }
+  while (raw.length >= 2) {
+    const fin = (raw[0] & 0x80) !== 0;
+    const opcode = raw[0] & 0x0f;
+    let len = raw[1] & 0x7f;
+    let off = 2;
+    if (len === 126) { if (raw.length < 4) return; len = raw.readUInt16BE(2); off = 4; }
+    else if (len === 127) { if (raw.length < 10) return; len = Number(raw.readBigUInt64BE(2)); off = 10; }
+    if (raw.length < off + len) return;
+    const data = raw.subarray(off, off + len);
+    raw = raw.subarray(off + len);
+    if (opcode === 0x9) { wsSendControl(0xA, data); continue; }       // ping -> pong
+    if (opcode === 0x8) { log('ws-close', data.toString('utf8')); continue; }
+    if (opcode === 0xA) continue;                                     // pong
+    fragments.push(data);
+    if (!fin) continue;
+    const line = Buffer.concat(fragments).toString('utf8');
+    fragments = [];
+    let msg;
+    try { msg = JSON.parse(line); } catch { log('unparsed', line); continue; }
+    log('daemon->client', msg);
+    if (msg.id !== undefined && pending.has(msg.id) && (msg.result !== undefined || msg.error !== undefined)) {
+      pending.get(msg.id)(msg);
+      pending.delete(msg.id);
+    } else if (msg.method) {
+      globalThis.__onEvent?.(msg);
+      // Event notification or server->client request. Print a one-line summary.
+      console.log(`[event] ${msg.method}${msg.params?.threadId ? ' thread=' + msg.params.threadId : ''}`);
+      if (msg.id !== undefined) {
+        // Server->client request (e.g. an approval). This spike never answers approvals —
+        // the human in the TUI owns every approval decision. Logged only.
+        console.log(`[server-request ignored; TUI owns approvals] ${msg.method}`);
+      }
+    }
+  }
+});
+
+const done = (code = 0) => { try { proc.stdin.end(); } catch {} setTimeout(() => process.exit(code), 300); };
+
+(async () => {
+  await upgradedP;
+  const init = await request('initialize', {
+    clientInfo: { name: 'oac_g2_spike', title: 'OAC G2 spike (throwaway)', version: '0.0.1' },
+    capabilities: { experimentalApi: true },
+  });
+  console.log('[initialize]', JSON.stringify(init.result ?? init.error).slice(0, 300));
+  notify('initialized', {});
+
+  if (mode === 'list') {
+    const loaded = await request('thread/loaded/list', {});
+    console.log('[thread/loaded/list]', JSON.stringify(loaded.result ?? loaded.error, null, 2).slice(0, 2000));
+    const all = await request('thread/list', { cursor: null, limit: 5, sortKey: 'created_at' });
+    console.log('[thread/list]', JSON.stringify(all.result ?? all.error, null, 2).slice(0, 3000));
+    return done();
+  }
+  if (!threadId) { console.error('threadId required'); return done(2); }
+
+  if (mode === 'watch') {
+    // excludeTurns keeps the resume response small; we only want the live event subscription.
+    const r = await request('thread/resume', { threadId, excludeTurns: true });
+    console.log('[thread/resume]', JSON.stringify(r.result ?? r.error).slice(0, 600));
+    console.log('[watching — Ctrl+C to stop]');
+    return; // keep process alive; events print as they arrive
+  }
+  if (mode === 'queue') {
+    const r = await request('thread/queue/add', {
+      threadId,
+      clientUserMessageId: randomUUID(),
+      input: [{ type: 'text', text: text ?? 'G2 spike: message delivered via thread/queue/add from a second daemon client.' }],
+    });
+    console.log('[thread/queue/add]', JSON.stringify(r.result ?? r.error, null, 2));
+    return done();
+  }
+  if (mode === 'turns') {
+    const r = await request('thread/turns/list', { threadId, limit: 5, sortDirection: 'desc', itemsView: 'full' });
+    for (const turn of (r.result?.data ?? [])) {
+      console.log(`--- turn ${turn.id} status=${turn.status} started=${turn.startedAt} completed=${turn.completedAt}`);
+      for (const it of (turn.items ?? [])) {
+        const txt = it.text ?? (Array.isArray(it.content) ? it.content.map((c) => c.text ?? '').join('') : '');
+        console.log(`    ${it.type}: ${JSON.stringify(String(txt).slice(0, 140))}`);
+      }
+    }
+    if (r.error) console.log('[error]', JSON.stringify(r.error));
+    return done();
+  }
+  if (mode === 'busyqueue') {
+    // Self-timed: start a long turn, then queue a second message while it is in flight.
+    const t = await request('turn/start', {
+      threadId,
+      input: [{ type: 'text', text: 'G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any tools.' }],
+    });
+    console.log('[turn/start]', JSON.stringify(t.result?.turn?.status ?? t.error));
+    await new Promise((r) => setTimeout(r, 3000));
+    const q = await request('thread/queue/add', {
+      threadId,
+      clientUserMessageId: randomUUID(),
+      input: [{ type: 'text', text: 'G2 spike queued message (sent via thread/queue/add while the previous turn was still running): after finishing, reply with exactly the words OAC G2 QUEUED.' }],
+    });
+    console.log('[thread/queue/add]', JSON.stringify(q.result ?? q.error));
+    let completed = 0;
+    const deadline = Date.now() + 150000;
+    await new Promise((resolve) => {
+      const iv = setInterval(() => {
+        if (completed >= 2 || Date.now() > deadline) { clearInterval(iv); resolve(); }
+      }, 500);
+      proc.stdout.on('data', () => {}); // events are logged by the main parser
+      globalThis.__onEvent = (m) => { if (m.method === 'turn/completed') completed++; };
+    });
+    console.log(`[done] turn/completed events seen: ${completed}`);
+    return done();
+  }
+  if (mode === 'turn') {
+    const r = await request('turn/start', {
+      threadId,
+      input: [{ type: 'text', text: text ?? 'G2 spike: message delivered via turn/start from a second daemon client.' }],
+    });
+    console.log('[turn/start]', JSON.stringify(r.result ?? r.error, null, 2).slice(0, 1500));
+    return done();
+  }
+  console.error(`unknown mode ${mode}`);
+  done(2);
+})();
