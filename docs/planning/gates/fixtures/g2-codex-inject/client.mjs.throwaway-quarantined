@@ -2,10 +2,11 @@
 // G2 spike — throwaway second client of the local Codex app-server daemon.
 // Quarantined; discarded after the gate result (oac-gates "Throwaway rule").
 //
-// Transport: spawns `codex app-server proxy`, which bridges stdio <-> the daemon's
-// control socket (CODEX_HOME/app-server-control/app-server-control.sock). Wire format is
-// JSONL, one JSON-RPC message per line, no header (learn.chatgpt.com/docs/app-server;
-// shapes from `codex app-server generate-json-schema --experimental` on the pinned 0.154.0).
+// Transport: spawns `codex app-server proxy`, a raw stdio<->UDS byte relay to the daemon's
+// control socket (CODEX_HOME/app-server-control/app-server-control.sock). The socket speaks
+// WebSocket over UDS, so this client does the HTTP/1.1 Upgrade and RFC 6455 framing itself:
+// one JSON-RPC message per WebSocket text frame (learn.chatgpt.com/docs/app-server; shapes
+// from `codex app-server generate-json-schema --experimental` on the pinned 0.154.0).
 //
 // This client never reads CODEX_HOME/auth.json or any credential. The daemon uses the
 // saved CLI login on its own (G2 pass criterion 4 / oac-boundaries).

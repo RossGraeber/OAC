@@ -28,9 +28,10 @@ not restated here: `oac-boundaries` (rollout-file / undocumented-RPC MUST NOTs),
   plan on it, do not let an agent "remember" it from training data. `codex mcp add`
   (registering *external* MCP servers Codex can call as tools) is the supported
   outbound surface and is unrelated to the deleted inbound one.
-- **Whether implicit daemon attach ships in released 0.154.0 is UNVERIFIED** — it
-  may exist only on `main`. This is a named G2 go/no-go item (PLANNING-PROMPT.md
-  §4); do not build the adapter's primary path as if this is settled.
+- **The daemon's control socket is WebSocket over UDS, not JSONL.**
+  `codex app-server proxy` relays raw bytes, so a client must do the HTTP Upgrade and
+  frame messages itself. Only `thread/resume` subscribers get `turn/*`/`item/*` events
+  (G2, `docs/planning/gates/G2-result.md`).
 - **`turn/steer` writes into an in-flight turn.** Treat any code path that can call
   it as a code-execution-adjacent authorization decision, not a convenience API.
 
@@ -81,9 +82,11 @@ fourth option:
 | A turn may be in flight and you want the input delivered once the thread goes idle | `thread/queue/add` | Experimental; queued until idle. |
 | A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7)** — gate any code path that can call this behind an explicit authorization check, and see `oac-security-work` before wiring it up. |
 
-Whether implicit daemon attach is enabled in released 0.154.0 versus only on
-`main` is **UNVERIFIED** and is the G2 go/no-go item (PLANNING-PROMPT.md §4, §8
-Stage 1; `docs/planning/STATUS.md` Open UNVERIFIED items).
+Implicit daemon attach runs at runtime in released 0.154.0 (G2 PASS, 2026-09-25). This
+was shown on Windows with default `CODEX_HOME` in a non-elevated terminal; macOS and Linux
+are unconfirmed. `thread/queue/add` is absent from the default checked-in schema. Get its
+shape from `codex app-server generate-json-schema --experimental`; it requires `threadId`,
+`clientUserMessageId` and `input`.
 
 Experimental methods (`thread/queue/add` and any other method gated by
 `capabilities.experimentalApi`) must sit behind a named, version-pinned
@@ -179,9 +182,8 @@ is defined verbatim in `codex-rs/app-server-transport/src/transport/mod.rs`,
 attachment... otherwise the TUI starts an embedded server" branch, and a
 `codex queue` CLI subcommand exists in `codex-rs/cli/src/main.rs`. This is a
 source-level, documented close (`docs/planning/REVERIFICATION-B2.md` §3.2
-box 4) — it is **not** a runtime verdict. Whether this path actually
-executes for an ordinary invocation remains UNVERIFIED and is resolved only
-by the G2 spike, task D2. Codex Desktop's control-socket exposure in
+box 4). The G2 spike added the runtime verdict (2026-09-25): the path executes for
+an ordinary invocation on Windows (see `docs/planning/gates/G2-result.md`). Codex Desktop's control-socket exposure in
 current builds also remains UNVERIFIED — no first-party statement found
 (`REVERIFICATION-B2.md` §3.2 box 5); do not assume a Desktop-hosted thread
 is reachable via the control socket. Source: `docs/planning/PINS.md` —

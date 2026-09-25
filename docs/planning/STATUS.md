@@ -11,13 +11,18 @@ process. A second daemon client delivered a message into that live thread by
 `turn/start` when idle and by `thread/queue/add` mid-turn. The queued turn started at the
 same second the running turn completed. The TUI showed both deliveries and the model
 answered each one. The spike client handled no credentials. Closes the G2 go/no-go
-UNVERIFIED item (daemon attach runs at runtime in the released `0.154.0`, not only on
-`main`). New facts recorded in `docs/planning/gates/G2-result.md`: the control socket speaks
-WebSocket over UDS, `codex app-server proxy` is a raw byte relay, `thread/queue/add` is
-experimental and absent from the default schema, and a client must call `thread/resume`
-to receive `turn/*`/`item/*` events. Also recorded: in a shared daemon, `originator` is
-not per-client, and `thread/list` exposes every session's preview to any same-user
-socket client. Fixture:
+UNVERIFIED item. Daemon attach runs at runtime in the released `0.154.0`, not only on
+`main`. This was shown **on Windows, with default `CODEX_HOME`, from a non-elevated
+terminal**; macOS and Linux were not exercised. New facts recorded in
+`docs/planning/gates/G2-result.md`: the control socket speaks WebSocket over UDS,
+`codex app-server proxy` is a raw byte relay, `thread/queue/add` is experimental and
+absent from the default schema, and a client must call `thread/resume` to receive
+`turn/*`/`item/*` events. On Windows the socket is protected by a user-only directory
+DACL, and no server-side per-connection check was found. Also recorded: `thread/list`
+exposes every session's preview to any same-user socket client. Two new UNVERIFIED items
+are added below: an unidentified second loaded thread, and the non-per-client
+`originator`/`source` fields. Stale copies of the closed daemon-attach item are corrected
+in `oac-codex-appserver`, `PINS.md` and `11-risks.md`. Fixture:
 `docs/planning/gates/fixtures/g2-codex-inject/transcript.jsonl`, redacted; D6 gap:
 `thread/start` was not captured.)
 
@@ -253,7 +258,7 @@ amendments A1-A3 issued)
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
 | Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 and G2/D2 landed, both PASS), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D2-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D3-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -279,8 +284,8 @@ the amendments file; its body text is unchanged.
 ## Gate verdicts
 
 G1 and G2 have run: both **PASS** (2026-09-25; issue #34/D1 and issue #35/D2). Every
-other verdict below is `NOT RUN`, and every task labelled with one of those gates is
-blocked until its corresponding spike in Epic D executes.
+other verdict below is `NOT RUN`, and every task labelled `gate:G3`, `gate:G4` or
+`gate:G5` is blocked until its corresponding spike in Epic D executes.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
@@ -480,6 +485,14 @@ without an UNVERIFIED label.
   Desktop-originated sessions in the daemon's `thread/list` only as `notLoaded` saved
   history. That shows shared on-disk history, not live socket exposure, so the item
   stays open; see `docs/planning/gates/G2-result.md`).
+- An unidentified second thread (`01a0d744-b34a-7c92-9011-20d95fe5f98a`) was loaded in
+  the daemon during G2 but never listed by `thread/list`. It is probably a TUI-spawned
+  side thread; its purpose is unknown (UNVERIFIED — see
+  `docs/planning/gates/G2-result.md`).
+- In a shared Codex daemon, a thread's `originator` and `source` fields do not identify
+  the client that created it. The TUI's thread was stamped with the first-initializing
+  probe's `clientInfo.name` and `source: "vscode"` (UNVERIFIED — mechanism inferred from
+  one fresh-daemon observation in G2; do not use either field for provenance).
 - Cross-process resume does not attach (openai/codex #21743) at runtime on `0.154.0`
   (UNVERIFIED — not re-tested in G2, because the test appends silently to a real thread's
   history; see `docs/planning/gates/G2-result.md`).
