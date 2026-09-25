@@ -1,0 +1,15 @@
+G3 scouting-socket bind observations, 2026-09-25, Zenoh 1.10.1 (eclipse-zenoh 1.10.1 wheel).
+Captured verbatim from the live run output while three peers (x, y, z) were running.
+Only the grep-filtered lines were kept. PIDs belong to that session and mean nothing now.
+
+--- Windows 11: `netstat -ano -p udp | grep -E ':7446\b'` (3 live peer processes) ---
+  UDP    0.0.0.0:7446           *:*                                    35296
+  UDP    0.0.0.0:7446           *:*                                    39572
+  UDP    0.0.0.0:7446           *:*                                    40724
+
+--- Linux (WSL2 Ubuntu 24.04): `ss -uanp | grep -E ':7446\b'` (3 live peer processes) ---
+UNCONN 0      0         224.0.0.224:7446       0.0.0.0:*    users:(("python",pid=537,fd=14))
+UNCONN 0      0         224.0.0.224:7446       0.0.0.0:*    users:(("python",pid=539,fd=14))
+UNCONN 0      0         224.0.0.224:7446       0.0.0.0:*    users:(("python",pid=538,fd=14))
+
+Peer results for the same runs: results-windows/bind-{x,y,z}.json, results-linux-wsl2/bind-{x,y,z}.json

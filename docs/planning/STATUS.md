@@ -8,15 +8,18 @@ verdict, or when a pin moves.
 three platforms. **Windows 11 PASS, Linux (WSL2 Ubuntu 24.04) PASS, macOS NOT RUN**
 (parked, no host), so the gate-level verdict stays `NOT RUN`. 36 of 36 matrix runs passed:
 multicast and rendezvous, each over TCP and TLS on `127.0.0.1`, plus 3-peer collision
-runs. Separate peer processes discovered each other over loopback multicast on 1.10.1,
-which confirms the PR #2671 fix empirically. A negative control (multicast off, no
-rendezvous) correctly failed. In rendezvous mode, joiners built a direct link to each other
-by gossip. `#iface=` is enforced on Linux and silently ignored on Windows. The scouting
-socket binds `0.0.0.0:7446` on Windows and `224.0.0.224:7446` on Linux, and is shared
-without collision. Median cold-start discovery was 51 ms on Windows and 7 ms on Linux for
-multicast TCP. One rendezvous start race took 1011 ms because of the default 1 s connect
-retry. The spike used the Python binding `eclipse-zenoh==1.10.1` (core
-`release/1.10.1`), not the Rust crate, so the binary-size estimate stays open. Result:
+runs. Separate peer processes found each other over loopback multicast on 1.10.1 with
+explicit `127.0.0.1` listeners. This run did not reproduce the pre-1.10.0 failure modes
+that PR #2671 fixed. A negative control (multicast off, no rendezvous) correctly failed. In
+rendezvous mode, joiners built a direct link to each other by gossip. `#iface=` is enforced
+on Linux. On Windows, a nonexistent interface name was accepted without exception; a valid
+name and log warnings were not tested. The scouting socket binds `0.0.0.0:7446` on Windows
+and `224.0.0.224:7446` on Linux, and several processes shared it without collision. Median
+cold-start discovery was 51 ms on Windows and 7 ms on Linux for multicast TCP. One
+rendezvous run took 1011 ms; by inference from its timings, that was a start race plus the
+default 1 s connect retry. The spike used the Python binding `eclipse-zenoh==1.10.1`
+(core = tag `1.10.1`), not the Rust crate. As a result, "G3 via the Rust crate" is a new
+UNVERIFIED item, and the binary-size estimate stays open, owned by task I3. Result:
 `docs/planning/gates/G3-result.md`; fixtures: `docs/planning/gates/fixtures/g3-zenoh-peer/`.)
 
 **G2/issue #35/D2:** gate spike PASS on the primary path,
@@ -504,11 +507,18 @@ without an UNVERIFIED label.
   stays open; see `docs/planning/gates/G2-result.md`).
 - G3 criteria 1-4 on macOS: loopback multicast discovery, rendezvous discovery, TLS on
   `127.0.0.1`, and multi-peer port behavior (UNVERIFIED — macOS leg parked, no macOS host;
+  macOS is also the primary target of PR #2671's loopback-TX fix;
   the same quarantined matrix runs there unchanged; see `docs/planning/gates/G3-result.md`).
 - G3 on bare-metal Linux (UNVERIFIED — the Linux leg ran on WSL2 Ubuntu 24.04 with a real
   Linux kernel, links on `lo`; treated as the Linux leg per the operator's direction).
-- `#iface=` behavior on macOS (UNVERIFIED — G3 confirmed it is enforced on Linux and
-  silently ignored on Windows; macOS not tested).
+- `#iface=` behavior on macOS, and on Windows with a *valid* interface name (UNVERIFIED —
+  G3 confirmed Linux enforces it. On Windows, G3 tried only a nonexistent name, which was
+  accepted without exception while the link bound on loopback. A valid Windows name and
+  Zenoh log warnings were not tested. macOS was not tested).
+- G3 criteria via the Rust `zenoh` crate built with toolchain `1.98.1`, using OAC's feature
+  set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
+  `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
+  `docs/planning/gates/G3-result.md`).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.154.0` (UNVERIFIED — G2
   exercised Windows only; see `docs/planning/gates/G2-result.md`).
 - An unidentified second thread (`01a0d744-b34a-7c92-9011-20d95fe5f98a`) was loaded in
@@ -525,8 +535,10 @@ without an UNVERIFIED label.
 - Zenoh `auth.pubkey` semantics (UNVERIFIED — see REVERIFICATION-B2.md §3.4 box 6; the
   six key names themselves are now CLOSED, confirmed verbatim in `DEFAULT_CONFIG.json5`
   at tag 1.10.1).
-- The 5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate, resolved by the
-  first G3 build artifact, task D3; see REVERIFICATION-B2.md §3.4 box 7).
+- The 5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate; see
+  REVERIFICATION-B2.md §3.4 box 7. Earlier text said the first G3 build artifact from task
+  D3 would resolve it. D3 ran the Python wheel and built no Rust artifact, so the owner is
+  now task I3, which records the actual release binary size).
 - The named compatibility shim boundary for the Claude Code Channels preview surface
   (UNVERIFIED — DESIGN.md names no such module; out of scope for B2, needs a C-series
   decision or a DESIGN.md update; see REVERIFICATION-B2.md "Carried to 11-risks.md").

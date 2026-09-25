@@ -1,13 +1,14 @@
 {
   "_fixture": {
     "gate": "G3",
-    "zenoh": "1.10.1 (eclipse-zenoh 1.10.1 PyPI wheel; core release/1.10.1)",
+    "role": "any peer; all peers use this same config",
+    "zenoh": "1.10.1 (eclipse-zenoh 1.10.1 PyPI wheel; core release/1.10.1 = tag 1.10.1)",
     "platforms_run": [
       "Windows 11 (native)",
       "Linux: Ubuntu 24.04.1 LTS on WSL2 kernel 6.18.33.2"
     ],
     "captured": "2026-09-25",
-    "note": "null values mean unset, so the library default from DEFAULT_CONFIG.json5 at 1.10.1 applies (224.0.0.224:7446, interface auto, verify_name_on_connect true). rendezvous: the listening peer uses listen only; the joining peer uses a dynamic listen (tcp/127.0.0.1:0) plus connect. Both endpoint fields are shown here for reference."
+    "provenance": "Values are Config.get_json output from zenoh 1.10.1, annotated: this _fixture block was added by hand, and certificate paths are <CERTS> placeholders. Keys not shown are unset, so the library defaults from DEFAULT_CONFIG.json5 at 1.10.1 apply (scouting address 224.0.0.224:7446, interface auto, tls verify_name_on_connect true, connect retry period_init_ms 1000). Remove _fixture and set real cert paths before loading."
   },
   "mode": "peer",
   "listen": {
@@ -20,9 +21,7 @@
   },
   "scouting": {
     "multicast": {
-      "enabled": true,
-      "address": null,
-      "interface": null
+      "enabled": true
     }
   }
 }

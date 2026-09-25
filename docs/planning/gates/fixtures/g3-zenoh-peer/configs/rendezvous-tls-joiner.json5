@@ -1,7 +1,7 @@
 {
   "_fixture": {
     "gate": "G3",
-    "role": "any peer; all peers use this same config",
+    "role": "each joining peer ('b')",
     "zenoh": "1.10.1 (eclipse-zenoh 1.10.1 PyPI wheel; core release/1.10.1 = tag 1.10.1)",
     "platforms_run": [
       "Windows 11 (native)",
@@ -17,11 +17,13 @@
     ]
   },
   "connect": {
-    "endpoints": []
+    "endpoints": [
+      "tls/127.0.0.1:17447"
+    ]
   },
   "scouting": {
     "multicast": {
-      "enabled": true
+      "enabled": false
     }
   },
   "transport": {

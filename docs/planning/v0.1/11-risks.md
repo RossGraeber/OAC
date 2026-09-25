@@ -386,10 +386,12 @@ list.
   measurement.
 - **What it invalidates.** Nothing load-bearing — informs packaging expectations
   only (`docs/planning/v0.1/08-cli-and-deployment.md`), not v0.1 function.
-- **Early-warning signal.** The first G3 build artifact (task D3) measures
-  outside the 5-15 MB range.
-- **Response.** Replace the estimate with the measured value from the first G3
-  build artifact; no design change either way
+- **Early-warning signal.** The first Rust release artifact measures outside the
+  5-15 MB range (task I3 records the actual binary size). The G3 spike (task D3) ran
+  the `eclipse-zenoh` Python wheel and built no Rust artifact, so it produced no
+  measurement (`docs/planning/gates/G3-result.md`).
+- **Response.** Replace the estimate with the value measured on the first Rust
+  release artifact (task I3). No design change either way
   (`docs/planning/STATUS.md`).
 
 ### RISK-NATS — NATS capability claims unverified

@@ -1,7 +1,7 @@
 {
   "_fixture": {
     "gate": "G3",
-    "role": "any peer; all peers use this same config",
+    "role": "the rendezvous peer ('a' in the matrix)",
     "zenoh": "1.10.1 (eclipse-zenoh 1.10.1 PyPI wheel; core release/1.10.1 = tag 1.10.1)",
     "platforms_run": [
       "Windows 11 (native)",
@@ -13,7 +13,7 @@
   "mode": "peer",
   "listen": {
     "endpoints": [
-      "tls/127.0.0.1:0"
+      "tcp/127.0.0.1:17447"
     ]
   },
   "connect": {
@@ -21,19 +21,7 @@
   },
   "scouting": {
     "multicast": {
-      "enabled": true
-    }
-  },
-  "transport": {
-    "link": {
-      "protocols": [
-        "tls"
-      ],
-      "tls": {
-        "root_ca_certificate": "<CERTS>/ca.pem",
-        "listen_certificate": "<CERTS>/peer.pem",
-        "listen_private_key": "<CERTS>/peer.key"
-      }
+      "enabled": false
     }
   }
 }
