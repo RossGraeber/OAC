@@ -485,6 +485,8 @@ without an UNVERIFIED label.
   Desktop-originated sessions in the daemon's `thread/list` only as `notLoaded` saved
   history. That shows shared on-disk history, not live socket exposure, so the item
   stays open; see `docs/planning/gates/G2-result.md`).
+- Implicit Codex daemon attach at runtime on macOS and Linux, `0.154.0` (UNVERIFIED — G2
+  exercised Windows only; see `docs/planning/gates/G2-result.md`).
 - An unidentified second thread (`01a0d744-b34a-7c92-9011-20d95fe5f98a`) was loaded in
   the daemon during G2 but never listed by `thread/list`. It is probably a TUI-spawned
   side thread; its purpose is unknown (UNVERIFIED — see

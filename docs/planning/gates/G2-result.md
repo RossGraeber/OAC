@@ -127,7 +127,7 @@
     | Surface | Label | Basis |
     |---|---|---|
     | app-server protocol | experimental | CLI help: "[experimental] Run the app server" |
-    | Control-socket WebSocket transport | documented | first-party docs above |
+    | Control-socket WebSocket transport | supported | first-party docs above |
     | Daemon, `app-server proxy`, `codex queue` | experimental | CLI `--help` and `codex-rs/app-server-daemon/README.md` only; the README says "`codex-app-server-daemon` is experimental" |
     | `thread/queue/add` | experimental | absent from the default checked-in schema `codex-rs/app-server-protocol/schema/json`; present only in `codex app-server generate-json-schema --experimental`; requires `capabilities.experimentalApi` |
 - **UNVERIFIED items:**
