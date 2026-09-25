@@ -132,6 +132,11 @@ list.
 - **Response.** Take the fallback per failing platform — fixed local rendezvous
   endpoint, multicast scouting disabled — recorded as `PASS (FALLBACK TAKEN)`
   for that platform (`docs/planning/v0.1/02-gating-findings.md` §5).
+- **Status (2026-09-25).** The G3 spike (task D3) found no FAIL on any platform that
+  ran. Windows 11 PASS and Linux (WSL2) PASS on the primary multicast path. macOS was
+  NOT RUN because the leg is parked. The Rust-crate build is also untested: the spike
+  ran the `eclipse-zenoh` Python wheel on the same core. So this risk stays open for
+  macOS and for the Rust crate (`docs/planning/gates/G3-result.md`).
 
 ### RISK-G5 — Provenance fails
 
@@ -424,12 +429,14 @@ list.
 
 ## Traceability — every `docs/planning/STATUS.md` "Open UNVERIFIED items" entry
 
-Mechanical proof for issue #32's first acceptance box: all 29 entries in
-`docs/planning/STATUS.md`'s "Open UNVERIFIED items" list, disposed of here. None
-were closed by evidence found while writing this file (per `oac-evidence` §5,
-"never silently promoted" — closing an item requires a re-verification citation
-in the same change, and none of the 29 had one available). Every row below
-therefore carries a risk id, not a closing file+section; no blank cells.
+Mechanical proof for issue #32's first acceptance box: every entry in
+`docs/planning/STATUS.md`'s "Open UNVERIFIED items" list is disposed of here. That
+was 29 entries when this file was written, and it is 39 as of 2026-09-25. None of the
+original 29 were closed by evidence found while writing this file (per `oac-evidence`
+§5, "never silently promoted": closing an item requires a re-verification citation in
+the same change, and none of the 29 had one available). Rows 30-39 were added after
+the G1, G2 and G3 gate spikes. Every row carries a risk id, except row 31, which
+cites the evidence that confirmed it. No cell is blank.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -462,6 +469,16 @@ therefore carries a risk id, not a closing file+section; no blank cells.
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
+| 30 | Claude Code Channels pin stale (`v2.1.274` pinned; G1 observed `v2.1.282`), no full §3.1 re-verification at `2.1.282` (from G1) | RISK-CLAUDE-PREVIEW |
+| 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |
+| 32 | Exact wrapper text for a mid-turn-delivered channel notification (from G1) | RISK-CLAUDE-PREVIEW |
+| 33 | G3 criteria 1-4 on macOS (from G3) | RISK-G3 |
+| 34 | G3 on bare-metal Linux (from G3; the Linux leg ran on WSL2) | RISK-G3 |
+| 35 | `#iface=` on macOS and on Windows with a valid interface name (from G3) | RISK-G3 |
+| 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3 |
+| 37 | Unidentified second thread loaded in the Codex daemon (from G2) | RISK-CODEX-EXPERIMENTAL |
+| 38 | Codex daemon `originator`/`source` do not identify the creating client (from G2) | RISK-CODEX-EXPERIMENTAL |
+| 39 | Cross-process resume does not attach (openai/codex #21743), not re-tested at `0.154.0` (from G2) | RISK-CODEX-EXPERIMENTAL |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 
