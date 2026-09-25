@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# G3 Windows extras, as run 2026-09-25 from Git Bash in the spike scratch dir (<SPIKE_DIR>).
+./.venv-win/Scripts/python.exe extras.py results-win-extras lo
+for n in x y z; do ./.venv-win/Scripts/python.exe peer.py --name $n --listen tcp/127.0.0.1:0 --mcast on --expect 2 --timeout 8 --linger 4 --out results-win-extras/bind-$n.json & done
+sleep 3
+netstat -ano -p udp 2>/dev/null | grep -E ':7446\b' | head -10
+wait

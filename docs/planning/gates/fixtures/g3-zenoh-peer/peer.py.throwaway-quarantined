@@ -1,0 +1,99 @@
+"""G3 spike — one throwaway Zenoh peer process. Quarantined; discarded after the gate result.
+
+Binding: eclipse-zenoh 1.10.1 (PyPI wheel), which builds on Zenoh core release/1.10.1.
+Config keys come from DEFAULT_CONFIG.json5 at tag 1.10.1 and https://zenoh.io/docs/manual/tls/.
+
+Each peer:
+  - opens a session in peer mode with the given listen/connect endpoints and multicast setting
+    (and TLS keys if requested)
+  - subscribes to oac/g3/** and publishes its own name every 100 ms
+  - records the time from open until it sees N peers (info.peers_zid) and until it has
+    received data from N distinct peers
+  - writes one JSON result file, including its link locators (shows real ports and protocol)
+Uses only stable zenoh API (no zenoh-ext).
+"""
+import argparse, json, os, platform, sys, time
+import zenoh
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--name", required=True)
+ap.add_argument("--listen", action="append", default=[])
+ap.add_argument("--connect", action="append", default=[])
+ap.add_argument("--mcast", choices=["on", "off"], required=True)
+ap.add_argument("--tls", action="store_true")
+ap.add_argument("--certs", default="")
+ap.add_argument("--expect", type=int, required=True, help="number of OTHER peers expected")
+ap.add_argument("--timeout", type=float, default=15.0)
+ap.add_argument("--linger", type=float, default=1.5, help="keep publishing after success so others finish")
+ap.add_argument("--out", required=True)
+a = ap.parse_args()
+
+res = {"name": a.name, "platform": platform.system(), "platform_release": platform.release(),
+       "python": platform.python_version(), "listen": a.listen, "connect": a.connect,
+       "mcast": a.mcast, "tls": a.tls, "expect": a.expect, "error": None}
+try:
+    cfg = zenoh.Config()
+    cfg.insert_json5("mode", '"peer"')
+    cfg.insert_json5("listen/endpoints", json.dumps(a.listen))
+    cfg.insert_json5("connect/endpoints", json.dumps(a.connect))
+    cfg.insert_json5("scouting/multicast/enabled", "true" if a.mcast == "on" else "false")
+    if a.tls:
+        j = lambda p: json.dumps(os.path.join(a.certs, p))
+        cfg.insert_json5("transport/link/tls/root_ca_certificate", j("ca.pem"))
+        cfg.insert_json5("transport/link/tls/listen_certificate", j("peer.pem"))
+        cfg.insert_json5("transport/link/tls/listen_private_key", j("peer.key"))
+        cfg.insert_json5("transport/link/protocols", '["tls"]')
+
+    t0 = time.monotonic()
+    s = zenoh.open(cfg)
+    res["t_open_ms"] = round((time.monotonic() - t0) * 1000, 1)
+    res["zid"] = str(s.zid())
+    info = s.info
+    info = info() if callable(info) else info
+
+    heard = {}
+    def on_sample(sample):
+        who = sample.payload.to_string()
+        if who != a.name and who not in heard:
+            heard[who] = round((time.monotonic() - t0) * 1000, 1)
+    sub = s.declare_subscriber("oac/g3/**", on_sample)
+
+    t_disc = None
+    deadline = t0 + a.timeout
+    while time.monotonic() < deadline:
+        s.put(f"oac/g3/{a.name}", a.name)
+        peers = [str(z) for z in info.peers_zid()]
+        if t_disc is None and len(peers) >= a.expect:
+            t_disc = round((time.monotonic() - t0) * 1000, 1)
+        if t_disc is not None and len(heard) >= a.expect:
+            break
+        time.sleep(0.1)
+    res["t_discovery_ms"] = t_disc
+    res["peers_seen"] = [str(z) for z in info.peers_zid()]
+    res["heard_from"] = heard
+    res["t_all_data_ms"] = max(heard.values()) if len(heard) >= a.expect else None
+    links = []
+    try:
+        for l in info.links():
+            d = {}
+            for attr in ("src", "dst", "zid", "mtu", "is_streamed", "interfaces"):
+                if hasattr(l, attr):
+                    v = getattr(l, attr); v = v() if callable(v) else v
+                    d[attr] = str(v)
+            d["repr"] = str(l)
+            links.append(d)
+    except Exception as e:  # noqa: BLE001 - spike: record, don't crash
+        links = [f"links() unavailable: {e!r}"]
+    res["links"] = links
+    res["ok"] = t_disc is not None and len(heard) >= a.expect
+    end = time.monotonic() + a.linger
+    while time.monotonic() < end:
+        s.put(f"oac/g3/{a.name}", a.name)
+        time.sleep(0.1)
+    sub.undeclare()
+    s.close()
+except Exception as e:  # noqa: BLE001
+    res["error"] = repr(e)
+    res["ok"] = False
+with open(a.out, "w") as f:
+    json.dump(res, f, indent=1)

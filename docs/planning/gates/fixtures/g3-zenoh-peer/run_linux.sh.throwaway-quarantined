@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# G3 spike Linux leg (WSL2 Ubuntu). Invoked via `wsl.exe --exec bash <this file>` so no shell re-parses it.
+set -u
+D=<SPIKE_DIR>
+cd "$D" || { echo "CD FAILED: $D"; exit 1; }
+[ "$(pwd)" = "$D" ] || { echo "WRONG CWD: $(pwd)"; exit 1; }
+echo "cwd=$(pwd)"
+uname -r; grep PRETTY_NAME /etc/os-release
+PY="$HOME/g3spike/.venv-linux/bin/python"
+"$PY" -c "import importlib.metadata as m; print('eclipse-zenoh', m.version('eclipse-zenoh'))"
+timeout 600 "$PY" run_matrix.py "$D/certs" "$D/results-linux" "${1:-3}" ${2:-}

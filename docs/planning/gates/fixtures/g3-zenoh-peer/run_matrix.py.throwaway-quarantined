@@ -1,0 +1,69 @@
+"""G3 spike matrix runner. Spawns each scenario's peers as separate OS processes, concurrently.
+
+Usage: python run_matrix.py <certs_dir> <results_dir> [repeat] [only_scenario]
+"""
+import json, os, platform, subprocess, sys, time
+
+CERTS, OUT = sys.argv[1], sys.argv[2]
+REPEAT = int(sys.argv[3]) if len(sys.argv) > 3 else 3
+ONLY = sys.argv[4] if len(sys.argv) > 4 else None
+HERE = os.path.dirname(os.path.abspath(__file__))
+PY = sys.executable
+RDV = 17447  # fixed local rendezvous port for the no-multicast mode
+os.makedirs(OUT, exist_ok=True)
+
+def P(name, proto, mcast, expect, listen_port=0, connect_port=None, tls=False):
+    return dict(name=name, listen=[f"{proto}/127.0.0.1:{listen_port}"],
+                connect=[f"{proto}/127.0.0.1:{connect_port}"] if connect_port else [],
+                mcast=mcast, tls=tls, expect=expect)
+
+SCENARIOS = {
+    # criterion 1: multicast scouting, loopback listeners, dynamic ports
+    "mcast-tcp": [P("a", "tcp", "on", 1), P("b", "tcp", "on", 1)],
+    # criterion 3 (x multicast): TLS listener bound to 127.0.0.1
+    "mcast-tls": [P("a", "tls", "on", 1, tls=True), P("b", "tls", "on", 1, tls=True)],
+    # criterion 2: multicast disabled, locally shared fixed rendezvous endpoint
+    "rdv-tcp": [P("a", "tcp", "off", 1, listen_port=RDV), P("b", "tcp", "off", 1, connect_port=RDV)],
+    # criterion 3 (x rendezvous)
+    "rdv-tls": [P("a", "tls", "off", 1, listen_port=RDV, tls=True), P("b", "tls", "off", 1, connect_port=RDV, tls=True)],
+    # criterion 4: three peers per host, dynamic ports, multicast
+    "mcast-tcp-3": [P("a", "tcp", "on", 2), P("b", "tcp", "on", 2), P("c", "tcp", "on", 2)],
+    # criterion 2+4: three peers via one rendezvous; b and c must find each other by gossip
+    "rdv-tcp-3": [P("a", "tcp", "off", 2, listen_port=RDV), P("b", "tcp", "off", 2, connect_port=RDV),
+                  P("c", "tcp", "off", 2, connect_port=RDV)],
+}
+
+summary = {"platform": platform.system(), "release": platform.release(), "runs": []}
+for scen, peers in SCENARIOS.items():
+    if ONLY and scen != ONLY:
+        continue
+    for rep in range(1, REPEAT + 1):
+        procs, outs = [], []
+        for p in peers:
+            out = os.path.join(OUT, f"{scen}-r{rep}-{p['name']}.json")
+            outs.append(out)
+            args = [PY, os.path.join(HERE, "peer.py"), "--name", p["name"], "--mcast", p["mcast"],
+                    "--expect", str(p["expect"]), "--out", out]
+            for l in p["listen"]: args += ["--listen", l]
+            for c in p["connect"]: args += ["--connect", c]
+            if p["tls"]: args += ["--tls", "--certs", CERTS]
+            procs.append(subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT))
+        logs = [pr.communicate(timeout=60)[0].decode(errors="replace") for pr in procs]
+        results = []
+        for out, log in zip(outs, logs):
+            try:
+                results.append(json.load(open(out)))
+            except Exception as e:  # noqa: BLE001
+                results.append({"error": f"no result file: {e!r}", "log": log[-2000:], "ok": False})
+        ok = all(r.get("ok") for r in results)
+        run = {"scenario": scen, "rep": rep, "ok": ok,
+               "t_discovery_ms": [r.get("t_discovery_ms") for r in results],
+               "t_all_data_ms": [r.get("t_all_data_ms") for r in results],
+               "errors": [r.get("error") for r in results if r.get("error")],
+               "logs": [l[-800:] for l in logs if l.strip()]}
+        summary["runs"].append(run)
+        print(f"{scen:12s} rep{rep} ok={ok} disc={run['t_discovery_ms']} data={run['t_all_data_ms']} "
+              f"err={run['errors'][:1]}", flush=True)
+        time.sleep(0.5)
+with open(os.path.join(OUT, "summary.json"), "w") as f:
+    json.dump(summary, f, indent=1)

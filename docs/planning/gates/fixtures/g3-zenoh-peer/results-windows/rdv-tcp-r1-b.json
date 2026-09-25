@@ -1,0 +1,38 @@
+{
+ "name": "b",
+ "platform": "Windows",
+ "platform_release": "11",
+ "python": "3.13.1",
+ "listen": [
+  "tcp/127.0.0.1:0"
+ ],
+ "connect": [
+  "tcp/127.0.0.1:17447"
+ ],
+ "mcast": "off",
+ "tls": false,
+ "expect": 1,
+ "error": null,
+ "t_open_ms": 55.8,
+ "zid": "2bb830611ba500e087f2754dd7132522",
+ "t_discovery_ms": 60.0,
+ "peers_seen": [
+  "337832402dcc0a867c61cde13072ebbe"
+ ],
+ "heard_from": {
+  "a": 88.8
+ },
+ "t_all_data_ms": 88.8,
+ "links": [
+  {
+   "src": "tcp/127.0.0.1:57160",
+   "dst": "tcp/127.0.0.1:17447",
+   "zid": "337832402dcc0a867c61cde13072ebbe",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 337832402dcc0a867c61cde13072ebbe, src: tcp/127.0.0.1:57160, dst: tcp/127.0.0.1:17447, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}

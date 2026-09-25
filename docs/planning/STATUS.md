@@ -4,7 +4,25 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-25 (G2/issue #35/D2: gate spike PASS on the primary path,
+**Last updated:** 2026-09-25 (G3/issue #36/D3: Zenoh 1.10.1 local-peer spike on two of
+three platforms. **Windows 11 PASS, Linux (WSL2 Ubuntu 24.04) PASS, macOS NOT RUN**
+(parked, no host), so the gate-level verdict stays `NOT RUN`. 36 of 36 matrix runs passed:
+multicast and rendezvous, each over TCP and TLS on `127.0.0.1`, plus 3-peer collision
+runs. Separate peer processes found each other over loopback multicast on 1.10.1 with
+explicit `127.0.0.1` listeners. This run did not reproduce the pre-1.10.0 failure modes
+that PR #2671 fixed. A negative control (multicast off, no rendezvous) correctly failed. In
+rendezvous mode, joiners built a direct link to each other by gossip. `#iface=` is enforced
+on Linux. On Windows, a nonexistent interface name was accepted without exception; a valid
+name and log warnings were not tested. The scouting socket binds `0.0.0.0:7446` on Windows
+and `224.0.0.224:7446` on Linux, and several processes shared it without collision. Median
+cold-start discovery was 51 ms on Windows and 7 ms on Linux for multicast TCP. One
+rendezvous run took 1011 ms; by inference from its timings, that was a start race plus the
+default 1 s connect retry. The spike used the Python binding `eclipse-zenoh==1.10.1`
+(core = tag `1.10.1`), not the Rust crate. As a result, "G3 via the Rust crate" is a new
+UNVERIFIED item, and the binary-size estimate stays open, owned by task I3. Result:
+`docs/planning/gates/G3-result.md`; fixtures: `docs/planning/gates/fixtures/g3-zenoh-peer/`.)
+
+**G2/issue #35/D2:** gate spike PASS on the primary path,
 implicit daemon attach, on Codex `0.154.0`, with no pin drift. A plainly launched `codex`
 TUI attached to a running `codex app-server daemon`: its thread was loaded in the daemon
 process. A second daemon client delivered a message into that live thread by
@@ -24,7 +42,7 @@ are added below: an unidentified second loaded thread, and the non-per-client
 `originator`/`source` fields. Stale copies of the closed daemon-attach item are corrected
 in `oac-codex-appserver`, `PINS.md` and `11-risks.md`. Fixture:
 `docs/planning/gates/fixtures/g2-codex-inject/transcript.jsonl`, redacted; D6 gap:
-`thread/start` was not captured.)
+`thread/start` was not captured.
 
 **G1/issue #34/D1:** gate spike PASS — a throwaway Claude
 Channels MCP server negotiated legacy MCP `2025-11-25`, declared
@@ -257,8 +275,8 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 and G2/D2 landed, both PASS), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D3-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 and G2/D2 PASS; G3/D3 Windows and Linux PASS, macOS parked), J (agent skills) |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg and D4-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -283,15 +301,17 @@ the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
-G1 and G2 have run: both **PASS** (2026-09-25; issue #34/D1 and issue #35/D2). Every
-other verdict below is `NOT RUN`, and every task labelled `gate:G3`, `gate:G4` or
-`gate:G5` is blocked until its corresponding spike in Epic D executes.
+G1 and G2 have run: both **PASS** (2026-09-25; issue #34/D1 and issue #35/D2). G3 has run
+on two of its three platforms (2026-09-25, issue #36/D3). Windows and Linux (WSL2) PASS;
+macOS is NOT RUN, so the gate-level verdict stays `NOT RUN` until the macOS leg runs.
+G4 and G5 are `NOT RUN`. Every task labelled `gate:G3`, `gate:G4` or `gate:G5` stays
+blocked until its gate has a gate-level verdict.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
 | G1 Claude wake | **PASS** | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels) — pin now stale, see below; MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (primary path: implicit daemon attach; fallback not needed) | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
-| G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
+| G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
@@ -485,6 +505,20 @@ without an UNVERIFIED label.
   Desktop-originated sessions in the daemon's `thread/list` only as `notLoaded` saved
   history. That shows shared on-disk history, not live socket exposure, so the item
   stays open; see `docs/planning/gates/G2-result.md`).
+- G3 criteria 1-4 on macOS: loopback multicast discovery, rendezvous discovery, TLS on
+  `127.0.0.1`, and multi-peer port behavior (UNVERIFIED — macOS leg parked, no macOS host;
+  macOS is also the primary target of PR #2671's loopback-TX fix;
+  the same quarantined matrix runs there unchanged; see `docs/planning/gates/G3-result.md`).
+- G3 on bare-metal Linux (UNVERIFIED — the Linux leg ran on WSL2 Ubuntu 24.04 with a real
+  Linux kernel, links on `lo`; treated as the Linux leg per the operator's direction).
+- `#iface=` behavior on macOS, and on Windows with a *valid* interface name (UNVERIFIED —
+  G3 confirmed Linux enforces it. On Windows, G3 tried only a nonexistent name, which was
+  accepted without exception while the link bound on loopback. A valid Windows name and
+  Zenoh log warnings were not tested. macOS was not tested).
+- G3 criteria via the Rust `zenoh` crate built with toolchain `1.98.1`, using OAC's feature
+  set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
+  `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
+  `docs/planning/gates/G3-result.md`).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.154.0` (UNVERIFIED — G2
   exercised Windows only; see `docs/planning/gates/G2-result.md`).
 - An unidentified second thread (`01a0d744-b34a-7c92-9011-20d95fe5f98a`) was loaded in
@@ -501,8 +535,10 @@ without an UNVERIFIED label.
 - Zenoh `auth.pubkey` semantics (UNVERIFIED — see REVERIFICATION-B2.md §3.4 box 6; the
   six key names themselves are now CLOSED, confirmed verbatim in `DEFAULT_CONFIG.json5`
   at tag 1.10.1).
-- The 5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate, resolved by the
-  first G3 build artifact, task D3; see REVERIFICATION-B2.md §3.4 box 7).
+- The 5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate; see
+  REVERIFICATION-B2.md §3.4 box 7. Earlier text said the first G3 build artifact from task
+  D3 would resolve it. D3 ran the Python wheel and built no Rust artifact, so the owner is
+  now task I3, which records the actual release binary size).
 - The named compatibility shim boundary for the Claude Code Channels preview surface
   (UNVERIFIED — DESIGN.md names no such module; out of scope for B2, needs a C-series
   decision or a DESIGN.md update; see REVERIFICATION-B2.md "Carried to 11-risks.md").

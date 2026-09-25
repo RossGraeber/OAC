@@ -358,6 +358,10 @@ semver, and are recorded verbatim — never reformatted.
   release 1.10.1 (2026-09-07), dual EPL-2.0 / Apache-2.0." — unchanged, retrieved
   2026-09-16. Recorded here because B4 and the Stage 6 license inventory read it.
 - Gates affected: **G3** (Zenoh local peer).
+  **Note (G3 run 2026-09-25):** G3 ran against this core version through the PyPI wheel
+  `eclipse-zenoh==1.10.1`. GitHub's compare of the wheel's core checkout `1211779` with tag
+  `1.10.1` reports them identical. The wheel has no pin row of its own. A G3 re-run must use
+  a wheel verified to wrap this core tag, or use the Rust crate.
 
 ### Rust toolchain
 
@@ -376,6 +380,11 @@ semver, and are recorded verbatim — never reformatted.
   `rustfmt` and `clippy` components, so the pin is enforced by the toolchain, not only
   by this prose. See `c:\sources\OAC\rust-toolchain.toml`.
 - Gates affected: **G3** (build must succeed to run the Zenoh spike).
+  **Note (G3 run 2026-09-25):** that run used the Python binding `eclipse-zenoh==1.10.1`,
+  whose core is Zenoh tag `1.10.1`, not a Rust build. So this pin was **not exercised**.
+  G3 on the Rust crate built with `1.98.1` remains UNVERIFIED (`docs/planning/STATUS.md`,
+  `docs/planning/gates/G3-result.md`). The G3 row is kept here because a Rust-crate re-run
+  will rely on it.
 
 ### ACP (forward-compatibility only)
 

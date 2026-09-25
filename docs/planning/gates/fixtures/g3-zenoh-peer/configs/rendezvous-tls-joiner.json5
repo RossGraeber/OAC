@@ -1,0 +1,41 @@
+{
+  "_fixture": {
+    "gate": "G3",
+    "role": "each joining peer ('b')",
+    "zenoh": "1.10.1 (eclipse-zenoh 1.10.1 PyPI wheel; core release/1.10.1 = tag 1.10.1)",
+    "platforms_run": [
+      "Windows 11 (native)",
+      "Linux: Ubuntu 24.04.1 LTS on WSL2 kernel 6.18.33.2"
+    ],
+    "captured": "2026-09-25",
+    "provenance": "Values are Config.get_json output from zenoh 1.10.1, annotated: this _fixture block was added by hand, and certificate paths are <CERTS> placeholders. Keys not shown are unset, so the library defaults from DEFAULT_CONFIG.json5 at 1.10.1 apply (scouting address 224.0.0.224:7446, interface auto, tls verify_name_on_connect true, connect retry period_init_ms 1000). Remove _fixture and set real cert paths before loading."
+  },
+  "mode": "peer",
+  "listen": {
+    "endpoints": [
+      "tls/127.0.0.1:0"
+    ]
+  },
+  "connect": {
+    "endpoints": [
+      "tls/127.0.0.1:17447"
+    ]
+  },
+  "scouting": {
+    "multicast": {
+      "enabled": false
+    }
+  },
+  "transport": {
+    "link": {
+      "protocols": [
+        "tls"
+      ],
+      "tls": {
+        "root_ca_certificate": "<CERTS>/ca.pem",
+        "listen_certificate": "<CERTS>/peer.pem",
+        "listen_private_key": "<CERTS>/peer.key"
+      }
+    }
+  }
+}

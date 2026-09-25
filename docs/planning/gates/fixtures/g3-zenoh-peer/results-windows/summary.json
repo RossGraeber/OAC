@@ -1,0 +1,288 @@
+{
+ "platform": "Windows",
+ "release": "11",
+ "runs": [
+  {
+   "scenario": "mcast-tcp",
+   "rep": 1,
+   "ok": true,
+   "t_discovery_ms": [
+    72.4,
+    48.5
+   ],
+   "t_all_data_ms": [
+    91.9,
+    143.5
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tcp",
+   "rep": 2,
+   "ok": true,
+   "t_discovery_ms": [
+    53.4,
+    49.2
+   ],
+   "t_all_data_ms": [
+    58.5,
+    145.1
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tcp",
+   "rep": 3,
+   "ok": true,
+   "t_discovery_ms": [
+    57.2,
+    47.4
+   ],
+   "t_all_data_ms": [
+    158.1,
+    148.3
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tls",
+   "rep": 1,
+   "ok": true,
+   "t_discovery_ms": [
+    53.9,
+    61.5
+   ],
+   "t_all_data_ms": [
+    151.7,
+    71.3
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tls",
+   "rep": 2,
+   "ok": true,
+   "t_discovery_ms": [
+    71.6,
+    65.1
+   ],
+   "t_all_data_ms": [
+    165.8,
+    82.7
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tls",
+   "rep": 3,
+   "ok": true,
+   "t_discovery_ms": [
+    63.1,
+    53.5
+   ],
+   "t_all_data_ms": [
+    69.0,
+    148.1
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tcp",
+   "rep": 1,
+   "ok": true,
+   "t_discovery_ms": [
+    108.4,
+    60.0
+   ],
+   "t_all_data_ms": [
+    79.9,
+    88.8
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tcp",
+   "rep": 2,
+   "ok": true,
+   "t_discovery_ms": [
+    107.1,
+    101.7
+   ],
+   "t_all_data_ms": [
+    115.5,
+    194.6
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tcp",
+   "rep": 3,
+   "ok": true,
+   "t_discovery_ms": [
+    108.3,
+    67.2
+   ],
+   "t_all_data_ms": [
+    75.3,
+    100.3
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tls",
+   "rep": 1,
+   "ok": true,
+   "t_discovery_ms": [
+    109.8,
+    59.3
+   ],
+   "t_all_data_ms": [
+    70.2,
+    99.1
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tls",
+   "rep": 2,
+   "ok": true,
+   "t_discovery_ms": [
+    107.8,
+    59.7
+   ],
+   "t_all_data_ms": [
+    60.1,
+    108.3
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tls",
+   "rep": 3,
+   "ok": true,
+   "t_discovery_ms": [
+    108.9,
+    51.6
+   ],
+   "t_all_data_ms": [
+    66.2,
+    94.8
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tcp-3",
+   "rep": 1,
+   "ok": true,
+   "t_discovery_ms": [
+    159.2,
+    156.8,
+    131.9
+   ],
+   "t_all_data_ms": [
+    156.3,
+    150.1,
+    141.8
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tcp-3",
+   "rep": 2,
+   "ok": true,
+   "t_discovery_ms": [
+    100.4,
+    154.3,
+    169.0
+   ],
+   "t_all_data_ms": [
+    189.3,
+    178.3,
+    156.8
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "mcast-tcp-3",
+   "rep": 3,
+   "ok": true,
+   "t_discovery_ms": [
+    75.5,
+    149.8,
+    166.7
+   ],
+   "t_all_data_ms": [
+    168.1,
+    170.9,
+    154.2
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tcp-3",
+   "rep": 1,
+   "ok": true,
+   "t_discovery_ms": [
+    108.1,
+    150.8,
+    113.0
+   ],
+   "t_all_data_ms": [
+    140.8,
+    130.7,
+    181.1
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tcp-3",
+   "rep": 2,
+   "ok": true,
+   "t_discovery_ms": [
+    107.5,
+    211.0,
+    188.4
+   ],
+   "t_all_data_ms": [
+    127.3,
+    191.8,
+    207.9
+   ],
+   "errors": [],
+   "logs": []
+  },
+  {
+   "scenario": "rdv-tcp-3",
+   "rep": 3,
+   "ok": true,
+   "t_discovery_ms": [
+    108.9,
+    158.4,
+    110.3
+   ],
+   "t_all_data_ms": [
+    166.5,
+    140.2,
+    166.3
+   ],
+   "errors": [],
+   "logs": []
+  }
+ ]
+}

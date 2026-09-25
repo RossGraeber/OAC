@@ -1,0 +1,56 @@
+{
+ "name": "b",
+ "platform": "Windows",
+ "platform_release": "11",
+ "python": "3.13.1",
+ "listen": [
+  "tcp/127.0.0.1:0"
+ ],
+ "connect": [],
+ "mcast": "on",
+ "tls": false,
+ "expect": 2,
+ "error": null,
+ "t_open_ms": 51.3,
+ "zid": "63bad8ae27d14fe956b9d226b89cfd7a",
+ "t_discovery_ms": 156.8,
+ "peers_seen": [
+  "901c84097d9a5a98270f39fb6225a836",
+  "e2a1c4c105a11feb04e89d4c57df1724"
+ ],
+ "heard_from": {
+  "c": 147.1,
+  "a": 150.1
+ },
+ "t_all_data_ms": 150.1,
+ "links": [
+  {
+   "src": "tcp/127.0.0.1:57179",
+   "dst": "tcp/127.0.0.1:57184",
+   "zid": "901c84097d9a5a98270f39fb6225a836",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 901c84097d9a5a98270f39fb6225a836, src: tcp/127.0.0.1:57179, dst: tcp/127.0.0.1:57184, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:57183",
+   "dst": "tcp/127.0.0.1:57181",
+   "zid": "901c84097d9a5a98270f39fb6225a836",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: 901c84097d9a5a98270f39fb6225a836, src: tcp/127.0.0.1:57183, dst: tcp/127.0.0.1:57181, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:57180",
+   "dst": "tcp/127.0.0.1:57178",
+   "zid": "e2a1c4c105a11feb04e89d4c57df1724",
+   "mtu": "65495",
+   "is_streamed": "True",
+   "interfaces": "['{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}']",
+   "repr": "Link { zid: e2a1c4c105a11feb04e89d4c57df1724, src: tcp/127.0.0.1:57180, dst: tcp/127.0.0.1:57178, group: None, mtu: 65495, is_streamed: true, interfaces: [\"{9FD16548-BC3F-11E8-9C9E-806E6F6E6963}\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}
