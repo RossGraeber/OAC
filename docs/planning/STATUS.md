@@ -4,7 +4,24 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-25 (G1/issue #34/D1: gate spike PASS — a throwaway Claude
+**Last updated:** 2026-09-25 (G2/issue #35/D2: gate spike PASS on the primary path,
+implicit daemon attach, on Codex `0.154.0`, with no pin drift. A plainly launched `codex`
+TUI attached to a running `codex app-server daemon`: its thread was loaded in the daemon
+process. A second daemon client delivered a message into that live thread by
+`turn/start` when idle and by `thread/queue/add` mid-turn. The queued turn started at the
+same second the running turn completed. The TUI showed both deliveries and the model
+answered each one. The spike client handled no credentials. Closes the G2 go/no-go
+UNVERIFIED item (daemon attach runs at runtime in the released `0.154.0`, not only on
+`main`). New facts recorded in `docs/planning/gates/G2-result.md`: the control socket speaks
+WebSocket over UDS, `codex app-server proxy` is a raw byte relay, `thread/queue/add` is
+experimental and absent from the default schema, and a client must call `thread/resume`
+to receive `turn/*`/`item/*` events. Also recorded: in a shared daemon, `originator` is
+not per-client, and `thread/list` exposes every session's preview to any same-user
+socket client. Fixture:
+`docs/planning/gates/fixtures/g2-codex-inject/transcript.jsonl`, redacted; D6 gap:
+`thread/start` was not captured.)
+
+**G1/issue #34/D1:** gate spike PASS — a throwaway Claude
 Channels MCP server negotiated legacy MCP `2025-11-25`, declared
 `capabilities.experimental["claude/channel"]`, and all five G1 pass criteria were
 confirmed live against a real Claude Code session: legacy negotiation, idle-session wake
@@ -15,7 +32,7 @@ delivered together and in order, a tool-based reply, and the
 `docs/planning/gates/fixtures/g1-claude-wake/transcript.jsonl`. Pin drift found: the
 connecting client reported `v2.1.282`, not the pinned `v2.1.274` — flagged above as a new
 open item, not silently re-pinned. Epic D (Stage 1) is now open; Epic A and C rows
-corrected above to reflect they closed earlier.)
+corrected above to reflect they closed earlier.
 
 **A1/issue #23:** `docs/planning/v0.1/00-summary.md` landed,
 closing Epic A — one page, no ADR-001/DESIGN restatement, citing by path throughout; the
@@ -235,7 +252,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 landed, PASS), J (agent skills) |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 and G2/D2 landed, both PASS), J (agent skills) |
 | Blocked | Stages 2-6, and the rest of Stage 1 pending D2-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
@@ -261,14 +278,14 @@ the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
-G1 has run: **PASS** (2026-09-25, issue #34/D1). Every other verdict below is `NOT RUN`,
-and every task labelled `gate:*` (other than G1's own dependents) is blocked until its
-corresponding spike in Epic D executes.
+G1 and G2 have run: both **PASS** (2026-09-25; issue #34/D1 and issue #35/D2). Every
+other verdict below is `NOT RUN`, and every task labelled with one of those gates is
+blocked until its corresponding spike in Epic D executes.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
 | G1 Claude wake | **PASS** | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels) — pin now stale, see below; MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
-| G2 Codex live inject | NOT RUN | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
+| G2 Codex live inject | **PASS** (primary path: implicit daemon attach; fallback not needed) | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
@@ -458,13 +475,14 @@ without an UNVERIFIED label.
   v2.1.274; see REVERIFICATION-B2.md §3.1 box 1).
 - Whether one MCP server can present more than one logical channel (UNVERIFIED — docs
   silent at v2.1.274; see REVERIFICATION-B2.md §3.1 box 2).
-- Whether implicit Codex daemon attach executes by default at runtime in the pinned
-  release `0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) (UNVERIFIED for
-  runtime behaviour — the code path is now source-confirmed present at this commit, see
-  REVERIFICATION-B2.md §3.2 box 4; runtime verdict is G2 go/no-go, owned by task D2, not
-  by B2).
 - Whether Codex Desktop exposes the control socket in current builds (UNVERIFIED — no
-  first-party statement found; see REVERIFICATION-B2.md §3.2 box 5).
+  first-party statement found; see REVERIFICATION-B2.md §3.2 box 5. G2 observed
+  Desktop-originated sessions in the daemon's `thread/list` only as `notLoaded` saved
+  history. That shows shared on-disk history, not live socket exposure, so the item
+  stays open; see `docs/planning/gates/G2-result.md`).
+- Cross-process resume does not attach (openai/codex #21743) at runtime on `0.154.0`
+  (UNVERIFIED — not re-tested in G2, because the test appends silently to a real thread's
+  history; see `docs/planning/gates/G2-result.md`).
 - Zenoh `auth.pubkey` semantics (UNVERIFIED — see REVERIFICATION-B2.md §3.4 box 6; the
   six key names themselves are now CLOSED, confirmed verbatim in `DEFAULT_CONFIG.json5`
   at tag 1.10.1).
@@ -484,7 +502,8 @@ without an UNVERIFIED label.
 - `codex mcp-server` deprecation date (2026-08-20) and deletion date (2026-09-05)
   (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
   re-confirmed against the CLI reference in B1 or B2; see REVERIFICATION-B2.md §3.2
-  table).
+  table). G2 confirmed only that the subcommand is absent at runtime in `0.154.0`. The
+  two dates themselves remain unverified.
 - No SEP or working-group item for agent-to-agent messaging (UNVERIFIED — carried
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
