@@ -70,16 +70,25 @@ One row per gate. Every verdict below matches
 | G1 Claude wake | **PASS** | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (`0.157.1`, re-run 2026-09-26, Windows only) | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
-| G4 MCP dual-era server | NOT RUN | has fallback: two server entry points sharing one core | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
+| G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. | has fallback: two server entry points sharing one core — not needed | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
-**Reason for `NOT RUN` on G3 (partially), G4 and G5.** Epic D spikes D1-D5 opened, but
-D4 (G4) and D5 (G5) have not executed, and D3 (G3)'s macOS leg is parked
-(`docs/planning/gates/G3-result.md`, `G4-result.md`, `G5-result.md`). D1 (G1) and D2 (G2)
-have both run and PASSED — see `docs/planning/gates/G1-result.md` and
-`docs/planning/gates/G2-result.md`. `docs/planning/STATUS.md`'s "Current stage" section
-states the rest of Stage 1 and Stages 2-6 stay blocked until Stage 0 (Epic B) and Stage 1
-fully complete.
+**Reason for `NOT RUN` on G3 (partially) and G5.** Epic D spikes D1-D5 opened.
+D5 (G5) has not executed. D3 (G3)'s macOS leg is parked
+(`docs/planning/gates/G3-result.md`, `G5-result.md`). D1 (G1), D2 (G2), and D4 (G4) have
+all run and PASSED — see `docs/planning/gates/G1-result.md`,
+`docs/planning/gates/G2-result.md`, and `docs/planning/gates/G4-result.md`. D4's first
+attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26, issue #37)
+individually confirmed all five pass criteria against a live Claude Code session and a
+live Codex `0.157.1` process — criteria 2-3 (the current-revision path) confirmed via
+Claude as the modern client; Codex stayed legacy-only — with none failing, but its
+confirming evidence was gathered after its own declared 120-minute timebox had already
+expired, so per `oac-gates`' timebox policy ("an expired timebox is a result, not a
+licence to keep going") it recorded `NOT RUN` rather than `PASS`; a fresh, redeclared
+60-minute timebox on 2026-09-26 reconfirmed all five criteria without expiring, and G4 is
+now `PASS` (`docs/planning/gates/G4-result.md`, "Re-run history"). `docs/planning/
+STATUS.md`'s "Current stage" section states the rest of Stage 1 and Stages 2-6 stay
+blocked until Stage 0 (Epic B) and Stage 1 fully complete.
 
 **Verdict vocabulary.** Closed: `PASS` | `PASS (FALLBACK TAKEN)` | `FAIL` | `NOT RUN`.
 No fifth value, no hedge — per `oac-gates` "never probably" rule.
@@ -181,7 +190,17 @@ ACLs (`.claude/skills/oac-gates/references/G3-zenoh-peer.md`).
 
 ## 6. G4 mcp-dual-era
 
-- **Verdict:** NOT RUN
+- **Verdict:** PASS (re-run 2026-09-26, issue #37/D4, under a fresh, redeclared 60-minute
+  timebox that did not expire). All five pass criteria below were confirmed against a
+  live Claude Code session and a live Codex `0.157.1` process, none failing — criteria
+  2-3 (the current-revision path) via Claude as the modern client; Codex reached the
+  server (via `codex mcp add` and a stdio registration) but stayed legacy-only —
+  including the modern HTTP path proven correct again *after* interleaved Codex/legacy
+  traffic (the no-degradation check). No fallback needed. A first attempt (timebox
+  declared 2026-09-25, evidence gathered 2026-09-26) confirmed the same five criteria but
+  recorded `NOT RUN`, because its evidence was gathered after that attempt's own timebox
+  had already expired — see `docs/planning/gates/G4-result.md`'s superseded section and
+  "Re-run history."
 - **Pins relied on:** `Claude Code (Channels)`, `MCP — current era`, `MCP — legacy
   era`, `Rust MCP SDK (rmcp)`, `Codex CLI / app-server` (Codex leg)
   (`docs/planning/gates/G4-result.md`)

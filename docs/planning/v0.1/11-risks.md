@@ -31,9 +31,11 @@ a risk that only degrades a preview surface, which outranks a risk that is only
 a citation-source or pin-provenance gap.**
 
 - **R1 — gate-decided viability risks.** G1, G2, G3, G4, G5
-  (`docs/planning/v0.1/02-gating-findings.md` §3-§7). Each gate's `NOT RUN`
-  verdict decides a named leg of the ADR-001 validation criterion or a DESIGN
-  acceptance criterion outright; G1 and G5 have no fallback. The row order
+  (`docs/planning/v0.1/02-gating-findings.md` §3-§7). Each gate decides a named leg of
+  the ADR-001 validation criterion or a DESIGN acceptance criterion outright; a `NOT RUN`
+  or `FAIL` verdict on any of them blocks that leg (G1, G2, G4 have since run and
+  PASSED — `docs/planning/gates/G1-result.md`, `G2-result.md`, `G4-result.md`; G3 is
+  partial, G5 is `NOT RUN`); G1 and G5 have no fallback. The row order
   within R1 below (G1, G2, G4, G3, G5) is presentation order, following
   `02-gating-findings.md`'s own §3-§7 sequence — it is not itself a ranking;
   both no-fallback gates (G1, G5) carry equal weight regardless of position.
@@ -118,6 +120,26 @@ list.
 - **Response.** Take the fallback — two server entry points sharing one core —
   and record the fallback's cost (extra process, duplicated negotiation code) in
   the gate result (`docs/planning/v0.1/02-gating-findings.md` §6).
+- **Status (2026-09-26, issue #37/D4): the core single-process question is closed by G4
+  PASS; RISK-G4 remains open for the `rmcp` and Codex-modern legs.** A first spike
+  (2026-09-25/26) confirmed all five pass criteria individually against a live Claude
+  Code session and a live Codex `0.157.1` process, none failed, but its confirming
+  evidence was gathered after its declared 120-minute timebox had already expired, so it
+  recorded `NOT RUN` per `oac-gates`' timebox policy rather than a `PASS`
+  (`docs/planning/gates/G4-result.md`, superseded section). A fresh, redeclared
+  60-minute timebox (declared before any live work; the operator closed the prior
+  session, its servers exited, and the transcript was archived first) closed at ~8.5
+  minutes elapsed, not expired, and reconfirmed all five criteria the same way
+  (criteria 2-3 via Claude as the modern client; Codex legacy-only), including the
+  modern HTTP path proven correct again *after* interleaved Codex/legacy traffic (the
+  direct no-degradation check). **Verdict: PASS, no fallback needed.** This
+  risk's core question — can one process serve both eras without degradation — is
+  closed. This risk stays open for two legs it also names: whether an `rmcp`-based
+  server (not the hand-rolled Node.js spike server used in both runs) shows the same
+  behavior (`docs/planning/STATUS.md`), and Codex's modern-era (`2026-07-28`) leg, which
+  Codex
+  `0.157.1` never negotiated in either run — still tracked under this risk id at
+  traceability row 41 below, even though the risk's core viability question is closed.
 
 ### RISK-G3 — Zenoh loopback discovery fails
 
@@ -196,7 +218,12 @@ list.
   surface stays unnamed (conflict-register C11); whether Codex reliably
   reproduces a header-supplied `oac_message_id` in a subsequent `reply` tool
   call's `in_reply_to` argument; and whether Codex's `thread.sessionId` field
-  always equals `thread.id`.
+  always equals `thread.id`. **New (G4, 2026-09-25/26):** a Codex daemon
+  `thread/list` query made during the G4 spike returned Codex-Desktop-originated
+  thread entries (`originator: "Codex Desktop"`) whose `preview` text was Claude
+  Code prompt content the operator had typed into a separate Claude Code session —
+  cross-harness prompt visibility through Codex's own session history, security-
+  relevant, mechanism not investigated (`docs/planning/gates/G4-result.md`).
 - **What it invalidates.** `docs/planning/v0.1/01-capability-matrix.md` §1's
   Codex experimental label; `docs/planning/v0.1/07-repository-and-dependencies.md`
   §4(b)'s `adapters/codex/` shim-boundary containment claim; Decision 9's layered
@@ -448,11 +475,19 @@ the same change, and none of the 29 had one available). Row 40 was subsequently
 re-verified against `0.157.1` — its STATUS.md bullet was removed accordingly (§5's
 promotion procedure), and this table keeps the row, marked CLOSED, for traceability
 rather than deleting it. Row 41 was added the same day for a new item that
-re-verification surfaced. The table is therefore 41 rows: 40 still listed in
-`docs/planning/STATUS.md` (row 31 is confirmed, not a risk, but stays on STATUS.md's list
-as a correction note per that row's own text) and 1 closed (row 40). Every row carries a
-risk id, except row 31 (which cites the evidence that confirmed it) and row 40 (closed,
-cites its own closing evidence). No cell is blank.
+re-verification surfaced. Rows 42-43 were added 2026-09-26 from the first G4 run
+(issue #37/D4, out-of-box): that run confirmed all five pass criteria but recorded
+`NOT RUN` because its declared timebox had already expired before the confirming
+evidence was gathered, and it re-confirmed row 41 (Codex `0.157.1` connected but never
+negotiated the modern era) plus surfaced two genuinely new UNVERIFIED items
+(rows 42-43). A fresh, redeclared timebox the same day (2026-09-26) reconfirmed all five
+criteria without expiring, so **G4 is now `PASS`**
+(`docs/planning/gates/G4-result.md`); that re-run reproduced rows 41-43 unchanged and
+surfaced one further new item, row 44. The table is therefore 44 rows: 43 still listed
+in `docs/planning/STATUS.md` (row 31 is confirmed, not a risk, but stays on STATUS.md's
+list as a correction note per that row's own text) and 1 closed (row 40). Every row
+carries a risk id, except row 31 (which cites the evidence that confirmed it) and row 40
+(closed, cites its own closing evidence). No cell is blank.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -496,7 +531,10 @@ cites its own closing evidence). No cell is blank.
 | 38 | Codex daemon `originator`/`source` do not reliably identify the creating client (from G2). At the `0.157.1` re-run the same TUI thread's `originator` matched the TUI itself (`codex-tui`), unlike at `0.154.0` (`oac_g2_spike`) — consistent with a first-initializing-client mechanism, not a fix | RISK-CODEX-EXPERIMENTAL |
 | 39 | Cross-process resume does not attach (openai/codex #21743), not re-tested at `0.154.0` or `0.157.1` (from G2) | RISK-CODEX-EXPERIMENTAL |
 | 40 | Codex §3.2 facts not re-verified at the observed `0.157.1`. The Codex row became floating 2026-09-26 by operator decision, and an auto-updater moves it with each release | **CLOSED** — re-verified 2026-09-26 against commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`; every fact HOLDS, with two additive, off-by-default drifts (a new `--no-daemon` opt-out flag, an opt-in `mcp_2026_07_28` client mode — see row 41); see `docs/planning/REVERIFICATION-B2.md` §"§3.2 re-verification at Codex `0.157.1` (floating-pin trigger, 2026-09-26)" and the G2 re-run, `docs/planning/gates/G2-result.md`. RISK-CODEX-EXPERIMENTAL stays open for its other, still-unresolved items (macOS/Linux, the unidentified thread, `originator`/`source` provenance). |
-| 41 | Codex `mcp_2026_07_28` client mode untested against a G4 server (new at `0.157.1`, source-level only; feature-flagged, `stage: UnderDevelopment`, off by default) | RISK-G4 |
+| 41 | Codex `mcp_2026_07_28` client mode untested against a G4 server (new at `0.157.1`, source-level only; feature-flagged, `stage: UnderDevelopment`, off by default). **Still open after both G4 runs (2026-09-25/26 out-of-box and 2026-09-26 PASS re-run): Codex `0.157.1` connected to the spike server both times but never negotiated the modern era** (`docs/planning/gates/G4-result.md`). Not a G4 criterion failure — criterion 2 is satisfied via Claude as the modern client. | RISK-G4 |
+| 42 | Claude's v2 runtime (`MCP_SDK_GENERATION=v2`) sent a stdio `server/discover` probe with `MCP_PROTOCOL_NEGOTIATION` unset, contradicting the documented stdio default of not asking about the newer revision (from G4, reproduced identically in both runs) | RISK-CLAUDE-PREVIEW |
+| 43 | Codex-Desktop-originated threads showed Claude Code prompt text in `thread/list` previews; import mechanism UNVERIFIED. Also: twice while the out-of-box run's idle server sat unused afterward, a client reporting user-agent `codex-mcp-client/0.155.0-alpha.16.4` connected via the (likely shared) global `codex mcp add` registration, initialized and listed tools; its MCP OAuth well-known discovery probes all returned 404; attribution to Codex Desktop inferred from user-agent, and cause, UNVERIFIED (uncommitted archive, `scratchpad/g4-spike/transcript-2026-09-26-outofbox.jsonl` lines 60-73 and 76-89) (from G4, security-relevant) | RISK-CODEX-EXPERIMENTAL |
+| 44 | Claude Code does not surface a tool result's `_meta` field to the model, even though it is present on the wire; UNVERIFIED whether this is universal or specific to this tool-call path (from the G4 re-run, 2026-09-26) | RISK-CLAUDE-PREVIEW |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 
