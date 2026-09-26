@@ -155,12 +155,20 @@ Codex-side gate:
   `00c972ed5d6ff6499317fd41b7f23605b8e6850d`), then `0.157.1` (npm
   `2026-09-26T01:06:57.149Z`; GitHub release `rust-v0.157.1` published
   `2026-09-26T01:02:31Z`; tag object `ac0e23e5232692b95268583c8278c50b8c436d2b` → commit
-  `36650394c5b38c2990ccf2a3457165ca3e9d9726`). All retrieved 2026-09-26 via `npm view` and
-  the GitHub API.
+  `36650394c5b38c2990ccf2a3457165ca3e9d9726`; **G2 re-run PASS on it, 2026-09-26**). All
+  retrieved 2026-09-26 via `npm view` and the GitHub API.
 
-The B1/B2 record below describes the original `0.154.0` pin and is kept as history.
-Its facts are not re-verified for `0.157.1`; that re-verification is an open item in
-`docs/planning/STATUS.md`.
+The B1/B2 record below describes the original `0.154.0` pin and is kept as history. Its
+§3.2 facts were re-verified against `0.157.1` on 2026-09-26 — see
+`docs/planning/REVERIFICATION-B2.md` §"§3.2 re-verification at Codex `0.157.1`
+(floating-pin trigger, 2026-09-26)": no drift affecting any fact G2's PASS rested on.
+Two additive drifts were found (a new `--no-daemon` opt-out flag, which includes a
+matching rejection added to `codex-rs/tui/src/session_queue_commands.rs`; and the opt-in
+`mcp_2026_07_28` MCP client mode), both off by default and found only by fetching source
+directly after a `gh compare` 300-file cap hid them from the diff; neither was exercised
+by G2. One behavior-preserving rename was also found (`accept_hdr_async` →
+`accept_hdr_async_with_config`). Runtime confirmation on Windows is
+`docs/planning/gates/G2-result.md`'s 2026-09-26 re-run.
 
 - Surface label: **experimental**, per-method gating (PLANNING-PROMPT.md §3.2: methods
   are individually stable or experimental; experimental ones require

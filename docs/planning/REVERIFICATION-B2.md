@@ -191,6 +191,161 @@ read alongside this exact title. This is recorded as a precision note, not a dri
 the underlying "no attach on cross-process resume" claim is not contradicted by anything
 in this issue's current state.)
 
+### §3.2 re-verification at Codex `0.157.1` (floating-pin trigger, 2026-09-26)
+
+Trigger: `docs/planning/PINS.md`'s Codex CLI / app-server row became **floating** by
+operator decision on 2026-09-26, with last-observed version `@openai/codex@0.157.1`
+(commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`), per `oac-evidence` §7's "a pin
+moves" trigger. This re-checks every §3.2 fact the B1/B2 ledger above verified against
+the prior pin, `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`),
+against the newly observed `0.157.1`. Sources: `gh api
+repos/openai/codex/contents/<path>?ref=36650394c5b38c2990ccf2a3457165ca3e9d9726` (raw
+reads of the pinned commit's source tree) and the installed `0.157.1` binary's own
+`--version`/`--help`/`generate-json-schema` output, all retrieved 2026-09-26. This is a
+Codex-only re-check — the Claude, MCP, Zenoh and ACP sections above are unaffected by
+this trigger and are not re-run here. **This section is the authoritative record of this
+re-verification** — `docs/planning/gates/G2-result.md` cites this heading by name rather
+than restating the fact table or citations.
+
+| # | Fact | `0.154.0` status | `0.157.1` result | Evidence |
+|---|---|---|---|---|
+| 1 | Control socket path `CODEX_HOME/app-server-control/app-server-control.sock`, WebSocket-over-UDS | HOLDS | **HOLDS** | `codex-rs/app-server-transport/src/transport/mod.rs`@`36650394`; `unix_socket.rs`@`36650394` line 168 — see bullet below for the one naming drift |
+| 2 | `codex app-server proxy` is a raw stdio↔UDS byte relay | HOLDS | **HOLDS** | `codex-rs/cli/src/main.rs`@`36650394` lines 1390/1794; `codex app-server --help` |
+| 3 | Implicit daemon attach path present in source | HOLDS | **HOLDS, source-level; new opt-out flag** | daemon README unchanged verbatim; `codex-rs/tui/src/cli.rs`@`36650394` line 85 adds `--no-daemon` (absent at `6b9826e3`) — see bullet below |
+| 4 | `thread/queue/add` absent from default schema, present with `--experimental`; same required params | HOLDS | **HOLDS, with one addition** | local `generate-json-schema` runs (with/without `--experimental`); `session_queue_commands.rs` now also rejects `--no-daemon` — see bullet below |
+| 5 | G2's method/event name set (`thread/*`, `turn/*`) | HOLDS | **HOLDS** | `ClientRequest.json`/`ServerNotification.json`@`36650394` |
+| 6 | Windows control-socket protection (DACL check, `ensure_non_elevated_peer`, non-Unix no-op) | HOLDS | **HOLDS, byte-identical** | `windows_socket_validation.rs`/`windows_peer.rs` fetched and diffed directly at both commits |
+| 7 | `codex mcp-server` absent; `codex mcp add --url` streamable HTTP | HOLDS | **HOLDS** | local `--help` output |
+| 8 | Codex's default MCP client era (`2025-06-18` only) | HOLDS (no dual-era client) | **HOLDS by default; opt-in `2026-07-28` mode now in source** | `codex-rs/rmcp-client/src/protocol_mode.rs`@`36650394`; `codex-rs/features/src/lib.rs`@`36650394` — see bullet below |
+| 9 | `codex-rs/tui/src/session_queue_commands.rs` behavior | N/A | **Part of additive drift (a), `--no-daemon`** — file changed, not just "absent from diff" | blob `sha` `485c8077a5...` (`6b9826e3`) vs. `9752a42817...` (`36650394`), diffed directly — see "Note on the GitHub compare API's 300-file cap" below |
+
+- **Control socket path and WebSocket-over-UDS transport.** HOLDS, unchanged. The daemon
+  still binds `CODEX_HOME/app-server-control/app-server-control.sock`
+  (`codex-rs/app-server-transport/src/transport/mod.rs`@`36650394`, constants
+  `APP_SERVER_CONTROL_SOCKET_DIR_NAME`/`APP_SERVER_CONTROL_SOCKET_FILE_NAME`), and the
+  handshake is still an HTTP Upgrade to WebSocket over that socket
+  (`codex-rs/app-server-transport/src/transport/unix_socket.rs`@`36650394` line 168).
+  **Drift, behavior-preserving:** the call is now named `accept_hdr_async_with_config`
+  (was `accept_hdr_async` at `0.154.0`) and additionally advertises an
+  `x-codex-websocket-max-unfragmented-message-bytes` response header. The client-side
+  contract G2/`oac-codex-appserver` rely on — do the Upgrade yourself, then speak
+  JSON-RPC frames — is unaffected.
+- **`codex app-server proxy` byte-relay behavior.** HOLDS, unchanged. Still
+  `codex_stdio_to_uds::run(socket_path.as_path())`
+  (`codex-rs/cli/src/main.rs`@`36650394` lines 1390/1794); `codex app-server --help` still
+  reads "Proxy stdio bytes to the running app-server control socket".
+- **Implicit daemon attach (attach-or-embed branch).** HOLDS at the **source level**.
+  The daemon README changed substantially between pins overall (a new `codex app-server
+  daemon update` command, a new `settings.json` updater-preference format, and rewritten
+  `bootstrap`/package-path semantics) — the whole file was diffed at both commits; the
+  attach-or-embed paragraph is byte-identical: "An invocation that sets
+  `CODEX_EXEC_SERVER_URL` skips implicit daemon attachment... If an implicitly
+  discovered daemon cannot initialize the connection, the TUI starts an embedded server
+  instead." Runtime
+  confirmation at `0.157.1` is recorded separately in `docs/planning/gates/G2-result.md`
+  (the G2 re-run), not here — this ledger re-verifies source-level facts only, per its
+  own "Not re-checkable without a gate" convention below.
+  **Drift, new: an explicit `--no-daemon` opt-out flag now exists.**
+  `codex-rs/tui/src/cli.rs`@`36650394` line 85: `#[arg(long)] pub no_daemon: bool,`
+  documented "Run without the shared background server, even if it is already running."
+  `grep -n "no_daemon\|no-daemon"` against the same file fetched at `6b9826e3` (0.154.0)
+  returns no match — the flag is absent there. `codex-rs/cli/src/main.rs`@`36650394` line
+  2383's `run_interactive_tui` checks `interactive.no_daemon` before ever attempting
+  implicit attach; lines 2383-2387 reject `--no-daemon` together with `codex agents`
+  ("--no-daemon cannot be used with codex agents. The agents overview requires a shared
+  server..."). (Line 336 merely declares a separate, hidden `no_daemon` field on
+  `AgentsCommand` itself — it is not where the rejection runs.)
+  **Consequence:** G2's own runs never passed `--no-daemon` (plain `codex`, no flags), so
+  this does not change either verdict; it is recorded because a future spike or adapter
+  invocation that copies a flag from an example must not accidentally pass `--no-daemon`
+  and then misread the resulting embedded-server behavior as an attach failure. Both
+  `codex-rs/tui/src/cli.rs` and `codex-rs/cli/src/main.rs` fall outside the 300-file cap
+  on the `rust-v0.154.0...rust-v0.157.1` compare (see note below), so this drift was only
+  found by fetching and diffing the specific files directly, not by trusting "absent from
+  the diff."
+- **`thread/queue/add` shape and experimental gating.** HOLDS, unchanged, **with one
+  addition**: `codex-rs/tui/src/session_queue_commands.rs`@`36650394` now rejects
+  `codex queue` when `--no-daemon` was passed: "`--no-daemon` cannot be used with `codex
+  queue`. Queuing must discover the shared server to avoid writing through a separate
+  server." — absent from the same file at `6b9826e3`. Confirmed by fetching both blobs
+  directly (`sha` `485c8077a518bad9ce7445ee1a15904369a8c2dc` at `6b9826e3` vs.
+  `9752a4281737248ab8c4d0c7a0718ef7f11d5e0b` at `36650394`) and diffing their content —
+  **this file is a case in point for the note below: it changed between pins despite not
+  appearing in the compare's file list.** Absent from the default schema (`codex
+  app-server generate-json-schema --out <dir>` produced no `"thread/queue/add"` match);
+  present, with `capabilities.experimentalApi` required, only via `--experimental`
+  (`v2/ThreadQueueAddParams.json`'s `required` array is exactly `["clientUserMessageId",
+  "input", "threadId"]`, same as `0.154.0`).
+- **Note on the GitHub compare API's 300-file cap.** `gh api
+  repos/openai/codex/compare/rust-v0.154.0...rust-v0.157.1 --jq '{total_commits, files}'`
+  reports `total_commits: 869` and exactly `300` files in `.files` — GitHub's compare
+  endpoint caps the `files` array at 300 and does not indicate truncation in this
+  response shape. **A file's absence from this diff is therefore not evidence that the
+  file is unchanged** between the two commits; the only two facts in this ledger that
+  used "absent from the diff" as their reasoning have been corrected above (the
+  `session_queue_commands.rs` "unchanged" claim was wrong — it changed — and the
+  `--no-daemon` flag itself was found only by fetching `cli.rs`/`main.rs` directly, never
+  by reading the diff). No other claim in this section relies on diff-list absence
+  either: most facts (1, 2, 5, 8) were read at `36650394` and compared against the
+  `0.154.0` ledger's recorded value, not diffed byte-for-byte; facts 4 and 7 come from
+  local `0.157.1` `--help`/`generate-json-schema` output, not from source reads at all;
+  and only six files were actually fetched and diffed directly at both commits:
+  `windows_socket_validation.rs`, `windows_peer.rs`, `session_queue_commands.rs`,
+  `codex-rs/tui/src/cli.rs`, `codex-rs/cli/src/main.rs`, and
+  `codex-rs/app-server-daemon/README.md`.
+- **G2's method/event name set** (`initialize`, `thread/list`, `thread/loaded/list`,
+  `thread/resume`, `thread/turns/list`, `turn/interrupt`, `turn/start`, `turn/steer`;
+  `turn/started`, `turn/completed`, `item/started`, `item/completed`,
+  `item/agentMessage/delta`, `thread/status/changed`). HOLDS, unchanged — all present
+  verbatim in `codex-rs/app-server-protocol/schema/json/ClientRequest.json` and
+  `ServerNotification.json`@`36650394`.
+- **Windows control-socket protection** (`set_control_socket_permissions` no-op on
+  non-Unix; `windows_socket_validation.rs`'s DACL/ownership check;
+  `windows_peer.rs`'s `ensure_non_elevated_peer`). HOLDS, **byte-identical**:
+  `windows_socket_validation.rs` and `windows_peer.rs` were each fetched directly at both
+  `6b9826e3` and `36650394` and diffed byte-for-byte, zero differences — this claim rests
+  on that direct fetch-and-diff alone, not on either file's presence or absence in the
+  (capped) compare list above.
+- **`codex mcp-server` absence; `codex mcp add --url` streamable HTTP.** HOLDS, unchanged.
+  `codex mcp-server --help` still falls through to top-level help; `codex mcp add --help`
+  still shows `--url <URL>  URL for a streamable HTTP MCP server`.
+- **Drift, new and material: an opt-in MCP `2026-07-28` client mode now exists in
+  source.** `codex-rs/rmcp-client/src/protocol_mode.rs`@`36650394` defines
+  `McpProtocolMode` with `#[default] Legacy` (→ `ProtocolVersion::V_2025_06_18`, the same
+  default `oac-mcp`/G2/G4 planning assumed) and a second variant `V20260728` (→
+  `ProtocolVersion::V_2026_07_28`). It is gated behind feature flags
+  `codex-rs/features/src/lib.rs`@`36650394`: `Feature::Mcp20260728`
+  (`key: "mcp_2026_07_28"`, `stage: UnderDevelopment`, `default_enabled: false`) and
+  `Feature::CodexAppsMcp20260728` (same stage/default). Stdio additionally requires
+  `CODEX_MCP_PROTOCOL_VERSION=2026-07-28`. A new test suite exists alongside it
+  (`codex-rs/rmcp-client/tests/mcp_2026_*.rs`, six files) that was not present in the
+  `0.154.0` tree. **Consequence:** the default-configuration fact ("Codex's MCP client
+  speaks only `2025-06-18`") still HOLDS, but OAC's dual-era design (`oac-mcp`, G4)
+  should note this opt-in path exists before its next run. Per `oac-evidence` §6, this is
+  flagged rather than treated as invalidating a decision, since no ADR-001/DESIGN.md text
+  currently names Codex's MCP client version by number.
+- **Additive, out of scope:** a new `v2` schema directory
+  (`codex-rs/app-server-protocol/schema/json/v2/`) and a larger CLI surface (`agents`,
+  `resume`, `archive`, `delete`, `migrate-rollouts`, `unarchive`, `fork`, `cloud`
+  (experimental), `exec-server` (experimental), `doctor`, `sandbox`, `debug`, `features`)
+  were observed. None of these are named by any current §3.2 fact or G2 pass criterion;
+  recorded only so a future task does not mistake them for undocumented surfaces.
+
+**Verdict: no drift affecting any fact G2's PASS rested on.** Two additive drifts were
+found, corrected during review from an earlier, wrong "absent from the diff" reading (the
+compare list is capped at 300 of 869 changed files):
+(a) a new **`--no-daemon`** opt-out flag (`codex-rs/tui/src/cli.rs`,
+`codex-rs/cli/src/main.rs`), which includes a matching rejection added to
+`codex-rs/tui/src/session_queue_commands.rs` for `codex queue`; and
+(b) the opt-in **`mcp_2026_07_28`** MCP client mode. Neither is reachable from the capped
+compare, both are off by default, and G2's own runs never exercised either (plain
+`codex`, no flags), so neither changes the G2 verdict. One **behavior-preserving** rename
+was also found: the WebSocket-upgrade call `accept_hdr_async` became
+`accept_hdr_async_with_config`. This closes the STATUS.md/`11-risks.md` row-40 item
+"Codex §3.2 facts not re-verified at the observed `0.157.1`" at the **source level**;
+runtime confirmation on Windows is recorded separately by the G2 re-run
+(`docs/planning/gates/G2-result.md`).
+
 ## §3.3 MCP
 
 Re-fetched the current revision's changelog and SEP-2133 directly.

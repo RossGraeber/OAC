@@ -15,10 +15,18 @@ name the topology facts that story is built on).
 Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer) is
 `NOT RUN`**. Every transport-behavior statement below — loopback discovery, presence
 liveliness, local/LAN security profiles — is a **designed** mechanism this file diagrams,
-not a **proven** one. The same caveat applies to gates G1, G2, G4, and G5, each `NOT RUN`
-per the same table: every provider-adapter flow below is the designed mechanism the named
-gate will exercise, stated at each flow's own first mention below rather than repeated at
-every sentence.
+not a **proven** one. The same caveat applies to gates G4 and G5, each `NOT RUN` per the
+same table: every provider-adapter flow below is the designed mechanism the named gate
+will exercise, stated at each flow's own first mention below rather than repeated at
+every sentence. Gate **G1 (Claude wake)** is **PASS**
+(`docs/planning/gates/G1-result.md`) and gate **G2 (Codex live inject)** is **PASS**
+(`0.157.1`, re-run 2026-09-26, Windows only, per `docs/planning/gates/G2-result.md`): the
+wake/daemon-attach live-inject mechanisms these flows rely on are confirmed on their
+respective scopes; the adapter flows themselves remain designed, not proven — both G1
+and G2 were throwaway spikes that exercised the provider-side wake/attach mechanism,
+not the adapter code (`adapters/claude/`, `adapters/codex/`) that will actually consume
+it. G2's macOS/Linux legs remain UNVERIFIED (`docs/planning/gates/G2-result.md`); G1's
+result carries no platform scope of its own.
 
 **Naming.** Product and repository: **Open Agent Channel (OAC)**. Normative protocol
 specification: **OAC Session Channels**. CLI binary: **`oac`**. Per ADR-001-A1
@@ -270,15 +278,16 @@ daemon-held client does not.
 
 **Surface label, at first mention.** Codex app-server live-inject is **experimental
 (per-method gating)** — each method requires `capabilities.experimentalApi` and is
-documented as not durable. Pinned version: `@openai/codex@0.154.0`, commit
-`6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (`docs/planning/PINS.md` — Codex CLI and
-app-server). Compatibility shim boundary: `adapters/codex/` (UNVERIFIED — same ledger
-entry C11 as §7; not yet fixed in `DESIGN.md`).
+documented as not durable. Pinned version: **floating** — last observed
+`@openai/codex@0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`
+(`docs/planning/PINS.md` — Codex CLI and app-server, "Floating-version policy").
+Compatibility shim boundary: `adapters/codex/` (UNVERIFIED — same ledger entry C11 as
+§7; not yet fixed in `DESIGN.md`).
 
-**Open UNVERIFIED item, named rather than assumed.** Whether the Codex daemon's implicit
-attach is enabled by default in released `0.154.0` is UNVERIFIED (`docs/planning/
-STATUS.md`'s "Open UNVERIFIED items"; `docs/planning/decisions/C2-process-model.md` §2 leg
-4, §10). Resolution path: gate **G2**, currently `NOT RUN`.
+**Resolved.** Whether the Codex daemon's implicit attach is enabled by default at runtime
+is confirmed by gate **G2**, **PASS** (`0.157.1`, re-run 2026-09-26, Windows only — macOS
+and Linux remain UNVERIFIED; `docs/planning/gates/G2-result.md`;
+`docs/planning/decisions/C2-process-model.md` §2 leg 4, §10).
 
 ---
 
@@ -443,19 +452,22 @@ Per `oac-evidence` §8, checked against this file:
   gating)** (§9).
 - Preview/experimental surfaces carry a shim boundary and pinned version: Claude —
   `adapters/claude/` (UNVERIFIED — C11, not yet fixed in `DESIGN.md`), `v2.1.274` (§7);
-  Codex — `adapters/codex/` (UNVERIFIED — same C11), `@openai/codex@0.154.0` @
-  `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (§9).
+  Codex — `adapters/codex/` (UNVERIFIED — same C11), **floating**, last observed
+  `@openai/codex@0.157.1` @ `36650394c5b38c2990ccf2a3457165ca3e9d9726` (§9;
+  `docs/planning/PINS.md`).
 - Every verbatim API name (`capabilities.experimental["claude/channel"]`,
   `notifications/claude/channel`, `thread/queue/add`, `turn/steer`, `turn/start`,
   `CODEX_HOME/app-server-control/app-server-control.sock`, `codex mcp add`) is traced to
   PLANNING-PROMPT.md §3.1/§3.2, retrieved 2026-09-15 (§7, §9, §10).
-- No new UNVERIFIED item is added by this file. Three already-open UNVERIFIED facts are
-  carried forward with their label intact, not silently promoted: the Codex implicit
-  daemon-attach default in `0.154.0` (§9), the `codex mcp-server` deprecation/deletion
-  dates (§10), and the named compatibility shim boundary for both preview/experimental
-  surfaces (§7, §9; ledger entry C11). All three already appear in
+- No new UNVERIFIED item is added by this file. Two already-open UNVERIFIED facts are
+  carried forward with their label intact, not silently promoted: the `codex mcp-server`
+  deprecation/deletion dates (§10), and the named compatibility shim boundary for both
+  preview/experimental surfaces (§7, §9; ledger entry C11). Both already appear in
   `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list and are not restated as new
-  here.
+  here. (The Codex implicit daemon-attach default is no longer open at the source-level
+  default question — gate G2 confirmed it at runtime on Windows, at both `0.154.0` and
+  `0.157.1`; only its macOS/Linux legs remain UNVERIFIED, per
+  `docs/planning/gates/G2-result.md`.)
 
 ---
 

@@ -4,6 +4,38 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-26 (**G2 re-run on Codex `0.157.1`, issue #35/D2: PASS.**
+The Codex row's last-observed version (`docs/planning/PINS.md`) and the environment both
+report `0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`, so the floating-pin
+currency condition (`docs/planning/gates/README.md` §"Re-run/invalidation policy") is
+satisfied and G2's verdict is current again. The re-run repeated the two live-inject
+paths (idle `turn/start`, mid-turn `thread/queue/add`) against the same TUI thread and
+daemon on Windows, same scope as the `0.154.0` run (default `CODEX_HOME`, non-elevated
+terminal; macOS/Linux still not exercised); the operator's own TUI paste (quoted verbatim
+in `docs/planning/gates/G2-result.md`) confirms both deliveries rendered in order: "OAC
+G2 RERUN RECEIVED", the full 40-item lighthouse list, then "OAC G2 QUEUED". Before
+re-running the gate, every §3.2 fact G2's PASS rested on was re-checked against the
+`0.157.1` source tree (`docs/planning/REVERIFICATION-B2.md` §"§3.2 re-verification at
+Codex `0.157.1` (floating-pin trigger, 2026-09-26)"): **no drift affecting any fact G2's
+PASS rested on**, including the Windows DACL/peer-elevation protection code, which is
+byte-identical between the `0.154.0` and `0.157.1` commits. Two additive drifts were
+found, both off by default and neither exercised by either G2 run: (a) a new
+`--no-daemon` opt-out flag (`codex-rs/tui/src/cli.rs`), which includes a matching
+rejection added to `codex-rs/tui/src/session_queue_commands.rs`; and (b) the opt-in
+`mcp_2026_07_28` MCP client mode (`stage: UnderDevelopment`) — flagged for G4/`oac-mcp`,
+not a G2 concern. One behavior-preserving rename was also found (`accept_hdr_async` →
+`accept_hdr_async_with_config`). (An earlier draft of this re-verification wrongly
+inferred "unchanged" for two facts from their absence in a `gh compare` diff that turned
+out to be capped at 300 of 869 changed files; both were corrected by fetching the files
+directly — see REVERIFICATION-B2.md's "Note on the GitHub compare API's 300-file cap.")
+This closes the "Codex §3.2 facts not re-verified at the observed `0.157.1`" open item
+below and `11-risks.md` row 40. Full result: `docs/planning/gates/G2-result.md`
+("Re-run history"); fixture:
+`docs/planning/gates/fixtures/g2-codex-inject/transcript-2026-09-26-0.157.1.jsonl`,
+redacted. The unidentified second thread and the `originator`/`source` provenance items
+from the `0.154.0` run stay open — this run's daemon loaded only one thread, which does
+not itself close either item.)
+
 **Last updated:** 2026-09-26 (Codex pin changed to **floating** by operator decision.
 During G4, a Codex auto-updater (`codex app-server daemon pid-update-loop`, not started by
 OAC) moved the environment from `0.154.0` to `0.157.0`, and then to `0.157.1` within
@@ -285,7 +317,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASS; G2/D2 PASS on Codex 0.154.0 but invalidated by the floating Codex version, re-run pending; G3/D3 Windows and Linux PASS, macOS parked), J (agent skills) |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASS; G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked), J (agent skills) |
 | Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg and D4-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
@@ -312,8 +344,9 @@ the amendments file; its body text is unchanged.
 ## Gate verdicts
 
 G1 has run: **PASS** (2026-09-25, issue #34/D1). G2 PASSED on Codex `0.154.0` (2026-09-25,
-issue #35/D2). The Codex row is now floating (last observed `0.157.1`), so G2 is `NOT RUN`
-for the current environment until it is re-run. G3 has run on two of its three platforms
+issue #35/D2), was invalidated when the Codex row went floating, and has been **re-run and
+PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
+the environment both report `0.157.1`, so the verdict is current. G3 has run on two of its three platforms
 (2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
 gate-level verdict stays `NOT RUN` until the macOS leg runs. G4 and G5 are `NOT RUN`.
 Every task labelled `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
@@ -322,7 +355,7 @@ gate has a current gate-level verdict.
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
 | G1 Claude wake | **PASS** | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels) — pin now stale, see below; MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
-| G2 Codex live inject | NOT RUN for the current environment. Invalidated 2026-09-26: Codex is now floating, last observed `0.157.1`. It was **PASS** on `0.154.0` (primary path: implicit daemon attach). | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
+| G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
@@ -531,23 +564,23 @@ without an UNVERIFIED label.
   set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
   `docs/planning/gates/G3-result.md`).
-- Codex §3.2 facts at the currently observed version `0.157.1`: daemon attach, the
-  `thread/queue/add` shape and experimental gating, the WebSocket-over-UDS control
-  socket, and the event model (UNVERIFIED — the Codex row is floating. B1/B2 and G2
-  verified these facts on `0.154.0` only; re-verify on `0.157.1` before G2 is re-run; see
-  `docs/planning/PINS.md`, Codex "Floating-version policy").
-- Implicit Codex daemon attach at runtime on macOS and Linux, `0.154.0` (UNVERIFIED — G2
-  exercised Windows only; see `docs/planning/gates/G2-result.md`).
+- Implicit Codex daemon attach at runtime on macOS and Linux, `0.157.1` (UNVERIFIED — G2
+  has exercised Windows only, on both `0.154.0` and the `0.157.1` re-run; see
+  `docs/planning/gates/G2-result.md`).
 - An unidentified second thread (`01a0d744-b34a-7c92-9011-20d95fe5f98a`) was loaded in
   the daemon during G2 but never listed by `thread/list`. It is probably a TUI-spawned
   side thread; its purpose is unknown (UNVERIFIED — see
   `docs/planning/gates/G2-result.md`).
-- In a shared Codex daemon, a thread's `originator` and `source` fields do not identify
-  the client that created it. The TUI's thread was stamped with the first-initializing
-  probe's `clientInfo.name` and `source: "vscode"` (UNVERIFIED — mechanism inferred from
-  one fresh-daemon observation in G2; do not use either field for provenance).
-- Cross-process resume does not attach (openai/codex #21743) at runtime on `0.154.0`
-  (UNVERIFIED — not re-tested in G2, because the test appends silently to a real thread's
+- In a shared Codex daemon, a thread's `originator` and `source` fields do not reliably
+  identify the client that created it. At `0.154.0` the TUI's thread was stamped with the
+  first-initializing probe's `clientInfo.name` (`oac_g2_spike`) and `source: "vscode"`.
+  At the `0.157.1` re-run, on a separately fresh daemon, it instead carried `originator:
+  "codex-tui"` and `source: "vscode"` — matching the TUI itself, consistent with the TUI
+  being the first client to initialize that daemon this time (UNVERIFIED — mechanism
+  inferred from two fresh-daemon observations, one per version; do not use either field
+  for provenance; see `docs/planning/gates/G2-result.md`).
+- Cross-process resume does not attach (openai/codex #21743) at runtime, not re-tested at
+  `0.154.0` or `0.157.1` (UNVERIFIED — the test appends silently to a real thread's
   history; see `docs/planning/gates/G2-result.md`).
 - Zenoh `auth.pubkey` semantics (UNVERIFIED — see REVERIFICATION-B2.md §3.4 box 6; the
   six key names themselves are now CLOSED, confirmed verbatim in `DEFAULT_CONFIG.json5`
@@ -570,8 +603,17 @@ without an UNVERIFIED label.
 - `codex mcp-server` deprecation date (2026-08-20) and deletion date (2026-09-05)
   (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
   re-confirmed against the CLI reference in B1 or B2; see REVERIFICATION-B2.md §3.2
-  table). G2 confirmed only that the subcommand is absent at runtime in `0.154.0`. The
-  two dates themselves remain unverified.
+  table). G2 confirmed only that the subcommand is absent at runtime, at `0.154.0` and
+  again at `0.157.1` (`docs/planning/REVERIFICATION-B2.md`'s 0.157.1 fact table, fact 7).
+  The two dates themselves remain unverified.
+- Codex `mcp_2026_07_28` client mode untested against a G4 server. Source-level only, at
+  `0.157.1`: an opt-in MCP `2026-07-28` client protocol mode now exists
+  (`codex-rs/rmcp-client/src/protocol_mode.rs`, feature flag `mcp_2026_07_28`, stage
+  `UnderDevelopment`, `default_enabled: false`), alongside a new `mcp_2026_*` test suite
+  (UNVERIFIED — not exercised by G2, which relies only on Codex's default `2025-06-18`
+  client behavior; a future G4 run should exercise it before treating Codex's MCP era as
+  fixed at legacy-only; see `docs/planning/REVERIFICATION-B2.md` §"§3.2 re-verification
+  at Codex `0.157.1` (floating-pin trigger, 2026-09-26)").
 - No SEP or working-group item for agent-to-agent messaging (UNVERIFIED — carried
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
@@ -607,12 +649,14 @@ without an UNVERIFIED label.
   (UNVERIFIED — depends on Claude Code's channel-spawn environment passthrough, not
   established by any cited source; see
   `docs/planning/decisions/C2-process-model.md` §10, §11).
-- Whether the Codex daemon's implicit attach is enabled by default in released
-  `0.154.0`, plus a possible documentation-drift signal: a 2026-09-17 re-fetch of
-  `https://learn.chatgpt.com/docs/app-server` did not surface the `codex app-server
-  daemon start` command or the `app-server-control.sock` control-socket path that
-  PLANNING-PROMPT.md §3.2's pre-verified baseline states (UNVERIFIED — already an open
-  item per gate G2/task D2; this is one added data point, not a resolution; see
+- Whether implicit daemon attach is enabled by default at runtime is now **confirmed,
+  not open** (G2 PASS on both `0.154.0` and the `0.157.1` re-run, Windows only — see
+  `docs/planning/gates/G2-result.md`). What stays open is only the **documentation-drift
+  half**: a 2026-09-17 re-fetch of `https://learn.chatgpt.com/docs/app-server` did not
+  surface the `codex app-server daemon start` command or the `app-server-control.sock`
+  control-socket path that PLANNING-PROMPT.md §3.2's pre-verified baseline states, and
+  this has not been re-checked against the docs page since (UNVERIFIED — one added data
+  point, not itself a resolution; see
   `docs/planning/decisions/C2-process-model.md` §2, §10).
 - Named-pipe DACL peer-authentication behaviour not yet exercised on a live Windows
   host (UNVERIFIED — API shape verified against Microsoft Learn only; see
