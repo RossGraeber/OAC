@@ -94,8 +94,9 @@ opening caveat:
 - **Decision 3 (spec packaging), dual-era sub-element** — gate **G4 (MCP dual-era
   server) is `NOT RUN`**, per C3 §7 below.
 - **Decision 2 (process model)** — the Codex daemon-attach runtime behaviour C2 §2 leg 4
-  and C2 §11's second reversal-condition half both depend on is **UNVERIFIED**, carried
-  open pending gate **G2 (Codex live inject)**, currently `NOT RUN`.
+  and C2 §11's second reversal-condition half both depend on is **confirmed** by gate
+  **G2 (Codex live inject)**, now **PASS** (`0.157.1`, re-run 2026-09-26) — on Windows
+  only; macOS and Linux remain UNVERIFIED.
 
 ### Decision 1 — Language and runtime
 
@@ -160,8 +161,8 @@ locate/connect to the daemon — **not yet run**, carried open pending the shim
 environment-inheritance UNVERIFIED item, a G1-adjacent runtime question.
 
 **Gate dependency.** The Codex daemon-attach runtime behaviour this decision's leg 4
-relies on is UNVERIFIED at the pinned release (C2 §2 leg 4's own carried note), owned by
-gate **G2**, `NOT RUN`.
+relies on is confirmed by gate **G2**, **PASS** (`0.157.1`, re-run 2026-09-26, Windows
+only — macOS/Linux still UNVERIFIED).
 
 ### Decision 3 — Spec packaging
 
@@ -391,8 +392,8 @@ surface Codex was never designed to parse).
 channel-tag convention — a documented structured-metadata field on `turn/start`/
 `thread/queue/add` distinct from the `text` payload. Not fired at the pinned version.
 
-**Gate dependency.** Gate **G2 (Codex live inject)**, `NOT RUN`; gate **G5
-(Provenance)**, `NOT RUN`.
+**Gate dependency.** Gate **G2 (Codex live inject)**, **PASS** (`0.157.1`, re-run
+2026-09-26, Windows only); gate **G5 (Provenance)**, `NOT RUN`.
 
 ### Decision 10 — Transport mapping
 

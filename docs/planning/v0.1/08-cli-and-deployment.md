@@ -234,11 +234,11 @@ This is the **supported outbound tool-registration** path
 Separate from §9's command, per the task breakdown.
 
 The live-inject path — daemon-attach, `codex app-server daemon start`, control socket
-`CODEX_HOME/app-server-control/app-server-control.sock` — is the **documented target**
-for active inbound, pending gate **G2**'s verdict. Per `docs/planning/STATUS.md`'s Gate
-verdicts table, **G2 is `NOT RUN`**. This file does not claim the inject path is proven,
-and does not present it as a command a user types — it is app-server runtime behaviour,
-consumed by the daemon's own Codex app-server client
+`CODEX_HOME/app-server-control/app-server-control.sock` — is confirmed working per gate
+**G2**'s verdict. Per `docs/planning/STATUS.md`'s Gate verdicts table, **G2 is `PASS`**
+(`0.157.1`, re-run 2026-09-26, Windows only; macOS and Linux remain unexercised). This
+file does not present the inject path as a command a user types — it is app-server
+runtime behaviour, consumed by the daemon's own Codex app-server client
 (`docs/planning/decisions/C2-process-model.md` §1 item 4), not invoked from a shell.
 
 G2's recorded fallback, per `docs/planning/STATUS.md`'s Gate verdicts table: "OAC-owned

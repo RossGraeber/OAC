@@ -182,13 +182,15 @@ list.
 ### RISK-CODEX-EXPERIMENTAL — Codex experimental live-inject surface drift
 
 - **Risk.** The Codex experimental live-inject surface changes. Implicit daemon attach
-  at runtime was resolved on Windows by G2 **on `0.154.0` only**
-  (`docs/planning/gates/G2-result.md`). Since 2026-09-26 the Codex version is
-  **floating**, and `0.157.1` has been observed. The Windows result does not carry over
-  until G2 is re-run, and it is unconfirmed on macOS and Linux. A design consequence:
-  the planned git dependencies `codex-app-server-{client,protocol,transport}` are pinned
-  to the 0.154.0 commit (`docs/planning/decisions/C1-language-runtime.md` §10), while
-  the runtime floats, so their schema can drift from the running app-server. Also still
+  at runtime was resolved on Windows by G2 on `0.154.0`
+  (`docs/planning/gates/G2-result.md`), then re-confirmed on Windows on the Codex row's
+  current last-observed version, `0.157.1` (re-run 2026-09-26, same result file). Since
+  2026-09-26 the Codex version is **floating**, so any further release again invalidates
+  the gate until re-run; it remains unconfirmed on macOS and Linux at every version
+  observed so far. A design consequence: the planned git dependencies
+  `codex-app-server-{client,protocol,transport}` are pinned to the 0.154.0 commit
+  (`docs/planning/decisions/C1-language-runtime.md` §10), while the runtime floats, so
+  their schema can drift from the running app-server. Also still
   open: whether Codex
   Desktop exposes the control socket; the compatibility-shim boundary for this
   surface stays unnamed (conflict-register C11); whether Codex reliably
@@ -435,19 +437,28 @@ list.
 ## Traceability — every `docs/planning/STATUS.md` "Open UNVERIFIED items" entry
 
 Mechanical proof for issue #32's first acceptance box: every entry in
-`docs/planning/STATUS.md`'s "Open UNVERIFIED items" list is disposed of here. That
-was 29 entries when this file was written, and it is 40 as of 2026-09-26. None of the
-original 29 were closed by evidence found while writing this file (per `oac-evidence`
+`docs/planning/STATUS.md`'s "Open UNVERIFIED items" list is disposed of here. That was 29
+entries when this file was written, and it grew to 40 by 2026-09-26: rows 30-39 from the
+G1, G2 and G3 gate spikes, and row 40 from the same day's separate floating-pin decision
+(the Codex row went floating, which itself raised a new re-verification item). None of
+the original 29 were closed by evidence found while writing this file (per `oac-evidence`
 §5, "never silently promoted": closing an item requires a re-verification citation in
-the same change, and none of the 29 had one available). Rows 30-40 were added after
-the G1, G2 and G3 gate spikes. Every row carries a risk id, except row 31, which
-cites the evidence that confirmed it. No cell is blank.
+the same change, and none of the 29 had one available). Row 40 was subsequently
+**closed** later the same day, 2026-09-26, when the Codex §3.2 facts it named were
+re-verified against `0.157.1` — its STATUS.md bullet was removed accordingly (§5's
+promotion procedure), and this table keeps the row, marked CLOSED, for traceability
+rather than deleting it. Row 41 was added the same day for a new item that
+re-verification surfaced. The table is therefore 41 rows: 40 still listed in
+`docs/planning/STATUS.md` (row 31 is confirmed, not a risk, but stays on STATUS.md's list
+as a correction note per that row's own text) and 1 closed (row 40). Every row carries a
+risk id, except row 31 (which cites the evidence that confirmed it) and row 40 (closed,
+cites its own closing evidence). No cell is blank.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
 | 1 | Claude channel behaviour across `--resume`/`--continue` | RISK-CLAUDE-PREVIEW |
 | 2 | One MCP server presenting more than one logical channel | RISK-CLAUDE-PREVIEW |
-| 3 | Implicit Codex daemon attach default at runtime: closed on Windows by G2 **on `0.154.0` only** (`docs/planning/gates/G2-result.md`, invalidated for the current environment 2026-09-26); open on macOS/Linux, and open on the currently observed `0.157.1` | RISK-CODEX-EXPERIMENTAL |
+| 3 | Implicit Codex daemon attach default at runtime: closed on Windows by G2, on `0.154.0` and again on the currently observed `0.157.1` (re-run 2026-09-26, `docs/planning/gates/G2-result.md`); still open on macOS/Linux | RISK-CODEX-EXPERIMENTAL |
 | 4 | Codex Desktop control-socket exposure | RISK-CODEX-EXPERIMENTAL |
 | 5 | Zenoh `auth.pubkey` semantics | RISK-ZENOH-AUTH |
 | 6 | 5-15 MB Zenoh binary size estimate | RISK-BIN-SIZE |
@@ -482,9 +493,10 @@ cites the evidence that confirmed it. No cell is blank.
 | 35 | `#iface=` on macOS and on Windows with a valid interface name (from G3) | RISK-G3 |
 | 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3 |
 | 37 | Unidentified second thread loaded in the Codex daemon (from G2) | RISK-CODEX-EXPERIMENTAL |
-| 38 | Codex daemon `originator`/`source` do not identify the creating client (from G2) | RISK-CODEX-EXPERIMENTAL |
-| 39 | Cross-process resume does not attach (openai/codex #21743), not re-tested at `0.154.0` (from G2) | RISK-CODEX-EXPERIMENTAL |
-| 40 | Codex §3.2 facts not re-verified at the observed `0.157.1`. The Codex row became floating 2026-09-26 by operator decision, and an auto-updater moves it with each release | RISK-CODEX-EXPERIMENTAL |
+| 38 | Codex daemon `originator`/`source` do not reliably identify the creating client (from G2). At the `0.157.1` re-run the same TUI thread's `originator` matched the TUI itself (`codex-tui`), unlike at `0.154.0` (`oac_g2_spike`) — consistent with a first-initializing-client mechanism, not a fix | RISK-CODEX-EXPERIMENTAL |
+| 39 | Cross-process resume does not attach (openai/codex #21743), not re-tested at `0.154.0` or `0.157.1` (from G2) | RISK-CODEX-EXPERIMENTAL |
+| 40 | Codex §3.2 facts not re-verified at the observed `0.157.1`. The Codex row became floating 2026-09-26 by operator decision, and an auto-updater moves it with each release | **CLOSED** — re-verified 2026-09-26 against commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`; every fact HOLDS, with two additive, off-by-default drifts (a new `--no-daemon` opt-out flag, an opt-in `mcp_2026_07_28` client mode — see row 41); see `docs/planning/REVERIFICATION-B2.md` §"§3.2 re-verification at Codex `0.157.1` (floating-pin trigger, 2026-09-26)" and the G2 re-run, `docs/planning/gates/G2-result.md`. RISK-CODEX-EXPERIMENTAL stays open for its other, still-unresolved items (macOS/Linux, the unidentified thread, `originator`/`source` provenance). |
+| 41 | Codex `mcp_2026_07_28` client mode untested against a G4 server (new at `0.157.1`, source-level only; feature-flagged, `stage: UnderDevelopment`, off by default) | RISK-G4 |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

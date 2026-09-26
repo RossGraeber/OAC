@@ -67,24 +67,26 @@ One row per gate. Every verdict below matches
 
 | Gate | Verdict | Disposition / fallback | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | NOT RUN | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
-| G2 Codex live inject | NOT RUN | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
-| G3 Zenoh local peer | NOT RUN | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
-| G4 MCP dual-era server | NOT RUN | has fallback: two server entry points sharing one core | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G4-result.md` |
+| G1 Claude wake | **PASS** | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
+| G2 Codex live inject | **PASS** (`0.157.1`, re-run 2026-09-26, Windows only) | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
+| G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
+| G4 MCP dual-era server | NOT RUN | has fallback: two server entry points sharing one core | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
-**Reason for `NOT RUN` across all five.** Epic D spikes D1-D5 have not executed
-(`docs/planning/gates/G1-result.md` through `G5-result.md`, each: "NOT RUN — Epic D
-task D<n> has not executed"). `docs/planning/STATUS.md`'s "Current stage" section
-states Stages 1-6, including Epic D, are blocked until Stage 0 (Epic B) and Stage 1
-complete.
+**Reason for `NOT RUN` on G3 (partially), G4 and G5.** Epic D spikes D1-D5 opened, but
+D4 (G4) and D5 (G5) have not executed, and D3 (G3)'s macOS leg is parked
+(`docs/planning/gates/G3-result.md`, `G4-result.md`, `G5-result.md`). D1 (G1) and D2 (G2)
+have both run and PASSED — see `docs/planning/gates/G1-result.md` and
+`docs/planning/gates/G2-result.md`. `docs/planning/STATUS.md`'s "Current stage" section
+states the rest of Stage 1 and Stages 2-6 stay blocked until Stage 0 (Epic B) and Stage 1
+fully complete.
 
 **Verdict vocabulary.** Closed: `PASS` | `PASS (FALLBACK TAKEN)` | `FAIL` | `NOT RUN`.
 No fifth value, no hedge — per `oac-gates` "never probably" rule.
 
 ## 3. G1 claude-wake
 
-- **Verdict:** NOT RUN
+- **Verdict:** PASS (see `docs/planning/gates/G1-result.md`)
 - **Pins relied on:** `Claude Code (Channels)`, `MCP — current era`, `MCP — legacy
   era`, `Rust MCP SDK (rmcp)` (`docs/planning/gates/G1-result.md`)
 - **Result file:** `docs/planning/gates/G1-result.md`
@@ -116,7 +118,8 @@ v0.1 go/no-go." Failure blocks the Claude adapter entirely.
 
 ## 4. G2 codex-inject
 
-- **Verdict:** NOT RUN
+- **Verdict:** PASS (`0.157.1`, re-run 2026-09-26, Windows only — see
+  `docs/planning/gates/G2-result.md`)
 - **Pins relied on:** `Codex CLI / app-server` (`docs/planning/gates/G2-result.md`)
 - **Result file:** `docs/planning/gates/G2-result.md`
 - **Surface:** Codex CLI / app-server — **experimental** (per-method gating via
@@ -144,7 +147,8 @@ actually passed in the gate result. Failure of both paths is v0.1 go/no-go.
 
 ## 5. G3 zenoh-peer
 
-- **Verdict:** NOT RUN
+- **Verdict:** NOT RUN at gate level — Windows 11 PASS, Linux (WSL2) PASS, macOS NOT RUN
+  (parked); see `docs/planning/gates/G3-result.md`
 - **Pins relied on:** `Zenoh`, `Rust toolchain` (`docs/planning/gates/G3-result.md`)
 - **Result file:** `docs/planning/gates/G3-result.md`
 - **Surface:** Zenoh — **supported**
@@ -179,7 +183,8 @@ ACLs (`.claude/skills/oac-gates/references/G3-zenoh-peer.md`).
 
 - **Verdict:** NOT RUN
 - **Pins relied on:** `Claude Code (Channels)`, `MCP — current era`, `MCP — legacy
-  era`, `Rust MCP SDK (rmcp)` (`docs/planning/gates/G4-result.md`)
+  era`, `Rust MCP SDK (rmcp)`, `Codex CLI / app-server` (Codex leg)
+  (`docs/planning/gates/G4-result.md`)
 - **Result file:** `docs/planning/gates/G4-result.md`
 - **Surfaces:** Claude Code (Channels) — **research preview**; MCP current
   (`2026-07-28`) and legacy (`2025-11-25`) — **supported**
