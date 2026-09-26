@@ -15,18 +15,22 @@ name the topology facts that story is built on).
 Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer) is
 `NOT RUN`**. Every transport-behavior statement below — loopback discovery, presence
 liveliness, local/LAN security profiles — is a **designed** mechanism this file diagrams,
-not a **proven** one. The same caveat applies to gates G4 and G5, each `NOT RUN` per the
-same table: every provider-adapter flow below is the designed mechanism the named gate
-will exercise, stated at each flow's own first mention below rather than repeated at
-every sentence. Gate **G1 (Claude wake)** is **PASS**
-(`docs/planning/gates/G1-result.md`) and gate **G2 (Codex live inject)** is **PASS**
-(`0.157.1`, re-run 2026-09-26, Windows only, per `docs/planning/gates/G2-result.md`): the
-wake/daemon-attach live-inject mechanisms these flows rely on are confirmed on their
-respective scopes; the adapter flows themselves remain designed, not proven — both G1
-and G2 were throwaway spikes that exercised the provider-side wake/attach mechanism,
-not the adapter code (`adapters/claude/`, `adapters/codex/`) that will actually consume
-it. G2's macOS/Linux legs remain UNVERIFIED (`docs/planning/gates/G2-result.md`); G1's
-result carries no platform scope of its own.
+not a **proven** one. The same caveat applies to gate G5, `NOT RUN` per the same table:
+every provider-adapter flow below tied to G5 (provenance) is the designed mechanism that
+gate will exercise, stated at its own first mention below rather than repeated at every
+sentence. Gate **G1 (Claude wake)** is **PASS** (`docs/planning/gates/G1-result.md`),
+gate **G2 (Codex live inject)** is **PASS** (`0.157.1`, re-run 2026-09-26, Windows only,
+per `docs/planning/gates/G2-result.md`), and gate **G4 (MCP dual-era server)** is **PASS**
+(re-run 2026-09-26, fresh unexpired timebox, per `docs/planning/gates/G4-result.md`): the
+wake/daemon-attach/dual-era-coexistence mechanisms these flows rely on are confirmed on
+their respective scopes; the adapter flows themselves remain designed, not proven — G1,
+G2, and G4 were all throwaway spikes that exercised the provider-side wake/attach/
+dual-era mechanism, not the adapter code (`adapters/claude/`, `adapters/codex/`) that
+will actually consume it. G2's macOS/Linux legs remain UNVERIFIED
+(`docs/planning/gates/G2-result.md`); G1's result carries no platform scope of its own;
+G4 ran on Windows only, and Codex's leg of G4 never negotiated the modern (`2026-07-28`)
+MCP era — that stays a tracked open item
+(`docs/planning/v0.1/11-risks.md` row 41), not a proven scope.
 
 **Naming.** Product and repository: **Open Agent Channel (OAC)**. Normative protocol
 specification: **OAC Session Channels**. CLI binary: **`oac`**. Per ADR-001-A1

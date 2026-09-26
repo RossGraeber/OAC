@@ -92,7 +92,14 @@ opening caveat:
   the transport mapping G3 will exercise... it does not assert that loopback discovery,
   presence liveliness, or either security profile works end to end on any platform."
 - **Decision 3 (spec packaging), dual-era sub-element** — gate **G4 (MCP dual-era
-  server) is `NOT RUN`**, per C3 §7 below.
+  server) is `PASS`** (re-run 2026-09-26, issue #37/D4, under a fresh timebox that did
+  not expire; a first attempt — timebox declared 2026-09-25, evidence gathered
+  2026-09-26 — confirmed the same criteria but recorded `NOT RUN` because its own
+  timebox had already expired before that evidence was gathered — see
+  `docs/planning/gates/G4-result.md`), per C3 §7 below. G4
+  confirmed the current-era (`2026-07-28`) leg via Claude as the modern client; Codex
+  `0.157.1` never negotiated the modern era in either G4 run, which stays a tracked open
+  item (`docs/planning/v0.1/11-risks.md` row 41, RISK-G4), not a criterion failure.
 - **Decision 2 (process model)** — the Codex daemon-attach runtime behaviour C2 §2 leg 4
   and C2 §11's second reversal-condition half both depend on is **confirmed** by gate
   **G2 (Codex live inject)**, now **PASS** (`0.157.1`, re-run 2026-09-26) — on Windows
@@ -191,12 +198,17 @@ superseded by a new extensions SEP with a different identifier rule; the GitHub 
 **The dual-era sub-element — gate-decided, not deferred.** C3 §7 and conflict-register
 row C5 (§3 below) fix the **process topology** for serving Claude's legacy-MCP channel
 path and Codex's current-MCP tool path simultaneously as **`ASSIGNED` to gate G4**
-(`docs/planning/gates/G4-result.md`, verdict `NOT RUN`): "This document does not claim G4
-passed... This packaging decision is what G4 will test, not evidence that it already
-holds." The packaging choice above (identifier, standalone document) does not itself
-depend on G4's outcome — only the one-process-vs-two-entry-points topology answer does,
-per the fallback `docs/planning/STATUS.md` already names for G4 ("two entry points, one
-core").
+(`docs/planning/gates/G4-result.md`, verdict **`PASS`**, re-run 2026-09-26): the one
+throwaway spike process served Claude's legacy stdio channel and a dual-era HTTP surface
+at once, with Claude confirmed as the modern (`2026-07-28`) client and the negative case
+(a modern-only stdio server) having its channel registration refused, confirmed by the
+operator's own Claude UI in both G4 runs. The one-process topology holds; the fallback
+(two entry points sharing one core) was not needed. Per C3 §7 (aligned wording, not
+re-derived): the premise that "a server registered via `codex mcp add` ... can negotiate
+`2026-07-28`" is demonstrated only for Claude Code — Codex `0.157.1` reached the server
+exactly as C3 §6 describes (`codex mcp add g4 --url ...`) but stayed legacy-only in both
+G4 runs, and no `rmcp`-based server has been tested at all. This is an open finding,
+tracked at `docs/planning/v0.1/11-risks.md` row 41 (RISK-G4).
 
 ### Decision 4 — Session identity, addressing, discovery
 
@@ -732,17 +744,31 @@ point at the stated section.
 | C2 | ADR Validation criterion says "existing Claude Code session" / "existing Codex harness session" | RESOLVED-HERE | `ADR-001-AMENDMENTS.md` §ADR-001-A2 | PLANNING-PROMPT.md §3.1, §3.2, §4 |
 | C3 | ADR names the layer an "MCP Session Channels extension" | RESOLVED-BY-DECISION | `ADR-001-AMENDMENTS.md` §ADR-001-A3 (wording) + `docs/planning/decisions/C3-spec-packaging.md` (identifier `io.github.rossgraeber/oac-session-channels`) | PLANNING-PROMPT.md §3.3 |
 | C4 | DESIGN envelope `security.signature` "implementation-defined" vs enforced-provenance acceptance criterion | RESOLVED-IN-DECISION | `docs/planning/decisions/C5-envelope-auth.md` §6 | PLANNING-PROMPT.md §3.4 — "Zenoh provides no application-layer message signing" |
-| C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | **ASSIGNED** — gate G4 (`NOT RUN`), decision tasks C2/C3 | Gate `docs/planning/gates/G4-result.md`; decision 3 above (§1 above) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3; `STATUS.md` G4 fallback "two entry points, one core" |
+| C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | **ASSIGNED** — one-process topology confirmed by G4 PASS (2026-09-26); Codex `2026-07-28` leg open (`11-risks.md` row 41 / RISK-G4); `rmcp` open | Gate `docs/planning/gates/G4-result.md`; decision 3 above (§1 above) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3; `docs/planning/gates/G4-result.md` pass criteria 1, 2, 4, and 5 (criterion 2 met via Claude as the modern client; Codex reached the server via `codex mcp add` and a stdio registration but stayed legacy-only; criterion 5 is the negative case, a modern-only server refused channel registration) |
 | C6 | No Claude acknowledgement vs DESIGN `accepted` delivery state | RESOLVED-IN-DECISION | `docs/planning/decisions/C5-envelope-auth.md` §9 | PLANNING-PROMPT.md §3.1, "Claude Code sends no acknowledgement" |
 | C7 | ACP is client-owned-session, not a channel | RESOLVED-BY-EVIDENCE | `docs/planning/v0.1/01-capability-matrix.md` §4 | REVERIFICATION-B2.md §3.5 — HOLDS |
 | C8 | URI leaking device/harness vs no transport-concept leak | RESOLVED-IN-DECISION | `docs/planning/decisions/C4-session-identity.md` §8 | DESIGN.md Addressing section; ADR-001 Boundary |
 | C9 | Codex has no channel-tag convention | RESOLVED-IN-DECISION | `docs/planning/decisions/C6-trust-rendering.md` §10 | PLANNING-PROMPT.md §3.2 turn/event model |
 | C10 | Permission relay lets any allowlisted sender approve tools | RESOLVED-IN-DECISION | `docs/planning/decisions/C6-trust-rendering.md` §7 | PLANNING-PROMPT.md §3.1, §7 — off by default in v0.1 |
 
-**C5 stays `ASSIGNED`, not upgraded.** Per the acceptance-box instruction: C5's
-resolution is an unrun gate (G4), so its status remains `ASSIGNED` here exactly as
-`ADR-001-AMENDMENTS.md` states it — this file does not promote it to `RESOLVED-*` on the
-strength of the packaging decision alone.
+**C5 stays `ASSIGNED` — not upgraded to `RESOLVED-BY-EVIDENCE`.** That legend means
+"already closed by evidence; nothing left to decide" (see the legend above), and C5 is
+not there yet. G4 has run and PASSED (`docs/planning/gates/G4-result.md`, re-run
+2026-09-26), which confirms the **one-process topology** — the same process serves
+Claude's legacy channel and a dual-era HTTP surface without either degrading (criteria 1
+and 4, with criterion 5 the negative case) — but C5's own statement names a second element, "Codex tool path may negotiate
+current MCP," and that element is not closed: Codex `0.157.1` reached the server (via
+`codex mcp add g4 --url ...` and a stdio registration, both legacy) but never negotiated
+`2026-07-28` in either G4 run, and no `rmcp`-based server has been tested at all. Both
+gaps are tracked under RISK-G4 (`docs/planning/v0.1/11-risks.md` row 41 for the Codex
+leg specifically; the `rmcp` leg in RISK-G4's own risk text and traceability row 16, and
+in `docs/planning/STATUS.md`'s open-items list). This note updates
+the row's Evidence cell above to cite G4's `PASS` and the specific criteria it closes
+(1, 2, 4, and 5 — criterion 2 via Claude as the modern client only); it does not change the
+row's status. `ADR-001-AMENDMENTS.md`'s own C5 row is updated the same way, in the same
+change, for the same reason — no numbered `ADR-001` amendment is issued for either file,
+because no `ADR-001.md` text needs correcting here (`oac-evidence` §6): this is a
+status-note update to an already-`ASSIGNED` row, not a new decision.
 
 ---
 

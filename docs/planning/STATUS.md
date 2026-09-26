@@ -4,6 +4,82 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-26 (**G4/issue #37/D4 re-run: PASS.** A fresh, redeclared
+60-minute timebox (2026-09-26T20:46:03Z; the operator closed the prior session, its
+servers exited, and the previous transcript was archived first) closed with all five
+pass criteria confirmed inside the box (live work finished 20:54:30Z, ~8.5 minutes
+elapsed, not expired) — superseding the out-of-box `NOT RUN` recorded earlier (timebox
+declared 2026-09-25, evidence gathered 2026-09-26; kept below, and in
+`docs/planning/gates/G4-result.md`'s "Re-run history," as the prior entry). Evidence,
+same shape as the superseded run: `g4spike` (pid 19680) negotiated the legacy stdio
+channel (`2025-11-25`) and delivered two pushed notifications Claude actually rendered
+(the operator's own UI paste: "← g4spike: G4 wake test from the LEGACY..." and
+"← g4spike: relayed from http-legacy: codex relay during modern session"); the same
+pid's HTTP surface served Claude's modern (`2026-07-28`) `tools/call` twice — once
+before and once **after** two independent Codex `0.157.1` legacy HTTP sessions and a
+Codex-triggered relay — both times returning correct OAC `_meta` provenance, which is
+the direct no-degradation evidence; and the negative case (`g4modern`, modern-only,
+declaring `capabilities.experimental["claude/channel"]`) was refused registration as a
+channel — confirmed once, by the operator's paste "Channel messages from \"g4modern\"
+are unavailable..." — and its wake-push delivery failed twice (both the first and
+second wake pushes from `g4modern` went unobserved in Claude, while the legacy server's
+equivalent pushes both arrived). **Verdict: PASS, no fallback needed.** Two new
+observations, neither a criterion failure: Claude Code does not surface a tool result's
+`_meta` to the model even though it is present on the wire (Claude, asked directly:
+"The call to mcp__g4http__g4_echo worked, but no _meta reached me."); and Codex `0.157.1`
+again never negotiated the modern MCP era (only `2025-06-18`), so criterion 2's Codex
+leg stays open at `11-risks.md` row 41/RISK-G4 — the criterion itself is satisfied via
+Claude as the modern client. **Caveat, made prominent, not a footnote:** the G4
+reference states Codex's outbound registration "is the supported outbound surface the
+current-revision path in this gate must work against," and Codex did reach the server
+that way (`codex mcp add g4 --url ...`) but stayed legacy-only throughout; a
+`codex --enable mcp_2026_07_28` probe was on the spike's own pending list with ~51
+minutes of this run's box still remaining and was not attempted. Fixtures:
+`docs/planning/gates/fixtures/g4-mcp-dual-era/transcript-2026-09-26.jsonl` (57 lines,
+primary) plus the superseded `transcript-2026-09-26-outofbox.jsonl` (58 lines, kept) and
+the unrelated `transcript-run1.jsonl` (10 lines, kept), all redacted. Full detail:
+`docs/planning/gates/G4-result.md`.)
+
+**Last updated:** 2026-09-26 (**G4/issue #37/D4, out-of-box run: NOT RUN — timebox
+expired, superseded by the re-run above.** A throwaway
+dual-era MCP server (`g4-server.mjs`, one Node.js process, quarantined, not committed)
+served Claude Code's legacy stdio channel and a dual-era HTTP surface for Codex from a
+single pid at once. Every one of the five G4 pass criteria individually confirmed by
+direct transcript evidence, none failed: legacy stdio channel registration
+(`2025-11-25`) with two delivered `notifications/claude/channel` pushes; Claude's
+current-era (`2026-07-28`) HTTP `tools/call` carrying OAC `_meta` provenance
+(`io.github.rossgraeber/oac-session-channels`); every modern-era request carrying
+`_meta["io.modelcontextprotocol/protocolVersion"]`; the same pid (16712) serving both
+eras concurrently for over 11 minutes without either surface degrading, including a
+Codex `0.157.1`-triggered relay that reached Claude's live session through the same
+process's stdio channel; and the negative case — a modern-only stdio server
+(`g4modern`) that declared `capabilities.experimental["claude/channel"]` was
+**refused registration as a channel** by Claude, confirmed by the operator's own UI
+paste ("Channel messages from \"g4modern\" are unavailable..."). **Despite this, the
+verdict is `NOT RUN`, not `PASS`:** the 120-minute timebox declared 2026-09-25T07:20:35Z
+closed at 09:20:35Z the same day with zero live-Claude evidence gathered (only a local
+self-test, explicitly not gate evidence, plus a real but partial Codex HTTP-legacy
+check). All of the confirming evidence above was captured roughly 21-23 hours later, on
+2026-09-26, after the box had already expired, with no new timebox declared before that
+work resumed — a direct instance of `oac-gates`' "an expired timebox is a result, not a
+licence to keep going" rule. Full reasoning: `docs/planning/gates/G4-result.md`,
+"Superseded: 2026-09-25/26 out-of-box run (NOT RUN)". Codex `0.157.1`'s opt-in `mcp_2026_07_28` client
+mode was again not exercised (a real `codex-mcp-client/0.157.1` connected but only ever
+negotiated `2025-06-18`), so the modern-era leg of criterion 2 is confirmed for Claude
+only, not Codex — the existing open item at `11-risks.md` row 41/RISK-G4, unchanged, not
+closed. Two new UNVERIFIED items: (1) Claude's v2 runtime (`MCP_SDK_GENERATION=v2`) sent
+a stdio `server/discover` probe even though `MCP_PROTOCOL_NEGOTIATION` was never set this
+session, which contradicts `code.claude.com/docs/en/mcp.md`'s stated stdio default
+("Connects on earlier protocol, doesn't ask about newer revision") — not yet
+independently re-confirmed in a clean session; (2) security-relevant — a Codex daemon
+`thread/list` query during this spike showed Codex-Desktop-originated thread entries
+whose preview text was **Claude Code prompt content**, i.e. cross-harness prompt
+visibility through Codex's own session history, mechanism not investigated. Fixtures:
+`docs/planning/gates/fixtures/g4-mcp-dual-era/transcript-2026-09-26-outofbox.jsonl`
+(58 lines, renamed in the same change that added the PASS re-run's fixture above) and
+`transcript-run1.jsonl` (10 lines), both redacted, no residual leaks beyond the
+intentional public extension identifier.)
+
 **Last updated:** 2026-09-26 (**G2 re-run on Codex `0.157.1`, issue #35/D2: PASS.**
 The Codex row's last-observed version (`docs/planning/PINS.md`) and the environment both
 report `0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`, so the floating-pin
@@ -317,8 +393,8 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASS; G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg and D4-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASS; G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked; G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`), J (agent skills) |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg and D5-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -348,7 +424,14 @@ issue #35/D2), was invalidated when the Codex row went floating, and has been **
 PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
 the environment both report `0.157.1`, so the verdict is current. G3 has run on two of its three platforms
 (2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
-gate-level verdict stays `NOT RUN` until the macOS leg runs. G4 and G5 are `NOT RUN`.
+gate-level verdict stays `NOT RUN` until the macOS leg runs. G4 spiked on 2026-09-25/26
+(issue #37/D4); that run's evidence was gathered after its declared 120-minute timebox
+had already expired, so it recorded `NOT RUN` despite every criterion individually
+confirming. A fresh, redeclared 60-minute timebox on 2026-09-26 stayed unexpired
+(~8.5 minutes of live work) and reconfirmed all five criteria — **G4 is now PASS**, no
+fallback needed. See `docs/planning/gates/G4-result.md` for both runs and the full
+timebox accounting. G5 is
+`NOT RUN`.
 Every task labelled `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
 gate has a current gate-level verdict.
 
@@ -357,7 +440,7 @@ gate has a current gate-level verdict.
 | G1 Claude wake | **PASS** | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels) — pin now stale, see below; MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
-| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
+| G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
@@ -530,7 +613,11 @@ without an UNVERIFIED label.
   project re-pins it. A full B2-style re-verification of every §3.1 fact against
   `2.1.282` has NOT been done — only G1's five pass criteria were checked and passed.
   UNVERIFIED whether any other §3.1 fact drifted between `v2.1.274` and `v2.1.282`.
-  Owner: a B2-style re-verification pass, not yet scheduled as a task.
+  Owner: a B2-style re-verification pass, not yet scheduled as a task. **Further drift
+  observed at G4 (2026-09-26, issue #37/D4):** the client connecting during both G4 runs
+  reported `v2.1.283`, one patch above G1's `v2.1.282` — see
+  `docs/planning/gates/G4-result.md`. The B2-style re-verification this item calls for
+  has still not been done at either observed version.
 - **New, from G1:** the exact wire framing for Claude Code's MCP stdio transport
   (newline-delimited JSON, not `Content-Length`-prefixed) — confirmed directly during
   G1, but not previously stated in any OAC document; carried here as new evidence, not
@@ -611,9 +698,14 @@ without an UNVERIFIED label.
   (`codex-rs/rmcp-client/src/protocol_mode.rs`, feature flag `mcp_2026_07_28`, stage
   `UnderDevelopment`, `default_enabled: false`), alongside a new `mcp_2026_*` test suite
   (UNVERIFIED — not exercised by G2, which relies only on Codex's default `2025-06-18`
-  client behavior; a future G4 run should exercise it before treating Codex's MCP era as
-  fixed at legacy-only; see `docs/planning/REVERIFICATION-B2.md` §"§3.2 re-verification
-  at Codex `0.157.1` (floating-pin trigger, 2026-09-26)").
+  client behavior; see `docs/planning/REVERIFICATION-B2.md` §"§3.2 re-verification
+  at Codex `0.157.1` (floating-pin trigger, 2026-09-26)"). **Still open after both G4
+  runs (issue #37/D4, 2026-09-25/26 out-of-box and 2026-09-26 re-run):** a real
+  `codex-mcp-client/0.157.1` process connected to the G4 spike server in both runs but
+  every one of its `initialize` requests, both times, negotiated
+  `protocolVersion: "2025-06-18"` — it never attempted the modern era, so this item is
+  unchanged, not closed. G4 itself is now `PASS` (its second pass criterion is satisfied
+  via Claude as the modern client, not Codex) — see `docs/planning/gates/G4-result.md`.
 - No SEP or working-group item for agent-to-agent messaging (UNVERIFIED — carried
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
@@ -639,6 +731,36 @@ without an UNVERIFIED label.
   `in_reply_to` argument (UNVERIFIED — a model-behaviour question, resolved only by a
   spike exercising real Codex turns against the framing, not by documentation; see
   `docs/planning/decisions/C6-trust-rendering.md` §10, §15).
+- **New, from G4 (issue #37/D4):** Claude Code's v2 runtime (`MCP_SDK_GENERATION=v2`) sent a stdio
+  `server/discover` probe carrying `_meta["io.modelcontextprotocol/protocolVersion"]:
+  "2026-07-28"` even though `MCP_PROTOCOL_NEGOTIATION` was never set in that session,
+  which contradicts `https://code.claude.com/docs/en/mcp.md`'s stated stdio default
+  ("By default (unset): Connects on earlier protocol, doesn't ask about newer
+  revision") (UNVERIFIED — not re-tested against a fresh `.mcp.json` in a clean
+  session; reproduced identically in both the out-of-box run and the 2026-09-26 PASS
+  re-run; see `docs/planning/gates/G4-result.md`).
+- **New, security-relevant, from G4:** a Codex daemon `thread/list` query made during
+  the G4 spike returned Codex-Desktop-originated thread entries whose `preview` text was
+  Claude Code prompt content (e.g. slash-command text the operator typed into Claude
+  Code), i.e. cross-harness prompt visibility through Codex's own session history. The
+  import mechanism was not investigated (UNVERIFIED — see
+  `docs/planning/gates/G4-result.md` and `docs/planning/v0.1/11-risks.md`
+  RISK-CODEX-EXPERIMENTAL). Twice while the out-of-box run's idle server sat unused
+  afterward (09:08:19Z and 15:57:32Z, both well before the later PASS run's own
+  20:46Z-20:54Z window), a client reporting user-agent `codex-mcp-client/0.155.0-alpha.16.4`
+  connected via the (likely shared) global `codex mcp add` registration, initialized and
+  listed tools; its MCP OAuth well-known discovery probes all returned 404. Attribution
+  to Codex Desktop is inferred from the user-agent string alone, and the cause is
+  UNVERIFIED — cited to the uncommitted archive
+  `scratchpad/g4-spike/transcript-2026-09-26-outofbox.jsonl` lines 60-73 and 76-89.
+- **New, from the G4 re-run (issue #37/D4, 2026-09-26):** Claude Code does not surface a
+  tool result's `_meta` field to the model. The G4 spike server's HTTP-modern
+  `tools/call` response carried `_meta["io.github.rossgraeber/oac-session-channels"]` on
+  the wire, but when the operator asked Claude to show the full result including
+  `_meta`, Claude reported: "The call to mcp__g4http__g4_echo worked, but no _meta
+  reached me." (UNVERIFIED whether this is universal or specific to this tool-call path;
+  design-relevant to Decision 8/9's provenance rendering — see
+  `docs/planning/gates/G4-result.md` and `docs/planning/decisions/C6-trust-rendering.md`).
 - Whether the Windows `windows-native-keyring-store` `keyring` backend has been
   exercised end-to-end against live Windows Credential Manager (UNVERIFIED — declared
   feature/build target verified only; runtime confirmation belongs to a future

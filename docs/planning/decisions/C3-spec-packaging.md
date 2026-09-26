@@ -217,10 +217,41 @@ not proven:
 - The standalone spec document under `spec/` is era-independent: its normative text
   does not change depending on which MCP revision a given connection negotiated.
 
-**This document does not claim G4 passed.** Every gate verdict is `NOT RUN` per
-`docs/planning/STATUS.md` — G4 specifically: "One process serving both MCP eras.
-Fallback: two entry points, one core." This packaging decision is what G4 will test,
-not evidence that it already holds.
+**Update — G4 has now run and PASSED** (re-run 2026-09-26, issue #37/D4, under a fresh,
+unexpired 60-minute timebox; a first attempt — timebox declared 2026-09-25, evidence
+gathered 2026-09-26 — confirmed the same evidence but recorded `NOT RUN` because its own
+timebox had already expired before that evidence was gathered — full detail:
+`docs/planning/gates/G4-result.md`). One throwaway process served Claude's legacy stdio
+channel and this section's dual-era HTTP surface at once, over a real ~6.5-minute
+session that included Codex traffic interleaved between two Claude modern calls, with
+no degradation either direction, and the negative case (a modern-only stdio server)
+had its channel registration refused in both runs, confirmed by the operator's own
+Claude UI each time. **This document now can claim G4 passed for the topology it
+decided:** one process, two MCP eras, coexisting — the premise this section opened with
+is no longer only testable, it is tested.
+
+**Narrower finding, carried forward, not resolved by the PASS above.** The "can
+negotiate `2026-07-28`" clause above is a capability claim, not a default-behavior one,
+and G4 confirms the distinction matters. In both committed run fixtures, a real
+`codex-mcp-client/0.157.1` **never** negotiated `2026-07-28` against the spike server —
+every observed `initialize` request carried `protocolVersion: "2025-06-18"`. The claim
+that this also holds at `0.154.0` and `0.157.0` rests on a **different, uncommitted**
+source: the scratchpad's `selftest2-transcript.jsonl`, which recorded real
+`codex-mcp-client/0.154.0` and `/0.157.0` connections showing the same
+`2025-06-18`-only behavior before either committed run — not on `transcript-run1.jsonl`
+or either `transcript-2026-09-26*.jsonl` fixture, none of which contain `0.154.0` or
+`0.157.0` traffic. Codex `0.157.1` does carry an opt-in `mcp_2026_07_28` client mode
+(`stage: UnderDevelopment`, `default_enabled: false`, `docs/planning/PINS.md`), which no
+G4 run exercised — a `codex --enable mcp_2026_07_28` probe was on the spike's own
+pending list with ~51 minutes of the second run's box still remaining, and was not
+attempted. So this section's premise that "a server registered via `codex mcp add` ...
+can negotiate `2026-07-28`" is demonstrated only for Claude Code, whose HTTP client
+negotiated `2026-07-28` against the same server process in both runs — not for Codex,
+which reached the server exactly as this section describes (`codex mcp add g4 --url
+...`) but stayed legacy-only. G4's own second pass criterion does not require Codex to
+be the modern client (Claude satisfies it), so this does not prevent the PASS above; it
+stays a tracked open item at
+`docs/planning/v0.1/11-risks.md` row 41 (RISK-G4), not resolved here.
 
 ## 8. Versioning policy for the identifier
 

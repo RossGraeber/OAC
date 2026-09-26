@@ -137,9 +137,12 @@ version; this is not merely "the SDK can parse the revision string."
 One item is carried as UNVERIFIED rather than asserted: whether an OAC server built on
 `rmcp` `3.4.0`, run end-to-end against a live Claude Code instance with
 `MCP_PROTOCOL_NEGOTIATION=legacy`, actually registers as a channel is a runtime question
-resolved only by gate `G4`, not by this document (`G4` verdict: `NOT RUN`, per
-`docs/planning/gates/G4-result.md`). This document verifies the SDK *capability*; `G4`
-verifies the *running system*.
+resolved only by gate `G4`, not by this document. `G4` has now run and PASSED
+(`docs/planning/gates/G4-result.md`, re-run 2026-09-26) — one process did serve Claude's
+legacy channel and a dual-era HTTP surface at once — but the spike server was hand-rolled
+Node.js, not `rmcp`, so this specific `rmcp`-registers-as-a-channel question is not
+closed by that PASS and stays UNVERIFIED. This document verifies the SDK *capability*;
+`G4` verified the *running system*, just not this SDK's build of it.
 
 ## 6. Codex client crates — verified, not recalled from memory
 
@@ -396,8 +399,9 @@ entry):
   `Cargo.toml`/feature docs in this document).
 - Whether an `rmcp`-based OAC server, run end-to-end against a live Claude Code
   instance with `MCP_PROTOCOL_NEGOTIATION=legacy`, actually registers as a channel
-  (UNVERIFIED — this document verifies SDK capability only; runtime confirmation is
-  gate `G4`'s job, verdict currently `NOT RUN`).
+  (UNVERIFIED — this document verifies SDK capability only; gate `G4` PASSED
+  2026-09-26, `docs/planning/gates/G4-result.md`, but its spike server was hand-rolled
+  Node.js, not `rmcp`, so this specific question remains open).
 - Whether the Windows `windows-native-keyring-store` backend has been exercised
   end-to-end against live Windows Credential Manager (UNVERIFIED — this document
   verifies the declared feature/build target only; runtime confirmation belongs to a
