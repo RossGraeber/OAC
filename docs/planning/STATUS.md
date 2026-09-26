@@ -4,7 +4,17 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-25 (G3/issue #36/D3: Zenoh 1.10.1 local-peer spike on two of
+**Last updated:** 2026-09-26 (Codex pin changed to **floating** by operator decision.
+During G4, a Codex auto-updater (`codex app-server daemon pid-update-loop`, not started by
+OAC) moved the environment from `0.154.0` to `0.157.0`, and then to `0.157.1` within
+about 24 hours. The operator chose to leave it running. The PINS.md Codex row now records
+the last observed version (`0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`)
+under a written floating-version policy. Per the pin-move checklist, **G2 is invalidated**:
+it PASSED on `0.154.0` and is `NOT RUN` for the current environment. G4 gains the Codex
+row as a relied-on pin. Re-verifying the Codex §3.2 facts on `0.157.1` is a new
+UNVERIFIED item. Stale copies were updated in `oac-codex-appserver` and `11-risks.md`.)
+
+**G3/issue #36/D3:** Zenoh 1.10.1 local-peer spike on two of
 three platforms. **Windows 11 PASS, Linux (WSL2 Ubuntu 24.04) PASS, macOS NOT RUN**
 (parked, no host), so the gate-level verdict stays `NOT RUN`. 36 of 36 matrix runs passed:
 multicast and rendezvous, each over TCP and TLS on `127.0.0.1`, plus 3-peer collision
@@ -20,7 +30,7 @@ rendezvous run took 1011 ms; by inference from its timings, that was a start rac
 default 1 s connect retry. The spike used the Python binding `eclipse-zenoh==1.10.1`
 (core = tag `1.10.1`), not the Rust crate. As a result, "G3 via the Rust crate" is a new
 UNVERIFIED item, and the binary-size estimate stays open, owned by task I3. Result:
-`docs/planning/gates/G3-result.md`; fixtures: `docs/planning/gates/fixtures/g3-zenoh-peer/`.)
+`docs/planning/gates/G3-result.md`; fixtures: `docs/planning/gates/fixtures/g3-zenoh-peer/`.
 
 **G2/issue #35/D2:** gate spike PASS on the primary path,
 implicit daemon attach, on Codex `0.154.0`, with no pin drift. A plainly launched `codex`
@@ -275,7 +285,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 and G2/D2 PASS; G3/D3 Windows and Linux PASS, macOS parked), J (agent skills) |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASS; G2/D2 PASS on Codex 0.154.0 but invalidated by the floating Codex version, re-run pending; G3/D3 Windows and Linux PASS, macOS parked), J (agent skills) |
 | Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg and D4-D7. No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
@@ -301,18 +311,20 @@ the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
-G1 and G2 have run: both **PASS** (2026-09-25; issue #34/D1 and issue #35/D2). G3 has run
-on two of its three platforms (2026-09-25, issue #36/D3). Windows and Linux (WSL2) PASS;
-macOS is NOT RUN, so the gate-level verdict stays `NOT RUN` until the macOS leg runs.
-G4 and G5 are `NOT RUN`. Every task labelled `gate:G3`, `gate:G4` or `gate:G5` stays
-blocked until its gate has a gate-level verdict.
+G1 has run: **PASS** (2026-09-25, issue #34/D1). G2 PASSED on Codex `0.154.0` (2026-09-25,
+issue #35/D2). The Codex row is now floating (last observed `0.157.1`), so G2 is `NOT RUN`
+for the current environment until it is re-run. G3 has run on two of its three platforms
+(2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
+gate-level verdict stays `NOT RUN` until the macOS leg runs. G4 and G5 are `NOT RUN`.
+Every task labelled `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
+gate has a current gate-level verdict.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
 | G1 Claude wake | **PASS** | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels) — pin now stale, see below; MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
-| G2 Codex live inject | **PASS** (primary path: implicit daemon attach; fallback not needed) | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
+| G2 Codex live inject | NOT RUN for the current environment. Invalidated 2026-09-26: Codex is now floating, last observed `0.157.1`. It was **PASS** on `0.154.0` (primary path: implicit daemon attach). | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
-| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G4-result.md` |
+| G4 MCP dual-era server | NOT RUN | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | NOT RUN | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
@@ -519,6 +531,11 @@ without an UNVERIFIED label.
   set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
   `docs/planning/gates/G3-result.md`).
+- Codex §3.2 facts at the currently observed version `0.157.1`: daemon attach, the
+  `thread/queue/add` shape and experimental gating, the WebSocket-over-UDS control
+  socket, and the event model (UNVERIFIED — the Codex row is floating. B1/B2 and G2
+  verified these facts on `0.154.0` only; re-verify on `0.157.1` before G2 is re-run; see
+  `docs/planning/PINS.md`, Codex "Floating-version policy").
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.154.0` (UNVERIFIED — G2
   exercised Windows only; see `docs/planning/gates/G2-result.md`).
 - An unidentified second thread (`01a0d744-b34a-7c92-9011-20d95fe5f98a`) was loaded in

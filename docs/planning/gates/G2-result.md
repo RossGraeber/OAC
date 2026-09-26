@@ -1,5 +1,11 @@
 ### G2 codex-inject
 
+> **INVALIDATED (2026-09-26).** The PASS below was recorded on Codex `0.154.0`. The
+> environment is now on `0.157.1`, and the Codex row in `docs/planning/PINS.md` is now
+> **floating** by operator decision (see its "Floating-version policy"). G2 is `NOT RUN`
+> for the current environment until it is re-run on the observed version. The record below
+> is kept unchanged as the `0.154.0` result.
+
 - **Gate id:** G2
 - **Pinned version(s):** `@openai/codex` `0.154.0`. The CLI, the managed daemon binary and
   the running app-server all reported `0.154.0` (`codex app-server daemon version`:
@@ -109,7 +115,9 @@
         - **Inferred:** the daemon served each model turn from its own configured
           auth, the operator's saved CLI login. Nothing in the protocol exchange shows
           the auth source directly.
-- **Verdict:** PASS
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-26; see the callout
+  at the top). The verdict recorded for Codex `0.154.0` was PASS, and it is kept in the
+  re-run history.
 - **Fallback taken:** none — the primary path (implicit daemon attach) passed. The
   `codex --remote ws://…` fallback was not exercised. That is correct: the gate requires
   the fallback only if the primary path fails.
@@ -247,4 +255,4 @@
 
   | Date | Pinned versions | Verdict | Invalidated by |
   |---|---|---|---|
-  | 2026-09-25 | Codex CLI / app-server `0.154.0` (matches PINS.md); Windows only | PASS | — |
+  | 2026-09-25 | Codex CLI / app-server `0.154.0` (matches PINS.md); Windows only | PASS | Codex pin `0.154.0` -> floating (last observed `0.157.1`), 2026-09-26 |

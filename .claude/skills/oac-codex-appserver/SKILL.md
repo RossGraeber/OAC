@@ -82,9 +82,9 @@ fourth option:
 | A turn may be in flight and you want the input delivered once the thread goes idle | `thread/queue/add` | Experimental; queued until idle. |
 | A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7)** — gate any code path that can call this behind an explicit authorization check, and see `oac-security-work` before wiring it up. |
 
-Implicit daemon attach runs at runtime in released 0.154.0 (G2 PASS, 2026-09-25). This
-was shown on Windows with default `CODEX_HOME` in a non-elevated terminal; macOS and Linux
-are unconfirmed. `thread/queue/add` is absent from the default checked-in schema. Get its
+Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, with
+default `CODEX_HOME` in a non-elevated terminal). **Codex is now floating**: an auto-updater
+tracks each release, so re-verify on the version you observe (PINS.md "Floating-version policy"). `thread/queue/add` is absent from the default checked-in schema. Get its
 shape from `codex app-server generate-json-schema --experimental`; it requires `threadId`,
 `clientUserMessageId` and `input`.
 
