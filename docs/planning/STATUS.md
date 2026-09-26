@@ -338,7 +338,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 |---|---|---|
 | Claude Code | `v2.1.274` (Channels research preview; permission relay `>= v2.1.234` satisfied) | PINS.md — Claude Code Channels |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
-| Codex CLI | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (2026-09-09) | PINS.md — Codex CLI and app-server |
+| Codex CLI | **floating**; last observed `@openai/codex@0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726` (2026-09-26). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Floating-version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |

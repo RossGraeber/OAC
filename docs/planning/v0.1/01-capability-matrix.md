@@ -47,7 +47,7 @@ for the full pin record behind each row.
 | Surface | Label | Pinned version | Release date | Observed-at URL | Retrieved | Shim boundary |
 |---|---|---|---|---|---|---|
 | Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17T00:12:02Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | `shim boundary: UNNAMED — see DESIGN.md` |
-| Codex CLI / app-server | experimental (per-method gating via `capabilities.experimentalApi`) | `@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | `shim boundary: UNNAMED — see DESIGN.md` |
+| Codex CLI / app-server | experimental (per-method gating via `capabilities.experimentalApi`) | **floating**; last observed `@openai/codex@0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726` (see PINS.md "Floating-version policy"; the facts below were verified on `0.154.0` only) | 2026-09-26 | https://github.com/openai/codex/releases/tag/rust-v0.157.1 | 2026-09-26 | `shim boundary: UNNAMED — see DESIGN.md` |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | n/a — `supported` surface |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | n/a — `supported` surface |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | n/a — `supported` surface |

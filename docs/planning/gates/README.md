@@ -81,6 +81,15 @@ a. **The rule.** Changing the **`Pinned version`** cell, the **`Release date`** 
    the gate. Invalidation is immediate and independent of whether the spike would still
    pass if re-run.
 
+   **Floating rows** (currently only Codex CLI / app-server; see its "Floating-version
+   policy" in PINS.md) follow a stricter rule. A gate verdict that relies on the row is
+   current only if the version the gate recorded equals **both** the row's last-observed
+   version in PINS.md **and** the version the environment reports now. If a release has
+   been observed locally but not yet recorded in PINS.md, every verdict relying on the
+   row is stale, and stays stale until this checklist is executed for the new version.
+   Invalidation applies to the **whole gate**. G4 has a Codex leg and a Claude leg, and
+   it is re-run as a whole; one leg is never re-run alone.
+
 b. **Required same-change edits.** When a pin moves, all three of the following land
    in the **same commit** as the pin move:
    1. Each affected `docs/planning/gates/G<n>-result.md` gets:
@@ -126,11 +135,12 @@ which are likeliest to force a re-run.
   Code Channels, retrieved 2026-09-16). Affects **G1** and **G4** (legacy-MCP
   negotiation). Expect the most frequent invalidation here: Claude Code ships releases
   at high cadence and the channel surface is preview.
-- **Codex CLI / app-server — `experimental` (per-method gating)**
-  (`@openai/codex@0.154.0`, commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` — per
-  `docs/planning/PINS.md`, Codex CLI and app-server, retrieved 2026-09-16). Affects
-  **G2** and **G5**. The daemon-attach question is an open UNVERIFIED item resolved
-  only by the G2 spike against the pinned build.
+- **Codex CLI / app-server — `experimental` (per-method gating)** is **floating** by
+  operator decision (2026-09-26). The last observed version is `@openai/codex@0.157.1`,
+  commit `36650394c5b38c2990ccf2a3457165ca3e9d9726` (`docs/planning/PINS.md`, Codex CLI
+  and app-server, "Floating-version policy"). An auto-updater moves it with every release.
+  Affects **G2**, **G5** and **G4** (Codex leg). This surface is the likeliest to force
+  re-runs, because every release does.
 - Contrast: Zenoh, MCP revisions, and the Rust toolchain are `supported` and move on
   slower, announced cadences.
 - Both preview surfaces still have `shim boundary: UNNAMED — see DESIGN.md`

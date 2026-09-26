@@ -6,6 +6,10 @@ that release was published, the first-party URL the pin was observed at, and the
 it was retrieved. A pin is not a preference or a "latest as of planning" note — it is
 the version the rest of the plan is written against.
 
+**Exception:** the Codex CLI / app-server row is **floating** by operator decision
+(2026-09-26). It records the last observed version, not a fixed one. See the
+"Floating-version policy" under its record.
+
 **Changing any row in this file is a trigger event.** Per `oac-evidence` §7, a moved
 pin requires re-verifying every §3 fact that depended on it (Epic B2) and, per the
 gate re-run policy (`docs/planning/gates/README.md`), re-running
@@ -125,10 +129,18 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 **This row no longer holds a fixed pin.** During gate G4 on 2026-09-25/26, a Codex
 auto-updater moved the environment from `0.154.0` to `0.157.0`, and then to `0.157.1`
 within about 24 hours. The updater is a detached `codex app-server daemon
-pid-update-loop` process that is not started by OAC. Per the Codex daemon README it
-"fetches via the platform's installer" hourly and restarts the app-server onto the new
-binary. The operator chose to **leave the updater running** and accept a moving target
-rather than hold a pin. Consequences, binding on every Codex-side gate:
+pid-update-loop` process that is not started by OAC. The daemon README says: "Eligible
+managed daemons check for updates after five minutes, then hourly by default." When it
+updates, "the running server restarts with the new binary". (Source:
+https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/app-server-daemon/README.md,
+lines 48 and 119, retrieved 2026-09-26.) The same README documents a supported way to hold
+a version: when the "Installer selected an explicit release", then "the selected release
+stays pinned" (line 120). The operator chose to **leave the updater running** and accept a
+moving target rather than hold a pin; that choice was made before the explicit-release
+option was known. npm also shows releases `0.155.0`, `0.155.1`, `0.156.0` and `0.156.1`
+(2026-09-17 to 2026-09-23). So the G2 run on 2026-09-25 was already behind the newest
+release, although it matched the B1 pin at the time. Consequences, binding on every
+Codex-side gate:
 
 - Each gate result records the Codex version it **actually ran on**, as reported by the
   CLI, the daemon (`codex app-server daemon version`), and the client's `clientInfo`.

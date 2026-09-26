@@ -171,6 +171,9 @@ criterion.
 
 ## Pin
 
+**Floating** (operator decision, 2026-09-26). Last observed `0.157.1`, commit `36650394`.
+Everything below was verified on 0.154.0 only (STATUS.md open item).
+
 **Re-verified pin (B2):** `@openai/codex@0.154.0` (published 2026-09-09T22:40:10.746Z),
 cross-checked against GitHub tag `rust-v0.154.0`, commit
 `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` — matches the PLANNING-PROMPT.md
@@ -191,7 +194,5 @@ is reachable via the control socket. Source: `docs/planning/PINS.md` —
 `docs/planning/REVERIFICATION-B2.md` §3.2, retrieved 2026-09-16.
 
 Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
-re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. A version bump
-of `@openai/codex` past 0.154.0 invalidates this pin — re-verify per
-`oac-evidence` §7 before trusting it again, and update this Pin section
-(and `docs/planning/PINS.md`) when you do.
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. Re-verification on each
+observed version follows PINS.md "Floating-version policy" and `oac-evidence` §7.

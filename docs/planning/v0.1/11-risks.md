@@ -182,9 +182,14 @@ list.
 ### RISK-CODEX-EXPERIMENTAL — Codex experimental live-inject surface drift
 
 - **Risk.** The Codex experimental live-inject surface changes. Implicit daemon attach
-  at runtime in `0.154.0` is now resolved on Windows by G2
-  (`docs/planning/gates/G2-result.md`). It is unconfirmed on macOS and Linux, and it could
-  change in any version after `0.154.0`. Also still open: whether Codex
+  at runtime was resolved on Windows by G2 **on `0.154.0` only**
+  (`docs/planning/gates/G2-result.md`). Since 2026-09-26 the Codex version is
+  **floating**, and `0.157.1` has been observed. The Windows result does not carry over
+  until G2 is re-run, and it is unconfirmed on macOS and Linux. A design consequence:
+  the planned git dependencies `codex-app-server-{client,protocol,transport}` are pinned
+  to the 0.154.0 commit (`docs/planning/decisions/C1-language-runtime.md` §10), while
+  the runtime floats, so their schema can drift from the running app-server. Also still
+  open: whether Codex
   Desktop exposes the control socket; the compatibility-shim boundary for this
   surface stays unnamed (conflict-register C11); whether Codex reliably
   reproduces a header-supplied `oac_message_id` in a subsequent `reply` tool
