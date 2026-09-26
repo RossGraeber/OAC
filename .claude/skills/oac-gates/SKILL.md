@@ -163,6 +163,9 @@ closes (including UNVERIFIED items), and the fixtures to capture.
 - [ ] Any UNVERIFIED item the gate was meant to close is either closed (with evidence) or
       explicitly still open in the result.
 
+Before sending a gate result for review, check `references/writeup-pitfalls.md` — the
+recurring mistakes that cost G2 and G4 three review rounds each.
+
 ## Where the content lives
 
 - `docs/planning/PLANNING-PROMPT.md` §4 (gates), §3 (baseline facts), §8 Stage 1 (timebox,
@@ -173,3 +176,5 @@ closes (including UNVERIFIED items), and the fixtures to capture.
 - `docs/planning/gates/README.md` — the evidence-store naming convention, the extended
   gate-result template, and the pin-move re-run/invalidation policy.
 - `oac-boundaries`, `oac-evidence` — guardrail content, not restated here.
+- `references/writeup-pitfalls.md` — review-round pitfalls for gate write-ups, one entry
+  per recurring mistake.
