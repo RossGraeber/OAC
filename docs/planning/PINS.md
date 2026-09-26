@@ -6,6 +6,10 @@ that release was published, the first-party URL the pin was observed at, and the
 it was retrieved. A pin is not a preference or a "latest as of planning" note — it is
 the version the rest of the plan is written against.
 
+**Exception:** the Codex CLI / app-server row is **floating** by operator decision
+(2026-09-26). It records the last observed version, not a fixed one. See the
+"Floating-version policy" under its record.
+
 **Changing any row in this file is a trigger event.** Per `oac-evidence` §7, a moved
 pin requires re-verifying every §3 fact that depended on it (Epic B2) and, per the
 gate re-run policy (`docs/planning/gates/README.md`), re-running
@@ -34,7 +38,10 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-17 (C1: added Rust MCP SDK (`rmcp`) and `keyring` pin rows;
+**Last updated:** 2026-09-26 (Codex row changed from a fixed `0.154.0` pin to **floating**,
+last observed `0.157.1`, by operator decision. The pin-move checklist was executed in the
+same commit: G2 invalidated, and G4 added to the Codex row's gates. See "Floating-version
+policy" under the Codex record.) Previously 2026-09-17 (C1: added Rust MCP SDK (`rmcp`) and `keyring` pin rows;
 pin-move checklist executed in the same commit, see
 `docs/planning/decisions/C1-language-runtime.md`; C2: added `interprocess` (IPC crate,
 candidate) pin row, see `docs/planning/decisions/C2-process-model.md`; C4: added `age`
@@ -48,7 +55,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
 | Claude Code (Channels) | research preview | `v2.1.274` | 2026-09-17T00:12:02Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.274 | 2026-09-16 | G1; G4 (legacy-MCP negotiation); G5 |
-| Codex CLI / app-server | experimental (per-method gating) | `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) | 2026-09-09 | https://github.com/openai/codex/releases/tag/rust-v0.154.0 | 2026-09-16 | G2, G5 |
+| Codex CLI / app-server | experimental (per-method gating) | **floating** — last observed `@openai/codex@0.157.1` (commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`); see "Floating-version policy" below | 2026-09-26 | https://github.com/openai/codex/releases/tag/rust-v0.157.1 | 2026-09-26 | G2, G5, G4 (Codex leg) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
@@ -116,6 +123,44 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
   both providers, so it depends on this pin, not only on the Codex pin).
 
 ### Codex CLI and app-server
+
+#### Floating-version policy (operator decision, 2026-09-26)
+
+**This row no longer holds a fixed pin.** During gate G4 on 2026-09-25/26, a Codex
+auto-updater moved the environment from `0.154.0` to `0.157.0`, and then to `0.157.1`
+within about 24 hours. The updater is a detached `codex app-server daemon
+pid-update-loop` process that is not started by OAC. The daemon README says: "Eligible
+managed daemons check for updates after five minutes, then hourly by default." When it
+updates, "the running server restarts with the new binary". (Source:
+https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/app-server-daemon/README.md,
+lines 48 and 119, retrieved 2026-09-26.) The same README documents a supported way to hold
+a version: when the "Installer selected an explicit release", then "the selected release
+stays pinned" (line 120). The operator chose to **leave the updater running** and accept a
+moving target rather than hold a pin; that choice was made before the explicit-release
+option was known. npm also shows releases `0.155.0`, `0.155.1`, `0.156.0` and `0.156.1`
+(2026-09-17 to 2026-09-23). So the G2 run on 2026-09-25 was already behind the newest
+release, although it matched the B1 pin at the time. Consequences, binding on every
+Codex-side gate:
+
+- Each gate result records the Codex version it **actually ran on**, as reported by the
+  CLI, the daemon (`codex app-server daemon version`), and the client's `clientInfo`.
+- Any new Codex release invalidates the Codex-side results that ran on an older version:
+  G2, G5, and G4's Codex leg. They revert to `NOT RUN` for the current environment until
+  they are re-run. The pin-move checklist above applies whenever this row's last-observed
+  version changes.
+- The §3.2 facts must be re-verified against each newly observed version before a
+  Codex-side gate is re-run on it (`oac-evidence` §7).
+- Version history of this row: `0.154.0` (2026-09-09; B1 pin; G2 PASS on it), then
+  `0.157.0` (npm `2026-09-25T02:35:19.752Z`; tag `rust-v0.157.0` → commit
+  `00c972ed5d6ff6499317fd41b7f23605b8e6850d`), then `0.157.1` (npm
+  `2026-09-26T01:06:57.149Z`; GitHub release `rust-v0.157.1` published
+  `2026-09-26T01:02:31Z`; tag object `ac0e23e5232692b95268583c8278c50b8c436d2b` → commit
+  `36650394c5b38c2990ccf2a3457165ca3e9d9726`). All retrieved 2026-09-26 via `npm view` and
+  the GitHub API.
+
+The B1/B2 record below describes the original `0.154.0` pin and is kept as history.
+Its facts are not re-verified for `0.157.1`; that re-verification is an open item in
+`docs/planning/STATUS.md`.
 
 - Surface label: **experimental**, per-method gating (PLANNING-PROMPT.md §3.2: methods
   are individually stable or experimental; experimental ones require

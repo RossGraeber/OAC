@@ -38,7 +38,11 @@ gate result.
 
 ## Surfaces and version pins
 
-- Pinned baseline: `@openai/codex` 0.154.0 (2026-09-09), PLANNING-PROMPT.md §3.2.
+- Version: **floating** (`docs/planning/PINS.md`, "Floating-version policy"). There is no
+  fixed pin. Record the observed CLI (`codex --version`), daemon
+  (`codex app-server daemon version`) and client `clientInfo` versions in the result, and
+  re-verify the §3.2 facts on that version first. The original baseline was
+  `@openai/codex` 0.154.0 (2026-09-09), PLANNING-PROMPT.md §3.2.
 - `codex app-server` speaks JSON-RPC 2.0 (no header on the wire) over stdio (JSONL), WebSocket
   (`--listen ws://127.0.0.1:PORT`), or Unix socket. Handshake: `initialize` then `initialized`;
   no numeric protocol version.
@@ -53,9 +57,9 @@ gate result.
 ## §3.2 facts this spike must confirm or refute
 
 - **The go/no-go UNVERIFIED item this gate closes:** whether implicit Codex daemon attach
-  (TUI launched without config overrides attaching to a running daemon) is enabled in released
-  0.154.0 versus only on `main`. This spike must run against the pinned release, not `main`,
-  to answer it.
+  (TUI launched without config overrides attaching to a running daemon) is enabled in the
+  released build versus only on `main`. The spike ran on 0.154.0 and passed on Windows. Each
+  re-run answers it for the currently observed release, never for `main`.
 - Also record:
   - Cross-process resume does **not** attach: confirm that a second app-server process
     resuming a thread another process holds loads history from disk and appends silently, with

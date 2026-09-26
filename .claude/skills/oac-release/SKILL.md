@@ -97,7 +97,7 @@ completeness claim:
 | Surface | Label | Baseline (not yet pinned) | Gates to re-run on provider move |
 |---|---|---|---|
 | Claude Code Channels | research preview | Claude Code v2.1.232+; permission relay v2.1.234+ | G1, G5 |
-| Codex App Server (per-method gating; live-session inject specifically) | experimental | `@openai/codex` 0.154.0 | G2, G5 |
+| Codex App Server (per-method gating; live-session inject specifically) | experimental | `@openai/codex` 0.154.0 (now floating; see PINS.md) | G2, G5, G4 |
 
 `STATUS.md` "Pins" opens with "None of these are confirmed pins. They are the pre-verified
 baseline recorded in PLANNING-PROMPT.md §3, retrieved 2026-09-15." Stage 0 must pin these

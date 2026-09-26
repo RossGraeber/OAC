@@ -45,7 +45,8 @@ finding requiring a design change before Stage 2 spec freeze, not a workaround.
   dropped (§3.1). Legacy MCP negotiation applies here too, per G1.
 - Codex: text-input framing — the OAC adapter constructs a machine-generated header delimited
   from the untrusted body when injecting via `thread/queue/add` / `turn/start` / `turn/steer`
-  (§3.2, Decision 8). Pinned baseline `@openai/codex` 0.154.0.
+  (§3.2, Decision 8). Codex version is floating (`docs/planning/PINS.md`, "Floating-version policy"); record
+  the observed version. The original baseline was `@openai/codex` 0.154.0.
 - This gate is the executable test behind PLANNING-PROMPT §7's security requirements:
   "Model-generated text never establishes identity; provenance is machine-set metadata
   separate from content on both providers," and "Anyone able to reply on a Claude channel can

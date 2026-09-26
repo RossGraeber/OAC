@@ -12,7 +12,7 @@
   fails: two entry points, one core)
 - **UNVERIFIED items:** NOT RUN — Epic D task D4 has not executed
 - **Fixtures captured:** NOT RUN — Epic D task D4 has not executed
-- **Pin rows relied on:** `Claude Code (Channels)`, `MCP — current era`, `MCP — legacy era`, `Rust MCP SDK (rmcp)`
+- **Pin rows relied on:** `Claude Code (Channels)`, `MCP — current era`, `MCP — legacy era`, `Rust MCP SDK (rmcp)`, `Codex CLI / app-server` (Codex leg; added 2026-09-26)
 - **PINS.md as-of:** 2026-09-16, commit `a44a7ed7278caab383f264f5bc8e12bb5c8c73e9`
 - **Re-run history:**
 
