@@ -8,8 +8,9 @@ Source: PLANNING-PROMPT.md §4 G1, §3.1. Backlog: `docs/planning/backlog/03-tas
 
 ## What the spike proves
 
-A throwaway development-flag channel server proves the Claude wake semantics on the pinned
-Claude Code version.
+A throwaway development-flag channel server proves the Claude wake semantics on the
+observed Claude Code version — this row is floating, not pinned; record the full observed
+version triple (see "Surfaces and version pins" below).
 
 ## Pass criteria (evaluate each individually)
 
@@ -38,10 +39,15 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
 
 ## Surfaces and version pins
 
-- Claude Code Channels research preview, pinned baseline v2.1.232+ (PLANNING-PROMPT.md §3.1).
-  Permission relay (`claude/channel/permission`) needs v2.1.234+ but is out of scope for this
-  gate — it is proposed off by default in v0.1 (Decision 8 / C10, not yet decided; Epic C is
-  still open per STATUS.md).
+- Claude Code Channels research preview. Version: **floating** (`docs/planning/PINS.md`,
+  Claude Code (Channels), "Floating-version policy"). There is no fixed pin. Record the
+  observed CLI (`claude --version`), wire `initialize` result `clientInfo.version`, and the
+  transport user-agent (when the transport carries one) in the result, and re-verify the
+  PLANNING-PROMPT.md §3.1 facts (see `oac-claude-channels`) on that version first. Both floors — channels-exist
+  `>= v2.1.232` and permission-relay `>= v2.1.234` (PLANNING-PROMPT.md §3.1) — must still
+  hold at the observed version; permission relay itself stays out of scope for this gate,
+  proposed off by default in v0.1 (Decision 8 / C10, not yet decided; Epic C is still open
+  per STATUS.md).
 - MCP protocol revision: legacy only (`2025-11-25` or earlier). The channel server MUST NOT
   negotiate `2026-07-28` — see G4 for the dual-era interaction.
 - Not available on Bedrock, Vertex, or Foundry (record which backend the spike ran against).

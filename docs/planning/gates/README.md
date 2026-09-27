@@ -81,14 +81,20 @@ a. **The rule.** Changing the **`Pinned version`** cell, the **`Release date`** 
    the gate. Invalidation is immediate and independent of whether the spike would still
    pass if re-run.
 
-   **Floating rows** (currently only Codex CLI / app-server; see its "Floating-version
-   policy" in PINS.md) follow a stricter rule. A gate verdict that relies on the row is
-   current only if the version the gate recorded equals **both** the row's last-observed
+   **Floating rows** (currently Codex CLI / app-server and Claude Code (Channels); see
+   each row's "Floating-version policy" in PINS.md) follow a stricter rule. A gate verdict
+   that relies on the row is current only if the version the gate recorded equals
+   **both** the row's last-observed
    version in PINS.md **and** the version the environment reports now. If a release has
    been observed locally but not yet recorded in PINS.md, every verdict relying on the
    row is stale, and stays stale until this checklist is executed for the new version.
    Invalidation applies to the **whole gate**. G4 has a Codex leg and a Claude leg, and
-   it is re-run as a whole; one leg is never re-run alone.
+   it is re-run as a whole; one leg is never re-run alone. When a floating row's
+   last-observed version changes, this invalidates only the verdicts whose *own*
+   recorded observed version differs from the new last-observed version (equivalently,
+   from what the environment currently reports) — a gate that already ran on the version
+   now being recorded stays current; the move does not blanket-invalidate every gate
+   relying on the row regardless of what version each one actually ran against.
 
 b. **Required same-change edits.** When a pin moves, all three of the following land
    in the **same commit** as the pin move:
@@ -130,11 +136,13 @@ at first mention. Both surfaces below already carry a pinned version and a named
 explicitly unnamed) shim boundary in `docs/planning/PINS.md`; this section only names
 which are likeliest to force a re-run.
 
-- **Claude Code Channels — `research preview`** (`v2.1.274`; Channels floor
-  `v2.1.232`, permission-relay floor `v2.1.234` — per `docs/planning/PINS.md`, Claude
-  Code Channels, retrieved 2026-09-16). Affects **G1** and **G4** (legacy-MCP
-  negotiation). Expect the most frequent invalidation here: Claude Code ships releases
-  at high cadence and the channel surface is preview.
+- **Claude Code Channels — `research preview`** is **floating** by operator decision
+  (2026-09-27), mirroring the Codex row. The last observed version is `v2.1.283`
+  (`docs/planning/PINS.md`, Claude Code Channels, "Floating-version policy"). Channels
+  floor `v2.1.232`, permission-relay floor `v2.1.234` still hold at this version. Affects
+  **G1**, **G4** (legacy-MCP negotiation), and **G5**. Expect the most frequent
+  invalidation here alongside Codex: Claude Code ships releases at high cadence and the
+  channel surface is preview.
 - **Codex CLI / app-server — `experimental` (per-method gating)** is **floating** by
   operator decision (2026-09-26). The last observed version is `@openai/codex@0.157.1`,
   commit `36650394c5b38c2990ccf2a3457165ca3e9d9726` (`docs/planning/PINS.md`, Codex CLI

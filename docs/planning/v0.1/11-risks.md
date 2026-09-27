@@ -33,8 +33,11 @@ a citation-source or pin-provenance gap.**
 - **R1 — gate-decided viability risks.** G1, G2, G3, G4, G5
   (`docs/planning/v0.1/02-gating-findings.md` §3-§7). Each gate decides a named leg of
   the ADR-001 validation criterion or a DESIGN acceptance criterion outright; a `NOT RUN`
-  or `FAIL` verdict on any of them blocks that leg (G1, G2, G4 have since run and
-  PASSED — `docs/planning/gates/G1-result.md`, `G2-result.md`, `G4-result.md`; G3 is
+  or `FAIL` verdict on any of them blocks that leg (G2 and G4 have since run and
+  PASSED — `docs/planning/gates/G2-result.md`, `G4-result.md`; G1 PASSED on Claude Code
+  `v2.1.282` but is now `NOT RUN` for the current environment — the Claude Code
+  (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
+  `docs/planning/gates/G1-result.md`; G3 is
   partial; G5 has run and recorded **FAIL** (Codex criteria 2/3 f; Claude all criteria
   x), `docs/planning/gates/G5-result.md`); G1 and G5 have no fallback. Per
   `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1, a `FAIL` is a
@@ -226,7 +229,10 @@ list.
   around G1: channel behaviour across `--resume`/`--continue` is undocumented: whether
   one MCP server can present more than one logical channel is undocumented; and
   the compatibility-shim boundary for this surface stays unnamed (conflict-
-  register C11).
+  register C11). Since 2026-09-27 the Claude Code (Channels) row is **floating**
+  (`docs/planning/PINS.md`, "Floating-version policy"), so any further release again
+  invalidates the gates relying on it (G1, G4, G5) until each is re-run against the new
+  last-observed version — mirroring the Codex row's floating risk below.
 - **What it invalidates.** `docs/planning/v0.1/01-capability-matrix.md` §1's
   Claude research-preview label and its pinned-version assumption;
   `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)'s `adapters/claude/`
@@ -234,7 +240,10 @@ list.
 - **Early-warning signal.** A Claude Code pin move in `docs/planning/STATUS.md`'s
   Pins table, or `channels.md` gaining or removing text on `--resume`/
   `--continue` or multi-channel support at the next re-verification pass
-  (`.claude/skills/oac-evidence/SKILL.md` §7 trigger).
+  (`.claude/skills/oac-evidence/SKILL.md` §7 trigger). **This signal has fired**: the
+  pin moved to floating on 2026-09-27 (last observed `v2.1.283`), invalidating G1
+  (`PASS` on `v2.1.282`, now `NOT RUN` for the current environment; re-run pending,
+  issue #39 T6) — see `docs/planning/gates/G1-result.md`.
 - **Response.** Re-verify per `.claude/skills/oac-evidence/SKILL.md` §7 on the
   pin move. Until the shim boundary is named, containment already holds by
   construction: every Claude-specific type stays inside `adapters/claude/`
@@ -524,10 +533,26 @@ negotiated the modern era) plus surfaced two genuinely new UNVERIFIED items
 (rows 42-43). A fresh, redeclared timebox the same day (2026-09-26) reconfirmed all five
 criteria without expiring, so **G4 is now `PASS`**
 (`docs/planning/gates/G4-result.md`); that re-run reproduced rows 41-43 unchanged and
-surfaced one further new item, row 44. The table is therefore 44 rows: 43 still listed
-in `docs/planning/STATUS.md` (row 31 is confirmed, not a risk, but stays on STATUS.md's
-list as a correction note per that row's own text) and 1 closed (row 40). Every row
-carries a risk id, except row 31 (which cites the evidence that confirmed it) and row 40
+surfaced one further new item, row 44. Rows 45-48 were added 2026-09-27 from the G5 spike
+(issue #38/D5): row 45 (Codex header/delimiter framing does not reliably stop a forged
+sender from being named), row 46 (peer-controlled envelope field values inserted
+unmodified into the Codex header block), row 47 (a `meta` key literally named `source`
+renders as a second attribute, informational), and row 48 (`turn/start.additionalContext`
+as an unused second metadata carrier, exploratory). Unlike rows 1-44, rows 45-48 are not
+themselves reproduced as bullets in `docs/planning/STATUS.md`'s "Open UNVERIFIED items"
+list — rows 45-46 are tracked there through conflict-register entry C13
+(`docs/planning/STATUS.md` "Open conflict-register items"), while rows 47 (the `meta` key
+literally named `source`) and 48 (`turn/start.additionalContext`) are informational/
+exploratory and are **not** tracked in STATUS.md at all, under C13 or otherwise. This
+table's own "every entry disposed of here" claim (above) is scoped to STATUS.md's "Open
+UNVERIFIED items" list specifically, which rows 45-48 are not members of — noted here
+rather than silently overclaimed. The table is therefore 48 rows: of rows 1-44 (the ones
+that do correspond to STATUS.md's "Open UNVERIFIED items" list), 42 are still listed
+there (row 31 among them, confirmed not a risk, but kept as a correction note per that
+row's own text) and 2 are closed (rows 32, 40); rows 45-48 are additional risk-table
+entries, tracked (45-46) or untracked (47-48) in STATUS.md as described above. Every row
+carries a risk id, except row 31 (which cites the
+evidence that confirmed it), row 32 (closed, cites its own closing evidence), and row 40
 (closed, cites its own closing evidence). No cell is blank.
 
 | # | STATUS.md item (short) | Disposition |
@@ -561,7 +586,7 @@ carries a risk id, except row 31 (which cites the evidence that confirmed it) an
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
-| 30 | Claude Code Channels pin stale (`v2.1.274` pinned; G1 observed `v2.1.282`), no full §3.1 re-verification at `2.1.282` (from G1) | RISK-CLAUDE-PREVIEW |
+| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 is invalidated** — it ran on `v2.1.282`, not the new last-observed `v2.1.283` — and is `NOT RUN` for the current environment until re-run (from G1; `docs/planning/gates/G1-result.md`, `docs/planning/PINS.md`) | RISK-CLAUDE-PREVIEW |
 | 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |
 | 32 | Exact wrapper text for a mid-turn-delivered channel notification (from G1) | **CLOSED** — captured verbatim by G5 case C6 at Claude Code `2.1.283` (`docs/planning/gates/G5-result.md`): the full `<system-reminder>A message arrived from … while you were working: … IMPORTANT: This is NOT from your user …</system-reminder>` wrapper text, with the real `oac_*` attributes intact inside it. |
 | 33 | G3 criteria 1-4 on macOS (from G3) | RISK-G3 |
