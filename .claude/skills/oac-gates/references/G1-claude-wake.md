@@ -43,7 +43,7 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
   Claude Code (Channels), "Floating-version policy"). There is no fixed pin. Record the
   observed CLI (`claude --version`), wire `initialize` result `clientInfo.version`, and the
   transport user-agent (when the transport carries one) in the result, and re-verify the
-  `oac-claude-channels` §3.1 facts on that version first. Both floors — channels-exist
+  PLANNING-PROMPT.md §3.1 facts (see `oac-claude-channels`) on that version first. Both floors — channels-exist
   `>= v2.1.232` and permission-relay `>= v2.1.234` (PLANNING-PROMPT.md §3.1) — must still
   hold at the observed version; permission relay itself stays out of scope for this gate,
   proposed off by default in v0.1 (Decision 8 / C10, not yet decided; Epic C is still open

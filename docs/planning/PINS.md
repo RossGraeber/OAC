@@ -95,7 +95,8 @@ hold a version exists but was not in effect here: the `minimumVersion` setting p
 floor, and `DISABLE_AUTOUPDATER=1` (in `env`) stops the background update check (`claude
 update`/`claude install` still work; `DISABLE_UPDATES` blocks all update paths). (Source:
 https://code.claude.com/docs/en/setup, "Update Claude Code" § "Auto-updates", "Pin a
-minimum version", and "Disable auto-updates", retrieved 2026-09-27.) None of these holds
+minimum version", and "Disable auto-updates", at Claude Code `v2.1.283`, retrieved
+2026-09-27.) None of these holds
 was configured for the gate spikes: the G1 spike (2026-09-25) already found the
 connecting client reporting `v2.1.282`, one version above the then-current fixed pin
 `v2.1.274` (`docs/planning/gates/G1-result.md`, "Pin drift found during this spike"), and

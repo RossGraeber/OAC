@@ -231,8 +231,8 @@ list.
   the compatibility-shim boundary for this surface stays unnamed (conflict-
   register C11). Since 2026-09-27 the Claude Code (Channels) row is **floating**
   (`docs/planning/PINS.md`, "Floating-version policy"), so any further release again
-  invalidates the gates relying on it (G1, G4, G5) until each is re-run against the
-  version it actually recorded — mirroring the Codex row's floating risk below.
+  invalidates the gates relying on it (G1, G4, G5) until each is re-run against the new
+  last-observed version — mirroring the Codex row's floating risk below.
 - **What it invalidates.** `docs/planning/v0.1/01-capability-matrix.md` §1's
   Claude research-preview label and its pinned-version assumption;
   `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)'s `adapters/claude/`
@@ -540,17 +540,20 @@ unmodified into the Codex header block), row 47 (a `meta` key literally named `s
 renders as a second attribute, informational), and row 48 (`turn/start.additionalContext`
 as an unused second metadata carrier, exploratory). Unlike rows 1-44, rows 45-48 are not
 themselves reproduced as bullets in `docs/planning/STATUS.md`'s "Open UNVERIFIED items"
-list — findings 45-46 are tracked there through conflict-register entry C13
-(`docs/planning/STATUS.md` "Open conflict-register items"), and 47-48 are informational/
-exploratory, not verdict-bearing. This table's own "every entry disposed of here" claim
-(above) is scoped to STATUS.md's "Open UNVERIFIED items" list specifically, which rows
-45-48 are not members of — noted here rather than silently overclaimed. The table is
-therefore 48 rows: 43 correspond 1:1 to STATUS.md's "Open UNVERIFIED items" list (row 31
-is confirmed, not a risk, but stays on STATUS.md's list as a correction note per that
-row's own text) and 1 closed (row 40); rows 45-48 are additional risk-table entries
-tracked elsewhere in STATUS.md as described above. Every row carries a risk id, except
-row 31 (which cites the evidence that confirmed it) and row 40 (closed, cites its own
-closing evidence). No cell is blank.
+list — rows 45-46 are tracked there through conflict-register entry C13
+(`docs/planning/STATUS.md` "Open conflict-register items"), while rows 47 (the `meta` key
+literally named `source`) and 48 (`turn/start.additionalContext`) are informational/
+exploratory and are **not** tracked in STATUS.md at all, under C13 or otherwise. This
+table's own "every entry disposed of here" claim (above) is scoped to STATUS.md's "Open
+UNVERIFIED items" list specifically, which rows 45-48 are not members of — noted here
+rather than silently overclaimed. The table is therefore 48 rows: of rows 1-44 (the ones
+that do correspond to STATUS.md's "Open UNVERIFIED items" list), 42 are still listed
+there (row 31 among them, confirmed not a risk, but kept as a correction note per that
+row's own text) and 2 are closed (rows 32, 40); rows 45-48 are additional risk-table
+entries, tracked (45-46) or untracked (47-48) in STATUS.md as described above. Every row
+carries a risk id, except row 31 (which cites the
+evidence that confirmed it), row 32 (closed, cites its own closing evidence), and row 40
+(closed, cites its own closing evidence). No cell is blank.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
