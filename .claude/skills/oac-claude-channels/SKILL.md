@@ -37,7 +37,14 @@ Each `meta` key becomes an attribute on the `<channel>` tag Claude sees. Keys
 must be identifier-safe (letters, digits, underscore) or they are **silently
 dropped** — no error, no warning, the attribute just does not appear. Never
 rely on a `meta` key surviving unless it is letters/digits/underscore only.
-Source: PLANNING-PROMPT.md §3.1.
+Source: PLANNING-PROMPT.md §3.1. **Confirmed ASCII-only at Claude Code `2.1.283`
+(G5, 2026-09-27):** a non-ASCII key (`oac_sénder`) is dropped the same way as a
+hyphenated/dotted/spaced one — absent from both the rendered tag and the whole
+raw session-log line, not merely hidden by attribute parsing
+(`docs/planning/gates/G5-result.md`). **A `meta` key literally named `source`
+is not stripped** — it renders as a second, trailing `source` attribute after
+the harness's own; do not emit `source` as a `meta` key (same source, case C5,
+informational).
 
 ## 3. Wake and delivery semantics
 

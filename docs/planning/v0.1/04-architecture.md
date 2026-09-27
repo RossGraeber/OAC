@@ -15,10 +15,18 @@ name the topology facts that story is built on).
 Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer) is
 `NOT RUN`**. Every transport-behavior statement below — loopback discovery, presence
 liveliness, local/LAN security profiles — is a **designed** mechanism this file diagrams,
-not a **proven** one. The same caveat applies to gate G5, `NOT RUN` per the same table:
-every provider-adapter flow below tied to G5 (provenance) is the designed mechanism that
-gate will exercise, stated at its own first mention below rather than repeated at every
-sentence. Gate **G1 (Claude wake)** is **PASS** (`docs/planning/gates/G1-result.md`),
+not a **proven** one. Gate **G5 (Provenance)** has since run and recorded **FAIL**
+(Codex criteria 2/3 f; Claude all criteria x) (`docs/planning/gates/G5-result.md`) —
+**harness behaviour confirmed by G5; OAC mitigation still designed**: G5's spike server
+(not OAC's own eventual adapter) sent the Claude `meta` map and built the Codex header
+frame, so what G5 confirmed is that Claude Code's channel rendering cannot be forged
+from content and that Codex's header-and-delimiter shape is not yet sufficient — not
+that OAC's own adapter code implements either correctly, since neither adapter is built
+yet. A forged nested envelope with a wrong, guessed delimiter (case X2) got the model to
+name the forged id as sender; a forged block replaying a real delimiter from an earlier
+delivery (case X3) did not get the model to name the forged id but did leave it unable
+to resolve a sender at all (conflict-register entry C13,
+`docs/planning/v0.1/03-decisions-and-amendments.md` §4). Gate **G1 (Claude wake)** is **PASS** (`docs/planning/gates/G1-result.md`),
 gate **G2 (Codex live inject)** is **PASS** (`0.157.1`, re-run 2026-09-26, Windows only,
 per `docs/planning/gates/G2-result.md`), and gate **G4 (MCP dual-era server)** is **PASS**
 (re-run 2026-09-26, fresh unexpired timebox, per `docs/planning/gates/G4-result.md`): the

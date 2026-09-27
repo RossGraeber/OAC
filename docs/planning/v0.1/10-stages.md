@@ -34,10 +34,14 @@ specification: **OAC Session Channels**. CLI binary: **`oac`**. Per ADR-001-A1
 (`docs/planning/v0.1/03-decisions-and-amendments.md` §2), this file never writes bare
 "Session Channels" or `sessionchannels`.
 
-**Status caveat, stated once.** Per `docs/planning/STATUS.md` "Current stage", the project
-is at **Pre-Stage 0**; Stages 1-6 are blocked. Every gate verdict in this file is `NOT RUN`,
-and no stage below is recorded as entered, passed, or exited. The criteria are the plan,
-not a report.
+**Status caveat, stated once.** At this document's own landing (A11, Epic A), every gate
+verdict was `NOT RUN` and the project was at Pre-Stage 0. Per the current
+`docs/planning/STATUS.md`, G1, G2, and G4 are now **PASS**, G5 is **FAIL** (Codex
+criteria 2/3 f; Claude all criteria x), and G3 stays `NOT RUN` at gate level
+(Windows/Linux PASS, macOS parked); per `docs/planning/STATUS.md` "Current stage," the
+project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
+exited. This file is not re-authored per gate result; only this caveat's own currency is
+corrected here. The criteria are the plan, not a report.
 
 ---
 
@@ -296,8 +300,15 @@ Pass, fail, and fallback text for each is `docs/planning/v0.1/02-gating-findings
 - **G3 or G4 `FAIL` → take the named fallback and proceed**, recording
   `PASS (FALLBACK TAKEN)`. Neither stops v0.1 on its own.
 
-**Current verdict.** All five gates `NOT RUN` (`docs/planning/STATUS.md` "Gate verdicts";
-`docs/planning/v0.1/02-gating-findings.md` §2). Stage 1 is not entered.
+**Current verdict.** At this document's own landing, all five gates were `NOT RUN` and
+Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and
+`docs/planning/v0.1/02-gating-findings.md` §2: G1, G2, and G4 are **PASS**; G5 is
+**FAIL** (Codex criteria 2/3 f; Claude all criteria x) — per this section's own go/no-go
+condition, that FAIL stops the pipeline at Stage 2's interface freeze for Codex's
+provenance framing until conflict-register entry C13 lands; G3 stays
+`NOT RUN` at gate level (Windows/Linux PASS, macOS parked). Per Gate S1 acceptance
+criterion 1 above, `FAIL` is a closed verdict, so G5 does not itself block Stage 1's
+exit — G3's parked macOS leg is what still keeps Stage 1 from exiting.
 
 ---
 
