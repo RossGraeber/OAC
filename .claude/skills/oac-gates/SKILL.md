@@ -97,6 +97,11 @@ that task for the checklist. Fixtures land wherever Stage 3 expects fakes to loa
 (no `core/`/`adapters/` tree exists yet — do not invent the path; check `docs/planning/`
 Stage 3 output or ask if it is not yet decided).
 
+Adding, renaming, or superseding a fixture updates
+`docs/planning/gates/fixtures/MANIFEST.json` (D6, issue #39 T1) in the same change — one
+entry per file, derived from the file itself, not from a result doc's prose. Run
+`node scripts/check-fixture-manifest.mjs` before calling the fixture work done.
+
 ## Throwaway rule
 
 Spike code is discarded once its gate result is written. Nothing durable is built on it:

@@ -61,6 +61,8 @@ What this skill adds, on the test-writing side:
   the real harness does.
 - If a fixture is missing for behaviour a test needs, that is a Stage 1 gap to report
   (`oac-gates`), not something to synthesize by hand.
+- Update `docs/planning/gates/fixtures/MANIFEST.json` and run
+  `node scripts/check-fixture-manifest.mjs` in the same change (`oac-gates`).
 
 Location relative to `tests/`: DESIGN "Suggested repository shape" **suggests**
 `tests/protocol/`, `tests/security/`, and `tests/integration/` as top-level suite directories
