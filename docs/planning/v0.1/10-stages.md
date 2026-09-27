@@ -36,7 +36,10 @@ specification: **OAC Session Channels**. CLI binary: **`oac`**. Per ADR-001-A1
 
 **Status caveat, stated once.** At this document's own landing (A11, Epic A), every gate
 verdict was `NOT RUN` and the project was at Pre-Stage 0. Per the current
-`docs/planning/STATUS.md`, G1, G2, and G4 are now **PASS**, G5 is **FAIL** (Codex
+`docs/planning/STATUS.md`, G2 and G4 are now **PASS**, G1 PASSED on Claude Code
+`v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code (Channels)
+pin went floating 2026-09-27, last observed `v2.1.283` — see
+`docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all criteria x), and G3 stays `NOT RUN` at gate level
 (Windows/Linux PASS, macOS parked); per `docs/planning/STATUS.md` "Current stage," the
 project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
@@ -302,7 +305,10 @@ Pass, fail, and fallback text for each is `docs/planning/v0.1/02-gating-findings
 
 **Current verdict.** At this document's own landing, all five gates were `NOT RUN` and
 Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and
-`docs/planning/v0.1/02-gating-findings.md` §2: G1, G2, and G4 are **PASS**; G5 is
+`docs/planning/v0.1/02-gating-findings.md` §2: G2 and G4 are **PASS**; G1 PASSED on
+Claude Code `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code
+(Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
+`docs/planning/gates/G1-result.md`); G5 is
 **FAIL** (Codex criteria 2/3 f; Claude all criteria x) — per this section's own go/no-go
 condition, that FAIL stops the pipeline at Stage 2's interface freeze for Codex's
 provenance framing until conflict-register entry C13 lands; G3 stays

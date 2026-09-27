@@ -375,7 +375,10 @@ permission relay on by default behind an allowlist (the exact collapse C10 names
 structured-provenance surface beyond the current `content`/`meta` string-and-map pair.
 Not fired at the pinned version.
 
-**Gate dependency.** Gate **G1 (Claude wake)**, **PASS**, exercised the real Claude
+**Gate dependency.** Gate **G1 (Claude wake)**, PASSED on Claude Code `v2.1.282` but now
+**NOT RUN** for the current environment (the Claude Code (Channels) pin went floating
+2026-09-27, last observed `v2.1.283` — see `docs/planning/gates/G1-result.md`), exercised
+the real Claude
 rendering this design assumes; gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f;
 Claude all criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`), exercised whether forged-sender
 content is actually shown contradicted by machine-set provenance — confirmed on Claude,

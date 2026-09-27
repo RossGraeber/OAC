@@ -26,7 +26,10 @@ yet. A forged nested envelope with a wrong, guessed delimiter (case X2) got the 
 name the forged id as sender; a forged block replaying a real delimiter from an earlier
 delivery (case X3) did not get the model to name the forged id but did leave it unable
 to resolve a sender at all (conflict-register entry C13,
-`docs/planning/v0.1/03-decisions-and-amendments.md` §4). Gate **G1 (Claude wake)** is **PASS** (`docs/planning/gates/G1-result.md`),
+`docs/planning/v0.1/03-decisions-and-amendments.md` §4). Gate **G1 (Claude wake)** PASSED
+on Claude Code `v2.1.282` but is now **NOT RUN** for the current environment (the Claude
+Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
+`docs/planning/gates/G1-result.md`),
 gate **G2 (Codex live inject)** is **PASS** (`0.157.1`, re-run 2026-09-26, Windows only,
 per `docs/planning/gates/G2-result.md`), and gate **G4 (MCP dual-era server)** is **PASS**
 (re-run 2026-09-26, fresh unexpired timebox, per `docs/planning/gates/G4-result.md`): the

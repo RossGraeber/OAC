@@ -1,5 +1,13 @@
 ### G1 claude-wake
 
+> **INVALIDATED (2026-09-27).** The PASS below was recorded on Claude Code `v2.1.282`. The
+> Claude Code (Channels) row in `docs/planning/PINS.md` is now **floating** by operator
+> decision, mirroring the Codex row (see its "Floating-version policy"), with last-observed
+> version `v2.1.283` — one version above what this run recorded. G1 is `NOT RUN` for the
+> current environment until it is re-run on the observed version. The record below is kept
+> unchanged as the `v2.1.282` result. G1 will be re-run in the same HIL sitting as the D6
+> Claude capture (issue #39 T6), under its own declared timebox.
+
 - **Gate id:** G1
 - **Pinned version(s):** Claude Code `v2.1.282` (the version actually observed connecting —
   see "Pin drift" below; `docs/planning/PINS.md` recorded `v2.1.274` at spike time), MCP
@@ -79,7 +87,9 @@
         earlier session in the same directory. Not re-tested; noted, not blocking — the
         specific ADR-001 consent step this criterion names is the development-channels
         warning, and that one was exercised.)
-- **Verdict:** PASS
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-27; see the callout
+  at the top). The verdict recorded for Claude Code `v2.1.282` was PASS, and it is kept in
+  the re-run history.
 - **Fallback taken:** not applicable — G1 has no fallback; the primary path passed outright.
 - **UNVERIFIED items:**
   - Channel behavior across `--resume` — not tested this spike, still open.
@@ -148,4 +158,4 @@
 
   | Date | Pinned versions | Verdict | Invalidated by |
   |---|---|---|---|
-  | 2026-09-25 | Claude Code v2.1.282 (observed; PINS.md pin was v2.1.274, now stale — see "Pin drift") | PASS | — |
+  | 2026-09-25 | Claude Code v2.1.282 (observed; PINS.md pin was v2.1.274, now stale — see "Pin drift") | PASS | Claude Code pin `v2.1.274` -> floating (last observed `v2.1.283`), 2026-09-27 |

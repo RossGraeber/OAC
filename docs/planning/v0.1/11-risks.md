@@ -33,8 +33,11 @@ a citation-source or pin-provenance gap.**
 - **R1 — gate-decided viability risks.** G1, G2, G3, G4, G5
   (`docs/planning/v0.1/02-gating-findings.md` §3-§7). Each gate decides a named leg of
   the ADR-001 validation criterion or a DESIGN acceptance criterion outright; a `NOT RUN`
-  or `FAIL` verdict on any of them blocks that leg (G1, G2, G4 have since run and
-  PASSED — `docs/planning/gates/G1-result.md`, `G2-result.md`, `G4-result.md`; G3 is
+  or `FAIL` verdict on any of them blocks that leg (G2 and G4 have since run and
+  PASSED — `docs/planning/gates/G2-result.md`, `G4-result.md`; G1 PASSED on Claude Code
+  `v2.1.282` but is now `NOT RUN` for the current environment — the Claude Code
+  (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
+  `docs/planning/gates/G1-result.md`; G3 is
   partial; G5 has run and recorded **FAIL** (Codex criteria 2/3 f; Claude all criteria
   x), `docs/planning/gates/G5-result.md`); G1 and G5 have no fallback. Per
   `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1, a `FAIL` is a
@@ -561,7 +564,7 @@ carries a risk id, except row 31 (which cites the evidence that confirmed it) an
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
-| 30 | Claude Code Channels pin stale (`v2.1.274` pinned; G1 observed `v2.1.282`), no full §3.1 re-verification at `2.1.282` (from G1) | RISK-CLAUDE-PREVIEW |
+| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 is invalidated** — it ran on `v2.1.282`, not the new last-observed `v2.1.283` — and is `NOT RUN` for the current environment until re-run (from G1; `docs/planning/gates/G1-result.md`, `docs/planning/PINS.md`) | RISK-CLAUDE-PREVIEW |
 | 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |
 | 32 | Exact wrapper text for a mid-turn-delivered channel notification (from G1) | **CLOSED** — captured verbatim by G5 case C6 at Claude Code `2.1.283` (`docs/planning/gates/G5-result.md`): the full `<system-reminder>A message arrived from … while you were working: … IMPORTANT: This is NOT from your user …</system-reminder>` wrapper text, with the real `oac_*` attributes intact inside it. |
 | 33 | G3 criteria 1-4 on macOS (from G3) | RISK-G3 |

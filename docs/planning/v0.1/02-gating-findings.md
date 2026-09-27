@@ -67,7 +67,7 @@ One row per gate. Every verdict below matches
 
 | Gate | Verdict | Disposition / fallback | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | **PASS** | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
+| G1 Claude wake | NOT RUN for the current environment. Invalidated 2026-09-27: Claude Code (Channels) is now floating, last observed `v2.1.283`. It was **PASS** on `v2.1.282`. | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (`0.157.1`, re-run 2026-09-26, Windows only) | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | has fallback: two server entry points sharing one core — not needed | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
@@ -76,8 +76,12 @@ One row per gate. Every verdict below matches
 **Reason for `NOT RUN` on G3 (partially).** Epic D spikes D1-D5 have all run (D6, fixture
 capture, runs alongside D1-D5 per its own timebox and is not itself a gate that returns a
 pass/fail/NOT RUN verdict — its own completeness is not asserted here); D3 (G3)'s
-macOS leg is parked (`docs/planning/gates/G3-result.md`). D1 (G1), D2 (G2), and D4 (G4)
-ran and PASSED — see `docs/planning/gates/G1-result.md`,
+macOS leg is parked (`docs/planning/gates/G3-result.md`). D1 (G1) ran and PASSED on
+Claude Code `v2.1.282`, but that verdict is now `NOT RUN` for the current environment —
+the Claude Code (Channels) pin went floating (2026-09-27, issue #39/T0), last observed
+`v2.1.283` — re-run pending in the same HIL sitting as the D6 Claude capture (issue #39
+T6); see `docs/planning/gates/G1-result.md`. D2 (G2) and D4 (G4)
+ran and PASSED — see
 `docs/planning/gates/G2-result.md`, and `docs/planning/gates/G4-result.md`. D4's first
 attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26, issue #37)
 individually confirmed all five pass criteria against a live Claude Code session and a
@@ -112,7 +116,9 @@ No fifth value, no hedge — per `oac-gates` "never probably" rule.
 
 ## 3. G1 claude-wake
 
-- **Verdict:** PASS (see `docs/planning/gates/G1-result.md`)
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-27 — Claude Code
+  (Channels) pin went floating, last observed `v2.1.283`; PASS was recorded on
+  `v2.1.282`; re-run pending — see `docs/planning/gates/G1-result.md`)
 - **Pins relied on:** `Claude Code (Channels)`, `MCP — current era`, `MCP — legacy
   era`, `Rust MCP SDK (rmcp)` (`docs/planning/gates/G1-result.md`)
 - **Result file:** `docs/planning/gates/G1-result.md`
