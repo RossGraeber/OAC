@@ -24,6 +24,19 @@ the evidence each verdict rests on: one result file per gate, plus captured fixt
   filenames: G1 `claude-wake`, G2 `codex-inject`, G3 `zenoh-peer`, G4 `mcp-dual-era`,
   G5 `provenance`.
 
+## Fixture manifest
+
+`docs/planning/gates/fixtures/MANIFEST.json` (D6, issue #39 T1) is the inventory of
+every committed fixture file in this tree: one entry per file, giving its provider,
+surface, observed version(s), the `docs/planning/PINS.md` row/as-of date it is checked
+against, whether that observation currently matches the pin, capture date/time window,
+any newer fixture that supersedes it, redaction provenance, and a line-range map of the
+protocol exchanges it records. It also carries the top-level note that the path Stage
+3's fake endpoints will finally load fixtures from is still undecided (see "Naming
+convention" above). Keep it in sync with new fixtures in the same change that adds
+them — `node scripts/check-fixture-manifest.mjs` checks that every committed fixture
+file has a manifest entry and vice versa.
+
 ## Gate-result template
 
 Canonical source: `.claude/skills/oac-gates/SKILL.md` §Gate-result template. Copied
