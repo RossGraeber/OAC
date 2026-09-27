@@ -154,14 +154,14 @@ send is "handed to harness," never "seen by the model" (task G4 acceptance).
 
 ## 6. Relationship to Gate G5
 
-Provenance is a claim until G5 has run. G5's pass criterion (PLANNING-PROMPT.md §4): "A
-message whose text claims a different sender is rendered to the model with machine-set
-provenance that contradicts the claim, on both providers." Per `docs/planning/STATUS.md`,
-**G5 verdict is `NOT RUN`** as of this writing. Do not write or accept a security work item
-that asserts provenance is "proven" or "working" before G5 has a recorded PASS — cite the
-current verdict from STATUS.md rather than assuming it. If your work item depends on G5
-having passed, check STATUS.md first; if it still reads NOT RUN, that dependency is blocked
-(see `oac-gates` for gate procedure).
+Provenance is a claim until G5 has run per provider. G5's pass criterion
+(PLANNING-PROMPT.md §4): "A message whose text claims a different sender is rendered to
+the model with machine-set provenance that contradicts the claim, on both providers."
+Check `docs/planning/STATUS.md`'s Gate verdicts table for G5's **current** per-provider
+result before writing or accepting any claim about provenance being proven — do not
+assume "proven" or "NOT RUN" from memory. Even where G5 has passed for a provider, it
+confirmed only the throwaway spike's hand-rolled server, not OAC's own not-yet-built
+adapter — don't cite a G5 pass as proof of OAC's own implementation.
 
 ## 7. Exit criteria for a security work item
 

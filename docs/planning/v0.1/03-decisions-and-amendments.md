@@ -3,7 +3,7 @@
 **Purpose.** State, for each of PLANNING-PROMPT.md §5's twelve decisions, the choice,
 the decisive evidence, the rejected alternatives, and the reversal condition; record
 ADR-001 amendments A1-A3 verbatim (old text, new text, rationale); and reproduce the
-resolved Appendix A conflict register C1-C10 plus the two new open entries C11-C12.
+resolved Appendix A conflict register C1-C10 plus the three new open entries C11-C13.
 
 **Generated-summary notice.** This file is a synthesis, assembled from
 `docs/planning/ADR-001-AMENDMENTS.md` and `docs/planning/decisions/C1-language-runtime.md`
@@ -83,10 +83,13 @@ design, restated per-decision below and carrying forward each source document's 
 opening caveat:
 
 - **Decision 5 (envelope authenticity) and decision 8 (provenance rendering)** — gate
-  **G5 (Provenance) is `NOT RUN`**. `docs/planning/decisions/C5-envelope-auth.md` and
-  `docs/planning/decisions/C6-trust-rendering.md` each open with this caveat verbatim in
-  substance: the document "designs the mechanism G5 will exercise; it does not assert
-  that provenance ... works end to end."
+  **G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude all criteria x)
+  (2026-09-27,
+  `docs/planning/gates/G5-result.md`). `docs/planning/decisions/C5-envelope-auth.md` and
+  `docs/planning/decisions/C6-trust-rendering.md` each carry this updated caveat: Claude's
+  `meta`-attribute rendering is confirmed unforgeable from content; Codex's header-and-
+  delimiter framing is confirmed not yet sufficient against a forged nested envelope or a
+  replayed delimiter (conflict-register entry C13).
 - **Decision 10 (transport mapping)** — gate **G3 (Zenoh local peer) is `NOT RUN`**.
   `docs/planning/decisions/C7-zenoh-transport.md`'s opening caveat: the document "designs
   the transport mapping G3 will exercise... it does not assert that loopback discovery,
@@ -274,8 +277,11 @@ offline-mailbox pattern).
 1.98.1`; a Windows build failure for `ed25519-dalek` on the static-binary target — not
 independently exercised, carried UNVERIFIED, not fired.
 
-**Gate dependency.** Gate **G5 (Provenance)**, `NOT RUN` — this decision designs the
-mechanism G5 exercises; it is not proven end to end.
+**Gate dependency.** Gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
+(2026-09-27, `docs/planning/gates/G5-result.md`) — this decision's envelope-authenticity
+mechanism is a separate layer from what G5 tests (the rendering layer,
+`docs/planning/decisions/C6-trust-rendering.md` §2-§5 and `oac-security-work` §5); G5's
+result bears on that rendering layer, not on signature verification itself.
 
 ### Decision 6 — Pairing and authorization
 
@@ -306,7 +312,8 @@ itself beyond decision 5's signature-crate reversal (§15, above), which this de
 signing mechanism shares. The v0.1 posture (no online key rotation, manual re-pair only)
 is a deliberate scope limit (C5 §4), not an open reversal test.
 
-**Gate dependency.** Gate **G5 (Provenance)**, `NOT RUN` — the same caveat as decision 5.
+**Gate dependency.** Gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
+(2026-09-27) — the same caveat as decision 5.
 
 ### Decision 7 — Key storage
 
@@ -368,9 +375,11 @@ permission relay on by default behind an allowlist (the exact collapse C10 names
 structured-provenance surface beyond the current `content`/`meta` string-and-map pair.
 Not fired at the pinned version.
 
-**Gate dependency.** Gate **G1 (Claude wake)**, `NOT RUN`, exercises the real Claude
-rendering this design assumes; gate **G5 (Provenance)**, `NOT RUN`, exercises whether
-forged-sender content is actually shown contradicted by machine-set provenance.
+**Gate dependency.** Gate **G1 (Claude wake)**, **PASS**, exercised the real Claude
+rendering this design assumes; gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f;
+Claude all criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`), exercised whether forged-sender
+content is actually shown contradicted by machine-set provenance — confirmed on Claude,
+not yet sufficient on Codex.
 
 ### Decision 9 — Outbound symmetry
 
@@ -405,7 +414,8 @@ channel-tag convention — a documented structured-metadata field on `turn/start
 `thread/queue/add` distinct from the `text` payload. Not fired at the pinned version.
 
 **Gate dependency.** Gate **G2 (Codex live inject)**, **PASS** (`0.157.1`, re-run
-2026-09-26, Windows only); gate **G5 (Provenance)**, `NOT RUN`.
+2026-09-26, Windows only); gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
+(2026-09-27, `docs/planning/gates/G5-result.md`).
 
 ### Decision 10 — Transport mapping
 
@@ -744,7 +754,7 @@ point at the stated section.
 | C2 | ADR Validation criterion says "existing Claude Code session" / "existing Codex harness session" | RESOLVED-HERE | `ADR-001-AMENDMENTS.md` §ADR-001-A2 | PLANNING-PROMPT.md §3.1, §3.2, §4 |
 | C3 | ADR names the layer an "MCP Session Channels extension" | RESOLVED-BY-DECISION | `ADR-001-AMENDMENTS.md` §ADR-001-A3 (wording) + `docs/planning/decisions/C3-spec-packaging.md` (identifier `io.github.rossgraeber/oac-session-channels`) | PLANNING-PROMPT.md §3.3 |
 | C4 | DESIGN envelope `security.signature` "implementation-defined" vs enforced-provenance acceptance criterion | RESOLVED-IN-DECISION | `docs/planning/decisions/C5-envelope-auth.md` §6 | PLANNING-PROMPT.md §3.4 — "Zenoh provides no application-layer message signing" |
-| C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | **ASSIGNED** — one-process topology confirmed by G4 PASS (2026-09-26); Codex `2026-07-28` leg open (`11-risks.md` row 41 / RISK-G4); `rmcp` open | Gate `docs/planning/gates/G4-result.md`; decision 3 above (§1 above) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3; `docs/planning/gates/G4-result.md` pass criteria 1, 2, 4, and 5 (criterion 2 met via Claude as the modern client; Codex reached the server via `codex mcp add` and a stdio registration but stayed legacy-only; criterion 5 is the negative case, a modern-only server refused channel registration) |
+| C5 | Claude needs legacy MCP; Codex tool path may negotiate current MCP | **ASSIGNED** — one-process topology confirmed by G4 PASS (2026-09-26); Codex `2026-07-28` leg now evidenced only behind the opt-in `mcp_2026_07_28` flag (2026-09-27 row-41 probe, `11-risks.md` row 41 / RISK-G4); `rmcp` open | Gate `docs/planning/gates/G4-result.md`; decision 3 above (§1 above) | PLANNING-PROMPT.md §3.1 MCP version constraint + §3.3; `docs/planning/gates/G4-result.md` pass criteria 1, 2, 4, and 5 (criterion 2 met via Claude as the modern client; Codex reached the server via `codex mcp add` and a stdio registration but stayed legacy-only) plus the "Row-41 probe addendum" (2026-09-27): `codex exec --enable mcp_2026_07_28` negotiated `2026-07-28` on every request against the HTTP-registered server, while the same run's separate stdio registration stayed on legacy `2025-11-25` — this is Codex's opt-in, `stage: UnderDevelopment`, `default_enabled: false` leg working when explicitly enabled, not the default client behavior; C5 stays `ASSIGNED`, not upgraded, because not every element of its own statement is evidenced (the default client still never negotiates the current era, and no `rmcp`-based server has been tested) |
 | C6 | No Claude acknowledgement vs DESIGN `accepted` delivery state | RESOLVED-IN-DECISION | `docs/planning/decisions/C5-envelope-auth.md` §9 | PLANNING-PROMPT.md §3.1, "Claude Code sends no acknowledgement" |
 | C7 | ACP is client-owned-session, not a channel | RESOLVED-BY-EVIDENCE | `docs/planning/v0.1/01-capability-matrix.md` §4 | REVERIFICATION-B2.md §3.5 — HOLDS |
 | C8 | URI leaking device/harness vs no transport-concept leak | RESOLVED-IN-DECISION | `docs/planning/decisions/C4-session-identity.md` §8 | DESIGN.md Addressing section; ADR-001 Boundary |
@@ -759,10 +769,15 @@ Claude's legacy channel and a dual-era HTTP surface without either degrading (cr
 and 4, with criterion 5 the negative case) — but C5's own statement names a second element, "Codex tool path may negotiate
 current MCP," and that element is not closed: Codex `0.157.1` reached the server (via
 `codex mcp add g4 --url ...` and a stdio registration, both legacy) but never negotiated
-`2026-07-28` in either G4 run, and no `rmcp`-based server has been tested at all. Both
-gaps are tracked under RISK-G4 (`docs/planning/v0.1/11-risks.md` row 41 for the Codex
-leg specifically; the `rmcp` leg in RISK-G4's own risk text and traceability row 16, and
-in `docs/planning/STATUS.md`'s open-items list). This note updates
+`2026-07-28` in either G4 run, and no `rmcp`-based server has been tested at all. A
+separate 2026-09-27 "row-41 probe" (`docs/planning/gates/G4-result.md`) then showed
+Codex `0.157.1` **can** negotiate `2026-07-28`, but only behind the opt-in
+`--enable mcp_2026_07_28` flag (`stage: UnderDevelopment`, `default_enabled: false`) —
+the same run's separate stdio registration stayed on legacy. This narrows but does not
+close the element: the *default* client behavior is still legacy-only, and `rmcp` is
+still untested. Both gaps are tracked under RISK-G4 (`docs/planning/v0.1/11-risks.md`
+row 41 for the Codex leg specifically; the `rmcp` leg in RISK-G4's own risk text and
+traceability row 16, and in `docs/planning/STATUS.md`'s open-items list). This note updates
 the row's Evidence cell above to cite G4's `PASS` and the specific criteria it closes
 (1, 2, 4, and 5 — criterion 2 via Claude as the modern client only); it does not change the
 row's status. `ADR-001-AMENDMENTS.md`'s own C5 row is updated the same way, in the same
@@ -772,15 +787,16 @@ status-note update to an already-`ASSIGNED` row, not a new decision.
 
 ---
 
-## 4. New/open register entries C11-C12
+## 4. New/open register entries C11-C13
 
-Both remain **open** — neither is closed by this file, consistent with `docs/planning/
-ADR-001-AMENDMENTS.md`'s own statement that neither is closed there either.
+All three remain **open** — none is closed by this file, consistent with `docs/planning/
+ADR-001-AMENDMENTS.md`'s own statement that none is closed there either.
 
 | # | Conflict (short) | Status | Resolution lives in | Evidence |
 |---|---|---|---|---|
 | C11 | Compatibility shim boundary is UNNAMED for both the Claude Code Channels research-preview surface and the Codex experimental live-inject surface (both surfaces) | **ASSIGNED** | A C-series decision or a `DESIGN.md` update naming the module/interface; narrowed but not closed by `docs/planning/decisions/C4-session-identity.md` §16 (harness-native-id capture is fixed as daemon-owned-only, reached only via the hook/JSON-RPC surfaces C4 §3-§4 name — the module name/path itself stays owned by Epic F/G adapter implementation) | `docs/planning/STATUS.md` "Open UNVERIFIED items" |
 | C12 | `DESIGN.md` still carries retired names (`sessionchannels`, "Session Channels", "MCP Session Channels extension") after ADR-001-A1 | **ASSIGNED**, owner Epic A task A9 plus a `DESIGN.md` edit | The four `DESIGN.md` legacy-name sites below | `docs/planning/ADR-001-AMENDMENTS.md` "Carried to later tasks" |
+| C13 | G5 (2026-09-27, issue #38/D5) FAILED Codex on criteria 2/3: `docs/planning/decisions/C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name the forged id as the sender in part (1) of its answer against a forged block using a wrong-but-plausible, guessed delimiter (case X2); a real delimiter replayed from an earlier delivery in the same conversation (case X3) did not get the model to name the forged sender, but did leave it unable to resolve a sender at all — a related, narrower finding, not itself failing evidence; separately, a peer-controlled `oac_reply_to` value is inserted unmodified into the header block, producing a header with two `oac_sender:` lines the model cannot resolve (case X5) | **ASSIGNED — owner unassigned.** No existing backlog task owns amending `C6-trust-rendering.md` itself (the C-series decisions were one-off issues #13-#20, not backlog tasks, and none is still open). The nearest downstream consumer is task **E5** ("Spec: security document," `docs/planning/backlog/04-tasks-EF.json`, depends on C6), whose "Provenance rendering requirements stated neutrally" acceptance box cannot be met for Codex until this amendment lands — E5 is blocked by C13, not its owner. | a C6 amendment covering (1) charset/format validation on peer-controlled envelope field values before header insertion, not only body insertion, and (2) a Codex framing that survives a fence-break/delimiter-replay reading by the model — not designed here; `turn/start.additionalContext` (case X6, exploratory, non-verdict-bearing) is recorded as a candidate input, not a solution. **No `ADR-001.md` text needs correction — ADR-001 states no Codex framing detail this finding contradicts — so no new numbered ADR-001 amendment is proposed** (`oac-evidence` §6 step 4; same disposition as C4/C8/C9/C10 above) | `docs/planning/gates/G5-result.md` (Codex cases X2, X3, X5); `docs/planning/v0.1/11-risks.md` rows 45-46, RISK-G5 |
 
 **The four `DESIGN.md` legacy-name sites, carried verbatim from `docs/planning/
 ADR-001-AMENDMENTS.md` "Carried to later tasks":**
@@ -913,7 +929,10 @@ sections.
       statement (top of §2) confirms A1-A3 are the only numbers allocated and A4 is next.
 - [x] **Acceptance box 3 — the conflict register reproduced with status, resolution
       location, and evidence, each checked to still exist and point correctly.** §3 (C1-
-      C10, with C5 kept `ASSIGNED`, not upgraded) and §4 (C11-C12, both kept open).
+      C10, with C5 kept `ASSIGNED`, not upgraded) and §4 (C11-C13, all kept open — C13
+      added 2026-09-27 per G5/issue #38/D5, after this box was originally ticked; the
+      box's own substance — every entry present, checked, and correctly stated — still
+      holds against the file's current content).
 - [x] **Acceptance box 4 — explicit boundary self-check, stated as a verdict.** §5,
       one line per `oac-boundaries` check, decision-by-decision, concluding "every
       boundary check above holds."

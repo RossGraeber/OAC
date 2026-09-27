@@ -20,12 +20,16 @@ stage-gate pipeline's entry/exit criteria (`docs/planning/v0.1/10-stages.md`, ta
 not yet landed) nor the module layout that places `tests/` (`docs/planning/v0.1/
 07-repository-and-dependencies.md` §1-§2). Cited by path throughout, not re-derived.
 
-**Proof caveat, stated once, applying to every section below.** Per
-`docs/planning/STATUS.md`'s Gate verdicts table, every gate verdict (G1-G5) is
-`NOT RUN`, and per its "Current stage" table the project is at **Pre-Stage 0** — no
+**Proof caveat, stated once, applying to every section below.** At this document's own
+landing (A10, Epic A), `docs/planning/STATUS.md`'s Gate verdicts table read every gate
+verdict (G1-G5) `NOT RUN`. Per the current `docs/planning/STATUS.md` Gate verdicts table,
+G1, G2, and G4 are **PASS**, G5 is **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
+(`docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level; per
+`docs/planning/STATUS.md` "Current stage," the project is still at **Pre-Stage 0** — no
 E8/F8-F12/H1-H5 test exists yet. This file is the **design** these tasks build against,
-not a report of tests that pass. Every "proves"/"asserts" statement below names what a
-built test will assert once its owning task lands, not a result.
+not a report of tests that pass; a gate result is not one of the test tiers this file
+owns. Every "proves"/"asserts" statement below names what a built test will assert once
+its owning task lands, not a result.
 
 **Naming.** Product and repository: **Open Agent Channel (OAC)**. Normative protocol
 specification: **OAC Session Channels**. CLI binary: **`oac`**. Per ADR-001-A1
@@ -418,7 +422,12 @@ for orientation, and the proving test already named at §7 above (or cited to §
 "Proving test" cell where this file does not repeat it). Any mitigation without a
 currently passing proving test is an explicit v0.1 gap, per §14's row content and §15's
 "unproven-mitigation disposition" — none of the twenty rows currently has a passing
-test, because none of F11/H2/H3/G3/G7/G8/G9/gate G1-G5 has run (Pre-Stage 0).
+**test** (F11/H2/H3/G3/G7/G8/G9 are all `NOT RUN`, Pre-Stage 0), though rows 5, 16, and
+17's named gate has since run: gate G1 `PASS` (row 16), gate G2 `PASS` (row 17), and
+gate G5 **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (rows 5, 16, 17 — `docs/planning/gates/
+G5-result.md`). A gate result is not one of this file's test tiers, so it does not by
+itself close a row; see §14 rows 5, 16, 17 (`06-security.md`) for what each gate
+actually confirmed.
 
 | `06-security.md` §14 row | Attack (one line) | Proving test named at §7 or §14 | Status |
 |---|---|---|---|
@@ -426,7 +435,7 @@ test, because none of F11/H2/H3/G3/G7/G8/G9/gate G1-G5 has run (Pre-Stage 0).
 | 2 | Unauthorized routing/discovery | F5; H2 (§7 "Unauthorized routing") | v0.1 gap — `NOT RUN` |
 | 3 | Tampering (field mutation in flight) | F11; F4 | v0.1 gap — `NOT RUN` |
 | 4 | Replay | F4 (§7 "Replay") | v0.1 gap — `NOT RUN` |
-| 5 | Malicious peer prompt injection despite valid signature | gate G5; F11 | v0.1 gap — `NOT RUN`; this row's own mitigation is doctrine, not a test-closable control (`06-security.md` §14 row 5) |
+| 5 | Malicious peer prompt injection despite valid signature | gate G5; F11 | gate G5 **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`); F11 `NOT RUN`; this row's own mitigation is doctrine, not a test-closable control (`06-security.md` §14 row 5) |
 | 6 | Compromised transport infrastructure | F11; D3/G3 | v0.1 gap — `NOT RUN` |
 | 7 | Accidental cross-project disclosure | H2 (§7 "Cross-project leakage") | v0.1 gap — `NOT RUN` |
 | 8 | Leaked credentials / device-key exfiltration | F5; F11 | v0.1 gap — `NOT RUN` |
@@ -437,8 +446,8 @@ test, because none of F11/H2/H3/G3/G7/G8/G9/gate G1-G5 has run (Pre-Stage 0).
 | 13 | Local IPC peer spoofing | F11; G9 (§7 "Local IPC peer auth") | v0.1 gap — `NOT RUN` |
 | 14 | Cross-project leakage via `list_sessions` | H2 (§7 "Cross-project leakage") | v0.1 gap — `NOT RUN` |
 | 15 | Silently dropped `meta` key yielding unlabelled provenance | F8; task G4 | v0.1 gap — `NOT RUN`; neither test exists yet |
-| 16 | Provenance spoofing via message body, Claude | gate G1; gate G5 | v0.1 gap — `NOT RUN` |
-| 17 | Provenance spoofing via forged header/delimiter, Codex | gate G2; gate G5 | v0.1 gap — `NOT RUN` |
+| 16 | Provenance spoofing via message body, Claude | gate G1; gate G5 | gate G1 `PASS`; gate **G5 `FAIL`; Claude criteria met** (2026-09-27, `docs/planning/gates/G5-result.md`) — still a v0.1 gap: a gate result is not one of this file's test tiers (F11/H2 `NOT RUN`), so it does not by itself close this row |
+| 17 | Provenance spoofing via forged header/delimiter, Codex | gate G2; gate G5 | gate G2 `PASS`; gate **G5 `FAIL`; Codex criteria 2/3 f** (2026-09-27, `docs/planning/gates/G5-result.md`) — v0.1 gap, tracked as conflict-register entry C13, required before Stage 2's interface freeze on this surface |
 | 18 | Reply misattribution via forged `in_reply_to` | task G8 | v0.1 gap — `NOT RUN`; whether Codex reliably echoes a header-supplied id back at all is itself UNVERIFIED (`docs/planning/STATUS.md`) |
 | 19 | Stale-registration replay after resume | F4; H2 | v0.1 gap — `NOT RUN` |
 | 20 | Session-id spoofing | F11; H2 | v0.1 gap — `NOT RUN` |

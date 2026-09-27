@@ -189,14 +189,17 @@
 - **Fallback taken:** none — not needed. The primary single-process design passed on
   every criterion within a redeclared, unexpired timebox.
 - **UNVERIFIED items:**
-  - **Codex's modern-era (`2026-07-28`) leg remains untested.** Codex `0.157.1` never
-    negotiated the current era against this server in either the out-of-box run or this
-    one; its opt-in `mcp_2026_07_28` client mode (`stage: UnderDevelopment`,
-    `default_enabled: false`) was not exercised. Tracked at
+  - **Codex's modern-era (`2026-07-28`) leg remains untested at the default client
+    behavior.** Codex `0.157.1` never negotiated the current era against this server in
+    either the out-of-box run or this one; its opt-in `mcp_2026_07_28` client mode
+    (`stage: UnderDevelopment`, `default_enabled: false`) was not exercised in this run.
+    **Partially narrowed by the 2026-09-27 "Row-41 probe addendum" below:** behind the
+    opt-in flag, Codex `0.157.1` **can** negotiate `2026-07-28` against this server — the
+    default (flag-off) behavior stays untested and unchanged. Tracked at
     `docs/planning/v0.1/11-risks.md` row 41 / RISK-G4 and the matching
     `docs/planning/STATUS.md` open item; this PASS does not close it, because criterion
     2 is satisfied via Claude as the modern client (see criterion 2 above), not because
-    Codex's leg was confirmed.
+    Codex's default leg was confirmed.
   - **`rmcp`-based server registering as a legacy-era channel** stays open
     (`docs/planning/STATUS.md`) — this spike used a hand-rolled Node.js server, not
     `rmcp`.
@@ -279,6 +282,10 @@
     `scratchpad/g4-spike/` for reference.
   - `g4-server.mjs` (the spike server) is **not committed** — quarantined in the
     scratchpad only, per the `oac-gates` throwaway rule.
+  - `docs/planning/gates/fixtures/g4-mcp-dual-era/transcript-row41-2026-09-27.jsonl`
+    (18 lines) — the row-41 probe addendum's evidence (2026-09-27, separate 20-minute
+    box, after this gate's own `PASS`; does not change the verdict). See "Row-41 probe
+    addendum" above.
 - **Pin rows relied on:** `Claude Code (Channels)`, `Codex CLI / app-server`,
   `MCP — current era`, `MCP — legacy era`, `Rust MCP SDK (rmcp)` — exactly the set of
   `docs/planning/PINS.md` pin-table rows whose `Gates affected` cell names G4.
@@ -319,6 +326,123 @@
     status. `docs/planning/decisions/C3-spec-packaging.md` §7 is updated the same way, in
     this same change. Do not conflate the envelope-auth decision document with the
     conflict-register row that happens to share the same letter-number.
+
+#### Row-41 probe addendum (2026-09-27) — does not change G4's verdict
+
+**Purpose.** `docs/planning/v0.1/11-risks.md` row 41 tracks Codex's opt-in
+`mcp_2026_07_28` client mode (`stage: UnderDevelopment`, `default_enabled: false`) as
+untested against a G4-shaped server. This probe exercises it once, on the same
+throwaway `g4-server.mjs`, under its own separate timebox — it is not part of G5's
+provenance verdict and is recorded here, on G4, because it is G4's own open item.
+
+- **Timebox:** 20 minutes, declared 2026-09-27T06:42:35Z, closed 2026-09-27T06:42:59Z —
+  well inside the box.
+- **First attempt refused.** `codex exec --enable mcp_2026_07_28 "Call the g4_echo tool
+  with text 'row41 modern probe' and print its result."` was refused outright:
+  "Not inside a trusted directory and `--skip-git-repo-check` was not specified." The
+  scratchpad directory is not a git repository, so `codex exec`'s trust check blocked
+  the run before any MCP traffic occurred.
+- **Rerun.** `codex exec --skip-git-repo-check --enable mcp_2026_07_28 "Call the
+  g4_echo tool with text 'row41 modern probe' and print its result."` This is the run
+  the evidence below comes from. `codex exec` printed the warning "Under-development
+  features enabled: mcp_2026_07_28", used model `gpt-6-luna`, and ran with
+  `approval: never`.
+- **Server transcript:** `docs/planning/gates/fixtures/g4-mcp-dual-era/
+  transcript-row41-2026-09-27.jsonl` (18 lines, pid `26152` for HTTP, pid `30452` for
+  stdio). Earlier, unrelated server-activity lines sitting in the scratchpad transcript
+  before this probe's own window were moved to the (uncommitted)
+  `scratchpad/g4-spike/transcript-pre-row41-064223.jsonl` (83 lines), described here
+  precisely:
+  - Lines 1-57: the full, unrelated 2026-09-26 G4 re-run transcript (pid `19680`) —
+    byte-identical to the raw scratchpad `transcript-2026-09-26-rerun.jsonl` (confirmed
+    by direct diff), the uncommitted source the primary PASS fixture above was copied
+    and redacted from.
+  - Lines 58-73: a **new, previously unrecorded connection** at 2026-09-27T05:17:04Z
+    (pid `19680`, still that same idle server, well before this probe's own window) from
+    a client reporting `user-agent: codex-mcp-client/0.155.0-alpha.16.4` — a `GET -> 405`
+    probe (line 58), **seven** rejected OAuth/OIDC discovery `GET`s (lines 59-65, in
+    order: `/.well-known/oauth-protected-resource/mcp`, `/mcp/.well-known/oauth-
+    protected-resource`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-
+    authorization-server/mcp`, `/.well-known/openid-configuration/mcp`, `/mcp/.well-
+    known/openid-configuration`, `/.well-known/oauth-authorization-server`), an
+    `initialize` **sent** as
+    `protocolVersion: "2025-06-18"` (line 66) and **answered** `protocolVersion:
+    "2025-11-25"` (line 67, legacy negotiation, same as every other Codex client in this
+    project), `notifications/initialized`, a `GET -> 405`, `tools/list`, and a
+    `DELETE -> 405`. This
+    is the same `0.155.0-alpha.16.4` user-agent G4's own "UNVERIFIED items" already
+    record connecting to an idle server at 09:08:19Z and 15:57:32Z on 2026-09-26
+    (attributed there to Codex Desktop, inferred from user-agent alone, cause
+    UNVERIFIED) — see `docs/planning/v0.1/11-risks.md` row 43, updated with this
+    recurrence below.
+  - Lines 74-75: pid `26152`'s own startup at 06:41:33.798Z-.809Z (stdio and HTTP
+    listeners coming up) — the same process this probe's evidence window uses.
+  - Lines 76-83: an 8-request burst at 06:42:23.519Z-.534Z from `codex-mcp-client/
+    0.157.1` (a `GET -> 405` plus 7 rejected OAuth/OIDC discovery probes, each carrying
+    `mcp-protocol-version: 2024-11-05`) — strictly before this probe's own 06:42:35Z
+    timebox declaration, so not part of this probe's own evidence window either.
+- **What the wire shows, HTTP surface (pid `26152`):**
+  - Two `server/discover` requests (lines 1, 3) and two `tools/list` requests (lines 5,
+    7) — each pair from a **separate Codex MCP registration** pointed at the same URL:
+    `[mcp_servers.g4]` (global, `url = "http://127.0.0.1:17448/mcp"`, in the
+    **user-level** `~/.codex/config.toml`) and `[mcp_servers.g4http]` (project-scoped,
+    same URL, in the **scratchpad project's own** `.codex/config.toml`) — confirmed by
+    reading both config files directly. This is why `server/discover` and `tools/list`
+    each appear twice: two independent Codex clients dialed the same HTTP endpoint.
+    Every request carries header `mcp-protocol-version: 2026-07-28` and body
+    `_meta["io.modelcontextprotocol/protocolVersion"]: "2026-07-28"`, `user-agent:
+    codex-mcp-client/0.157.1`.
+  - One `tools/call` (line 17, at 06:42:49.027Z) for `g4_echo("row41 modern probe")`,
+    same headers/`_meta`, plus `_meta["x-codex-turn-metadata"]` carrying
+    `codex_version: "0.157.1"` and `model: "gpt-6-luna"`. The response (line 18) returns
+    `content[0].text: "g4 echo: row41 modern probe"` and OAC
+    `_meta["io.github.rossgraeber/oac-session-channels"]` provenance
+    (`served_by_pid: 26152, surface: "http-modern"`).
+  - **Every request on this leg negotiated the current MCP revision, `2026-07-28`, this
+    time** — the first time any Codex client has done so against this server in either
+    G4 run.
+- **What the wire shows, stdio surface (pid `30452`, the project-scoped `.codex/
+  config.toml`'s `[mcp_servers.g4spike]` registration, distinct from both the global
+  `g4` and project `g4http` HTTP registrations above):** `initialize`
+  (line 11) sent `protocolVersion: "2025-06-18"`, answered `protocolVersion:
+  "2025-11-25"` (line 12) — **still legacy**, same negotiation Codex has used on every
+  stdio connection in both prior G4 runs. This confirms the opt-in flag changed only
+  the HTTP-registered clients' behavior in this run, not the separate stdio
+  registration's.
+- **Stdout.** `codex exec`'s own stdout printed only the model's final content —
+  `{"content":[{"type":"text","text":"g4 echo: row41 modern probe"}], ...}`-shaped
+  model output, not `_meta` — this is `codex exec`'s ordinary output shape for any tool
+  call and is not itself evidence about whether `_meta` reaches the model; it is not
+  restated here as a second data point for G4's Claude-side `_meta`-surfacing finding,
+  since the two code paths (Claude Code's tool-result rendering vs. `codex exec`'s CLI
+  output format) are not comparable mechanisms.
+- **Disposition.** This does not change G4's `PASS` verdict — G4's own criterion 2 was
+  already satisfied via Claude as the modern client. It closes the on-the-wire half of
+  `docs/planning/v0.1/11-risks.md` row 41 for the opt-in, feature-flagged path only:
+  Codex `0.157.1` **can** negotiate `2026-07-28` against an OAC-shaped server, but only
+  behind `--enable mcp_2026_07_28`/`-c features.mcp_2026_07_28=true`, a flag documented
+  as `stage: UnderDevelopment`, `default_enabled: false`. It does not close conflict-
+  register row C5 (`docs/planning/v0.1/03-decisions-and-amendments.md` §3): C5's
+  "Codex tool path may negotiate current MCP" element still requires the **default**
+  client behavior to do this, or an `rmcp`-based server to be tested, neither of which
+  this probe changes. See `docs/planning/v0.1/11-risks.md` row 41 and the C5 conflict-
+  register row for the updated evidence note.
+- **Fixture reproduction.** The fixture is the driver's own transcript file, copied
+  verbatim: `Copy-Item scratchpad/g4-spike/transcript.jsonl
+  docs/planning/gates/fixtures/g4-mcp-dual-era/transcript-row41-2026-09-27.jsonl` (the
+  server logs only protocol JSON to this file — the same shape `redact.mjs` already
+  produces byte-for-byte from a fresh run of the same probe steps above).
+- **Fixture:** `docs/planning/gates/fixtures/g4-mcp-dual-era/
+  transcript-row41-2026-09-27.jsonl` (18 lines). **Nothing in it needed redacting**: the
+  server logs only protocol JSON (method names, headers, `_meta`), the same as the
+  primary G4 fixture's own near-no-op redaction pass — re-scanned during this write-up
+  anyway (`rossg`, `RossG`, `DESKTOP-N8MHSJ4`, `@gmail`, `sk-`, `Bearer `,
+  `systemPrompt`, `prompt_snapshot`, with the public
+  `io.github.rossgraeber/oac-session-channels` identifier masked first and restored) —
+  zero residual hits, confirming there was nothing to redact rather than that a
+  redaction pass found and removed something.
+
+---
 
 #### Superseded: 2026-09-25/26 out-of-box run (NOT RUN)
 
