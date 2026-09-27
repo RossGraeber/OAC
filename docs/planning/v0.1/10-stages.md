@@ -314,7 +314,8 @@ condition, that FAIL stops the pipeline at Stage 2's interface freeze for Codex'
 provenance framing until conflict-register entry C13 lands; G3 stays
 `NOT RUN` at gate level (Windows/Linux PASS, macOS parked). Per Gate S1 acceptance
 criterion 1 above, `FAIL` is a closed verdict, so G5 does not itself block Stage 1's
-exit — G3's parked macOS leg is what still keeps Stage 1 from exiting.
+exit — G3's parked macOS leg and G1's pending re-run (issue #39 T6, invalidated by the
+Claude Code pin float) are what still keep Stage 1 from exiting.
 
 ---
 

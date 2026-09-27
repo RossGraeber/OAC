@@ -73,7 +73,7 @@ One row per gate. Every verdict below matches
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | has fallback: two server entry points sharing one core — not needed | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
-**Reason for `NOT RUN` on G3 (partially).** Epic D spikes D1-D5 have all run (D6, fixture
+**Reason for `NOT RUN` on G1 and G3 (partially).** Epic D spikes D1-D5 have all run (D6, fixture
 capture, runs alongside D1-D5 per its own timebox and is not itself a gate that returns a
 pass/fail/NOT RUN verdict — its own completeness is not asserted here); D3 (G3)'s
 macOS leg is parked (`docs/planning/gates/G3-result.md`). D1 (G1) ran and PASSED on
@@ -109,7 +109,8 @@ re-established for Codex, also tracked at `docs/planning/v0.1/11-risks.md` RISK-
 `docs/planning/STATUS.md`'s "Current stage" section states the rest of Stage 1 and
 Stages 2-6 stay
 blocked until Stage 0 (Epic B) and Stage 1 fully complete — Stage 1's own exit (D7) is
-separately still blocked by G3's parked macOS leg, independent of G5's `FAIL`.
+separately still blocked by G3's parked macOS leg and G1's pending re-run (issue #39 T6,
+invalidated by the Claude Code pin float), independent of G5's `FAIL`.
 
 **Verdict vocabulary.** Closed: `PASS` | `PASS (FALLBACK TAKEN)` | `FAIL` | `NOT RUN`.
 No fifth value, no hedge — per `oac-gates` "never probably" rule.

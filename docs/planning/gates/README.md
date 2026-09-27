@@ -89,7 +89,12 @@ a. **The rule.** Changing the **`Pinned version`** cell, the **`Release date`** 
    been observed locally but not yet recorded in PINS.md, every verdict relying on the
    row is stale, and stays stale until this checklist is executed for the new version.
    Invalidation applies to the **whole gate**. G4 has a Codex leg and a Claude leg, and
-   it is re-run as a whole; one leg is never re-run alone.
+   it is re-run as a whole; one leg is never re-run alone. When a floating row's
+   last-observed version changes, this invalidates only the verdicts whose *own*
+   recorded observed version differs from the new last-observed version (equivalently,
+   from what the environment currently reports) — a gate that already ran on the version
+   now being recorded stays current; the move does not blanket-invalidate every gate
+   relying on the row regardless of what version each one actually ran against.
 
 b. **Required same-change edits.** When a pin moves, all three of the following land
    in the **same commit** as the pin move:

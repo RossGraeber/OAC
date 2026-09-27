@@ -227,8 +227,9 @@ is no acknowledgement** — a resolved send means "written to transport", not "s
 model." Source: PLANNING-PROMPT.md §3.1, retrieved 2026-09-15.
 
 **Surface label, at first mention.** Claude Code Channels is a **research preview**.
-Pinned version: Claude Code `v2.1.274` (`docs/planning/PINS.md` — Claude Code Channels).
-Compatibility shim boundary: `adapters/claude/` (UNVERIFIED — the module/interface name
+Pinned version: **floating** — last observed `v2.1.283` (`docs/planning/PINS.md` —
+Claude Code Channels, "Floating-version policy"). Compatibility shim boundary:
+`adapters/claude/` (UNVERIFIED — the module/interface name
 itself is not yet fixed in `DESIGN.md`; open ledger entry C11,
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4, **ASSIGNED**, not closed) — this
 path is this file's working name for the isolation layer between the volatile preview
@@ -466,8 +467,9 @@ Per `oac-evidence` §8, checked against this file:
   **research preview** (§7); Codex app-server live-inject — **experimental (per-method
   gating)** (§9).
 - Preview/experimental surfaces carry a shim boundary and pinned version: Claude —
-  `adapters/claude/` (UNVERIFIED — C11, not yet fixed in `DESIGN.md`), `v2.1.274` (§7);
-  Codex — `adapters/codex/` (UNVERIFIED — same C11), **floating**, last observed
+  `adapters/claude/` (UNVERIFIED — C11, not yet fixed in `DESIGN.md`), **floating**, last
+  observed `v2.1.283` (§7; `docs/planning/PINS.md`); Codex — `adapters/codex/`
+  (UNVERIFIED — same C11), **floating**, last observed
   `@openai/codex@0.157.1` @ `36650394c5b38c2990ccf2a3457165ca3e9d9726` (§9;
   `docs/planning/PINS.md`).
 - Every verbatim API name (`capabilities.experimental["claude/channel"]`,

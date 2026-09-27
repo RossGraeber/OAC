@@ -140,6 +140,9 @@ the Agent SDK can drive or receive channels.
 
 ## Pin
 
+**Floating** (operator decision, 2026-09-27). Last observed `v2.1.283`. Everything below
+was verified on `v2.1.274` only (STATUS.md open item).
+
 **Re-verified pin (B2):** Claude Code `v2.1.274` (Channels research preview),
 published 2026-09-17T00:12:02Z UTC. Both floors satisfied: channels-exist
 floor `>= v2.1.232` (UNVERIFIED — re-checked in B2 against the full text of
@@ -159,17 +162,11 @@ this pin; see `docs/planning/REVERIFICATION-B2.md` §3.1 boxes 1-2. Source:
 `docs/planning/PINS.md` — "Claude Code Channels" pin record, and
 `docs/planning/REVERIFICATION-B2.md` §3.1, retrieved 2026-09-16.
 
-**Claude Code is now floating** (operator decision, 2026-09-27, mirroring the Codex row):
-an auto-updater tracks each release faster than this project can re-pin it, so re-verify
-on the version you actually observe. G1 (2026-09-25) connected on `v2.1.282`; both the G4
-re-run (2026-09-26) and G5 (2026-09-27) connected on `v2.1.283`, now the last-observed
-version. This invalidated G1 (`PASS` on `v2.1.282`, now `NOT RUN` for the current
-environment) — G4 and G5 already ran on the current last-observed version and stay
-current. See `docs/planning/PINS.md`'s Claude Code Channels "Floating-version policy" and
-`docs/planning/gates/G1-result.md`.
+Current gate verdicts for this surface (G1, G4, G5) are not restated here — see
+`docs/planning/STATUS.md`'s Gate verdicts table and `docs/planning/PINS.md`'s Claude Code
+Channels "Floating-version policy" for which verdicts are current at the last-observed
+version.
 
 Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
-re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. A further
-version bump to Claude Code invalidates this pin — re-verify every fact per
-`oac-evidence` §7 before trusting it again, and update this `## Pin` section
-(and `docs/planning/PINS.md`), not just the prose.
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. Re-verification on each
+observed version follows PINS.md "Floating-version policy" and `oac-evidence` §7.

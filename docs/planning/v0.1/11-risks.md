@@ -229,7 +229,10 @@ list.
   around G1: channel behaviour across `--resume`/`--continue` is undocumented: whether
   one MCP server can present more than one logical channel is undocumented; and
   the compatibility-shim boundary for this surface stays unnamed (conflict-
-  register C11).
+  register C11). Since 2026-09-27 the Claude Code (Channels) row is **floating**
+  (`docs/planning/PINS.md`, "Floating-version policy"), so any further release again
+  invalidates the gates relying on it (G1, G4, G5) until each is re-run against the
+  version it actually recorded — mirroring the Codex row's floating risk below.
 - **What it invalidates.** `docs/planning/v0.1/01-capability-matrix.md` §1's
   Claude research-preview label and its pinned-version assumption;
   `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)'s `adapters/claude/`
@@ -237,7 +240,10 @@ list.
 - **Early-warning signal.** A Claude Code pin move in `docs/planning/STATUS.md`'s
   Pins table, or `channels.md` gaining or removing text on `--resume`/
   `--continue` or multi-channel support at the next re-verification pass
-  (`.claude/skills/oac-evidence/SKILL.md` §7 trigger).
+  (`.claude/skills/oac-evidence/SKILL.md` §7 trigger). **This signal has fired**: the
+  pin moved to floating on 2026-09-27 (last observed `v2.1.283`), invalidating G1
+  (`PASS` on `v2.1.282`, now `NOT RUN` for the current environment; re-run pending,
+  issue #39 T6) — see `docs/planning/gates/G1-result.md`.
 - **Response.** Re-verify per `.claude/skills/oac-evidence/SKILL.md` §7 on the
   pin move. Until the shim boundary is named, containment already holds by
   construction: every Claude-specific type stays inside `adapters/claude/`
@@ -527,11 +533,24 @@ negotiated the modern era) plus surfaced two genuinely new UNVERIFIED items
 (rows 42-43). A fresh, redeclared timebox the same day (2026-09-26) reconfirmed all five
 criteria without expiring, so **G4 is now `PASS`**
 (`docs/planning/gates/G4-result.md`); that re-run reproduced rows 41-43 unchanged and
-surfaced one further new item, row 44. The table is therefore 44 rows: 43 still listed
-in `docs/planning/STATUS.md` (row 31 is confirmed, not a risk, but stays on STATUS.md's
-list as a correction note per that row's own text) and 1 closed (row 40). Every row
-carries a risk id, except row 31 (which cites the evidence that confirmed it) and row 40
-(closed, cites its own closing evidence). No cell is blank.
+surfaced one further new item, row 44. Rows 45-48 were added 2026-09-27 from the G5 spike
+(issue #38/D5): row 45 (Codex header/delimiter framing does not reliably stop a forged
+sender from being named), row 46 (peer-controlled envelope field values inserted
+unmodified into the Codex header block), row 47 (a `meta` key literally named `source`
+renders as a second attribute, informational), and row 48 (`turn/start.additionalContext`
+as an unused second metadata carrier, exploratory). Unlike rows 1-44, rows 45-48 are not
+themselves reproduced as bullets in `docs/planning/STATUS.md`'s "Open UNVERIFIED items"
+list — findings 45-46 are tracked there through conflict-register entry C13
+(`docs/planning/STATUS.md` "Open conflict-register items"), and 47-48 are informational/
+exploratory, not verdict-bearing. This table's own "every entry disposed of here" claim
+(above) is scoped to STATUS.md's "Open UNVERIFIED items" list specifically, which rows
+45-48 are not members of — noted here rather than silently overclaimed. The table is
+therefore 48 rows: 43 correspond 1:1 to STATUS.md's "Open UNVERIFIED items" list (row 31
+is confirmed, not a risk, but stays on STATUS.md's list as a correction note per that
+row's own text) and 1 closed (row 40); rows 45-48 are additional risk-table entries
+tracked elsewhere in STATUS.md as described above. Every row carries a risk id, except
+row 31 (which cites the evidence that confirmed it) and row 40 (closed, cites its own
+closing evidence). No cell is blank.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|

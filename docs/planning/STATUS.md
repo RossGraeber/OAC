@@ -14,7 +14,9 @@ floating-version policy. Per the pin-move checklist, **G1 is invalidated**: it P
 `v2.1.282` and is `NOT RUN` for the current environment, since `v2.1.282` does not equal
 the new last-observed `v2.1.283`. G4 and G5 both already ran on `v2.1.283` — the version
 this move records as last-observed — so their verdicts stay current; this move does not
-advance the last-observed version past what they already ran on. G1 will be re-run in the
+advance the last-observed version past what they already ran on. **Environment check at
+this move:** `claude --version` on this host reported `2.1.283 (Claude Code)` on
+2026-09-27, matching the newly recorded last-observed version. G1 will be re-run in the
 same HIL sitting as the D6 Claude capture (issue #39 T6), under its own declared box. No
 new UNVERIFIED item is added — the Claude §3.1 re-verification gap this pin drift implies
 was already open (see "Open UNVERIFIED items" below, "New, from G1").)
@@ -471,7 +473,7 @@ amendments A1-A3 issued)
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
 | Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, now **NOT RUN** for the current environment (Claude Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283`; re-run pending, same HIL sitting as the D6 Claude capture, issue #39 T6); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked; G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg and D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is still blocked on D3's macOS leg, and separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg, G1's pending re-run (issue #39 T6, invalidated by the Claude Code pin float), and D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is still blocked on D3's macOS leg and G1's re-run, and separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -524,7 +526,8 @@ G5. See `docs/planning/gates/G5-result.md`.
 Every task labelled `gate:G1`, `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
 gate has a current gate-level verdict. Per `docs/planning/v0.1/10-stages.md` §5's Gate S1
 acceptance criterion 1, a `FAIL` is a closed verdict, so this does not itself block
-**Stage 1's own exit** (D7 — separately still blocked by G3's macOS leg); per §5's
+**Stage 1's own exit** (D7 — separately still blocked by G3's macOS leg and G1's pending
+re-run, issue #39 T6); per §5's
 go/no-go condition and §2, it blocks the pipeline from proceeding past **Stage 2's
 interface freeze** for Codex's provenance framing until conflict-register entry C13
 lands and DESIGN acceptance criterion 6 is re-established for Codex.

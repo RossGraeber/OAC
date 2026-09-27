@@ -22,7 +22,11 @@ When any pin in the table below changes (version, release date, or a row's
 presence), make all of these edits in the **same commit**:
 
 - [ ] Read the moved row's `Gates affected` cell to find which gate results to
-      invalidate.
+      invalidate. For a **floating** row, this means only the verdicts whose own
+      recorded observed version differs from the row's new last-observed version (which
+      must equal what the environment currently reports) — a gate that already ran on
+      the version now being recorded stays current; see `docs/planning/gates/README.md`
+      §a.
 - [ ] Each affected `docs/planning/gates/G<n>-result.md`: set `**Verdict:**` to
       `NOT RUN`, append the superseded verdict to its `Re-run history` table with
       `Invalidated by: <surface> pin <old> -> <new>, <YYYY-MM-DD>`, and add a
@@ -63,7 +67,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | **floating** — last observed `v2.1.283`; see "Floating-version policy" below | 2026-09-25T21:50:12Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.283 | 2026-09-27 | G1 (stale — see note); G4; G5 |
+| Claude Code (Channels) | research preview | **floating** — last observed `v2.1.283`; see "Floating-version policy" below | 2026-09-25T21:50:12Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.283 | 2026-09-27 | G1; G4 (legacy-MCP negotiation); G5 |
 | Codex CLI / app-server | experimental (per-method gating) | **floating** — last observed `@openai/codex@0.157.1` (commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`); see "Floating-version policy" below | 2026-09-26 | https://github.com/openai/codex/releases/tag/rust-v0.157.1 | 2026-09-26 | G2, G5, G4 (Codex leg) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
@@ -84,33 +88,55 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 #### Floating-version policy (operator decision, 2026-09-27)
 
 **This row no longer holds a fixed pin.** The surface auto-updates faster than this
-project can re-pin it: the G1 spike (2026-09-25) already found the connecting client
-reporting `v2.1.282`, one version above the then-current fixed pin `v2.1.274`
-(`docs/planning/gates/G1-result.md`, "Pin drift found during this spike"), and the G4
-re-run (2026-09-26) and G5 spike (2026-09-27) both observed `v2.1.283` one patch above
-that (`docs/planning/gates/G4-result.md`, `docs/planning/gates/G5-result.md`). Rather
-than keep re-litigating each patch bump as a one-off drift note, the operator elected to
-float this row the same way the Codex row already floats (see "Floating-version policy"
-under the Codex record below), moving from a fixed-version to a last-observed-version
-policy. Consequences, binding on every Claude-side gate, mirroring the Codex row's rule:
+project can re-pin it. Native installations "automatically update in the background to
+keep you on the latest version"; a background update "download[s] and install[s] in the
+background, then take[s] effect the next time you start Claude Code." A supported way to
+hold a version exists but was not in effect here: the `minimumVersion` setting pins a
+floor, and `DISABLE_AUTOUPDATER=1` (in `env`) stops the background update check (`claude
+update`/`claude install` still work; `DISABLE_UPDATES` blocks all update paths). (Source:
+https://code.claude.com/docs/en/setup, "Update Claude Code" § "Auto-updates", "Pin a
+minimum version", and "Disable auto-updates", retrieved 2026-09-27.) None of these holds
+was configured for the gate spikes: the G1 spike (2026-09-25) already found the
+connecting client reporting `v2.1.282`, one version above the then-current fixed pin
+`v2.1.274` (`docs/planning/gates/G1-result.md`, "Pin drift found during this spike"), and
+the G4 re-run (2026-09-26) and G5 spike (2026-09-27) both observed `v2.1.283` one patch
+above that (`docs/planning/gates/G4-result.md`, `docs/planning/gates/G5-result.md`).
+Rather than keep re-litigating each patch bump as a one-off drift note, the operator
+elected to float this row the same way the Codex row already floats (see
+"Floating-version policy" under the Codex record below), moving from a fixed-version to
+a last-observed-version policy. Consequences, binding on every Claude-side gate,
+mirroring the Codex row's rule:
 
 - Each gate result records the Claude Code version it **actually ran on**, as reported by
-  the connecting client's `clientInfo.version`.
+  all three available sources, mirroring the Codex row's "as reported by the CLI, the
+  daemon, and the client's `clientInfo`": the CLI (`claude --version`), the wire
+  `initialize` result's `clientInfo.version`, and the transport's user-agent string when
+  the transport carries one (e.g. an HTTP-registered channel server). `clientInfo.version`
+  alone is not sufficient — record the triple, or record which of the three were actually
+  checked and why the others were unavailable.
 - Any newly observed Claude Code version invalidates the Claude-side results that ran on
   an older version: G1, G4, and G5. They revert to `NOT RUN` until they are re-run against
   the new last-observed version. The pin-move checklist in this file applies whenever this
-  row's last-observed version changes.
+  row's last-observed version changes, and — per `docs/planning/gates/README.md` §a — a
+  change invalidates only the verdicts whose own recorded observed version differs from
+  the new last-observed version; a gate that already ran on the version now being
+  recorded stays current.
 - The §3.1 facts must be re-verified against each newly observed version before a
   Claude-side gate is re-run on it (`oac-evidence` §7). This re-verification has not yet
   been done at either `v2.1.282` or `v2.1.283` — see "Open questions carried into B2"
   below, unchanged by this policy change.
 - Version history of this row: `v2.1.274` (2026-09-17T00:12:02Z; B1 pin), then `v2.1.282`
-  (observed connecting during G1, 2026-09-25, not independently re-confirmed via a GitHub
-  release tag at pin-move time), then `v2.1.283` (GitHub release tag `v2.1.283`, published
-  2026-09-25T21:50:12Z UTC, retrieved 2026-09-27 via `gh api
+  (GitHub release tag `v2.1.282`, published 2026-09-24T18:38:05Z UTC, retrieved
+  2026-09-27 via `gh api repos/anthropics/claude-code/releases/tags/v2.1.282`; observed
+  connecting during G1, 2026-09-25), then `v2.1.283` (GitHub release tag `v2.1.283`,
+  published 2026-09-25T21:50:12Z UTC, retrieved 2026-09-27 via `gh api
   repos/anthropics/claude-code/releases/tags/v2.1.283`; observed connecting during both
   the G4 re-run, 2026-09-26, and the G5 spike, 2026-09-27; **now the last-observed
   version**).
+- **Environment check at this pin move:** `claude --version` on this host reported
+  `2.1.283 (Claude Code)` on 2026-09-27, matching the new last-observed version above —
+  recorded here the same way the Codex floating-pin move recorded a fresh environment
+  check before moving the row.
 - Applying the pin-move checklist to this change: G1 ran on `v2.1.282`, which does not
   equal the new last-observed `v2.1.283`, so **G1 is invalidated** and reverts to
   `NOT RUN` (see `docs/planning/gates/G1-result.md`'s Re-run history and
