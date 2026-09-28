@@ -57,7 +57,10 @@ K4 (#127) adds the `g1-claude-wake` scenario and its comparison tooling
 same directory and the same rules. K6 (#129) adds `tools/herdr/ci.mjs`, the only entry
 point of the opt-in workflow `.github/workflows/herdr-provider-optin.yml`
 (`docs/planning/gates/herdr-runner.md`). K7 (#130) adds the `g2-codex-inject` scenario
-(`tools/herdr/lib/g2.mjs`, `tools/herdr/lib/g2-report.mjs`) the same way. It is **dev/test only** and **never a workspace member**. It is written with Node
+(`tools/herdr/lib/g2.mjs`, `tools/herdr/lib/g2-report.mjs`) the same way; K8 (#131) adds
+`g4-mcp-dual-era` and `g5-provenance`, their report generators, the reconstructed G4/G5 gate
+servers under `tools/herdr/gate-servers/` (test tooling only, never product code) and the
+Stage 4/5 reuse contract in `tools/herdr/README.md`. It is **dev/test only** and **never a workspace member**. It is written with Node
 built-ins only and has no `package.json`. No workspace or package manifest outside it
 may reference it. Nothing under `core/`, `spec/`, `adapters/*`, `transports/zenoh/` or
 `cli/` may import, link, vendor or invoke it, and it is not shipped with the `oac`

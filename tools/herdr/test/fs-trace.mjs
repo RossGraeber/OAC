@@ -4,7 +4,8 @@
 // lists through node:fs, and every child process it starts through node:child_process,
 // tagged with the process's pid and script. The self-test then checks that neither the
 // driver (run.mjs) nor the staged G2 client opened anything under the Codex home beyond the
-// two harness-config files run.mjs hashes, and that neither started anything unexpected.
+// two harness-config files run.mjs hashes, and that neither started anything unexpected. K8
+// (#131) adds write/move/delete operations (kind 'write') and reuses it for G4 and G5.
 //
 // It only observes: every wrapped function calls the original with the same arguments.
 // ESM named imports of node:fs / node:child_process see the wrappers because
@@ -71,6 +72,11 @@ if (OUT) {
   const FS = ['readFileSync', 'readFile', 'openSync', 'open', 'createReadStream', 'existsSync', 'statSync', 'stat', 'lstatSync', 'lstat', 'readdirSync', 'readdir', 'accessSync', 'access', 'realpathSync', 'realpath', 'opendirSync', 'opendir', 'readlinkSync', 'readlink', 'copyFileSync', 'copyFile', 'cpSync', 'cp'];
   for (const n of FS) wrap(fs, n, 'fs', byPath);
   for (const n of ['readFile', 'open', 'stat', 'lstat', 'readdir', 'access', 'realpath', 'opendir', 'readlink', 'copyFile', 'cp']) wrap(fs.promises, n, 'fs', byPath);
+  // K8 (#131): writes, moves and deletes too (kind 'write'), so a test can show no process
+  // wrote under a harness home or created a harness config file anywhere.
+  const WRITE = ['writeFileSync', 'writeFile', 'appendFileSync', 'appendFile', 'renameSync', 'rename', 'rmSync', 'rm', 'unlinkSync', 'unlink', 'mkdirSync', 'mkdir', 'symlinkSync', 'symlink', 'linkSync', 'link', 'truncateSync', 'truncate', 'createWriteStream'];
+  for (const n of WRITE) wrap(fs, n, 'write', byPath);
+  for (const n of ['writeFile', 'appendFile', 'rename', 'rm', 'unlink', 'mkdir', 'symlink', 'link', 'truncate']) wrap(fs.promises, n, 'write', byPath);
   const bySpawn = (a) => ({ file: String(a[0]), args: Array.isArray(a[1]) ? a[1].slice(0, 8).map(String) : null });
   for (const n of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) wrap(cp, n, 'spawn', bySpawn);
   syncBuiltinESMExports();

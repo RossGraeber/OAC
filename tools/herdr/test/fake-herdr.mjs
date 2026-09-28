@@ -115,23 +115,31 @@ if (c0 === 'server' && c1 === undefined) {
   setInterval(() => {
     if (!existsSync(join(sdir, 'stop')) || MODES.has('server-ignores-stop')) return;
     if (!MODES.has('leak-pane')) {
+      const gone = []; // K8: groups and pids killed here, awaited below
       const agentsDir = join(sdir, 'agents');
       for (const f of existsSync(agentsDir) ? readdirSync(agentsDir).filter((x) => x.endsWith('.json')) : []) {
         const a = JSON.parse(readFileSync(join(agentsDir, f), 'utf8'));
         if (!a.pid) continue;
         try {
           process.kill(-a.pid, 'SIGKILL'); // the fake Claude and the channel server it started
+          gone.push(-a.pid);
         } catch {
           /* gone */
         }
       }
       for (const f of readdirSync(join(sdir, 'panes')).filter((x) => x.endsWith('.json'))) {
         try {
-          process.kill(JSON.parse(readFileSync(join(sdir, 'panes', f), 'utf8')).pid, 'SIGKILL');
+          const pid = JSON.parse(readFileSync(join(sdir, 'panes', f), 'utf8')).pid;
+          process.kill(pid, 'SIGKILL');
+          gone.push(pid);
         } catch {
           /* gone */
         }
       }
+      // Like a server that waits for its panes to exit before reporting stopped (K8: a loaded
+      // self-test machine could otherwise see a SIGKILLed process still alive for a few ms).
+      const stillThere = () => gone.filter((p) => { try { process.kill(p, 0); return true; } catch { return false; } });
+      for (let t = 0; t < 80 && stillThere().length; t++) sleepSync(25);
     }
     rmSync(serverFile(sdir), { force: true });
     rmSync(join(sdir, 'stop'), { force: true });
@@ -229,7 +237,7 @@ if (c0 === 'server' && c1 === undefined) {
   if (MODES.has('fake-claude') && opt('--kind') === 'claude') {
     const adir = join(sdir, 'agents', `${c2}.d`);
     mkdirSync(adir, { recursive: true });
-    const child = spawn(process.execPath, [join(dirname(process.argv[1]), 'fake-claude.mjs'), adir, bufFile(p.id)], { cwd: p.cwd, env: p.env, detached: true, stdio: 'ignore' });
+    const child = spawn(process.execPath, [join(dirname(process.argv[1]), 'fake-claude.mjs'), adir, bufFile(p.id), ...rest], { cwd: p.cwd, env: p.env, detached: true, stdio: 'ignore' });
     child.unref();
     writeFileSync(join(sdir, 'agents', `${c2}.json`), JSON.stringify({ pane: p.id, pid: child.pid, dir: adir, argv: ['claude', ...rest] }));
     const settled = () => existsSync(join(adir, 'state')) && ['blocked', 'idle'].includes(agentState({ dir: adir }));
