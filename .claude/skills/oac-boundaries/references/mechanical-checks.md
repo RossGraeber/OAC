@@ -15,9 +15,11 @@ stop-and-cite event, not a pending-path error.
 
 Status as last verified against this repo (2026-09-28): checks 1, 2, 4, 5, 6, 7 are
 **pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
-the current tree, which is docs/backlog plus `scripts/`; checks 9 and 10 are **pending** — the
-script prints `PENDING` for all seven targets (no product path, no workspace manifest, no
-`tools/herdr/` yet; K3 creates the driver) and its `--self-test` passes 51/51.
+the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; check 10 is
+**clean** on real content (`tools/herdr/`, K3's driver: every tracked entry, 0 hits), while
+check 9's six targets (the five product paths and manifests outside `tools/herdr/`) are
+still **pending**, so the script's last line reads `Result: PENDING`; its `--self-test`
+passes 51/51.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code

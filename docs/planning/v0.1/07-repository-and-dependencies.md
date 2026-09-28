@@ -50,6 +50,20 @@ docs/
 `transports/zenoh/`, `cli/`, `tests/{protocol,security,integration}/`, `examples/`,
 `docs/`, `ADR/`.
 
+**Dev/test tooling in the tree, outside the product layout.** `tools/herdr/` is the herdr
+test driver (Epic K #123, K3 #126), run as `node tools/herdr/run.mjs --scenario <name>`.
+It is **dev/test only** and **never a workspace member**. It is written with Node
+built-ins only and has no `package.json`. No workspace or package manifest outside it
+may reference it. Nothing under `core/`, `spec/`, `adapters/*`, `transports/zenoh/` or
+`cli/` may import, link, vendor or invoke it, and it is not shipped with the `oac`
+binary. It is not part of the CI-default test tier (`oac-testing` §2), because its
+scenarios need a herdr binary and, for harness scenarios, a logged-in harness; its own
+`--self-test` runs against a fake herdr and needs neither. herdr runs from it as an
+external process only; herdr's license and pin are recorded under §5 "Dev/test tooling —
+not shipped". `scripts/check-herdr-containment.mjs` (`oac-boundaries` checks 9 and 10)
+enforces both halves: no herdr reference in product paths or in a manifest outside
+`tools/herdr/`, and no harness-credential access or harness-config mutation inside it.
+
 **The daemon is not a separate top-level directory.** Per `docs/planning/v0.1/
 04-architecture.md` §2's component table: the daemon is a binary, not a module — it
 hosts `core/` and starts the transport module. There is no `daemon/` directory in the
