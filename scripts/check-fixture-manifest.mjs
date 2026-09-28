@@ -13,13 +13,24 @@
 //
 // herdr-driven fixtures (Epic K, K5 #128; rules in docs/planning/gates/README.md
 // "Scripted runs (herdr)"): a fixture whose file name carries the `-herdr` suffix
-// (`<kind>-<YYYY-MM-DD>-<version>-herdr.<ext>`) must carry a `driver` block with
-// `herdr_version`, `driver_commit` (full 40-hex commit) and `run_manifest` (a committed
-// `docs/planning/gates/herdr-runs/*.run-manifest.json`). That run manifest must parse,
-// record outcome PASS, and name the same driver commit and `herdr --version` output as
-// the block. A `driver` block on a fixture without the suffix is a violation (the suffix
-// and the block label a herdr run together), and an `unverified-*-herdr.*` capture is
-// never committed.
+// (`<kind>-<YYYY-MM-DD>-<version>-herdr.<ext>`) must carry `version_matches_pin: true`
+// and a `driver` block with `herdr_version`, `driver_commit` (full 40-hex commit) and
+// `run_manifest` (a git-tracked `docs/planning/gates/herdr-runs/*.run-manifest.json`,
+// with its `.md` record tracked beside it). That run manifest must parse, record
+// outcome PASS, a clean `tools/herdr/` (`driver.toolsHerdrDirty: false`), the same driver
+// commit and `herdr --version` output as the block, and list this fixture's file name
+// among its captures as written. A `driver` block on a fixture without the suffix is a
+// violation (the suffix and the block label a herdr run together), and an
+// `unverified-*-herdr.*` capture is never committed. What is NOT checked: that the
+// fixture's bytes are the bytes that run captured (the run manifest records no capture
+// hash yet), or that a real herdr and a real harness ran (see the attestation below).
+//
+// herdr-run records: a tracked herdr-runs/*.md record that claims to be an equivalence
+// record (`> **Equivalence record** for G<n> at herdr <tag>`), and a tracked
+// G<n>-result.md whose `- **Driver:**` line names herdr, must carry an
+// `## Operator attestation` section with all four lines (real herdr with the sha256 of
+// its executable, real harness, consent dialog, attested by + date). The check proves
+// the attestation is present and complete, not that it is true.
 //
 // Exits non-zero on any violation so CI fails loudly.
 
@@ -57,6 +68,26 @@ const REQUIRED_DRIVER_KEYS = ['herdr_version', 'driver_commit', 'run_manifest'];
 // `-herdr` immediately before the extension (or at the end of an extensionless name).
 const HERDR_SUFFIX = /-herdr(?:\.[^/]*)?$/;
 const UNVERIFIED_PREFIX = /^unverified-/;
+
+// The operator attestation an equivalence record or a verdict-bearing scripted run must
+// carry (.claude/skills/oac-gates/references/scripted-runs.md "Operator attestation").
+const EQUIVALENCE_CALLOUT = /^> \*\*Equivalence record\*\* for G\d+ at herdr /m;
+const HERDR_DRIVER_LINE = /^- \*\*Driver:\*\* herdr\b/m;
+const ATTESTATION_LINES = [
+  ['herdr line (real herdr, sha256 of its executable)', /^- \[x\] \*\*herdr:\*\* .*\b[0-9a-f]{64}\b/m],
+  ['Harness line (real, logged-in harness)', /^- \[x\] \*\*Harness:\*\* \S/m],
+  ['Consent dialog line', /^- \[x\] \*\*Consent dialog:\*\* \S/m],
+  ['Attested by line (who, YYYY-MM-DD)', /^- \*\*Attested by:\*\* \S.*\b\d{4}-\d{2}-\d{2}\b/m],
+];
+
+function attestationProblems(text) {
+  const m = /^## Operator attestation[ \t]*$/m.exec(text);
+  if (!m) return ['has no `## Operator attestation` section'];
+  const rest = text.slice(m.index + m[0].length);
+  const next = /^## /m.exec(rest);
+  const section = next ? rest.slice(0, next.index) : rest;
+  return ATTESTATION_LINES.filter(([, re]) => !re.test(section)).map(([name]) => `operator attestation is missing its ${name}`);
+}
 
 function isHerdrFixture(path) {
   return HERDR_SUFFIX.test(posix.basename(path));
@@ -113,7 +144,8 @@ function schemaShapeProblem(schema) {
 // The `driver` block of a `-herdr` fixture entry (K5). Returns a list of problems.
 // The run manifest is the driver's own `run-manifest.json` (tools/herdr/run.mjs), committed
 // beside the herdr-runs record; the block must agree with it.
-function driverBlockProblems(driver, root) {
+function driverBlockProblems(entry, root, tracked) {
+  const driver = entry.driver;
   if (driver === undefined) return ['is a `-herdr` fixture but has no `driver` block (herdr_version, driver_commit, run_manifest)'];
   if (!driver || typeof driver !== 'object' || Array.isArray(driver)) return ['`driver` must be an object with herdr_version, driver_commit, run_manifest'];
   const out = [];
@@ -129,11 +161,13 @@ function driverBlockProblems(driver, root) {
   }
   // Cross-check against the run manifest only once the block itself is well formed.
   if (out.length) return out;
-  const abs = join(root, rm);
-  if (!existsSync(abs)) {
-    out.push(`driver.run_manifest ${rm} not found on disk`);
+  if (!tracked.has(rm)) {
+    out.push(`driver.run_manifest ${rm} is not committed (not tracked by git)`);
     return out;
   }
+  const record = rm.replace(/\.run-manifest\.json$/, '.md');
+  if (!tracked.has(record)) out.push(`the herdr-runs record ${record} is not committed beside its run manifest`);
+  const abs = join(root, rm);
   let run;
   try {
     run = JSON.parse(readFileSync(abs, 'utf8'));
@@ -142,8 +176,11 @@ function driverBlockProblems(driver, root) {
     return out;
   }
   if (run?.outcome !== 'PASS') out.push(`driver.run_manifest records outcome ${JSON.stringify(run?.outcome ?? null)}; only a PASS run's captures are committed as fixtures`);
+  if (run?.driver?.toolsHerdrDirty !== false) out.push(`driver.run_manifest records driver.toolsHerdrDirty ${JSON.stringify(run?.driver?.toolsHerdrDirty ?? null)}; only a run from a clean, committed tools/herdr/ is committed as fixtures`);
   if (run?.driver?.commit !== driver.driver_commit) out.push('driver.driver_commit does not match the run manifest\'s driver.commit');
   if (run?.herdr?.observedVersionOutput !== driver.herdr_version) out.push('driver.herdr_version does not match the run manifest\'s herdr.observedVersionOutput');
+  const name = posix.basename(entry.path);
+  if (!(run?.captures ?? []).some((c) => c?.file === name && c?.written === true)) out.push(`the run manifest does not list ${name} among its written captures`);
   return out;
 }
 
@@ -163,6 +200,17 @@ function checkManifest(root) {
   if (!Array.isArray(manifest.fixtures)) {
     problems.push('MANIFEST.json: top-level `fixtures` array is missing');
   }
+
+  let tracked;
+  let trackedGates;
+  try {
+    const ls = (path) => execFileSync('git', ['ls-files', '--', path], { cwd: root, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
+    tracked = ls(fixturesDir);
+    trackedGates = ls('docs/planning/gates');
+  } catch (err) {
+    return { fatal: `Could not run \`git ls-files\`: ${err.message}` };
+  }
+  const trackedGateSet = new Set(trackedGates);
 
   const entries = manifest.fixtures ?? [];
   const manifestPaths = new Map();
@@ -215,19 +263,13 @@ function checkManifest(root) {
       if (UNVERIFIED_PREFIX.test(posix.basename(entry.path))) {
         problems.push(`${label}: an \`unverified-*\` herdr capture is never a fixture (its harness version was not verified against PINS.md)`);
       }
-      for (const p of driverBlockProblems(entry.driver, root)) problems.push(`${label}: ${p}`);
+      if (entry.version_matches_pin !== true) {
+        problems.push(`${label}: a \`-herdr\` fixture needs version_matches_pin: true (its harness version verified against PINS.md)`);
+      }
+      for (const p of driverBlockProblems(entry, root, trackedGateSet)) problems.push(`${label}: ${p}`);
     } else if ('driver' in entry) {
       problems.push(`${label}: has a \`driver\` block but its file name lacks the \`-herdr\` suffix; a herdr-driven fixture carries both`);
     }
-  }
-
-  let tracked;
-  try {
-    tracked = execFileSync('git', ['ls-files', fixturesDir], { cwd: root, encoding: 'utf8' })
-      .split(/\r?\n/)
-      .filter(Boolean);
-  } catch (err) {
-    return { fatal: `Could not run \`git ls-files ${fixturesDir}\`: ${err.message}` };
   }
 
   const trackedFixtureFiles = tracked.filter((f) => f !== manifestRelPath);
@@ -238,7 +280,26 @@ function checkManifest(root) {
     }
   }
 
-  return { problems, entries: entries.length, tracked: trackedFixtureFiles.length, herdrEntries };
+  // herdr-run records and gate results that claim what only an attested run may claim.
+  let attested = 0;
+  for (const file of trackedGates) {
+    const isRecord = file.startsWith(`${herdrRunsDir}/`) && file.endsWith('.md');
+    const isResult = /^docs\/planning\/gates\/G\d+-result\.md$/.test(file);
+    if (!isRecord && !isResult) continue;
+    let text;
+    try {
+      text = readFileSync(join(root, file), 'utf8');
+    } catch {
+      continue; // tracked but deleted in the work tree; not this check's concern
+    }
+    const claims = isRecord ? EQUIVALENCE_CALLOUT.test(text) : HERDR_DRIVER_LINE.test(text);
+    if (!claims) continue;
+    attested += 1;
+    const why = isRecord ? 'claims to be an equivalence record' : 'names herdr as its Driver';
+    for (const p of attestationProblems(text)) problems.push(`${file}: ${why} but ${p}`);
+  }
+
+  return { problems, entries: entries.length, tracked: trackedFixtureFiles.length, herdrEntries, attested };
 }
 
 function report(result) {
@@ -253,7 +314,8 @@ function report(result) {
   }
   console.log(
     `All ${result.entries} MANIFEST.json entries match the ${result.tracked} other committed fixture file(s)` +
-      ` (${result.herdrEntries} \`-herdr\` entr${result.herdrEntries === 1 ? 'y' : 'ies'}, each with a checked \`driver\` block).`,
+      ` (${result.herdrEntries} \`-herdr\` entr${result.herdrEntries === 1 ? 'y' : 'ies'}, each with a checked \`driver\` block;` +
+      ` ${result.attested} herdr-run record(s) or gate result(s) needing an operator attestation, each complete).`,
   );
   return 0;
 }
@@ -261,14 +323,19 @@ function report(result) {
 // --- self-test -------------------------------------------------------------
 
 // Each case builds a throwaway git work tree holding a MANIFEST.json, the fixture files it
-// names, and (where a case needs one) a herdr run manifest; runs this script against it
-// with --root; and asserts the exit code and, for a violation case, the one expected
-// message. Every case also carries a human-run control entry with no `driver` block, so
-// every case proves that entry raises no false positive.
+// names, and (where a case needs them) a herdr run manifest, its herdr-runs record, and a
+// gate result; runs this script against it with --root; and asserts the exit code and,
+// for a violation case, the one expected message. `untracked` files are written after
+// `git add`, so they exist on disk but are not tracked. Every case also carries a
+// human-run control entry with no `driver` block, so every case proves that entry raises
+// no false positive.
 const COMMIT = 'a'.repeat(40);
 const HUMAN_FIXTURE = `${fixturesDir}/g1-claude-wake/transcript-2026-09-28-2.1.283-boxC.jsonl`;
 const HERDR_FIXTURE = `${fixturesDir}/g1-claude-wake/transcript-2026-10-01-2.1.283-herdr.jsonl`;
+const UNVERIFIED_FIXTURE = `${fixturesDir}/g1-claude-wake/unverified-transcript-2026-10-01-herdr.jsonl`;
 const RUN_MANIFEST = `${herdrRunsDir}/G1-2026-10-01.run-manifest.json`;
+const RECORD = `${herdrRunsDir}/G1-2026-10-01.md`;
+const RESULT = 'docs/planning/gates/G1-result.md';
 
 function baseEntry(path) {
   return {
@@ -287,37 +354,73 @@ function baseEntry(path) {
   };
 }
 const DRIVER = { herdr_version: 'herdr 0.9.1', driver_commit: COMMIT, run_manifest: RUN_MANIFEST };
-const RUN = { outcome: 'PASS', driver: { commit: COMMIT }, herdr: { observedVersionOutput: 'herdr 0.9.1' } };
+const RUN = {
+  outcome: 'PASS',
+  driver: { commit: COMMIT, toolsHerdrDirty: false },
+  herdr: { observedVersionOutput: 'herdr 0.9.1' },
+  captures: [posix.basename(HERDR_FIXTURE), posix.basename(UNVERIFIED_FIXTURE)].map((file) => ({ file, written: true })),
+};
+const ATTESTATION = [
+  '## Operator attestation',
+  '',
+  `- [x] **herdr:** the real herdr binary ran, not a test double. sha256 of the executable: \`${'c'.repeat(64)}\``,
+  '- [x] **Harness:** the real, logged-in Claude Code CLI ran, not a test double.',
+  '- [x] **Consent dialog:** accepted by me, a human at the keyboard, during this run.',
+  '- **Attested by:** self-test operator, 2026-10-01',
+  '',
+].join('\n');
+const EQUIV = '> **Equivalence record** for G1 at herdr `v0.9.1`\n\n# G1 scripted re-run\n';
+const withoutLine = (label) => ATTESTATION.split('\n').filter((l) => !l.includes(label)).join('\n');
 
-function tree({ entries, run = RUN, extraFiles = [] }) {
+function tree({ entries, run = RUN, record = '# G1 scripted re-run\n', result = null, extraFiles = [], untracked = {} }) {
   const files = { [manifestRelPath]: JSON.stringify({ fixtures: [baseEntry(HUMAN_FIXTURE), ...entries] }, null, 2) };
   for (const e of entries) files[e.path] = '{}\n';
   for (const f of extraFiles) files[f] = '{}\n';
   files[HUMAN_FIXTURE] = '{}\n';
   if (run) files[RUN_MANIFEST] = JSON.stringify(run);
-  return files;
+  if (record) files[RECORD] = record;
+  if (result) files[RESULT] = result;
+  return { files, untracked };
 }
-const herdrEntry = (driver, path = HERDR_FIXTURE) => ({ ...baseEntry(path), ...(driver === undefined ? {} : { driver }) });
+const herdrEntry = (driver, path = HERDR_FIXTURE, extra = {}) => ({ ...baseEntry(path), ...(driver === undefined ? {} : { driver }), ...extra });
 const without = (k) => Object.fromEntries(Object.entries(DRIVER).filter(([key]) => key !== k));
+const runWith = (patch) => ({ ...RUN, ...patch });
 
 const SELF_TEST_CASES = [
-  { name: 'control: human-run entry only, no driver block', expect: 'pass', files: tree({ entries: [], run: null }) },
-  { name: 'control: -herdr entry with a complete driver block matching its run manifest', expect: 'pass', files: tree({ entries: [herdrEntry(DRIVER)] }) },
-  { name: '-herdr entry with no driver block', expect: 'has no `driver` block', files: tree({ entries: [herdrEntry(undefined)] }) },
-  { name: 'driver is not an object', expect: '`driver` must be an object', files: tree({ entries: [herdrEntry('herdr 0.9.1')] }) },
-  { name: 'driver.herdr_version missing', expect: 'driver.herdr_version is missing', files: tree({ entries: [herdrEntry(without('herdr_version'))] }) },
-  { name: 'driver.driver_commit missing', expect: 'driver.driver_commit is missing', files: tree({ entries: [herdrEntry(without('driver_commit'))] }) },
-  { name: 'driver.run_manifest missing', expect: 'driver.run_manifest is missing', files: tree({ entries: [herdrEntry(without('run_manifest'))] }) },
-  { name: 'driver.herdr_version not `herdr --version` output', expect: 'driver.herdr_version must be', files: tree({ entries: [herdrEntry({ ...DRIVER, herdr_version: '0.9.1' })] }) },
-  { name: 'driver.driver_commit abbreviated', expect: 'full 40-hex commit', files: tree({ entries: [herdrEntry({ ...DRIVER, driver_commit: 'aaaaaaa' })] }) },
-  { name: 'driver.run_manifest outside herdr-runs/', expect: 'driver.run_manifest must be a', files: tree({ entries: [herdrEntry({ ...DRIVER, run_manifest: '/tmp/run-manifest.json' })] }) },
-  { name: 'driver.run_manifest not committed', expect: 'not found on disk', files: tree({ entries: [herdrEntry(DRIVER)], run: null }) },
-  { name: 'run manifest outcome NOT RUN', expect: 'only a PASS run', files: tree({ entries: [herdrEntry(DRIVER)], run: { ...RUN, outcome: 'NOT RUN' } }) },
-  { name: 'run manifest driver commit differs', expect: 'driver_commit does not match', files: tree({ entries: [herdrEntry(DRIVER)], run: { ...RUN, driver: { commit: 'b'.repeat(40) } } }) },
-  { name: 'run manifest herdr version differs', expect: 'herdr_version does not match', files: tree({ entries: [herdrEntry(DRIVER)], run: { ...RUN, herdr: { observedVersionOutput: 'herdr 0.9.2' } } }) },
-  { name: 'driver block on a fixture without the -herdr suffix', expect: 'lacks the `-herdr` suffix', files: tree({ entries: [herdrEntry(DRIVER, `${fixturesDir}/g1-claude-wake/transcript-2026-10-01-2.1.283.jsonl`)] }) },
-  { name: 'unverified-* herdr capture committed as a fixture', expect: 'is never a fixture', files: tree({ entries: [herdrEntry(DRIVER, `${fixturesDir}/g1-claude-wake/unverified-transcript-2026-10-01-herdr.jsonl`)] }) },
-  { name: 'committed -herdr file with no manifest entry', expect: 'has no MANIFEST.json entry', files: tree({ entries: [], extraFiles: [HERDR_FIXTURE] }) },
+  { name: 'control: human-run entry only, no driver block', expect: 'pass', ...tree({ entries: [], run: null, record: null }) },
+  { name: 'control: -herdr entry with a complete driver block matching its run manifest', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)] }) },
+  { name: '-herdr entry with no driver block', expect: 'has no `driver` block', ...tree({ entries: [herdrEntry(undefined)] }) },
+  { name: 'driver is not an object', expect: '`driver` must be an object', ...tree({ entries: [herdrEntry('herdr 0.9.1')] }) },
+  { name: 'driver.herdr_version missing', expect: 'driver.herdr_version is missing', ...tree({ entries: [herdrEntry(without('herdr_version'))] }) },
+  { name: 'driver.driver_commit missing', expect: 'driver.driver_commit is missing', ...tree({ entries: [herdrEntry(without('driver_commit'))] }) },
+  { name: 'driver.run_manifest missing', expect: 'driver.run_manifest is missing', ...tree({ entries: [herdrEntry(without('run_manifest'))] }) },
+  { name: 'driver.herdr_version not `herdr --version` output', expect: 'driver.herdr_version must be', ...tree({ entries: [herdrEntry({ ...DRIVER, herdr_version: '0.9.1' })] }) },
+  { name: 'driver.driver_commit abbreviated', expect: 'full 40-hex commit', ...tree({ entries: [herdrEntry({ ...DRIVER, driver_commit: 'aaaaaaa' })] }) },
+  { name: 'driver.run_manifest outside herdr-runs/', expect: 'driver.run_manifest must be a', ...tree({ entries: [herdrEntry({ ...DRIVER, run_manifest: '/tmp/run-manifest.json' })] }) },
+  { name: 'run manifest absent', expect: 'is not committed (not tracked by git)', ...tree({ entries: [herdrEntry(DRIVER)], run: null }) },
+  { name: 'run manifest on disk but untracked', expect: 'is not committed (not tracked by git)', ...tree({ entries: [herdrEntry(DRIVER)], run: null, untracked: { [RUN_MANIFEST]: JSON.stringify(RUN) } }) },
+  { name: 'herdr-runs record missing beside the run manifest', expect: 'is not committed beside its run manifest', ...tree({ entries: [herdrEntry(DRIVER)], record: null }) },
+  { name: 'run manifest outcome NOT RUN', expect: 'only a PASS run', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ outcome: 'NOT RUN' }) }) },
+  { name: 'run manifest from a dirty tools/herdr/', expect: 'toolsHerdrDirty true', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ driver: { commit: COMMIT, toolsHerdrDirty: true } }) }) },
+  { name: 'run manifest with toolsHerdrDirty unknown (null)', expect: 'toolsHerdrDirty null', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ driver: { commit: COMMIT, toolsHerdrDirty: null } }) }) },
+  { name: 'run manifest driver commit differs', expect: 'driver_commit does not match', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ driver: { commit: 'b'.repeat(40), toolsHerdrDirty: false } }) }) },
+  { name: 'run manifest herdr version differs', expect: 'herdr_version does not match', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ herdr: { observedVersionOutput: 'herdr 0.9.2' } }) }) },
+  { name: 'fixture not among the run\'s captures', expect: 'among its written captures', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ captures: [] }) }) },
+  { name: 'fixture among the run\'s captures but withheld (written: false)', expect: 'among its written captures', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ captures: [{ file: posix.basename(HERDR_FIXTURE), written: false }] }) }) },
+  { name: '-herdr entry with version_matches_pin false', expect: 'needs version_matches_pin: true', ...tree({ entries: [herdrEntry(DRIVER, HERDR_FIXTURE, { version_matches_pin: false })] }) },
+  { name: 'driver block on a fixture without the -herdr suffix', expect: 'lacks the `-herdr` suffix', ...tree({ entries: [herdrEntry(DRIVER, `${fixturesDir}/g1-claude-wake/transcript-2026-10-01-2.1.283.jsonl`)] }) },
+  { name: 'unverified-* herdr capture committed as a fixture', expect: 'is never a fixture', ...tree({ entries: [herdrEntry(DRIVER, UNVERIFIED_FIXTURE)] }) },
+  { name: 'committed -herdr file with no manifest entry', expect: 'has no MANIFEST.json entry', ...tree({ entries: [], extraFiles: [HERDR_FIXTURE] }) },
+  { name: 'control: equivalence record with a complete operator attestation', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: 'equivalence record with no operator attestation', expect: 'has no `## Operator attestation` section', ...tree({ entries: [herdrEntry(DRIVER)], record: EQUIV }) },
+  { name: 'equivalence record: attestation without the herdr sha256', expect: 'missing its herdr line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION.replace('c'.repeat(64), '<sha256>')}` }) },
+  { name: 'equivalence record: attestation without the Harness line', expect: 'missing its Harness line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${withoutLine('**Harness:**')}` }) },
+  { name: 'equivalence record: attestation without the Consent dialog line', expect: 'missing its Consent dialog line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${withoutLine('**Consent dialog:**')}` }) },
+  { name: 'equivalence record: attestation unticked', expect: 'missing its Harness line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION.replace('- [x] **Harness:**', '- [ ] **Harness:**')}` }) },
+  { name: 'equivalence record: attestation without Attested by', expect: 'missing its Attested by line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${withoutLine('**Attested by:**')}` }) },
+  { name: 'control: gate result with Driver: human operator', expect: 'pass', ...tree({ entries: [], run: null, record: null, result: '### G1 claude-wake\n\n- **Driver:** human operator\n' }) },
+  { name: 'gate result naming herdr as Driver with no attestation', expect: 'names herdr as its Driver but has no', ...tree({ entries: [], run: null, record: null, result: '### G1 claude-wake\n\n- **Driver:** herdr (`herdr 0.9.1`, PINS.md `herdr (test tooling)` v0.9.1)\n' }) },
+  { name: 'control: gate result naming herdr as Driver, attested', expect: 'pass', ...tree({ entries: [], run: null, record: null, result: `### G1 claude-wake\n\n- **Driver:** herdr (\`herdr 0.9.1\`)\n\n${ATTESTATION}` }) },
 ];
 
 function runSelfTest() {
@@ -325,12 +428,16 @@ function runSelfTest() {
   for (const tc of SELF_TEST_CASES) {
     const dir = mkdtempSync(join(tmpdir(), 'oac-fixture-manifest-selftest-'));
     try {
-      for (const [rel, content] of Object.entries(tc.files)) {
-        mkdirSync(dirname(join(dir, rel)), { recursive: true });
-        writeFileSync(join(dir, rel), content);
-      }
+      const put = (files) => {
+        for (const [rel, content] of Object.entries(files)) {
+          mkdirSync(dirname(join(dir, rel)), { recursive: true });
+          writeFileSync(join(dir, rel), content);
+        }
+      };
+      put(tc.files);
       execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
       execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+      put(tc.untracked ?? {});
       const run = spawnSync(process.execPath, [scriptPath, '--root', dir], { encoding: 'utf8' });
       const output = `${run.stdout}${run.stderr}`;
       const failLines = output.split('\n').filter((l) => l.trim().startsWith('FAIL  ')).length;

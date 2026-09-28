@@ -160,8 +160,8 @@ current. This is the same obligation §a-§e of that policy already state for ga
 this file does not invent a second invalidation mechanism, it applies the existing one to
 opt-in test results.
 
-**Amendment, 2026-09-28 (K5, issue #128): herdr-driven runs are provider-integration
-tier, opt-in by construction, never default.** Epic K (#123) adds a test-side driver,
+**Dated note, 2026-09-28 (K5, issue #128): herdr-driven runs are
+provider-integration tier, opt-in by construction, never default.** Epic K (#123) adds a test-side driver,
 `tools/herdr/run.mjs`, that drives real Claude Code and Codex CLI sessions through herdr
 (pinned in `docs/planning/PINS.md`, row `herdr (test tooling)`; tool record
 `docs/planning/decisions/K1-herdr-evaluation.md`). A herdr-driven run is **not a ninth
@@ -491,9 +491,10 @@ app-server, captured as part of Stage 1's gate spikes:
   `turn/completed`.
 
 **Per-gate location, per `docs/planning/gates/README.md`.** Captured fixtures for gate
-G<n>'s spike live at `docs/planning/gates/fixtures/G<n>/`, redacted per `oac-gates`'
-fixture-capture procedure. Full command transcripts, when kept, live alongside them at
-`docs/planning/gates/fixtures/G<n>/transcript-<YYYY-MM-DD>.txt`.
+G<n>'s spike live at `docs/planning/gates/fixtures/g<n>-<slug>/` (e.g.
+`g1-claude-wake/`), redacted per `oac-gates`' fixture-capture procedure. Full command
+transcripts, when kept, live alongside them as `transcript-<YYYY-MM-DD>…`. (Path form
+corrected 2026-09-28, K5, to match the committed tree and the README.)
 
 **Every fixture carries its pinned version and capture date — no exception.** D6's own
 acceptance box: "Each fixture records the pinned version and capture date." A fixture
@@ -723,7 +724,7 @@ Every reference below is a repo-relative path; no prior context is assumed.
 - `docs/planning/v0.1/12-deferred.md` (task A12, not yet landed)
 - `docs/planning/decisions/C5-envelope-auth.md`
 - `docs/planning/decisions/C7-zenoh-transport.md`
-- `docs/planning/decisions/K1-herdr-evaluation.md` (§4 amendment, K5)
+- `docs/planning/decisions/K1-herdr-evaluation.md` (§4 dated note, K5)
 - `docs/planning/gates/README.md`
 - `docs/planning/PINS.md`
 - `docs/planning/STATUS.md`

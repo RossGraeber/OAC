@@ -16,15 +16,19 @@ verdicts under `herdr-runs/` (see "Scripted runs (herdr)" below).
   the prior verdict moves into the file's own "Re-run history" table (see
   "Re-run/invalidation policy" below). Git history is the archive — do not create a
   dated copy.
-- Fixtures for gate G<n>: `docs/planning/gates/fixtures/G<n>/` (redacted per
-  `oac-gates` §Fixture capture). This is the Stage 1 capture location. The path
-  Stage 3's fake Claude/Codex endpoints finally load fixtures from is **not** decided
-  here — Stage 3 may relocate or copy them.
-- Full command transcripts, when kept: `docs/planning/gates/fixtures/G<n>/transcript-<YYYY-MM-DD>.txt`.
-  The result file carries only the summary.
-- Slug names are fixed to the backlog gate labels — used in headings, never in
-  filenames: G1 `claude-wake`, G2 `codex-inject`, G3 `zenoh-peer`, G4 `mcp-dual-era`,
-  G5 `provenance`.
+- Fixtures for gate G<n>: `docs/planning/gates/fixtures/g<n>-<slug>/` (redacted per
+  `oac-gates` §Fixture capture), as committed: `g1-claude-wake/`, `g2-codex-inject/`,
+  `g3-zenoh-peer/`, `g4-mcp-dual-era/`, `g5-provenance/`. D6's protocol fixtures sit
+  beside them in `d6-claude-protocol/` and `d6-codex-protocol/`. This is the Stage 1
+  capture location. The path Stage 3's fake Claude/Codex endpoints finally load
+  fixtures from is **not** decided here — Stage 3 may relocate or copy them. (Corrected
+  at K5 to match the committed tree. The earlier `fixtures/G<n>/` form was never used.)
+- Full command transcripts, when kept, go in the gate's fixture directory as
+  `transcript-<YYYY-MM-DD>…`, with any qualifier the capture needs (e.g.
+  `transcript-2026-09-28-2.1.283-boxC.jsonl`). The result file carries only the summary.
+- Slug names are fixed to the backlog gate labels: G1 `claude-wake`, G2
+  `codex-inject`, G3 `zenoh-peer`, G4 `mcp-dual-era`, G5 `provenance`. They are used in
+  headings and in fixture directory names, never in result filenames.
 - herdr-driven fixtures carry the **`-herdr` suffix**:
   `<kind>-<YYYY-MM-DD>-<version>-herdr.<ext>` (K4), e.g.
   `transcript-2026-09-28-2.1.283-herdr.jsonl` and `pane-2026-09-28-2.1.283-herdr.txt`.
@@ -54,10 +58,20 @@ file has a manifest entry and vice versa.
 
 Every `-herdr` fixture entry also carries a **`driver` block**: `herdr_version` (the
 verbatim `herdr --version` output), `driver_commit` (the full commit the driver ran
-from) and `run_manifest` (the committed `herdr-runs/*.run-manifest.json`). The same
-script requires the block on every `-herdr` entry and checks it against that run
-manifest: outcome `PASS`, same driver commit, same herdr version. It rejects a `driver`
-block on an entry without the suffix, and any `unverified-*` capture.
+from) and `run_manifest` (the git-tracked `herdr-runs/*.run-manifest.json`, with its
+`.md` record tracked beside it). The same script requires the block on every `-herdr`
+entry, requires `version_matches_pin: true`, and checks the block against that run
+manifest. The run manifest must show outcome `PASS`, a clean `tools/herdr/`
+(`driver.toolsHerdrDirty: false`), the same driver commit and the same herdr version, and
+it must list the fixture's file name among its written captures. The script rejects a
+`driver` block on an entry without the suffix, and any `unverified-*` capture that also
+carries the `-herdr` suffix.
+
+It does **not** bind a fixture's bytes to the run: the run manifest records no capture
+hash yet. It also cannot tell a real herdr or harness from a test double; that rests on
+the operator attestation (`oac-gates` `references/scripted-runs.md`). The script checks
+that an attestation is present and complete wherever one is required. Both gaps are
+follow-ups for K3's driver (issue #140).
 `node scripts/check-fixture-manifest.mjs --self-test` plants one violation per rule.
 
 ## Gate-result template
@@ -104,7 +118,9 @@ Added field (K5, issue #128):
   For a herdr-driven run: the line `tools/herdr/lib/g1-report.mjs` renders — the
   `herdr --version` output, the PINS.md `herdr (test tooling)` tag,
   `tools/herdr/run.mjs`, the scenario file, and the driver commit. A verdict-bearing
-  scripted run also names the equivalence record it relies on. Every `herdr-runs/`
+  scripted run also names the equivalence record it relies on, and carries an
+  `## Operator attestation` section (the run manifest cannot tell a real herdr or harness
+  from a test double). Every `herdr-runs/`
   record carries the same line. The rules behind it are `oac-gates`
   `references/scripted-runs.md` "Driver identity". Every result on record when K5
   landed (G1-G5) was run without herdr and predates this field. The field is added at
@@ -205,9 +221,12 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   record it relies on.
 - **Equivalence record.** This is a `herdr-runs/` record that shows a scripted run of
   G<n> equivalent to the human run on every criterion, at the current herdr pin. It is
-  marked by the callout `> **Equivalence record** for G<n> at herdr <tag>` at its top.
-  The definition is in `references/scripted-runs.md` "Verdict eligibility". None exists
-  yet.
+  marked by the callout `> **Equivalence record** for G<n> at herdr <tag>` at its top,
+  and it carries an `## Operator attestation` section. In that section the operator
+  attests to a real herdr (with the sha256 of its executable), a real harness, and a
+  human accept of any consent dialog. A verdict-bearing scripted `G<n>-result.md` carries
+  the same section. The definition is in `references/scripted-runs.md` "Operator
+  attestation" and "Verdict eligibility". None exists yet.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers
