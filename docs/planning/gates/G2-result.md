@@ -296,6 +296,26 @@
     - **Gap against D6's Codex list: `thread/start` was not captured.** The operator's
       TUI created the thread on its own connection. D6 should capture `thread/start`
       directly.
+    - **Gap closed, 2026-09-28 (issue #39 T5/T7):** D6's Codex protocol capture now
+      directly captures `thread/start` (own connection, own thread), `thread/resume`,
+      and the `turn/*`/`item/*` event stream, all against Codex CLI / app-server
+      `0.157.1` (this gate's own re-run version, `docs/planning/gates/G2-result.md`'s
+      "Re-run" section below) — see `docs/planning/gates/fixtures/d6-codex-protocol/`
+      (`transcript-conn1-2026-09-28.jsonl` for `thread/start` plus the auto-subscribed
+      event stream; `transcript-conn2-2026-09-28.jsonl` for `thread/resume` and its own
+      event stream) and that directory's `README.md`. This is D6 fixture-capture
+      evidence, not a new G2 gate run — it does not change this gate's verdict above,
+      recorded only as the gap's closure. It **complements this fixture's own
+      `0.154.0`-only `thread/resume`/event-stream coverage** (captured above at
+      `0.154.0`, already superseded separately at `0.157.1` by
+      `transcript-2026-09-26-0.157.1.jsonl` per this gate's re-run) with a second,
+      independent `0.157.1` capture that also includes the previously-missing
+      `thread/start` leg the `0.157.1` re-run fixture did not add either (that re-run
+      repeated the two live-inject paths against an already-running TUI thread, the
+      same structural gap as the original `0.154.0` run). Neither fixture is marked
+      `superseded_by` the other in `MANIFEST.json` — they capture different call
+      paths (daemon-attach live-inject vs. a fresh `thread/start`), so both remain
+      independently useful, not one replacing the other.
     - **Redaction** was done by `redact.mjs`, which is kept with the uncommitted spike
       scratch:
       - username and home paths replaced with `<USER_HOME>` and `<SPIKE_DIR>`

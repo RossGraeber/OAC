@@ -1,0 +1,310 @@
+#!/usr/bin/env node
+// D6 spike (OAC issue #39, subtask T5 retry) — orchestration script for the corrected
+// live Codex app-server capture sequence. Quarantined; discarded after the D6 fixtures land
+// (oac-gates "Throwaway rule"). Not repo code. OFFLINE-SAFE BY DEFAULT: this script only
+// spawns `codex app-server proxy` (via client.mjs) when a live step actually runs; pass
+// --dry-run to only parse args and print the planned sequence without spawning anything —
+// use --dry-run for any check that must not create a thread or spend a model turn.
+//
+// Root-cause correction this orchestration exists to apply (see RUN-SHEET-codex.md and
+// SESSION-LOG-codex.md's correction section for the full citations,
+// openai/codex@36650394c5b38c2990ccf2a3457165ca3e9d9726 = rust-v0.157.1, retrieved 2026-09-27):
+// a thread's rollout file is written lazily on the FIRST USER MESSAGE
+// (codex-rs/rollout/src/recorder.rs L972/L1775 deferred_creation; codex-rs/core/src/session/
+// mod.rs L4913-4915 ensure_rollout_materialized), not at thread/start. thread/resume always
+// reads the stored thread from disk first (app-server/src/request_processors/
+// thread_processor.rs L4245-4254) and fails "no rollout found" (thread-store/src/local/
+// read_thread.rs L97-101) if resumed before any turn has run. This orchestration never calls
+// thread/resume before a turn has completed on that thread, and gates every step on an
+// observed event rather than a fixed sleep.
+//
+// Hard caps enforced by this script:
+//   - Exactly ONE thread/start call (conn1, step (a)).
+//   - At most THREE model turns: 2x turn/start + 1x thread/queue/add (steps (c), (f), (g)).
+//   - Any JSON-RPC error frame (a daemon->client response with .error, or a non-zero child
+//     exit code) aborts the whole run immediately — no retries of a turn-spending step.
+//     (Non-turn-spending steps, i.e. thread/start and thread/resume, may each be attempted at
+//     most once by this script; see RUN-SHEET-codex.md "Abort conditions" for the human-run
+//     equivalent of this same rule.)
+//
+// Sequence (each arrow gated on an observed event, never a fixed sleep):
+//   (a) conn1: thread/start (watch 3x turn/completed)              -- ONE new thread
+//     -> gate: conn1 process prints "[threadId] <uuid>"
+//   (b) conn3: turn/start #1 "...OAC-D6-T5-ACK..."                 -- model turn 1 of 3
+//     -> gate: conn3-turn1 process exits 0 (turn/start response received)
+//   (c) gate: conn1 observes turn/completed #1
+//     -> gate: conn1 stdout line "[turn/completed 1/3]"
+//   (d) conn2: thread/resume {threadId, excludeTurns:true} (watch 2x turn/completed)
+//     -> gate: conn2 process prints "[thread/resume] ..." (the resume response itself)
+//   (e) conn3: turn/start #2 (a slightly longer benign prompt)      -- model turn 2 of 3
+//     -> gate: conn3-turn2 process exits 0 (turn/start #2 response received)
+//   (f) gate: conn2 observes turn/started for turn 2
+//     -> gate: conn2 stdout line "[event] turn/started ..." occurring AFTER (e)'s gate
+//   (g) conn3: thread/queue/add {threadId, clientUserMessageId, input:[...QUEUED...]}
+//     -> queued turn 3 of 3 (experimental; queued until the thread goes idle)
+//   (h) wait: conn2 observes turn/completed x2 total, conn1 observes turn/completed x3 total
+//   (i) close: conn3 already exited per-call; conn2/conn1 self-exit on reaching their watch
+//       count or timeout — this script confirms exit and force-kills anything still alive.
+//
+// After the run, this script reports whether (g)'s thread/queue/add RESPONSE line appeared
+// in conn3's queue transcript before conn2's SECOND turn/completed line appeared in conn2's
+// transcript — the "added while busy" check the task brief asks for — by comparing the `t`
+// timestamps client.mjs's own `log()` writes into each JSONL frame (structured data, not a
+// stdout string scrape).
+
+import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CLIENT = join(HERE, 'client.mjs');
+
+function parseArgs(argv) {
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) { flags[key] = next; i++; }
+      else flags[key] = true;
+    }
+  }
+  return flags;
+}
+
+const flags = parseArgs(process.argv.slice(2));
+const DRY_RUN = !!flags['dry-run'];
+const CAP_MS = flags['cap-ms'] !== undefined ? Number(flags['cap-ms']) : 600000; // 10 min default, well inside a 45 min box
+const GATE_TIMEOUT_MS = flags['gate-timeout-ms'] !== undefined ? Number(flags['gate-timeout-ms']) : 120000;
+
+const PLAN = [
+  '(a) conn1: thread/start, watch 3x turn/completed -> transcript-conn1.jsonl',
+  '(b) conn3: turn/start #1 "Reply with exactly the word OAC-D6-T5-ACK and nothing else." -> transcript-conn3-turn1.jsonl',
+  '(c) gate: conn1 observes turn/completed #1',
+  '(d) conn2: thread/resume {threadId, excludeTurns:true}, watch 2x turn/completed -> transcript-conn2.jsonl',
+  '(e) conn3: turn/start #2 "List the numbers one through twenty as words, comma-separated." -> transcript-conn3-turn2.jsonl',
+  '(f) gate: conn2 observes turn/started for turn 2',
+  '(g) conn3: thread/queue/add {threadId, clientUserMessageId, input:[...QUEUED...]} -> transcript-conn3-queue.jsonl',
+  '(h) wait: conn2 turn/completed x2, conn1 turn/completed x3',
+  '(i) close all connections; report the "added while busy" check',
+];
+
+function printPlan() {
+  console.log('[run-t5] planned sequence (event-gated, no fixed sleeps):');
+  for (const line of PLAN) console.log('  ' + line);
+  console.log(`[run-t5] hard caps: exactly 1 thread/start, at most 3 model turns (2 turn/start + 1 queued)`);
+  console.log(`[run-t5] cap-ms=${CAP_MS} gate-timeout-ms=${GATE_TIMEOUT_MS} dry-run=${DRY_RUN}`);
+}
+
+// ---------------------------------------------------------------------------
+// Child-process + transcript-tail helpers
+// ---------------------------------------------------------------------------
+
+// Spawn `node client.mjs <args>`, capture stdout/stderr lines, and resolve on exit with
+// { code, stdoutLines }. Also invokes onLine(line) as each stdout line arrives, for
+// event-driven gating on printed markers (e.g. "[threadId] ...", "[thread/resume] ...").
+function spawnClient(args, { onLine } = {}) {
+  const child = spawn(process.execPath, [CLIENT, ...args], { cwd: HERE, stdio: ['ignore', 'pipe', 'pipe'] });
+  const stdoutLines = [];
+  let buf = '';
+  child.stdout.on('data', (d) => {
+    buf += d.toString();
+    let idx;
+    while ((idx = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, idx);
+      buf = buf.slice(idx + 1);
+      stdoutLines.push(line);
+      console.log(`[child ${args[0]}] ${line}`);
+      if (onLine) onLine(line);
+    }
+  });
+  child.stderr.on('data', (d) => process.stderr.write(`[child ${args[0]} stderr] ${d}`));
+  const exitP = new Promise((resolve) => {
+    child.on('exit', (code) => resolve({ code, stdoutLines }));
+  });
+  return { child, exitP, stdoutLines };
+}
+
+// Event-driven wait for a stdout line matching `predicate`, without polling: resolves
+// synchronously from inside the onLine callback wired into spawnClient, backstopped by a
+// single timeout timer (the only timer in this whole gate — not a poll loop).
+function waitForLine(spawned, predicate, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    for (const line of spawned.stdoutLines) {
+      if (predicate(line)) return resolve(line);
+    }
+    const timer = setTimeout(() => {
+      unsub();
+      reject(new Error(`gate timeout waiting for ${label} after ${timeoutMs}ms`));
+    }, timeoutMs);
+    const unsub = spawned.onSubscribe(predicate, (line) => {
+      clearTimeout(timer);
+      resolve(line);
+    });
+  });
+}
+
+// Re-implement spawnClient with a subscribable line stream (needed by waitForLine above).
+function spawnClientWatchable(args) {
+  const subscribers = [];
+  const spawned = spawnClient(args, {
+    onLine: (line) => {
+      for (const { predicate, cb, done } of subscribers) {
+        if (!done.value && predicate(line)) { done.value = true; cb(line); }
+      }
+    },
+  });
+  spawned.onSubscribe = (predicate, cb) => {
+    const done = { value: false };
+    subscribers.push({ predicate, cb, done });
+    return () => { done.value = true; };
+  };
+  return spawned;
+}
+
+function findErrorFrame(stdoutLines) {
+  // client.mjs prints `[<method> error] {...}` and returns exit code 1 on a JSON-RPC error.
+  return stdoutLines.find((l) => / error\] /.test(l));
+}
+
+async function requireCleanExit(spawned, label) {
+  const { code } = await spawned.exitP;
+  const errLine = findErrorFrame(spawned.stdoutLines);
+  if (code !== 0 || errLine) {
+    throw new Error(`abort: ${label} failed (exit=${code}${errLine ? `, ${errLine}` : ''})`);
+  }
+  return spawned;
+}
+
+// ---------------------------------------------------------------------------
+// Sequence
+// ---------------------------------------------------------------------------
+
+async function main() {
+  printPlan();
+  if (DRY_RUN) {
+    console.log('[run-t5] --dry-run: not spawning any process, no thread created, no turn spent.');
+    return;
+  }
+
+  const started = Date.now();
+  const overallTimer = setTimeout(() => {
+    console.error(`[run-t5] abort: overall cap-ms=${CAP_MS} exceeded`);
+    process.exit(1);
+  }, CAP_MS);
+  overallTimer.unref?.();
+
+  let tid = null;
+  const t = {}; // named timestamps for the "added while busy" check
+
+  // (a) conn1: thread/start, watch 3x turn/completed
+  console.log('[run-t5] (a) spawning conn1: thread/start, watch 3x turn/completed');
+  const conn1 = spawnClientWatchable([
+    'start', '--cwd', HERE,
+    '--watch-turn-completed', '3', '--timeout-ms', String(CAP_MS),
+    '--out', 'transcript-conn1.jsonl', '--tid-file', 'tid.txt',
+  ]);
+  const tidLine = await waitForLine(conn1, (l) => l.startsWith('[threadId] '), GATE_TIMEOUT_MS, 'conn1 threadId');
+  tid = tidLine.slice('[threadId] '.length).trim();
+  if (!tid) throw new Error('abort: conn1 did not yield a threadId');
+  console.log(`[run-t5] threadId=${tid}`);
+
+  // (b) conn3: turn/start #1
+  console.log('[run-t5] (b) spawning conn3-turn1: turn/start #1 (ACK)');
+  const conn3turn1 = spawnClientWatchable([
+    'turn', tid, 'Reply with exactly the word OAC-D6-T5-ACK and nothing else.',
+    '--out', 'transcript-conn3-turn1.jsonl',
+  ]);
+  await requireCleanExit(conn3turn1, 'conn3 turn/start #1');
+  t.turn1Started = Date.now();
+
+  // (c) gate: conn1 observes turn/completed #1
+  console.log('[run-t5] (c) gating on conn1 turn/completed #1');
+  await waitForLine(conn1, (l) => l.includes('[turn/completed 1/3]'), GATE_TIMEOUT_MS, 'conn1 turn/completed #1');
+
+  // (d) conn2: thread/resume {threadId, excludeTurns:true}, watch 2x turn/completed
+  console.log('[run-t5] (d) spawning conn2: thread/resume excludeTurns:true, watch 2x turn/completed');
+  const conn2 = spawnClientWatchable([
+    'resume', tid, '--exclude-turns',
+    '--watch-turn-completed', '2', '--timeout-ms', String(CAP_MS),
+    '--out', 'transcript-conn2.jsonl',
+  ]);
+  await waitForLine(conn2, (l) => l.startsWith('[thread/resume] '), GATE_TIMEOUT_MS, 'conn2 thread/resume response');
+
+  // (e) conn3: turn/start #2
+  console.log('[run-t5] (e) spawning conn3-turn2: turn/start #2 (numbers)');
+  const conn3turn2 = spawnClientWatchable([
+    'turn', tid, 'List the numbers one through twenty as words, comma-separated.',
+    '--out', 'transcript-conn3-turn2.jsonl',
+  ]);
+  await requireCleanExit(conn3turn2, 'conn3 turn/start #2');
+  t.turn2Started = Date.now();
+
+  // (f) gate: conn2 observes turn/started for turn 2 (the next turn/started line conn2 logs
+  // after (e)'s gate — turn 1's turn/started, if conn2 even saw it, is already behind us).
+  console.log('[run-t5] (f) gating on conn2 turn/started (turn 2)');
+  await waitForLine(conn2, (l) => l.includes('[event] turn/started'), GATE_TIMEOUT_MS, 'conn2 turn/started (turn 2)');
+
+  // (g) conn3: thread/queue/add — the third and last model-turn spend
+  console.log('[run-t5] (g) spawning conn3-queue: thread/queue/add (QUEUED)');
+  const conn3queue = spawnClientWatchable([
+    'queue', tid, 'Reply with exactly the word OAC-D6-T5-QUEUED and nothing else.',
+    '--out', 'transcript-conn3-queue.jsonl',
+  ]);
+  await requireCleanExit(conn3queue, 'conn3 thread/queue/add');
+  t.queueAddResponded = Date.now();
+  console.log(`[run-t5] thread/queue/add response observed at ${new Date(t.queueAddResponded).toISOString()}`);
+
+  // (h) wait for conn2 x2 and conn1 x3 turn/completed (each connection's own client.mjs
+  // process is already doing this watch; just wait for both processes to finish).
+  console.log('[run-t5] (h) waiting for conn2 (2x) and conn1 (3x) turn/completed to complete');
+  const [conn1Result, conn2Result] = await Promise.all([conn1.exitP, conn2.exitP]);
+  console.log(`[run-t5] conn1 exited code=${conn1Result.code}`);
+  console.log(`[run-t5] conn2 exited code=${conn2Result.code}`);
+
+  // Find conn2's SECOND turn/completed line's timestamp from its own transcript (structured
+  // data, not a stdout scrape) for the "added while busy" comparison.
+  const conn2Frames = readJSONL(join(HERE, 'transcript-conn2.jsonl'));
+  const conn2Completed = conn2Frames.filter((f) => f.payload?.method === 'turn/completed');
+  const secondCompletedAt = conn2Completed[1] ? Date.parse(conn2Completed[1].t) : null;
+
+  const queueFrames = readJSONL(join(HERE, 'transcript-conn3-queue.jsonl'));
+  const queueResponseFrame = queueFrames.find((f) => f.direction === 'daemon->client' && f.payload?.result !== undefined);
+  const queueRespondedAt = queueResponseFrame ? Date.parse(queueResponseFrame.t) : t.queueAddResponded;
+
+  console.log('[run-t5] (i) conn3 already exited per-call; conn2/conn1 self-exited above.');
+
+  console.log('--- "added while busy" check ---');
+  if (secondCompletedAt === null) {
+    console.log('UNDETERMINED: conn2 transcript does not show a 2nd turn/completed frame.');
+  } else {
+    const order = queueRespondedAt < secondCompletedAt
+      ? 'thread/queue/add response PRECEDED conn2 turn/completed #2 (queued while busy, as intended)'
+      : 'thread/queue/add response did NOT precede conn2 turn/completed #2 (turn 2 may have already finished)';
+    console.log(order);
+    console.log(`  queue/add response at:      ${new Date(queueRespondedAt).toISOString()}`);
+    console.log(`  conn2 turn/completed #2 at:  ${new Date(secondCompletedAt).toISOString()}`);
+  }
+
+  clearTimeout(overallTimer);
+  console.log(`[run-t5] done in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+}
+
+function readJSONL(path) {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+}
+
+main().catch((err) => {
+  console.error(`[run-t5] ABORT: ${err.message}`);
+  process.exitCode = 1;
+});
+
+export { parseArgs, PLAN };

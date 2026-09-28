@@ -26,10 +26,10 @@ yet. A forged nested envelope with a wrong, guessed delimiter (case X2) got the 
 name the forged id as sender; a forged block replaying a real delimiter from an earlier
 delivery (case X3) did not get the model to name the forged id but did leave it unable
 to resolve a sender at all (conflict-register entry C13,
-`docs/planning/v0.1/03-decisions-and-amendments.md` §4). Gate **G1 (Claude wake)** PASSED
-on Claude Code `v2.1.282` but is now **NOT RUN** for the current environment (the Claude
-Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
-`docs/planning/gates/G1-result.md`),
+`docs/planning/v0.1/03-decisions-and-amendments.md` §4). Gate **G1 (Claude wake)** is
+**PASS** (originally on Claude Code `v2.1.282`; the Claude Code (Channels) pin went
+floating 2026-09-27, last observed `v2.1.283`, invalidating that PASS; re-run and
+**PASSED again** 2026-09-28 on `v2.1.283` — see `docs/planning/gates/G1-result.md`),
 gate **G2 (Codex live inject)** is **PASS** (`0.157.1`, re-run 2026-09-26, Windows only,
 per `docs/planning/gates/G2-result.md`), and gate **G4 (MCP dual-era server)** is **PASS**
 (re-run 2026-09-26, fresh unexpired timebox, per `docs/planning/gates/G4-result.md`): the
@@ -222,9 +222,13 @@ transport receives envelope
 `notifications/claude/channel`, carrying `content` (string) and `meta` (a
 string-to-string map); `meta` keys must be identifier-safe or Claude Code silently drops
 them. An inbound notification wakes an idle session as a user turn; notifications
-arriving mid-turn are queued and delivered together, in order, at the next turn. **There
-is no acknowledgement** — a resolved send means "written to transport", not "seen by the
-model." Source: PLANNING-PROMPT.md §3.1, retrieved 2026-09-15.
+arriving mid-turn are queued and delivered in order, not dropped, not interleaved into an
+in-flight tool call. **There is no acknowledgement** — a resolved send means "written to
+transport", not "seen by the model." Source: PLANNING-PROMPT.md §3.1, retrieved
+2026-09-15 — **amended 2026-09-28** (issue #39 G1 Box C, Claude Code `v2.1.283`): live
+evidence shows two close-together mid-turn notifications can each render at its own
+tool-call boundary rather than batched "together" at one; order/no-drop/no-interleave are
+confirmed, batching is not. See `docs/planning/gates/G1-result.md`.
 
 **Surface label, at first mention.** Claude Code Channels is a **research preview**.
 Pinned version: **floating** — last observed `v2.1.283` (`docs/planning/PINS.md` —

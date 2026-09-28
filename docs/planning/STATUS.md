@@ -4,6 +4,151 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-28 (**G1/issue #34/D1: PASS**, operator decision, issue #39
+chat. G1's `v2.1.282` PASS was invalidated 2026-09-27 by the Claude Code (Channels) pin
+float; re-run in two attempts the same day, issue #39 T6/T7: Box B recorded incomplete,
+Box C closed its gaps and is the verdict-bearing run. Judged directly against
+criterion 3's literal text ("queued and delivered at the next turn, in order (not
+dropped, not interleaved out of order)"): order preserved, nothing dropped, nothing
+interleaved — **PASS**. Box C's own new finding — two mid-turn notifications landed at
+two separate tool-call boundaries rather than batched together at one, unlike the
+original PASS's own account — is recorded as an **observed `2.1.283` behavior change**,
+not a criterion failure. Every "delivered together" statement this project makes has
+been amended with a dated note, not silently rewritten: `PLANNING-PROMPT.md` §3.1,
+`.claude/skills/oac-claude-channels/SKILL.md`, `.claude/skills/oac-gates/
+references/G1-claude-wake.md` (including its "two notifications, one turn boundary"
+fixture-capture line), `docs/planning/v0.1/04-architecture.md`, and
+`docs/planning/REVERIFICATION-B2.md` (a cross-reference note added beside the verbatim
+first-party quote, the quote itself untouched). Mid-turn delivery batching (vs.
+per-boundary delivery) is now tracked as its own UNVERIFIED-as-a-guarantee item — see
+"Open UNVERIFIED items" below and `docs/planning/v0.1/11-risks.md` row 49 (may depend on
+notification send timing; only two data points exist so far). **G1's gate-level verdict
+in "Gate verdicts" below, the "Open epics"/"Blocked" cells above, and every document
+that mirrors G1's STATUS cell are synced to PASS in this same change**
+(`02-gating-findings.md`, `03-decisions-and-amendments.md`, `04-architecture.md`,
+`06-security.md`, `08-cli-and-deployment.md`, `09-test-strategy.md`, `10-stages.md`,
+`11-risks.md`, `01-capability-matrix.md` (no stale cell found there to fix),
+`decisions/C6-trust-rendering.md`) — the Stage 1 exit blocker lines naming "G1's pending
+re-run" now read only "G3's parked macOS leg" (G3 remains the sole D3/macOS blocker on
+Stage 1's exit). The original `v2.1.282` transcript's `MANIFEST.json` `superseded_by`
+field now points to the Box C fixture; `pins_reference.claude_code_note` updated to
+match. Full evidence: `docs/planning/gates/G1-result.md`. `node
+scripts/check-fixture-manifest.mjs`, `node scripts/check-skills.mjs`, and `node
+scripts/sync-backlog.mjs --check` all re-run clean after this change.)
+
+**Last updated:** 2026-09-28 (**superseded by the entry above (G1 PASS)** for G1's
+verdict specifically — this entry's own G1 narrative below predates the operator's
+2026-09-28 PASS decision and is kept as history, not rewritten; everything else in this
+entry about D6 fixtures, redaction, and the schema comparison still stands. issue
+#39/D6 protocol fixtures, subtasks T5-T7, plus a
+post-review correction pass and a second G1 re-run attempt (Box C). **D6's five acceptance
+criteria (issue #39 body) are all met by the fixtures this change lands**: Claude fixtures
+cover initialize/negotiation, notification delivery, mid-turn queueing, and a tool reply
+(`d6-claude-protocol/`); Codex fixtures cover `initialize`/`initialized`, `thread/start`,
+`thread/resume`, `turn/start`, `thread/queue/add`, and the event stream including
+`item/completed`/`turn/completed` (`d6-codex-protocol/`); every fixture records its pinned
+version and capture date (`MANIFEST.json`); fixtures contain no credentials/tokens/private
+paths (redaction results below); the Codex schema is referenced (commit, path, regen
+commands, hashes, upstream comparison), not hand-transcribed. D6 itself does not depend on
+G1's own gate verdict being resolved (a separate concern — see below).
+
+**Codex (T5):** two boxed attempts. Attempt 1 (2026-09-27T22:54:20Z-22:57:21Z) correctly hit
+a real protocol-ordering failure — `thread/resume` on a freshly-`thread/start`-ed thread
+before any turn ran on it failed `-32600 "no rollout found"` twice — root-caused to
+first-party source (`codex-rs/rollout/src/recorder.rs` `deferred_creation`; commit
+`36650394c5b38c2990ccf2a3457165ca3e9d9726`): a rollout materializes lazily, on a thread's
+first user message, not at `thread/start`. Attempt 2 (retry, 2026-09-27T23:59:41Z-
+2026-09-28T00:00:55Z) sequenced correctly and captured `thread/start`, `thread/resume`, two
+`turn/start` calls, and a `thread/queue/add` genuinely queued while busy (response timestamp
+precedes the second `turn/completed`), all against Codex CLI / app-server `0.157.1` —
+closing G2-result.md's "`thread/start` was not captured" gap (the two fixtures now
+*complement*, not supersede, each other — see G2-result.md). **225/225** validated protocol
+frames pass across all eight raw transcripts (0 fail; corrected from an initial 100/106 after
+fixing a `validate-frames.mjs` schema-name-mapping bug — see `d6-codex-protocol/README.md`
+"Redaction"); redacted with the `redact.mjs` that actually ran (sha256
+`975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d`); a
+**sanitized copy** (sha256 `371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872`
+— username/hostname/installation-id literals now read from env/argv instead of
+hardcoded, verified byte-identical output when configured correctly) is what's
+actually **committed** quarantined at `d6-codex-protocol/redact.mjs.throwaway-quarantined`,
+alongside `hash-tree.mjs.throwaway-quarantined` and `validate-frames.mjs.throwaway-quarantined`
+(neither of which needed sanitizing),
+`residualLeaks=[]`/`residualGenericHits=[]` on every file. Attempt 1's failed-resume
+transcripts are committed as clearly-named negative fixtures, not discarded. Schema record
+(T2/T7): the local default-tier generation (314 files, tree sha256
+`6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87`) was compared against the
+upstream `codex-rs/app-server-protocol/schema/json` tree fetched directly from
+`raw.githubusercontent.com` at the exact pinned commit — **314/314 files, byte-identical
+match, no schema drift found** for the default tier (the only tier upstream checks in at
+this path/commit); the local `--experimental` generation (440 files) is NOT a pure superset
+of the default tier — 126 files exist only under `--experimental`, and a further 28 files
+exist in *both* tiers with different content (e.g. `TurnSteerParams.json`, which is already
+present in the default tier, not experimental-only). Fixtures: `docs/planning/gates/fixtures/
+d6-codex-protocol/` (README.md documents all of the above in full).
+
+**Claude (T4/T6):** Box A (04:37:29Z-04:44:36Z, after discarding a ~60s pre-box relaunch)
+captured server/discover (protocolVersion `2026-07-28`), legacy initialize, idle wake, a
+reply tool call, and a mid-turn pair, on Claude Code `v2.1.283`; redacted clean; fixtures at
+`docs/planning/gates/fixtures/d6-claude-protocol/`.
+
+**G1 re-run — TWO attempts, both incomplete or under operator review; verdict stays NOT
+RUN.** Box B (04:44:55Z-04:56:46Z, Claude Code v2.1.283) is recorded as an **incomplete**
+re-run attempt: criteria 1, 2, and 4 are evidenced, but criterion 2 only re-confirmed the
+wake itself (not the `<channel>` attribute set or the dropped-key behavior), criterion 3
+sent only one mid-turn notification (the original PASS used two, to test ordering), and
+criterion 5's dialog text was not captured before the operator accepted it — gaps in the
+run sheet the operator identified afterward, not a time-limit problem (the box closed with
+~33 minutes still available). The operator ordered a fresh re-run, **Box C**
+(05:33:29Z-05:44:27Z, same environment), which closed those specific gaps: the dev-channels
+dialog text was captured verbatim *before* accepting (criterion 5); the `<channel>` attribute
+query was repeated and got the same three-attribute answer as the original PASS plus
+confirmation the non-identifier-safe key is dropped (criterion 2, now fully re-confirmed);
+and two mid-turn notifications were sent during a four-`Start-Sleep` busy turn (criterion 3).
+**Box C's own new finding, not yet resolved:** the two mid-turn notifications were delivered
+in order, not dropped, and never interleaved inside a tool call — but at **two separate**
+tool-call boundaries (one after each of the first two `Start-Sleep` calls), not "together" at
+a single boundary the way the original `v2.1.282` PASS recorded it ("two notifications sent
+mid-turn arrived together between tool calls") and the way `G1-claude-wake.md`'s own fixture
+note and `oac-claude-channels`' §3.1 fact both describe it ("delivered together, in order";
+"two notifications, one turn boundary"). Full per-criterion write-up for both boxes:
+`docs/planning/gates/G1-result.md`. **Per `oac-gates`' "no partial pass" rule, this file does
+not pick a verdict** — the open question (does one-notification-per-boundary delivery still
+satisfy criterion 3's "queued and delivered at the next turn, in order," and does the §3.1
+fact / skill text describing "delivered together" need amending as a genuine 2.1.283
+behavior change, or was the original PASS's "together" merely an artifact of how *that* spike
+happened to time its two sends) is recorded for the operator to decide. **G1's gate-level
+verdict below, the pins table, and every other G1-mirroring document
+(`02-gating-findings.md`, `03-decisions-and-amendments.md`, `04-architecture.md`,
+`06-security.md`, `08-cli-and-deployment.md`, `09-test-strategy.md`, `10-stages.md`,
+`11-risks.md`, `01-capability-matrix.md`, `decisions/C6-trust-rendering.md`, the Stage 1
+exit blocker lines) are left unchanged by this entry — they still read "G1 NOT RUN for the
+current environment, re-run pending."**
+
+Separately, new evidence (not a G1 criterion): a `server/discover` probe (Claude Code
+`2.1.283`) reproduced across Box A, Box B, and Box C, including with `$env:MCP_SDK_GENERATION`
+confirmed empty in the Box B/C terminal — see "Open UNVERIFIED items" below and
+`docs/planning/v0.1/11-risks.md` row 42 (also corrects an earlier draft of this note that
+wrongly claimed all occurrences shared one working directory — they do not).
+
+`docs/planning/gates/fixtures/MANIFEST.json` now carries 149 entries (up from the pre-D6
+131): 8 attempt-1/attempt-2 Codex transcripts, 1 Claude Box A transcript, 1 G1 Box B
+transcript, 1 G1 Box C transcript, 2 quarantined Claude/Codex channel-server-adjacent
+scripts, 3 newly-committed quarantined tooling scripts (`redact.mjs`, `hash-tree.mjs`,
+`validate-frames.mjs`), and 1 README — plus corrections to several pre-existing entries'
+stale notes, capture-time ranges verified directly against each raw file's own timestamps
+(not approximated), the `schema` block's shape redesigned to separately record the upstream
+comparison and the local default/experimental generations (and to correctly show a `null`
+schema hash, with a note, for the one fixture whose observed Codex version, `0.154.0`, was
+never re-schema'd), and three review-nit fixes (G2 baseline `version_matches_pin_note` now
+reads "per PINS.md," the g1 quarantined-script entry's stale second note shortened and
+corrected, and the truncated `2f916d9` commit references resolved to the full 40-character
+SHA `f5adee2ad6595a1e650feda89487ae92e0659d4f` — the commit that actually last changed
+PINS.md, distinct from PR #120's own merge commit `2f916d9a0e8e4ccb088e9c9937ab63b611affd3b`).
+`node scripts/check-fixture-manifest.mjs` and `node scripts/check-skills.mjs` both pass
+clean. Issue #39: T0-T2 already landed (prior PRs); T5-T7 land in this change; T3/T4 landed
+as prerequisites of T5-T7 in this same change (the redaction script and Claude channel
+server used above).)
+
 **Last updated:** 2026-09-27 (Claude Code pin changed to **floating** by operator decision,
 issue #39/T0, mirroring the Codex row. The connecting client reported `v2.1.282` during G1
 (2026-09-25) and `v2.1.283` during both the G4 re-run and the G5 spike (2026-09-26 and
@@ -472,8 +617,8 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, now **NOT RUN** for the current environment (Claude Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283`; re-run pending, same HIL sitting as the D6 Claude capture, issue #39 T6); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked; G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg, G1's pending re-run (issue #39 T6, invalidated by the Claude Code pin float), and D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is still blocked on D3's macOS leg and G1's re-run, and separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked; G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`), J (agent skills) |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg, and D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is still blocked on D3's macOS leg only, G1's re-run PASSED 2026-09-28 and no longer blocks it; separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -498,11 +643,23 @@ the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
-G1 PASSED on Claude Code `v2.1.282` (2026-09-25, issue #34/D1), and is now **NOT RUN**
-for the current environment: the Claude Code (Channels) pin went floating (2026-09-27,
-operator decision, issue #39/T0), last observed `v2.1.283`, one version above what G1
-recorded, so per the floating-row rule the verdict is stale until re-run. Re-run is
-scheduled for the same HIL sitting as the D6 Claude capture (issue #39 T6). G2 PASSED on Codex `0.154.0` (2026-09-25,
+G1 PASSED on Claude Code `v2.1.282` (2026-09-25, issue #34/D1). The Claude Code
+(Channels) pin went floating (2026-09-27, operator decision, issue #39/T0), last
+observed `v2.1.283`, one version above what G1 recorded, so per the floating-row rule
+the verdict went stale pending re-run. **Re-run in the same HIL sitting as the D6
+Claude capture (issue #39 T6/T7): two attempts.** Box B (2026-09-28) was recorded
+incomplete (several pass-criteria probes not attempted). Box C (2026-09-28, same day)
+closed those gaps and **PASSED**: criteria 1, 2, 4 evidenced as cleanly as the original;
+criterion 5 with the dialog's own text captured verbatim before acceptance; criterion 3
+judged directly against its literal wording (order preserved, nothing dropped, nothing
+interleaved) — operator decision, 2026-09-28. Box C also observed mid-turn
+notifications landing at two separate tool-call boundaries rather than batched together
+at one, as the original PASS recorded — this is treated as an observed `2.1.283`
+behavior change, not a criterion failure; every "delivered together" statement in this
+repo has been amended with a dated note, and delivery batching is now tracked as
+UNVERIFIED-as-a-guarantee (`docs/planning/v0.1/11-risks.md` row 49). **G1 is now PASS**
+(current, `v2.1.283`); the original `v2.1.282` PASS is superseded and kept as history.
+See `docs/planning/gates/G1-result.md`. G2 PASSED on Codex `0.154.0` (2026-09-25,
 issue #35/D2), was invalidated when the Codex row went floating, and has been **re-run and
 PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
 the environment both report `0.157.1`, so the verdict is current. G3 has run on two of its three platforms
@@ -526,15 +683,15 @@ G5. See `docs/planning/gates/G5-result.md`.
 Every task labelled `gate:G1`, `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
 gate has a current gate-level verdict. Per `docs/planning/v0.1/10-stages.md` §5's Gate S1
 acceptance criterion 1, a `FAIL` is a closed verdict, so this does not itself block
-**Stage 1's own exit** (D7 — separately still blocked by G3's macOS leg and G1's pending
-re-run, issue #39 T6); per §5's
+**Stage 1's own exit** (D7 — separately still blocked by G3's macOS leg only; G1's
+re-run PASSED 2026-09-28 and no longer blocks it); per §5's
 go/no-go condition and §2, it blocks the pipeline from proceeding past **Stage 2's
 interface freeze** for Codex's provenance framing until conflict-register entry C13
 lands and DESIGN acceptance criterion 6 is re-established for Codex.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | NOT RUN for the current environment. Invalidated 2026-09-27: Claude Code (Channels) is now floating, last observed `v2.1.283`. It was **PASS** on `v2.1.282` (primary path: legacy MCP negotiation, idle wake, mid-turn queueing, tool reply). | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
+| G1 Claude wake | **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; primary path: legacy MCP negotiation, idle wake, mid-turn queueing, tool reply — the mid-turn pair landed at two separate tool-call boundaries rather than batched together at one, an observed `2.1.283` behavior change, not a criterion failure). Originally PASSED on `v2.1.282` (2026-09-25); invalidated 2026-09-27 when the Claude Code (Channels) pin went floating; that original record is kept as history. | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
@@ -732,10 +889,11 @@ without an UNVERIFIED label.
   issue #39/T0):** rather than keep tracking each patch bump as a one-off drift note, the
   PINS.md Claude Code (Channels) row now records `v2.1.283` as its last-observed version
   under a written floating-version policy, mirroring the Codex row. Per the pin-move
-  checklist, G1 is invalidated (`NOT RUN` for the current environment) since it ran on
-  `v2.1.282`, not the new last-observed `v2.1.283` — see
-  `docs/planning/gates/G1-result.md`. This does not close the re-verification gap above;
-  it remains open at `v2.1.283`.
+  checklist, G1 was invalidated (`NOT RUN` for the current environment) since it had run
+  on `v2.1.282`, not the new last-observed `v2.1.283`. **Re-run and PASSED again
+  2026-09-28** (issue #39 T6/T7, Box C) — see `docs/planning/gates/G1-result.md`. This
+  does not close the re-verification gap above; the full §3.1 B2-style re-verification
+  at `v2.1.283` remains open — only G1's own five pass criteria were re-checked.
 - **New, from G1:** the exact wire framing for Claude Code's MCP stdio transport
   (newline-delimited JSON, not `Content-Length`-prefixed) — confirmed directly during
   G1, but not previously stated in any OAC document; carried here as new evidence, not
@@ -861,7 +1019,32 @@ without an UNVERIFIED label.
   ("By default (unset): Connects on earlier protocol, doesn't ask about newer
   revision") (UNVERIFIED — not re-tested against a fresh `.mcp.json` in a clean
   session; reproduced identically in both the out-of-box run and the 2026-09-26 PASS
-  re-run; see `docs/planning/gates/G4-result.md`).
+  re-run; see `docs/planning/gates/G4-result.md`). **Reproduced a second, third, and
+  fourth time, 2026-09-28 (issue #39 T4/T6/T7, D6 Claude capture Box A, and the G1
+  re-run's Box B and Box C):** Box A's own capture
+  (`docs/planning/gates/fixtures/d6-claude-protocol/transcript-2026-09-28.jsonl` line 3)
+  shows the same probe. In Box B, the operator confirmed `$env:MCP_SDK_GENERATION` was
+  empty in that terminal (checked directly, after `Remove-Item`), yet
+  `docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-09-28-2.1.283.jsonl`
+  (line 3) still shows a `server/discover` probe — so this is not an
+  `MCP_SDK_GENERATION=v2`-only effect as the G4 finding's own framing implied; the probe
+  fired with that variable unset. Box C (same terminal session as Box B, same
+  `MCP_SDK_GENERATION`-unset state) reproduced it again
+  (`transcript-2026-09-28-2.1.283-boxC.jsonl` line 3). **Correction to an earlier draft
+  of this note:** the claim that "all three observations share a project directory with
+  prior MCP-server registrations" was wrong — the original G4 observation was captured
+  in the unrelated `g4-spike/` scratchpad directory, while Box A was captured in
+  `d6-spike/` and Boxes B/C were captured in `g1-spike/`. **Precisely:** the 2026-09-28
+  occurrences alone span two distinct working directories (`d6-spike/` for Box A, where
+  `MCP_SDK_GENERATION` was recorded as `"v2"`, not confirmed empty — Box A is evidence
+  for the `=v2` case, not the empty-var case; `g1-spike/` for Boxes B and C, where the
+  env var was confirmed empty); a third directory (`g4-spike/`) only enters the count
+  when including the original G4 occurrence, from a different date. Still UNVERIFIED
+  against a fresh `.mcp.json` in an otherwise-clean session with no prior MCP-server
+  registrations at all; the documented stdio default is still not confirmed to hold
+  under any tested condition on Claude Code `2.1.283`, in either the `=v2` or the
+  empty-var case. See `docs/planning/v0.1/11-risks.md` row 42, updated with these
+  occurrences.
 - **New, security-relevant, from G4:** a Codex daemon `thread/list` query made during
   the G4 spike returned Codex-Desktop-originated thread entries whose `preview` text was
   Claude Code prompt content (e.g. slash-command text the operator typed into Claude
@@ -944,6 +1127,28 @@ without an UNVERIFIED label.
   this pass; the multicast-discovery cell additionally carries a structural, unverified
   observation about MQTT's broker-based client model; see
   `docs/planning/v0.1/05-interfaces.md` §17).
+- **New, from G1 Box C (issue #39, 2026-09-28):** whether mid-turn `notifications/
+  claude/channel` deliveries are batched together at a single tool-call boundary, or can
+  arrive at separate boundaries one at a time, is UNVERIFIED as a guarantee — it may
+  depend on the notifications' relative send timing. The original G1 PASS
+  (`v2.1.282`) observed two notifications arrive together, between the same pair of
+  tool calls; G1 Box C (`v2.1.283`) observed two notifications, sent ~1.85s apart, arrive
+  at two separate tool-call boundaries instead. Both runs agree on order-preserved,
+  nothing dropped, nothing interleaved inside a tool call — only the batching claim is
+  unconfirmed. `PLANNING-PROMPT.md` §3.1, `oac-claude-channels`, `oac-gates/
+  references/G1-claude-wake.md`, and `docs/planning/v0.1/04-architecture.md` are each
+  amended with a dated note pointing here rather than silently rewritten. See
+  `docs/planning/gates/G1-result.md` "Re-run attempt 2 (Box C)" and
+  `docs/planning/v0.1/11-risks.md` row 49.
+- **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
+  subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
+  `thread/resume`, and `thread/fork` are source-confirmed to
+  (`codex-rs/app-server/src/request_processors/thread_processor.rs` L1562-1580,
+  L4009-4015, L5227), is UNVERIFIED — inferred only from the same file's
+  request-handling structure not carrying an equivalent "Auto-attach a thread
+  listener" call near either handler; not directly source-confirmed the way the three
+  auto-attach sites are. See `oac-codex-appserver/references/thread-lifecycle.md` and
+  `docs/planning/v0.1/11-risks.md` row 50.
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the

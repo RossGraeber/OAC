@@ -60,7 +60,13 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
 
 - Confirmed by design (must observe directly, not assume):
   - Inbound notifications wake an idle session as a user turn; notifications mid-turn are
-    queued and delivered together, in order, at the next turn.
+    queued and delivered in order, not dropped, not interleaved into an in-flight tool
+    call. **Amendment, 2026-09-28 (G1 Box C, `v2.1.283`):** do not assume "delivered
+    together, at the next turn" means batched at one boundary — Box C observed two
+    close-together mid-turn notifications delivered at two separate tool-call boundaries,
+    still in order and un-dropped. Delivery granularity (batched vs. per-boundary) is
+    UNVERIFIED as a guarantee; may depend on relative send timing. See
+    `docs/planning/gates/G1-result.md` "Re-run attempt 2 (Box C)".
   - Claude Code sends **no acknowledgement** — a resolved notification send means "written to
     transport," not "seen by the model." Record what the spike can and cannot observe about
     delivery given this.
@@ -81,6 +87,7 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
 
 Per D6: initialize/negotiation handshake (showing the legacy revision), the
 `notifications/claude/channel` payload and the resulting `<channel>` tag rendering, the
-mid-turn queueing sequence (two notifications, one turn boundary), and a tool-based reply.
-Capture the pinned version and date on the fixture; redact any session-identifying data before
-committing.
+mid-turn queueing sequence (two notifications, in order, not dropped — not necessarily one
+turn boundary; G1 Box C observed two separate boundaries, see the amendment above), and a
+tool-based reply. Capture the pinned version and date on the fixture; redact any
+session-identifying data before committing.

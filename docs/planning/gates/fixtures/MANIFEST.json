@@ -5,7 +5,7 @@
   "stage3_runtime_fixture_path_note": "The path Stage 3's fake Claude/Codex endpoints will finally load fixtures from is undecided. G1/G2/G4-result.md each say so explicitly (e.g. G2: \"The location is provisional; D6 owns the final convention\"). This MANIFEST.json documents the Stage-1 capture location (docs/planning/gates/fixtures/) as it exists today; Stage 3 may relocate or copy fixtures from here, per docs/planning/gates/README.md's naming-convention note (\"This is the Stage 1 capture location ... not decided here\").",
   "pins_reference": {
     "file": "docs/planning/PINS.md",
-    "claude_code_note": "Claude Code (Channels) is floating in the current docs/planning/PINS.md (moved from a fixed v2.1.274 pin by PR #120/issue #39 T0, merged 2f916d9), last observed v2.1.283 — used as-is. The pin move invalidated G1 (it ran on v2.1.282): G1's verdict is NOT RUN pending re-run (issue #39 T6); see the g1-claude-wake entries' notes.",
+    "claude_code_note": "Claude Code (Channels) is floating in the current docs/planning/PINS.md (moved from a fixed v2.1.274 pin by PR #120/issue #39 T0, merged as 2f916d9a0e8e4ccb088e9c9937ab63b611affd3b (PINS.md’s own last-changed commit within that PR is f5adee2ad6595a1e650feda89487ae92e0659d4f)), last observed v2.1.283 — used as-is. The pin move invalidated G1's original v2.1.282 PASS (it ran one version behind). Box B (2026-09-28, transcript-2026-09-28-2.1.283.jsonl) is recorded INCOMPLETE (several pass-criteria probes not attempted). Box C (2026-09-28, transcript-2026-09-28-2.1.283-boxC.jsonl) closed those gaps and is the verdict-bearing run: **operator decision 2026-09-28, G1's verdict is PASS on v2.1.283.** Judged directly against criterion 3's literal wording, delivery at two separate tool-call boundaries (vs. the original PASS's together-at-one-boundary) satisfies \"in order, not dropped, not interleaved\" -- recorded as an observed 2.1.283 behavior change, not a criterion failure; every \"delivered together\" claim in this repo has been amended with a dated note (see docs/planning/v0.1/11-risks.md row 49). See the g1-claude-wake entries' notes and G1-result.md's re-run section.",
     "codex_note": "Codex CLI / app-server is floating in the current docs/planning/PINS.md, last observed 0.157.1 — used as-is."
   },
   "fixtures": [
@@ -20,12 +20,12 @@
         "note": "Node/runtime version of the throwaway channel server not recorded in the transcript or G1-result.md."
       },
       "pins_row": "Claude Code (Channels)",
-      "pins_as_of": "2026-09-27, commit 2f916d9 (merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
       "version_matches_pin": false,
       "version_matches_pin_note": "Observed 2.1.282 vs. the merged PINS.md's last-observed-floating v2.1.283 — mismatch. This is the exact drift that triggered G1's invalidation (see this entry's notes).",
       "capture_date": "2026-09-17 (first, discarded pre-fix attempts, lines 1-7) and 2026-09-25 (the pass-bearing run, lines 8-74)",
       "capture_utc_range": "2026-09-17T15:00:34.191Z-15:01:49.255Z (lines 1-7, discarded); 2026-09-25T05:32:45.920Z-06:12:25.059Z (lines 8-74, pass evidence)",
-      "superseded_by": null,
+      "superseded_by": "docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-09-28-2.1.283-boxC.jsonl",
       "redaction": {
         "script": null,
         "script_sha256": null,
@@ -43,7 +43,7 @@
       "notes": [
         "Seven notifications/claude/channel sends occur across the file (lines 26, 35, 44, 61, 62, 71, 72); only lines 61 (wake) and 71-72 (mid-turn pair) are the pass-bearing instances per G1-result.md's own account of six-plus server restarts.",
         "Location is provisional per G1-result.md: \"D6 (not yet executed) owns the final fixture-store convention\" — this manifest is that D6 output.",
-        "The Claude Code (Channels) pin move (fixed v2.1.274 -> floating, last observed v2.1.283, PR #120/issue #39 T0, merged 2f916d9) invalidates G1 per the pin-move checklist: G1's verdict is now NOT RUN (docs/planning/STATUS.md, docs/planning/gates/G1-result.md), re-run pending issue #39 T6. This fixture is the evidence G1's superseded PASS rested on; superseded_by stays null because no re-run fixture exists yet."
+        "The Claude Code (Channels) pin move (fixed v2.1.274 -> floating, last observed v2.1.283, PR #120/issue #39 T0, merged as 2f916d9a0e8e4ccb088e9c9937ab63b611affd3b (PINS.md’s own last-changed commit within that PR is f5adee2ad6595a1e650feda89487ae92e0659d4f)) invalidated G1 per the pin-move checklist. T6/T7 (issue #39): an INCOMPLETE re-run attempt (Box B, 2026-09-28, transcript-2026-09-28-2.1.283.jsonl) re-confirmed some criteria but not the full pass-criteria set. A second attempt (Box C, 2026-09-28, transcript-2026-09-28-2.1.283-boxC.jsonl) closed those gaps and is the verdict-bearing run: **operator decision 2026-09-28, G1 = PASS on Claude Code v2.1.283** (see G1-result.md's re-run section for the full per-criterion evaluation, including the observed 2.1.283 mid-turn-delivery behavior change this run surfaced). This entry (the original v2.1.282 transcript) is superseded by the Box C entry -- see this entry's own `superseded_by` field -- and is kept as the historical first-PASS record, not deleted."
       ]
     },
     {
@@ -59,7 +59,7 @@
       "pins_row": "Codex CLI / app-server",
       "pins_as_of": "G2-result.md records no separate \"PINS.md as-of\" field for this superseded 0.154.0 baseline section — that field appears only once, under \"Current-result fields\", for the current 0.157.1 re-run (2026-09-26, commit 93151b712a47a8430192d3bbf1abafdedc3341ea). At this fixture's own capture time (2026-09-25), docs/planning/PINS.md pinned Codex CLI / app-server as a fixed (not yet floating) 0.154.0.",
       "version_matches_pin": false,
-      "version_matches_pin_note": "Codex CLI / app-server is floating, last observed 0.157.1 (per this task and PINS.md). This fixture is the superseded 0.154.0 baseline; it does not match the current floating pin. Kept per G2-result.md as retained source-level detail.",
+      "version_matches_pin_note": "Codex CLI / app-server is floating, last observed 0.157.1 (per PINS.md, not per this task). This fixture is the superseded 0.154.0 baseline; it does not match the current floating pin. Kept per G2-result.md as retained source-level detail.",
       "capture_date": "2026-09-25",
       "capture_utc_range": "06:31:32.635Z-06:40:19.991Z (actual file span, first to last timestamp in transcript.jsonl). Lines 1-9 (06:31:32Z) predate the 06:32Z timebox declaration (G2-result.md: \"Before the box: ... a silent bare-JSONL attempt through the proxy, uncommitted; fixture line 1 at 06:31:32\", \"Box: declared at 06:32 UTC\").",
       "superseded_by": "docs/planning/gates/fixtures/g2-codex-inject/transcript-2026-09-26-0.157.1.jsonl",
@@ -90,10 +90,12 @@
       ],
       "schema": {
         "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
-        "path": "codex-rs/app-server-protocol/schema/json",
-        "generate_command": "codex app-server generate-json-schema --experimental",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
         "sha256": null,
-        "note": "pending T7"
+        "note": "Schema was not regenerated at Codex CLI / app-server 0.154.0 (this fixture’s own observed version) -- the T2/T7 schema regeneration and upstream comparison above were both run at codex-cli 0.157.1 only. Do not attribute the 0.157.1 hashes to this 0.154.0 capture.",
+        "validated_against": "not validated against a regenerated schema at 0.154.0 (out of scope for this superseded baseline fixture)"
       }
     },
     {
@@ -136,10 +138,32 @@
       "notes": [],
       "schema": {
         "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
-        "path": "codex-rs/app-server-protocol/schema/json",
-        "generate_command": "codex app-server generate-json-schema --experimental",
-        "sha256": null,
-        "note": "pending T7"
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
       }
     },
     {
@@ -154,7 +178,7 @@
         "node": "25.2.1"
       },
       "pins_row": "Claude Code (Channels); Codex CLI / app-server",
-      "pins_as_of": "2026-09-27, commit 2f916d9 (merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
       "version_matches_pin": true,
       "version_matches_pin_note": "Claude 2.1.283 matches the merged PINS.md's last-observed-floating v2.1.283 exactly. Codex 0.157.1 matches the Codex row's current floating last-observed version.",
       "capture_date": "2026-09-26",
@@ -211,7 +235,7 @@
         "node": "25.2.1"
       },
       "pins_row": "Claude Code (Channels); Codex CLI / app-server",
-      "pins_as_of": "2026-09-27, commit 2f916d9 (merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
       "version_matches_pin": true,
       "version_matches_pin_note": "Same version pair as the primary re-run fixture; matches the merged PINS.md's last-observed-floating v2.1.283 (Claude) and 0.157.1 (Codex).",
       "capture_date": "timebox declared 2026-09-25T07:20:35Z; confirming evidence gathered 2026-09-26 (~21-23h after box close)",
@@ -251,7 +275,7 @@
         "node": null
       },
       "pins_row": "Claude Code (Channels)",
-      "pins_as_of": "2026-09-27, commit 2f916d9 (merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
       "version_matches_pin": false,
       "version_matches_pin_note": "Observed 2.1.282, not the merged PINS.md's last-observed-floating v2.1.283 — same version G1 recorded (2.1.282), predating the 2.1.283 observed at the later G4/G5 runs. This fixture documents an unrelated, already-fixed caching-hint bug, not a G4 pass criterion, so this mismatch does not itself invalidate a gate verdict.",
       "capture_date": "2026-09-26",
@@ -317,7 +341,7 @@
         "node": "25.2.1"
       },
       "pins_row": "Claude Code (Channels)",
-      "pins_as_of": "2026-09-27, commit 2f916d9 (merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
       "version_matches_pin": true,
       "version_matches_pin_note": "Matches the merged PINS.md's last-observed-floating v2.1.283 exactly.",
       "capture_date": "2026-09-27",
@@ -355,7 +379,7 @@
         "node": null
       },
       "pins_row": "Claude Code (Channels)",
-      "pins_as_of": "2026-09-27, commit 2f916d9 (merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is now floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
       "version_matches_pin": true,
       "version_matches_pin_note": "Same session/version as the paired wire-traffic fixture above; matches the merged PINS.md's last-observed-floating v2.1.283.",
       "capture_date": "2026-09-27",
@@ -402,10 +426,32 @@
       },
       "schema": {
         "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
-        "path": "codex-rs/app-server-protocol/schema/json",
-        "generate_command": "codex app-server generate-json-schema --experimental",
-        "sha256": null,
-        "note": "pending T7"
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
       },
       "coverage": {
         "initialize/initialized + thread/loaded/list + thread/list (3 pre-box preamble connections)": "1-30",
@@ -3475,7 +3521,7 @@
       "coverage_notes": "Not applicable — this file is spike implementation code, not a captured protocol exchange. It has no \"coverage\" in the sense this manifest uses for JSON-RPC/MCP/Zenoh-result fixtures.",
       "notes": [
         "This file is quarantined spike code, not a fixture in the D6 sense; included here only because it is committed under docs/planning/gates/fixtures/ and this manifest is instructed to cover every committed file in that tree.",
-        "The Claude Code (Channels) pin move (fixed v2.1.274 -> floating, last observed v2.1.283, PR #120/issue #39 T0, merged 2f916d9) invalidates G1 per the pin-move checklist: G1's verdict is now NOT RUN (docs/planning/STATUS.md, docs/planning/gates/G1-result.md), re-run pending issue #39 T6. This fixture is the evidence G1's superseded PASS rested on; superseded_by stays null because no re-run fixture exists yet."
+        "Reused unmodified as the server for the T7 G1 re-run (Box B, 2026-09-28, Claude Code v2.1.283 — see the transcript-2026-09-28-2.1.283.jsonl entry below); no source change, so no second quarantined copy was added."
       ]
     },
     {
@@ -3503,10 +3549,32 @@
       ],
       "schema": {
         "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
-        "path": "codex-rs/app-server-protocol/schema/json",
-        "generate_command": "codex app-server generate-json-schema --experimental",
-        "sha256": null,
-        "note": "pending T7"
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
       }
     },
     {
@@ -3675,6 +3743,894 @@
       "coverage_notes": "Not applicable — this file is spike implementation code, not a captured protocol exchange. It has no \"coverage\" in the sense this manifest uses for JSON-RPC/MCP/Zenoh-result fixtures.",
       "notes": [
         "This file is quarantined spike code, not a fixture in the D6 sense; included here only because it is committed under docs/planning/gates/fixtures/ and this manifest is instructed to cover every committed file in that tree."
+      ]
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn1-2026-09-28.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T00:00:26.895Z-00:00:39.590Z (first-to-last transcript frame timestamp; box declared 2026-09-27T23:59:41Z, closed 2026-09-28T00:00:55Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e550-1921-7000-93ef-383c5acff39f: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28). Raw frames validated before redaction: see this entry’s notes for the pass/fail count.",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "initialize / notifications/initialized": "1-6",
+        "thread/start (request/response/thread/started)": "7, 9, 10",
+        "turn/started, item/started x2 (userMessage, agentMessage), item/completed x2 (userMessage, agentMessage), turn/completed (turn 1, auto-subscribed)": "11-35",
+        "item/agentMessage/delta (unschematized, streaming)": "interleaved, 57 occurrences",
+        "turn/completed (turns 2, 3, observed via the same auto-subscription)": "87, 108"
+      },
+      "coverage_notes": "conn1 is the thread/start-issuing connection; per the T5 correction (codex-rs/app-server/src/request_processors/thread_processor.rs L1562-1580) it auto-subscribes to turn/*/item/* events without a separate thread/resume, and stayed open watching for 3x turn/completed across the whole run.",
+      "notes": [
+        "108 lines; validate-frames.mjs (T7 re-run, after fixing its union-schema method mapping -- see below): 105 validated, 105 pass, 0 fail; 1 unknown-method (initialized -- genuinely has no dedicated schema anywhere in the checked-in tree, unlike mcpServer/startupStatus/updated and item/agentMessage/delta, which DO have schemas (McpServerStatusUpdatedNotification, AgentMessageDeltaNotification, both definitions inside ServerNotification.json’s oneOf union) that the script’s original pascalMethod-guessing mapping failed to find. Fixed in validate-frames.mjs (committed quarantined at d6-codex-protocol/validate-frames.mjs.throwaway-quarantined, sha256 bb8e84ccdc1fbf1f58d7e10cb3aaa7f614dc7c0be5f92987765fd01261919e08) by reading each union file’s own oneOf discriminator (method enum -> params $ref) directly instead of guessing.",
+        "This is the ONE new Codex thread the operator approved for this retry (chat approval 2026-09-27); attempt 1’s thread (01a0e513-b789-7050-ab5d-260dadbddb65) never materialized a rollout and does not count against the budget -- see the three attempt-1 negative fixtures below and d6-codex-protocol/README.md."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn2-2026-09-28.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T00:00:32.087Z-00:00:39.591Z (first-to-last transcript frame timestamp; box declared 2026-09-27T23:59:41Z, closed 2026-09-28T00:00:55Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e550-1921-7000-93ef-383c5acff39f: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28). Raw frames validated before redaction: see this entry’s notes for the pass/fail count.",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "initialize / notifications/initialized": "1-6",
+        "thread/resume ({threadId, excludeTurns:true}) request/response": "7, 9",
+        "turn/started (turn 2, unambiguous -- conn2 was not connected during turn 1)": "12",
+        "turn/completed x2 (turns 2, 3)": "61, 82"
+      },
+      "coverage_notes": "Succeeded on the first attempt (unlike attempt 1) because a turn had already completed on this thread by the time thread/resume was called -- direct confirmation of the T5 Correction’s root-cause finding (rollout materializes on first user message, not at thread/start; codex-rs/rollout/src/recorder.rs L972/L1775, codex-rs/core/src/session/mod.rs L4913-4915).",
+      "notes": [
+        "82 lines; validate-frames.mjs (T7 re-run, after the union-schema mapping fix): 79 validated, 79 pass, 0 fail; 1 unknown-method (initialized -- see the transcript-conn1 entry’s note above for why the other previously-unknown methods now resolve)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn3-turn1-2026-09-28.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T00:00:27.352Z-00:00:27.406Z (first-to-last transcript frame timestamp; box declared 2026-09-27T23:59:41Z, closed 2026-09-28T00:00:55Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e550-1921-7000-93ef-383c5acff39f: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28). Raw frames validated before redaction: see this entry’s notes for the pass/fail count.",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "turn/start (request/response, turn id 01a0e550-1aea-7f41-bd04-ee7ca8a0b9f6)": "7, 9"
+      },
+      "coverage_notes": "First of two turn/start calls; this is the call that materializes the thread’s rollout (fixing attempt 1’s failure). Prompt: \"Reply with exactly the word OAC-D6-T5-ACK and nothing else.\"",
+      "notes": [
+        "9 lines; validate-frames.mjs (T7 re-run): 6 validated, 6 pass, 0 fail; 1 unknown-method (initialized)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn3-turn2-2026-09-28.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T00:00:32.513Z-00:00:32.539Z (first-to-last transcript frame timestamp; box declared 2026-09-27T23:59:41Z, closed 2026-09-28T00:00:55Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e550-1921-7000-93ef-383c5acff39f: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28). Raw frames validated before redaction: see this entry’s notes for the pass/fail count.",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "turn/start (request/response, turn id 01a0e550-2f0b-7d21-9729-789833aeccfd)": "7, 9"
+      },
+      "coverage_notes": "Second turn/start call, on the same thread. Prompt: \"List the numbers one through twenty as words, comma-separated.\" -- deliberately longer, so thread/queue/add (next entry) can be confirmed genuinely queued while this turn is still busy.",
+      "notes": [
+        "9 lines; validate-frames.mjs (T7 re-run): 6 validated, 6 pass, 0 fail; 1 unknown-method (initialized)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn3-queue-2026-09-28.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T00:00:33.162Z-00:00:33.174Z (first-to-last transcript frame timestamp; box declared 2026-09-27T23:59:41Z, closed 2026-09-28T00:00:55Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e550-1921-7000-93ef-383c5acff39f: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28). Raw frames validated before redaction: see this entry’s notes for the pass/fail count.",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "thread/queue/add (request/response, tier=experimental, clientUserMessageId 11f6c72f-e8ff-4196-9fc3-cdef37f86b2e)": "7, 9"
+      },
+      "coverage_notes": "\"Added while busy\" check (SESSION-LOG-codex.md): this response’s own t=2026-09-28T00:00:33.174Z precedes conn2’s SECOND turn/completed at t=2026-09-28T00:00:39.591Z -- confirms the input was genuinely queued while the thread was still busy on turn 2, not queued after it went idle.",
+      "notes": [
+        "9 lines; validate-frames.mjs (T7 re-run): 6 validated, 6 pass, 0 fail; 1 unknown-method (initialized)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn1-attempt1-failed-resume-2026-09-27.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-27",
+      "capture_utc_range": "2026-09-27T22:54:28.784Z-22:54:29.880Z (first-to-last transcript frame timestamp; box declared 22:54:20Z, closed 22:57:21Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e513-b789-7050-ab5d-260dadbddb65: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28).",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "thread/start (request/response/thread/started)": "7, 9, 10"
+      },
+      "coverage_notes": "NEGATIVE FIXTURE. conn1 exited normally after thread/start (attempt 1’s client.mjs did not yet support --watch-turn-completed on start -- that was added for the retry). No turn was ever run on this thread; it never materialized a rollout.",
+      "notes": [
+        "Kept deliberately as first-party evidence of the thread/resume-before-first-turn failure mode; see the two transcript-conn2-attempt1-failed-resume-try*.jsonl entries below and d6-codex-protocol/README.md \"Attempt 1: why the negative fixtures are kept\".",
+        "14 lines; validate-frames.mjs (T7 re-run, after the union-schema mapping fix -- see the transcript-conn1-2026-09-28.jsonl entry’s note): 11 validated, 11 pass, 0 fail; 1 unknown-method (initialized)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn2-attempt1-failed-resume-try1-2026-09-27.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-27",
+      "capture_utc_range": "2026-09-27T22:54:41.882Z-22:54:41.924Z (first-to-last transcript frame timestamp; box declared 22:54:20Z, closed 22:57:21Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e513-b789-7050-ab5d-260dadbddb65: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28).",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "thread/resume request / JSON-RPC error response (-32600 \"no rollout found for thread id ...\")": "7, 9"
+      },
+      "coverage_notes": "NEGATIVE FIXTURE, first of two consecutive failed thread/resume attempts (~12s after thread/start per the recomputed timing in SESSION-LOG-codex.md’s \"Correction\" section). Root cause: rollout materializes lazily on a thread’s first user message (codex-rs/rollout/src/recorder.rs L972/L1775; codex-rs/core/src/session/mod.rs L4913-4915), not at thread/start -- no turn had run, so no rollout could exist regardless of timing.",
+      "notes": [
+        "9 lines; validate-frames.mjs (T7 re-run): 6 validated, 6 pass, 0 fail (the -32600 error response itself validates cleanly against JSONRPCErrorError); 1 unknown-method (initialized)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn2-attempt1-failed-resume-try2-2026-09-27.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.157.1",
+        "codex_daemon": "0.157.1 (cliVersion/appServerVersion/managedCodexVersion, re-checked at pre-box and box-open)",
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "node": "v25.2.1 (client.mjs runtime, per scratchpad session log)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "2026-09-27, docs/planning/PINS.md floating-pin last-observed 0.157.1 (unchanged since the 2026-09-26 G2 re-run)",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 0.157.1 matches PINS.md’s floating last-observed 0.157.1 exactly; re-confirmed unchanged at both pre-box and box-open per SESSION-LOG-codex.md.",
+      "capture_date": "2026-09-27",
+      "capture_utc_range": "2026-09-27T22:55:56.236Z-22:55:56.287Z (first-to-last transcript frame timestamp; box declared 22:54:20Z, closed 22:57:21Z)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs --keep-thread 01a0e513-b789-7050-ab5d-260dadbddb65: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (re-run T7, 2026-09-28).",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "thread/resume request / JSON-RPC error response (-32600 \"no rollout found for thread id ...\"), second and last permitted attempt": "7, 9"
+      },
+      "coverage_notes": "NEGATIVE FIXTURE, the retry permitted by the run sheet’s \"at most one retry\" abort condition (~86s after thread/start). Same error as try 1 -- confirms this is a structural ordering requirement, not a transient race; the live sequence was correctly stopped here per ADR-001 boundary 13 (no rollout-file workaround).",
+      "notes": [
+        "9 lines; validate-frames.mjs (T7 re-run): 6 validated, 6 pass, 0 fail; 1 unknown-method (initialized)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/client.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined -- not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- this is spike client/orchestration source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code in the same sense as wire traffic. Kept per the oac-gates \"Throwaway rule\" (quarantined outside OAC’s module tree, .throwaway-quarantined suffix marks it non-durable)."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable -- this file is spike implementation code, not a captured protocol exchange.",
+      "notes": [
+        "Thin Codex app-server JSON-RPC client (start/resume/turn/queue modes) used for both D6 T5 attempts. Modified between attempt 1 and attempt 2 to add --watch-turn-completed / --tid-file on `start` and --exclude-turns on `resume` (see SESSION-LOG-codex.md \"Correction\" section) -- this committed copy is the attempt-2 (final) version."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/run-t5.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined -- not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- this is spike client/orchestration source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code in the same sense as wire traffic. Kept per the oac-gates \"Throwaway rule\" (quarantined outside OAC’s module tree, .throwaway-quarantined suffix marks it non-durable)."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable -- this file is spike implementation code, not a captured protocol exchange.",
+      "notes": [
+        "Orchestrates the attempt-2 sequence end-to-end, event-gated (no fixed sleeps), enforcing the operator-approved caps (exactly one thread/start, at most 3 model turns, abort-without-retry on any JSON-RPC error). Not used for attempt 1 (attempt 1 was run by hand, by design, before this script existed)."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-claude-protocol/claude-d6-channel.mjs.throwaway-quarantined",
+      "provider": "claude",
+      "surface": "spike-source-code (throwaway, quarantined -- not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- this is spike client/orchestration source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code in the same sense as wire traffic. Kept per the oac-gates \"Throwaway rule\" (quarantined outside OAC’s module tree, .throwaway-quarantined suffix marks it non-durable)."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable -- this file is spike implementation code, not a captured protocol exchange.",
+      "notes": [
+        "Throwaway Claude Channels MCP server for D6 T4/T6 (Box A). Derived from g5-spike/g5-channel.mjs and g1-spike/channel-server.mjs; benign cases only (no G5 adversarial payloads); answers server/discover with a legacy-shaped -32601, matching the real Claude Code v2 MCP runtime’s observed stdio probe behavior (g5-provenance/transcript-claude-2026-09-27.jsonl lines 2-3, 11-12)."
+      ]
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-claude-protocol/transcript-2026-09-28.jsonl",
+      "provider": "claude",
+      "surface": "claude-channels",
+      "observed_version": {
+        "claude_code": "2.1.283 (checked pre-box and post-box via `claude --version`; clientInfo.version in the transcript itself, per SESSION-LOG-claude.md)",
+        "mcp_protocol": "2025-11-25 (legacy, negotiated) plus a server/discover probe (protocolVersion 2026-07-28) preceding it",
+        "node": "v25.2.1 (line 1 _meta record's node_version field, this spike script's own runtime -- not Claude Code's runtime)"
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 2.1.283 matches PINS.md’s floating last-observed 2.1.283 exactly, re-checked pre- and post-box.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T04:39:01.871Z-04:42:55.517Z (first-to-last transcript frame timestamp, excluding the timestamp-less line-1 _meta record whose own capture_utc_start field reads 04:39:01.867Z; Box A declared 04:37:29Z, closed 04:44:36Z; a pre-box relaunch at 04:36:29Z was discarded as claude-d6-transcript.prebox-0436.jsonl, NOT committed -- its discover/initialize frames predate the declared box)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs (no --keep-thread -- Claude Channels has no thread-list concept to prune): droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (T7, 2026-09-28).",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "_meta record (tool, claude_version 2.1.283, node_version v25.2.1, os, capture_utc_start, mcp_sdk_generation)": "1",
+        "server/discover probe (protocolVersion 2026-07-28) + legacy-shaped -32601 response": "3-4",
+        "initialize (legacy 2025-11-25) request/response, notifications/initialized": "5-7",
+        "tools/list": "9-10",
+        "idle wake notification (d6-wake-1) + Claude’s unprompted turn": "12, t=2026-09-28T04:39:31.882Z",
+        "reply tool call (in_reply_to d6-wake-1)": "13-14, t=2026-09-28T04:40:30.495Z-04:40:30.496Z",
+        "mid-turn pair (midturn1, midturn2), delivered in order after the tool calls (operator paste)": "16 (t=2026-09-28T04:42:55.216Z), 18 (t=2026-09-28T04:42:55.517Z)"
+      },
+      "coverage_notes": "18 lines total (line 1 is the _meta record, not a JSON-RPC frame). This is D6’s Claude protocol capture (T4/T6), distinct from G1’s own gate-evidence transcript (g1-claude-wake/) -- benign-cases-only coverage for Stage 3’s fake-endpoint fixtures, not gate pass/fail evidence.",
+      "notes": [
+        "Captures the server/discover probe (line 3, protocolVersion 2026-07-28) with the spike's own _meta.mcp_sdk_generation recorded as \"v2\" -- see docs/planning/v0.1/11-risks.md row 42 and STATUS.md for the fuller picture (a later box, Box B in g1-claude-wake/transcript-2026-09-28-2.1.283.jsonl, showed the same probe fires even with MCP_SDK_GENERATION confirmed empty, so this is not gated on that variable).",
+        "A pre-box launch (~60s before Box A opened) was archived as claude-d6-transcript.prebox-0436.jsonl in the scratchpad kit and is NOT committed -- its discover/initialize frames are pre-box and not usable as declared-timebox evidence, per SESSION-LOG-claude.md."
+      ]
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-09-28-2.1.283.jsonl",
+      "provider": "claude",
+      "surface": "claude-channels",
+      "observed_version": {
+        "claude_code": "2.1.283 (checked pre-box and post-box via `claude --version`)",
+        "mcp_protocol": "2025-11-25 (legacy, negotiated)",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 2.1.283 matches PINS.md’s floating last-observed 2.1.283 exactly. This Box B capture is an INCOMPLETE re-run attempt on its own (several probes not attempted; see coverage_notes and notes below) -- the operator ordered a fresh re-run (Box C, transcript-2026-09-28-2.1.283-boxC.jsonl) that closed the remaining gaps and is the verdict-bearing run. G1 = PASS on v2.1.283 (operator decision 2026-09-28) -- see the Box C entry below and G1-result.md.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T04:46:32.009Z-04:55:04.127Z (first-to-last transcript frame timestamp; Box B declared 04:44:55Z, closed 04:56:46Z; pre-box, the original PASS evidence was archived as transcript.original-pass-2.1.282.jsonl and debug.original-pass-2.1.282.log, both untouched)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "d6-spike/redact.mjs (scratchpad, uncommitted spike tooling; also committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined)",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (T7, 2026-09-28).",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "server/discover probe (protocolVersion 2026-07-28) + legacy-shaped -32601 response": "3-4",
+        "initialize (legacy 2025-11-25) / notifications/initialized": "5-7",
+        "tools/list": "9-10",
+        "idle wake (criterion 2), unprompted turn, message g1-spike-wake-test-1": "11, t=2026-09-28T04:47:34.801Z",
+        "mid-turn notification (criterion 3), g1-spike-midturn-test-2, rendered between count steps 3 and 4": "12, t=2026-09-28T04:51:15.530Z",
+        "reply tool call (criterion 4), in_reply_to g1-spike-midturn-test-2": "13-14"
+      },
+      "coverage_notes": "14 lines. This is an INCOMPLETE T6 G1 re-run attempt (Box B) under Claude Code v2.1.283, using the same channel-server.mjs.throwaway-quarantined already committed in this directory (unmodified). Per G1-result.md's re-run section: criteria 1, 2, and 4 are directly evidenced; criterion 1 shows a version-level behavior change (a server/discover probe precedes legacy initialize on 2.1.283, absent on the original 2.1.282 run -- see notes); criterion 2 only re-confirms the wake itself, NOT the <channel> attribute set or the non-identifier-safe meta-key drop (neither was queried this run); criterion 3 sent only one mid-turn notification, not the two the original run used to test ordering; criterion 5's dialog text was not captured before the operator accepted it. The run sheet (this box) omitted probes for several of these; box closed at 04:56:46Z with roughly 33 minutes of the declared box still remaining -- these gaps are a run-sheet/procedure gap, not a time-limit gap. The operator ordered a fresh re-run (Box C, in progress as of this writing) to close them. G1's gate verdict stays NOT RUN pending that write-up.",
+      "notes": [
+        "MCP_SDK_GENERATION confirmed empty ($env:MCP_SDK_GENERATION, after Remove-Item) in this Box B terminal, yet the transcript still shows a server/discover probe (line 3) -- new evidence for docs/planning/v0.1/11-risks.md row 42 and the STATUS.md UNVERIFIED item about stdio discover probing.",
+        "Criterion 1 version-level behavior change: this transcript's lines 3-4 show a server/discover request (protocolVersion 2026-07-28) answered with a legacy-shaped -32601 error before the client falls back to legacy `initialize` (line 5). The original v2.1.282 PASS transcript (same directory, same launch command) carries zero server/discover frames -- grep-confirmed. This is a same-launch, cross-version protocol difference, not noise.",
+        "Criterion 2 (idle wake): only the wake notification itself was re-confirmed (line 11, unprompted turn). The original PASS additionally confirmed the exact <channel> tag attribute set (source/oac_message_id/oac_sender) and that the non-identifier-safe meta key ('not identifier safe!') is silently dropped -- neither was queried by the operator this run, so this run does not re-test those two sub-facts.",
+        "Criterion 5 (consent dialog): the operator recalls confirming a dialog but its exact text was not captured before accepting it (the banner's \"1 more notice hidden\" line is not expandable from a non-interactive capture, and no screenshot/paste of the dialog itself exists for this run) -- weaker than the original PASS, which quoted the dialog text directly.",
+        "Criterion 3 (mid-turn delivery): only one mid-turn notification was sent this run (vs. two in the original PASS, which specifically tested delivery order of a pair) -- this run cannot re-confirm the \"in order\" element of the original criterion wording, only that the single notification was held at a step boundary rather than interleaved.",
+        "See G1-result.md's re-run section for the full write-up, the operator's Box C decision, and why this is recorded as an incomplete attempt rather than a verdict."
+      ]
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/README.md",
+      "provider": "codex",
+      "surface": "documentation (not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- documentation file."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "N/A -- authored documentation, not captured wire traffic."
+      },
+      "coverage": null,
+      "coverage_notes": "Documents this directory's files, the attempt-1 negative-fixture rationale, redaction results, and the T7 schema-vs-upstream comparison. Not itself a captured protocol exchange.",
+      "notes": [
+        "Added T7 (issue #39). Included here only because it is committed under docs/planning/gates/fixtures/ and this manifest is instructed to cover every committed file in that tree."
+      ],
+      "schema": {
+        "commit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": {
+          "path": "codex-rs/app-server-protocol/schema/json",
+          "file_count": 314,
+          "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87",
+          "verified": {
+            "date": "2026-09-28",
+            "method": "fetched all 314 files directly from raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726 (file list via `gh api repos/openai/codex/git/trees/36650394c5b38c2990ccf2a3457165ca3e9d9726?recursive=1`, one curl per file), then hashed the fetched tree with hash-tree.mjs",
+            "result": "314/314 files, byte-identical to the local default-tier generation below (same tree_sha256)"
+          }
+        },
+        "local_generation": {
+          "cli": "codex-cli 0.157.1",
+          "default": {
+            "command": "codex app-server generate-json-schema --out schema/default",
+            "file_count": 314,
+            "tree_sha256": "6b5c39357ee0552bfa97c544a6fd16b0e5828eebb721c5313932b773105fca87"
+          },
+          "experimental": {
+            "command": "codex app-server generate-json-schema --experimental --out schema/experimental",
+            "file_count": 440,
+            "tree_sha256": "61fd7c82f78e129008387f30aeb7272ee457792292f840e01292306555c89a01",
+            "note": "+126 files not present in the default tier at all, PLUS 28 files present in BOTH tiers whose content differs between them (notable: ClientRequest, ServerNotification, ServerRequest, ThreadStartParams, ThreadStartResponse, ThreadResumeParams, ThreadResumeResponse, TurnStartParams, TurnSteerParams -- full 28-file list independently re-derived via `diff -rq schema/default schema/experimental`, not from upstream). Experimental is NOT a pure superset of default: TurnSteerParams.json, ThreadForkParams.json, ThreadForkResponse.json, and ThreadListParams.json/Response.json (among others in the 28) already exist in the default tier -- only their CONTENT differs under --experimental, they are not experimental-only additions. None of the 126 experimental-only files are checked in upstream at this commit's schema/json path."
+          }
+        },
+        "validated_against": "default tier first, experimental tier as fallback for a method whose schema exists only there (e.g. thread/queue/add, tier=experimental)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined -- not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- this is spike tooling source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\"."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable -- this file is spike tooling source code, not a captured protocol exchange.",
+      "notes": [
+        "Deterministic schema-tree hash script (T2/T7): sorted relative POSIX paths, one \"<path>  <sha256>\" line per file (two spaces), newline-joined with a trailing newline, then sha256 of that listing text. Used to compute every tree_sha256 value recorded in this directory’s and MANIFEST.json’s `schema` blocks, and to verify the fetched upstream tree against the local generation. sha256 of this script: 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "This file is D6 spike tooling itself (a script), not a captured Codex app-server protocol exchange -- the app-server schema does not describe it."
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/validate-frames.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined -- not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- this is spike tooling source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\"."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable -- this file is spike tooling source code, not a captured protocol exchange.",
+      "notes": [
+        "Validates a raw transcript’s JSON-RPC frames against the checked-in app-server schema (schema/default, schema/experimental). T7 fix (issue #39 review): the original method-to-schema-name mapping (pascalMethod guessing) missed union-file members such as AgentMessageDeltaNotification and McpServerStatusUpdatedNotification, whose wire method strings do not pascalCase-map to their definition names; fixed by reading each union file’s own oneOf discriminator (method enum -> params $ref) directly. sha256 of this script (post-fix): bb8e84ccdc1fbf1f58d7e10cb3aaa7f614dc7c0be5f92987765fd01261919e08."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "This file is D6 spike tooling itself (a script), not a captured Codex app-server protocol exchange -- the app-server schema does not describe it."
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined -- not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- this is spike tooling source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code. This IS the redaction script itself -- see its own sha256 below, which every other entry's redaction.script_sha256 field cites."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable -- this file is spike tooling source code, not a captured protocol exchange.",
+      "notes": [
+        "The redaction script used for every D6 fixture in this PR (and the earlier D6/G5 spikes it was forked from). Three sha256 values matter here, across two security-fix passes: (1) the version that actually PRODUCED every committed fixture has sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d (matching every other entry's redaction.script_sha256 field) -- never committed as that version, because it hardcoded the operator's OS username, machine hostname, and a Codex installation UUID as literal string constants (a public-repo leak). (2) A first sanitized fix, sha256 c3faff3ba152f128e6ea439021ab3a589a8cd633744179e41d354b036b9031f0, read those three values from flags/env instead -- but still failed open: a raw transcript carries the installation id and hostname as plain JSON field VALUES (installationId, serverName), which the string-level regex scrub only catches when the flag/env is actually supplied or the machine's own os.hostname() happens to match; without --installation-id it left the real id in the output while still reporting residualLeaks=[]/residualGenericHits=[] clean. That version was also never committed as such. (3) THIS committed file, sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872, fixes that: installationId/serverName are now key-based, unconditional replacements in walk() regardless of flags, plus a dedicated fail-closed check (including across one layer of JSON-string escaping) that refuses to exit 0 if any installationId field value isn't exactly <INSTALLATION_ID>. Re-verified against all 11 raw inputs across this PR (8 Codex + 3 Claude), both with and without the three flags: every run produces byte-identical output to its committed fixture, in both cases. Committed here (T7 review fixes) so the redaction is independently reproducible without embedding anyone's machine identifiers in a public repository."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "This file is D6 spike tooling itself (a script), not a captured Codex app-server protocol exchange."
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-09-28-2.1.283-boxC.jsonl",
+      "provider": "claude",
+      "surface": "claude-channels",
+      "observed_version": {
+        "claude_code": "2.1.283 (checked pre-box and post-box via `claude --version`)",
+        "mcp_protocol": "2025-11-25 (legacy, negotiated)",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "2026-09-27, commit f5adee2ad6595a1e650feda89487ae92e0659d4f (the commit that last changed PINS.md, part of merged PR #120/issue #39 T0; Claude Code (Channels) row is floating, last observed v2.1.283, per docs/planning/PINS.md \"Floating-version policy\")",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Observed 2.1.283 matches PINS.md’s floating last-observed 2.1.283 exactly. Box C is the second G1 re-run attempt (after Box B, recorded incomplete) -- it closes Box B’s specific gaps (dialog text, attribute query, two mid-turn notifications) and is the **verdict-bearing** run: operator decision 2026-09-28, G1 = PASS, judged directly against criterion 3’s literal wording (order preserved, nothing dropped, nothing interleaved). The delivery-at-two-boundaries pattern this box surfaced (vs. the original PASS’s together-at-one-boundary) is recorded as an observed 2.1.283 behavior change, not a criterion failure -- see notes below and G1-result.md.",
+      "capture_date": "2026-09-28",
+      "capture_utc_range": "2026-09-28T05:38:18.004Z-05:43:47.187Z (first-to-last transcript frame timestamp; Box C declared 05:33:29Z, closed 05:44:27Z; pre-box, Box B’s raw transcript was archived to g1-spike/transcript.boxB-2026-09-28-0444.jsonl in the scratchpad kit, already committed redacted as transcript-2026-09-28-2.1.283.jsonl in this same directory)",
+      "superseded_by": null,
+      "redaction": {
+        "script": "redact.mjs, committed quarantined at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined",
+        "script_sha256": "975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d",
+        "residual_scan_result": "redact.mjs: droppedHazardLines=0, droppedHazardProtocolFrames=0, residualLeaks=[], residualGenericHits=[] (T7, 2026-09-28).",
+        "script_sanitized_sha256": "371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872",
+        "script_sanitized_note": "sha256 371d79640a661180e15e3c4afc788531567f1bbbfdf286ac542608aecf381872 is the committed, public-safe copy at docs/planning/gates/fixtures/d6-codex-protocol/redact.mjs.throwaway-quarantined (T7 security fix, issue #39: the username/hostname/installation-id literals the version that actually ran (sha256 975de80c6462bdf1bbc21ee05e37730cde5cdf7ef74e42a556270a46ccbd9a3d) had hardcoded are now read from env/argv, defaulting to os.userInfo()/os.hostname() -- verified byte-identical output when the correct values are supplied, see that file's own header comment and MANIFEST's dedicated entry for it)."
+      },
+      "coverage": {
+        "first server instance (pid 24128), operator-interrupted launch, confirmed exited by 05:41:17Z; consistent with the interrupted first launch; only one wake frame exists in the whole transcript": "1-10",
+        "server/discover probe (protocolVersion 2026-07-28) + legacy -32601 (1st instance)": "3-4",
+        "initialize (legacy 2025-11-25) / notifications/initialized (1st instance)": "5-7",
+        "tools/list (1st instance)": "9-10",
+        "second server instance (pid 27760), the one that served the rest of the box": "11-25",
+        "server/discover probe + legacy -32601 (2nd instance)": "13-14",
+        "initialize / notifications/initialized (2nd instance)": "15-17",
+        "tools/list (2nd instance)": "19-20",
+        "idle wake (criterion 2), message g1-spike-wake-test-1": "21, t=2026-09-28T05:40:55.489Z",
+        "mid-turn notification 1 (criterion 3), g1-spike-midturn-test-2": "22, t=2026-09-28T05:42:21.313Z",
+        "mid-turn notification 2 (criterion 3), g1-spike-midturn-test-3": "23, t=2026-09-28T05:42:23.159Z",
+        "reply tool call (criterion 4), in_reply_to g1-spike-midturn-test-3": "24-25"
+      },
+      "coverage_notes": "25 lines. Second G1 re-run attempt (Box C), under the same channel-server.mjs.throwaway-quarantined (unmodified), designed to close Box B’s specific gaps: dialog text captured before accepting (criterion 5), the <channel> attribute set re-queried (criterion 2), and two mid-turn notifications sent during a four-Start-Sleep busy turn to re-test ordering (criterion 3, as the original v2.1.282 PASS did). A first server launch (pid 24128) was interrupted by the operator inside the box; only pid 27760 was found alive when checked at 05:41:17Z, consistent with the interrupted first launch, and only one wake frame exists in the whole transcript (belonging to pid 27760); the wake trigger fired only after the second launch (pid 27760) was confirmed alive and idle -- both launches are inside the declared box and both are captured, but only the second instance’s lines (11-25) carry pass-criteria evidence. This is the VERDICT-BEARING run: G1 = PASS (operator decision 2026-09-28). See G1-result.md’s Box C write-up for the full per-criterion evaluation, including the observed 2.1.283 delivery-pattern behavior change this box surfaced for criterion 3 (not a criterion failure).",
+      "notes": [
+        "Criterion 5 (consent dialog): dialog text captured VERBATIM before the operator accepted it (see G1-result.md and SESSION-LOG-claude.md’s \"Box C\" section for the full text) -- this closes Box B’s weaker-evidence gap for this criterion.",
+        "Criterion 2 (idle wake + attribute set): the operator queried the <channel> tag’s attributes after the wake and got source=g1spike, oac_message_id=g1-spike-wake-test-1, oac_sender=g1-spike-operator -- the same three-attribute set as the original PASS -- plus confirmation the non-identifier-safe meta key was silently dropped. This closes Box B’s gap (Box B re-confirmed only the wake itself, not the attribute set).",
+        "Criterion 3 (mid-turn queue/order) -- PASS, with an observed 2.1.283 behavior change recorded: two mid-turn notifications (lines 22-23, sent ~1.85s apart during the turn’s first Start-Sleep) were delivered in order, not dropped, and never interleaved inside a tool call -- satisfying criterion 3’s literal wording (\"queued and delivered at the next turn, in order (not dropped, not interleaved out of order)\") directly. What differs from the original v2.1.282 PASS: this box’s two notifications landed at TWO SEPARATE tool-call boundaries (test-2 after Sleep 1, test-3 after Sleep 2), not together at one boundary the way the original PASS recorded it (\"two notifications sent mid-turn arrived together between tool calls\"). Operator decision 2026-09-28: PASS as worded; the \"together\" claim in G1-claude-wake.md’s fixture-capture note and the oac-claude-channels §3.1 fact has been amended (dated note, not silently rewritten) rather than treated as a guarantee -- see G1-result.md and docs/planning/v0.1/11-risks.md row 49.",
+        "server/discover probe (line 3/13, protocolVersion 2026-07-28) reproduces again in this box, with MCP_SDK_GENERATION confirmed unset in this terminal (same terminal session as Box B, where the operator ran Remove-Item before launch) -- see docs/planning/v0.1/11-risks.md row 42."
       ]
     }
   ]

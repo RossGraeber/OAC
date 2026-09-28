@@ -147,6 +147,11 @@ mirroring the Codex row's rule:
   PINS.md the version they already ran against. G1 will be re-run in the same HIL sitting
   as the D6 Claude capture (issue #39 T6), under its own declared timebox, per
   `docs/planning/STATUS.md`.
+- **Re-run closed, 2026-09-28 (issue #39 T6/T7):** G1 was re-run against the current
+  last-observed version (`v2.1.283`) in two attempts, Box B (incomplete) and Box C
+  (verdict-bearing) — **G1 PASSED**, operator decision 2026-09-28. G1 is no longer
+  `NOT RUN`; the invalidation this pin move triggered is closed. Full evidence:
+  `docs/planning/gates/G1-result.md`.
 
 The B1 record below describes the original `v2.1.274` pin and is kept as history.
 

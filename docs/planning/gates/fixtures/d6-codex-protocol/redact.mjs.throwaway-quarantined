@@ -1,0 +1,313 @@
+// D6 S4 — redact a spike transcript into a committable fixture.
+// Usage: node redact.mjs <in.jsonl> <out.jsonl> [--keep-thread <threadId>] [--no-replace]
+//        [--username <name>] [--hostname <name>] [--installation-id <uuid>]
+//
+// Forked from ../g5-spike/redact.mjs (itself merging ../g2-spike/redact.mjs and
+// ../g4-spike/redact.mjs — home/spike-dir/host/installation-id scrub, planType/credits/
+// balance value redaction, thread/list pruning to one thread, email redaction; the
+// allowlisted OAC extension id `io.github.rossgraeber/oac-session-channels` is masked only
+// for the residual scan, never altered in the written output — it is a public identifier,
+// not a secret).
+//
+// Deviations from the g5 script, both driven by the D6 T3 brief:
+//  - SPIKE_DIR is widened from `g[0-9]+(?:-[a-z]+)?-spike` to `[a-z][0-9]+(?:-[a-z]+)?-spike`
+//    so it redacts any gate/task spike directory name of the shape `<letter><digits>-spike`
+//    (g1-spike, g5-spike, d6-spike, ...), not only ones starting with `g`.
+//  - A JSON-RPC protocol frame (a record whose top level or `payload` carries
+//    `"jsonrpc":"2.0"`) that matches a hazard substring is no longer silently dropped. That
+//    would have hidden the fact that live protocol traffic itself carried a
+//    prompt_snapshot/systemPrompt-shaped value — a fixture-capture bug worth failing loudly
+//    on, not a redaction case to quietly absorb. The script now exits non-zero with the
+//    offending line numbers and methods; only non-protocol lines (spike log notes, extractor
+//    output, etc.) may still be dropped as hazards, exactly as before.
+//
+// T7 review fix (issue #39, public-repo leak): the version of this script originally
+// committed to this fixture directory hardcoded the operator's OS username, machine
+// hostname, and a Codex installation UUID as literal string constants. Those are private
+// identifiers of the machine and account that ran the spike, not something a committed,
+// public, quarantined script should embed even though the script's own JOB is to remove
+// them from the *transcripts* it processes. This version reads them from the environment
+// instead, so nothing operator-identifying is baked into the source text itself:
+//   --username <name>         | env REDACT_USERNAME        | default: os.userInfo().username
+//   --hostname <name>         | env REDACT_HOSTNAME         | default: os.hostname()
+//   --installation-id <uuid>  | env REDACT_INSTALLATION_ID  | default: none — see below for
+//     why an unset value is still safe.
+// T7 review fix #2 (issue #39, the sanitized version above still failed open): a Codex
+// app-server transcript carries the installation id and hostname as plain JSON field
+// VALUES, not just embedded in path-shaped strings — `"installationId":"<uuid>"` on every
+// `initialize`/`remoteControl/status/changed`-shaped frame, `"serverName":"<hostname>"`
+// alongside it. The string-level scrubString() regexes above only fire when
+// --installation-id/env is actually supplied (INSTALLATION_ID_RE is null otherwise) or when
+// the machine's own os.hostname() happens to match what's in the data — neither is
+// guaranteed, and the "value-independent generic residual checks... still catch it" claim
+// this comment used to make here was FALSE: genericResidualHits() only flags a UUID
+// adjacent to a "scratchpad"/"claude" path segment, and a bare `"installationId":"<uuid>"`
+// JSON field is not adjacent to either, so it sailed through with
+// residualLeaks=[]/residualGenericHits=[] reported. Fixed two ways, independent of any
+// flag: (1) `installationId` and `serverName` are now REDACT_VALUE_KEYS entries, replaced
+// by key unconditionally in walk() below, regardless of --installation-id/--hostname; (2) a
+// dedicated fail-closed check, after the output is written, scans it for any
+// `"installationId":"..."` value that is not exactly `<INSTALLATION_ID>` and refuses to
+// exit 0 if one is found — a structural backstop independent of walk() actually having
+// found and replaced the key, in case a future transcript shape nests it somewhere walk()
+// doesn't reach.
+// Username/hostname default to the *running machine's own* values (`os.userInfo()`/
+// `os.hostname()`), which is actually more correct than a hardcoded literal — it makes the
+// script work unmodified on whatever machine runs it, not only the one it was written on.
+//
+// Carried over unchanged from g5: `--keep-thread` is a flag (not a positional
+// spikeThreadId); sk-/Bearer secret-token redaction; `--no-replace` is test-only and
+// disables all scrubbing/dropping/failing so the residual scan can be exercised against a
+// planted, un-redacted leak.
+import { readFileSync, writeFileSync } from 'node:fs';
+import { hostname as osHostname, userInfo } from 'node:os';
+
+const argv = process.argv.slice(2);
+const positional = [];
+let keepThread = null;
+let noReplace = false;
+let usernameArg = null;
+let hostnameArg = null;
+let installationIdArg = null;
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--keep-thread') keepThread = argv[++i];
+  else if (a === '--no-replace') noReplace = true;
+  else if (a === '--username') usernameArg = argv[++i];
+  else if (a === '--hostname') hostnameArg = argv[++i];
+  else if (a === '--installation-id') installationIdArg = argv[++i];
+  else positional.push(a);
+}
+const [inPath, outPath] = positional;
+if (!inPath || !outPath) {
+  console.error('usage: node redact.mjs <in.jsonl> <out.jsonl> [--keep-thread <threadId>] [--no-replace] [--username <name>] [--hostname <name>] [--installation-id <uuid>]');
+  process.exit(2);
+}
+
+const USERNAME = usernameArg || process.env.REDACT_USERNAME || userInfo().username;
+const HOSTNAME = hostnameArg || process.env.REDACT_HOSTNAME || osHostname();
+const INSTALLATION_ID = installationIdArg || process.env.REDACT_INSTALLATION_ID || null;
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// S0 requires "any case, any slash direction, JSON-escaped \\" for the home path — a value
+// that has passed through an extra layer of JSON encoding (e.g. a raw transcript line embedded
+// as text inside another field) still shows literal doubled backslashes after one JSON.parse.
+const SEP = '[\\\\/]{1,2}';
+const USERNAME_RE = escapeRegExp(USERNAME);
+const SPIKE_DIR = new RegExp(
+  `C:${SEP}Users${SEP}${USERNAME_RE}${SEP}AppData${SEP}Local${SEP}Temp${SEP}claude${SEP}c--sources-OAC${SEP}[0-9a-f-]+${SEP}scratchpad${SEP}[a-z][0-9]+(?:-[a-z]+)?-spike`,
+  'gi',
+);
+const HOME = new RegExp(`C:${SEP}Users${SEP}${USERNAME_RE}`, 'gi');
+// S0 review addition: Claude's mangled project-dir form (e.g. C--Users-<name>-AppData-...),
+// which appears in session-log-derived paths; without this the residual scan fails closed on it.
+const HOME_MANGLED = new RegExp(`C--Users-${USERNAME_RE}`, 'gi');
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const SK_TOKEN = /sk-[A-Za-z0-9_-]{10,}/g;
+const BEARER_TOKEN = /Bearer\s+[A-Za-z0-9._-]+/g;
+const HOSTNAME_RE = new RegExp(escapeRegExp(HOSTNAME), 'gi');
+const INSTALLATION_ID_RE = INSTALLATION_ID ? new RegExp(escapeRegExp(INSTALLATION_ID), 'gi') : null;
+
+// installationId/serverName get their OWN placeholders (not the generic <REDACTED>) so the
+// fail-closed check below can verify installationId specifically landed on the expected
+// value, not merely "some redaction happened".
+const REDACT_VALUE_KEYS = new Set(['planType', 'credits', 'balance']);
+const KEY_PLACEHOLDERS = { installationId: '<INSTALLATION_ID>', serverName: '<HOST>' };
+const HAZARD_SUBSTRINGS = ['prompt_snapshot', 'systemPrompt'];
+const ALLOWLIST = 'io.github.rossgraeber/oac-session-channels';
+const RESIDUAL_PATTERNS = [
+  USERNAME, HOSTNAME, '@gmail', 'sk-', 'Bearer ', 'systemPrompt', 'prompt_snapshot',
+  ...(INSTALLATION_ID ? [INSTALLATION_ID] : []),
+];
+
+function scrubString(s) {
+  let out = s
+    .replace(SPIKE_DIR, '<SPIKE_DIR>')
+    .replace(HOME, '<USER_HOME>')
+    .replace(HOME_MANGLED, '<USER_HOME_MANGLED>')
+    .replace(HOSTNAME_RE, '<HOST>')
+    .replace(EMAIL, '<EMAIL>')
+    .replace(SK_TOKEN, '<SECRET>')
+    .replace(BEARER_TOKEN, '<SECRET>');
+  if (INSTALLATION_ID_RE) out = out.replace(INSTALLATION_ID_RE, '<INSTALLATION_ID>');
+  return out;
+}
+
+function walk(v) {
+  if (typeof v === 'string') return scrubString(v);
+  if (Array.isArray(v)) return v.map(walk);
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const [k, val] of Object.entries(v)) {
+      if (Object.prototype.hasOwnProperty.call(KEY_PLACEHOLDERS, k) && typeof val === 'string') {
+        o[k] = KEY_PLACEHOLDERS[k];
+        continue;
+      }
+      if (REDACT_VALUE_KEYS.has(k)) { o[k] = '<REDACTED>'; continue; }
+      o[k] = walk(val);
+    }
+    return o;
+  }
+  return v;
+}
+
+// A "protocol frame" is any record carrying a JSON-RPC envelope, either at the top level
+// (a bare frame) or nested under `payload` (this spike's transcript-log wrapper shape,
+// `{"t":...,"direction":...,"payload":{"jsonrpc":"2.0",...}}`). Hazard-dropping a protocol
+// frame would hide the fact that live wire traffic itself carried a hazardous value — that
+// must fail the run, not be silently absorbed like a hazard hit in a log note or an
+// extractor-derived record.
+function isProtocolFrame(rec) {
+  if (!rec || typeof rec !== 'object') return false;
+  if (rec.jsonrpc === '2.0') return true;
+  if (rec.payload && typeof rec.payload === 'object' && rec.payload.jsonrpc === '2.0') return true;
+  return false;
+}
+
+function frameMethod(rec) {
+  if (rec.method) return rec.method;
+  if (rec.payload && rec.payload.method) return rec.payload.method;
+  return null;
+}
+
+let droppedThreads = 0;
+let droppedHazardLines = 0;
+const hazardProtocolHits = [];
+const out = [];
+const rawLines = readFileSync(inPath, 'utf8').trim().split('\n').filter((l) => l.length > 0);
+
+for (let i = 0; i < rawLines.length; i++) {
+  const line = rawLines[i];
+  const isHazard = !noReplace && HAZARD_SUBSTRINGS.some((h) => line.includes(h));
+
+  let rec;
+  let parseError = null;
+  try {
+    rec = JSON.parse(line);
+  } catch (e) {
+    parseError = e;
+  }
+
+  if (isHazard) {
+    if (parseError === null && isProtocolFrame(rec)) {
+      hazardProtocolHits.push({ lineNumber: i + 1, method: frameMethod(rec) });
+      continue;
+    }
+    droppedHazardLines++;
+    continue;
+  }
+
+  if (parseError !== null) {
+    // Not JSON (e.g. a stray log line) — still subject to string scrubbing.
+    out.push(noReplace ? line : scrubString(line));
+    continue;
+  }
+
+  if (keepThread) {
+    const p = rec.payload;
+    if (p && p.result && Array.isArray(p.result.data) && p.result.data.length
+        && typeof p.result.data[0] === 'object' && p.result.data[0] !== null && 'preview' in p.result.data[0]) {
+      const kept = p.result.data.filter((t) => t.id === keepThread);
+      droppedThreads += p.result.data.length - kept.length;
+      p.result.data = kept;
+      p.result._fixtureNote = 'unrelated sessions removed for privacy';
+    }
+  }
+
+  out.push(JSON.stringify(noReplace ? rec : walk(rec)));
+}
+
+if (hazardProtocolHits.length > 0) {
+  console.error(
+    `FATAL: ${hazardProtocolHits.length} JSON-RPC protocol frame(s) matched a hazard `
+    + `substring (${HAZARD_SUBSTRINGS.join(', ')}) and would have been silently dropped. `
+    + `Protocol frames must never be hazard-dropped — investigate the source transcript `
+    + `instead of redacting over it. Offending lines: `
+    + `${JSON.stringify(hazardProtocolHits)}`,
+  );
+  process.exit(1);
+}
+
+writeFileSync(outPath, out.join('\n') + (out.length ? '\n' : ''));
+
+const text = out.join('\n');
+const masked = text.split(ALLOWLIST).join('<OAC_EXT_ID>');
+const leaks = RESIDUAL_PATTERNS.filter((p) => masked.includes(p));
+
+// Generic residual check (D6 T3 item 2). RESIDUAL_PATTERNS above is a fixed list of
+// *known* values for this operator/machine/session; it does nothing for a value it
+// wasn't told about in advance (a different username, a different session's UUID that
+// SPIKE_DIR's specific prefix doesn't happen to match, ...). These two checks are
+// structural instead of value-specific, so they still fire on an unanticipated leak:
+//   1. Any UUID-shaped token (8-4-4-4-12 hex) found adjacent to a path segment naming a
+//      "scratchpad" or "claude" temp dir, after redaction — this is the exact shape a
+//      missed session/installation id takes (see REDACT-NOTES.md's regex-widening
+//      proof, where the old SPIKE_DIR regex left exactly this shape behind).
+//   2. Any Windows user-profile path (`C:\Users\<name>`) still present verbatim — the
+//      HOME scrub above only replaces the configured USERNAME (env/argv/`os.userInfo()`
+//      default); this check catches any profile path it missed, for any username.
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const TEMP_DIR_HINT_RE = /scratchpad|claude/i;
+const WINDOWS_USER_PROFILE_RE = new RegExp(`C:${SEP}Users${SEP}[^\\\\/"'<>\\s]+`, 'gi');
+
+function genericResidualHits(scanText) {
+  const hits = [];
+  const uuidRe = new RegExp(UUID_RE);
+  let m;
+  while ((m = uuidRe.exec(scanText)) !== null) {
+    const start = Math.max(0, m.index - 120);
+    const end = Math.min(scanText.length, m.index + m[0].length + 120);
+    if (TEMP_DIR_HINT_RE.test(scanText.slice(start, end))) {
+      hits.push(`UUID-shaped token '${m[0]}' adjacent to a scratchpad/claude temp-dir path segment`);
+    }
+  }
+  const profRe = new RegExp(WINDOWS_USER_PROFILE_RE);
+  while ((m = profRe.exec(scanText)) !== null) {
+    hits.push(`Windows user-profile path '${m[0]}' still present`);
+  }
+  return hits;
+}
+
+const genericHits = genericResidualHits(text);
+
+// T7 review fix #2: fail-closed, key-specific check for `installationId` — independent of
+// whether walk() above actually found and replaced it (defense against a future transcript
+// shape nesting it somewhere walk() doesn't reach, e.g. inside a string-encoded sub-document
+// instead of a real object). Any `"installationId":"..."` value in the OUTPUT that is not
+// exactly the expected placeholder is a leak, full stop — this does not depend on
+// --installation-id/env having been supplied, because walk() forces the key-based
+// replacement regardless.
+// Matches both a real JSON field (`"installationId":"..."`) and the same shape after one
+// extra layer of JSON-string escaping (`\"installationId\":\"...\"` — what a JSON document
+// embedded as a string *inside* another field looks like once serialized), since that
+// escaped form is exactly the shape walk() cannot reach (it recurses into objects/arrays,
+// not into the text of an opaque string value).
+const INSTALLATION_ID_FIELD_RE = /\\?"installationId\\?"\s*:\s*\\?"([^"\\]*)\\?"/g;
+const installationIdFieldHits = [];
+{
+  let m;
+  while ((m = INSTALLATION_ID_FIELD_RE.exec(text)) !== null) {
+    if (m[1] !== KEY_PLACEHOLDERS.installationId) installationIdFieldHits.push(m[1]);
+  }
+}
+
+console.log(`lines=${out.length} droppedThreadListEntries=${droppedThreads} droppedHazardLines=${droppedHazardLines} droppedHazardProtocolFrames=${hazardProtocolHits.length} residualLeaks=${JSON.stringify(leaks)} residualGenericHits=${JSON.stringify(genericHits)} installationIdFieldHits=${JSON.stringify(installationIdFieldHits)}`);
+if (leaks.length > 0 || genericHits.length > 0 || installationIdFieldHits.length > 0) {
+  if (genericHits.length > 0) {
+    console.error(
+      `FATAL: generic residual check found ${genericHits.length} unredacted value(s) in `
+      + `${outPath}: ${JSON.stringify(genericHits)}`,
+    );
+  }
+  if (installationIdFieldHits.length > 0) {
+    console.error(
+      `FATAL: ${installationIdFieldHits.length} "installationId" field value(s) in `
+      + `${outPath} were not replaced with ${KEY_PLACEHOLDERS.installationId}: `
+      + `${JSON.stringify(installationIdFieldHits)}`,
+    );
+  }
+  process.exit(1);
+}

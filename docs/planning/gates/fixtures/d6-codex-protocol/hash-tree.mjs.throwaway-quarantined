@@ -1,0 +1,39 @@
+#!/usr/bin/env node
+// Deterministic hash over a schema output tree: sorted relative POSIX paths + per-file
+// sha256, then sha256 of that listing. Used to record schema/SCHEMA-META.json hashes for
+// D6 (OAC issue #39, T2) so a schema drift is detectable without diffing every file by hand.
+//
+// Usage: node hash-tree.mjs <dir>
+// Prints: {"treeSha256":"...","fileCount":N,"listing":[{"path":"...","sha256":"..."}]}
+
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join, relative, sep } from 'node:path';
+
+const [, , dir] = process.argv;
+if (!dir) { console.error('usage: node hash-tree.mjs <dir>'); process.exit(2); }
+
+function walk(base, current, out) {
+  for (const name of readdirSync(current).sort()) {
+    const full = join(current, name);
+    const st = statSync(full);
+    if (st.isDirectory()) walk(base, full, out);
+    else if (st.isFile()) out.push(full);
+  }
+  return out;
+}
+
+const files = walk(dir, dir, []).map((f) => ({
+  path: relative(dir, f).split(sep).join('/'),
+  full: f,
+})).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+
+const listing = files.map(({ path, full }) => ({
+  path,
+  sha256: createHash('sha256').update(readFileSync(full)).digest('hex'),
+}));
+
+const listingText = listing.map((e) => `${e.path}  ${e.sha256}`).join('\n') + '\n';
+const treeSha256 = createHash('sha256').update(listingText, 'utf8').digest('hex');
+
+console.log(JSON.stringify({ treeSha256, fileCount: listing.length, listing }, null, 2));
