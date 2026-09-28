@@ -35,7 +35,16 @@ export class DriverError extends Error {
 
 // herdr commands that wait on the server and so must carry --timeout (herdr waits
 // indefinitely without it: cli-reference.mdx "Output waits").
-export function isHerdrWait(args) {
+// herdr's global options that come before the command; the ones listed take a value.
+const VALUE_OPTIONS = new Set(['--session', '--machine', '--remote', '--remote-keybindings']);
+export function stripGlobalOptions(args) {
+  let i = 0;
+  while (i < args.length && String(args[i]).startsWith('-') && args[i] !== '--') i += VALUE_OPTIONS.has(args[i]) ? 2 : 1;
+  return args.slice(i);
+}
+
+export function isHerdrWait(rawArgs) {
+  const args = stripGlobalOptions(rawArgs);
   const [a, b] = args;
   return (a === 'agent' && b === 'wait') || (a === 'pane' && b === 'wait-output') || (a === 'agent' && b === 'prompt' && args.includes('--wait'));
 }
@@ -43,7 +52,8 @@ export function isHerdrWait(args) {
 // herdr commands that put input into a pane or start something in it. Classified from the
 // argv itself, never from the role a caller declares, so a mislabelled call cannot slip
 // input past the post-timeout halt.
-export function isInputCommand(args) {
+export function isInputCommand(rawArgs) {
+  const args = stripGlobalOptions(rawArgs);
   const [a, b] = args;
   if (a === 'agent') return ['prompt', 'send-keys', 'start', 'attach'].includes(b);
   if (a === 'pane') return ['run', 'send-text', 'send-keys'].includes(b);
@@ -89,6 +99,13 @@ export class HerdrSession {
     this.lastRoleByTarget = new Map();
     this.panePids = new Map(); // pid -> start time (null where the platform gives none)
     this.server = null;
+    // Any abort (timebox expiry, operator signal, end of run) halts input for good, whether
+    // or not a command was in flight -- including for calls made with teardown: true.
+    const haltOnAbort = () => {
+      this.inputHalted ??= this.abortReason();
+    };
+    if (abortSignal?.aborted) haltOnAbort();
+    else abortSignal?.addEventListener('abort', haltOnAbort, { once: true });
   }
 
   // --- the one choke point -------------------------------------------------------------

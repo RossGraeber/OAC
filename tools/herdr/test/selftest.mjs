@@ -207,6 +207,37 @@ function unitRedaction() {
   const lj = lr.redactJsonl('{"installationId":"0b5e8c1e-7a4f-4c2d-9e3b-5f1a2b3c4d5e"}\n');
   check('finding6: a run literal is redacted and its residual is checked', lj.text.includes('<INSTALLATION_ID>') && !lj.text.includes('0b5e8c1e') && lr.scan('0b5e8c1e-7a4f-4c2d-9e3b-5f1a2b3c4d5e').residualLeaks.length === 1);
 
+  // Round 3 blocker: a caller literal embedded in a longer token, or in another case, is
+  // still replaced, and a miss is reported as a leak (fail closed), never as clean.
+  const uuid = '9f1c2b3a-4d5e-4f60-8a7b-1c2d3e4f5a6b';
+  const tr = createRedactor({ home: '/home/alice', username: 'alice', hostname: 'buildbox-7', literals: [parseLiteralSpec(`${uuid}=<THREAD_ID>`)] });
+  const uuidLines = [
+    `/home/alice/.codex/sessions/2026/09/28/rollout-2026-09-28T10-00-00-${uuid}.jsonl`,
+    `id is ${uuid}.`,
+    `${uuid}-rollout`,
+    `ref_${uuid}_x`,
+    `upper ${uuid.toUpperCase()}`,
+    `{"thread":"${uuid}"}`,
+  ];
+  const ur = tr.redactText(uuidLines.join('\n'));
+  check('r3 literal: embedded, suffixed, prefixed, underscored, and upper-cased literal all replaced', !ur.text.toLowerCase().includes(uuid) && ur.text.split('\n').every((l) => l.includes('<THREAD_ID>')) && reportIsClean(ur.report), ur.text);
+  check('r3 literal: each unredacted form is a residual leak (never reported clean)', uuidLines.every((l) => tr.scan(l).residualLeaks.some((h) => h.label === 'literal <THREAD_ID>')), uuidLines.filter((l) => !tr.scan(l).residualLeaks.length).join(' | '));
+  const tj = tr.redactJsonl(`{"path":"${uuidLines[0]}","UP":"${uuid.toUpperCase()}"}\n`);
+  check('r3 literal: JSONL rollout path and upper-cased id replaced', !tj.text.toLowerCase().includes(uuid) && reportIsClean(tj.report), tj.text);
+
+  // Round 3: backslash-escaped JSON in text captures, and raw header tuples.
+  const esc = [
+    String.raw`printed: {\"access_token\":\"abcdef123456\"}`,
+    String.raw`printed: {\"Authorization\":\"Basic c2VjcmV0OnNlY3JldA==\"}`,
+    '["authorization","Basic c2VjcmV0OnNlY3JldA=="]',
+    '["Cookie", "session=abc123def456"]',
+  ];
+  check('r3 escaped: escaped-JSON secrets and header tuples are residual hits before redaction', esc.every((l) => r.scan(l).residualGenericHits.length > 0), esc.filter((l) => !r.scan(l).residualGenericHits.length).join(' | '));
+  const er = r.redactText(esc.join('\n'));
+  check('r3 escaped: text capture leaks none of them', !/abcdef123456|c2VjcmV0|abc123def456/.test(er.text) && er.text.includes(String.raw`\"access_token\":\"<SECRET>\"`) && reportIsClean(er.report), er.text);
+  const ej = r.redactJsonl('{"headers":[["authorization","Basic c2VjcmV0OnNlY3JldA=="],["content-type","application/json"]],"note":"x"}\n');
+  check('r3 escaped: JSONL header tuple value redacted, other tuples kept', ej.text === '{"headers":[["authorization","<SECRET>"],["content-type","application/json"]],"note":"x"}\n' && reportIsClean(ej.report), ej.text);
+
   const frame = '{"jsonrpc":"2.0","method":"x","params":{"systemPrompt":"..."}}\n{"note":"prompt_snapshot here"}\n';
   const jl = r.redactJsonl(frame);
   check('redact: JSONL hazard in a protocol frame is reported, not silently dropped', jl.report.hazardProtocolFrames.length === 1 && jl.report.droppedHazardLines === 1 && !reportIsClean(jl.report));
@@ -245,11 +276,28 @@ async function unitGuards() {
     check('fix8: after a timeout, input mislabelled as a read is still refused', (await rejects(() => s.exec('read', ['agent', 'prompt', 'x', 'again']), /must carry an input role/)) && (await rejects(() => s.exec('wait', ['pane', 'run', 'p', 'ls']), /must carry an input role/)) && commands.length === 0);
     s.inputHalted = null;
     check('fix8: input commands are classified from argv', isInputCommand(['agent', 'prompt', 'x', 't']) && isInputCommand(['agent', 'send-keys', 'x', 'enter']) && isInputCommand(['agent', 'start', 'x']) && isInputCommand(['pane', 'run', 'p', 'ls']) && isInputCommand(['pane', 'send-text', 'p', 't']) && !isInputCommand(['agent', 'read', 'x']) && !isInputCommand(['pane', 'wait-output', 'p']));
+    s.inputHalted = 'test';
+    check('r3: a leading --session flag does not hide input from the halt', (await rejects(() => s.exec('read', ['--session', 'unit', 'agent', 'prompt', 'x', 'again']), /must carry an input role/)) && (await rejects(() => s.exec('operator-input', ['--session=unit', 'agent', 'prompt', 'x', 'again']), /halted/)) && isInputCommand(['--session', 'n', 'pane', 'run', 'p', 'ls']) && isHerdrWait(['--session', 'n', 'agent', 'wait', 'x']) && commands.length === 0);
+    s.inputHalted = null;
     check('fix8: mislabelled input refused even when not halted', (await rejects(() => s.exec('read', ['agent', 'send-keys', 'x', 'enter']), /must carry an input role/)) && commands.length === 0);
     check('guard: dialog-accept refused without a preceding read', await rejects(() => s.dialogAccept('x'), /not a read/));
     check('guard: ROLES are the manifest vocabulary', ['operator-input', 'dialog-accept', 'wait', 'read'].every((r) => ROLES.includes(r)));
   } finally {
     rmSync(base, { recursive: true, force: true });
+  }
+
+  {
+    const ac = new AbortController();
+    const commands = [];
+    const s2 = new HerdrSession({ herdrCmd: [process.execPath, FAKE], sessionName: 'unit2', env: process.env, cwd: tmpdir(), timebox: { remainingMs: () => 60000 }, commands, abortSignal: ac.signal });
+    ac.abort('timebox expired (unit)');
+    let refused = false;
+    try {
+      await s2.exec('operator-input', ['agent', 'prompt', 'x', 'during teardown'], { teardown: true });
+    } catch (e) {
+      refused = e instanceof DriverError && /halted/.test(e.message);
+    }
+    check('r3: any abort halts input, even for teardown:true calls with nothing in flight', refused && s2.inputHalted === 'timebox expired (unit)' && commands.length === 0);
   }
 
   const t0 = Date.now();

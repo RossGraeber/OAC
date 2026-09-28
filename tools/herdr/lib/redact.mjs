@@ -85,6 +85,17 @@ function pathLiteralRe(p) {
   return new RegExp(body + SEG_END, drive ? 'gi' : 'g');
 }
 
+// Caller-supplied literals (scratch dir, run ids, installation ids): matched
+// case-insensitively and with NO trailing boundary, so a literal embedded in a longer token
+// (`rollout-...-<uuid>.jsonl`, `ref_<uuid>_x`, `<uuid>-rollout`, an upper-cased copy) is
+// still replaced. Separators inside a path-shaped literal accept every escaped spelling.
+function callerLiteralRe(value) {
+  const parts = value.split(/[\\/]+/);
+  const drive = /^[A-Za-z]:$/.test(parts[0]);
+  const body = parts.map((part, i) => (i === 0 && drive ? `${escapeRe(part[0])}(?::|%3[Aa])` : escapeRe(part))).join(SEP);
+  return new RegExp(body, 'gi');
+}
+
 function identityMode(name) {
   if (typeof name !== 'string' || !name || COMMON_NAMES.has(name.toLowerCase())) return 'context-only';
   if (name.length >= 4) return 'substring';
@@ -105,12 +116,12 @@ const HEADER_NAME_ONLY = /^(?:proxy-)?authorization$|^(?:set-)?cookie$/i;
 // Names that end like a secret but are protocol bookkeeping, not credentials.
 const BENIGN_NAMES = new Set(['progresstoken', 'pagetoken', 'nextpagetoken', 'continuationtoken', 'cursortoken', 'maxtoken', 'tokentype', 'token_type']);
 const ASSIGNMENT_RE = new RegExp(
-  String.raw`(?<![A-Za-z0-9_.-])(--?)?((?:[A-Za-z][A-Za-z0-9_.-]*?)?${SECRET_SUFFIX})(["']?)(\s*[:=]\s*|\s+)(?!["']?<)("[^"\n]*"|'[^'\n]*'|[^\s"',;}\]]+)`,
+  String.raw`(?<![A-Za-z0-9_.-])(--?)?((?:[A-Za-z][A-Za-z0-9_.-]*?)?${SECRET_SUFFIX})(\\?["']?)(\s*[:=]\s*|\s+)(?!\\?["']?<)(\\"(?:[^"\\\n]|\\[^"])*\\"|"[^"\n]*"|'[^'\n]*'|[^\s"'\\,;}\]]+)`,
   'gi',
 );
 
 function secretValueLike(v) {
-  const inner = String(v).replace(/^["']|["']$/g, '');
+  const inner = String(v).replace(/^\\?["']|\\?["']$/g, '');
   return inner.length >= 6 && !/^\d+$/.test(inner) && !/^(?:true|false|null|none|undefined)$/i.test(inner) && !inner.startsWith('<') && !/^\$\{?[A-Za-z_]/.test(inner);
 }
 
@@ -134,7 +145,7 @@ const SECRET_ASSIGNMENT_RULE = {
     let out = '';
     let pos = 0;
     for (const h of hits) {
-      const q = /^["']/.test(h.value) ? h.value[0] : '';
+      const q = (/^\\?["']/.exec(h.value) ?? [''])[0];
       out += s.slice(pos, h.index) + h.keep + q + PLACEHOLDER.secret + q;
       pos = h.index + h.length;
     }
@@ -173,8 +184,9 @@ const HAZARD_RULES = [
   // A line that is nothing but long mixed-case base64: key material outside its markers.
   { label: 'base64 key material line', re: /^\s*(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[0-9])[A-Za-z0-9+/]{64,}={0,2}\s*$/ },
   // Header name, optional closing quote (JSON), separator, then a value that is not already a placeholder.
-  { label: 'authorization header', re: /\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?!<SECRET>)[^\s"',}]/i },
-  { label: 'cookie header', re: /\b(?:set-)?cookie["']?\s*:\s*["']?(?!<SECRET>)[^\s"',}]/i },
+  // Also JSON-escaped (\"Authorization\":...) and header tuples (["authorization","Basic ..."]).
+  { label: 'authorization header', re: /\b(?:proxy-)?authorization(?:\\?["']\s*,|\\?["']?\s*[:=])\s*\\?["']?(?!<SECRET>)[^\s"'\\,}\]]/i },
+  { label: 'cookie header', re: /\b(?:set-)?cookie(?:\\?["']\s*,|\\?["']?\s*:)\s*\\?["']?(?!<SECRET>)[^\s"'\\,}\]]/i },
   { label: 'system prompt snapshot', re: /prompt_snapshot|systemPrompt/ },
 ];
 
@@ -231,7 +243,7 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
   // Ordered: most specific first (caller literals such as the scratch dir can sit under home).
   const replaceRules = [];
   for (const { value, placeholder } of [...lits].sort((a, b) => b.value.length - a.value.length)) {
-    replaceRules.push(reRule(`literal ${placeholder}`, pathLiteralRe(value), placeholder));
+    replaceRules.push(reRule(`literal ${placeholder}`, callerLiteralRe(value), placeholder));
   }
   if (home && home.length > 1) replaceRules.push(reRule('home', pathLiteralRe(home), PLACEHOLDER.home));
   if (username) {
@@ -256,7 +268,13 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
 
   // Residual checks: value-specific ("leaks") and structural ("generic").
   const leakRules = [];
-  for (const { value, placeholder } of lits) leakRules.push({ label: `literal ${placeholder}`, re: pathLiteralRe(value) });
+  // Fail closed for caller literals: a plain case-insensitive substring test, plus the
+  // separator-tolerant form for path-shaped ones.
+  for (const { value, placeholder } of lits) {
+    const lower = value.toLowerCase();
+    const re = callerLiteralRe(value);
+    leakRules.push({ label: `literal ${placeholder}`, re: { lastIndex: 0, test: (line) => line.toLowerCase().includes(lower) || new RegExp(re.source, 'i').test(line) } });
+  }
   if (home && home.length > 1) leakRules.push({ label: 'home path', re: pathLiteralRe(home) });
   if (username) {
     const u = escapeRe(username);
@@ -341,6 +359,10 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
         return PLACEHOLDER.secret;
       }
       return scrubString(v, counts);
+    }
+    // A [name, value] tuple (raw HTTP header lists): the name keys the value.
+    if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'string' && typeof v[1] === 'string' && isSecretKeyName(v[0])) {
+      return [scrubString(v[0], counts), walk(v[1], counts, v[0])];
     }
     if (Array.isArray(v)) return v.map((x) => walk(x, counts, key));
     if (v && typeof v === 'object') {
