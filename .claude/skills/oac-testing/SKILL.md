@@ -23,7 +23,7 @@ From DESIGN "Testing" and PLANNING-PROMPT.md §9 item 10.
 | Security | Spoof, replay, unauthorized-routing mitigations (F11, H2) | Fakes (Stage 3); real transport/adapters (Stage 5, H2) | CI-default against fakes; against real providers it is opt-in, pinned |
 | Resilience | Disconnect/reconnect, daemon restart, TTL `expired`, `unreachable`, duplicate suppression across restart (H3) | In-memory transport and fakes (Stage 3-shaped); real transport in Stage 5 | CI-default against in-memory transport/fakes; opt-in where it needs the real transport |
 | Fake-harness integration | Core + adapter + transport wired together with no live provider (Stage 3 exit condition) | Fake Claude endpoint, fake Codex endpoint, in-memory or loopback-Zenoh transport | CI-default |
-| Provider integration | Real adapter behaviour against a real, pinned harness version (gates G1/G2; Stage 4) | Real Claude Code / real Codex on pinned versions | Opt-in only, explicit flag, pinned versions |
+| Provider integration | Real adapter behaviour against a real, pinned harness version (gates G1/G2; Stage 4) | Real Claude Code / real Codex on pinned versions, operated by hand or driven through herdr (`tools/herdr/`, Epic K) | Opt-in only, explicit flag, pinned versions; herdr-driven runs included, never default (§2) |
 | End-to-end | The ADR-001 validation criterion for real: Claude -> OAC -> Zenoh -> Codex -> Zenoh -> OAC -> Claude (H1) | Real providers, real transport | Opt-in (needs live providers), but is the go/no-go test — see §5 |
 | Cross-platform CLI smoke | One-command startup, `status`/`sessions`/`doctor`, clean shutdown (H4) | The built CLI binary, no live provider required | CI-default, matrixed on Windows/macOS/Linux |
 
@@ -41,6 +41,10 @@ PLANNING-PROMPT.md §6 and §9.10, sharply:
 - Anything that needs a real harness process — Claude Code, Codex, or the end-to-end run — is
   opt-in **by construction**, because it cannot satisfy the no-live-provider default rule, not
   because someone remembered to mark it slow.
+- **herdr-driven runs** (`node tools/herdr/run.mjs`, Epic K) are provider-integration tier,
+  not a new tier: each drives a real, logged-in harness, so it is opt-in by construction.
+  No default test target or default CI workflow invokes one. How a run is recorded, and
+  when it may count toward a gate, is `oac-gates` `references/scripted-runs.md`.
 - A test that seems to need a live provider "just this once" is a sign the fake/fixture is
   incomplete, not a reason to add a default-tier exception. Fix the fixture (§3); do not
   weaken the default tier.

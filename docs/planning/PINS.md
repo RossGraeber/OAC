@@ -593,6 +593,8 @@ semver, and are recorded verbatim — never reformatted.
   gate spikes remain the authoritative verification method (Epic K #123). A move of
   this row therefore invalidates no gate verdict. It does re-open K1's live leg for the
   new version and requires K3's driver version check to be updated in the same change.
+  It also invalidates every herdr equivalence record, in the same commit
+  (`docs/planning/gates/README.md` §f, "Scripted runs (herdr)").
 
 ## Constraint floors
 
