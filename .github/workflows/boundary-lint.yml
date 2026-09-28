@@ -1,0 +1,53 @@
+# ADR-001 boundary lint: the scripted/CI-safe subset of
+# .claude/skills/oac-boundaries/references/mechanical-checks.md (checks 3, 8, 9, 10).
+# That file is the source of truth for every check; if a command changes there, change it
+# here too. Checks 1, 2, 4-7 target paths that do not exist yet and stay manual until then.
+# Minimal on purpose: the full CI pipeline is a separate task (F12).
+name: boundary-lint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  boundary-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Checks 9-10 self-test (each planted violation must fail)
+        run: node scripts/check-herdr-containment.mjs --self-test
+
+      - name: Checks 9-10 herdr containment (PENDING exits 0 but is not a pass)
+        run: node scripts/check-herdr-containment.mjs
+
+      - name: Install ripgrep
+        run: command -v rg || (sudo apt-get update -q && sudo apt-get install -y -q ripgrep)
+
+      # rg exit 1 = zero hits (pass); exit 0 = hits (fail); exit 2 = error (fail).
+      - name: Check 3 - no provider SDK imports or deps in the code tree
+        run: |
+          set +e
+          rg -n --glob '!target' --glob '!docs/**' -i \
+            '\bopenai\b|\banthropic\b|@anthropic-ai|from openai|import openai' \
+            --glob '*.rs' --glob '*.py' --glob '*.ts' --glob '*.toml' \
+            --glob '*.js' --glob '*.mjs' --glob '*.go' --glob '*.json' .
+          status=$?
+          [ "$status" -eq 1 ] && { echo "check 3 clean"; exit 0; }
+          echo "check 3 failed (rg exit $status): stop and cite the boundary (oac-boundaries)"
+          exit 1
+
+      - name: Check 8 - no separately administered server for local use
+        run: |
+          set +e
+          rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
+          status=$?
+          [ "$status" -eq 1 ] && { echo "check 8 clean"; exit 0; }
+          echo "check 8 failed (rg exit $status): stop and cite the boundary (oac-boundaries)"
+          exit 1

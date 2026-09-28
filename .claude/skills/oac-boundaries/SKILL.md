@@ -119,12 +119,14 @@ you're doing is actually this, before treating it as a violation.
 
 ## Mechanical checks
 
-No boundary-specific lint exists in this repo yet — `scripts/check-skills.mjs` checks skill
-budgets, not boundaries. The full runnable grep set, with current pass/pending status against
-this repo, is `references/mechanical-checks.md`. Run it before every `type:code`/`type:spec`
-work item; the paths it targets (`spec/`, `core/`, `adapters/`, `cli/`, `transports/zenoh/`)
-mostly don't exist yet, so most checks report a missing-path error today — that error means
-**pending**, not passing, and the whole set must be re-run once code lands.
+`scripts/check-herdr-containment.mjs` (checks 9-10: herdr kept out of product paths, no
+credential access in the herdr driver) is the one boundary lint; CI runs it via
+`.github/workflows/boundary-lint.yml`. The full runnable set, with current pass/pending
+status against this repo, is `references/mechanical-checks.md`. Run it before every
+`type:code`/`type:spec` work item; the paths it targets (`spec/`, `core/`, `adapters/`,
+`cli/`, `transports/zenoh/`) mostly don't exist yet, so most checks report a missing-path
+error (or `PENDING`) today — that means **pending**, not passing, and the whole set must be
+re-run once code lands.
 
 ## Stop, cite the boundary
 
