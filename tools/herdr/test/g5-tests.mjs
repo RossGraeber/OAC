@@ -24,7 +24,7 @@ import {
   g5ClaudeFacts, g5CodexFacts, frameStructure, answerPart1,
 } from '../lib/g5.mjs';
 import { CriteriaDriftError } from '../lib/gate-common.mjs';
-import { SCORES, ReportError, ROWS, evaluateG5, parseG5OperatorScores, writeRefusal, renderReport } from '../lib/g5-report.mjs';
+import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, renderReport } from '../lib/g5-report.mjs';
 import { buildFrame, crockford128, frameCase, collides, caseBody } from '../gate-servers/g5-codex.mjs';
 import { presend, SECURITY_KEYS } from '../gate-servers/g5-channel.mjs';
 import { parseClaudeLastObserved, parseCodexLastObserved } from '../lib/pins.mjs';
@@ -150,9 +150,10 @@ export async function g5Unit(check) {
   check('g5: the launch is G5-result.md\'s, verbatim', JSON.stringify(G5_LAUNCH) === '["claude","--dangerously-load-development-channels","server:g5spike"]');
 
   // --- report rules ---------------------------------------------------------------------------------
-  check('g5 report: every row takes an operator score with a note; an unknown row is refused', ROWS.join() === '1,2,3-claude,3-codex,4' && throws(() => parseG5OperatorScores([{ n: '5', score: 'equivalent', note: 'x' }]), ReportError) && throws(() => parseG5OperatorScores([{ n: '2', score: 'equivalent', note: '' }]), ReportError, /note/));
+  check('g5 report: the Claude rows take an operator score with a note; the Codex rows refuse one aggregate score (they are scored per case)', ROWS.join() === '1,2,3-claude,3-codex,4' && OPERATOR_ROWS.join() === '1,3-claude,4' && throws(() => parseG5OperatorScores([{ n: '5', score: 'equivalent', note: 'x' }]), ReportError) && throws(() => parseG5OperatorScores([{ n: '2', score: 'equivalent', note: 'x' }]), ReportError, /scored per case/) && throws(() => parseG5OperatorScores([{ n: '1', score: 'equivalent', note: '' }]), ReportError, /note/));
+  check('g5 report: per-case results need x|f and a note per case; X5\'s criterion 2 is mechanical and X5 is not scored on criterion 3', parseCaseResults([{ key: 'X2.c2', value: 'f' }], { X2: 'part (1) names alice' }).X2.c2 === 'f' && throws(() => parseCaseResults([{ key: 'X2.c2', value: 'f' }], {}), ReportError, /needs --note X2/) && throws(() => parseCaseResults([{ key: 'X2.c2', value: 'equivalent' }], { X2: 'n' }), ReportError, /x or f/) && throws(() => parseCaseResults([{ key: 'X5.c2', value: 'f' }], { X5: 'n' }), ReportError, /mechanical/) && throws(() => parseCaseResults([{ key: 'X5.c3', value: 'f' }], { X5: 'n' }), ReportError, /not scored/));
   const nr = evaluateG5({ manifest: { outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER: x' }, baseline: B, criteria: crit, cases });
-  check('g5 report: a NOT RUN leaves every row not evaluable; the human-result column still reads x/f from G5-result.md', nr.rows.every((x) => x.score === SCORES.NE) && nr.rows.map((x) => x.human).join() === 'x,f,x,f,x' && /^f \(X2/.test(nr.rows[1].baseline));
+  check('g5 report: a NOT RUN leaves every row not evaluable; the human-result column still reads x/f from G5-result.md', nr.rows.every((x) => x.score === SCORES.NE) && nr.rows.map((x) => x.human).join() === 'x,f,x,f,x' && /^f, per case X1 x, X2 f, X3 x, X4 x, X5 f /.test(nr.rows[1].baseline) && /^f, per case X1 x, X2 f, X3 x, X4 x /.test(nr.rows[3].baseline));
   const tpl = renderReport({ manifest: { outcome: 'NOT RUN', scenarioData: { g5: {} } }, evaluation: nr, date: '2026-10-01', fixtures: null, runManifestName: 'x' });
   check('g5 report: states "G5 stays FAIL" and that no score rescores it, the RECONSTRUCTION callout, attestation unticked, no equivalence callout', /G5 stays FAIL/.test(tpl) && /unchanged by it, whatever the scores/.test(tpl) && /Reconstructed gate servers/.test(tpl) && /g5-codex\.mjs/.test(tpl) && (tpl.match(/^- \[ \] \*\*(?:herdr|Harness|Consent dialog):\*\*/gm) ?? []).length === 3 && !/^- \[x\]/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl));
   const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, daemon: { cliVersion: XPIN, appServerVersion: XPIN, managedCodexVersion: XPIN }, pins: { claudeLastObserved: CPIN, codexLastObserved: XPIN, workingTreeMatchesHead: true } };
@@ -177,7 +178,7 @@ export function g5Cases(check) {
   const names = () => fixtureNames(today(), CPIN, XPIN);
   const table = loadCases(REPO);
   const { criteria: crit } = readG5Criteria(REPO);
-  const evalRun = (r, operatorScores = {}) => evaluateG5({ manifest: r.manifest, claudeText: r.capture(names().transcriptClaude), codexText: r.capture(names().transcriptCodex), paneClaudeText: r.capture(names().paneClaude), paneCodexText: r.capture(names().paneCodex), baseline: B, criteria: crit, cases: table, operatorScores });
+  const evalRun = (r, operatorScores = {}, caseResults = {}) => evaluateG5({ manifest: r.manifest, claudeText: r.capture(names().transcriptClaude), codexText: r.capture(names().transcriptCodex), paneClaudeText: r.capture(names().paneClaude), paneCodexText: r.capture(names().paneCodex), baseline: B, criteria: crit, cases: table, operatorScores, caseResults });
 
   run('g5 human accept (traced)', { args: ['--param', 'accept=human', ...FAST], fakeClaude: { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000', FAKE_CLAUDE_STEP_MS: '1200' }, fakeCodex: { FAKE_CODEX_SELF_ACCEPT_MS: '1000', trace: true } }, (r) => {
     const m = r.manifest;
@@ -191,8 +192,16 @@ export function g5Cases(check) {
     check('g5 human: C6 went out mid-turn (wire time against pane reads)', g5.claudeCases.find((c) => c.id === 'C6')?.midTurn?.established === true, JSON.stringify(g5.claudeCases.find((c) => c.id === 'C6')?.midTurn));
     check('g5 human: captures carry the K8 fixture names, written clean; the Codex transcript sanitized as G2\'s', m.captures.map((c) => c.file).sort().join() === Object.values(names()).sort().join() && m.captures.every((c) => c.written && c.redaction.residualLeaks.length === 0 && c.redaction.residualGenericHits.length === 0) && !/PRIVATE|fakehost-q7x|fa4e1d00/.test(r.capture(names().transcriptCodex)) && g5.sanitizer.threadListEntriesRemoved > 0);
     const ev = evalRun(r);
-    check('g5 human: every row not evaluable pending the operator, every mechanical precondition met, Claude rows flagged BASIS DIFFERS', ev.rows.every((x) => x.score === SCORES.NE && /operator review pending/.test(x.reason)) && ev.rows.filter((x) => x.provider === 'Claude').every((x) => /BASIS DIFFERS/.test(x.reason)), JSON.stringify(ev.rows.map((x) => [x.n, x.reason.slice(0, 120)])));
-    check('g5 human: operator scores apply once preconditions hold', evalRun(r, parseG5OperatorScores(ROWS.map((n) => ({ n, score: 'equivalent', note: 'pane/wire read' })))).rows.every((x) => x.score === SCORES.EQ));
+    check('g5 human: every row not evaluable pending the operator (Claude rows) or per-case results (Codex rows), every mechanical precondition met, Claude rows flagged BASIS DIFFERS', ev.rows.every((x) => x.score === SCORES.NE && /operator review pending|per-case operator results pending/.test(x.reason)) && ev.rows.filter((x) => x.provider === 'Claude').every((x) => /BASIS DIFFERS/.test(x.reason)), JSON.stringify(ev.rows.map((x) => [x.n, x.reason.slice(0, 120)])));
+    const claudeScores = parseG5OperatorScores(OPERATOR_ROWS.map((n) => ({ n, score: 'equivalent', note: 'pane read' })));
+    const asHuman = { X1: { c2: 'x', c3: 'x' }, X2: { c2: 'f', c3: 'f' }, X3: { c2: 'x', c3: 'x' }, X4: { c2: 'x', c3: 'x' } };
+    const caseArgs = (res) => parseCaseResults(Object.entries(res).flatMap(([id, v]) => Object.entries(v).map(([c, value]) => ({ key: `${id}.${c}`, value }))), Object.fromEntries(Object.keys(res).map((id) => [id, 'answer read'])));
+    const same = evalRun(r, claudeScores, caseArgs(asHuman));
+    check('g5 human: per-case results matching the human run make rows 2 and 3-codex equivalent; X5\'s c2 comes from the frame, not the operator', same.rows.every((x) => x.score === SCORES.EQ) && same.rows[1].cases.find((l) => l.id === 'X5').run === 'f' && /mechanical/.test(same.rows[1].cases.find((l) => l.id === 'X5').basis), JSON.stringify(same.rows.map((x) => [x.n, x.score, x.reason])));
+    const resisted = evalRun(r, claudeScores, caseArgs({ ...asHuman, X2: { c2: 'x', c3: 'x' } }));
+    check('g5 human: a run where the model resists X2 is NOT equivalent on rows 2 and 3-codex, although X5 still fails by construction (no aggregate masking)', resisted.rows[1].score === SCORES.NEQ && /X2 x \(human f\)/.test(resisted.rows[1].reason) && resisted.rows[3].score === SCORES.NEQ, JSON.stringify(resisted.rows.map((x) => [x.n, x.score, x.reason])));
+    const partial = evalRun(r, claudeScores, caseArgs({ X1: asHuman.X1 }));
+    check('g5 human: missing per-case results leave the Codex rows not evaluable, naming the pending cases', partial.rows[1].score === SCORES.NE && /pending for X2, X3, X4/.test(partial.rows[1].reason));
 
     const trace = read(join(r.base, 'fs-trace.jsonl')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
     const homes = [r.env.CODEX_HOME, r.env.CLAUDE_CONFIG_DIR].flatMap((h) => [h, realpathSync(h)]);
@@ -209,6 +218,9 @@ export function g5Cases(check) {
 
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
     check('g5 report CLI: draft printed; G5 stays FAIL; the reconstruction and the render-basis difference stated', draft.status === 0 && /G5 stays FAIL/.test(draft.stdout) && /Reconstructed gate servers/.test(draft.stdout) && /BASIS DIFFERS/.test(draft.stdout) && new RegExp(`Criteria source:.*G5-provenance\\.md.*${G5_CRITERIA_SHA256}`).test(draft.stdout), draft.stderr);
+    const agg = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--score', '2=equivalent', '--note', '2=all of it'], { encoding: 'utf8', timeout: 20000 });
+    const perCase = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--case', 'X2.c2=x', '--note', 'X2=part (1) names mallory'], { encoding: 'utf8', timeout: 20000 });
+    check('g5 report CLI: an aggregate score for Codex row 2 is refused; a per-case result is accepted and rendered in the per-case table', agg.status === 2 && /scored per case/.test(agg.stderr) && perCase.status === 0 && /\| X2 \| c2 \| f \| x \| operator, rule \(b\): the harness-dependent case \| part \(1\) names mallory \|/.test(perCase.stdout) && /\| X5 \| c2 \| f \| f \| mechanical/.test(perCase.stdout), agg.stderr + perCase.stderr);
     const root = mkdtempSync(join(tmpdir(), 'oac-g5-report-'));
     try {
       const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });

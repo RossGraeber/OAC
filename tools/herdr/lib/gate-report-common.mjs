@@ -47,9 +47,10 @@ export function mechanicalRow(row, okWhy) {
   row.reason = row.score === SCORES.EQ ? okWhy : `not met: ${failed(row)}`;
 }
 
-// --score/--note <key>=<value>, --run, --write, --root, --baseline.
-export function parseReportArgs(argv, { keyRe = /^\d+$/ } = {}) {
-  const o = { scores: [], notes: {}, write: false };
+// --score/--note <key>=<value>, --case <key>=<value> (per-case results), --run, --write,
+// --root, --baseline.
+export function parseReportArgs(argv, { keyRe = /^\d+$/, caseRe = null } = {}) {
+  const o = { scores: [], notes: {}, cases: [], write: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--run') o.run = argv[++i];
@@ -63,6 +64,11 @@ export function parseReportArgs(argv, { keyRe = /^\d+$/ } = {}) {
       if (eq < 1 || !keyRe.test(n)) throw new ReportError(`${a} takes <criterion>=<value>`);
       if (a === '--score') o.scores.push({ n, score: kv.slice(eq + 1) });
       else o.notes[n] = kv.slice(eq + 1);
+    } else if (a === '--case' && caseRe) {
+      const kv = argv[++i] ?? '';
+      const eq = kv.indexOf('=');
+      if (eq < 1 || !caseRe.test(kv.slice(0, eq))) throw new ReportError(`--case takes <case>.<criterion>=x|f, e.g. X2.c2=f`);
+      o.cases.push({ key: kv.slice(0, eq), value: kv.slice(eq + 1) });
     } else throw new ReportError(`unknown argument ${a}`);
   }
   if (!o.run) throw new ReportError('--run <run dir> is required');

@@ -451,7 +451,10 @@ It runs `tools/herdr/gate-servers/g4-server.mjs`, a **reconstruction** of this g
 server built from the architecture described above and the committed fixture, because the
 original `g4-server.mjs` was never committed; it is not the server that produced this gate's
 fixtures and cannot be verified identical to it. Codex's MCP registration there is per
-invocation (the operator's global Codex config is never edited). It has **never run live**:
+invocation (the operator's global Codex config is never edited); because this run's own
+global `g4` entry for `127.0.0.1:17448` may still be present, the scenario refuses this run's
+ports and its report requires exactly one Codex HTTP session before attributing any Codex
+traffic to the per-invocation registration. It has **never run live**:
 it is exercised only against test doubles (`node tools/herdr/run.mjs --self-test`), so no
 `-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md` record exist. When one
 does, it is linked here and changes nothing above: this gate's verdict comes only from the

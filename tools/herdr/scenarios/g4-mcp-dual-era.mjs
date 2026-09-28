@@ -17,7 +17,7 @@
 // override for an HTTP server is itself UNVERIFIED.
 //
 // Operator command (herdr at the PINS.md pin; Claude Code and Codex at PINS.md's last-observed
-// versions, both signed in the way the operator normally uses them; ports 17448 and 17450
+// versions, both signed in the way the operator normally uses them; ports 17458 and 17460
 // free on 127.0.0.1):
 //
 //   node tools/herdr/run.mjs --scenario g4-mcp-dual-era \
@@ -74,7 +74,7 @@ import { descendants } from '../lib/proc.mjs';
 import { makeAgent, stopper, stageGateFiles, loopbackPortFree } from '../lib/gate-common.mjs';
 import {
   G4_LAUNCH, G4_SERVER_FILES, PINS_PATH, DEFAULT_PORTS, DEFAULT_PROMPTS, g4McpJson, defaultCodexLaunch, validateCodexLaunch, validatePaneEnv, assertNotInjected,
-  fixtureNames, unverifiedNames, parseG4Transcript, g4Facts, roles, sanitizeG4Transcript, MODERN, LEGACY,
+  fixtureNames, unverifiedNames, parseG4Transcript, g4Facts, roles, sanitizeG4Transcript, sanitizeG4Text, MODERN, LEGACY, HUMAN_RUN_PORTS, codexSessions,
 } from '../lib/g4.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -219,6 +219,13 @@ export default {
       }
       g4.captureNames = unverifiedNames(g4.date);
 
+      for (const p of [httpPort, modernHttpPort]) {
+        if (HUMAN_RUN_PORTS.includes(p)) throw new DriverError(`port ${p} is the human G4 run's; a leftover global Codex registration from that run may still point at it, and its traffic could not be told apart from this run's per-invocation registration. Use another port`);
+      }
+      console.error(
+        `\n[g4-mcp-dual-era] Before relying on this run, check \`codex mcp list\` (read-only) yourself: any Codex MCP entry pointing at 127.0.0.1:${httpPort} besides this run's per-invocation \`g4http\` would connect too.\n` +
+          '  The driver never reads or edits your Codex config; the report flags more than one Codex session on the wire.\n',
+      );
       g4.ports.freeBefore = { [httpPort]: await loopbackPortFree(httpPort), [modernHttpPort]: await loopbackPortFree(modernHttpPort) };
       for (const p of [httpPort, modernHttpPort]) if (g4.ports.freeBefore[p] !== true) stop(`127.0.0.1:${p} is not free (a stale G4 server or another listener holds it); nothing launched`);
 
@@ -339,7 +346,10 @@ export default {
       const cr = await codex.read('after-codex-tools', { source: 'recent-unwrapped', lines: num('readLines') });
       await claude.settle('relay-turn', num('turnTimeoutMs'));
       const rr = await claude.read('after-relay', { source: 'recent-unwrapped', lines: num('readLines') });
+      const sessions = codexSessions(facts(), g4.handshake.legacyPid);
+      if (sessions.length !== 1) ctx.finding(`${sessions.length} Codex HTTP MCP sessions reached the server (initialize at lines ${sessions.map((x) => x.reqLine).join(', ')}); only one per-invocation registration was passed, so another Codex registration (for example a leftover entry in the operator's own Codex config) also connected, and the Codex traffic cannot be attributed to the per-invocation registration alone`);
       g4.codex = {
+        sessions: sessions.map((x) => ({ reqLine: x.reqLine, sessionId: x.sessionId })),
         prompt: cp,
         mcpInitialize: { reqLine: cinit.reqLine, resLine: cinit.resLine, requested: cinit.requested, negotiated: cinit.negotiated, userAgent: cinit.userAgent },
         echo: { reqLine: codexCalls.echo.reqLine, resLine: codexCalls.echo.resLine, era: codexCalls.echo.era },
@@ -375,9 +385,14 @@ export default {
         g4.sanitizer = s.report;
         transcriptText = s.text;
       }
+      // The pane captures get the same substitution: the prompts ask both harnesses to print
+      // tool results, which can show the identifier on screen.
+      const paneClaude = sanitizeG4Text(claude.sections.join(''));
+      const paneCodex = sanitizeG4Text(codex.sections.join(''));
+      g4.sanitizer = { ...(g4.sanitizer ?? { extensionIdReplaced: 0 }), paneClaude: paneClaude.replaced, paneCodex: paneCodex.replaced };
       if (g4.captureNames) {
-        if (claude.sections.length) ctx.capture(g4.captureNames.paneClaude, claude.sections.join(''));
-        if (codex.sections.length) ctx.capture(g4.captureNames.paneCodex, codex.sections.join(''));
+        if (claude.sections.length) ctx.capture(g4.captureNames.paneClaude, paneClaude.text);
+        if (codex.sections.length) ctx.capture(g4.captureNames.paneCodex, paneCodex.text);
         if (transcriptText !== null) ctx.capture(g4.captureNames.transcript, transcriptText, { format: 'jsonl' });
       }
     }

@@ -58,13 +58,22 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
   project-scoped `.codex/config.toml` would also meet K8's acceptance, but check 10 cannot
   tell a scratch project's file from the operator's, so it is not used. The self-test proves
   the rule from a file-access trace (no write under either harness home, no `config.toml`
-  written anywhere, nothing copied out of the Codex home).
+  written anywhere, nothing copied out of the Codex home). The driver cannot see the
+  operator's own Codex config, and the human G4 run left a global entry for
+  `127.0.0.1:17448` there: so the scenario refuses the human run's ports (default
+  17458/17460), asks the operator to check `codex mcp list` (read-only) first, records a
+  finding when more than one Codex HTTP session connects, and the report's criterion 4
+  requires exactly one before attributing Codex's traffic to the per-invocation
+  registration.
 - **G5** (`g5-provenance`): Claude cases C1-C6 through the channel server's own case trigger
   (C6 mid-turn), Codex cases X1-X6 through the app-server client. **The spoofing bodies reach
   the harness only through the channel server or the app-server client**; herdr types only
   the thread marker, a busy prompt and the fixed question, each checked to carry no body,
   frame marker or case identity. G5's verdict is FAIL and stays FAIL: the report only says
-  whether a scripted run reproduced the human run's per-criterion results. Claude's criteria
+  whether a scripted run reproduced the human run's results. The Codex rows are scored per
+  case (`--case X2.c2=f`), never as one judgement: X2 is the harness-dependent case, and X5's
+  criterion-2 failure is set by the reconstructed client's framing, so it reproduces by
+  construction and cannot stand in for the model's behavior. Claude's criteria
   were judged, in the human run, on a render extracted from Claude Code's own session log; a
   scripted run has only the wire and pane text, and every Claude row says so.
 - Both report generators read the gate's pass criteria from the `oac-gates` reference **as

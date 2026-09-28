@@ -25,7 +25,7 @@ import { createInterface } from 'node:readline';
 import {
   BASELINE_TRANSCRIPT, FIXTURE_DIR, G4_LAUNCH, OAC_EXT, OAC_EXT_PLACEHOLDER, G4_CRITERIA_SHA256, G4_REFERENCE, DEFAULT_PROMPTS,
   readG4Criteria, validateCodexLaunch, validatePaneEnv, defaultCodexLaunch, assertNotInjected, fixtureNames, unverifiedNames, parseG4Transcript, g4Facts,
-  modernRequests, roles, sanitizeG4Transcript,
+  modernRequests, roles, sanitizeG4Transcript, sanitizeG4Text, placeholderIntegrity, HUMAN_RUN_PORTS, DEFAULT_PORTS, codexSessions,
 } from '../lib/g4.mjs';
 import { CriteriaDriftError, parseCriteriaSection } from '../lib/gate-common.mjs';
 import { SCORES, ReportError, evaluateG4, parseG4OperatorScores, wireEvidence, writeRefusal, renderReport, draftManifestEntries } from '../lib/g4-report.mjs';
@@ -239,6 +239,20 @@ export async function g4Unit(check) {
   check('g4 sanitize: on a machine whose username is a substring of the identifier, redaction alone rewrites the provenance key (why the sanitizer exists)', !raw.includes(OAC_EXT) && raw.includes('io.github.<USER>'));
   check('g4 sanitize: the sanitizer replaces every occurrence with the placeholder first, so redaction leaves the key intact and the facts still find the provenance', san.report.extensionIdReplaced === (BASELINE.split(OAC_EXT).length - 1) && sanRed.includes(OAC_EXT_PLACEHOLDER) && wireEvidence(g4Facts(parseG4Transcript(sanRed))).c2.allProvenance);
 
+  // Review finding (K8): the pane captures need the same substitution, and the placeholder must
+  // survive redaction too. The prompts ask for the full result, so a pane can show the identifier.
+  const pane = `### section\n  ⎿  {"_meta":{"${OAC_EXT}":{"surface":"http-modern"}}}\nprovenance under ${OAC_EXT}\n`;
+  const users = ['rossg', 'graeber', 'ross', 'github', 'sion', 'tens', 'oac', 'ext', 'extid'];
+  const rawCorrupt = users.filter((u) => { const t = createRedactor({ username: u, home: `/home/${u}`, hostname: 'box-1' }).redactText(pane).text; return !t.includes(OAC_EXT); });
+  check('g4 sanitize (panes): without the sanitizer, redaction silently corrupts the identifier in pane text for several usernames', ['rossg', 'graeber', 'ross', 'github', 'sion'].every((u) => rawCorrupt.includes(u)), rawCorrupt.join());
+  const sp = sanitizeG4Text(pane);
+  const survives = users.map((u) => [u, placeholderIntegrity(createRedactor({ username: u, home: `/home/${u}`, hostname: 'box-1' }).redactText(sp.text).text, sp.replaced)]);
+  check('g4 sanitize (panes): with it, the placeholder survives redaction intact for every one of those usernames, including ones matching inside the old placeholder (sion, tens, ext)', sp.replaced === 2 && survives.every(([, v]) => v.ok), JSON.stringify(survives.filter(([, v]) => !v.ok)));
+  const adversarial = placeholderIntegrity(createRedactor({ username: 'oac_ext', home: '/home/oac_ext', hostname: 'box-1' }).redactText(sp.text).text, sp.replaced);
+  check('g4 sanitize: a username that does match inside the placeholder is caught by the integrity count (fail closed), and a wrapped identifier fragment is caught too', !adversarial.ok && !placeholderIntegrity(`${OAC_EXT_PLACEHOLDER} io.github.ross\ngraeber/oac-session-channels`, 1).ok);
+  check('g4 ports: the defaults avoid the human run\'s ports, which a leftover global Codex entry may still name', !HUMAN_RUN_PORTS.includes(DEFAULT_PORTS.httpPort) && !HUMAN_RUN_PORTS.includes(DEFAULT_PORTS.modernHttpPort) && HUMAN_RUN_PORTS.includes(17448));
+  check('g4 sessions: the human run had two Codex HTTP sessions on one server (two registrations), which the report\'s one-session check would flag', codexSessions(bf, 19680).length === 2);
+
   // --- replay: the reconstructed server against the committed fixture's own requests ------------
   const rp = await replayG4Fixture();
   const diff = (a, b) => a.map((x, i) => (x === b[i] ? null : `#${i}: fixture ${x} | reconstruction ${b[i]}`)).filter(Boolean).concat(a.length === b.length ? [] : [`length ${a.length} vs ${b.length}`]);
@@ -254,8 +268,10 @@ export async function g4Unit(check) {
   check('g4 report: not verdict-bearing, the RECONSTRUCTION stated at the top, attestation unticked, no equivalence callout', /Not verdict-bearing/.test(tpl) && /Reconstructed gate server/.test(tpl) && /never committed/.test(tpl) && /cannot be\s*\n?> verified byte-identical/.test(tpl) && (tpl.match(/^- \[ \] \*\*(?:herdr|Harness|Consent dialog):\*\*/gm) ?? []).length === 3 && !/^- \[x\]/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl));
   const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, pins: { claudeLastObserved: CPIN, codexLastObserved: XPIN, workingTreeMatchesHead: true } };
   const fx = { transcript: 't-herdr.jsonl', paneClaude: 'c-herdr.txt', paneCodex: 'x-herdr.txt' };
-  const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: Object.values(fx).map((file) => ({ file, written: true })), scenarioData: { g4: { versions: V, postRun: { matches: true }, fixtures: fx, captureNames: fx, server: [{ match: true, workingTreeMatchesHead: true }] } } };
+  const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: Object.values(fx).map((file) => ({ file, written: true })), scenarioData: { g4: { versions: V, postRun: { matches: true }, fixtures: fx, captureNames: fx, server: [{ match: true, workingTreeMatchesHead: true }], sanitizer: { extensionIdReplaced: 1, paneClaude: 1, paneCodex: 0 } } } };
+  const texts = { transcript: `x ${OAC_EXT_PLACEHOLDER}`, paneClaude: `y ${OAC_EXT_PLACEHOLDER}`, paneCodex: 'z' };
   const with4 = (o) => ({ ...okRun, scenarioData: { g4: { ...okRun.scenarioData.g4, ...o } } });
+  check('g4 report: --write refuses a capture whose placeholders did not survive redaction, or that still holds an identifier fragment', writeRefusal(okRun, texts) === null && /paneClaude capture's extension-identifier placeholders/.test(writeRefusal(okRun, { ...texts, paneClaude: 'y <#OAC_EXT_<USER>#>' })) && /identifier fragment/.test(writeRefusal(okRun, { ...texts, paneCodex: 'io.github.<USER>aeber/oac-session-channels' })) && /did not record a count/.test(writeRefusal(with4({ sanitizer: { extensionIdReplaced: 1 } }))));
   check('g4 report: --write accepts only a verified PASS from a clean, committed tools/herdr/ with the server at HEAD', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /only a PASS run/.test(writeRefusal({ ...okRun, outcome: 'FAIL' })) && /not verified/.test(writeRefusal(with4({ postRun: { matches: false } }))) && /committed source/.test(writeRefusal(with4({ server: [{ match: true, workingTreeMatchesHead: false }] }))) && /not verified/.test(writeRefusal(with4({ versions: { ...V, wire: { claude: CPIN, codex: '0.158.0' } } }))));
 }
 
@@ -289,6 +305,8 @@ export function g4Cases(check) {
     check('g4 human: report scores C2, C3, C4 equivalent; C1 and C5 pending the operator with every precondition met', ev.rows.map((x) => x.score).join('|') === [SCORES.NE, SCORES.EQ, SCORES.EQ, SCORES.EQ, SCORES.NE].join('|') && /operator review/.test(ev.rows[0].reason) && /operator review/.test(ev.rows[4].reason), JSON.stringify(ev.rows.map((x) => [x.score, x.reason])));
     check('g4 human: operator scores for C1 and C5 apply once their preconditions hold', evalRun(r, parseG4OperatorScores([{ n: '1', score: 'equivalent', note: 'pane #x' }, { n: '5', score: 'equivalent', note: 'pane #y' }])).rows.every((x) => x.score === SCORES.EQ));
     check('g4 human: the extension identifier reached the capture only as its placeholder', !r.capture(names().transcript).includes(OAC_EXT) && r.capture(names().transcript).includes(OAC_EXT_PLACEHOLDER) && g4.sanitizer.extensionIdReplaced > 0);
+    check('g4 human: every capture was sanitized (counts recorded for the transcript and both panes) and its placeholders survived redaction', [['transcript', g4.sanitizer.extensionIdReplaced], ['paneClaude', g4.sanitizer.paneClaude], ['paneCodex', g4.sanitizer.paneCodex]].every(([k, n]) => Number.isInteger(n) && placeholderIntegrity(r.capture(names()[k]), n).ok), JSON.stringify(g4.sanitizer));
+    check('g4 human: exactly one Codex HTTP session, no multiple-registration finding', g4.codex.sessions.length === 1 && !m.findings.some((f) => /Codex HTTP MCP sessions/.test(f)));
 
     // Credential hygiene and the no-global-config rule, from the trace.
     const trace = read(join(r.base, 'fs-trace.jsonl')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -359,6 +377,17 @@ export function g4Cases(check) {
     const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', join(r.base, 'nowrite')], { encoding: 'utf8', timeout: 20000 });
     const p = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
     check('g4 pin move (Codex wire): report --write refuses; the draft says NOT RUN, every criterion not evaluable', w.status === 2 && /--write refused: run outcome is NOT RUN/.test(w.stderr) && !existsSync(join(r.base, 'nowrite')) && (p.stdout.match(/\*\*not evaluable\*\* \|/g) ?? []).length === 5, w.stderr);
+  });
+
+  run('g4 a second Codex registration also connects', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37508, 37510), '--param', 'codexLaunch=["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37508/mcp\\"","-c","mcp_servers.leftover.url=\\"http://127.0.0.1:37508/mcp\\""]'], fakeCodex: {} }, (r) => {
+    const m = r.manifest;
+    check('g4 two registrations: the run records a finding that the Codex traffic is not attributable to one registration', m.findings.some((f) => /2 Codex HTTP MCP sessions/.test(f) && /cannot be attributed/.test(f)) && m.scenarioData.g4.codex.sessions.length === 2, JSON.stringify(m.findings));
+    const c4 = evalRun(r).rows[3];
+    check('g4 two registrations: criterion 4 is not equivalent on the one-session check (never silently credited)', c4.score === SCORES.NEQ && /exactly one Codex HTTP MCP session/.test(c4.reason), c4.reason);
+  });
+
+  run('g4 the human run\'s port', { args: [...FAST, ...PORTS(17448, 37520)], fakeCodex: {} }, (r) => {
+    check('g4 human-run port: refused before anything starts (a leftover global registration may name it)', r.status === 1 && /the human G4 run's/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')), r.manifest.outcomeReason);
   });
 
   let holder = null;

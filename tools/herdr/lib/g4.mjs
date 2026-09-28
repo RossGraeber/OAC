@@ -25,12 +25,16 @@ export const LEGACY = '2025-11-25';
 export const PV_KEY = 'io.modelcontextprotocol/protocolVersion';
 // The public OAC MCP extension identifier the server puts its `_meta` provenance under.
 export const OAC_EXT = 'io.github.rossgraeber/oac-session-channels';
-// In captures the identifier is replaced by this placeholder BEFORE run.mjs's identity
-// redaction: that redaction rewrites any substring of the operator's OS username, and the
-// identifier's owner segment can contain one (G4-result.md's own redaction found exactly this
-// string family). The sanitizer counts the replacements; the report reads the placeholder as
-// the identifier.
-export const OAC_EXT_PLACEHOLDER = '<OAC_EXTENSION_ID>';
+// In EVERY capture (the transcript and both pane captures) the identifier is replaced by this
+// placeholder BEFORE run.mjs's identity redaction: that redaction rewrites any substring of the
+// operator's OS username, and the identifier's owner segment can contain one (G4-result.md's
+// own redaction found exactly this string family). The placeholder itself is chosen so that
+// redaction cannot re-match it either: its only letter run, OAC_EXT_ID, is one word token
+// (underscores are word characters), so a 3-letter username never matches inside it as a
+// word, and it holds no plausible 4-letter username. That is a choice, not a proof: the
+// report counts the placeholders in each redacted capture against the sanitizer's own counts
+// and refuses --write on any mismatch or any surviving fragment of the identifier.
+export const OAC_EXT_PLACEHOLDER = '<#OAC_EXT_ID#>';
 
 export const G4_REFERENCE = '.claude/skills/oac-gates/references/G4-mcp-dual-era.md';
 // sha256 of JSON.stringify(<the five parsed G4 criteria>) as committed when K8 was written.
@@ -39,7 +43,17 @@ export const G4_CRITERIA_SHA256 = 'f2bebc54d2fb04af969f9b8c1b396f68d359e3e7fbb74
 export const readG4Criteria = (repoRoot, { pin = G4_CRITERIA_SHA256 } = {}) => readPinnedCriteria(repoRoot, { path: G4_REFERENCE, count: 5, pin, owner: 'K8 (lib/g4-report.mjs, G4_CRITERIA_SHA256 in lib/g4.mjs)' });
 export const assertG4Criteria = (criteria) => assertCriteriaPin(criteria, G4_CRITERIA_SHA256, 'lib/g4-report.mjs');
 
-export const DEFAULT_PORTS = Object.freeze({ httpPort: 17448, modernHttpPort: 17450 });
+// Not the human run's ports (17448/17450). The human run registered Codex GLOBALLY
+// (`[mcp_servers.g4] url = "http://127.0.0.1:17448/mcp"` in the operator's own Codex config,
+// G4-result.md "Row-41 probe addendum"), and nothing records that entry being removed. On the
+// same port a leftover entry would reach this run's server with the same URL and user-agent as
+// the per-invocation registration, and nothing on the wire could tell the two apart. So the
+// defaults avoid those ports, the scenario refuses them outright, and the report requires
+// exactly one Codex HTTP session (lib/g4-report.mjs, criterion 4).
+export const DEFAULT_PORTS = Object.freeze({ httpPort: 17458, modernHttpPort: 17460 });
+export const HUMAN_RUN_PORTS = Object.freeze([17448, 17450]);
+// The Codex HTTP MCP sessions on the legacy copy (one per Codex registration that connected).
+export const codexSessions = (f, legacyPid) => f.httpInitialize.filter((x) => x.pid === legacyPid && x.codexVersion);
 
 // The project .mcp.json the Claude pane uses: the three registrations G4-result.md's `/mcp`
 // paste lists (g4spike, g4modern, g4http), pointed at the staged server copy.
@@ -260,8 +274,21 @@ export function roles(f) {
 
 // --- fixture sanitizer ----------------------------------------------------------------------
 
+export function sanitizeG4Text(text) {
+  const parts = String(text ?? '').split(OAC_EXT);
+  return { text: parts.join(OAC_EXT_PLACEHOLDER), replaced: parts.length - 1 };
+}
 export function sanitizeG4Transcript(text) {
+  const s = sanitizeG4Text(text);
+  return { text: s.text, report: { extensionIdReplaced: s.replaced } };
+}
+
+// After redaction: does a capture still hold exactly the placeholders the sanitizer put in, and
+// no fragment of the identifier (a pane line wrapped mid-identifier escapes the sanitizer)?
+const EXT_FRAGMENT = /oac-session-channels|io\.github\./i;
+export function placeholderIntegrity(text, expected) {
   const s = String(text ?? '');
-  const parts = s.split(OAC_EXT);
-  return { text: parts.join(OAC_EXT_PLACEHOLDER), report: { extensionIdReplaced: parts.length - 1 } };
+  const found = s.split(OAC_EXT_PLACEHOLDER).length - 1;
+  const fragment = EXT_FRAGMENT.test(s.split(OAC_EXT_PLACEHOLDER).join(''));
+  return { expected, found, fragment, ok: found === expected && !fragment };
 }

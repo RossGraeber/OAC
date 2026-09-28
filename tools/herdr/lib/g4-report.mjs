@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   BASELINE_TRANSCRIPT, FIXTURE_DIR, HERDR_RUNS_DIR, MANIFEST_PATH, MODERN, OAC_EXT, OAC_EXT_PLACEHOLDER, G4_CRITERIA_SHA256, G4_SERVER_FILES,
-  assertG4Criteria, g4Facts, modernRequests, parseG4Transcript, readG4Criteria, roles,
+  assertG4Criteria, g4Facts, modernRequests, parseG4Transcript, readG4Criteria, roles, codexSessions, placeholderIntegrity,
 } from './g4.mjs';
 import { parseSections, committedFile } from './g1.mjs';
 import { isLegacyRevision } from './compare-transcripts.mjs';
@@ -146,6 +146,7 @@ export function evaluateG4({ manifest, transcriptText, paneClaudeText, baselineT
   c2.checks.push(
     check('Claude\'s modern tools/call on the legacy copy\'s HTTP surface answered resultType complete, "g4 echo: ...", with OAC _meta provenance (served_by_pid, surface http-modern), twice', re.c2.claudeModern.length >= 2 && re.c2.allProvenance),
     check(`the provenance key is the OAC extension identifier (captured as ${OAC_EXT_PLACEHOLDER}; the scenario's sanitizer replaced ${g4.sanitizer?.extensionIdReplaced ?? 0} occurrence(s) of the public identifier)`, (g4.sanitizer?.extensionIdReplaced ?? 0) > 0 && re.c2.claudeModern.every((c) => !!c.provenance)),
+    check('the placeholder survived redaction intact in the transcript (as many as the sanitizer put in, no identifier fragment left)', placeholderIntegrity(transcriptText, g4.sanitizer?.extensionIdReplaced ?? 0).ok, JSON.stringify(placeholderIntegrity(transcriptText, g4.sanitizer?.extensionIdReplaced ?? 0))),
     check('(supporting only) Codex stayed on the legacy era, as in the human run (the caveat G4-result.md records)', re.c2.codexEras.length > 0 && re.c2.codexEras.every((v) => isLegacyRevision(v)), `Codex: ${re.c2.codexEras.join(', ') || 'no Codex initialize'}; with a feature-flag override this differs from the baseline by design`),
   );
   mechanicalRow(c2, 'the current-revision path served tools/call with OAC _meta provenance, as in the human run (Claude as the modern client, as there)');
@@ -166,6 +167,7 @@ export function evaluateG4({ manifest, transcriptText, paneClaudeText, baselineT
     check('Codex\'s legacy HTTP session initialized and its g4_echo and g4_relay_to_claude calls succeeded on that process', re.c4.codexInits.length >= 1 && re.c4.codexOk),
     check('the relay was pushed on the same process\'s legacy stdio, and a wake followed the Codex traffic', re.c4.relayOnLegacyStdio && re.c4.wakeAfterCodex),
     check('no error answer on the legacy process after its initialize', re.c4.errorsOnLegacy.length === 0, re.c4.errorsOnLegacy.map((e) => `line ${e.line} ${e.method}`).join('; ') || null),
+    check('exactly one Codex HTTP MCP session reached the server, so the Codex traffic is attributable to the per-invocation registration (a second session means another registration, e.g. a leftover global entry, also connected)', codexSessions(run, re.roles.legacyPid).length === 1, `${codexSessions(run, re.roles.legacyPid).length} Codex session(s)`),
     check('the Codex session ran while the Claude session was live (Claude agent started first, never stopped)', commands.some((c) => c.argv.includes('g4claude') && c.argv.includes('start')) && commands.findIndex((c) => c.argv.includes('g4claude') && c.argv.includes('start')) < commands.findIndex((c) => c.argv.includes('g4codex') && c.argv.includes('start'))),
   );
   mechanicalRow(c4, 'concurrent, not sequential: the modern path still correct after legacy/Codex activity interleaved with it, on one process, as in the human run');
@@ -215,13 +217,13 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push(`- **Run outcome:** ${manifest?.outcome ?? '?'}${manifest?.outcomeReason ? ` — ${manifest.outcomeReason}` : ''}`);
   out.push(`- **Versions:** \`claude --version\` = \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; \`codex --version\` = \`${v.cliOutput?.codex ?? '?'}\`, wire MCP user-agent version \`${v.wire?.codex ?? '?'}\`; PINS.md last observed Claude \`${v.pins?.claudeLastObserved ?? '?'}\`, Codex \`${v.pins?.codexLastObserved ?? '?'}\` (committed at \`${v.pins?.headCommit ?? '?'}\`); unchanged through the run: ${g4.postRun?.matches ?? '?'}`);
   out.push(`- **Claude launch:** \`${(manifest?.launch?.argv ?? []).join(' ')}\` (verbatim G4 launch: ${g4.launch?.verbatim ?? '?'}); pane env ${JSON.stringify(g4.claudeEnv ?? {})}`);
-  out.push(`- **Codex launch (per invocation):** \`${(g4.codexLaunch?.argv ?? []).join(' ')}\`; pane process argv ${g4.codexLaunch?.paneArgv?.proof?.found ? `pid ${g4.codexLaunch.paneArgv.proof.pid}, args ${JSON.stringify(g4.codexLaunch.paneArgv.proof.argsAfterCodex)}, matches the launch: ${g4.codexLaunch.paneArgv.matchesLaunch}` : 'not shown'}. **Method difference from the human run, by K8's acceptance:** the human run registered Codex's MCP connection in the operator's GLOBAL Codex config (G4-result.md, criterion 2); this run passes it per invocation, edits no Codex config and copies no Codex home. No criterion depends on how Codex was registered.`);
+  out.push(`- **Codex launch (per invocation):** \`${(g4.codexLaunch?.argv ?? []).join(' ')}\`; pane process argv ${g4.codexLaunch?.paneArgv?.proof?.found ? `pid ${g4.codexLaunch.paneArgv.proof.pid}, args ${JSON.stringify(g4.codexLaunch.paneArgv.proof.argsAfterCodex)}, matches the launch: ${g4.codexLaunch.paneArgv.matchesLaunch}` : 'not shown'}. **Method difference from the human run, by K8's acceptance:** the human run registered Codex's MCP connection in the operator's GLOBAL Codex config (G4-result.md, criterion 2); this run passes it per invocation, edits no Codex config and copies no Codex home. It cannot see the operator's own Codex config: a registration there pointing at this run's port would connect too, indistinguishably on the wire except as an extra session. This run saw ${codexSessions(evaluation.run ?? { httpInitialize: [] }, evaluation.re?.roles?.legacyPid).length} Codex HTTP session(s); criterion 4 requires exactly one before any Codex traffic is attributed to the per-invocation registration.`);
   out.push(`- **Server:** ${(g4.server ?? []).map((s) => `\`${s.path}\` working-tree sha256 \`${s.workingTreeSha256}\` (matches HEAD: ${s.workingTreeMatchesHead}), staged copy match: ${s.match}`).join('; ') || 'not staged'}; ports ${g4.ports?.httpPort}/${g4.ports?.modernHttpPort} free before the run: ${JSON.stringify(g4.ports?.freeBefore ?? null)}`);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
   out.push(`- **Accept policy:** ${g4.acceptPolicy ?? '?'}; dialogs on record: ${(g4.dialogs ?? []).map((x) => `${x.agent} ${x.kind} (read #${x.readSeq}, accepted by ${x.acceptOrigin})`).join('; ') || 'none'} (no G4 criterion names a consent step; the dev-channels confirmation scores nothing here)`);
   out.push(`- **herdr agent states seen** (scheduling only, never evidence): ${(g4.herdrStates ?? []).map((s) => `${s.agent} ${s.state} (#${s.seq})`).join(', ') || 'none'}`);
   out.push(fixtures ? `- **Fixtures:** ${Object.values(fixtures).map((f) => `\`${f}\``).join(', ')}` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
-  out.push(`- **Fixture sanitizer:** the public extension identifier \`${OAC_EXT}\` replaced by \`${OAC_EXT_PLACEHOLDER}\` ${g4.sanitizer?.extensionIdReplaced ?? 0} time(s) before run.mjs's redaction, so identity redaction cannot rewrite it`);
+  out.push(`- **Fixture sanitizer:** the public extension identifier \`${OAC_EXT}\` replaced by \`${OAC_EXT_PLACEHOLDER}\` before run.mjs's redaction, so identity redaction cannot rewrite it: transcript ${g4.sanitizer?.extensionIdReplaced ?? 0}, Claude pane ${g4.sanitizer?.paneClaude ?? '?'}, Codex pane ${g4.sanitizer?.paneCodex ?? '?'} time(s). --write re-counts the placeholders in each redacted capture and refuses on a mismatch or a surviving identifier fragment (a pane line wrapped mid-identifier escapes the substitution)`);
   out.push(`- **Run manifest:** \`${runManifestName}\` (beside this file); harness config unchanged: ${manifest?.harnessConfig?.unchanged ?? '?'}; teardown clean: ${manifest?.teardown?.clean ?? '?'}`);
   out.push(`- **Baseline:** \`${baselinePath}\` and \`docs/planning/gates/G4-result.md\` (the human-run 2026-09-26 re-run, verdict PASS, produced by the uncommitted original spike server)`);
   out.push(`- **Criteria source:** ${reference ? `\`${reference.path}\` as committed at \`${reference.headCommit}\` (file sha256 \`${reference.fileSha256}\`); the five parsed criteria hash to \`${reference.criteriaSha256}\`, the pin the scoring is written against (\`G4_CRITERIA_SHA256\` = \`${G4_CRITERIA_SHA256}\`)${reference.workingTreeMatchesHead ? '' : ' (the working-tree copy differs from HEAD and was not used)'}` : 'not recorded'}`);
@@ -241,7 +243,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   }
   out.push('## Exchange counts');
   out.push('');
-  out.push('Requests and pushes by surface, era and method: the human run\'s fixture against this run\'s transcript. The human run also had Codex\'s second (stdio) registration and two Codex HTTP sessions; this run registers Codex once, per invocation.');
+  out.push('Requests and pushes by surface, era and method: the human run\'s fixture against this run\'s transcript. The human run also had Codex\'s second (stdio) registration and two Codex HTTP sessions; this run passes one registration, per invocation (criterion 4 shows how many Codex sessions actually connected).');
   out.push('');
   out.push('| Exchange | Human run | This run |');
   out.push('|---|---|---|');
@@ -252,7 +254,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   for (const f of manifest?.findings ?? []) out.push(`- Finding: ${f}`);
   out.push('- The server is a reconstruction (callout above); a difference in any criterion may come from it, not from Claude Code or Codex.');
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand (run id, outcome, reason from its run manifest).');
-  out.push('- Whether Codex honors a per-invocation `-c mcp_servers.<name>.url=...` override for an HTTP server was UNVERIFIED when this scenario was written; this run\'s wire shows whether it did.');
+  out.push('- Whether Codex honors a per-invocation `-c mcp_servers.<name>.url=...` override for an HTTP server was UNVERIFIED when this scenario was written. This run\'s wire answers it only if exactly one Codex session connected (criterion 4) and the operator confirmed with `codex mcp list` (read-only) that no other Codex entry points at this run\'s port.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
   out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: 'none — no criterion of G4 names a consent step.' }));
@@ -266,7 +268,8 @@ export function versionsVerified(g4) {
 }
 
 // Why --write must refuse this run, or null.
-export function writeRefusal(manifest) {
+// captureTexts: { transcript, paneClaude, paneCodex } as redacted, when the caller has them.
+export function writeRefusal(manifest, captureTexts = null) {
   const g4 = manifest?.scenarioData?.g4;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g4) return 'no G4 scenario record in the run manifest';
@@ -274,6 +277,14 @@ export function writeRefusal(manifest) {
   if (!g4.fixtures || JSON.stringify(g4.fixtures) !== JSON.stringify(g4.captureNames)) return 'captures do not carry the verified K8 fixture names';
   for (const f of Object.values(g4.fixtures)) if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
   if (!(g4.server ?? []).length || !g4.server.every((s) => s.match && s.workingTreeMatchesHead)) return 'the staged gate server does not match its committed source';
+  const expected = { transcript: g4.sanitizer?.extensionIdReplaced, paneClaude: g4.sanitizer?.paneClaude, paneCodex: g4.sanitizer?.paneCodex };
+  for (const k of Object.keys(expected)) {
+    if (!Number.isInteger(expected[k])) return `the extension-identifier sanitizer did not record a count for the ${k} capture`;
+    if (captureTexts) {
+      const pi = placeholderIntegrity(captureTexts[k], expected[k]);
+      if (!pi.ok) return `the ${k} capture's extension-identifier placeholders did not survive redaction intact (${pi.found} found, ${pi.expected} put in${pi.fragment ? ', and an identifier fragment remains' : ''})`;
+    }
+  }
   if (manifest.driver?.toolsHerdrDirty !== false || !manifest.driver?.commit) return `the run's tools/herdr/ was not clean and committed (toolsHerdrDirty ${JSON.stringify(manifest.driver?.toolsHerdrDirty ?? null)}); its captures are never committed as fixtures (scripted-runs.md "Driver identity")`;
   return null;
 }
@@ -366,7 +377,7 @@ function main(argv) {
   const evaluation = evaluateG4({ manifest, transcriptText, paneClaudeText, baselineText, criteria, operatorScores });
   const date = g4?.date ?? manifest.timebox?.start?.slice(0, 10) ?? 'unknown-date';
   const runManifestName = `G4-${date}.run-manifest.json`;
-  const refusal = writeRefusal(manifest);
+  const refusal = writeRefusal(manifest, names ? { transcript: transcriptText, paneClaude: paneClaudeText, paneCodex: readCap(names.paneCodex) } : null);
   const report = renderReport({ manifest, evaluation, date, fixtures: !refusal ? Object.fromEntries(Object.entries(fixtures).map(([k, f]) => [k, `${FIXTURE_DIR}/${f}`])) : null, runManifestName, baselinePath, reference });
   if (!o.write) {
     console.log(report);
