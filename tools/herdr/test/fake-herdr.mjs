@@ -18,10 +18,13 @@
 //   pane-child-survives  each pane process starts a child that outlives it (a harness's
 //                        own subprocess, not killed by session stop)
 //   fail-agent-read      agent read fails with agent_not_found
+//   fake-claude          `agent start --kind claude` runs test/fake-claude.mjs (a test double
+//                        of an interactive Claude Code session, K4) in the pane's cwd; agent
+//                        read/send-keys/prompt/wait then talk to it through files
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const STATE = process.env.FAKE_HERDR_STATE;
 if (!STATE) {
@@ -88,6 +91,11 @@ const agentPane = (target) => {
   return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')).pane : target;
 };
 const append = (id, text) => appendFileSync(bufFile(id), text);
+const agentRec = (target) => {
+  const f = join(sdir, 'agents', `${target}.json`);
+  return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null;
+};
+const agentState = (a) => (a?.dir && existsSync(join(a.dir, 'state')) ? readFileSync(join(a.dir, 'state'), 'utf8').trim() : 'idle');
 
 const [c0, c1, c2] = args;
 const needsServer = () => {
@@ -105,6 +113,16 @@ if (c0 === 'server' && c1 === undefined) {
   setInterval(() => {
     if (!existsSync(join(sdir, 'stop')) || MODES.has('server-ignores-stop')) return;
     if (!MODES.has('leak-pane')) {
+      const agentsDir = join(sdir, 'agents');
+      for (const f of existsSync(agentsDir) ? readdirSync(agentsDir).filter((x) => x.endsWith('.json')) : []) {
+        const a = JSON.parse(readFileSync(join(agentsDir, f), 'utf8'));
+        if (!a.pid) continue;
+        try {
+          process.kill(-a.pid, 'SIGKILL'); // the fake Claude and the channel server it started
+        } catch {
+          /* gone */
+        }
+      }
       for (const f of readdirSync(join(sdir, 'panes')).filter((x) => x.endsWith('.json'))) {
         try {
           process.kill(JSON.parse(readFileSync(join(sdir, 'panes', f), 'utf8')).pid, 'SIGKILL');
@@ -164,7 +182,13 @@ if (c0 === 'server' && c1 === undefined) {
 } else if (c0 === 'pane' && c1 === 'process-info') {
   needsServer();
   const p = pane(opt('--pane'));
-  out({ type: 'pane_process_info', process_info: { pane_id: p.id, shell_pid: p.pid } });
+  const agentsDir = join(sdir, 'agents');
+  const fg = (existsSync(agentsDir) ? readdirSync(agentsDir) : [])
+    .filter((x) => x.endsWith('.json'))
+    .map((x) => JSON.parse(readFileSync(join(agentsDir, x), 'utf8')))
+    .filter((a) => a.pane === p.id && a.pid)
+    .map((a) => ({ pid: a.pid }));
+  out({ type: 'pane_process_info', process_info: { pane_id: p.id, shell_pid: p.pid, foreground_processes: fg } });
 } else if (c0 === 'pane' && c1 === 'run') {
   needsServer();
   const p = pane(c2);
@@ -200,6 +224,17 @@ if (c0 === 'server' && c1 === undefined) {
   const sep = args.indexOf('--');
   const rest = sep === -1 ? [] : args.slice(sep + 1);
   mkdirSync(join(sdir, 'agents'), { recursive: true });
+  if (MODES.has('fake-claude') && opt('--kind') === 'claude') {
+    const adir = join(sdir, 'agents', `${c2}.d`);
+    mkdirSync(adir, { recursive: true });
+    const child = spawn(process.execPath, [join(dirname(process.argv[1]), 'fake-claude.mjs'), adir, bufFile(p.id)], { cwd: p.cwd, env: p.env, detached: true, stdio: 'ignore' });
+    child.unref();
+    writeFileSync(join(sdir, 'agents', `${c2}.json`), JSON.stringify({ pane: p.id, pid: child.pid, dir: adir, argv: ['claude', ...rest] }));
+    const settled = () => existsSync(join(adir, 'state')) && ['blocked', 'idle'].includes(agentState({ dir: adir }));
+    for (let t = 0; t < 100 && !settled(); t++) sleepSync(50);
+    if (agentState({ dir: adir }) === 'blocked') fail('agent_not_ready', `agent ${c2} is blocked during startup`);
+    out({ type: 'agent_started', agent: { name: c2, state: agentState({ dir: adir }) }, argv: ['claude', ...rest] });
+  }
   writeFileSync(join(sdir, 'agents', `${c2}.json`), JSON.stringify({ pane: p.id }));
   append(p.id, `[agent ${opt('--kind')} started]\n`);
   out({ type: 'agent_started', agent: { name: c2, state: 'idle' }, argv: [opt('--kind'), ...rest] });
@@ -208,19 +243,26 @@ if (c0 === 'server' && c1 === undefined) {
   if (MODES.has('hang-agent-read')) hang();
   else if (MODES.has('fail-agent-read')) fail('agent_not_found', `no agent ${c2}`);
   else {
-    process.stdout.write(readFileSync(bufFile(agentPane(c2)), 'utf8'));
+    const a = agentRec(c2);
+    const screen = a?.dir ? join(a.dir, 'screen.txt') : null;
+    const src = opt('--source') ?? 'visible';
+    process.stdout.write(readFileSync(src === 'visible' && screen && existsSync(screen) ? screen : bufFile(agentPane(c2)), 'utf8'));
     process.exit(0);
   }
 } else if (c0 === 'agent' && c1 === 'send-keys') {
   needsServer();
   if (MODES.has('hang-send-keys')) hang();
   else {
-    append(agentPane(c2), `[keys ${args.slice(3).join(' ')}]\n`);
+    const a = agentRec(c2);
+    if (a?.dir) appendFileSync(join(a.dir, 'keys.log'), `${args.slice(3).join(' ')}\n`);
+    else append(agentPane(c2), `[keys ${args.slice(3).join(' ')}]\n`);
     out({ type: 'ok' });
   }
 } else if (c0 === 'agent' && c1 === 'prompt') {
   needsServer();
   appendFileSync(join(STATE, 'prompts.log'), `${JSON.stringify({ target: c2, text: args[3] })}\n`);
+  const pa = agentRec(c2);
+  if (pa?.dir) appendFileSync(join(pa.dir, 'inbox.log'), `${JSON.stringify({ text: args[3] })}\n`);
   if (args.includes('--wait') && MODES.has('prompt-timeout')) {
     sleepSync(Number(opt('--timeout') ?? 1000));
     fail('timeout', 'timed out waiting for the agent');
@@ -228,7 +270,16 @@ if (c0 === 'server' && c1 === undefined) {
   out({ type: 'agent_prompted', agent: { name: c2, state: 'working' } });
 } else if (c0 === 'agent' && c1 === 'wait') {
   needsServer();
-  out({ type: 'agent_info', agent: { name: c2, state: 'idle' } });
+  const a = agentRec(c2);
+  const until = optAll('--until');
+  const timeout = opt('--timeout') ? Number(opt('--timeout')) : Infinity;
+  const start = Date.now();
+  for (;;) {
+    const st = agentState(a);
+    if (!until.length || until.includes(st)) out({ type: 'agent_info', agent: { name: c2, state: st } });
+    if (Date.now() - start >= timeout) fail('timeout', `timed out after ${timeout}ms waiting for ${until.join('|')}`);
+    sleepSync(50);
+  }
 } else if (c0 === 'agent' && (c1 === 'get' || c1 === 'explain')) {
   needsServer();
   out({ type: 'agent_info', agent: { name: c2, state: 'idle' } });
