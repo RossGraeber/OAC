@@ -531,6 +531,15 @@ list.
   no-go, stop Epic K's driver work for that OS and keep human-operated gate re-runs. A
   go closes this risk for the tested OSes (`docs/planning/STATUS.md` "Open UNVERIFIED
   items").
+- **K6 addition (issue #129).** The opt-in CI workflow puts a logged-in harness on a
+  self-hosted runner reachable from a public repository's workflows. The repository-side
+  controls (no PR-event trigger, allowlisted scenario, fail-closed upload gate,
+  `oac-boundaries` check 9) are tested; the controls that actually keep a fork off the
+  runner (fork-workflow approval for all external contributors, careful approvals,
+  limited write access) are repository settings and operator practice, not testable
+  here. Response: set them before registering a runner, per
+  `docs/planning/gates/herdr-runner.md` §1 and §7; if they cannot be held, do not
+  register the runners and keep scripted runs local (row 52).
 
 ## Traceability — every `docs/planning/STATUS.md` "Open UNVERIFIED items" entry
 
@@ -629,6 +638,7 @@ evidence that confirmed it), row 32 (closed, cites its own closing evidence), an
 | 49 | Whether mid-turn `notifications/claude/channel` deliveries batch together at a single tool-call boundary, or can arrive at separate boundaries one at a time, is UNVERIFIED as a guarantee (may depend on send timing). Original G1 PASS (`v2.1.282`) observed two notifications delivered together, between the same pair of tool calls; G1 Box C (`v2.1.283`, issue #39, 2026-09-28) observed two notifications, sent ~1.85s apart, delivered at two separate tool-call boundaries instead. Both agree on order-preserved, nothing dropped, nothing interleaved — only the batching claim is unconfirmed. `PLANNING-PROMPT.md` §3.1, `oac-claude-channels`, `oac-gates/references/G1-claude-wake.md`, and `docs/planning/v0.1/04-architecture.md` are each amended with a dated note, not silently rewritten (from G1 Box C, `docs/planning/gates/G1-result.md`) | RISK-CLAUDE-PREVIEW |
 | 50 | Whether `turn/start` and `thread/queue/add` subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`, `thread/resume`, and `thread/fork` are source-confirmed to (`codex-rs/app-server/src/request_processors/thread_processor.rs` L1562-1580, L4009-4015, L5227), is UNVERIFIED — inferred only from the same file's request-handling structure not carrying an equivalent "Auto-attach a thread listener" call near either handler; not directly source-confirmed. From D6/T5-T7 (issue #39), `oac-codex-appserver/references/thread-lifecycle.md` | RISK-CODEX-EXPERIMENTAL |
 | 51 | herdr `v0.9.1` (Epic K test tooling) live behavior UNVERIFIED — K1's live leg is NOT RUN, so K1's go/no-go is provisional pending live confirmation. Covers named-session start, `agent start` argv/cwd, the timeout options (`agent read`/`agent send-keys` have none, refuted at the desk), dialog readability before any keystroke, Codex's post-response state, the launch-environment delta, and per-OS support (from K1, issue #124, `docs/planning/decisions/K1-herdr-evaluation.md`) | RISK-HERDR |
+| 52 | The K6 opt-in workflow (`.github/workflows/herdr-provider-optin.yml`) runs on operator-owned self-hosted runners that hold a logged-in harness, in a **public** repository. GitHub's guidance is that self-hosted runners "should almost never be used for public repositories". A fork's pull request can retarget any PR-triggered workflow at those runners unless fork-workflow approval is required for all external contributors and every approval is preceded by reading the `.github/` diff; a collaborator with write access can dispatch a modified branch. Neither control is testable from the repository. No runner is registered and no dispatch has run, so the workflow itself is UNVERIFIED live (from K6, issue #129, `docs/planning/gates/herdr-runner.md` §1 and §6) | RISK-HERDR |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

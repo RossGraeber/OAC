@@ -8,7 +8,13 @@
 //
 // Check 9  (containment): no `herdr` / `HERDR_` match (case-insensitive) in any git-tracked
 //          entry under adapters/, core/, cli/, transports/, or spec/; and no workspace or
-//          package manifest outside tools/herdr/ that references tools/herdr.
+//          package manifest outside tools/herdr/ that references tools/herdr. Workflows
+//          (K6 #129): no GitHub Actions workflow other than
+//          .github/workflows/herdr-provider-optin.yml references tools/herdr, the
+//          `oac-harness` runner label, or a self-hosted runner; and that opt-in workflow has
+//          no PR-event trigger, no trigger chained from another workflow or a comment, no
+//          secrets context, no expression inside a `run:` block, and no direct driver call
+//          or driver option (it runs tools/herdr/ci.mjs only).
 // Check 10 (driver hygiene): no harness-credential access or harness-config mutation in any
 //          git-tracked entry under tools/herdr/ -- auth.json, .credentials.json, provider
 //          and harness credential variables, keyring/keychain/OS credential-store access,
@@ -45,6 +51,47 @@ const DRIVER_PATH = 'tools/herdr';
 // Covers `herdr`, `Herdr`, and every `HERDR_*` environment variable.
 const HERDR_TOKEN = /herdr/i;
 const HERDR_PATH_REF = /tools[\\/]+herdr/i;
+
+// GitHub Actions workflows (K6 #129). Only the opt-in workflow may reach the driver or the
+// operator-owned harness runners.
+const WORKFLOW_DIR = '.github/workflows';
+const OPTIN_WORKFLOW = `${WORKFLOW_DIR}/herdr-provider-optin.yml`;
+const isWorkflow = (p) => p.startsWith(`${WORKFLOW_DIR}/`) && /\.ya?ml$/i.test(p);
+
+// Line numbers of `${{ }}` expressions inside a `run:` value (inline or block scalar). A
+// block runs while lines are blank or indented deeper than the `run` key.
+function runBlockExpressions(text) {
+  const lines = text.split(/\r?\n/);
+  const hits = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(\s*(?:-\s+)?)run\s*:(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    const keyCol = m[1].length;
+    if (m[2].includes('${{')) hits.push(i + 1);
+    for (let j = i + 1; j < lines.length; j++) {
+      const l = lines[j];
+      if (l.trim() !== '' && l.length - l.trimStart().length <= keyCol) break;
+      if (l.includes('${{')) hits.push(j + 1);
+    }
+  }
+  return hits;
+}
+
+const OTHER_WORKFLOW_RULES = [
+  { label: `workflow other than ${OPTIN_WORKFLOW} references tools/herdr`, re: HERDR_PATH_REF },
+  { label: `workflow other than ${OPTIN_WORKFLOW} targets the oac-harness runner label`, re: /oac-harness/i },
+  { label: `workflow other than ${OPTIN_WORKFLOW} targets a self-hosted runner`, re: /self-hosted/i },
+];
+const OPTIN_WORKFLOW_RULES = [
+  { label: 'opt-in workflow has a PR-event trigger', re: /pull_request/i },
+  {
+    label: 'opt-in workflow has a trigger chained from another workflow, a comment, or a schedule',
+    re: /\b(?:workflow_run|workflow_call|repository_dispatch|issue_comment|discussion_comment|merge_group)\b|^\s*schedule\s*:/i,
+  },
+  { label: 'opt-in workflow reads the secrets context', re: /\bsecrets\s*[.[]/i },
+  { label: 'opt-in workflow calls the driver directly or passes a driver option', re: /run\.mjs|--keep-scratch|--herdr-bin|--launch|--param|accept\s*=\s*driver/i },
+  { label: 'opt-in workflow has an expression inside a run: block', scan: runBlockExpressions },
+];
 
 // Workspace and package manifests (and lockfiles, which record path dependencies) for the
 // toolchains the C1 language decision left in play.
@@ -354,10 +401,14 @@ function runChecks(root) {
   );
 
   // One batch read: everything scanned, every symlink (for resolution), and .gitmodules.
+  const workflows = entries.filter((e) => isWorkflow(e.path));
+  const otherWorkflows = workflows.filter((e) => e.path !== OPTIN_WORKFLOW);
+  const optinWorkflow = workflows.filter((e) => e.path === OPTIN_WORKFLOW);
   const wanted = [
     ...PRODUCT_PATHS.flatMap(under),
     ...under(DRIVER_PATH),
     ...manifests,
+    ...workflows,
     ...entries.filter((e) => e.mode === '120000' || e.path === '.gitmodules'),
   ].filter((e) => e.mode !== '160000');
   const ctx = { root, byPath, blobs: readBlobs(root, wanted.map((e) => e.sha)), gitmodules: null };
@@ -401,6 +452,19 @@ function runChecks(root) {
     'manifest(s)',
   );
 
+  // Check 9c: workflows (K6). Only the opt-in workflow reaches the driver or the harness
+  // runners, and it has no fork-reachable trigger, no secrets, and no run-block expression.
+  scanTarget(
+    '9',
+    `workflows other than ${OPTIN_WORKFLOW}`,
+    otherWorkflows,
+    OTHER_WORKFLOW_RULES,
+    false,
+    'no other workflows tracked',
+    'workflow(s)',
+  );
+  scanTarget('9', OPTIN_WORKFLOW, optinWorkflow, OPTIN_WORKFLOW_RULES, false, 'opt-in workflow not tracked (K6 creates it)', 'workflow');
+
   // Check 10: credential access / harness-config mutation in the driver.
   scanTarget('10', `${DRIVER_PATH}/`, under(DRIVER_PATH), DRIVER_RULES, true, 'no git-tracked files (K3 creates the driver)', 'tracked entries');
 
@@ -440,6 +504,36 @@ function report(root, results) {
 // OS symlink support needed); `afterAdd` rewrites work-tree files after staging (the index
 // is what counts); `rawFiles` writes byte-exact (e.g. non-UTF-8) file names; `mustNotPrint`
 // lists strings that must never appear in the script's output.
+const OPTIN_CLEAN = [
+  'name: herdr-provider-optin',
+  'on:',
+  '  workflow_dispatch:',
+  '    inputs:',
+  '      scenario:',
+  '        type: choice',
+  '        options: [smoke]',
+  '  push:',
+  '    branches: [main]',
+  '    paths: [docs/planning/PINS.md]',
+  'jobs:',
+  '  herdr:',
+  '    name: herdr ${{ matrix.os }}',
+  '    runs-on: [self-hosted, oac-harness, linux]',
+  '    steps:',
+  '      - name: Run',
+  '        env:',
+  '          OAC_HERDR_SCENARIO: ${{ inputs.scenario }}',
+  '        run: node tools/herdr/ci.mjs run',
+  '      - uses: actions/upload-artifact@0000000000000000000000000000000000000000',
+  '        with:',
+  '          path: ${{ steps.stage.outputs.upload-dir }}',
+  '      - run: |',
+  '          node tools/herdr/ci.mjs cleanup',
+  '        if: ${{ always() }}',
+  '',
+].join('\n');
+const optin = (insert, after = '  push:') => OPTIN_CLEAN.replace(`${after}\n`, `${after}\n${insert}\n`);
+
 const CLEAN_BASE = {
   'adapters/claude/src/lib.rs': '// adapter\n',
   'core/src/lib.rs': '// core\n',
@@ -474,6 +568,18 @@ const CLEAN_BASE = {
   'Cargo.toml': '[workspace]\nmembers = ["core", "cli"]\n',
   // herdr is allowed outside product paths (docs, scripts, the driver itself).
   'docs/planning/herdr-notes.md': 'herdr is test tooling; HERDR_SESSION is set by the driver.\n',
+  // Workflows: a default one that runs this lint, and a clean opt-in one. Expressions in
+  // env:/with:/name: are allowed; only run: blocks are checked.
+  '.github/workflows/lint.yml': [
+    'on: [push]',
+    'jobs:',
+    '  lint:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - run: node scripts/check-herdr-containment.mjs',
+    '',
+  ].join('\n'),
+  '.github/workflows/herdr-provider-optin.yml': OPTIN_CLEAN,
 };
 
 function violation(name, path, content, extra = {}) {
@@ -565,6 +671,22 @@ const SELF_TEST_CASES = [
   violation('10 shell mv of config.toml', 'tools/herdr/setup.sh', 'mv "$CODEX_HOME/config.toml" /tmp/x\n'),
   violation('10 shell install onto hooks.json', 'tools/herdr/setup.sh', 'install -m 644 hooks.src "$CODEX_HOME"/hooks.json\n'),
   violation('10 append to config.toml', 'tools/herdr/setup.sh', "echo '[mcp_servers.oac]' >> ~/.codex/config.toml\n"),
+  // Check 9: workflows (K6).
+  violation('9 other workflow references tools/herdr', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/run.mjs --scenario smoke\n'),
+  violation('9 other workflow targets the oac-harness label', '.github/workflows/extra.yaml', 'jobs:\n  a:\n    runs-on: [oac-harness]\n'),
+  violation('9 other workflow targets a self-hosted runner', '.github/workflows/extra.yml', 'jobs:\n  a:\n    runs-on: self-hosted\n'),
+  violation('9 opt-in workflow gains a PR-event trigger', '.github/workflows/herdr-provider-optin.yml', optin('  pull_request_target:', 'on:')),
+  violation('9 opt-in workflow gains a chained trigger', '.github/workflows/herdr-provider-optin.yml', optin('  workflow_run:', 'on:')),
+  violation('9 opt-in workflow gains a schedule', '.github/workflows/herdr-provider-optin.yml', optin('  schedule:', 'on:')),
+  violation('9 opt-in workflow reads a secret', '.github/workflows/herdr-provider-optin.yml', optin('          KEY: ${{ secrets.KEY }}', '        env:')),
+  violation('9 opt-in workflow: expression in an inline run', '.github/workflows/herdr-provider-optin.yml',
+    OPTIN_CLEAN.replace('run: node tools/herdr/ci.mjs run', 'run: node tools/herdr/ci.mjs run ${{ inputs.scenario }}')),
+  violation('9 opt-in workflow: expression in a block run', '.github/workflows/herdr-provider-optin.yml',
+    OPTIN_CLEAN.replace('          node tools/herdr/ci.mjs cleanup', '          node tools/herdr/ci.mjs cleanup\n          echo "${{ github.event.head_commit.message }}"')),
+  violation('9 opt-in workflow calls the driver directly', '.github/workflows/herdr-provider-optin.yml',
+    OPTIN_CLEAN.replace('node tools/herdr/ci.mjs cleanup', 'node tools/herdr/run.mjs --scenario smoke')),
+  violation('9 opt-in workflow passes accept=driver', '.github/workflows/herdr-provider-optin.yml',
+    OPTIN_CLEAN.replace('OAC_HERDR_SCENARIO: ${{ inputs.scenario }}', 'OAC_HERDR_PARAMS: accept=driver')),
   // Controls: these must NOT fail.
   { name: 'control: empty tree reports PENDING', expect: 'pending', files: { 'README.md': '# empty\n' } },
   { name: 'control: clean full tree reports CLEAN', expect: 'clean', files: CLEAN_BASE },

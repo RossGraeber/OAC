@@ -1193,6 +1193,17 @@ without an UNVERIFIED label.
   indicator, and every dialog except the dev-channels one recorded in Box C) are
   unconfirmed. The run is not verdict-bearing either way: G1's verdict is unchanged.
   Owner: an operator run per the scenario's header comment.
+- **New, from K6 (issue #129, 2026-09-28):** the opt-in CI workflow
+  `.github/workflows/herdr-provider-optin.yml` and its entry point `tools/herdr/ci.mjs`
+  are built but have **never run on GitHub Actions**. No self-hosted runner with label
+  `oac-harness` is registered, and no dispatch has run on Linux or Windows. K6's
+  acceptance item "one successful G1 dispatch on Linux and one on Windows, run URLs
+  recorded" is open: the record table in `docs/planning/gates/herdr-runner.md` §8 is
+  empty. Checked statically only: actionlint, the containment lint's workflow rules
+  (check 9) and the stage-gate self-test against the fake herdr. The repository is public,
+  so the fork-PR controls in `herdr-runner.md` §1 (repository settings, not testable
+  here) must be set before any runner is registered (`docs/planning/v0.1/11-risks.md`
+  row 52). Owner: the operator, per `herdr-runner.md` §7.
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to
