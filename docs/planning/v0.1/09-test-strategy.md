@@ -175,7 +175,12 @@ tooling only, kept out of `adapters/`, `core/`, `cli/`, `transports/` and `spec/
 `scripts/check-herdr-containment.mjs`. How a scripted run is recorded, and when it may
 count toward a gate verdict, is `oac-gates` `references/scripted-runs.md` and
 `docs/planning/gates/README.md` "Scripted runs (herdr)". This file does not restate
-either.
+either. K6 (issue #129) adds the one workflow that runs the driver,
+`.github/workflows/herdr-provider-optin.yml`. It starts only on a manual dispatch or on a
+push to `main` that changes `docs/planning/PINS.md`, and it runs only on operator-owned
+self-hosted runners (`docs/planning/gates/herdr-runner.md`). No default workflow runs it,
+and `scripts/check-herdr-containment.mjs` check 9 fails any other workflow that reaches
+the driver or those runners.
 
 > **Reference implementation note:** the v0.1 Rust workspace's own mechanism for
 > separating the opt-in tier from the default `cargo test` run — a Cargo feature flag, a

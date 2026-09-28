@@ -13,6 +13,10 @@
 // Code pin-move check, the G1 helpers and the report's scoring rules, and lifecycle cases
 // that run scenarios/g1-claude-wake.mjs against the fake herdr plus test/fake-claude.mjs (a
 // test double of Claude Code -- again proving the driver and scenario, not Claude Code).
+//
+// K6 (#129) adds test/ci-tests.mjs: checks for tools/herdr/ci.mjs, the opt-in workflow's
+// entry point (scenario allowlist, environment scrub, the evidence stage gate), and one
+// lifecycle case that gates real driver output from a fake-herdr smoke run.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -28,6 +32,7 @@ import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSess
 import { harnessConfigFiles, herdrLaunchEnv } from '../lib/manifest.mjs';
 import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
 import { g1Unit, g1Cases, installFakeClaudeCli } from './g1-tests.mjs';
+import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -643,11 +648,13 @@ export async function runSelfTest() {
   unitRedaction();
   await unitGuards();
   g1Unit(check);
+  ciUnit(check);
   if (process.platform === 'win32') {
     console.log('lifecycle checks skipped: the fake herdr runs pane commands with sh (POSIX only)');
   } else {
     console.log('herdr driver self-test (lifecycle, against test/fake-herdr.mjs -- not herdr)');
     await lifecycle();
+    ciLifecycle(check, { makeBase, driverEnv, RUN, FAKE });
   }
   console.log(`\nself-test: ${passed}/${passed + failed} checks passed${failed ? `, ${failed} FAILED` : ''}.`);
   return failed ? 1 : 0;

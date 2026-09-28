@@ -1,0 +1,107 @@
+# Opt-in herdr provider-integration runs (Epic K, K6 #129) on operator-owned self-hosted
+# runners where the harness CLIs are already logged in. Runner prerequisites, the security
+# model and its residual risks: docs/planning/gates/herdr-runner.md. Read it before
+# registering a runner: this repository is public. Each runner must run the pre-job hook in
+# tools/herdr/runner-hooks/, which refuses every job except this file on refs/heads/main;
+# nothing in this file can stop a fork's copy of another workflow, the hook does.
+#
+# This is NOT the default CI tier (oac-testing section 2; docs/planning/v0.1/09-test-strategy.md
+# section 4). Only a manual dispatch, or a push to main that changes docs/planning/PINS.md,
+# starts it.
+#
+# Hard rules for this file. scripts/check-herdr-containment.mjs (oac-boundaries check 9)
+# fails the build if any is broken:
+#   - Triggers are exactly workflow_dispatch and push-to-main-touching-PINS.md (checked
+#     as an allowlist). No PR-event trigger, no event chained from another workflow, and no
+#     event any stranger can fire (issues, stars, forks, discussions).
+#   - Permissions exactly contents: read. Every action pinned by full commit SHA.
+#   - No secrets context, no job token, no provider API key, no harness credential path.
+#     Harness login is the runner operator's, done by hand before any run, never by this
+#     workflow.
+#   - No expression inside a run: block. The dispatch input reaches the script only through
+#     env: (OAC_HERDR_SCENARIO), and tools/herdr/ci.mjs checks it against an allowlist.
+#   - Only tools/herdr/ci.mjs runs. It never re-runs the driver and passes it no options
+#     beyond the scenario name, so the dev-channels dialog is never driver-accepted.
+#   - Only the redacted run manifest and captures are uploaded, and only after ci.mjs stage
+#     has found them clean. The job's work dir (scratch included) is deleted at the end.
+name: herdr-provider-optin
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: >-
+          Driver scenario (tools/herdr/scenarios/). g1-claude-wake needs the operator at the
+          runner to accept the dev-channels dialog by hand; it is never accepted by CI.
+        type: choice
+        required: true
+        default: smoke
+        options:
+          - smoke
+          - g1-claude-wake
+      runner:
+        description: Which operator-owned runner(s) to use
+        type: choice
+        required: true
+        default: both
+        options:
+          - both
+          - linux
+          - windows
+  push:
+    branches:
+      - main
+    paths:
+      - docs/planning/PINS.md
+
+permissions:
+  contents: read
+
+jobs:
+  herdr:
+    name: herdr ${{ matrix.os }} (${{ inputs.scenario || 'smoke' }})
+    # A dispatch against any other ref is skipped. This guards against mistakes only: a
+    # dispatched ref runs its own copy of this file (see herdr-runner.md, threat table).
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        # A push run (no inputs) uses both runners.
+        os: ${{ fromJSON(inputs.runner == 'linux' && '["linux"]' || inputs.runner == 'windows' && '["windows"]' || '["linux","windows"]') }}
+    runs-on: [self-hosted, oac-harness, "${{ matrix.os }}"]
+    # One run at a time per runner label, never cancelling a run in progress (a cancelled
+    # run could leave a harness mid-turn). A newer queued run replaces an older queued one.
+    concurrency:
+      group: herdr-provider-optin-${{ matrix.os }}
+      cancel-in-progress: false
+    # g1-claude-wake's own timebox is 45 minutes; the driver ends the run NOT RUN at its box.
+    timeout-minutes: 60
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the driver scenario
+        env:
+          OAC_HERDR_SCENARIO: ${{ inputs.scenario }}
+        run: node tools/herdr/ci.mjs run
+
+      - name: Check the evidence is clean, then stage it
+        id: stage
+        if: ${{ !cancelled() }}
+        run: node tools/herdr/ci.mjs stage
+
+      - name: Upload redacted evidence
+        if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: herdr-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.stage.outputs.upload-dir }}
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 14
+
+      - name: Delete the work dir, check the checkout is clean
+        if: ${{ always() }}
+        run: node tools/herdr/ci.mjs cleanup

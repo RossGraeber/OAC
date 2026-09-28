@@ -16,10 +16,11 @@ stop-and-cite event, not a pending-path error.
 Status as last verified against this repo (2026-09-28): checks 1, 2, 4, 5, 6, 7 are
 **pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
 the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; check 10 is
-**clean** on real content (`tools/herdr/`, K3's driver: every tracked entry, 0 hits), while
-check 9's six targets (the five product paths and manifests outside `tools/herdr/`) are
-still **pending**, so the script's last line reads `Result: PENDING`; its `--self-test`
-passes 51/51.
+**clean** on real content (`tools/herdr/`, K3's driver: every tracked entry, 0 hits), and
+so are check 9's two workflow targets (K6: `boundary-lint.yml` and
+`herdr-provider-optin.yml`, 0 hits), while check 9's six other targets (the five product
+paths and manifests outside `tools/herdr/`) are still **pending**, so the script's last
+line reads `Result: PENDING`; its `--self-test` passes 83/83.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code
@@ -70,7 +71,23 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 # 9. herdr (Epic K dev/test tooling) must not reach product code: no `herdr` / `HERDR_`
 #    (case-insensitive) in any git-tracked entry under adapters/ core/ cli/ transports/
 #    spec/, and no workspace or package manifest outside tools/herdr/ referencing
-#    tools/herdr.
+#    tools/herdr. Workflows (K6): no workflow other than
+#    .github/workflows/herdr-provider-optin.yml names tools/herdr or any label a
+#    self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm,
+#    arm64 -- a job routes to any runner holding all its runs-on labels). The opt-in
+#    workflow is read with a small fail-closed YAML reader and must have: `on:` exactly
+#    {workflow_dispatch, push} (an allowlist: issues/watch/fork/discussion/PR events all
+#    fail), push limited to branches [main] and paths [docs/planning/PINS.md],
+#    workflow_dispatch with inputs only, top-level permissions exactly contents: read and
+#    no job-level permissions, every `uses:` actions/checkout or actions/upload-artifact
+#    at a 40-hex commit SHA, checkout with persist-credentials: false; and must not have
+#    any `secrets` use (secrets.X, secrets[..], toJSON(secrets), secrets: inherit), any
+#    `github.token`, a `${{ }}` inside a `run:` block, or a direct driver call or driver
+#    option. Text rules apply to comments too, so the opt-in workflow's own comments
+#    avoid those words. All of this catches drift in this repository, not a fork: a
+#    fork's pull request runs its own copy of every workflow and of this lint. The
+#    runner-side pre-job hook is what refuses a fork (docs/planning/gates/herdr-runner.md
+#    section 1).
 # 10. The herdr driver must not touch harness credentials or harness config (boundaries 3,
 #    4, 13) in entries under tools/herdr/: auth.json, .credentials.json, ANTHROPIC_API_KEY,
 #    OPENAI_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY,
