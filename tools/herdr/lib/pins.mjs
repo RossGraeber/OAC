@@ -93,14 +93,14 @@ export function parseClaudeCliVersion(stdout) {
 // The pin-move-trigger check for a scripted Claude-side run. Returns null when the
 // observed version equals PINS.md's last-observed version, else a message saying why the
 // run must stop. `source` names where the observed version came from.
-export function claudePinMoveTrigger({ observed, lastObserved, source }) {
+export function claudePinMoveTrigger({ observed, lastObserved, source, gate = 'G1' }) {
   if (observed && observed === lastObserved) return null;
   const seen = observed ? `v${observed}` : 'no parseable version';
   return (
     `PIN-MOVE TRIGGER: ${source} reports ${seen}, but docs/planning/PINS.md "${CLAUDE_PIN_ROW}" last observed ` +
     `v${lastObserved}. Under PINS.md's floating-version policy a newly observed Claude Code version is a ` +
     'pin-move trigger: run the pin-move checklist (and re-verify the PLANNING-PROMPT.md §3.1 facts) before ' +
-    're-running G1. This scripted run stops here and does not edit PINS.md.'
+    `re-running ${gate}. This scripted run stops here and does not edit PINS.md.`
   );
 }
 
@@ -160,13 +160,13 @@ export function parseCodexDaemonVersion(stdout) {
 
 // The pin-move-trigger check for a scripted Codex-side run: null when the observed version
 // equals PINS.md's last-observed version, else why the run must stop.
-export function codexPinMoveTrigger({ observed, lastObserved, source }) {
+export function codexPinMoveTrigger({ observed, lastObserved, source, gate = 'G2' }) {
   if (observed && observed === lastObserved) return null;
   const seen = observed ? observed : 'no parseable version';
   return (
     `PIN-MOVE TRIGGER: ${source} reports ${seen}, but docs/planning/PINS.md "${CODEX_PIN_ROW}" last observed ` +
     `${lastObserved}. Under PINS.md's floating-version policy a newly observed Codex version is a pin-move ` +
-    'trigger: run the pin-move checklist (and re-verify the PLANNING-PROMPT.md §3.2 facts) before re-running G2. ' +
+    `trigger: run the pin-move checklist (and re-verify the PLANNING-PROMPT.md §3.2 facts) before re-running ${gate}. ` +
     'This scripted run stops here and does not edit PINS.md.'
   );
 }

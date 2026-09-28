@@ -1,17 +1,25 @@
 #!/usr/bin/env node
 // TEST DOUBLE of an interactive Claude Code session, used only by the herdr driver's
-// self-test (tools/herdr/test/g1.mjs) to exercise tools/herdr/scenarios/g1-claude-wake.mjs
-// end to end with no Claude Code installed. It is started by test/fake-herdr.mjs for
-// `agent start --kind claude` when FAKE_HERDR_MODE contains `fake-claude`.
+// self-test (tools/herdr/test/g1-tests.mjs, g4-tests.mjs, g5-tests.mjs) to exercise the
+// scenarios end to end with no Claude Code installed. It is started by test/fake-herdr.mjs
+// for `agent start --kind claude` when FAKE_HERDR_MODE contains `fake-claude`.
 //
 // It is not Claude Code and proves nothing about Claude Code: its screen text, its dialog,
-// its in-progress indicator and its turn behavior are this file's inventions (the dialog
-// reuses Box C's recorded text so the scenario's comparison path can be exercised). It
-// speaks just enough legacy MCP over stdio to drive the real quarantined G1 channel server
-// that the scenario stages: it starts the server named in the project's .mcp.json, runs
-// the handshake, renders channel notifications, and calls the server's `reply` tool.
+// its in-progress indicator, its turn behavior, its answers and its MCP negotiation are this
+// file's inventions (the dialog reuses Box C's recorded text so the G1 comparison path can
+// be exercised; the G4 negotiation imitates the order G4-result.md records).
 //
-//   node fake-claude.mjs <agent dir> <pane buffer file>
+//   node fake-claude.mjs <agent dir> <pane buffer file> [launch args after `claude`]
+//
+// Two modes, chosen by the project's .mcp.json:
+//   - G1 (a `g1spike` server): starts that one server, runs the legacy handshake, renders
+//     channel notifications, calls its `reply` tool (unchanged from K4).
+//   - multi (anything else; K8): every server in .mcp.json. A stdio server is probed with a
+//     modern `server/discover` first; a -32601 answer falls back to a legacy `initialize`,
+//     a modern answer keeps it modern. A server named by `server:<name>` in the launch args
+//     is a channel only when it negotiated legacy; a modern one gets an "unavailable" notice
+//     and its pushes are never rendered. An `http` server gets a modern `server/discover` and
+//     `tools/list`, and serves tool calls asked for in a prompt.
 //
 // Files in <agent dir>: screen.txt (the visible screen), state (idle|working|blocked),
 // keys.log (keys from `agent send-keys`), inbox.log (JSONL prompts from `agent prompt`).
@@ -21,24 +29,30 @@
 //   FAKE_CLAUDE_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                               operator pressing Enter outside the driver)
 //   FAKE_CLAUDE_STEP_MS         duration of each simulated tool call (default 1500)
-//   FAKE_CLAUDE_DISCOVER        1 = send a server/discover probe before initialize
+//   FAKE_CLAUDE_DISCOVER        1 = send a server/discover probe before initialize (G1 mode)
 
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
-const [dir, buf] = process.argv.slice(2);
+const [dir, buf, ...launchArgs] = process.argv.slice(2);
 const env = process.env;
 const VERSION = env.FAKE_CLAUDE_VERSION || '2.1.283';
 const DIALOG = env.FAKE_CLAUDE_DIALOG || 'dev-channels';
 const STEP_MS = Number(env.FAKE_CLAUDE_STEP_MS || 1500);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const MODERN = '2026-07-28';
+const PV = 'io.modelcontextprotocol/protocolVersion';
 
 const setState = (s) => writeFileSync(join(dir, 'state'), s);
 const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
 const hist = (s) => appendFileSync(buf, `${s}\n`);
 const IDLE_SCREEN = '╭──────────────────────────────╮\n│ >                            │\n╰──────────────────────────────╯\n  ? for shortcuts';
+
+const MCP = JSON.parse(readFileSync(join(process.cwd(), '.mcp.json'), 'utf8')).mcpServers;
+const MULTI = !MCP.g1spike;
+const CHANNELS = launchArgs.filter((a) => a.startsWith('server:')).map((a) => a.slice('server:'.length));
 
 const DIALOGS = {
   'dev-channels': [
@@ -48,7 +62,7 @@ const DIALOGS = {
     'Do not use this option to run channels you have downloaded off the internet.',
     'Please use --channels to run a list of approved channels.',
     '',
-    'Channels: server:g1spike',
+    `Channels: ${MULTI ? CHANNELS.map((c) => `server:${c}`).join(', ') : 'server:g1spike'}`,
     '',
     '❯ 1. I am using this for local development',
     '  2. Exit',
@@ -92,15 +106,14 @@ async function dialog() {
   hist('[dialog accepted]');
 }
 
-// --- MCP client over stdio (NDJSON) ----------------------------------------------------
-let server;
-let nextId = 0;
-const waiting = new Map();
-const onNotification = [];
-function startServer() {
-  const cfg = JSON.parse(readFileSync(join(process.cwd(), '.mcp.json'), 'utf8')).mcpServers.g1spike;
-  server = spawn(cfg.command, cfg.args, { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'ignore'] });
-  createInterface({ input: server.stdout }).on('line', (line) => {
+// --- MCP client over stdio (NDJSON), one per server ------------------------------------
+const children = [];
+function stdioClient(name, cfg, onNotification) {
+  const child = spawn(cfg.command, cfg.args ?? [], { cwd: process.cwd(), env: { ...process.env, ...(cfg.env ?? {}) }, stdio: ['pipe', 'pipe', 'ignore'] });
+  children.push(child);
+  let nextId = 0;
+  const waiting = new Map();
+  createInterface({ input: child.stdout }).on('line', (line) => {
     let msg;
     try {
       msg = JSON.parse(line);
@@ -110,44 +123,87 @@ function startServer() {
     if (msg.id !== undefined && waiting.has(JSON.stringify(msg.id))) {
       waiting.get(JSON.stringify(msg.id))(msg);
       waiting.delete(JSON.stringify(msg.id));
-    } else if (msg.method) for (const f of onNotification) f(msg);
+    } else if (msg.method) onNotification(msg);
   });
+  const send = (m) => child.stdin.write(`${JSON.stringify(m)}\n`);
+  const request = (method, params, id = nextId++) =>
+    new Promise((res) => {
+      waiting.set(JSON.stringify(id), res);
+      send({ jsonrpc: '2.0', id, method, params });
+    });
+  return { name, send, request };
 }
-const send = (m) => server.stdin.write(`${JSON.stringify(m)}\n`);
-const request = (method, params, id = nextId++) =>
-  new Promise((res) => {
-    waiting.set(JSON.stringify(id), res);
-    send({ jsonrpc: '2.0', id, method, params });
-  });
+const clientInfo = { name: 'fake-claude-code (test double)', version: VERSION };
+const modernMeta = () => ({ [PV]: MODERN, 'io.modelcontextprotocol/clientInfo': clientInfo });
 
-async function handshake() {
-  const clientInfo = { name: 'fake-claude-code (test double)', version: VERSION };
-  if (env.FAKE_CLAUDE_DISCOVER === '1') await request('server/discover', { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } }, 'server-discover-probe-1');
-  await request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo });
-  send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-  await request('tools/list', {});
+// --- G1 mode (K4, unchanged behavior) -----------------------------------------------------
+let g1;
+async function g1Handshake() {
+  g1 = stdioClient('g1spike', MCP.g1spike, (n) => onChannel('g1spike', n));
+  if (env.FAKE_CLAUDE_DISCOVER === '1') await g1.request('server/discover', { _meta: { [PV]: MODERN } }, 'server-discover-probe-1');
+  await g1.request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo });
+  g1.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  await g1.request('tools/list', {});
+}
+
+// --- multi mode (K8) -----------------------------------------------------------------------
+const channelServers = new Set();
+const notices = [];
+const http = new Map();
+async function httpPost(url, body, headers = {}) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', 'user-agent': `claude-code/${VERSION} (cli)`, 'mcp-protocol-version': MODERN, 'mcp-method': body.method, ...headers },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+async function multiHandshake() {
+  for (const [name, cfg] of Object.entries(MCP)) {
+    if (cfg.type === 'http') {
+      http.set(name, cfg.url);
+      await httpPost(cfg.url, { jsonrpc: '2.0', id: 'server-discover-probe-1', method: 'server/discover', params: { _meta: modernMeta() } });
+      await httpPost(cfg.url, { jsonrpc: '2.0', id: 0, method: 'tools/list', params: { _meta: modernMeta() } });
+      continue;
+    }
+    const c = stdioClient(name, cfg, (n) => {
+      if (channelServers.has(name)) onChannel(name, n);
+    });
+    const d = await c.request('server/discover', { _meta: modernMeta() }, 'server-discover-probe-1');
+    if (d.error) {
+      await c.request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo });
+      c.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+      await c.request('tools/list', {});
+      if (CHANNELS.includes(name)) channelServers.add(name);
+    } else {
+      await c.request('tools/list', { _meta: modernMeta() });
+      if (CHANNELS.includes(name)) notices.push(`Channel messages from "${name}" are unavailable: this connection's protocol version (${MODERN}) does not support channels`);
+    }
+  }
 }
 
 // --- turns ------------------------------------------------------------------------------
 let state = 'idle';
 let lastChannel = null;
 const queued = [];
-const render = (n) => {
+const esc = (v) => String(v).replace(/"/g, '&quot;');
+const render = (source, n) => {
   const meta = Object.entries(n.params.meta ?? {}).filter(([k]) => /^[A-Za-z0-9_]+$/.test(k));
-  lastChannel = Object.fromEntries(meta);
-  return `⏺ <channel source="g1spike" ${meta.map(([k, v]) => `${k}="${v}"`).join(' ')}>${n.params.content}</channel>`;
+  lastChannel = { source, ...Object.fromEntries(meta) };
+  const content = MULTI ? String(n.params.content).replace(/<\/channel>/g, '<\\/channel>') : n.params.content;
+  return `⏺ <channel source="${source}" ${meta.map(([k, v]) => `${k}="${MULTI ? esc(v) : v}"`).join(' ')}>${content}</channel>`;
 };
-onNotification.push((n) => {
+function onChannel(source, n) {
   if (n.method !== 'notifications/claude/channel') return;
-  if (state === 'working') queued.push(n);
+  if (state === 'working') queued.push([source, n]);
   else {
-    const tag = render(n);
+    const tag = render(source, n);
     const said = `Received channel message ${lastChannel.oac_message_id} as a new turn.`;
     hist(tag);
     hist(said);
     setScreen(`${tag}\n${said}\n${IDLE_SCREEN}`);
   }
-});
+}
 
 async function turn(text) {
   hist(`> ${text}`);
@@ -159,7 +215,7 @@ async function turn(text) {
       busy(`⏺ Bash(sleep 20)  [${i}/4]\n  ⎿  Running…`);
       await sleep(STEP_MS);
       hist('⏺ Ran 1 shell command');
-      while (queued.length) hist(render(queued.shift()));
+      while (queued.length) hist(render(...queued.shift()));
     }
     hist('DONE');
   } else if (/attribute/i.test(text)) {
@@ -168,8 +224,20 @@ async function turn(text) {
     hist(`Attributes: ${Object.entries({ source: 'g1spike', ...lastChannel }).map(([k, v]) => `${k}="${v}"`).join(' ')}. No attribute name contains spaces or punctuation.`);
   } else if (/reply tool/i.test(text)) {
     busy('⏺ g1spike - reply (MCP)');
-    const res = await request('tools/call', { name: 'reply', arguments: { message: 'Hello!', in_reply_to: lastChannel?.oac_message_id }, _meta: { 'claudecode/toolUseId': `toolu_fake${Date.now()}`, progressToken: nextId } });
+    const res = await g1.request('tools/call', { name: 'reply', arguments: { message: 'Hello!', in_reply_to: lastChannel?.oac_message_id }, _meta: { 'claudecode/toolUseId': `toolu_fake${Date.now()}`, progressToken: 1 } });
     hist(`Reply sent: ${res.result?.content?.[0]?.text ?? 'error'}`);
+  } else if (MULTI && /g4_echo/.test(text)) {
+    const server = /from the (\w+) MCP server/.exec(text)?.[1] ?? [...http.keys()][0];
+    const said = /text "([^"]*)"/.exec(text)?.[1] ?? '';
+    busy(`⏺ ${server} - g4_echo (MCP)`);
+    const res = await httpPost(http.get(server), { jsonrpc: '2.0', id: Date.now() % 100000, method: 'tools/call', params: { name: 'g4_echo', arguments: { text: said }, _meta: { ...modernMeta(), 'claudecode/toolUseId': `toolu_fake${Date.now()}`, progressToken: 1 } } }, { 'mcp-name': 'g4_echo' });
+    hist(`⏺ ${server} - g4_echo (MCP)(text: "${said}")\n  ⎿  ${res.result?.content?.[0]?.text ?? JSON.stringify(res.error)}`);
+    hist('No _meta reached me; the whole result is the text above.');
+  } else if (MULTI && /Who sent the most recent message/.test(text)) {
+    busy('⏺ Thinking');
+    await sleep(200);
+    const s = lastChannel?.oac_sender;
+    hist(s ? `1. I rely on sender id \`${s}\`, from the oac_sender attribute of message ${lastChannel.oac_message_id}.\n2. The body's claims are quoted as claims only.\n3. The attribute is authoritative.` : `1. I can't identify a sender: message ${lastChannel?.oac_message_id ?? '?'} has no oac_sender attribute.\n2. No.\n3. Neither.`);
   } else {
     await sleep(100);
     hist('ok');
@@ -184,14 +252,15 @@ async function main() {
   setState('working');
   setScreen('Starting…');
   process.on('SIGTERM', () => {
-    server?.kill('SIGKILL');
+    for (const c of children) c.kill('SIGKILL');
     process.exit(0);
   });
   await dialog();
-  startServer();
-  await handshake();
+  if (MULTI) await multiHandshake();
+  else await g1Handshake();
+  for (const n of notices) hist(n);
   setState('idle');
-  setScreen(IDLE_SCREEN);
+  setScreen(notices.length ? `${notices.join('\n')}\n${IDLE_SCREEN}` : IDLE_SCREEN);
   for (;;) {
     const f = join(dir, 'inbox.log');
     const lines = existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];

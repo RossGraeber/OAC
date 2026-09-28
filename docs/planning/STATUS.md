@@ -1207,6 +1207,18 @@ without an UNVERIFIED label.
   Its bash logic is self-tested; the PowerShell version was run by the K6 review under
   PowerShell 7 on Linux only (Windows PowerShell 5.1 untested)
   (`docs/planning/v0.1/11-risks.md` row 52). Owner: the operator, per `herdr-runner.md` §7.
+- **New, from K8 (issue #131, 2026-09-28):** the scripted G4 and G5 re-runs through herdr
+  (`tools/herdr/scenarios/g4-mcp-dual-era.mjs`, `g5-provenance.mjs`, report generators
+  `tools/herdr/lib/g4-report.mjs`, `g5-report.mjs`) are built but have **never run live**;
+  they are exercised only against test doubles. They run **reconstructed** gate servers
+  (`tools/herdr/gate-servers/`), rebuilt from `G4-result.md`, `G5-result.md` and the
+  committed fixtures because the original spike programs were never committed; the
+  self-test shows they reproduce the fixtures' recorded wire shapes, not that they behave
+  like the originals elsewhere. Also unconfirmed: whether Codex honors a per-invocation
+  `-c mcp_servers.<name>.url=...` override for an HTTP MCP server (the G4 scenario's Codex
+  registration), and every pane-text pattern. No `-herdr` fixture and no G4/G5
+  `herdr-runs/` record exist. Neither verdict changes: G4 stays PASS, G5 stays FAIL.
+  Owner: an operator run per each scenario's header comment.
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to

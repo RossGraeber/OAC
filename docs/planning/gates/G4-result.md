@@ -442,6 +442,24 @@ provenance verdict and is recorded here, on G4, because it is G4's own open item
   zero residual hits, confirming there was nothing to redact rather than that a
   redaction pass found and removed something.
 
+#### Scripted re-run through herdr (K8) — pointer only, not verdict-bearing
+
+A herdr-driven re-run of this gate's 2026-09-26 re-run exists as test tooling (Epic K, K8
+issue #131): `tools/herdr/scenarios/g4-mcp-dual-era.mjs`, compared against
+`fixtures/g4-mcp-dual-era/transcript-2026-09-26.jsonl` by `tools/herdr/lib/g4-report.mjs`.
+It runs `tools/herdr/gate-servers/g4-server.mjs`, a **reconstruction** of this gate's spike
+server built from the architecture described above and the committed fixture, because the
+original `g4-server.mjs` was never committed; it is not the server that produced this gate's
+fixtures and cannot be verified identical to it. Codex's MCP registration there is per
+invocation (the operator's global Codex config is never edited); because this run's own
+global `g4` entry for `127.0.0.1:17448` may still be present, the scenario refuses this run's
+ports and its report requires exactly one Codex HTTP session before attributing any Codex
+traffic to the per-invocation registration. It has **never run live**:
+it is exercised only against test doubles (`node tools/herdr/run.mjs --self-test`), so no
+`-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md` record exist. When one
+does, it is linked here and changes nothing above: this gate's verdict comes only from the
+human-run procedure (`oac-gates` `references/scripted-runs.md` "Verdict eligibility").
+
 ---
 
 #### Superseded: 2026-09-25/26 out-of-box run (NOT RUN)

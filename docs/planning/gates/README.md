@@ -36,13 +36,19 @@ verdicts under `herdr-runs/` (see "Scripted runs (herdr)" below).
   `docs/planning/gates/fixtures/g1-claude-wake/`). The suffix is how the evidence store
   labels a herdr run; a human-run fixture never carries it. A capture named
   `unverified-*-herdr.*` (a run whose harness version was not verified against PINS.md)
-  is never committed.
+  is never committed. A gate that drives both harnesses (K8) names the provider in the
+  kind and carries that provider's version: `pane-claude-<date>-<version>-herdr.txt`,
+  `transcript-codex-<date>-<version>-herdr.jsonl`; G4's one shared server transcript
+  carries both, `transcript-<date>-claude-<version>-codex-<version>-herdr.jsonl`.
 - herdr-run records: `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md`, the
   criterion-by-criterion comparison with the human-run baseline, with the driver's
   redacted run manifest beside it as `G<n>-<YYYY-MM-DD>.run-manifest.json`. Written by the
   gate's report generator (G1: `tools/herdr/lib/g1-report.mjs --write`; G2:
-  `tools/herdr/lib/g2-report.mjs --write`), which never
-  overwrites an existing file.
+  `tools/herdr/lib/g2-report.mjs --write`; G4 and G5: `tools/herdr/lib/g4-report.mjs`,
+  `tools/herdr/lib/g5-report.mjs`), which never
+  overwrites an existing file. G4 and G5 records compare against runs of
+  **reconstructed** gate servers (`tools/herdr/gate-servers/`), because the originals
+  were never committed; each record says so at its top.
 
 ## Fixture manifest
 

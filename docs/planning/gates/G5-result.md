@@ -419,3 +419,19 @@
   | Date | Pinned versions | Verdict | Invalidated by |
   |---|---|---|---|
   | 2026-09-27 (box declared 06:08:53Z, 60 min; closed 06:38:46Z, ~29m53s elapsed, not expired) | Claude Code `2.1.283`; `@openai/codex` `0.157.1`; Windows only | **FAIL** (Codex criterion 2: X2, X5; criterion 3: X2) | — (current) |
+
+#### Scripted re-run through herdr (K8) — pointer only, not verdict-bearing; G5 stays FAIL
+
+A herdr-driven re-run of this gate exists as test tooling (Epic K, K8 issue #131):
+`tools/herdr/scenarios/g5-provenance.mjs`, compared against this gate's three fixtures by
+`tools/herdr/lib/g5-report.mjs`. It runs `tools/herdr/gate-servers/g5-channel.mjs`,
+`g5-codex.mjs` and `g5-cases.json`, **reconstructions** of this gate's spike server, client
+and case table, built from the description above and the committed fixtures, because the
+originals were never committed; they are not the programs that produced this gate's fixtures
+and cannot be verified identical to them. The spoofing bodies reach the harnesses only through
+that server and client, never typed by herdr. The report never rescores this gate: it only
+says whether a scripted run reproduced the per-criterion results above, and it states that
+its Claude rows rest on pane text rather than the session-log render rule (d) used. It has
+**never run live** (test doubles only), so no `-herdr` fixture and no
+`docs/planning/gates/herdr-runs/G5-<date>.md` record exist. This gate's verdict stays
+**FAIL**; it changes only through the human-run procedure.

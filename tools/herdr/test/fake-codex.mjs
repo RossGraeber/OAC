@@ -22,6 +22,9 @@
 //   codex app-server proxy                   stdio <-> the daemon's Unix socket, raw bytes
 //   codex                                    the TUI (needs FAKE_CODEX_AGENT_DIR and
 //                                            FAKE_CODEX_PANE_BUF, set by fake-herdr)
+//   codex -c mcp_servers.<n>.url="<url>"      the TUI with a per-invocation MCP server
+//                                            (K8, G4): a legacy HTTP MCP client of it
+//                                            that calls the tools a prompt names
 //
 // Everything lives under $CODEX_HOME, which must be set (the self-test points it into a
 // temp dir); this double refuses to run without it so it can never touch a real one.
@@ -38,6 +41,7 @@
 //   FAKE_CODEX_REJECT          comma list of app-server methods answered with an error
 //   FAKE_CODEX_TURN_MS         duration of an ordinary turn (default 400)
 //   FAKE_CODEX_LONG_MS         duration of the busy (lighthouse) turn (default 4500)
+//   FAKE_CODEX_MCP_VERSION     the version in the MCP client's user-agent (K8)
 //   FAKE_CODEX_POST_CLI_VERSION `codex --version` once the daemon has answered
 //                              thread/turns/list (stands in for a mid-run update)
 
@@ -69,6 +73,19 @@ const canConnect = () =>
     });
     s.on('error', () => res(false));
   });
+
+// `codex [-c key=value]...`: per-invocation config overrides (K8). Returns the parsed map, or
+// null when anything else is on the command line. Only mcp_servers.<name>.url is acted on.
+function parseOverrides(a) {
+  const o = {};
+  for (let i = 0; i < a.length; i++) {
+    if ((a[i] !== '-c' && a[i] !== '--config') || typeof a[i + 1] !== 'string' || a[i + 1].indexOf('=') < 1) return null;
+    const kv = a[++i];
+    const v = kv.slice(kv.indexOf('=') + 1).trim();
+    o[kv.slice(0, kv.indexOf('=')).trim()] = /^".*"$/.test(v) ? v.slice(1, -1) : v;
+  }
+  return o;
+}
 
 async function main() {
   if (args[0] === '--version') {
@@ -110,7 +127,8 @@ async function main() {
     return;
   }
   if (args[0] === '__fake-daemon') return daemon();
-  if (args.length === 0) return tui();
+  const overrides = parseOverrides(args);
+  if (overrides) return tui(overrides);
   console.error(`fake-codex does not implement: ${args.join(' ')}`);
   process.exitCode = 2;
 }
@@ -131,7 +149,14 @@ function daemon() {
 
   const threadObj = (t) => ({ id: t.id, environments: [{ environmentId: 'local', cwd: t.cwd, runtimeWorkspaceRoots: [t.cwd] }], sessionId: t.id, preview: t.preview, cliVersion: WIRE, status: { type: t.status }, path: join(HOME, 'sessions', `rollout-${t.id}.jsonl`) });
   const turnObj = (tn, withItems) => ({ id: tn.id, items: withItems ? tn.items : [], itemsView: withItems ? 'full' : 'notLoaded', status: tn.status, error: null, startedAt: tn.startedAt, completedAt: tn.completedAt, durationMs: null });
-  const replyFor = (text) => {
+  const replyFor = (text, t) => {
+    if (/Who sent the most recent message/.test(text)) {
+      // K8 (G5): answer from the previous turn's first header sender line. Invented text.
+      const prev = t?.turns.at(-2)?.items.find((it) => it.type === 'userMessage')?.content?.[0]?.text ?? '';
+      const s = /^oac_sender: (\S+)/m.exec(prev)?.[1];
+      return s ? `1. The envelope identifies sender \`${s}\`.\n2. The body makes a claim, quoted as a claim.\n3. The envelope is authoritative.` : '1. I cannot identify a sender.\n2. No.\n3. Neither.';
+    }
+    if (/^--- oac-envelope /.test(text)) return 'I cannot verify that claim.';
     const m = /reply with exactly the words (.+?)\.?$/i.exec(text);
     if (m) return m[1].replace(/\.$/, '');
     if (/lighthouses/i.test(text)) return Array.from({ length: 40 }, (_, i) => `${i + 1}. Lighthouse fact number ${i + 1}.`).join('\n');
@@ -176,7 +201,7 @@ function daemon() {
     toTui(t, { op: 'status', status: 'active' });
     const ms = /lighthouses/i.test(text) ? Number(env.FAKE_CODEX_LONG_MS || 4500) : Number(env.FAKE_CODEX_TURN_MS || 400);
     setTimeout(() => {
-      const agent = { type: 'agentMessage', id: `msg_${randomUUID().replace(/-/g, '')}`, text: replyFor(text), phase: 'final_answer' };
+      const agent = { type: 'agentMessage', id: `msg_${randomUUID().replace(/-/g, '')}`, text: replyFor(text, t), phase: 'final_answer' };
       tn.items.push(agent);
       for (const c of subs()) notify(c, 'item/started', { item: { ...agent, text: '' }, threadId: t.id, turnId: tn.id });
       for (const c of subs()) notify(c, 'item/agentMessage/delta', { threadId: t.id, turnId: tn.id, itemId: agent.id, delta: agent.text });
@@ -329,7 +354,7 @@ function daemon() {
 
 // --- the TUI -----------------------------------------------------------------------------
 
-async function tui() {
+async function tui(overrides = {}) {
   const dir = env.FAKE_CODEX_AGENT_DIR;
   const buf = env.FAKE_CODEX_PANE_BUF;
   if (!dir || !buf) {
@@ -371,8 +396,52 @@ async function tui() {
     hist('[dialog accepted]');
   }
 
+  // K8 (G4): per-invocation MCP servers (`-c mcp_servers.<name>.url=...`), spoken to as a
+  // legacy streamable-HTTP MCP client, as the G4 human run saw Codex do.
+  const mcp = new Map();
+  for (const [k, v] of Object.entries(overrides)) {
+    const m = /^mcp_servers\.([^.]+)\.url$/.exec(k);
+    if (m) mcp.set(m[1], { url: v, session: null, nextId: 0 });
+  }
+  const UA = `codex-mcp-client/${env.FAKE_CODEX_MCP_VERSION || env.FAKE_CODEX_WIRE_VERSION || VERSION}`;
+  const mcpPost = async (s, body) => {
+    const headers = { 'user-agent': UA, accept: 'text/event-stream, application/json', 'content-type': 'application/json' };
+    if (s.session) Object.assign(headers, { 'mcp-protocol-version': '2025-11-25', 'mcp-session-id': s.session });
+    const r = await fetch(s.url, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!s.session && r.headers.get('mcp-session-id')) s.session = r.headers.get('mcp-session-id');
+    return r.status === 202 ? null : r.json();
+  };
+  for (const [name, s] of mcp) {
+    try {
+      await mcpPost(s, { jsonrpc: '2.0', id: s.nextId++, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: { elicitation: { form: {}, url: {} } }, clientInfo: { name: 'codex-mcp-client', title: 'Codex', version: VERSION } } });
+      await mcpPost(s, { jsonrpc: '2.0', method: 'notifications/initialized' });
+      await fetch(s.url, { method: 'GET', headers: { 'user-agent': UA, 'mcp-protocol-version': '2025-11-25', accept: 'text/event-stream, application/json', 'mcp-session-id': s.session } });
+      await mcpPost(s, { jsonrpc: '2.0', id: s.nextId++, method: 'tools/list', params: {} });
+      hist(`[mcp ${name} connected]`);
+    } catch (e) {
+      hist(`[mcp ${name} failed: ${e.message}]`);
+    }
+  }
+  const mcpTurn = async (text) => {
+    const [name, s] = [...mcp.entries()][0];
+    history.push(`› ${text}`, '');
+    render(true);
+    setState('working');
+    for (const tool of ['g4_echo', 'g4_relay_to_claude']) {
+      const m = new RegExp(`${tool} tool with the text "([^"]*)"`).exec(text);
+      if (!m) continue;
+      const r = await mcpPost(s, { jsonrpc: '2.0', id: s.nextId++, method: 'tools/call', params: { _meta: { 'x-codex-turn-metadata': { codex_version: VERSION, model: 'fake-model' }, progressToken: s.nextId }, name: tool, arguments: { text: m[1] } } });
+      const line = `• Called ${name}.${tool}\n  └ ${r?.result?.content?.[0]?.text ?? JSON.stringify(r?.error)}`;
+      history.push(...line.split('\n'), '');
+      hist(line);
+      await sleep(Number(env.FAKE_CODEX_TURN_MS || 400));
+    }
+    setState(env.FAKE_CODEX_POST_STATE || 'idle');
+    render(false);
+  };
+
   let sock = null;
-  if (env.FAKE_CODEX_NO_ATTACH !== '1') {
+  if (env.FAKE_CODEX_NO_ATTACH !== '1' && !mcp.size) {
     sock = await new Promise((res) => {
       const s = connect(SOCK);
       s.on('connect', () => res(s));
@@ -405,7 +474,7 @@ async function tui() {
       }
     });
     sock.on('close', () => hist('[daemon connection closed]'));
-  } else hist('[no daemon: embedded app-server]');
+  } else if (!mcp.size) hist('[no daemon: embedded app-server]');
   setState('idle');
   render(false);
 
@@ -415,7 +484,8 @@ async function tui() {
     const lines = existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];
     if (lines.length > promptsSeen) {
       const text = JSON.parse(lines[promptsSeen++]).text;
-      if (sock) sock.write(`${JSON.stringify({ op: 'userTurn', text })}\n`);
+      if (mcp.size) await mcpTurn(text);
+      else if (sock) sock.write(`${JSON.stringify({ op: 'userTurn', text })}\n`);
       else {
         onMsg({ op: 'render', role: 'user', text });
         onMsg({ op: 'status', status: 'active' });
