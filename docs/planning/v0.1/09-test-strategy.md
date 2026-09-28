@@ -94,7 +94,7 @@ mitigation's proof across two tiers.
 | 3 | Contract — adapter + transport | The `ProviderAdapter` (`05-interfaces.md` §13) and `Transport` (§15) contracts are obeyed identically by every implementation, including the no-polling rule (§5 below) | Adapter sub-row: fake Claude/Codex endpoints (F8/F9) at Stage 3, real adapters unchanged at Stage 4. Transport sub-row: the in-memory transport (F7) at Stage 3, real Zenoh over loopback unchanged at Stage 4 | CI-default against fakes/in-memory; against real adapters it is the provider-integration tier (row 6), opt-in, pinned — but real Zenoh over loopback stays CI-default (§3's loopback rule: no live provider, no API key, no network beyond loopback) | F10 | Stage 3 (fakes/in-memory, adapter sub-row real at Stage 4 opt-in); Stage 4 (transport sub-row real, CI-default) |
 | 4 | Security (resilience folded in, see above) | Spoof, replay, duplicate-suppression-including-across-restart, unauthorized-routing, cross-project-leakage, `zid`-never-an-identity, and local-IPC-peer-auth mitigations from `06-security.md` §14 — detail at §7 below | Fakes (F11) at Stage 3; real transport/adapters (H2, and H3 for the resilience sub-row) at Stage 5 | CI-default against fakes; against real adapters (Claude Code, Codex) it is opt-in, pinned — but against real Zenoh over loopback, with no live adapter in the path, it stays CI-default (§3's loopback rule) | F11; H2; H3 | Stage 3 (fakes); Stage 5 (real adapters, opt-in; real-Zenoh-only cases CI-default) |
 | 5 | Fake-harness integration | Core + adapter + transport wired together with no live provider — the Stage 3 exit condition | Fake Claude endpoint (F8), fake Codex endpoint (F9), in-memory or loopback transport (F7) | CI-default | F12 | Stage 3 |
-| 6 | Provider integration | Real adapter behaviour against a real, pinned harness version — the runtime half of gates G1/G2 | Real Claude Code / real Codex, on pinned versions (`docs/planning/PINS.md`) | Opt-in only, explicit flag, pinned versions — never the default `test` run (F12 acceptance: "Provider integration tests exist but are opt-in and pinned"). Real Zenoh over loopback is not this row — it needs no live provider, so it is CI-default under row 3/4 (§3's loopback rule), never this opt-in tier | F12 isolates it as its own target; exercised at Stage 4 | Stage 4 |
+| 6 | Provider integration | Real adapter behaviour against a real, pinned harness version — the runtime half of gates G1/G2 | Real Claude Code / real Codex, on pinned versions (`docs/planning/PINS.md`), operated by hand or driven through herdr (Epic K; §4) | Opt-in only, explicit flag, pinned versions — never the default `test` run (F12 acceptance: "Provider integration tests exist but are opt-in and pinned"). Real Zenoh over loopback is not this row — it needs no live provider, so it is CI-default under row 3/4 (§3's loopback rule), never this opt-in tier | F12 isolates it as its own target; exercised at Stage 4 | Stage 4 |
 | 7 | End-to-end | The ADR-001 Validation criterion, decomposed into individually asserted clauses — detail at §9 below | Real providers, real transport | Opt-in (needs live providers) — the go/no-go test (H1, labelled `go-no-go`) | H1 | Stage 5 |
 | 8 | Cross-platform CLI smoke | One-command startup, `status`/`sessions`/`doctor`, clean shutdown — detail at §10 below | The built CLI binary; no live provider required | CI-default, matrixed on Windows, macOS, Linux | H4 | Stage 5 |
 
@@ -159,6 +159,23 @@ the opt-in test against the new pin is required before its result is cited again
 current. This is the same obligation §a-§e of that policy already state for gate files;
 this file does not invent a second invalidation mechanism, it applies the existing one to
 opt-in test results.
+
+**Amendment, 2026-09-28 (K5, issue #128): herdr-driven runs are provider-integration
+tier, opt-in by construction, never default.** Epic K (#123) adds a test-side driver,
+`tools/herdr/run.mjs`, that drives real Claude Code and Codex CLI sessions through herdr
+(pinned in `docs/planning/PINS.md`, row `herdr (test tooling)`; tool record
+`docs/planning/decisions/K1-herdr-evaluation.md`). A herdr-driven run is **not a ninth
+tier**. It is row 6 (and, once H1 reuses it, row 7) run with a driver in the operator's
+place. Every such run needs a real, logged-in harness process, so §3's rule already puts
+it outside the default suite: it is opt-in by construction, not by a flag someone
+remembered to set. No default `test` invocation and no default CI workflow invokes it. It
+names its exact harness pins as every row-6 test does, and it also names the herdr pin.
+herdr itself is never a dependency of anything the default suite builds: it is dev/test
+tooling only, kept out of `adapters/`, `core/`, `cli/`, `transports/` and `spec/` by
+`scripts/check-herdr-containment.mjs`. How a scripted run is recorded, and when it may
+count toward a gate verdict, is `oac-gates` `references/scripted-runs.md` and
+`docs/planning/gates/README.md` "Scripted runs (herdr)". This file does not restate
+either.
 
 > **Reference implementation note:** the v0.1 Rust workspace's own mechanism for
 > separating the opt-in tier from the default `cargo test` run — a Cargo feature flag, a
@@ -706,6 +723,7 @@ Every reference below is a repo-relative path; no prior context is assumed.
 - `docs/planning/v0.1/12-deferred.md` (task A12, not yet landed)
 - `docs/planning/decisions/C5-envelope-auth.md`
 - `docs/planning/decisions/C7-zenoh-transport.md`
+- `docs/planning/decisions/K1-herdr-evaluation.md` (§4 amendment, K5)
 - `docs/planning/gates/README.md`
 - `docs/planning/PINS.md`
 - `docs/planning/STATUS.md`

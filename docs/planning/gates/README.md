@@ -3,7 +3,9 @@
 This directory is the evidence store for the five Stage 1 go/no-go gates (G1-G5,
 PLANNING-PROMPT.md §4). Pinned versions live in `docs/planning/PINS.md`. Verdict
 summary lives in `docs/planning/STATUS.md`'s Gate verdicts table. This directory holds
-the evidence each verdict rests on: one result file per gate, plus captured fixtures.
+the evidence each verdict rests on: one result file per gate, plus captured fixtures. It
+also holds the records of herdr-driven gate re-runs (Epic K), kept apart from the
+verdicts under `herdr-runs/` (see "Scripted runs (herdr)" below).
 
 ## Naming convention
 
@@ -23,6 +25,19 @@ the evidence each verdict rests on: one result file per gate, plus captured fixt
 - Slug names are fixed to the backlog gate labels — used in headings, never in
   filenames: G1 `claude-wake`, G2 `codex-inject`, G3 `zenoh-peer`, G4 `mcp-dual-era`,
   G5 `provenance`.
+- herdr-driven fixtures carry the **`-herdr` suffix**:
+  `<kind>-<YYYY-MM-DD>-<version>-herdr.<ext>` (K4), e.g.
+  `transcript-2026-09-28-2.1.283-herdr.jsonl` and `pane-2026-09-28-2.1.283-herdr.txt`.
+  They sit in the same fixture directory as the gate's human-run fixtures (G1:
+  `docs/planning/gates/fixtures/g1-claude-wake/`). The suffix is how the evidence store
+  labels a herdr run; a human-run fixture never carries it. A capture named
+  `unverified-*-herdr.*` (a run whose harness version was not verified against PINS.md)
+  is never committed.
+- herdr-run records: `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md`, the
+  criterion-by-criterion comparison with the human-run baseline, with the driver's
+  redacted run manifest beside it as `G<n>-<YYYY-MM-DD>.run-manifest.json`. Written by the
+  gate's report generator (G1: `tools/herdr/lib/g1-report.mjs --write`), which never
+  overwrites an existing file.
 
 ## Fixture manifest
 
@@ -37,10 +52,18 @@ convention" above). Keep it in sync with new fixtures in the same change that ad
 them — `node scripts/check-fixture-manifest.mjs` checks that every committed fixture
 file has a manifest entry and vice versa.
 
+Every `-herdr` fixture entry also carries a **`driver` block**: `herdr_version` (the
+verbatim `herdr --version` output), `driver_commit` (the full commit the driver ran
+from) and `run_manifest` (the committed `herdr-runs/*.run-manifest.json`). The same
+script requires the block on every `-herdr` entry and checks it against that run
+manifest: outcome `PASS`, same driver commit, same herdr version. It rejects a `driver`
+block on an entry without the suffix, and any `unverified-*` capture.
+`node scripts/check-fixture-manifest.mjs --self-test` plants one violation per rule.
+
 ## Gate-result template
 
 Canonical source: `.claude/skills/oac-gates/SKILL.md` §Gate-result template. Copied
-here **verbatim**, with three fields this evidence store needs added at the end (the
+here **verbatim**, with the fields this evidence store needs added at the end (the
 skill's copy is the base template and stays unextended; this is the only place the
 extended form is maintained):
 
@@ -74,6 +97,18 @@ Added fields (B4, this evidence store only):
 - **`PINS.md as-of:`** — the `**Last updated:**` date of `docs/planning/PINS.md` at
   run time, plus the commit SHA of `PINS.md` at that point.
 - **`Re-run history:`** — table `| Date | Pinned versions | Verdict | Invalidated by |`.
+
+Added field (K5, issue #128):
+
+- **`Driver:`** — what drove the run. For a run with no herdr in it: `human operator`.
+  For a herdr-driven run: the line `tools/herdr/lib/g1-report.mjs` renders — the
+  `herdr --version` output, the PINS.md `herdr (test tooling)` tag,
+  `tools/herdr/run.mjs`, the scenario file, and the driver commit. A verdict-bearing
+  scripted run also names the equivalence record it relies on. Every `herdr-runs/`
+  record carries the same line. The rules behind it are `oac-gates`
+  `references/scripted-runs.md` "Driver identity". Every result on record when K5
+  landed (G1-G5) was run without herdr and predates this field. The field is added at
+  each gate's next re-run, not retrofitted.
 
 Required fields from the issue #33 acceptance criteria must all be present and named:
 gate id, pinned version(s), date, command transcript summary, verdict, fallback taken.
@@ -142,6 +177,55 @@ e. **Cross-reference to fact re-verification.** Per `oac-evidence` §7, a pin mo
    obligations of the same trigger — a pin move requires both, not one in place of the
    other.
 
+f. **herdr pin move (K5).** The `herdr (test tooling)` row's `Gates affected` cell is
+   `none`, so, as in §d, a herdr pin move invalidates **no gate verdict** — not even one
+   written from a scripted run. It **does** invalidate every equivalence record. The
+   same-commit edits are listed in "Scripted runs (herdr)" below. They are not part of
+   the §b checklist or its PINS.md copy, which govern gate verdicts only.
+
+## Scripted runs (herdr)
+
+A scripted run is a gate re-run driven through herdr (Epic K #123; driver
+`tools/herdr/run.mjs`). The rules for running and recording one — driver identity,
+timebox, timeout means `NOT RUN`, no automatic re-submission, herdr state never scores a
+criterion, the operator-consent dialog rule, and verdict eligibility — are `oac-gates`
+`references/scripted-runs.md`. This section covers only what lands in this directory.
+
+- **Record.** Each scripted run that is written lands as
+  `herdr-runs/G<n>-<YYYY-MM-DD>.md`, with its run manifest beside it (see "Naming
+  convention"). Only a run with outcome `PASS` and verified harness versions is written
+  (G1: `g1-report.mjs --write` refuses anything else). The record's own header says it is
+  not verdict-bearing.
+- **Fixtures.** The record's captures are committed as `-herdr` fixtures, each with a
+  `MANIFEST.json` entry carrying the `driver` block (see "Fixture manifest").
+- **Pointer only.** The gate's `G<n>-result.md` gains a pointer to the record, not a
+  verdict change. `docs/planning/STATUS.md` is not touched. The one exception is a run
+  that `references/scripted-runs.md` "Verdict eligibility" allows to carry a verdict. That
+  run is written as an ordinary gate result, with `Driver:` naming it and the equivalence
+  record it relies on.
+- **Equivalence record.** This is a `herdr-runs/` record that shows a scripted run of
+  G<n> equivalent to the human run on every criterion, at the current herdr pin. It is
+  marked by the callout `> **Equivalence record** for G<n> at herdr <tag>` at its top.
+  The definition is in `references/scripted-runs.md` "Verdict eligibility". None exists
+  yet.
+- **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
+  to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
+  its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers
+  these edits, in the same commit as the pin move:
+  1. Each equivalence record gets the callout `> INVALIDATED as an equivalence record:
+     herdr pin <old> -> <new>, <YYYY-MM-DD>` at its top. The rest of the record is left
+     unchanged as history.
+  2. No `G<n>-result.md` verdict and no `docs/planning/STATUS.md` Gate verdicts row
+     changes.
+
+  From that commit on, scripted runs of every gate are non-verdict-bearing until a new
+  equivalence record exists at the new pin. A move of a harness row (Claude Code, Codex)
+  follows §a-§c for gate verdicts, including a verdict written from a scripted run. It
+  does not invalidate an equivalence record, because re-running a gate after a harness
+  pin moves is what the record exists for.
+- **Status.** No scripted run has run live yet, so `herdr-runs/` does not exist yet
+  (`docs/planning/STATUS.md` "Open UNVERIFIED items", K4 entry).
+
 ## Volatility note — the two preview surfaces most likely to move
 
 Per `oac-evidence` §4, every preview/experimental surface carries its stability label
@@ -205,3 +289,6 @@ is derived from these files.
 - Pinned versions, `Gates affected` column, pin-move checklist: `docs/planning/PINS.md`.
 - Gate verdicts table, pins-relied-on/result-file columns: `docs/planning/STATUS.md`.
 - Gate procedure, template, fixture capture, exit criteria: skill `oac-gates`.
+- Scripted-run (herdr) rules: `.claude/skills/oac-gates/references/scripted-runs.md`;
+  the herdr pin and tool record: `docs/planning/PINS.md` "herdr (test tooling)",
+  `docs/planning/decisions/K1-herdr-evaluation.md`; the driver: `tools/herdr/`.

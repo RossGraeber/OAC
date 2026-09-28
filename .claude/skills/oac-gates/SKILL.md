@@ -1,6 +1,6 @@
 ---
 name: oac-gates
-description: Gate-result template, timebox policy, fixture capture procedure, and one reference per gate (G1-G5). Load for any work item labelled type:spike or any gate:* label (D1-D7 in Epic D).
+description: Gate-result template, timebox policy, fixture capture procedure, one reference per gate (G1-G5), and herdr scripted-run rules. Load for any work item labelled type:spike or any gate:* label (D1-D7 in Epic D).
 ---
 
 Stage 1 (PLANNING-PROMPT.md §8) decides five go/no-go gates through throwaway spikes before
@@ -26,13 +26,13 @@ gate reverts to `NOT RUN` until the gate is re-run against the new pin.
 
 Copy this verbatim into the gate result. This is the base template; results land in
 `docs/planning/gates/G<n>-result.md`, one file per gate, each extending this template
-with three additional fields — see `docs/planning/gates/README.md` §Gate-result
-template for the extended form and the naming convention. The same change that writes
-a gate result also updates the verdict row for that gate in `docs/planning/STATUS.md`'s
-Gate verdicts table. Do not land a gate result without updating STATUS.md in the same
-change. `docs/planning/v0.1/02-gating-findings.md` (PLANNING-PROMPT.md §9 item 3) is
-not hand-authored from this template directly — it is assembled from the five
-`G<n>-result.md` files when Epic A writes the output package.
+with additional fields (`Driver:` among them) — see `docs/planning/gates/README.md`
+§Gate-result template for the extended form and the naming convention. The same change
+that writes a gate result also updates the verdict row for that gate in
+`docs/planning/STATUS.md`'s Gate verdicts table. Do not land a gate result without
+updating STATUS.md in the same change. `docs/planning/v0.1/02-gating-findings.md`
+(PLANNING-PROMPT.md §9 item 3) is not hand-authored from this template directly — it is
+assembled from the five `G<n>-result.md` files when Epic A writes the output package.
 
 ```markdown
 ### G<n> <name>
@@ -147,6 +147,14 @@ Each reference carries, for that gate only: full pass criteria, failure criteria
 fallback, the surfaces and version pins, the specific PLANNING-PROMPT.md §3 facts the spike
 closes (including UNVERIFIED items), and the fixtures to capture.
 
+## Scripted runs (herdr)
+
+A gate re-run driven through herdr (Epic K, `tools/herdr/`) also loads
+`references/scripted-runs.md`: driver identity, the scripted-run timebox, timeout means
+`NOT RUN`, no automatic re-submission, herdr state never scores a criterion, verdict
+eligibility (equivalence records), and the operator-consent dialog rule. A scripted run is
+non-verdict-bearing unless that file says it may carry a verdict.
+
 ## Exit criteria for a gate work item
 
 - [ ] The gate's own reference file has been loaded and every pass criterion in it evaluated
@@ -183,3 +191,4 @@ recurring mistakes that cost G2 and G4 three review rounds each.
 - `oac-boundaries`, `oac-evidence` — guardrail content, not restated here.
 - `references/writeup-pitfalls.md` — review-round pitfalls for gate write-ups, one entry
   per recurring mistake.
+- `references/scripted-runs.md` — rules for herdr-driven gate re-runs (Epic K).
