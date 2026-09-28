@@ -4,6 +4,21 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-28 (**K1/issue #124 (Epic K #123): herdr evaluation, desk leg
+landed — provisional go, pending live confirmation; live leg NOT RUN.** The new file
+`docs/planning/decisions/K1-herdr-evaluation.md` pins herdr at `v0.9.1`, fixed (tag
+`v0.9.1` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`, GitHub "Latest",
+retrieved 2026-09-28). It records the Apache-2.0 license and herdr's own per-OS
+documentation claims, and gives the desk status of every K1 acceptance item. Two desk
+findings: `agent read` and `agent send-keys` have no `--timeout` option at `v0.9.1`,
+and no first-party source documents Codex settling to `unknown` after a response. The
+live leg was not run: the cloud session that wrote the record had no herdr binary and no
+logged-in harness. The operator's live checklist is in that file's §6. `docs/planning/PINS.md` gains row
+`herdr (test tooling)` (`Gates affected: none`, so no gate verdict is invalidated).
+`docs/planning/v0.1/07-repository-and-dependencies.md` §5 gains a "Dev/test tooling —
+not shipped" heading. New UNVERIFIED entry below. `docs/planning/v0.1/11-risks.md` gains
+`RISK-HERDR` and row 51. No gate verdict, skill, or ADR text changes.)
+
 **Last updated:** 2026-09-28 (**G1/issue #34/D1: PASS**, operator decision, issue #39
 chat. G1's `v2.1.282` PASS was invalidated 2026-09-27 by the Claude Code (Channels) pin
 float; re-run in two attempts the same day, issue #39 T6/T7: Box B recorded incomplete,
@@ -715,6 +730,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | Rust MCP SDK | `rmcp` `3.4.0` (2026-09-15); legacy revision `2025-11-25` supported and is the SDK's default | PINS.md — Rust MCP SDK (`rmcp`) |
 | `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
 | `serde_jcs` | `0.2.0`; RFC 8785 JCS canonicalization; MIT OR Apache-2.0 | PINS.md — `serde_jcs` |
+| herdr (test tooling) | `v0.9.1` (2026-09-16), fixed; Apache-2.0; dev/test tooling only, never shipped; gates affected: none; live behavior UNVERIFIED (K1 provisional go) | PINS.md — herdr (test tooling) |
 
 ## Decisions landed
 
@@ -803,6 +819,12 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   evidence: `docs/planning/decisions/C7-zenoh-transport.md`, which remains
   authoritative; cited (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md`
   decision 10 (Epic A task A4, landed) — this file is not a redirect stub.
+- **K1 — herdr evaluation (test tooling)** (issue #124, Epic K #123): **provisional go,
+  pending live confirmation; live leg NOT RUN.** herdr is pinned at `v0.9.1` (fixed,
+  Apache-2.0) as dev/test tooling only, never shipped, with `Gates affected: none`. The
+  final go/no-go waits on the operator-run live checklist. Full record:
+  `docs/planning/decisions/K1-herdr-evaluation.md`. This is a test-tooling decision, not
+  folded into `docs/planning/v0.1/03-decisions-and-amendments.md`.
 
 ## Open conflicts (oac-evidence §6)
 
@@ -1140,6 +1162,27 @@ without an UNVERIFIED label.
   amended with a dated note pointing here rather than silently rewritten. See
   `docs/planning/gates/G1-result.md` "Re-run attempt 2 (Box C)" and
   `docs/planning/v0.1/11-risks.md` row 49.
+- **New, from K1 (issue #124, 2026-09-28):** herdr `v0.9.1`'s live behavior is
+  UNVERIFIED. The K1 live leg is NOT RUN: the session that wrote the record had no herdr
+  binary and no logged-in harness. Open items:
+  - named-session start with no attached terminal;
+  - `agent start --kind claude` / `--kind codex` argv and cwd, including `claude
+    --dangerously-load-development-channels server:<name>`;
+  - the timeout options: confirmed in docs and source for `agent prompt --wait`,
+    `agent wait` and `pane wait-output`, and refuted at the desk for `agent read` and
+    `agent send-keys`;
+  - the dialog text being readable through `agent read` before any keystroke (expected
+    from the bundled Claude manifest, not observed);
+  - Codex's post-response state (the "`unknown` after a response" premise was not found
+    in any first-party herdr source);
+  - the launch-environment delta, derived from source only;
+  - harness `settings.json`/`hooks.json`/`config.toml` staying unchanged;
+  - per-OS support on Linux, macOS and Windows, which is herdr's documentation claim
+    only.
+
+  K1's go/no-go is therefore provisional, not final. Owner: an operator-run live leg per
+  `docs/planning/decisions/K1-herdr-evaluation.md` §6. See also
+  `docs/planning/v0.1/11-risks.md` row 51 (`RISK-HERDR`).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to

@@ -43,7 +43,13 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-27 (Claude Code row changed from a fixed `v2.1.274` pin to
+**Last updated:** 2026-09-28 (K1, issue #124: added row `herdr (test tooling)`, a fixed
+pin at `v0.9.1`, `Gates affected: none`, see "herdr (test tooling)" below and
+`docs/planning/decisions/K1-herdr-evaluation.md`. The pin-move checklist was executed in
+the same commit. A row was added, but it names no gate, so no `G<n>-result.md` `Pin rows
+relied on` field or `docs/planning/STATUS.md` `Pins relied on` cell changes. No gate
+verdict is invalidated. herdr's live behavior at this pin is UNVERIFIED: K1's go/no-go is
+provisional and its live leg is NOT RUN.) Previously 2026-09-27 (Claude Code row changed from a fixed `v2.1.274` pin to
 **floating**, last observed `v2.1.283`, by operator decision, mirroring the Codex row's
 floating-version policy. The pin-move checklist was executed in the same commit: G1
 invalidated (its 2026-09-25 PASS ran on `v2.1.282`, one version behind the newly recorded
@@ -80,6 +86,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
+| herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior UNVERIFIED — provisional go, live leg NOT RUN, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
 
 ## Pin records
 
@@ -545,6 +552,47 @@ semver, and are recorded verbatim — never reformatted.
   This row is kept (not dropped) because STATUS.md already carries an ACP row as a
   tracked baseline; dropping it here would lose that baseline.
 - Gates affected: none.
+
+### herdr (test tooling)
+
+- Surface label: **supported**. herdr's own first-party CLI reference documents its
+  `agent`, `pane`, `session` and `server` commands. herdr is Epic K test tooling that
+  drives real harness CLIs. It is **not** an OAC provider surface and **not** a shipped
+  dependency. It is never imported by, linked into, or invoked from `adapters/`,
+  `core/`, `cli/`, `transports/` or `spec/` (Epic K #123; K2's containment lint).
+- Pinned release: **`v0.9.1`**. It is the annotated tag `v0.9.1` (tag object
+  `8544776216a8d28088db59a5344ea21ee2d05d2b`, tagger timestamp 2026-09-16T18:30:33Z)
+  pointing to commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9` ("release: v0.9.1").
+  GitHub labels it **Latest**, published Sep 16. `Cargo.toml` at the tag reads
+  `version = "0.9.1"`. Source: https://github.com/herdrdev/herdr/releases/tag/v0.9.1,
+  https://github.com/herdrdev/herdr/releases, and `git ls-remote --tags
+  https://github.com/herdrdev/herdr`, retrieved 2026-09-28. The only releases newer than
+  it on that date are `preview-*` prereleases, which are not pin candidates.
+- **Fixed, not floating.** herdr "checks for new releases and notifies you in the app".
+  Updating is the manual `herdr update`, and there is no background self-install
+  (https://github.com/herdrdev/herdr/blob/v0.9.1/docs/next/website/src/content/docs/install.mdx
+  L116-120, tag `v0.9.1`, retrieved 2026-09-28). So unlike the Claude Code and Codex
+  rows, this row can hold a fixed version. K3's driver enforces it by refusing any
+  other `herdr --version`.
+  **Caveat:** the binary pin does not fix herdr's agent-detection manifests. Those
+  update from herdr.dev at runtime unless `update.manifest_check = false`
+  (`docs/next/website/src/content/docs/agents.mdx` L67 at the same tag). See
+  `docs/planning/decisions/K1-herdr-evaluation.md` §2.
+- License: **Apache-2.0**. Source: https://github.com/herdrdev/herdr/blob/v0.9.1/LICENSE
+  and https://github.com/herdrdev/herdr/blob/v0.9.1/Cargo.toml (`license =
+  "Apache-2.0"`), retrieved 2026-09-28. It is recorded as dev/test tooling, not shipped,
+  in `docs/planning/v0.1/07-repository-and-dependencies.md` §5.
+- **Live behavior UNVERIFIED.** No herdr behavior at this pin has been observed. K1's
+  go/no-go is **provisional — pending live confirmation**, and its live leg is
+  **NOT RUN**. That covers named-session start, `agent start` argv/cwd, the timeout
+  options, dialog readability, Codex's post-response state, the launch-environment
+  delta, and per-OS support (Linux, macOS, Windows are herdr's documentation claim
+  only). See `docs/planning/decisions/K1-herdr-evaluation.md` §5-§7 and
+  `docs/planning/STATUS.md` "Open UNVERIFIED items".
+- **Gates affected: none.** No `G<n>-result.md` verdict depends on this row. Human-operated
+  gate spikes remain the authoritative verification method (Epic K #123). A move of
+  this row therefore invalidates no gate verdict. It does re-open K1's live leg for the
+  new version and requires K3's driver version check to be updated in the same change.
 
 ## Constraint floors
 

@@ -181,6 +181,21 @@ license, reason": every row above carries all four, plus the copyleft flag, the
 Apache-2.0 compatibility verdict, the source decision citation, and the consuming
 module — the last of which is this file's own addition over C1's table.
 
+### Dev/test tooling — not shipped (outside this inventory)
+
+The tool below is recorded here only so its license is on file. It is **not** a
+dependency of the `oac` binary. It is not part of the table above, not counted in §6's
+copyleft flag, and not covered by §7's Apache-2.0 verdict. It is never imported by,
+linked into, vendored into, or invoked from `core/`, `spec/`, `adapters/*`,
+`transports/zenoh/` or `cli/`. It runs as an external process from test tooling only.
+Its facts come from `docs/planning/decisions/K1-herdr-evaluation.md` §2-§3 and
+`docs/planning/PINS.md` "herdr (test tooling)". They are cited, not re-derived, and
+are an exception to this file's C1/C2/C4-only sourcing rule above.
+
+| Tool | Version | License | Why needed | Shipped? | Source decision | Used from |
+|---|---|---|---|---|---|---|
+| herdr | `v0.9.1` (commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`) | Apache-2.0 | Terminal multiplexer that test tooling uses to drive real harness CLI sessions for scripted gate re-runs and opt-in integration runs (Epic K #123) | **No** — dev/test tooling only, never CI-default | K1 §2-§3 (live behavior UNVERIFIED; K1's go/no-go is provisional pending live confirmation) | Test tooling outside product paths only (Epic K driver) |
+
 ---
 
 ## 6. Copyleft flag
@@ -244,6 +259,7 @@ Per `oac-evidence` §4/§5, one label per surface this file names:
 | `keyring` | supported | General-purpose, actively maintained OS-credential crate (C1 §13, C2 §10) |
 | `interprocess` | supported | General-purpose, actively maintained; not a preview/experimental provider surface (C2 §10) |
 | `age` | supported | Actively maintained reference implementation of a published format (C4-session-identity.md line 677) |
+| herdr (dev/test tooling, not shipped — §5 "Dev/test tooling") | supported | herdr's own documented CLI. Live behavior at `v0.9.1` is UNVERIFIED (`docs/planning/decisions/K1-herdr-evaluation.md` §9) |
 
 **Open UNVERIFIED items carried forward, not re-opened.** Per `docs/planning/
 STATUS.md`, the ledger of record:
