@@ -174,8 +174,11 @@ export function evaluateG1({ manifest, transcriptText, paneText, baselineText, o
     const inputBefore = commands.filter((c) => c.seq > agentStartSeq && c.seq < dialog.readSeq && INPUT_ROLES.has(c.role));
     const match = sec ? dialogMatchesBoxC(sec.text) : { matches: false, missing: ['(dialog read not in the pane capture)'] };
     const acceptCmd = commands.find((c) => c.seq === dialog.acceptSeq);
-    const driverSent = dialog.acceptOrigin === 'driver' || acceptCmd?.role === 'dialog-accept';
-    c5.run = `dialog read at herdr command #${dialog.readSeq}; accepted by ${driverSent ? `the DRIVER (command #${dialog.acceptSeq}, role dialog-accept)` : dialog.acceptOrigin}`;
+    // Defense in depth: a driver accept policy, or ANY dialog-accept command in the run,
+    // counts as driver-sent even if the dialog record itself were wrong.
+    const anyDriverAccept = commands.some((c) => c.role === 'dialog-accept');
+    const driverSent = dialog.acceptOrigin === 'driver' || acceptCmd?.role === 'dialog-accept' || g1.acceptPolicy !== 'human' || anyDriverAccept;
+    c5.run = `dialog read at herdr command #${dialog.readSeq}; accepted by ${driverSent ? `the DRIVER or under a driver accept policy (policy ${g1.acceptPolicy}; dialog-accept commands: ${commands.filter((c) => c.role === 'dialog-accept').map((c) => `#${c.seq}`).join(', ') || 'none'})` : dialog.acceptOrigin}`;
     c5.checks.push(
       check('dialog text read from the pane and kept verbatim', !!sec, sec ? `read #${sec.seq}` : null),
       check('no keystroke reached the pane between launch and that read', inputBefore.length === 0, inputBefore.length ? `commands #${inputBefore.map((c) => c.seq).join(', #')}` : null),
@@ -236,8 +239,8 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push(`- **Launch (verbatim):** \`${(manifest?.launch?.argv ?? []).join(' ')}\`; herdr-reported argv \`${JSON.stringify(manifest?.launch?.herdrReportedArgv ?? null)}\``);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
   out.push(`- **Accept policy:** ${g1.acceptPolicy ?? '?'}; dialogs on record: ${(g1.dialogs ?? []).map((d) => `${d.kind} (read #${d.readSeq}, accepted by ${d.acceptOrigin})`).join('; ') || 'none'}`);
-  out.push(`- **Channel server:** \`${g1.server?.committed ?? '?'}\` run from a scratch copy; sha256 committed \`${g1.server?.committedSha256 ?? '?'}\`, copy \`${g1.server?.copySha256 ?? '?'}\`, match: ${g1.server?.match ?? '?'}`);
-  out.push(`- **Fixtures:** \`${fixtures?.transcript ?? '(none)'}\`, \`${fixtures?.pane ?? '(none)'}\``);
+  out.push(`- **Channel server:** \`${g1.server?.committed ?? '?'}\` run from a scratch copy of the blob at HEAD \`${g1.server?.headCommit ?? '?'}\`; sha256 committed \`${g1.server?.committedSha256 ?? '?'}\`, copy \`${g1.server?.copySha256 ?? '?'}\`, match: ${g1.server?.match ?? '?'}; working tree matched HEAD: ${g1.server?.workingTreeMatchesHead ?? '?'}`);
+  out.push(fixtures ? `- **Fixtures:** \`${fixtures.transcript}\`, \`${fixtures.pane}\`` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
   out.push(`- **Run manifest:** \`${runManifestName}\` (beside this file); harness config unchanged: ${manifest?.harnessConfig?.unchanged ?? '?'}; teardown clean: ${manifest?.teardown?.clean ?? '?'}`);
   out.push(`- **Baseline:** \`${baselinePath}\` (last server instance, the verdict-bearing lines)`);
   out.push('');
@@ -271,6 +274,29 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   return out.join('\n');
 }
 
+// A run's Claude Code version is verified only when the CLI and the wire clientInfo both
+// equal PINS.md's committed last-observed version and the scenario marked it verified.
+export function versionsVerified(g1) {
+  const v = g1?.versions;
+  return !!v && v.verified === true && !!v.cli && v.cli === v.pinsLastObserved && v.wireClientInfo === v.pinsLastObserved && v.pinsSource?.workingTreeMatchesHead === true;
+}
+
+// Why --write must refuse this run, or null. Only a PASS run with verified versions, the
+// K4 fixture names, both captures written clean, and an untouched committed server may put
+// files into the repository.
+export function writeRefusal(manifest) {
+  const g1 = manifest?.scenarioData?.g1;
+  if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
+  if (!g1) return 'no G1 scenario record in the run manifest';
+  if (!versionsVerified(g1)) return `Claude Code version not verified on both CLI (${g1.versions?.cli}) and wire (${g1.versions?.wireClientInfo}) against PINS.md last observed ${g1.versions?.pinsLastObserved}`;
+  if (!g1.fixtures || JSON.stringify(g1.fixtures) !== JSON.stringify(g1.captureNames)) return 'captures do not carry the verified K4 fixture names';
+  for (const f of [g1.fixtures.transcript, g1.fixtures.pane]) {
+    if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
+  }
+  if (g1.server?.match !== true || g1.server?.workingTreeMatchesHead !== true) return 'the channel server copy is not verified against the committed blob';
+  return null;
+}
+
 // Draft MANIFEST.json entries for the two captures, with the K5 `driver` block.
 export function draftManifestEntries({ manifest, fixtures, runManifestPath, transcriptText, pinsCommit, redactSha256 }) {
   const g1 = manifest.scenarioData.g1;
@@ -285,8 +311,8 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
     surface: 'claude-channels',
     observed_version: { claude_code: `${g1.versions.cli} (claude --version \`${g1.versions.cliOutput}\`; wire clientInfo.version ${g1.versions.wireClientInfo})`, mcp_protocol: `${facts.negotiatedProtocolVersion} (negotiated)`, node: null },
     pins_row: 'Claude Code (Channels)',
-    pins_as_of: pinsCommit ? `commit ${pinsCommit} (last commit touching docs/planning/PINS.md at report time)` : null,
-    version_matches_pin: g1.versions.cli === g1.versions.pinsLastObserved,
+    pins_as_of: `PINS.md as committed at HEAD ${g1.versions.pinsSource?.headCommit ?? '?'} when the run started (working tree matched HEAD: ${g1.versions.pinsSource?.workingTreeMatchesHead}); last commit touching PINS.md at report time: ${pinsCommit ?? 'unknown'}`,
+    version_matches_pin: versionsVerified(g1),
     capture_date: g1.date,
     capture_utc_range: facts.firstT && facts.lastT ? `${facts.firstT}-${facts.lastT}` : null,
     superseded_by: null,
@@ -322,21 +348,26 @@ function main(argv) {
   const runDir = resolve(o.run);
   const manifest = JSON.parse(readFileSync(join(runDir, 'run-manifest.json'), 'utf8'));
   const g1 = manifest.scenarioData?.g1;
+  // Printing reads whatever was captured (fixture-named or `unverified-*`); --write below
+  // refuses anything but a verified PASS run.
+  const names = g1?.captureNames ?? g1?.fixtures ?? null;
   const fixtures = g1?.fixtures ?? null;
   const written = (name) => name && manifest.captures?.some((c) => c.file === name && c.written) && existsSync(join(runDir, name));
-  const transcriptText = fixtures && written(fixtures.transcript) ? readFileSync(join(runDir, fixtures.transcript), 'utf8') : null;
-  const paneText = fixtures && written(fixtures.pane) ? readFileSync(join(runDir, fixtures.pane), 'utf8') : null;
+  const transcriptText = names && written(names.transcript) ? readFileSync(join(runDir, names.transcript), 'utf8') : null;
+  const paneText = names && written(names.pane) ? readFileSync(join(runDir, names.pane), 'utf8') : null;
   const baselinePath = o.baseline ?? BOX_C_TRANSCRIPT;
   const baselineText = readFileSync(resolve(REPO, baselinePath), 'utf8');
   const evaluation = evaluateG1({ manifest, transcriptText, paneText, baselineText, operatorScores });
   const diffText = transcriptText ? formatDiff(compareTranscripts(baselineText, transcriptText, { segment: 'last', detail: true }), { baselineLabel: 'Box C', candidateLabel: 'herdr run' }) : null;
   const date = g1?.date ?? manifest.timebox?.start?.slice(0, 10) ?? 'unknown-date';
   const runManifestName = `G1-${date}.run-manifest.json`;
-  const report = renderReport({ manifest, evaluation, diffText, date, fixtures: transcriptText ? { transcript: `${FIXTURE_DIR}/${fixtures.transcript}`, pane: `${FIXTURE_DIR}/${fixtures.pane}` } : null, runManifestName, baselinePath });
+  const refusal = writeRefusal(manifest);
+  const report = renderReport({ manifest, evaluation, diffText, date, fixtures: !refusal ? { transcript: `${FIXTURE_DIR}/${fixtures.transcript}`, pane: `${FIXTURE_DIR}/${fixtures.pane}` } : null, runManifestName, baselinePath });
   if (!o.write) {
     console.log(report);
     return 0;
   }
+  if (refusal) throw new ReportError(`--write refused: ${refusal}. Nothing was written; print the draft without --write to inspect the run`);
   const root = o.root ? resolve(o.root) : REPO;
   const runsDir = join(root, HERDR_RUNS_DIR);
   const targets = [

@@ -12,7 +12,8 @@
 // operator run; an unrecognized dialog is never accepted by the driver.
 
 import { createHash } from 'node:crypto';
-import { copyFileSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 // G1's launch, verbatim (G1-result.md "Original run" command transcript summary; Box C used
@@ -25,6 +26,11 @@ export const FIXTURE_DIR = 'docs/planning/gates/fixtures/g1-claude-wake';
 export const COMMITTED_SERVER = `${FIXTURE_DIR}/channel-server.mjs.throwaway-quarantined`;
 export const BOX_C_TRANSCRIPT = `${FIXTURE_DIR}/transcript-2026-09-28-2.1.283-boxC.jsonl`;
 export const HERDR_RUNS_DIR = 'docs/planning/gates/herdr-runs';
+export const PINS_PATH = 'docs/planning/PINS.md';
+
+// sha256 of COMMITTED_SERVER as committed (G1 Box C ran this file unmodified); a guard that
+// the committed blob itself has not been swapped since K4 was written.
+export const COMMITTED_SERVER_SHA256 = 'b6a3f2b65a836a09a8d01ec70be1396f00968767792b7ce62217121b58adc48f';
 
 // The five G1 pass criteria, verbatim from .claude/skills/oac-gates/references/G1-claude-wake.md.
 export const G1_CRITERIA = Object.freeze([
@@ -53,19 +59,56 @@ export const BOX_C_WAKE_ATTRIBUTES = Object.freeze({ source: 'g1spike', oac_mess
 
 export const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
-// Copy the committed quarantined server into the run's scratch directory, byte for byte,
-// as `channel-server.mjs` (Node needs the .mjs name to load it as a module; the file itself
-// is never edited). The committed file is only read and hashed here -- never imported.
-export function stageServerCopy(committedPath, destDir) {
-  const committedBytes = readFileSync(committedPath);
-  const copyPath = join(destDir, 'channel-server.mjs');
-  copyFileSync(committedPath, copyPath);
-  return verifyServerCopy(committedPath, copyPath, sha256(committedBytes));
+// A file as COMMITTED at HEAD (git's blob, not whatever is on disk), plus whether the
+// working-tree file still matches it. A locally edited, replaced or symlinked working-tree
+// file therefore cannot pass as "the committed file". Throws when git cannot answer.
+export function committedFile(repoRoot, relPath) {
+  const git = (args, encoding) => spawnSync('git', args, { cwd: repoRoot, encoding, timeout: 15000, maxBuffer: 64 * 1024 * 1024 });
+  const head = git(['rev-parse', 'HEAD'], 'utf8');
+  const tree = git(['ls-tree', 'HEAD', '--', relPath], 'utf8');
+  const blob = git(['cat-file', 'blob', `HEAD:${relPath}`], 'buffer');
+  if (head.status !== 0 || tree.status !== 0 || blob.status !== 0 || !String(tree.stdout).trim()) {
+    throw new Error(`cannot read ${relPath} as committed at HEAD (git ls-tree/cat-file failed)`);
+  }
+  const mode = String(tree.stdout).trim().split(/\s+/)[0];
+  const bytes = blob.stdout;
+  let workingTreeSha256 = null;
+  let workingTreeIsSymlink = null;
+  try {
+    workingTreeIsSymlink = lstatSync(join(repoRoot, relPath)).isSymbolicLink();
+    workingTreeSha256 = sha256(readFileSync(join(repoRoot, relPath)));
+  } catch {
+    /* missing on disk: recorded as null, and never matches */
+  }
+  const committedSha256 = sha256(bytes);
+  return {
+    path: relPath,
+    headCommit: head.stdout.trim(),
+    mode,
+    bytes,
+    committedSha256,
+    workingTreeSha256,
+    workingTreeIsSymlink,
+    workingTreeMatchesHead: mode === '100644' || mode === '100755' ? workingTreeSha256 === committedSha256 && workingTreeIsSymlink === false : false,
+  };
 }
 
-export function verifyServerCopy(committedPath, copyPath, committedSha = sha256(readFileSync(committedPath))) {
+// Stage the quarantined server into the run's scratch directory as `channel-server.mjs`
+// (Node needs the .mjs name to load it as a module). The copy is written from the blob
+// COMMITTED at HEAD and its sha256 re-checked against that blob; the working-tree file's
+// own state is reported alongside (the scenario refuses to run when it differs). The file
+// is never edited and never imported.
+export function stageServerCopy(repoRoot, relPath, destDir) {
+  const c = committedFile(repoRoot, relPath);
+  const copyPath = join(destDir, 'channel-server.mjs');
+  writeFileSync(copyPath, c.bytes);
+  const { bytes, ...rest } = c;
+  return { ...rest, ...verifyServerCopy(copyPath, c.committedSha256) };
+}
+
+export function verifyServerCopy(copyPath, committedSha256) {
   const copySha = sha256(readFileSync(copyPath));
-  return { committedPath, copyPath, committedSha256: committedSha, copySha256: copySha, match: committedSha === copySha };
+  return { copyPath, copySha256: copySha, match: committedSha256 === copySha };
 }
 
 // --- pane text: scheduling and safety only -----------------------------------------------
@@ -245,4 +288,10 @@ export function fixtureNames(date, version) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`bad fixture date ${JSON.stringify(date)}`);
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`bad Claude Code version ${JSON.stringify(version)}`);
   return { transcript: `transcript-${date}-${version}-herdr.jsonl`, pane: `pane-${date}-${version}-herdr.txt` };
+}
+
+// Capture names for a run whose Claude Code version is not (yet) verified against PINS.md
+// on both the CLI and the wire: deliberately not fixture-shaped, and never publishable.
+export function unverifiedNames(date) {
+  return { transcript: `unverified-transcript-${date}-herdr.jsonl`, pane: `unverified-pane-${date}-herdr.txt` };
 }

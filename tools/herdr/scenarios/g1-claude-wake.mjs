@@ -19,11 +19,14 @@
 //   node tools/herdr/lib/g1-report.mjs --run <run dir>            # draft comparison
 //
 // What it does, in Box C's order:
-//   0. Preflight. The launch must be G1's, verbatim. `claude --version` must equal PINS.md's
-//      `Claude Code (Channels)` last-observed version, or the run stops NOT RUN with a
-//      pin-move trigger (no PINS.md edit). The committed quarantined channel server is copied
-//      byte for byte into the run's scratch directory and the copy's sha256 checked against
-//      the committed file; it is never edited and never imported. A project `.mcp.json` in
+//   0. Preflight. The launch must be G1's, verbatim. `claude --version` must equal the
+//      `Claude Code (Channels)` last-observed version in PINS.md AS COMMITTED at HEAD (an
+//      uncommitted PINS.md edit stops the run), or the run stops NOT RUN with a pin-move
+//      trigger (no PINS.md edit). The quarantined channel server is staged into the run's
+//      scratch directory from its blob committed at HEAD, and the copy's sha256 checked
+//      against that blob and against the sha256 Box C ran; a working-tree file that differs
+//      from HEAD (edited, replaced, symlinked) refuses the run. It is never edited or
+//      imported. A project `.mcp.json` in
 //      a scratch project directory registers the copy as `g1spike` (the way the G1 operator
 //      registered it); no harness config is written.
 //   1. Launch through `herdr agent start --kind claude -- <launch[1..]>`. Every dialog is
@@ -65,7 +68,8 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
 import {
   G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
-  formatSection, parseSections, fixtureNames, stageServerCopy, midTurnWindow, normalizeDialogText,
+  formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText,
+  COMMITTED_SERVER_SHA256, PINS_PATH,
 } from '../lib/g1.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -155,7 +159,8 @@ export default {
       server: null,
       mcpJson: null,
       date: new Date().toISOString().slice(0, 10),
-      fixtures: null,
+      fixtures: null, // K4 fixture names: set only after the CLI and wire versions are verified
+      captureNames: null,
       agentStart: null,
       dialogs: [],
       devChannelsDialogSeen: false,
@@ -339,21 +344,52 @@ export default {
         throw new DriverError(`launch ${JSON.stringify(launch)} is not G1's verbatim launch ${JSON.stringify(G1_LAUNCH)}; this would not be a G1 re-run`);
       }
       const cliRaw = ctx.harnessVersion('claude');
-      const pin = parseClaudeLastObserved(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8'));
+      // The pin check reads PINS.md as committed at HEAD, and refuses to run while the
+      // working-tree PINS.md differs: an uncommitted edit (a pin move in progress) must not
+      // silently decide whether this run proceeds.
+      const pinsFile = committedFile(REPO, PINS_PATH);
+      const pin = parseClaudeLastObserved(pinsFile.bytes.toString('utf8'));
       const cli = parseClaudeCliVersion(cliRaw);
-      g1.versions = { pinsRow: CLAUDE_PIN_ROW, pinsLastObserved: pin.lastObserved, cliOutput: cliRaw, cli, wireClientInfo: null };
+      g1.versions = {
+        pinsRow: CLAUDE_PIN_ROW,
+        pinsLastObserved: pin.lastObserved,
+        pinsSource: { path: PINS_PATH, headCommit: pinsFile.headCommit, committedSha256: pinsFile.committedSha256, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead },
+        cliOutput: cliRaw,
+        cli,
+        wireClientInfo: null,
+        verified: false,
+      };
+      if (!pinsFile.workingTreeMatchesHead) stop(`${PINS_PATH} has uncommitted changes; the Claude Code pin check reads the committed PINS.md, so commit or discard the edit first. Nothing launched`);
       if (!cli && /^N\/A/.test(cliRaw ?? 'N/A')) stop(`claude --version could not be run (${cliRaw ?? 'not recorded'}); nothing launched`);
       const trigger = claudePinMoveTrigger({ observed: cli, lastObserved: pin.lastObserved, source: '`claude --version`' });
       if (trigger) {
         ctx.finding(trigger);
         stop(trigger);
       }
-      g1.fixtures = fixtureNames(g1.date, cli);
+      // Captures get the K4 fixture names only once BOTH the CLI and the wire version are
+      // verified (below); until then they are named `unverified-*` so a run that stops on
+      // a version mismatch can never produce a fixture-named file.
+      g1.captureNames = unverifiedNames(g1.date);
 
       serverDir = ctx.dir('g1-server');
-      const staged = stageServerCopy(join(REPO, COMMITTED_SERVER), serverDir);
-      g1.server = { committed: COMMITTED_SERVER, committedSha256: staged.committedSha256, copy: staged.copyPath, copySha256: staged.copySha256, match: staged.match };
-      if (!staged.match) throw new DriverError('the staged channel-server copy does not match the committed file (sha256)');
+      // Staged from the blob committed at HEAD, never from whatever is on disk.
+      const staged = stageServerCopy(REPO, COMMITTED_SERVER, serverDir);
+      g1.server = {
+        committed: COMMITTED_SERVER,
+        headCommit: staged.headCommit,
+        gitMode: staged.mode,
+        committedSha256: staged.committedSha256,
+        expectedSha256: COMMITTED_SERVER_SHA256,
+        workingTreeSha256: staged.workingTreeSha256,
+        workingTreeIsSymlink: staged.workingTreeIsSymlink,
+        workingTreeMatchesHead: staged.workingTreeMatchesHead,
+        copy: staged.copyPath,
+        copySha256: staged.copySha256,
+        match: staged.match,
+      };
+      if (staged.committedSha256 !== COMMITTED_SERVER_SHA256) throw new DriverError(`${COMMITTED_SERVER} at HEAD has sha256 ${staged.committedSha256}, not the ${COMMITTED_SERVER_SHA256} G1 Box C ran; refusing to run`);
+      if (!staged.workingTreeMatchesHead) throw new DriverError(`${COMMITTED_SERVER} in the working tree differs from HEAD (edited, replaced or symlinked); refusing to run`);
+      if (!staged.match) throw new DriverError('the staged channel-server copy does not match the committed blob (sha256)');
 
       const projectDir = ctx.dir('g1-project');
       const mcp = { mcpServers: { [G1_SERVER_NAME]: { command: process.execPath, args: [staged.copyPath] } } };
@@ -393,6 +429,9 @@ export default {
         ctx.finding(wireTrigger);
         stop(wireTrigger);
       }
+      g1.versions.verified = true; // CLI and wire both equal PINS.md's committed last-observed version
+      g1.fixtures = fixtureNames(g1.date, cli);
+      g1.captureNames = g1.fixtures;
       await herdr.paneProcessInfo(ws.paneId);
       await settle('post-handshake', num('startupTimeoutMs'));
       if (!g1.devChannelsDialogSeen) ctx.finding('the dev-channels confirmation dialog was never recognized on screen before the session settled (G1 criterion 5)');
@@ -500,9 +539,9 @@ export default {
         }
       }
       ctx.record('g1', g1);
-      if (g1.fixtures) {
-        if (sections.length) ctx.capture(g1.fixtures.pane, sections.join(''));
-        if (serverDir && existsSync(transcriptPath())) ctx.capture(g1.fixtures.transcript, readFileSync(transcriptPath(), 'utf8'), { format: 'jsonl' });
+      if (g1.captureNames) {
+        if (sections.length) ctx.capture(g1.captureNames.pane, sections.join(''));
+        if (serverDir && existsSync(transcriptPath())) ctx.capture(g1.captureNames.transcript, readFileSync(transcriptPath(), 'utf8'), { format: 'jsonl' });
       }
     }
   },

@@ -17,6 +17,9 @@
 //     "s->c result (initialize)", "s->c notification notifications/claude/channel", ...);
 //   - diffs the two event sequences (longest common subsequence) and reports what is only
 //     in the baseline (-) and only in the candidate (+);
+//   - compares the normalized payloads of every matched frame and marks those that differ
+//     (~), naming the differing JSON paths, so "same method sequence" is never mistaken for
+//     "same content";
 //   - extracts per-transcript facts the G1 criteria are scored on (negotiated revision,
 //     declared claude/channel capability, channel notifications with their meta keys, reply
 //     tool calls), so a report can put both runs side by side.
@@ -260,21 +263,39 @@ export function compareTranscripts(baselineText, candidateText, { segment = 'all
   };
   const a = side(baselineText);
   const b = side(candidateText);
-  const ops = diffSequences(a.keys, b.keys).map((o) => ({
-    ...o,
-    baselineLine: o.a === null ? null : a.entries[o.a].line,
-    candidateLine: o.b === null ? null : b.entries[o.b].line,
-  }));
+  const ops = diffSequences(a.keys, b.keys).map((o) => {
+    const op = { ...o, baselineLine: o.a === null ? null : a.entries[o.a].line, candidateLine: o.b === null ? null : b.entries[o.b].line };
+    if (o.op === '=') op.payloadDiff = payloadDiffPaths(a.normalized[o.a].payload, b.normalized[o.b].payload);
+    return op;
+  });
   const summary = {
     segment,
     detail,
     same: ops.filter((o) => o.op === '=').length,
     onlyInBaseline: ops.filter((o) => o.op === '-').length,
     onlyInCandidate: ops.filter((o) => o.op === '+').length,
+    payloadDifferences: ops.filter((o) => o.op === '=' && o.payloadDiff.length).length,
   };
   summary.identicalSequence = summary.onlyInBaseline === 0 && summary.onlyInCandidate === 0;
+  summary.identical = summary.identicalSequence && summary.payloadDifferences === 0;
   const strip = ({ entries, ...rest }) => rest;
   return { baseline: strip(a), candidate: strip(b), ops, summary };
+}
+
+// JSON paths at which two normalized payloads differ (at most `limit`).
+export function payloadDiffPaths(x, y, path = '$', out = [], limit = 20) {
+  if (out.length >= limit) return out;
+  const isObj = (v) => v !== null && typeof v === 'object';
+  if (isObj(x) && isObj(y) && Array.isArray(x) === Array.isArray(y)) {
+    const keys = [...new Set([...Object.keys(x), ...Object.keys(y)])];
+    for (const k of keys) {
+      const sub = Array.isArray(x) ? `${path}[${k}]` : `${path}.${k}`;
+      if (!(k in x) || !(k in y)) out.push(sub);
+      else payloadDiffPaths(x[k], y[k], sub, out, limit);
+      if (out.length >= limit) break;
+    }
+  } else if (JSON.stringify(x) !== JSON.stringify(y)) out.push(path);
+  return out;
 }
 
 // Plain-text rendering of a comparison's method-sequence diff.
@@ -284,13 +305,15 @@ export function formatDiff(result, { baselineLabel = 'baseline', candidateLabel 
   const out = [
     `--- ${baselineLabel} (${range(result.baseline)})`,
     `+++ ${candidateLabel} (${range(result.candidate)})`,
-    `segment: ${summary.segment}; keys: method-level${summary.detail ? ' + message kind / tool name' : ''}; timestamps, JSON-RPC ids, tool-use ids, progress tokens and pids normalized`,
+    `segment: ${summary.segment}; sequence keys: method-level${summary.detail ? ' + message kind / tool name' : ''}; matched frames' payloads compared after normalizing timestamps, JSON-RPC ids, tool-use ids, progress tokens and pids (~ = same method, different payload)`,
   ];
   for (const o of result.ops) {
     const where = o.op === '=' ? `A:${o.baselineLine} B:${o.candidateLine}` : o.op === '-' ? `A:${o.baselineLine}` : `B:${o.candidateLine}`;
-    out.push(`${o.op === '=' ? ' ' : o.op} ${o.key}`.padEnd(64) + `  (${where})`);
+    const mark = o.op === '=' ? (o.payloadDiff.length ? '~' : ' ') : o.op;
+    out.push(`${mark} ${o.key}`.padEnd(64) + `  (${where})${mark === '~' ? ` payload differs at ${o.payloadDiff.join(', ')}` : ''}`);
   }
-  out.push(`summary: ${summary.same} same, ${summary.onlyInBaseline} only in ${baselineLabel}, ${summary.onlyInCandidate} only in ${candidateLabel}${summary.identicalSequence ? ' -- identical method sequence' : ''}`);
+  const verdict = summary.identical ? ' -- identical method sequence and payloads' : summary.identicalSequence ? ` -- identical method sequence, but ${summary.payloadDifferences} matched frame(s) differ in payload` : '';
+  out.push(`summary: ${summary.same} same method, ${summary.payloadDifferences} of those with a different payload, ${summary.onlyInBaseline} only in ${baselineLabel}, ${summary.onlyInCandidate} only in ${candidateLabel}${verdict}`);
   return out.join('\n');
 }
 
@@ -319,7 +342,7 @@ function main(argv) {
   }
   if (o.json) console.log(JSON.stringify({ summary: res.summary, ops: res.ops, baselineFacts: res.baseline.facts, candidateFacts: res.candidate.facts }, null, 2));
   else console.log(formatDiff(res, { baselineLabel: files[0], candidateLabel: files[1] }));
-  return res.summary.identicalSequence ? 0 : 1;
+  return res.summary.identical ? 0 : 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -13,7 +13,7 @@
 // Code: a live G1 run through herdr is UNVERIFIED until an operator runs it.
 
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,9 +22,9 @@ import { compareTranscripts, diffSequences, formatDiff, parseTranscript, selectS
 import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger } from '../lib/pins.mjs';
 import {
   BOX_C_TRANSCRIPT, COMMITTED_SERVER, FIXTURE_DIR, G1_LAUNCH, classifyScreen, driverMayAccept, dialogMatchesBoxC, formatSection, parseSections,
-  fixtureNames, stageServerCopy, verifyServerCopy, sha256, midTurnWindow,
+  fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256,
 } from '../lib/g1.mjs';
-import { evaluateG1, parseOperatorScores, SCORES, ReportError } from '../lib/g1-report.mjs';
+import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, versionsVerified } from '../lib/g1-report.mjs';
 import { assertNotInjected, DEFAULT_PROMPTS } from '../scenarios/g1-claude-wake.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -98,7 +98,29 @@ export function g1Unit(check) {
   // --- synthetic variants with known differences ----------------------------------------
   const other = boxCAsAnotherRun();
   const same = compareTranscripts(BOX_C, toJsonl(other), { segment: 'last', detail: true });
-  check('compare: timestamps, JSON-RPC ids, tool-use id, progress token and pid are normalized away', same.summary.identicalSequence && same.summary.same === 15, formatDiff(same));
+  check('compare: timestamps, JSON-RPC ids, tool-use id, progress token and pid are normalized away (sequence AND payloads identical)', same.summary.identical && same.summary.same === 15 && same.summary.payloadDifferences === 0, formatDiff(same));
+  check('compare: Box C against itself is identical in payloads too', self.summary.identical && self.summary.payloadDifferences === 0);
+  // Review finding: same method sequence, different content, must not read "identical".
+  const modern = other.map((e) => {
+    if (e.direction !== 'server->client' || !e.payload.result?.capabilities) return e;
+    const p = JSON.parse(JSON.stringify(e.payload));
+    p.result.protocolVersion = '2026-07-28';
+    delete p.result.capabilities.experimental;
+    return { ...e, payload: p };
+  });
+  const mo = compareTranscripts(BOX_C, toJsonl(modern), { segment: 'last' });
+  const mop = mo.ops.find((o) => o.payloadDiff?.length);
+  check('compare: a 2026-07-28 / no claude/channel candidate has the same sequence but is NOT identical; the differing paths are named', mo.summary.identicalSequence && !mo.summary.identical && mo.summary.payloadDifferences === 1 && mop.key === 's->c result (initialize)' && mop.payloadDiff.includes('$.result.protocolVersion') && mop.payloadDiff.includes('$.result.capabilities.experimental') && /~ s->c result \(initialize\)/.test(formatDiff(mo)) && !/identical method sequence and payloads/.test(formatDiff(mo)), formatDiff(mo));
+  const tmpC = mkdtempSync(join(tmpdir(), 'oac-g1-cmp-'));
+  try {
+    writeFileSync(join(tmpC, 'modern.jsonl'), toJsonl(modern));
+    writeFileSync(join(tmpC, 'same.jsonl'), toJsonl(other));
+    const cm = spawnSync(process.execPath, [join(REPO, 'tools', 'herdr', 'lib', 'compare-transcripts.mjs'), join(REPO, BOX_C_TRANSCRIPT), join(tmpC, 'modern.jsonl'), '--segment', 'last'], { encoding: 'utf8', timeout: 15000 });
+    const cs = spawnSync(process.execPath, [join(REPO, 'tools', 'herdr', 'lib', 'compare-transcripts.mjs'), join(REPO, BOX_C_TRANSCRIPT), join(tmpC, 'same.jsonl'), '--segment', 'last'], { encoding: 'utf8', timeout: 15000 });
+    check('compare: CLI exits 1 on a payload-only difference and 0 only when sequence and payloads match', cm.status === 1 && /differ in payload/.test(cm.stdout) && cs.status === 0 && /identical method sequence and payloads/.test(cs.stdout), cm.stdout + cs.stdout);
+  } finally {
+    rmSync(tmpC, { recursive: true, force: true });
+  }
   const na = normalizeEntries(selectSegment(parseTranscript(BOX_C), 'last')).map(({ line, ...r }) => r);
   const nb = normalizeEntries(parseTranscript(toJsonl(other))).map(({ line, ...r }) => r);
   check('compare: normalized frames of the shifted copy are byte-identical to Box C\'s', JSON.stringify(na) === JSON.stringify(nb));
@@ -129,7 +151,7 @@ export function g1Unit(check) {
   check('compare: unknown segment rejected', throws(() => compareTranscripts(BOX_C, BOX_C, { segment: 'first' }), TranscriptError));
   check('compare: legacy revision test', isLegacyRevision('2025-11-25') && isLegacyRevision('2025-06-18') && !isLegacyRevision('2026-07-28') && !isLegacyRevision(undefined));
   const cli = spawnSync(process.execPath, [join(REPO, 'tools', 'herdr', 'lib', 'compare-transcripts.mjs'), join(REPO, BOX_C_TRANSCRIPT), FIX('transcript-2026-09-28-2.1.283.jsonl'), '--segment', 'last', '--detail'], { encoding: 'utf8', timeout: 15000 });
-  check('compare: CLI prints the diff and exits 1 on a difference', cli.status === 1 && cli.stdout.includes('- s->c notification notifications/claude/channel [midturn-test]') && /summary: 14 same, 1 only in/.test(cli.stdout), cli.stdout + cli.stderr);
+  check('compare: CLI prints the diff and exits 1 on a difference', cli.status === 1 && cli.stdout.includes('- s->c notification notifications/claude/channel [midturn-test]') && /summary: 14 same method, \d+ of those with a different payload, 1 only in/.test(cli.stdout), cli.stdout + cli.stderr);
 
   // --- Claude Code pin-move check ---------------------------------------------------------
   const real = parseClaudeLastObserved(read(join(REPO, 'docs', 'planning', 'PINS.md')));
@@ -163,18 +185,51 @@ export function g1Unit(check) {
   const parsed = parseSections(secs);
   check('g1: pane sections round-trip with their command seq and timestamps', parsed.length === 2 && parsed[0].text === 'x\ny' && parsed[0].seq === 3 && parsed[1].text === '' && parsed[1].source === 'recent-unwrapped');
   check('g1: a section without its end marker is rejected', throws(() => parseSections(secs.split('\n').slice(0, 3).join('\n'))));
+  const un = unverifiedNames('2026-09-28');
+  check('g1: unverified capture names are never fixture-shaped', un.transcript.startsWith('unverified-') && un.pane.startsWith('unverified-') && !/^transcript-\d{4}-\d{2}-\d{2}-\d+\.\d+\.\d+-herdr\.jsonl$/.test(un.transcript) && !/^pane-\d{4}-\d{2}-\d{2}-\d+\.\d+\.\d+-herdr\.txt$/.test(un.pane));
   check('g1: fixture names follow K4', JSON.stringify(fixtureNames('2026-09-28', '2.1.283')) === JSON.stringify({ transcript: 'transcript-2026-09-28-2.1.283-herdr.jsonl', pane: 'pane-2026-09-28-2.1.283-herdr.txt' }) && throws(() => fixtureNames('2026-9-28', '2.1.283')) && throws(() => fixtureNames('2026-09-28', 'latest')));
 
   const committed = join(REPO, COMMITTED_SERVER);
   const before = sha256(readFileSync(committed));
   const tmp = mkdtempSync(join(tmpdir(), 'oac-g1-unit-'));
   try {
-    const st = stageServerCopy(committed, tmp);
-    check('g1: the server copy is byte-identical (sha256) to the committed file', st.match && st.copySha256 === before && st.copyPath === join(tmp, 'channel-server.mjs'));
+    const st = stageServerCopy(REPO, COMMITTED_SERVER, tmp);
+    check('g1: the server copy is staged from the blob at HEAD, sha256 = the one Box C ran', st.match && st.committedSha256 === COMMITTED_SERVER_SHA256 && st.copySha256 === COMMITTED_SERVER_SHA256 && st.copyPath === join(tmp, 'channel-server.mjs') && st.mode === '100644' && /^[0-9a-f]{40}$/.test(st.headCommit));
+    check('g1: this checkout\'s quarantined server matches HEAD', st.workingTreeMatchesHead === true && st.workingTreeIsSymlink === false);
     writeFileSync(st.copyPath, `${readFileSync(st.copyPath, 'utf8')}// edited\n`);
-    check('g1: an edited copy fails the sha256 check', verifyServerCopy(committed, st.copyPath).match === false);
+    check('g1: an edited copy fails the sha256 check', verifyServerCopy(st.copyPath, st.committedSha256).match === false);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+  // Review finding: a locally edited or symlink-replaced working-tree file must not pass as
+  // the committed file. A throwaway git repo stands in for the checkout.
+  const gr = mkdtempSync(join(tmpdir(), 'oac-g1-git-'));
+  try {
+    const git = (...a) => spawnSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...a], { cwd: gr, encoding: 'utf8', timeout: 15000 });
+    git('init', '-q');
+    writeFileSync(join(gr, 'srv.mjs'), 'committed\n');
+    writeFileSync(join(gr, 'other.mjs'), 'something else\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'x');
+    const clean = committedFile(gr, 'srv.mjs');
+    writeFileSync(join(gr, 'srv.mjs'), 'edited locally\n');
+    const edited = committedFile(gr, 'srv.mjs');
+    const out = mkdtempSync(join(tmpdir(), 'oac-g1-stage-'));
+    const staged = stageServerCopy(gr, 'srv.mjs', out);
+    const copied = readFileSync(join(out, 'channel-server.mjs'), 'utf8');
+    rmSync(out, { recursive: true, force: true });
+    unlinkSync(join(gr, 'srv.mjs'));
+    symlinkSync(join(gr, 'other.mjs'), join(gr, 'srv.mjs'));
+    const linked = committedFile(gr, 'srv.mjs');
+    writeFileSync(join(gr, 'other.mjs'), 'committed\n'); // symlink target now has identical bytes
+    const linkedSame = committedFile(gr, 'srv.mjs');
+    check('g1: committedFile reads HEAD\'s blob, not the disk file', clean.workingTreeMatchesHead && clean.committedSha256 === sha256('committed\n') && edited.committedSha256 === sha256('committed\n'));
+    check('g1: a locally edited working-tree file is caught (workingTreeMatchesHead false)', edited.workingTreeMatchesHead === false && edited.workingTreeSha256 === sha256('edited locally\n'));
+    check('g1: staging an edited checkout still copies the COMMITTED bytes, and reports the edit', copied === 'committed\n' && staged.match && staged.workingTreeMatchesHead === false);
+    check('g1: a symlink-replaced file is caught, even when its target has the committed bytes', linked.workingTreeMatchesHead === false && linkedSame.workingTreeMatchesHead === false && linkedSame.workingTreeIsSymlink === true);
+    check('g1: a path not in HEAD throws', throws(() => committedFile(gr, 'nope.mjs'), null, /cannot read/));
+  } finally {
+    rmSync(gr, { recursive: true, force: true });
   }
   check('g1: the committed quarantined server is unchanged', sha256(readFileSync(committed)) === before);
   const scen = read(join(REPO, 'tools', 'herdr', 'scenarios', 'g1-claude-wake.mjs'));
@@ -209,6 +264,9 @@ export function g1Unit(check) {
   check('report: an operator score needs a note and a valid value', throws(() => parseOperatorScores([{ n: 2, score: 'equivalent', note: '' }]), ReportError, /note/) && throws(() => parseOperatorScores([{ n: 3, score: 'probably', note: 'x' }]), ReportError));
   const notRun = evaluateG1({ manifest: { outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER: ...', scenarioData: {} }, transcriptText: null, paneText: null, baselineText: BOX_C });
   check('report: a NOT RUN leaves every criterion not evaluable', notRun.rows.every((r) => r.score === SCORES.NE && /NOT RUN/.test(r.reason)));
+  const v = (o) => ({ versions: { verified: true, cli: '2.1.283', wireClientInfo: '2.1.283', pinsLastObserved: '2.1.283', pinsSource: { workingTreeMatchesHead: true }, ...o } });
+  check('report: versions verified only when CLI AND wire equal the committed last-observed version', versionsVerified(v({})) && !versionsVerified(v({ wireClientInfo: '2.1.999' })) && !versionsVerified(v({ cli: '2.1.999' })) && !versionsVerified(v({ verified: false })) && !versionsVerified(v({ pinsSource: { workingTreeMatchesHead: false } })));
+  check('report: --write refuses a NOT RUN outcome', /only a PASS run is written/.test(writeRefusal({ outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER', scenarioData: { g1: v({}) } })));
 }
 
 // --- lifecycle cases (driver end to end against the fakes) --------------------------------
@@ -231,7 +289,8 @@ export function g1Cases(check) {
     const g1 = m.scenarioData.g1;
     check('g1 driver accept: PASS (exit 0)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
     check('g1 driver accept: launch verbatim, passed as the launch parameter', JSON.stringify(m.launch.argv) === JSON.stringify(G1_LAUNCH) && g1.launch.verbatim === true && r.calls.some((c) => c.argv.join(' ').includes('agent start g1claude --kind claude --pane w1:p1 --timeout 20000 -- --dangerously-load-development-channels server:g1spike')));
-    check('g1 driver accept: server copy sha256 matches the committed file', g1.server.match && g1.server.committedSha256 === committedSha && g1.server.copySha256 === committedSha && g1.server.copy === '<SCRATCH>/g1-server/channel-server.mjs');
+    check('g1 driver accept: server copy sha256 matches the committed blob at HEAD, working tree clean', g1.server.match && g1.server.committedSha256 === COMMITTED_SERVER_SHA256 && g1.server.copySha256 === committedSha && g1.server.workingTreeMatchesHead === true && g1.server.copy === '<SCRATCH>/g1-server/channel-server.mjs');
+    check('g1 driver accept: versions verified on CLI and wire; PINS.md read from HEAD', g1.versions.verified === true && g1.versions.pinsSource.workingTreeMatchesHead === true && JSON.stringify(g1.fixtures) === JSON.stringify(g1.captureNames));
     const d = g1.dialogs[0];
     const acc = m.commands.find((x) => x.role === 'dialog-accept');
     check('g1 driver accept: dialog read verbatim, then accepted by the driver with no input in between', d?.kind === 'dev-channels' && d.acceptOrigin === 'driver' && acc && acc.seq === d.acceptSeq && m.commands.find((x) => x.seq === acc.seq - 1)?.argv.includes('read') && d.inputBetweenReadAndAccept === 0 && d.matchesBoxC.matches, JSON.stringify(d));
@@ -267,7 +326,7 @@ export function g1Cases(check) {
       check('g1 report CLI --write: report, run manifest beside it, and both fixtures written under the root', w.status === 0 && expected.every((p) => existsSync(join(root, p))), w.stdout + w.stderr);
       const entries = JSON.parse(readFileSync(join(r.outDir, 'manifest-entries.draft.json'), 'utf8'));
       const REQUIRED = ['path', 'provider', 'surface', 'observed_version', 'pins_row', 'pins_as_of', 'version_matches_pin', 'capture_date', 'capture_utc_range', 'superseded_by', 'redaction', 'coverage'];
-      check('g1 report CLI --write: draft MANIFEST entries carry every required field and the K5 driver block', entries.length === 2 && entries.every((e) => REQUIRED.every((k) => k in e) && e.driver.herdr_version === 'herdr 0.9.1' && /^[0-9a-f]{40}$/.test(e.driver.driver_commit) && e.driver.run_manifest === `docs/planning/gates/herdr-runs/G1-${date}.run-manifest.json`));
+      check('g1 report CLI --write: draft MANIFEST entries carry every required field and the K5 driver block', entries.length === 2 && entries.every((e) => REQUIRED.every((k) => k in e) && e.version_matches_pin === true && /working tree matched HEAD: true/.test(e.pins_as_of) && e.driver.herdr_version === 'herdr 0.9.1' && /^[0-9a-f]{40}$/.test(e.driver.driver_commit) && e.driver.run_manifest === `docs/planning/gates/herdr-runs/G1-${date}.run-manifest.json`));
       const again = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
       check('g1 report CLI --write: never overwrites', again.status === 2 && /refusing to overwrite/.test(again.stderr));
     } finally {
@@ -282,13 +341,23 @@ export function g1Cases(check) {
     check('g1 human accept: the driver sent no keystroke at all (no send-keys, no dialog-accept)', !m.commands.some((x) => x.role === 'dialog-accept' || x.argv.includes('send-keys')) && d.acceptOrigin === 'human' && d.inputBetweenReadAndAccept === 0);
     const ev = evalRun(r);
     check('g1 human accept: C5 scored from the recorded dialog text (fake reuses Box C text -> equivalent)', ev.rows[4].score === SCORES.EQ && ev.rows[4].checks.every((x) => x.ok), JSON.stringify(ev.rows[4]));
+    // Defense in depth: even with the dialog record saying "human", any dialog-accept
+    // command in the run, or a driver accept policy, blocks the criterion-5 score.
+    const tampered = JSON.parse(JSON.stringify(m));
+    tampered.commands.push({ seq: 9999, role: 'dialog-accept', argv: ['herdr', 'agent', 'send-keys', 'g1claude', 'enter'], startedAt: m.timebox.end });
+    const policy = JSON.parse(JSON.stringify(m));
+    policy.scenarioData.g1.acceptPolicy = 'driver';
+    const evT = evaluateG1({ manifest: tampered, transcriptText: r.capture(names().transcript), paneText: r.capture(names().pane), baselineText: BOX_C });
+    const evP = evaluateG1({ manifest: policy, transcriptText: r.capture(names().transcript), paneText: r.capture(names().pane), baselineText: BOX_C });
+    check('g1 human accept: any dialog-accept command, or a driver policy, keeps C5 not evaluable despite a "human" dialog record', evT.rows[4].score === SCORES.NE && /driver-sent/.test(evT.rows[4].reason) && evP.rows[4].score === SCORES.NE);
   });
 
   run('g1 human accept timeout', { args: ['--param', 'accept=human', '--param', 'humanAcceptTimeoutMs=1500', ...FAST], fakeClaude: {} }, (r) => {
     const m = r.manifest;
     const d = m.scenarioData.g1.dialogs[0];
+    const g1 = m.scenarioData.g1;
     check('g1 human accept timeout: NOT RUN, nothing sent to the dialog', r.status === 3 && /not accepted by the operator/.test(m.outcomeReason) && inputAfter(m, d.readSeq).length === 0, `${r.status} ${m.outcomeReason}`);
-    check('g1 human accept timeout: the dialog text is still captured', parseSections(r.capture(names().pane)).some((s) => s.seq === d.readSeq && dialogMatchesBoxC(s.text).matches));
+    check('g1 human accept timeout: the dialog text is still captured, under an unverified (non-fixture) name', g1.fixtures === null && g1.captureNames.pane.startsWith('unverified-') && parseSections(r.capture(g1.captureNames.pane)).some((s) => s.seq === d.readSeq && dialogMatchesBoxC(s.text).matches) && m.captures.every((c) => c.file.startsWith('unverified-')));
   });
 
   run('g1 CLI version is a pin-move trigger', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999' } }, (r) => {
@@ -301,6 +370,17 @@ export function g1Cases(check) {
     const m = r.manifest;
     check('g1 pin move (wire): NOT RUN with a pin-move trigger from clientInfo.version', r.status === 3 && /^PIN-MOVE TRIGGER: the wire initialize clientInfo\.version reports v2\.1\.999/.test(m.outcomeReason), m.outcomeReason);
     check('g1 pin move (wire): no operator prompt was sent, no notification triggered', r.prompts.length === 0 && m.scenarioData.g1.triggers.length === 0);
+    const g1 = m.scenarioData.g1;
+    check('g1 pin move (wire): no fixture-named capture; captures are unverified-*', g1.fixtures === null && g1.versions.verified === false && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')) && !readdirSync(r.outDir).some((f) => /-herdr\.(jsonl|txt)$/.test(f) && !f.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
+    const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g1-report.mjs');
+    const root = mkdtempSync(join(tmpdir(), 'oac-g1-report-'));
+    try {
+      const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
+      const p = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
+      check('g1 pin move (wire): report --write refuses and writes nothing; the printed draft says NOT RUN, no fixtures', w.status === 2 && /--write refused: run outcome is NOT RUN/.test(w.stderr) && readdirSync(root).length === 0 && !existsSync(join(r.outDir, 'manifest-entries.draft.json')) && p.status === 0 && /Run outcome:\*\* NOT RUN/.test(p.stdout) && /Fixtures:\*\* none/.test(p.stdout), w.stderr + p.stdout.slice(0, 2000));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   run('g1 launch not verbatim', { args: ['--launch', '["claude","--channels","server:g1spike"]', ...FAST], fakeClaude: {} }, (r) => {
