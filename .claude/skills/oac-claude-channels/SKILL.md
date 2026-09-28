@@ -49,8 +49,16 @@ informational).
 ## 3. Wake and delivery semantics
 
 - Inbound notifications wake an idle session as a user turn.
-- Notifications arriving mid-turn are queued and delivered together at the
-  next turn, in order.
+- Notifications arriving mid-turn are queued and delivered in order, never
+  dropped or interleaved inside a tool call. **Do not assume they are
+  batched together at a single boundary** — G1 Box C (2026-09-28, Claude
+  Code `v2.1.283`) observed two mid-turn notifications sent close together
+  each rendering at its own tool-call boundary, not "together" as the
+  first-party docs and the original G1 PASS (`v2.1.282`) both described.
+  Whether delivery batches or arrives per-boundary is **UNVERIFIED as a
+  guarantee** — it may depend on the notifications' relative timing; treat
+  only "in order, not dropped, not interleaved" as confirmed. See
+  `docs/planning/gates/G1-result.md`.
 - Claude Code sends **no acknowledgement**. A resolved notification send
   means "written to transport," not "seen by the model." Do not report a
   send as delivered or seen; report it as handed to the harness. This is the

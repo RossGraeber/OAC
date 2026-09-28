@@ -1,0 +1,286 @@
+#!/usr/bin/env node
+// D6 spike (OAC issue #39, subtask T2) — validate a JSON-RPC transcript's frames against the
+// regenerated Codex app-server schema (schema/default, schema/experimental). Quarantined spike
+// artifact (oac-gates "Throwaway rule"), not repo code.
+//
+// Method -> schema-definition-name mapping (no cross-file convention exists in first-party
+// docs for this, so this spike defines one mechanically from the method string itself, not by
+// guessing shapes):
+//   "thread/start"          -> params schema "ThreadStartParams",   result schema "ThreadStartResponse"
+//   "thread/queue/add"      -> params schema "ThreadQueueAddParams", result schema "ThreadQueueAddResponse"
+//   notifications (no id)   -> payload schema "<PascalMethod>Notification", e.g.
+//                              "turn/completed" -> "TurnCompletedNotification"
+// PascalMethod = each '/'-separated segment capitalized and concatenated, e.g.
+// "thread/status/changed" -> "ThreadStatusChanged".
+//
+// A frame whose method has no matching schema file in EITHER schema/default or
+// schema/experimental (searched under v1/ and v2/, default checked first) is reported as
+// "unknown method" — not a validation failure, a coverage gap to report separately (some
+// methods, e.g. "initialized", have no dedicated schema at all: it is a notification with an
+// always-empty params object and was never given its own definition file).
+//
+// Usage:
+//   node validate-frames.mjs <transcript.jsonl> [--schema-dir schema] [--json]
+//
+// Exit code: 0 if every frame with a resolvable schema passed, 1 if any failed.
+
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname } from 'node:path';
+import Ajv from 'ajv';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+const transcriptPath = args[0];
+const schemaDirFlagIdx = args.indexOf('--schema-dir');
+const schemaDirArg = schemaDirFlagIdx >= 0 ? args[schemaDirFlagIdx + 1] : 'schema';
+const asJson = args.includes('--json');
+
+if (!transcriptPath) {
+  console.error('usage: node validate-frames.mjs <transcript.jsonl> [--schema-dir schema] [--json]');
+  process.exit(2);
+}
+
+// ---------------------------------------------------------------------------
+// Build a schema index: schemaName -> { ajvValidate, source, tier ('default'|'experimental') }
+// ---------------------------------------------------------------------------
+
+const ajv = new Ajv({ strict: false, allErrors: true });
+
+// T7 review fix (issue #39): a wire notification like "item/agentMessage/delta" or
+// "mcpServer/startupStatus/updated" is NOT missing a schema — its params schema is
+// "AgentMessageDeltaNotification" / "McpServerStatusUpdatedNotification", one of several
+// `definitions.<Name>` union members inside ServerNotification.json's discriminated
+// `oneOf` (ClientRequest.json / ServerRequest.json use the same shape for requests). The
+// original version of this script guessed the schema name purely from the wire method
+// string via `pascalMethod` + "Notification"/"Params"/"Response" — a guess that happens
+// to match most methods (e.g. "turn/completed" -> "TurnCompletedNotification") but not
+// these two, whose checked-in definition names drop or add a segment relative to the
+// method path. Guessing was never the right source of truth: the union file's own `oneOf`
+// members each carry `properties.method.enum[0]` (the exact wire method string) paired
+// with `properties.params.$ref` (the exact definition name) — reading that mapping
+// directly, instead of re-deriving it, removes the guesswork entirely for every method
+// covered by a union file, not just these two.
+function indexUnionMethods(baseDir, tier, methodIndex) {
+  for (const sub of ['v1', 'v2', '.']) {
+    const dir = sub === '.' ? baseDir : join(baseDir, sub);
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      if (name.startsWith('codex_app_server_protocol')) continue;
+      let schema;
+      try { schema = JSON.parse(readFileSync(join(dir, name), 'utf8')); }
+      catch (e) { continue; }
+      if (!schema || !Array.isArray(schema.oneOf) || typeof schema.definitions !== 'object') continue;
+      for (const member of schema.oneOf) {
+        const method = member?.properties?.method?.enum?.[0];
+        const ref = member?.properties?.params?.$ref;
+        if (!method || !ref || !ref.startsWith('#/definitions/')) continue;
+        const defName = ref.slice('#/definitions/'.length);
+        if (methodIndex[method]) continue; // already resolved by an earlier tier/file
+        const wrapper = { definitions: schema.definitions, $ref: ref };
+        let validate;
+        try { validate = ajv.compile(wrapper); }
+        catch (e) { validate = null; }
+        methodIndex[method] = {
+          validate, tier, schemaName: defName, path: `${join(dir, name)}#/definitions/${defName}`,
+          compileError: validate ? null : 'ajv compile failed',
+        };
+      }
+    }
+  }
+}
+
+function indexDir(baseDir, tier) {
+  const index = {};
+  for (const sub of ['v1', 'v2', '.']) {
+    const dir = sub === '.' ? baseDir : join(baseDir, sub);
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      if (name.startsWith('codex_app_server_protocol')) continue; // bundle files, not per-shape
+      const schemaName = name.slice(0, -'.json'.length);
+      if (index[schemaName]) continue; // already found (prefer earlier tier order below)
+      let schema;
+      try { schema = JSON.parse(readFileSync(join(dir, name), 'utf8')); }
+      catch (e) { continue; }
+      let validate;
+      try { validate = ajv.compile(schema); }
+      catch (e) { validate = null; /* compile failure recorded per-use */ }
+      index[schemaName] = { validate, tier, path: join(dir, name), compileError: validate ? null : 'ajv compile failed' };
+    }
+  }
+  return index;
+}
+
+const defaultDir = join(HERE, schemaDirArg, 'default');
+const experimentalDir = join(HERE, schemaDirArg, 'experimental');
+const defaultIndex = existsSync(defaultDir) ? indexDir(defaultDir, 'default') : {};
+const experimentalIndex = existsSync(experimentalDir) ? indexDir(experimentalDir, 'experimental') : {};
+
+// Exact wire-method -> schema mapping, read from each union file's own oneOf discriminator
+// (default tier takes priority; see indexUnionMethods above). Covers notification params
+// AND request params (ClientRequest.json/ServerRequest.json use the same shape) that the
+// plain pascalMethod guess below gets wrong.
+const notificationMethodIndex = {};
+if (existsSync(defaultDir)) indexUnionMethods(defaultDir, 'default', notificationMethodIndex);
+if (existsSync(experimentalDir)) indexUnionMethods(experimentalDir, 'experimental', notificationMethodIndex);
+
+function lookupSchema(name) {
+  if (defaultIndex[name]) return defaultIndex[name];
+  if (experimentalIndex[name]) return experimentalIndex[name];
+  return null;
+}
+
+function pascalMethod(method) {
+  return method.split('/').map((seg) => seg.charAt(0).toUpperCase() + seg.slice(1)).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Frame classification
+// ---------------------------------------------------------------------------
+
+// Frames worth validating carry a JSON-RPC message as `payload` (client->daemon /
+// daemon->client). Everything else (handshake text, proxy-stderr, ws-close, unparsed) is
+// transport bookkeeping, not a JSON-RPC frame, and is reported separately as "skipped".
+const JSONRPC_DIRECTIONS = new Set(['client->daemon', 'daemon->client']);
+
+function classify(rec) {
+  const dir = rec.direction;
+  const p = rec.payload;
+  if (rec._meta) return { kind: 'meta' };
+  if (!JSONRPC_DIRECTIONS.has(dir)) return { kind: 'skipped', reason: `non-JSON-RPC direction '${dir}'` };
+  if (!p || typeof p !== 'object') return { kind: 'skipped', reason: 'no payload object' };
+  if (p.method !== undefined && p.id !== undefined) return { kind: 'request', method: p.method, params: p.params };
+  if (p.method !== undefined && p.id === undefined) return { kind: 'notification', method: p.method, params: p.params };
+  if (p.id !== undefined && (p.result !== undefined || p.error !== undefined)) {
+    return { kind: 'response', id: p.id, result: p.result, error: p.error };
+  }
+  return { kind: 'skipped', reason: 'unrecognized JSON-RPC shape' };
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+const lines = readFileSync(transcriptPath, 'utf8').split('\n').filter((l) => l.trim());
+const results = [];
+// Track outstanding requests by id so a later response frame can be validated against that
+// method's *Response schema (JSON-RPC responses don't repeat the method name).
+const pendingById = new Map();
+
+for (let i = 0; i < lines.length; i++) {
+  const lineNo = i + 1;
+  let rec;
+  try { rec = JSON.parse(lines[i]); }
+  catch (e) { results.push({ line: lineNo, kind: 'parse-error', error: String(e.message) }); continue; }
+
+  const c = classify(rec);
+  if (c.kind === 'meta') { results.push({ line: lineNo, kind: 'meta', meta: rec._meta }); continue; }
+  if (c.kind === 'skipped') { results.push({ line: lineNo, kind: 'skipped', reason: c.reason }); continue; }
+
+  if (c.kind === 'request') {
+    pendingById.set(rec.payload.id, c.method);
+    const schemaName = `${pascalMethod(c.method)}Params`;
+    const found = lookupSchema(schemaName);
+    if (!found) { results.push({ line: lineNo, kind: 'unknown-method', method: c.method, wanted: schemaName }); continue; }
+    if (found.compileError) { results.push({ line: lineNo, kind: 'schema-error', method: c.method, schema: schemaName, error: found.compileError }); continue; }
+    const ok = found.validate(c.params ?? {});
+    results.push({
+      line: lineNo, kind: 'validated', role: 'params', method: c.method, schema: schemaName,
+      tier: found.tier, pass: ok, errors: ok ? [] : found.validate.errors,
+    });
+    continue;
+  }
+
+  if (c.kind === 'notification') {
+    // Exact method -> schema mapping (from the union file's own oneOf discriminator)
+    // takes priority over the pascalMethod guess, which is wrong for a handful of
+    // methods (e.g. "item/agentMessage/delta", "mcpServer/startupStatus/updated" — see
+    // indexUnionMethods above).
+    const exact = notificationMethodIndex[c.method];
+    const schemaName = exact ? exact.schemaName : `${pascalMethod(c.method)}Notification`;
+    const found = exact ?? lookupSchema(schemaName);
+    if (!found) { results.push({ line: lineNo, kind: 'unknown-method', method: c.method, wanted: schemaName }); continue; }
+    if (found.compileError) { results.push({ line: lineNo, kind: 'schema-error', method: c.method, schema: schemaName, error: found.compileError }); continue; }
+    const ok = found.validate(c.params ?? {});
+    results.push({
+      line: lineNo, kind: 'validated', role: 'notification-params', method: c.method, schema: schemaName,
+      tier: found.tier, pass: ok, errors: ok ? [] : found.validate.errors,
+    });
+    continue;
+  }
+
+  if (c.kind === 'response') {
+    const method = pendingById.get(c.id);
+    if (!method) { results.push({ line: lineNo, kind: 'unmatched-response', id: c.id }); continue; }
+    pendingById.delete(c.id);
+    if (c.error !== undefined) {
+      // JSON-RPC error responses are validated against JSONRPCErrorError (the checked-in
+      // envelope for `.error`), not the method's *Response schema — the method never
+      // succeeded, so its Response shape does not apply.
+      const found = lookupSchema('JSONRPCErrorError');
+      const ok = found && !found.compileError ? found.validate(c.error) : null;
+      results.push({
+        line: lineNo, kind: 'validated', role: 'error-envelope', method, schema: 'JSONRPCErrorError',
+        tier: found?.tier ?? null, pass: ok === true, errors: found && !found.compileError ? (ok ? [] : found.validate.errors) : [{ message: 'JSONRPCErrorError schema unavailable' }],
+      });
+      continue;
+    }
+    const schemaName = `${pascalMethod(method)}Response`;
+    const found = lookupSchema(schemaName);
+    if (!found) { results.push({ line: lineNo, kind: 'unknown-method', method, wanted: schemaName }); continue; }
+    if (found.compileError) { results.push({ line: lineNo, kind: 'schema-error', method, schema: schemaName, error: found.compileError }); continue; }
+    const ok = found.validate(c.result ?? {});
+    results.push({
+      line: lineNo, kind: 'validated', role: 'result', method, schema: schemaName,
+      tier: found.tier, pass: ok, errors: ok ? [] : found.validate.errors,
+    });
+    continue;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Report
+// ---------------------------------------------------------------------------
+
+const summary = {
+  transcript: transcriptPath,
+  totalLines: lines.length,
+  validated: results.filter((r) => r.kind === 'validated'),
+  unknownMethods: results.filter((r) => r.kind === 'unknown-method'),
+  skipped: results.filter((r) => r.kind === 'skipped'),
+  parseErrors: results.filter((r) => r.kind === 'parse-error'),
+  schemaErrors: results.filter((r) => r.kind === 'schema-error'),
+  unmatchedResponses: results.filter((r) => r.kind === 'unmatched-response'),
+  meta: results.filter((r) => r.kind === 'meta'),
+};
+const passCount = summary.validated.filter((r) => r.pass).length;
+const failCount = summary.validated.filter((r) => !r.pass).length;
+
+if (asJson) {
+  console.log(JSON.stringify({ ...summary, passCount, failCount }, null, 2));
+} else {
+  console.log(`Transcript: ${transcriptPath}`);
+  console.log(`Lines: ${summary.totalLines}`);
+  if (summary.meta.length) console.log(`Meta line(s): ${summary.meta.length}`);
+  console.log(`Validated: ${summary.validated.length} (pass=${passCount} fail=${failCount})`);
+  for (const r of summary.validated) {
+    const status = r.pass ? 'PASS' : 'FAIL';
+    console.log(`  [${status}] line ${r.line} ${r.method} (${r.role}, schema=${r.schema}, tier=${r.tier})`);
+    if (!r.pass) for (const e of r.errors ?? []) console.log(`           ${e.instancePath || '/'} ${e.message}`);
+  }
+  if (summary.unknownMethods.length) {
+    console.log(`Unknown-method (no schema found): ${summary.unknownMethods.length}`);
+    const byMethod = new Map();
+    for (const r of summary.unknownMethods) byMethod.set(r.method, (byMethod.get(r.method) ?? 0) + 1);
+    for (const [method, count] of byMethod) console.log(`  ${method} x${count} (wanted schema not found)`);
+  }
+  if (summary.skipped.length) console.log(`Skipped (non-JSON-RPC frames): ${summary.skipped.length}`);
+  if (summary.parseErrors.length) console.log(`Parse errors: ${summary.parseErrors.length}`);
+  if (summary.schemaErrors.length) console.log(`Schema compile errors: ${summary.schemaErrors.length}`);
+  if (summary.unmatchedResponses.length) console.log(`Unmatched responses (no request seen for this id): ${summary.unmatchedResponses.length}`);
+}
+
+process.exit(failCount > 0 ? 1 : 0);

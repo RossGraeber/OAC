@@ -30,8 +30,13 @@ not restated here: `oac-boundaries` (rollout-file / undocumented-RPC MUST NOTs),
   outbound surface and is unrelated to the deleted inbound one.
 - **The daemon's control socket is WebSocket over UDS, not JSONL.**
   `codex app-server proxy` relays raw bytes, so a client must do the HTTP Upgrade and
-  frame messages itself. Only `thread/resume` subscribers get `turn/*`/`item/*` events
-  (G2, `docs/planning/gates/G2-result.md`).
+  frame messages itself. A connection auto-subscribes to `turn/*`/`item/*` events for
+  a thread on `thread/start`, `thread/resume`, **or** `thread/fork` — not only
+  `thread/resume` (G2, `docs/planning/gates/G2-result.md`; source-confirmed D6/T5,
+  see `references/thread-lifecycle.md`).
+- **A thread's rollout materializes lazily, on its first user message**, not at
+  `thread/start` — `thread/resume` before any turn ran fails `-32600 "no rollout
+  found"`. See `references/thread-lifecycle.md`.
 - **`turn/steer` writes into an in-flight turn.** Treat any code path that can call
   it as a code-execution-adjacent authorization decision, not a convenience API.
 

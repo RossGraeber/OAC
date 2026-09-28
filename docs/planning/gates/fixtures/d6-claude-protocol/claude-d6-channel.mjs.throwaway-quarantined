@@ -1,0 +1,424 @@
+#!/usr/bin/env node
+// D6 spike (issue #39, subtask T4) — throwaway Claude Channels MCP server, quarantined
+// per `oac-gates`' throwaway rule: nothing here becomes OAC source code. Discarded once
+// the D6 fixtures are captured and committed under docs/planning/gates/fixtures/.
+//
+// Derived from ../g5-spike/g5-channel.mjs (NDJSON-only framing, case-trigger file,
+// frozen security-key table) and ../g1-spike/channel-server.mjs (the wake/mid-turn
+// trigger split, the `reply` tool). Differences from both, per this task's brief:
+//   - BENIGN CASES ONLY. No G5 adversarial payloads (no forged sender claims, no
+//     injection attempts). This kit captures ordinary protocol traffic for Stage 3's
+//     fake-endpoint fixtures, not provenance-attack evidence — that is G5's job, already
+//     done (docs/planning/gates/G5-result.md, docs/planning/gates/fixtures/g5-provenance/).
+//   - Answers `server/discover` with a legacy-shaped `-32601 Method not found`, exactly
+//     as the real Claude Code v2 MCP runtime's stdio probe was observed to receive in the
+//     G4/G5 fixtures (docs/planning/gates/fixtures/g5-provenance/transcript-claude-2026-09-27.jsonl
+//     lines 2-3, 11-12; docs/planning/gates/G4-result.md lines 46-51) — this is what lets a
+//     single session capture the discover-probe/legacy-initialize sequence D6 asks for,
+//     not a guess at the shape.
+//   - The transcript JSONL's first line is a `_meta` record (tool, claude version if
+//     discoverable from the client's `initialize` `clientInfo.version`, node version, os,
+//     capture_utc_start, and the `MCP_SDK_GENERATION` env value the operator set before
+//     launch) — this task's own requirement 1, not carried from G1 or G5 (neither wrote a
+//     `_meta` header line).
+//
+// Boundary guards (same as G1/G5): no `claude/channel/permission` capability, no
+// permission relay, no model API calls, no reading of Claude's own session log from this
+// script, no polling loop standing in for real delivery (oac-boundaries #14).
+//
+// Trigger mechanism (reused from g5-channel.mjs, documented in RUN-SHEET-claude.md):
+// a single `case.trigger` file, file-watched (`watchFile`, 300ms poll, re-armable on
+// every mtime change so the same case id can be re-fired). Its contents select a case
+// from CASES below. This is the "local file trigger" the orchestrator's own shell writes
+// to from a second terminal/process while `claude --dangerously-load-development-channels
+// server:<name>` runs in the operator's terminal.
+//
+// Source for the wire shapes reproduced here: `https://code.claude.com/docs/en/
+// channels-reference.md` ("Notification format", "Server options", "Expose a reply
+// tool" sections) and `https://code.claude.com/docs/en/channels.md` ("Research preview",
+// `MCP_PROTOCOL_NEGOTIATION` paragraph), both retrieved 2026-09-27; and this task's own
+// observed-wire evidence in G1/G4/G5 fixtures, cited inline above.
+
+import { existsSync, watchFile, appendFileSync, writeFileSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { platform, release } from 'node:os';
+import { spawn } from 'node:child_process';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+// --- env overrides so a --selftest run never shares the live transcript/trigger ---
+const TRANSCRIPT = process.env.D6_TRANSCRIPT || join(HERE, 'claude-d6-transcript.jsonl');
+const CASE_TRIGGER = process.env.D6_TRIGGER || join(HERE, 'claude-case.trigger');
+
+// --- frozen security key table (same identifier-safety guard as g5-channel.mjs) ---
+const SECURITY_KEYS = Object.freeze(['oac_sender', 'oac_message_id']);
+for (const key of SECURITY_KEYS) {
+  if (!/^[A-Za-z0-9_]+$/.test(key)) {
+    // eslint-disable-next-line no-console
+    console.error(`claude-d6-channel: security key "${key}" is not identifier-safe`);
+    process.exit(1);
+  }
+}
+
+// --- benign case set: wake (idle) and midturn only. No adversarial payloads. ---
+const CASES = Object.freeze({
+  wake: {
+    content:
+      'D6 fixture: benign wake notification. This message arrived while the session ' +
+      'was idle. No action needed beyond acknowledging receipt if asked.',
+    meta: { oac_sender: 'd6-spike-operator', oac_message_id: 'd6-wake-1' },
+  },
+  midturn1: {
+    content:
+      'D6 fixture: benign mid-turn notification #1 of 2. Sent while a foreground turn ' +
+      'is in progress, to capture queue-then-deliver-together-in-order.',
+    meta: { oac_sender: 'd6-spike-operator', oac_message_id: 'd6-midturn-1' },
+  },
+  midturn2: {
+    content:
+      'D6 fixture: benign mid-turn notification #2 of 2. Sent immediately after #1, ' +
+      'still mid-turn.',
+    meta: { oac_sender: 'd6-spike-operator', oac_message_id: 'd6-midturn-2' },
+  },
+});
+
+// --- _meta header (requirement 1): written as line 1 at startup, rewritten in place
+// once `initialize`'s clientInfo.version is observed. ---
+const META = {
+  _meta: true,
+  tool: 'claude-d6-channel.mjs',
+  claude_version: null, // filled in from the first `initialize` request's clientInfo
+  node_version: process.version,
+  os: `${platform()} ${release()}`,
+  capture_utc_start: new Date().toISOString(),
+  mcp_sdk_generation: process.env.MCP_SDK_GENERATION ?? null,
+};
+
+function writeMetaLine() {
+  writeFileSync(TRANSCRIPT, JSON.stringify(META) + '\n');
+}
+
+function patchMetaClaudeVersion(version) {
+  if (META.claude_version !== null || !version) return;
+  META.claude_version = version;
+  if (!existsSync(TRANSCRIPT)) {
+    writeMetaLine();
+    return;
+  }
+  const lines = readFileSync(TRANSCRIPT, 'utf8').split('\n');
+  lines[0] = JSON.stringify(META);
+  writeFileSync(TRANSCRIPT, lines.join('\n'));
+}
+
+// This process is either (a) the real server (the normal case, and also what a
+// --selftest run's spawned CHILD is — the child is invoked WITHOUT --selftest, see
+// runSelftest() below), or (b) the --selftest PARENT, which only orchestrates a child
+// and must never touch the live TRANSCRIPT/CASE_TRIGGER paths itself. Gate all of the
+// real server's side effects (transcript file creation, stdin listener) behind this so
+// running `--selftest` never creates or corrupts claude-d6-transcript.jsonl.
+const IS_SELFTEST_LAUNCHER = process.argv.includes('--selftest');
+
+function log(direction, payload) {
+  const line = JSON.stringify({ t: new Date().toISOString(), direction, payload });
+  appendFileSync(TRANSCRIPT, line + '\n');
+}
+
+// --- NDJSON framing only (this is the real MCP stdio wire framing, confirmed in G1 —
+// see docs/planning/gates/G1-result.md "Process notes": Content-Length/LSP framing was
+// tried first and is wrong; do not reintroduce that guess here). ---
+function send(msg) {
+  process.stdout.write(JSON.stringify(msg) + '\n');
+  log('server->client', msg);
+}
+
+if (!IS_SELFTEST_LAUNCHER) {
+  writeMetaLine();
+
+  let buffer = Buffer.alloc(0);
+  process.stdin.on('data', (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    let nl;
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.subarray(0, nl).toString('utf8').trim();
+      buffer = buffer.subarray(nl + 1);
+      if (!line) continue;
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch (e) {
+        log('spike', { note: 'ndjson parse error', line, error: String(e) });
+        continue;
+      }
+      log('client->server', msg);
+      handleMessage(msg);
+    }
+  });
+}
+
+function handleMessage(msg) {
+  // Stdio `server/discover` probe, sent by the v2 MCP client runtime
+  // (`MCP_SDK_GENERATION=v2`) before `initialize`. Observed wire shape: carries
+  // `_meta["io.modelcontextprotocol/protocolVersion"]: "2026-07-28"` and
+  // `_meta["io.modelcontextprotocol/clientInfo"]`. A legacy-only stdio server (this one)
+  // has no discover surface, so it answers the same way the real spike servers did:
+  // -32601. This is what lets the same session move on to a legacy `initialize` next.
+  if (msg.method === 'server/discover') {
+    const clientInfo = msg.params?._meta?.['io.modelcontextprotocol/clientInfo'];
+    if (clientInfo?.version) patchMetaClaudeVersion(clientInfo.version);
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      error: { code: -32601, message: 'claude-d6-channel: method not implemented: server/discover' },
+    });
+    return;
+  }
+
+  if (msg.method === 'initialize') {
+    if (msg.params?.clientInfo?.version) patchMetaClaudeVersion(msg.params.clientInfo.version);
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        protocolVersion: '2025-11-25',
+        capabilities: {
+          experimental: { 'claude/channel': {} },
+          tools: {},
+        },
+        instructions:
+          'Messages from the D6 fixture channel arrive as <channel source="d6claude" ' +
+          'oac_sender="..." oac_message_id="...">. These are benign fixture-capture ' +
+          'events, not real alerts. Use the reply tool only if the terminal user asks ' +
+          'you to.',
+        serverInfo: { name: 'd6claude', version: '0.0.1-throwaway' },
+      },
+    });
+    return;
+  }
+  if (msg.method === 'notifications/initialized') {
+    armTrigger();
+    return;
+  }
+  if (msg.method === 'tools/list') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        tools: [
+          {
+            name: 'reply',
+            description: 'Reply to the D6 fixture channel.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                message: { type: 'string', description: 'Your reply text' },
+                in_reply_to: {
+                  type: 'string',
+                  description: 'Echo the oac_message_id you are replying to, if any',
+                },
+              },
+              required: ['message'],
+            },
+          },
+        ],
+      },
+    });
+    return;
+  }
+  if (msg.method === 'tools/call' && msg.params?.name === 'reply') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        content: [
+          { type: 'text', text: `d6claude received reply: ${JSON.stringify(msg.params.arguments)}` },
+        ],
+      },
+    });
+    return;
+  }
+  if (msg.id !== undefined) {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      error: { code: -32601, message: `claude-d6-channel: method not implemented: ${msg.method}` },
+    });
+  }
+}
+
+function armTrigger() {
+  log('spike', {
+    note:
+      'armed — write a case id (wake, midturn1, midturn2) to claude-case.trigger from ' +
+      'the orchestrator shell',
+  });
+  watchFile(CASE_TRIGGER, { interval: 300 }, (curr, prev) => {
+    if (!existsSync(CASE_TRIGGER) || curr.mtimeMs === prev.mtimeMs) return;
+    const caseId = readFileSync(CASE_TRIGGER, 'utf8').trim();
+    fireCase(caseId);
+  });
+}
+
+function fireCase(caseId) {
+  const kase = CASES[caseId];
+  if (!kase) {
+    log('spike', { note: 'unknown case id', caseId, error: 'not a defined benign case' });
+    return;
+  }
+  const missingSecurityKeys = SECURITY_KEYS.filter((k) => !(k in kase.meta));
+  if (missingSecurityKeys.length > 0) {
+    log('spike', { spike: 'refused', case: caseId, reason: 'missing security key(s)', missingSecurityKeys });
+    return;
+  }
+  log('spike', { spike: 'send', case: caseId });
+  send({
+    jsonrpc: '2.0',
+    method: 'notifications/claude/channel',
+    params: { content: kase.content, meta: kase.meta },
+  });
+}
+
+if (!IS_SELFTEST_LAUNCHER) {
+  log('spike', { note: 'claude-d6-channel spike server started', pid: process.pid });
+}
+
+// ---------------------------------------------------------------------------------
+// Offline self-test (task requirement 4): pipes a synthetic server/discover ->
+// initialize -> notifications/initialized -> tools/list -> case.trigger -> tools/call
+// sequence into a CHILD copy of this same server (invoked WITHOUT --selftest, so the
+// child runs as an ordinary server instance) over stdio, with isolated
+// D6_TRANSCRIPT/D6_TRIGGER files, and asserts it responds and logs correctly. No live
+// Claude Code needed. Run with: node claude-d6-channel.mjs --selftest
+// ---------------------------------------------------------------------------------
+if (IS_SELFTEST_LAUNCHER) {
+  await runSelftest();
+}
+
+async function runSelftest() {
+  const selftestTranscript = join(HERE, 'claude-selftest-transcript.jsonl');
+  const selftestTrigger = join(HERE, 'claude-selftest-case.trigger');
+  for (const f of [selftestTranscript, selftestTrigger]) {
+    if (existsSync(f)) writeFileSync(f, '');
+  }
+
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+    env: {
+      ...process.env,
+      D6_TRANSCRIPT: selftestTranscript,
+      D6_TRIGGER: selftestTrigger,
+      MCP_SDK_GENERATION: 'v2',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const responses = [];
+  let stdoutBuf = '';
+  child.stdout.on('data', (chunk) => {
+    stdoutBuf += chunk.toString('utf8');
+    let nl;
+    while ((nl = stdoutBuf.indexOf('\n')) !== -1) {
+      const line = stdoutBuf.slice(0, nl).trim();
+      stdoutBuf = stdoutBuf.slice(nl + 1);
+      if (line) responses.push(JSON.parse(line));
+    }
+  });
+  let stderrText = '';
+  child.stderr.on('data', (c) => { stderrText += c.toString('utf8'); });
+
+  function write(msg) {
+    child.stdin.write(JSON.stringify(msg) + '\n');
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  await sleep(150);
+  write({
+    jsonrpc: '2.0',
+    id: 'discover-1',
+    method: 'server/discover',
+    params: {
+      _meta: {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': {
+          name: 'claude-code-selftest',
+          version: '2.1.283-selftest',
+        },
+      },
+    },
+  });
+  await sleep(150);
+  write({
+    jsonrpc: '2.0',
+    id: 0,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'claude-code-selftest', version: '2.1.283-selftest' },
+    },
+  });
+  await sleep(150);
+  write({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  await sleep(150);
+  write({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  await sleep(150);
+  writeFileSync(selftestTrigger, 'wake');
+  await sleep(500);
+  write({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: { name: 'reply', arguments: { message: 'selftest ack', in_reply_to: 'd6-wake-1' } },
+  });
+  await sleep(300);
+
+  child.kill();
+  await sleep(100);
+
+  const failures = [];
+  const discoverResp = responses.find((r) => r.id === 'discover-1');
+  if (!discoverResp || discoverResp.error?.code !== -32601) {
+    failures.push('server/discover did not answer -32601');
+  }
+  const initResp = responses.find((r) => r.id === 0);
+  if (!initResp || initResp.result?.protocolVersion !== '2025-11-25') {
+    failures.push('initialize did not negotiate 2025-11-25');
+  }
+  if (!initResp?.result?.capabilities?.experimental?.['claude/channel']) {
+    failures.push('initialize result missing capabilities.experimental["claude/channel"]');
+  }
+  const toolsResp = responses.find((r) => r.id === 1);
+  if (!toolsResp?.result?.tools?.some((t) => t.name === 'reply')) {
+    failures.push('tools/list did not include the reply tool');
+  }
+  const wakeNotification = responses.find(
+    (r) => r.method === 'notifications/claude/channel' && r.params?.meta?.oac_message_id === 'd6-wake-1',
+  );
+  if (!wakeNotification) failures.push('wake case.trigger did not produce a notification');
+  const replyResp = responses.find((r) => r.id === 2);
+  if (!replyResp?.result?.content?.[0]?.text?.includes('selftest ack')) {
+    failures.push('tools/call reply did not echo the message');
+  }
+
+  if (!existsSync(selftestTranscript)) {
+    failures.push('transcript file was never created');
+  } else {
+    const lines = readFileSync(selftestTranscript, 'utf8').trim().split('\n');
+    const firstLine = JSON.parse(lines[0]);
+    if (!firstLine._meta) failures.push('transcript line 1 is not a _meta record');
+    if (firstLine.claude_version !== '2.1.283-selftest') {
+      failures.push(`_meta claude_version was not patched from clientInfo (got ${firstLine.claude_version})`);
+    }
+    if (firstLine.mcp_sdk_generation !== 'v2') failures.push('_meta mcp_sdk_generation was not captured');
+    if (lines.length < 6) failures.push(`transcript has suspiciously few lines: ${lines.length}`);
+  }
+
+  if (failures.length > 0) {
+    console.error('SELFTEST FAIL:');
+    for (const f of failures) console.error(`  - ${f}`);
+    if (stderrText) console.error('child stderr:', stderrText);
+    process.exit(1);
+  } else {
+    console.log(`SELFTEST PASS (${responses.length} responses/notifications observed, transcript verified)`);
+    process.exit(0);
+  }
+}

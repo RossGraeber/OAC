@@ -43,6 +43,50 @@ function isCodexTouching(entry) {
   return typeof entry.provider === 'string' && entry.provider.includes('codex');
 }
 
+// A Codex-touching entry's `schema` block (T7, issue #39) must be one of three shapes:
+//  1. { applicable: false, reason } -- Codex appears only as an outbound MCP client, not
+//     the app-server protocol this schema describes (e.g. g4-mcp-dual-era entries).
+//  2. The 0.154.0-superseded-baseline shape: { commit, hash_method, upstream: null,
+//     local_generation: null, sha256: null, note, validated_against } -- schema was never
+//     regenerated at that fixture's own (pre-floating-pin) observed version, so it must
+//     NOT carry a 0.157.1 hash.
+//  3. The full shape: { commit, hash_method, upstream: {path, file_count, tree_sha256,
+//     verified: {date, method, result}}, local_generation: {cli, default: {command,
+//     file_count, tree_sha256}, experimental: {command, file_count, tree_sha256, note}},
+//     validated_against }.
+function schemaShapeProblem(schema) {
+  if (!schema || typeof schema !== 'object') return 'schema is missing or not an object';
+  if (schema.applicable === false) {
+    return typeof schema.reason === 'string' ? null : 'applicable:false schema block is missing `reason`';
+  }
+  if (typeof schema.commit !== 'string') return 'schema.commit is missing';
+  if (typeof schema.hash_method !== 'string') return 'schema.hash_method is missing';
+  if (schema.upstream === null && schema.local_generation === null) {
+    // shape 2: superseded-baseline, schema not regenerated at this version.
+    if (schema.sha256 !== null) return 'superseded-baseline schema.sha256 must be null (schema not regenerated at this version)';
+    if (typeof schema.note !== 'string') return 'superseded-baseline schema is missing `note`';
+    return null;
+  }
+  // shape 3: full comparison record.
+  const u = schema.upstream;
+  if (!u || typeof u.path !== 'string' || typeof u.file_count !== 'number' || typeof u.tree_sha256 !== 'string') {
+    return 'schema.upstream is missing path/file_count/tree_sha256';
+  }
+  if (!u.verified || typeof u.verified.date !== 'string' || typeof u.verified.method !== 'string' || typeof u.verified.result !== 'string') {
+    return 'schema.upstream.verified is missing date/method/result';
+  }
+  const lg = schema.local_generation;
+  if (!lg || typeof lg.cli !== 'string') return 'schema.local_generation is missing `cli`';
+  for (const tier of ['default', 'experimental']) {
+    const t = lg[tier];
+    if (!t || typeof t.command !== 'string' || typeof t.file_count !== 'number' || typeof t.tree_sha256 !== 'string') {
+      return `schema.local_generation.${tier} is missing command/file_count/tree_sha256`;
+    }
+  }
+  if (typeof schema.validated_against !== 'string') return 'schema.validated_against is missing';
+  return null;
+}
+
 const problems = [];
 
 if (!existsSync(manifestPath)) {
@@ -98,8 +142,13 @@ for (const entry of entries) {
     problems.push(`${label}: \`redaction\` must be an object with ${REQUIRED_REDACTION_KEYS.join(', ')}`);
   }
 
-  if (isCodexTouching(entry) && !('schema' in entry)) {
-    problems.push(`${label}: provider "${entry.provider}" is Codex-touching but has no \`schema\` block`);
+  if (isCodexTouching(entry)) {
+    if (!('schema' in entry)) {
+      problems.push(`${label}: provider "${entry.provider}" is Codex-touching but has no \`schema\` block`);
+    } else {
+      const problem = schemaShapeProblem(entry.schema);
+      if (problem) problems.push(`${label}: schema -- ${problem}`);
+    }
   }
 }
 
