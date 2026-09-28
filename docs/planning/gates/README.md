@@ -243,8 +243,14 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   follows §a-§c for gate verdicts, including a verdict written from a scripted run. It
   does not invalidate an equivalence record, because re-running a gate after a harness
   pin moves is what the record exists for.
+- **Opt-in CI (K6).** `herdr-runner.md` in this directory covers the operator-owned
+  self-hosted runners that `.github/workflows/herdr-provider-optin.yml` runs on: their
+  prerequisites, the upload gate, the threat table, and the first-dispatch record. A CI
+  run uploads redacted evidence as a workflow artifact only. It writes nothing into this
+  directory. Committing one of its runs follows the same record, fixture and operator
+  attestation rules as any other scripted run.
 - **Status.** No scripted run has run live yet, so `herdr-runs/` does not exist yet
-  (`docs/planning/STATUS.md` "Open UNVERIFIED items", K4 entry).
+  (`docs/planning/STATUS.md` "Open UNVERIFIED items", K4 and K6 entries).
 
 ## Volatility note — the two preview surfaces most likely to move
 

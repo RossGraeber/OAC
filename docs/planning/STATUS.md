@@ -1193,6 +1193,20 @@ without an UNVERIFIED label.
   indicator, and every dialog except the dev-channels one recorded in Box C) are
   unconfirmed. The run is not verdict-bearing either way: G1's verdict is unchanged.
   Owner: an operator run per the scenario's header comment.
+- **New, from K6 (issue #129, 2026-09-28):** the opt-in CI workflow
+  `.github/workflows/herdr-provider-optin.yml` and its entry point `tools/herdr/ci.mjs`
+  are built but have **never run on GitHub Actions**. No self-hosted runner with label
+  `oac-harness` is registered, and no dispatch has run on Linux or Windows. K6's
+  acceptance item "one successful G1 dispatch on Linux and one on Windows, run URLs
+  recorded" is open: the record table in `docs/planning/gates/herdr-runner.md` §8 is
+  empty. Checked statically only: actionlint, the containment lint's workflow rules
+  (check 9) and the stage-gate self-test against the fake herdr. The repository is public,
+  and GitHub states that fork-PR approval does not protect self-hosted runners. So the
+  runner pre-job hook in `tools/herdr/runner-hooks/` must be installed on each runner and
+  observed refusing and allowing a job before any harness run (`herdr-runner.md` §1).
+  Its bash logic is self-tested; the PowerShell version was run by the K6 review under
+  PowerShell 7 on Linux only (Windows PowerShell 5.1 untested)
+  (`docs/planning/v0.1/11-risks.md` row 52). Owner: the operator, per `herdr-runner.md` §7.
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to
