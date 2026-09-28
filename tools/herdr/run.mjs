@@ -13,6 +13,8 @@
 //   --out <dir>              where run-manifest.json and redacted captures go
 //                            (default: <os tmpdir>/oac-herdr-runs/<run id>)
 //   --keep-scratch           keep the raw scratch directory (unredacted captures, server log)
+//   --redact-literal V=<P>   also redact run-specific value V as placeholder <P> (repeatable;
+//                            e.g. an installation id); only <P> is recorded
 //   --herdr-bin <path>       herdr executable (default: `herdr` on PATH; a .mjs path runs
 //                            under node -- used by the self-test's fake herdr)
 //
@@ -39,9 +41,9 @@ import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
   harnessVersions, herdrLaunchEnv, paneEnvDelta,
 } from './lib/manifest.mjs';
-import { createRedactor, reportIsClean, summarize } from './lib/redact.mjs';
+import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './lib/redact.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
-import { killTree } from './lib/proc.mjs';
+import { killTree, within } from './lib/proc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
@@ -81,6 +83,13 @@ export function parseArgs(argv) {
     } else if (a === '--out') o.out = need(i++, a);
     else if (a === '--keep-scratch') o.keepScratch = true;
     else if (a === '--herdr-bin') o.herdrBin = need(i++, a);
+    else if (a === '--redact-literal') {
+      try {
+        (o.redactLiterals ??= []).push(parseLiteralSpec(need(i++, a)));
+      } catch (err) {
+        throw new UsageError(`--redact-literal: ${err.message}`);
+      }
+    }
     else if (a === '--self-test') o.selfTest = true;
     else if (a === '--help' || a === '-h') o.help = true;
     else throw new UsageError(`unknown argument ${a}`);
@@ -115,127 +124,165 @@ export async function runScenario(opts) {
   const params = { ...(scenario.defaults?.params ?? {}), ...opts.params };
   const timeboxMs = opts.timeboxMs ?? scenario.defaults?.timeboxMs ?? 300000;
   const runId = `${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}-${randomBytes(3).toString('hex')}`;
+  const graceMs = 5000;
 
   // Scratch lives outside the repository, always; raw captures never land in the tree.
+  // Everything between creating it and the main try/finally is guarded, so a setup error
+  // cannot leak the directory.
   const scratch = mkdtempSync(join(tmpdir(), 'oac-herdr-scratch-'));
-  if (isInside(scratch, REPO_ROOT)) throw new DriverError('scratch directory resolved inside the repository; refusing to run');
-  mkdirSync(join(scratch, 'captures'));
-  const outDir = resolve(opts.out ?? join(tmpdir(), 'oac-herdr-runs', runId));
-  mkdirSync(outDir, { recursive: true });
-
-  const sessionName = makeSessionName(scenario.name);
+  let outDir;
+  let herdr;
+  let herdrEnv;
+  let manifest;
+  let ctx;
+  const commands = [];
+  const captures = [];
+  const extraLiterals = [...(opts.redactLiterals ?? [])];
+  const abort = new AbortController();
   const timeboxStart = Date.now();
   const timebox = { remainingMs: () => timeboxStart + timeboxMs - Date.now() };
-  const commands = [];
-  const abort = new AbortController();
+  const sessionName = makeSessionName(scenario.name);
+  try {
+    if (isInside(scratch, REPO_ROOT)) throw new DriverError('scratch directory resolved inside the repository; refusing to run');
+    mkdirSync(join(scratch, 'captures'));
+    outDir = resolve(opts.out ?? join(tmpdir(), 'oac-herdr-runs', runId));
+    mkdirSync(outDir, { recursive: true });
 
-  const configPath = join(scratch, 'herdr-config.toml');
-  writeFileSync(configPath, HERDR_RUN_CONFIG);
-  const { env: herdrEnv, delta: serverEnvDelta } = herdrLaunchEnv(process.env, configPath);
-  const herdr = new HerdrSession({
-    herdrCmd: herdrCommand(opts.herdrBin),
-    sessionName,
-    env: herdrEnv,
-    cwd: scratch,
-    timebox,
-    commands,
-    abortSignal: abort.signal,
-  });
+    const configPath = join(scratch, 'herdr-config.toml');
+    writeFileSync(configPath, HERDR_RUN_CONFIG);
+    const launchEnv = herdrLaunchEnv(process.env, configPath);
+    herdrEnv = launchEnv.env;
+    herdr = new HerdrSession({
+      herdrCmd: herdrCommand(opts.herdrBin),
+      sessionName,
+      env: herdrEnv,
+      cwd: scratch,
+      timebox,
+      commands,
+      abortSignal: abort.signal,
+      graceMs,
+    });
 
-  const manifest = {
-    schemaVersion: MANIFEST_SCHEMA_VERSION,
-    runId,
-    outcome: null,
-    outcomeReason: null,
-    scenario: { name: scenario.name, file: scenario.file, description: scenario.description ?? null, params },
-    launch: { argv: launch, herdrReportedArgv: null },
-    driver: driverInfo(REPO_ROOT),
-    herdr: {
-      pinRow: PIN_ROW,
-      pinnedTag: null,
-      expectedVersionOutput: null,
-      observedVersionOutput: null,
-      serverStatus: null,
-      config: { path: configPath, contents: HERDR_RUN_CONFIG },
-      agentManifests: null,
-    },
-    harnessVersions: {},
-    os: osInfo(),
-    session: { name: sessionName, serverPid: null, panePids: [] },
-    env: { serverLaunch: serverEnvDelta, pane: null },
-    harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [] },
-    timebox: { budgetMs: timeboxMs, start: iso(timeboxStart), end: null, elapsedMs: null, expired: null },
-    commands,
-    teardown: null,
-    scratch: { location: 'os.tmpdir(), outside the repository', path: scratch, removed: null },
-    captures: [],
-    scenarioData: {},
-    findings: [],
-  };
+    manifest = {
+      schemaVersion: MANIFEST_SCHEMA_VERSION,
+      runId,
+      outcome: null,
+      outcomeReason: null,
+      scenario: { name: scenario.name, file: scenario.file, description: scenario.description ?? null, params },
+      launch: { argv: launch, herdrReportedArgv: null },
+      driver: driverInfo(REPO_ROOT),
+      herdr: {
+        pinRow: PIN_ROW,
+        pinnedTag: null,
+        expectedVersionOutput: null,
+        observedVersionOutput: null,
+        serverStatus: null,
+        config: { path: configPath, contents: HERDR_RUN_CONFIG },
+        agentManifests: null,
+      },
+      harnessVersions: {},
+      os: osInfo(),
+      session: { name: sessionName, serverPid: null, panePids: [] },
+      env: { serverLaunch: launchEnv.delta, pane: null },
+      harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [] },
+      timebox: { budgetMs: timeboxMs, start: iso(timeboxStart), end: null, elapsedMs: null, expired: null, teardownEnd: null },
+      commands,
+      teardown: null,
+      scratch: { location: 'os.tmpdir(), outside the repository', path: scratch, removed: null },
+      captures: [],
+      redaction: { runLiteralPlaceholders: [] },
+      scenarioData: {},
+      findings: [],
+    };
 
-  const captures = [];
-  const ctx = {
-    herdr,
-    launch,
-    params,
-    sessionName,
-    paneShell: params.paneShell ?? defaultPaneShell(),
-    remainingMs: () => timebox.remainingMs(),
-    dir(name) {
-      const d = join(scratch, name);
-      mkdirSync(d, { recursive: true });
-      return d;
-    },
-    quoteForPane(argv) {
-      return quoteCommand(argv, ctx.paneShell);
-    },
-    capture(name, text) {
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new DriverError(`bad capture name ${JSON.stringify(name)}`);
-      writeFileSync(join(scratch, 'captures', name), text);
-      captures.push({ name, text });
-    },
-    record(key, value) {
-      manifest.scenarioData[key] = value;
-    },
-    recordLaunchArgv(argv) {
-      manifest.launch.herdrReportedArgv = argv;
-    },
-    // Start the scenario's launch command as a herdr agent in paneId: launch[0] is the
-    // herdr agent kind, the rest pass through after `--`. herdr's reported argv is recorded
-    // beside the verbatim launch parameter.
-    async startAgent(name, { paneId, timeoutMs, allowErrorCodes = [] }) {
-      const started = await herdr.agentStart(name, { launchArgv: launch, paneId, timeoutMs, allowErrorCodes });
-      manifest.launch.herdrReportedArgv = started.argv;
-      return started;
-    },
-    finding(text) {
-      manifest.findings.push(text);
-    },
-    async probeEnv(paneId, { timeoutMs = 20000 } = {}) {
-      const nonce = randomBytes(4).toString('hex');
-      const out = join(scratch, `env-probe-${nonce}.json`);
-      await herdr.paneRun(paneId, ctx.quoteForPane([process.execPath, PROBE_PATH, out, nonce]));
-      await herdr.paneWaitOutput(paneId, { regex: `^\\s*ENVPROBE-OK-${nonce}\\s*$`, timeoutMs });
-      const delta = paneEnvDelta(Object.keys(herdrEnv), JSON.parse(readFileSync(out, 'utf8')));
-      manifest.env.pane = { paneId, ...delta };
-      return delta;
-    },
-  };
+    ctx = {
+      herdr,
+      launch,
+      params,
+      sessionName,
+      paneShell: params.paneShell ?? defaultPaneShell(),
+      remainingMs: () => timebox.remainingMs(),
+      dir(name) {
+        const d = join(scratch, name);
+        mkdirSync(d, { recursive: true });
+        return d;
+      },
+      quoteForPane(argv) {
+        return quoteCommand(argv, ctx.paneShell);
+      },
+      // format 'text' (pane reads) or 'jsonl' (wire transcripts); both are redacted fail-closed.
+      capture(name, text, { format = 'text' } = {}) {
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new DriverError(`bad capture name ${JSON.stringify(name)}`);
+        if (!['text', 'jsonl'].includes(format)) throw new DriverError(`bad capture format ${JSON.stringify(format)}`);
+        writeFileSync(join(scratch, 'captures', name), text);
+        captures.push({ name, text, format });
+      },
+      // A run-specific value to redact everywhere (an installation id, a session id):
+      // replaced by `placeholder` in every capture and in the manifest. Only the
+      // placeholder is recorded.
+      redactLiteral(value, placeholder) {
+        const lit = parseLiteralSpec(`${value}=${placeholder}`);
+        extraLiterals.push(lit);
+      },
+      record(key, value) {
+        manifest.scenarioData[key] = value;
+      },
+      recordLaunchArgv(argv) {
+        manifest.launch.herdrReportedArgv = argv;
+      },
+      // Start the scenario's launch command as a herdr agent in paneId: launch[0] is the
+      // herdr agent kind, the rest pass through after `--`. herdr's reported argv is recorded
+      // beside the verbatim launch parameter.
+      async startAgent(name, { paneId, timeoutMs, allowErrorCodes = [] }) {
+        const started = await herdr.agentStart(name, { launchArgv: launch, paneId, timeoutMs, allowErrorCodes });
+        manifest.launch.herdrReportedArgv = started.argv;
+        return started;
+      },
+      finding(text) {
+        manifest.findings.push(text);
+      },
+      async probeEnv(paneId, { timeoutMs = 20000 } = {}) {
+        const nonce = randomBytes(4).toString('hex');
+        const out = join(scratch, `env-probe-${nonce}.json`);
+        await herdr.paneRun(paneId, ctx.quoteForPane([process.execPath, PROBE_PATH, out, nonce]));
+        await herdr.paneWaitOutput(paneId, { regex: `^\\s*ENVPROBE-OK-${nonce}\\s*$`, timeoutMs });
+        const delta = paneEnvDelta(Object.keys(herdrEnv), JSON.parse(readFileSync(out, 'utf8')));
+        manifest.env.pane = { paneId, ...delta };
+        return delta;
+      },
+    };
+  } catch (err) {
+    rmSync(scratch, { recursive: true, force: true });
+    throw err;
+  }
 
+  // First signal: stop the run (settles the race below, kills in-flight herdr calls) and
+  // tear down normally. Second: warn. Third: force exit, leaving the session behind.
   let signals = 0;
   const onSignal = () => {
     signals += 1;
-    if (signals > 1) {
+    if (signals === 1) abort.abort('operator abort (signal received)');
+    else if (signals === 2) console.error('herdr driver: teardown in progress; signal again to force exit (leaves the herdr session and scratch behind)');
+    else {
       killTree(herdr.server?.child.pid);
       process.exit(130);
     }
-    abort.abort();
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 
+  // The timebox (plus grace for in-flight bounded commands) and an operator abort each end
+  // the run, whatever the scenario is awaiting -- herdr or not.
+  let boxTimer;
+  const stopped = new Promise((_, reject) => {
+    boxTimer = setTimeout(() => abort.abort(`timebox expired (${timeboxMs} ms budget)`), timeboxMs + graceMs);
+    abort.signal.addEventListener('abort', () => reject(new NotRunError(herdr.abortReason())), { once: true });
+  });
+  stopped.catch(() => {});
+
   let serverStarted = false;
-  try {
+  let scenarioEnd = null;
+  const body = async () => {
     let pin;
     try {
       pin = readHerdrPin(PINS_PATH);
@@ -259,6 +306,7 @@ export async function runScenario(opts) {
     const harnesses = scenario.harnesses ?? [];
     manifest.harnessVersions = harnesses.length ? await harnessVersions(harnesses) : { note: 'N/A: this scenario launches no harness' };
 
+    if (abort.signal.aborted) throw new NotRunError(herdr.abortReason());
     serverStarted = true;
     manifest.herdr.serverStatus = await herdr.startServer({ logPath: join(scratch, 'server.log'), expectVersion: pin.version });
     manifest.session.serverPid = herdr.server.child.pid ?? null;
@@ -270,6 +318,20 @@ export async function runScenario(opts) {
     }
 
     await scenario.run(ctx);
+  };
+
+  const bodyPromise = body();
+  bodyPromise.catch(() => {});
+  try {
+    await Promise.race([bodyPromise, stopped]);
+    // A scenario that caught a timeout itself, or outlived its timebox, did not run as
+    // specified: NOT RUN, whatever it returned.
+    const timedOut = commands.find((c) => c.timedOut);
+    if (herdr.inputHalted || timedOut || timebox.remainingMs() < 0) {
+      throw new NotRunError(
+        `scenario returned normally, but ${timedOut ? `command #${timedOut.seq} (${timedOut.role}) timed out` : herdr.inputHalted ? `input was halted (${herdr.inputHalted})` : 'the timebox expired'}; a run with a timeout is NOT RUN`,
+      );
+    }
     manifest.outcome = 'PASS';
   } catch (err) {
     if (err instanceof NotRunError) {
@@ -280,8 +342,20 @@ export async function runScenario(opts) {
       manifest.outcomeReason = err instanceof DriverError ? err.message : `${err.name}: ${err.message}`;
     }
   } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
+    clearTimeout(boxTimer);
+    scenarioEnd = Date.now();
+    // Same rule for a scenario that failed after a timeout: the run is NOT RUN.
+    const timedOut = commands.find((c) => c.timedOut);
+    if (manifest.outcome === 'FAIL' && (timedOut || herdr.inputHalted || scenarioEnd - timeboxStart > timeboxMs)) {
+      manifest.findings.push(`scenario failed after a timeout or timebox expiry (${manifest.outcomeReason}); recorded as NOT RUN`);
+      manifest.outcome = 'NOT RUN';
+      manifest.outcomeReason = timedOut ? `command #${timedOut.seq} (${timedOut.role}) timed out` : herdr.inputHalted ?? 'timebox expired';
+    }
+    // Make sure scenario code has stopped issuing commands before teardown; every herdr
+    // call now refuses (aborted), so this settles quickly.
+    if (!abort.signal.aborted) abort.abort('run over; tearing down');
+    await within(bodyPromise.catch(() => {}), 2000);
+
     if (serverStarted) {
       try {
         manifest.teardown = await herdr.teardown();
@@ -291,12 +365,12 @@ export async function runScenario(opts) {
     } else {
       manifest.teardown = { clean: true, note: 'no herdr session was started' };
     }
-    manifest.session.panePids = [...herdr.panePids];
-    const timeboxEnd = Date.now();
+    manifest.session.panePids = [...herdr.panePids.keys()];
     Object.assign(manifest.timebox, {
-      end: iso(timeboxEnd),
-      elapsedMs: timeboxEnd - timeboxStart,
-      expired: timeboxEnd - timeboxStart > timeboxMs,
+      end: iso(scenarioEnd),
+      elapsedMs: scenarioEnd - timeboxStart,
+      expired: scenarioEnd - timeboxStart > timeboxMs,
+      teardownEnd: iso(Date.now()),
     });
 
     manifest.harnessConfig.after = hashHarnessConfig();
@@ -314,25 +388,26 @@ export async function runScenario(opts) {
     if (!manifest.teardown.clean) downgrade(`teardown was not clean: ${JSON.stringify({ ...manifest.teardown, clean: undefined })}`);
 
     // Redaction literals first: realpath needs the scratch dir to still exist.
-    const literals = [{ value: scratch, placeholder: '<SCRATCH>' }, { value: REPO_ROOT, placeholder: '<REPO>' }, { value: outDir, placeholder: '<OUT>' }];
+    const literals = [{ value: scratch, placeholder: '<SCRATCH>' }, { value: REPO_ROOT, placeholder: '<REPO>' }, { value: outDir, placeholder: '<OUT>' }, ...extraLiterals];
     for (const { value, placeholder } of [...literals]) {
       try {
         const real = realpathSync(value);
         if (real !== value) literals.push({ value: real, placeholder });
       } catch {
-        /* not resolvable */
+        /* not a path, or not resolvable */
       }
     }
+    manifest.redaction.runLiteralPlaceholders = [...new Set(extraLiterals.map((l) => l.placeholder))];
     if (!opts.keepScratch) rmSync(scratch, { recursive: true, force: true });
     manifest.scratch.removed = !opts.keepScratch;
 
     const redactor = createRedactor({ literals });
     for (const c of captures) {
-      const { text, report } = redactor.redactText(c.text);
+      const { text, report } = c.format === 'jsonl' ? redactor.redactJsonl(c.text) : redactor.redactText(c.text);
       const ok = reportIsClean(report);
       if (ok) writeFileSync(join(outDir, c.name), text);
-      manifest.captures.push({ file: c.name, written: ok, redaction: report });
-      if (!ok) downgrade(`capture ${c.name} still carried residual hits after redaction and was withheld (${summarize(report)})`);
+      manifest.captures.push({ file: c.name, format: c.format, written: ok, redaction: report });
+      if (!ok) downgrade(`capture ${c.name} still carried residual hits or hazard protocol frames after redaction and was withheld (${summarize(report)})`);
     }
     // The manifest is always written, but never with a residual hit in it: a value that
     // redaction could not prove clean is replaced by <WITHHELD: ...> and listed by path.
@@ -350,6 +425,8 @@ export async function runScenario(opts) {
       withheld,
       writtenClean: finalScan.residualLeaks.length === 0 && finalScan.residualGenericHits.length === 0,
     };
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
     if (!written.manifestRedaction.writtenClean) throw new DriverError('run manifest could not be made clean of residual hits; not written');
     writeFileSync(join(outDir, 'run-manifest.json'), `${JSON.stringify(written, null, 2)}\n`);
   }
@@ -362,7 +439,7 @@ async function main(argv) {
   try {
     opts = parseArgs(argv);
   } catch (err) {
-    console.error(`${err.message}\nusage: node tools/herdr/run.mjs --scenario <name|path> [--launch '<json argv>'] [--param k=v] [--timebox-ms N] [--out DIR] [--keep-scratch] [--herdr-bin PATH] | --self-test`);
+    console.error(`${err.message}\nusage: node tools/herdr/run.mjs --scenario <name|path> [--launch '<json argv>'] [--param k=v] [--timebox-ms N] [--out DIR] [--keep-scratch] [--redact-literal V=<P>] [--herdr-bin PATH] | --self-test`);
     return EXIT.USAGE;
   }
   if (opts.help) {
@@ -388,5 +465,8 @@ async function main(argv) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  process.exitCode = await main(process.argv.slice(2));
+  const code = await main(process.argv.slice(2));
+  // Exit explicitly once the run is recorded: a scenario abandoned at its timebox or on an
+  // operator abort may still hold timers or handles that would keep the process alive.
+  process.stdout.write('', () => process.stderr.write('', () => process.exit(code)));
 }

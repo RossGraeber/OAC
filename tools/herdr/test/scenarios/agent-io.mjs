@@ -1,5 +1,5 @@
 // Self-test scenario: agent read / send-keys / prompt paths against the fake herdr.
-// --param op=read|send-keys|prompt-retry|dialog-no-read|dialog-after-read
+// --param op=read|send-keys|prompt-retry|dialog-no-read|dialog-after-read|dialog-after-failed-read
 import { DriverError, NotRunError } from '../../lib/herdr.mjs';
 
 export default {
@@ -16,6 +16,15 @@ export default {
     if (params.op === 'read') await herdr.agentRead('selftest', { deadlineMs });
     else if (params.op === 'send-keys') await herdr.agentSendKeys('selftest', ['enter'], { deadlineMs });
     else if (params.op === 'dialog-no-read') await herdr.dialogAccept('selftest');
+    else if (params.op === 'dialog-after-failed-read') {
+      // A read that FAILED must not unlock dialog-accept.
+      try {
+        await herdr.agentRead('selftest', { deadlineMs });
+      } catch (err) {
+        if (!(err instanceof DriverError)) throw err;
+      }
+      await herdr.dialogAccept('selftest');
+    }
     else if (params.op === 'dialog-after-read') {
       ctx.capture('dialog.txt', await herdr.agentRead('selftest', { deadlineMs }));
       await herdr.dialogAccept('selftest');

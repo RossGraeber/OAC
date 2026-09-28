@@ -5,32 +5,44 @@
 //   node tools/herdr/lib/redact.mjs --check <file>             # scan only; exit 1 on any residual
 //   node tools/herdr/lib/redact.mjs <in> <out>                 # redact <in> into <out>
 //   options: --jsonl | --text (default: by extension), --username U, --hostname H,
-//            --home PATH, --literal VALUE=<PLACEHOLDER> (repeatable)
+//            --home PATH, --literal VALUE=<PLACEHOLDER> (repeatable; e.g. an installation id)
 //
-// What it strips: home paths (this machine's, and any /home/<x>, /Users/<x>, C:\Users\<x>,
-// /root, and Claude Code's mangled project-dir form), the OS username and hostname,
-// e-mail addresses, and token shapes (sk-..., Bearer, GitHub/Slack/AWS/Google keys,
-// JWTs, NAME_TOKEN=/NAME_KEY=/NAME_SECRET= assignments). Lines carrying a private-key block
-// marker, an Authorization/Cookie header, or a system-prompt snapshot are dropped whole
-// (`droppedHazardLines`); in JSONL a JSON-RPC protocol frame that hits a hazard is never
-// dropped silently -- it is reported in `hazardProtocolFrames` and fails the run, because
+// What it strips:
+//   - home paths: this machine's, and any /home/<x>, /Users/<x>, C:\Users\<x>, WSL
+//     /mnt/<d>/Users/<x>, /root, Claude Code's mangled project-dir form; raw, JSON-escaped,
+//     or percent-encoded;
+//   - the OS username and hostname (see "identity" below), and caller literals;
+//   - e-mail addresses and token shapes (sk-, Bearer, GitHub, GitLab, npm, Slack, AWS,
+//     Google, JWT);
+//   - secret-named assignments in any case or spelling -- NAME_TOKEN=, "access_token": ,
+//     apiKey: , aws_secret_access_key = , x-api-key: , --api-key <v>, bare TOKEN= -- the
+//     name is kept, the value becomes <SECRET>; in structured data the same names are
+//     matched as object keys.
+// Dropped whole (`droppedHazardLines`): a private-key block from its BEGIN line through its
+// END line (an unterminated block drops everything after BEGIN -- fail closed), a bare line
+// of base64 key material, an Authorization/Cookie header line (raw or JSON-shaped), and a
+// system-prompt snapshot. In JSONL, a JSON-RPC protocol frame that carries a hazard is
+// never dropped silently: it is reported in `hazardProtocolFrames` and fails the run, since
 // live wire traffic carrying such a value is a capture bug to investigate, not to absorb.
 //
 // After redacting, the output is scanned again: `residualLeaks` are this machine's known
 // values (home, username, hostname, caller literals) still present; `residualGenericHits`
 // are structural leak shapes still present regardless of whose they are. Reports name a
 // rule label and a line number only -- never the matched text -- so a report can be
-// printed or committed without re-leaking what it found.
-// withholdResiduals() is the backstop for structured output (run manifests): a value that
-// still carries a residual hit after redaction is replaced whole by `<WITHHELD: labels>`.
+// printed or committed without re-leaking what it found. withholdResiduals() is the
+// backstop for structured output (run manifests): a value that still carries a residual
+// hit after redaction is replaced whole by `<WITHHELD: labels>`.
 //
 // Placeholders follow the ones in the committed G1/D6 fixtures (<USER_HOME>, <HOST>,
 // <EMAIL>, <SECRET>), from docs/planning/gates/fixtures/d6-codex-protocol/
 // redact.mjs.throwaway-quarantined, which this generalizes to free text.
 //
-// Username/hostname safety: a short or common name (root, user, runner, ...) is replaced
-// only in context (a home path, `name@`, `@host`), never as a bare word, so that clean data
-// such as the MCP capability key "roots" is not rewritten when the OS user is `root`.
+// Identity matching: a username/hostname of 4+ characters that is not a common name is
+// replaced wherever it occurs, as a substring (so `rossg_dev`, `xrossg`, `Ross-MBP_2`
+// cannot slip past a word boundary); a 3-character one as a whole word; a common or
+// shorter one (root, user, runner, vm, ...) only in context -- a home path, `name@`
+// (including right after an ANSI colour code), `@host` -- so that clean data such as the
+// MCP capability key "roots" is not rewritten when the OS user is `root`.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir, hostname as osHostname, userInfo } from 'node:os';
@@ -50,61 +62,147 @@ const COMMON_NAMES = new Set([
   'root', 'user', 'users', 'admin', 'administrator', 'runner', 'ubuntu', 'debian', 'vagrant',
   'docker', 'node', 'guest', 'test', 'dev', 'build', 'home', 'default', 'app', 'localhost',
   'codespace', 'codespaces', 'runneradmin', 'owner', 'local', 'server', 'client', 'claude',
-  'codex', 'agent',
+  'codex', 'agent', 'host', 'main', 'work', 'linux', 'macbook', 'desktop', 'laptop',
 ]);
 
-// One path separator as it may appear in raw text or after one or two layers of JSON
-// escaping: `/`, `\/`, `\`, `\\`.
-const SEP = String.raw`(?:\\{1,2}|\\?/)`;
+// One path separator as it may appear raw, after one or two layers of JSON escaping, or
+// percent-encoded: `/`, `\/`, `\`, `\\`, `%2F`, `%5C`.
+const SEP = String.raw`(?:\\{1,2}|\\?/|%2[Ff]|%5[Cc])`;
+const DRIVE = String.raw`[A-Za-z](?::|%3[Aa])`;
 const SEG_END = String.raw`(?![A-Za-z0-9._-])`;
+const SEG_CHARS = String.raw`[^\\/"'<>\s:*?|%]+`;
 const NOT_WORD_BEFORE = String.raw`(?<![A-Za-z0-9_])`;
 const NOT_WORD_AFTER = String.raw`(?![A-Za-z0-9_])`;
+// Start of a token: not preceded by a word character, or preceded by an ANSI SGR sequence.
+const TOKEN_START = String.raw`(?:(?<=\x1b\[[0-9;]*m)|(?<![A-Za-z0-9_]))`;
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function pathLiteralRe(p) {
   const parts = p.split(/[\\/]+/);
-  const body = parts.map(escapeRe).join(SEP);
-  return new RegExp(body + SEG_END, /^[A-Za-z]:/.test(p) ? 'gi' : 'g');
+  const drive = /^[A-Za-z]:$/.test(parts[0]);
+  const body = parts.map((part, i) => (i === 0 && drive ? `${escapeRe(part[0])}(?::|%3[Aa])` : escapeRe(part))).join(SEP);
+  return new RegExp(body + SEG_END, drive ? 'gi' : 'g');
 }
 
-const distinctive = (name) => typeof name === 'string' && name.length >= 3 && !COMMON_NAMES.has(name.toLowerCase());
+function identityMode(name) {
+  if (typeof name !== 'string' || !name || COMMON_NAMES.has(name.toLowerCase())) return 'context-only';
+  if (name.length >= 4) return 'substring';
+  if (name.length === 3) return 'word';
+  return 'context-only';
+}
+function identityRe(name, mode, flags) {
+  if (mode === 'substring') return new RegExp(escapeRe(name), flags);
+  if (mode === 'word') return new RegExp(TOKEN_START + escapeRe(name) + NOT_WORD_AFTER, flags);
+  return null;
+}
+
+// --- secret-named assignments ----------------------------------------------------------
+
+const SECRET_SUFFIX = String.raw`(?:api[_-]?key|access[_-]?key(?:[_-]?id)?|secret[_-]?(?:access[_-]?)?key|client[_-]?secret|(?:access|refresh|id|auth|session|bearer|api|oauth)[_-]?token|private[_-]?key|password|passwd|secret|token|credentials?|_pat)`;
+const SECRET_NAME_ONLY = new RegExp(String.raw`^(?:--?)?(?:[A-Za-z][A-Za-z0-9_.-]*?)?${SECRET_SUFFIX}$`, 'i');
+const HEADER_NAME_ONLY = /^(?:proxy-)?authorization$|^(?:set-)?cookie$/i;
+// Names that end like a secret but are protocol bookkeeping, not credentials.
+const BENIGN_NAMES = new Set(['progresstoken', 'pagetoken', 'nextpagetoken', 'continuationtoken', 'cursortoken', 'maxtoken', 'tokentype', 'token_type']);
+const ASSIGNMENT_RE = new RegExp(
+  String.raw`(?<![A-Za-z0-9_.-])(--?)?((?:[A-Za-z][A-Za-z0-9_.-]*?)?${SECRET_SUFFIX})(["']?)(\s*[:=]\s*|\s+)(?!["']?<)("[^"\n]*"|'[^'\n]*'|[^\s"',;}\]]+)`,
+  'gi',
+);
+
+function secretValueLike(v) {
+  const inner = String(v).replace(/^["']|["']$/g, '');
+  return inner.length >= 6 && !/^\d+$/.test(inner) && !/^(?:true|false|null|none|undefined)$/i.test(inner) && !inner.startsWith('<') && !/^\$\{?[A-Za-z_]/.test(inner);
+}
+
+function assignmentMatches(s) {
+  const out = [];
+  for (const m of s.matchAll(ASSIGNMENT_RE)) {
+    const [, dash, name, , sep, value] = m;
+    if (BENIGN_NAMES.has(name.toLowerCase())) continue;
+    if (!/[:=]/.test(sep) && !dash) continue; // whitespace separator only for --flag value
+    if (!secretValueLike(value)) continue;
+    out.push({ index: m.index, length: m[0].length, keep: m[0].slice(0, m[0].length - value.length), value });
+  }
+  return out;
+}
+
+const SECRET_ASSIGNMENT_RULE = {
+  label: 'secret assignment',
+  apply(s, counts) {
+    const hits = assignmentMatches(s);
+    if (!hits.length) return s;
+    let out = '';
+    let pos = 0;
+    for (const h of hits) {
+      const q = /^["']/.test(h.value) ? h.value[0] : '';
+      out += s.slice(pos, h.index) + h.keep + q + PLACEHOLDER.secret + q;
+      pos = h.index + h.length;
+    }
+    counts[this.label] = (counts[this.label] ?? 0) + hits.length;
+    return out + s.slice(pos);
+  },
+  detect: (line) => assignmentMatches(line).length > 0,
+};
+
+// --- rules -------------------------------------------------------------------------------
+
+function reRule(label, re, to) {
+  return {
+    label,
+    re,
+    apply(s, counts) {
+      re.lastIndex = 0;
+      return s.replace(re, (...args) => {
+        counts[label] = (counts[label] ?? 0) + 1;
+        return typeof to === 'function' ? to(...args) : to;
+      });
+    },
+    detect(line) {
+      return new RegExp(re.source, re.flags.replace('g', '')).test(line);
+    },
+  };
+}
+
+const KEY_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/;
+const KEY_END = /-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/;
 
 // Lines dropped whole. Labels only; nothing matched is ever reported.
 const HAZARD_RULES = [
-  { label: 'private key block', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/ },
-  { label: 'authorization header', re: /\b(?:proxy-)?authorization\s*[:=]/i },
-  { label: 'cookie header', re: /\b(?:set-)?cookie\s*:/i },
+  { label: 'private key block', re: KEY_BEGIN },
+  { label: 'private key block end', re: KEY_END },
+  // A line that is nothing but long mixed-case base64: key material outside its markers.
+  { label: 'base64 key material line', re: /^\s*(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[0-9])[A-Za-z0-9+/]{64,}={0,2}\s*$/ },
+  // Header name, optional closing quote (JSON), separator, then a value that is not already a placeholder.
+  { label: 'authorization header', re: /\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?!<SECRET>)[^\s"',}]/i },
+  { label: 'cookie header', re: /\b(?:set-)?cookie["']?\s*:\s*["']?(?!<SECRET>)[^\s"',}]/i },
   { label: 'system prompt snapshot', re: /prompt_snapshot|systemPrompt/ },
 ];
 
-// Token shapes. Each is replaced, and each is also a residual generic check.
 const TOKEN_RULES = [
-  { label: 'sk- token', re: /\bsk-[A-Za-z0-9_-]{10,}/g, to: PLACEHOLDER.secret },
-  { label: 'bearer token', re: /\bBearer\s+(?!<SECRET>)[A-Za-z0-9._~+/-]{8,}=*/g, to: `Bearer ${PLACEHOLDER.secret}` },
-  { label: 'github token', re: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, to: PLACEHOLDER.secret },
-  { label: 'slack token', re: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, to: PLACEHOLDER.secret },
-  { label: 'aws access key id', re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, to: PLACEHOLDER.secret },
-  { label: 'google api key', re: /\bAIza[0-9A-Za-z_-]{35}/g, to: PLACEHOLDER.secret },
-  { label: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, to: PLACEHOLDER.secret },
-  {
-    // NAME_TOKEN=value, "NAME_API_KEY": "value", NAME_SECRET: value -- the name is kept.
-    label: 'secret assignment',
-    re: /\b([A-Z][A-Z0-9_]*(?:_KEY|_TOKEN|_SECRET|PASSWORD|_PASSWD|_PAT))(["']?\s*[:=]\s*)(?!["']?<SECRET>)("[^"\n]*"|'[^'\n]*'|[^\s"',;}]+)/g,
-    to: (_m, name, sep, value) => `${name}${sep}${/^["']/.test(value) ? value[0] + PLACEHOLDER.secret + value[0] : PLACEHOLDER.secret}`,
-  },
+  reRule('sk- token', /\bsk-[A-Za-z0-9_-]{10,}/g, PLACEHOLDER.secret),
+  reRule('bearer token', /\bBearer\s+(?!<SECRET>)[A-Za-z0-9._~+/-]{8,}=*/g, `Bearer ${PLACEHOLDER.secret}`),
+  reRule('github token', /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, PLACEHOLDER.secret),
+  reRule('gitlab token', /\bgl(?:pat|ptt|dt)-[A-Za-z0-9_-]{20,}/g, PLACEHOLDER.secret),
+  reRule('npm token', /\bnpm_[A-Za-z0-9]{36}\b/g, PLACEHOLDER.secret),
+  reRule('slack token', /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, PLACEHOLDER.secret),
+  reRule('aws access key id', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, PLACEHOLDER.secret),
+  reRule('google api key', /\bAIza[0-9A-Za-z_-]{35}/g, PLACEHOLDER.secret),
+  reRule('jwt', /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, PLACEHOLDER.secret),
+  SECRET_ASSIGNMENT_RULE,
 ];
 
 const HAZARD_COUNT = 'hazard string replaced';
+const SECRET_KEY_COUNT = 'secret-named key value';
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 
 // Structural home-path shapes, whoever's they are.
 const GENERIC_HOME_RULES = [
-  { label: 'windows profile path', re: new RegExp(String.raw`[A-Za-z]:${SEP}Users${SEP}(?!<)[^\\/"'<>\s:*?|]+`, 'gi'), to: PLACEHOLDER.home },
-  { label: 'unix home path', re: new RegExp(String.raw`(?<![A-Za-z0-9._-])${SEP}(?:home|Users)${SEP}(?!<)[^\\/"'<>\s:]+`, 'g'), to: PLACEHOLDER.home },
-  { label: 'root home path', re: new RegExp(String.raw`(?<![A-Za-z0-9._:/-])${SEP}root(?=${SEP}|["'\s]|$)`, 'g'), to: PLACEHOLDER.home },
-  { label: 'mangled home path', re: /(?<![A-Za-z0-9])(?:[A-Za-z]--Users|-home|-Users)-(?!<)[A-Za-z0-9._]+/g, to: PLACEHOLDER.homeMangled },
+  reRule('wsl windows profile path', new RegExp(String.raw`(?<![A-Za-z0-9._-])${SEP}mnt${SEP}[A-Za-z]${SEP}Users${SEP}(?!<)${SEG_CHARS}`, 'gi'), PLACEHOLDER.home),
+  reRule('windows profile path', new RegExp(String.raw`${DRIVE}${SEP}Users${SEP}(?!<)${SEG_CHARS}`, 'gi'), PLACEHOLDER.home),
+  reRule('unix home path', new RegExp(String.raw`(?<![A-Za-z0-9._-])${SEP}(?:home|Users)${SEP}(?!<)${SEG_CHARS}`, 'g'), PLACEHOLDER.home),
+  reRule('root home path', new RegExp(String.raw`(?<![A-Za-z0-9._:/%-])${SEP}root(?=${SEP}|["'\s]|$)`, 'g'), PLACEHOLDER.home),
+  reRule('mangled home path', /(?<![A-Za-z0-9])(?:[A-Za-z]--Users|-home|-Users)-(?!<)[A-Za-z0-9._]+/g, PLACEHOLDER.homeMangled),
 ];
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -120,79 +218,72 @@ function safeUserName() {
   }
 }
 
+export function isSecretKeyName(k) {
+  return (SECRET_NAME_ONLY.test(k) || HEADER_NAME_ONLY.test(k)) && !BENIGN_NAMES.has(String(k).toLowerCase());
+}
+
 export function createRedactor({ home = homedir(), username = safeUserName(), hostname = osHostname(), literals = [] } = {}) {
   const hostShort = hostname ? hostname.split('.')[0] : '';
-  const userWord = distinctive(username);
-  const hostWord = distinctive(hostShort);
+  const userMode = identityMode(username);
+  const hostMode = identityMode(hostShort);
+  const lits = literals.filter((l) => l && l.value);
 
   // Ordered: most specific first (caller literals such as the scratch dir can sit under home).
   const replaceRules = [];
-  for (const { value, placeholder } of [...literals].sort((a, b) => b.value.length - a.value.length)) {
-    if (value) replaceRules.push({ label: `literal ${placeholder}`, re: pathLiteralRe(value), to: placeholder });
+  for (const { value, placeholder } of [...lits].sort((a, b) => b.value.length - a.value.length)) {
+    replaceRules.push(reRule(`literal ${placeholder}`, pathLiteralRe(value), placeholder));
   }
-  if (home && home.length > 1) replaceRules.push({ label: 'home', re: pathLiteralRe(home), to: PLACEHOLDER.home });
+  if (home && home.length > 1) replaceRules.push(reRule('home', pathLiteralRe(home), PLACEHOLDER.home));
   if (username) {
     const u = escapeRe(username);
-    replaceRules.push({ label: 'mangled home', re: new RegExp(String.raw`(?:[A-Za-z]--Users|-home|-Users)-${u}${NOT_WORD_AFTER}`, 'gi'), to: PLACEHOLDER.homeMangled });
-    replaceRules.push({ label: 'username@', re: new RegExp(String.raw`${NOT_WORD_BEFORE}${u}(?=@)`, 'g'), to: PLACEHOLDER.user });
+    replaceRules.push(reRule('mangled home', new RegExp(String.raw`(?:[A-Za-z]--Users|-home|-Users)-${u}${NOT_WORD_AFTER}`, 'gi'), PLACEHOLDER.homeMangled));
+    replaceRules.push(reRule('username@', new RegExp(String.raw`${TOKEN_START}${u}(?=@)`, 'gi'), PLACEHOLDER.user));
   }
   if (hostname) {
     for (const h of new Set([hostname, hostShort])) {
-      replaceRules.push({ label: '@hostname', re: new RegExp(String.raw`(?<=@)${escapeRe(h)}${NOT_WORD_AFTER}`, 'gi'), to: PLACEHOLDER.host });
+      replaceRules.push(reRule('@hostname', new RegExp(String.raw`(?<=@)${escapeRe(h)}${NOT_WORD_AFTER}`, 'gi'), PLACEHOLDER.host));
     }
   }
   replaceRules.push(...GENERIC_HOME_RULES);
-  if (hostname && distinctive(hostname)) {
-    replaceRules.push({ label: 'hostname', re: new RegExp(NOT_WORD_BEFORE + escapeRe(hostname) + NOT_WORD_AFTER, 'gi'), to: PLACEHOLDER.host });
+  // Full hostname before its short form, so `box.corp.example` goes in one piece.
+  if (hostname && hostname !== hostShort && identityMode(hostname) !== 'context-only') {
+    replaceRules.push(reRule('hostname', identityRe(hostname, identityMode(hostname), 'gi'), PLACEHOLDER.host));
   }
-  if (hostWord) replaceRules.push({ label: 'hostname', re: new RegExp(NOT_WORD_BEFORE + escapeRe(hostShort) + NOT_WORD_AFTER, 'gi'), to: PLACEHOLDER.host });
-  if (userWord) replaceRules.push({ label: 'username', re: new RegExp(NOT_WORD_BEFORE + escapeRe(username) + NOT_WORD_AFTER, 'gi'), to: PLACEHOLDER.user });
+  if (hostMode !== 'context-only') replaceRules.push(reRule('hostname', identityRe(hostShort, hostMode, 'gi'), PLACEHOLDER.host));
+  if (userMode !== 'context-only') replaceRules.push(reRule('username', identityRe(username, userMode, 'gi'), PLACEHOLDER.user));
   replaceRules.push(...TOKEN_RULES);
-  replaceRules.push({ label: 'email', re: EMAIL_RE, to: PLACEHOLDER.email });
+  replaceRules.push(reRule('email', EMAIL_RE, PLACEHOLDER.email));
 
   // Residual checks: value-specific ("leaks") and structural ("generic").
   const leakRules = [];
-  for (const { value, placeholder } of literals) if (value) leakRules.push({ label: `literal ${placeholder}`, re: pathLiteralRe(value) });
+  for (const { value, placeholder } of lits) leakRules.push({ label: `literal ${placeholder}`, re: pathLiteralRe(value) });
   if (home && home.length > 1) leakRules.push({ label: 'home path', re: pathLiteralRe(home) });
   if (username) {
-    leakRules.push({ label: 'username', re: userWord ? new RegExp(NOT_WORD_BEFORE + escapeRe(username) + NOT_WORD_AFTER, 'i') : new RegExp(String.raw`${NOT_WORD_BEFORE}${escapeRe(username)}@|(?:Users|home)${SEP}${escapeRe(username)}${SEG_END}`, 'i') });
+    const u = escapeRe(username);
+    leakRules.push({ label: 'username', re: identityRe(username, userMode, 'i') ?? new RegExp(String.raw`${TOKEN_START}${u}@|(?:Users|home)${SEP}${u}${SEG_END}`, 'i') });
   }
   if (hostname) {
-    leakRules.push({ label: 'hostname', re: hostWord ? new RegExp(NOT_WORD_BEFORE + escapeRe(hostShort) + NOT_WORD_AFTER, 'i') : new RegExp(String.raw`@${escapeRe(hostShort)}${NOT_WORD_AFTER}`, 'i') });
+    leakRules.push({ label: 'hostname', re: identityRe(hostShort, hostMode, 'i') ?? new RegExp(String.raw`@${escapeRe(hostShort)}${NOT_WORD_AFTER}`, 'i') });
   }
   const genericRules = [
-    ...GENERIC_HOME_RULES.map(({ label, re }) => ({ label, re })),
-    ...TOKEN_RULES.map(({ label, re }) => ({ label, re })),
-    { label: 'email', re: EMAIL_RE },
-    ...HAZARD_RULES,
+    ...GENERIC_HOME_RULES,
+    ...TOKEN_RULES,
+    reRule('email', EMAIL_RE, PLACEHOLDER.email),
+    ...HAZARD_RULES.map(({ label, re }) => ({ label, detect: (line) => re.test(line) })),
   ];
 
-  function scrubString(s, counts) {
-    let out = s;
-    for (const rule of replaceRules) {
-      rule.re.lastIndex = 0;
-      out = out.replace(rule.re, (...args) => {
-        counts[rule.label] = (counts[rule.label] ?? 0) + 1;
-        return typeof rule.to === 'function' ? rule.to(...args) : rule.to;
-      });
-    }
-    return out;
-  }
-
+  const scrubString = (s, counts) => replaceRules.reduce((acc, rule) => rule.apply(acc, counts), s);
   const hazardOf = (line) => HAZARD_RULES.find((r) => r.re.test(line));
 
   function scan(text) {
     const residualLeaks = [];
     const residualGenericHits = [];
-    text.split('\n').forEach((line, i) => {
+    String(text).split('\n').forEach((line, i) => {
       for (const r of leakRules) {
         r.re.lastIndex = 0;
         if (r.re.test(line)) residualLeaks.push({ label: r.label, line: i + 1 });
       }
-      for (const r of genericRules) {
-        const re = new RegExp(r.re.source, r.re.flags.replace('g', ''));
-        if (re.test(line)) residualGenericHits.push({ label: r.label, line: i + 1 });
-      }
+      for (const r of genericRules) if (r.detect(line)) residualGenericHits.push({ label: r.label, line: i + 1 });
       for (const m of line.matchAll(UUID_RE)) {
         const ctx = line.slice(Math.max(0, m.index - 120), m.index + m[0].length + 120);
         if (TEMP_DIR_HINT_RE.test(ctx)) residualGenericHits.push({ label: 'uuid next to a scratchpad/claude temp path', line: i + 1 });
@@ -201,31 +292,60 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
     return { residualLeaks, residualGenericHits };
   }
 
-  function redactText(text) {
-    const counts = {};
-    let droppedHazardLines = 0;
-    const out = [];
-    for (const line of String(text).split('\n')) {
-      if (hazardOf(line)) {
-        droppedHazardLines += 1;
-        continue;
+  // Line filter shared by text and JSONL modes: drops a private-key block as one unit, from
+  // BEGIN through END (an unterminated block drops everything after BEGIN), plus hazard
+  // lines. `lineHandler` gets the lines that survive.
+  function filterLines(text, lineHandler) {
+    let inKey = false;
+    let dropped = 0;
+    let unterminatedKeyBlock = false;
+    String(text).split('\n').forEach((line, i) => {
+      if (inKey) {
+        dropped += 1;
+        if (KEY_END.test(line)) inKey = false;
+        return;
       }
-      out.push(scrubString(line, counts));
-    }
-    const redacted = out.join('\n');
-    return { text: redacted, report: { mode: 'text', lines: out.length, droppedHazardLines, hazardProtocolFrames: [], replacements: counts, ...scan(redacted) } };
+      const begin = KEY_BEGIN.exec(line);
+      if (begin && !KEY_END.test(line.slice(begin.index))) {
+        // Multi-line block. (A block wholly inside one line -- JSON-escaped -- is a hazard line.)
+        inKey = true;
+        dropped += 1;
+        return;
+      }
+      if (lineHandler(line, i) === 'dropped') dropped += 1;
+    });
+    if (inKey) unterminatedKeyBlock = true;
+    return { dropped, unterminatedKeyBlock };
   }
 
-  function walk(v, counts) {
+  function redactText(text) {
+    const counts = {};
+    const out = [];
+    const { dropped, unterminatedKeyBlock } = filterLines(text, (line) => {
+      if (hazardOf(line)) return 'dropped';
+      out.push(scrubString(line, counts));
+      return 'kept';
+    });
+    const redacted = out.join('\n');
+    return { text: redacted, report: { mode: 'text', lines: out.length, droppedHazardLines: dropped, unterminatedKeyBlock, hazardProtocolFrames: [], replacements: counts, ...scan(redacted) } };
+  }
+
+  function walk(v, counts, key = null) {
     if (typeof v === 'string') {
-      if (!hazardOf(v)) return scrubString(v, counts);
-      counts[HAZARD_COUNT] = (counts[HAZARD_COUNT] ?? 0) + 1;
-      return PLACEHOLDER.hazard;
+      if (hazardOf(v) || KEY_END.test(v)) {
+        counts[HAZARD_COUNT] = (counts[HAZARD_COUNT] ?? 0) + 1;
+        return PLACEHOLDER.hazard;
+      }
+      if (key !== null && isSecretKeyName(key) && (HEADER_NAME_ONLY.test(key) ? v.length > 0 : secretValueLike(v))) {
+        counts[SECRET_KEY_COUNT] = (counts[SECRET_KEY_COUNT] ?? 0) + 1;
+        return PLACEHOLDER.secret;
+      }
+      return scrubString(v, counts);
     }
-    if (Array.isArray(v)) return v.map((x) => walk(x, counts));
+    if (Array.isArray(v)) return v.map((x) => walk(x, counts, key));
     if (v && typeof v === 'object') {
       const o = {};
-      for (const [k, val] of Object.entries(v)) o[scrubString(k, counts)] = walk(val, counts);
+      for (const [k, val] of Object.entries(v)) o[scrubString(k, counts)] = walk(val, counts, k);
       return o;
     }
     return v;
@@ -276,38 +396,41 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
   }
 
   // JSONL: one record per line; a line whose record is unchanged is kept byte-for-byte.
+  // Records are redacted by value and by key (secret-named keys, header names); a record
+  // that still carries a hazard afterwards is dropped, or -- if it is a protocol frame --
+  // reported in hazardProtocolFrames. Non-JSON lines get the text-mode treatment,
+  // including private-key blocks dropped BEGIN through END.
   function redactJsonl(text) {
     const counts = {};
-    let droppedHazardLines = 0;
     const hazardProtocolFrames = [];
     const out = [];
-    String(text)
-      .split('\n')
-      .forEach((line, i) => {
-        if (line.trim() === '') return;
-        let rec;
-        let parsed = true;
-        try {
-          rec = JSON.parse(line);
-        } catch {
-          parsed = false;
+    const { dropped, unterminatedKeyBlock } = filterLines(text, (line, i) => {
+      if (line.trim() === '') return 'kept';
+      let rec;
+      try {
+        rec = JSON.parse(line);
+      } catch {
+        if (hazardOf(line)) return 'dropped';
+        out.push(scrubString(line, counts));
+        return 'kept';
+      }
+      const local = {};
+      const walked = walk(rec, local);
+      const changed = Object.keys(local).length > 0;
+      const serialized = changed ? JSON.stringify(walked) : line;
+      if (local[HAZARD_COUNT] || hazardOf(serialized)) {
+        if (isProtocolFrame(rec)) {
+          hazardProtocolFrames.push({ line: i + 1, method: rec.method ?? rec.payload?.method ?? null });
+          return 'reported';
         }
-        if (hazardOf(line)) {
-          if (parsed && isProtocolFrame(rec)) hazardProtocolFrames.push({ line: i + 1, method: rec.method ?? rec.payload?.method ?? null });
-          else droppedHazardLines += 1;
-          return;
-        }
-        if (!parsed) {
-          out.push(scrubString(line, counts));
-          return;
-        }
-        const before = Object.values(counts).reduce((a, b) => a + b, 0);
-        const walked = walk(rec, counts);
-        const after = Object.values(counts).reduce((a, b) => a + b, 0);
-        out.push(after === before ? line : JSON.stringify(walked));
-      });
+        return 'dropped';
+      }
+      for (const [k, n] of Object.entries(local)) counts[k] = (counts[k] ?? 0) + n;
+      out.push(serialized);
+      return 'kept';
+    });
     const redacted = out.length ? `${out.join('\n')}\n` : '';
-    return { text: redacted, report: { mode: 'jsonl', lines: out.length, droppedHazardLines, hazardProtocolFrames, replacements: counts, ...scan(redacted) } };
+    return { text: redacted, report: { mode: 'jsonl', lines: out.length, droppedHazardLines: dropped, unterminatedKeyBlock, hazardProtocolFrames, replacements: counts, ...scan(redacted) } };
   }
 
   return {
@@ -316,7 +439,7 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
     redactJsonl,
     withholdResiduals,
     scan,
-    identity: { usernameMode: userWord ? 'word' : 'context-only', hostnameMode: hostWord ? 'word' : 'context-only' },
+    identity: { usernameMode: userMode, hostnameMode: hostMode },
   };
 }
 
@@ -334,6 +457,13 @@ export function summarize(report) {
   );
 }
 
+// `VALUE=<PLACEHOLDER>` -> { value, placeholder }; the placeholder must look like <UPPER_SNAKE>.
+export function parseLiteralSpec(spec) {
+  const m = /^(.+)=(<[A-Z][A-Z0-9_]*>)$/.exec(String(spec));
+  if (!m) throw new Error('a redaction literal is VALUE=<PLACEHOLDER>, e.g. 0b5e...=<INSTALLATION_ID>');
+  return { value: m[1], placeholder: m[2] };
+}
+
 // --- CLI ---------------------------------------------------------------------------
 
 function main(argv) {
@@ -349,10 +479,8 @@ function main(argv) {
     else if (a === '--username') opts.username = argv[++i];
     else if (a === '--hostname') opts.hostname = argv[++i];
     else if (a === '--home') opts.home = argv[++i];
-    else if (a === '--literal') {
-      const [value, placeholder] = String(argv[++i]).split(/=(?=<)/);
-      opts.literals.push({ value, placeholder });
-    } else positional.push(a);
+    else if (a === '--literal') opts.literals.push(parseLiteralSpec(argv[++i]));
+    else positional.push(a);
   }
   const [inPath, outPath] = positional;
   if (!inPath || (!check && !outPath)) {

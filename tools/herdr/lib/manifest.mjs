@@ -3,7 +3,9 @@
 //
 // Harness config is READ AND HASHED ONLY (sha256), never copied, printed, or written:
 // ADR-001 boundaries 3/13 and oac-boundaries check 10. The config paths are spelled out
-// once, in harnessConfigFiles(), and handed only to hashFile().
+// once, in harnessConfigFiles(); in the driver they are handed only to the hash reader in
+// hashHarnessConfig(). (The self-test also calls harnessConfigFiles() to plant synthetic
+// files in its own temp dirs, behind a path guard -- see test/selftest.mjs makeBase().)
 //
 // Environment VALUES are never read here except for the allowlist in env-probe.mjs
 // (HERDR_*, TERM, COLORTERM). Everything else is compared by variable NAME only, so a

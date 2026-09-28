@@ -15,6 +15,9 @@
 //   prompt-timeout       agent prompt --wait times out (herdr `timeout` error)
 //   server-ignores-stop  server ignores `session stop`
 //   leak-pane            server leaves its pane processes running on stop
+//   pane-child-survives  each pane process starts a child that outlives it (a harness's
+//                        own subprocess, not killed by session stop)
+//   fail-agent-read      agent read fails with agent_not_found
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -150,7 +153,10 @@ if (c0 === 'server' && c1 === undefined) {
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
   });
-  const shell = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { detached: true, stdio: 'ignore', env });
+  const shellCode = MODES.has('pane-child-survives')
+    ? "require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { detached: true, stdio: 'ignore' }).unref(); setInterval(() => {}, 1 << 30)"
+    : 'setInterval(() => {}, 1 << 30)';
+  const shell = spawn(process.execPath, ['-e', shellCode], { detached: true, stdio: 'ignore', env });
   shell.unref();
   writeFileSync(paneFile(ids.pane), JSON.stringify({ id: ids.pane, cwd: opt('--cwd') ?? STATE, pid: shell.pid, env }));
   writeFileSync(bufFile(ids.pane), '$ \n');
@@ -200,6 +206,7 @@ if (c0 === 'server' && c1 === undefined) {
 } else if (c0 === 'agent' && c1 === 'read') {
   needsServer();
   if (MODES.has('hang-agent-read')) hang();
+  else if (MODES.has('fail-agent-read')) fail('agent_not_found', `no agent ${c2}`);
   else {
     process.stdout.write(readFileSync(bufFile(agentPane(c2)), 'utf8'));
     process.exit(0);

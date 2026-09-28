@@ -11,7 +11,7 @@
 // docs/planning/decisions/K1-herdr-evaluation.md §5.
 
 import { openSync, closeSync } from 'node:fs';
-import { runBounded, spawnLongRunning, killTree, isAlive, within, sleep, processesForSession } from './proc.mjs';
+import { runBounded, spawnLongRunning, killTree, isAlive, within, sleep, processesForSession, processStartTime, descendants } from './proc.mjs';
 
 export const ROLES = Object.freeze(['operator-input', 'dialog-accept', 'wait', 'read', 'lifecycle', 'preflight']);
 const INPUT_ROLES = new Set(['operator-input', 'dialog-accept']);
@@ -38,6 +38,17 @@ export class DriverError extends Error {
 export function isHerdrWait(args) {
   const [a, b] = args;
   return (a === 'agent' && b === 'wait') || (a === 'pane' && b === 'wait-output') || (a === 'agent' && b === 'prompt' && args.includes('--wait'));
+}
+
+// herdr commands that put input into a pane or start something in it. Classified from the
+// argv itself, never from the role a caller declares, so a mislabelled call cannot slip
+// input past the post-timeout halt.
+export function isInputCommand(args) {
+  const [a, b] = args;
+  if (a === 'agent') return ['prompt', 'send-keys', 'start', 'attach'].includes(b);
+  if (a === 'pane') return ['run', 'send-text', 'send-keys'].includes(b);
+  if (a === 'terminal') return b === 'attach' || (b === 'session' && args[2] === 'control');
+  return false;
 }
 
 // Session names: herdr accepts ASCII letters, digits, '.', '_', '-', at most 64 bytes
@@ -76,7 +87,7 @@ export class HerdrSession {
     this.defaultDeadlineMs = defaultDeadlineMs;
     this.inputHalted = null; // reason string once a timeout has occurred
     this.lastRoleByTarget = new Map();
-    this.panePids = new Set();
+    this.panePids = new Map(); // pid -> start time (null where the platform gives none)
     this.server = null;
   }
 
@@ -85,10 +96,14 @@ export class HerdrSession {
   async exec(role, args, opts = {}) {
     const { herdrTimeoutMs = null, deadlineMs = null, target = null, allowErrorCodes = [], session = true, teardown = false, json = false } = opts;
     if (!ROLES.includes(role)) throw new DriverError(`unknown herdr command role "${role}"`);
-    if (INPUT_ROLES.has(role) && this.inputHalted) {
+    const input = isInputCommand(args);
+    if (input && !INPUT_ROLES.has(role)) {
+      throw new DriverError(`"herdr ${args.slice(0, 2).join(' ')}" sends input and must carry an input role, not "${role}"`);
+    }
+    if ((input || INPUT_ROLES.has(role)) && this.inputHalted) {
       throw new DriverError(`refusing ${role} "herdr ${args.slice(0, 2).join(' ')}": input is halted after a timeout (${this.inputHalted}); nothing is re-submitted`);
     }
-    if (!teardown && this.abortSignal?.aborted) throw new NotRunError('operator abort (signal received)');
+    if (!teardown && this.abortSignal?.aborted) throw new NotRunError(this.abortReason());
 
     const argv = [...args];
     let bound;
@@ -155,12 +170,14 @@ export class HerdrSession {
       stderrBytes: Buffer.byteLength(res.stderr),
     };
     this.commands.push(entry);
-    if (target) this.lastRoleByTarget.set(target, role);
+    // A target's last role is updated only by a command that succeeded: a failed read must
+    // not unlock dialogAccept.
+    if (target) this.lastRoleByTarget.delete(target);
 
     if (res.spawnError) throw new DriverError(`could not start herdr (${res.spawnError})`);
     if (aborted) {
-      this.inputHalted ??= 'operator abort';
-      throw new NotRunError('operator abort (signal received)');
+      this.inputHalted ??= this.abortReason();
+      throw new NotRunError(this.abortReason());
     }
     if (timeoutBy) {
       this.inputHalted ??= `${role} command #${entry.seq} timed out (${timeoutBy})`;
@@ -178,7 +195,24 @@ export class HerdrSession {
         if (!teardown) throw new DriverError(`herdr ${argv.slice(0, 2).join(' ')} did not print JSON`);
       }
     }
+    if (target && res.exitCode === 0) this.lastRoleByTarget.set(target, role);
     return { ...res, errorCode, entry, json: parsed };
+  }
+
+  abortReason() {
+    const r = this.abortSignal?.reason;
+    return typeof r === 'string' ? r : 'operator abort (signal received)';
+  }
+
+  trackPid(pid) {
+    if (!Number.isInteger(pid) || this.panePids.has(pid)) return;
+    this.panePids.set(pid, processStartTime(pid));
+  }
+
+  // Record every live descendant of the pane processes seen so far (a harness's own child
+  // processes: MCP servers, tool subprocesses), so teardown can check them too.
+  trackPaneTrees() {
+    for (const pid of [...this.panePids.keys()]) for (const d of descendants(pid) ?? []) this.trackPid(d);
   }
 
   // --- preflight and lifecycle -------------------------------------------------------
@@ -235,7 +269,8 @@ export class HerdrSession {
   // Stop the session and make sure nothing it started is still running. Always runs, even
   // after an abort or a timeout; each step is bounded.
   async teardown() {
-    const t = { sessionStop: null, serverExited: null, forcedKills: [], leftoverProcesses: [], processScan: null, sessionDelete: null, clean: false };
+    const t = { sessionStop: null, serverExited: null, forcedKills: [], leftoverProcesses: [], skippedReusedPids: [], processScan: null, sessionDelete: null, clean: false };
+    this.trackPaneTrees();
     const stop = await this.exec('lifecycle', ['session', 'stop', this.name, '--json'], { session: false, teardown: true, deadlineMs: 25000 });
     t.sessionStop = stop.exitCode === 0 ? 'ok' : `exit ${stop.exitCode}${stop.errorCode ? ` ${stop.errorCode}` : ''}${stop.entry.timedOut ? ' (timed out)' : ''}`;
 
@@ -255,13 +290,19 @@ export class HerdrSession {
     }
 
     const stray = new Set();
-    for (const pid of this.panePids) if (isAlive(pid)) stray.add(pid);
+    for (const [pid, started] of this.panePids) {
+      if (!isAlive(pid)) continue;
+      // PID reuse guard: a recorded pid now carrying a different start time is someone else's.
+      const now = processStartTime(pid);
+      if (started !== null && now !== null && now !== started) t.skippedReusedPids.push(pid);
+      else stray.add(pid);
+    }
     const scanned = processesForSession(this.name);
     t.processScan = scanned === null ? `not available on ${process.platform}; pane and server pids checked individually` : 'argv scan for --session <name>';
     for (const pid of scanned ?? []) stray.add(pid);
     for (const pid of stray) {
       killTree(pid, 'SIGKILL');
-      t.forcedKills.push({ what: this.panePids.has(pid) ? 'pane process left running after session stop' : 'process still carrying --session <name>', pid });
+      t.forcedKills.push({ what: this.panePids.has(pid) ? 'pane process (or its descendant) left running after session stop' : 'process still carrying --session <name>', pid });
     }
     if (stray.size) await sleep(500);
     for (const pid of [serverPid, ...stray]) if (pid && isAlive(pid)) t.leftoverProcesses.push(pid);
@@ -294,8 +335,9 @@ export class HerdrSession {
   async paneProcessInfo(paneId) {
     const r = await this.exec('read', ['pane', 'process-info', '--pane', paneId], { target: paneId, json: true });
     const info = r.json?.result?.process_info ?? {};
-    if (Number.isInteger(info.shell_pid)) this.panePids.add(info.shell_pid);
-    for (const p of info.foreground_processes ?? []) if (Number.isInteger(p.pid)) this.panePids.add(p.pid);
+    this.trackPid(info.shell_pid);
+    for (const p of info.foreground_processes ?? []) this.trackPid(p.pid);
+    this.trackPaneTrees();
     return info;
   }
 

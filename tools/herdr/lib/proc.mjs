@@ -200,3 +200,60 @@ export function processesForSession(name) {
   }
   return null;
 }
+
+// Linux: /proc/<pid>/stat fields after the parenthesised command name.
+function procStat(pid) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+  } catch {
+    return null;
+  }
+}
+
+// An identity for "this pid is still the same process": Linux start time in clock ticks
+// (stat field 22), macOS `ps -o lstart`. null where unavailable (then only the pid is known).
+export function processStartTime(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (process.platform === 'linux') return procStat(pid)?.[19] ?? null;
+  if (process.platform === 'darwin') {
+    const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 });
+    return ps.status === 0 && ps.stdout.trim() ? ps.stdout.trim() : null;
+  }
+  return null;
+}
+
+// Live descendants of pid (children, grandchildren, ...). Reads only pids and parent pids.
+// null where the platform gives no cheap way to list them (Windows).
+export function descendants(pid) {
+  const children = new Map();
+  const add = (child, parent) => {
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(child);
+  };
+  if (process.platform === 'linux') {
+    for (const entry of readdirSync('/proc')) {
+      if (!/^\d+$/.test(entry)) continue;
+      const st = procStat(entry);
+      if (st && st[0] !== 'Z') add(Number(entry), Number(st[1]));
+    }
+  } else if (process.platform === 'darwin') {
+    const ps = spawnSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8', timeout: 10000 });
+    if (ps.status !== 0) return null;
+    for (const line of ps.stdout.split('\n')) {
+      const m = /^\s*(\d+)\s+(\d+)/.exec(line);
+      if (m) add(Number(m[1]), Number(m[2]));
+    }
+  } else return null;
+  const out = [];
+  const queue = [pid];
+  while (queue.length) {
+    for (const c of children.get(queue.shift()) ?? []) {
+      if (!out.includes(c)) {
+        out.push(c);
+        queue.push(c);
+      }
+    }
+  }
+  return out;
+}
