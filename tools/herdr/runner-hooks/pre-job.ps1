@@ -9,7 +9,10 @@
 # C:\ProgramData\oac-harness\pre-job.ps1), and set the variable at machine level, then
 # restart the runner service. Setup and caveats: docs/planning/gates/herdr-runner.md
 # section 1. The job log is public: this prints no environment values.
-# UNVERIFIED: not executed anywhere yet (no PowerShell in the session that wrote it).
+# Exercised by the K6 review under PowerShell 7 on Linux (12 cases, same results as
+# pre-job.sh). Windows PowerShell 5.1 and any real runner: UNVERIFIED. Under the default
+# Restricted execution policy on Windows client machines this cannot run and every job
+# fails (fails closed): install PowerShell 7 or set RemoteSigned for the runner account.
 
 $expectedRepo = 'RossGraeber/OAC'
 $expectedWorkflow = 'RossGraeber/OAC/.github/workflows/herdr-provider-optin.yml@refs/heads/main'

@@ -1204,7 +1204,8 @@ without an UNVERIFIED label.
   and GitHub states that fork-PR approval does not protect self-hosted runners. So the
   runner pre-job hook in `tools/herdr/runner-hooks/` must be installed on each runner and
   observed refusing and allowing a job before any harness run (`herdr-runner.md` §1).
-  Its bash logic is self-tested only; the PowerShell version has never run
+  Its bash logic is self-tested; the PowerShell version was run by the K6 review under
+  PowerShell 7 on Linux only (Windows PowerShell 5.1 untested)
   (`docs/planning/v0.1/11-risks.md` row 52). Owner: the operator, per `herdr-runner.md` §7.
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,

@@ -92,9 +92,15 @@ rights on `main`.
 (`run-scripts.md` at the cited commit). The bash hook passes its self-test cases
 (`node tools/herdr/run.mjs --self-test`, "hook: …": the allowed dispatch and push, and
 refusals of fork pull requests, `pull_request_target`, an `issues` event, a dispatch from
-another branch, another workflow, another repository, and missing variables). Neither
-script has run on a real runner. The PowerShell twin has not been executed anywhere. That
-the variable values arrive with exactly this spelling and casing is also unobserved.
+another branch, another workflow, another repository, and missing variables). The K6
+review ran `pre-job.ps1` under PowerShell 7 (`pwsh`) on Linux across 12 cases, with the same
+results as the bash hook (2 allowed, 10 refused). That run was the reviewer's, not
+reproduced in the session that wrote this file. Windows PowerShell 5.1, the Windows default,
+is untested. Under the default `Restricted` execution policy on Windows client machines the
+hook cannot run, so every job fails: the hook fails closed (a denial of service), not open.
+Install PowerShell 7, or set the `RemoteSigned` policy for the runner's account. Neither
+script has run on a real runner. That the variable values arrive with exactly this
+spelling and casing is also unobserved.
 After installing, check a refused and an allowed job's `Set up runner` log section, where
 GitHub shows the hook's output (`run-scripts.md` L89).
 
@@ -108,13 +114,25 @@ GitHub shows the hook's output (`run-scripts.md` L89).
   GitHub allows the variable "in the operating system" or in the runner directory's
   `.env` file. Prefer the service's own root-owned environment (for example a systemd
   drop-in), because the runner directory, `.env` included, is writable by the runner
-  user. Restart the runner.
+  user. Restart the runner. This does not stop the runner's own `.env` from overriding
+  the variable (see the residual risk below).
 - Windows: copy `pre-job.ps1` to a directory only Administrators can write (for example
   `C:\ProgramData\oac-harness\`), set `ACTIONS_RUNNER_HOOK_JOB_STARTED` as a machine-level
   environment variable, and restart the runner service.
-- Residual risk: a job the hook admits runs as the runner user. If that user can write the
-  hook or the variable's source, a job from `main` could disable the hook for later jobs.
-  Keep both out of that user's reach.
+- Residual risk: the hook keeps jobs it does not admit from starting. It cannot survive a
+  compromised job that it does admit. At startup the runner reads `<runner root>/.env` and
+  sets each line as an environment variable, overriding the service environment. An empty
+  value unsets the variable (actions/runner `src/Runner.Listener/Program.cs`
+  `LoadAndSetEnv()`, commit `15231bede4aacecb6686f4b7de25c62398607993`, retrieved
+  2026-09-28). So any process running as the runner user can write
+  `ACTIONS_RUNNER_HOOK_JOB_STARTED=` into `.env` and disable the hook for every later job,
+  across restarts. That includes an admitted job that has been prompt-injected or
+  otherwise compromised. In a standard install the runner user owns the runner directory,
+  and this guidance does not change that. Keeping the hook script unwritable prevents
+  editing the script, not unsetting the variable. The severity is persistence, not new
+  access: such a job already runs as the user holding the harness login. Closing it would
+  need the runner directory (at least `.env`) to be unwritable by the runner user, which
+  is not verified to work with the runner's self-update.
 
 **Also required before registering any runner (operator), as defense in depth:**
 
@@ -297,7 +315,7 @@ as such in `docs/planning/v0.1/11-risks.md` row 52 and `docs/planning/STATUS.md`
 
 | Attack | Precondition | Mitigation | Proving test | Residual risk |
 |---|---|---|---|---|
-| A fork's pull request edits any workflow (for example `boundary-lint.yml`'s `runs-on:`) to run on a harness runner and reads the logged-in harness's credentials | A fork workflow run proceeds: the contributor bypasses approval, or a maintainer approves it | **Pre-job hook** on the runner refuses every job that is not `.github/workflows/herdr-provider-optin.yml@refs/heads/main` in `RossGraeber/OAC` on `workflow_dispatch`/`push` (§1). Defense in depth: fork approval for all external contributors, reading `.github/` diffs, and check 9 on other workflows' runner labels (drift only) | Hook logic: `run.mjs --self-test` "hook: refuses a fork PR through another workflow", "… through an edited opt-in workflow", "… pull_request_target on main", "… an issues event on main". Check 9: "9 other workflow runs on bare default labels", "… targets the oac-harness label", "… targets a self-hosted runner". **Not proven on a real runner** | **Open risk until the hook is observed refusing a job on each runner** (UNVERIFIED, §1). After that: a hook the runner user can write can be disabled by an admitted job; a GitHub change to hook behavior or variable values |
+| A fork's pull request edits any workflow (for example `boundary-lint.yml`'s `runs-on:`) to run on a harness runner and reads the logged-in harness's credentials | A fork workflow run proceeds: the contributor bypasses approval, or a maintainer approves it | **Pre-job hook** on the runner refuses every job that is not `.github/workflows/herdr-provider-optin.yml@refs/heads/main` in `RossGraeber/OAC` on `workflow_dispatch`/`push` (§1). Defense in depth: fork approval for all external contributors, reading `.github/` diffs, and check 9 on other workflows' runner labels (drift only) | Hook logic: `run.mjs --self-test` "hook: refuses a fork PR through another workflow", "… through an edited opt-in workflow", "… pull_request_target on main", "… an issues event on main". Check 9: "9 other workflow runs on bare default labels", "… targets the oac-harness label", "… targets a self-hosted runner". **Not proven on a real runner** | **Open risk until the hook is observed refusing a job on each runner** (UNVERIFIED, §1). After that: a compromised admitted job can disable the hook for later jobs by writing `ACTIONS_RUNNER_HOOK_JOB_STARTED=` into the runner's own `.env`, which overrides the service environment (persistence, not new access; §1); a GitHub change to hook behavior or variable values |
 | A fork's pull request, or any GitHub user, triggers the opt-in workflow directly | A PR-event, chained, or stranger-fireable trigger (`issues`, `watch`, `fork`, `discussion`, …) is added to it | Triggers are an allowlist: check 9 fails unless `on:` is exactly `workflow_dispatch` + `push`, with `push` limited to `main` and `docs/planning/PINS.md`; the hook refuses any other event | `check-herdr-containment.mjs --self-test`: "9 opt-in workflow gains a PR-event trigger", "… an issues / watch / fork / discussion trigger", "… a chained trigger", "… a schedule", "… trigger list form …", "… push widened …", "… push gains tags"; hook "refuses an issues event on main" | A trigger added and merged by someone with merge rights, together with a lint change; the hook still refuses the event |
 | A collaborator dispatches the workflow on a branch carrying modified driver or workflow code | Write access | Pre-job hook refuses any workflow ref but `…@refs/heads/main`; write access limited to trusted people; the workflow's own `if: github.ref == 'refs/heads/main'` (mistakes only) | `run.mjs --self-test` "hook: refuses a dispatch from another branch". Not proven on a real runner | Until the hook is observed live: **open risk**, bounded by who holds write access |
 | A crafted `docs/planning/PINS.md` merged to `main` injects commands when the push trigger fires | Merge to `main` | PINS.md is only a `paths:` filter: no workflow expression reads it, no expression appears in any `run:` block, and the driver parses it with a strict table parser (`tools/herdr/lib/pins.mjs`) that only extracts a `vX.Y.Z` tag and compares it with `herdr --version`. A mismatch is `NOT RUN` | `check-herdr-containment.mjs --self-test` ("expression in an inline run", "… in a block run"); `run.mjs --self-test` pin cases | Whoever can merge to `main` can edit the workflow or driver directly, so the boundary is merge rights, not PINS.md |
@@ -317,7 +335,10 @@ stage gate's own checks.
 
 - [ ] Pre-job hook installed on each runner, outside the runner directory, not writable by
       the runner user, and named by `ACTIONS_RUNNER_HOOK_JOB_STARTED` in the service
-      environment (§1). Runner restarted.
+      environment (§1). Runner restarted. The runner's own `.env` does not set or empty
+      that variable, because `.env` overrides the service environment. Check it again
+      after any suspect run (§1, residual risk). Windows: PowerShell 7 installed, or the
+      `RemoteSigned` policy set for the runner account, or the hook refuses every job.
 - [ ] Hook observed live: one refused job (for example a dispatch from a scratch branch)
       and one allowed job, each checked in the job's `Set up runner` log section, on each
       runner. Record both in §8.
