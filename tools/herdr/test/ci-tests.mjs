@@ -8,12 +8,12 @@
 // gates that real driver output. It proves the gate accepts what the driver writes and
 // stages only the allowlisted files; it proves nothing about herdr or any runner.
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { CAPTURE_NAME, CI_SCENARIOS, REPO_ROOT, ciCleanup, ciStage, defaultWorkdir, resolveScenario, scrubEnv } from '../ci.mjs';
+import { CAPTURE_NAME, CI_SCENARIOS, REPO_ROOT, ciCleanup, ciStage, defaultWorkdir, redactMessage, resolveScenario, scrubEnv } from '../ci.mjs';
 
 const throws = (fn) => {
   try {
@@ -34,6 +34,7 @@ function fakeRun(mutate = () => {}) {
   const manifest = {
     scenario: { name: 'smoke' },
     outcome: 'PASS',
+    teardown: { clean: true },
     captures: [
       { file: 'pane-smoke.txt', format: 'text', written: true, redaction: { ...CLEAN_REPORT } },
       { file: 'transcript-2026-09-28-2.1.283-herdr.jsonl', format: 'jsonl', written: true, redaction: { ...CLEAN_REPORT } },
@@ -93,8 +94,11 @@ export function ciUnit(check) {
     GITHUB_STATE: '/f',
     GITHUB_STEP_SUMMARY: '/f',
   };
+  env.CUSTOM_NAME = `x ghs_${'A1b2C3d4E5'.repeat(3)}`;
+  env.MY_PAT = `github_pat_${'Z9'.repeat(15)}`;
   const removed = scrubEnv(env);
-  check('ci: scrub removes CI job tokens and workflow-command files', removed.length === 10 && !Object.keys(env).some((k) => /^ACTIONS_|TOKEN$|^GITHUB_(?:ENV|OUTPUT|PATH|STATE|STEP_SUMMARY)$/.test(k)), removed.join(','));
+  check('ci: scrub removes a token-shaped value under any variable name', !('CUSTOM_NAME' in env) && !('MY_PAT' in env), removed.join(','));
+  check('ci: scrub removes CI job tokens and workflow-command files', removed.length === 12 && !Object.keys(env).some((k) => /^ACTIONS_|TOKEN$|^GITHUB_(?:ENV|OUTPUT|PATH|STATE|STEP_SUMMARY)$/.test(k)), removed.join(','));
   check('ci: scrub keeps ordinary variables', env.PATH === '/usr/bin' && env.HOME === '/home/op' && env.GITHUB_RUN_ID === '1' && env.GITHUB_WORKSPACE === '/w');
 
   // --- work dir ---
@@ -113,6 +117,8 @@ export function ciUnit(check) {
   stageCase(check, 'clean run stages exactly the manifest and its captures (server.log left behind)', () => {}, true);
   stageCase(check, 'a NOT RUN manifest that is clean still stages', (c) => { c.manifest.outcome = 'NOT RUN'; }, true);
   stageCase(check, 'missing manifest stages nothing', (c) => { c.manifest = undefined; }, false);
+  stageCase(check, 'a run whose teardown was not clean stages nothing', (c) => { c.manifest.teardown.clean = false; }, false);
+  stageCase(check, 'a manifest with no teardown record stages nothing', (c) => { delete c.manifest.teardown; }, false);
   stageCase(check, 'manifest writtenClean false stages nothing', (c) => { c.manifest.manifestRedaction.writtenClean = false; }, false);
   stageCase(check, 'a capture withheld by the driver stages nothing', (c) => {
     c.manifest.captures[1].written = false;
@@ -146,6 +152,53 @@ export function ciUnit(check) {
     } finally {
       rmSync(ctx.workdir, { recursive: true, force: true });
     }
+  }
+
+  {
+    const ctx = fakeRun();
+    try {
+      const before = readFileSync(join(ctx.out, 'pane-smoke.txt'));
+      const res = ciStage({ workdir: ctx.workdir });
+      writeFileSync(join(ctx.out, 'pane-smoke.txt'), `${homedir()}\n`); // a rewrite after the scan
+      check('ci stage: stages the bytes it scanned, not a later re-read', res.ok && readFileSync(join(ctx.workdir, 'upload', 'pane-smoke.txt')).equals(before));
+    } finally {
+      rmSync(ctx.workdir, { recursive: true, force: true });
+    }
+  }
+
+  // --- error messages printed to the public log ---
+  {
+    const msg = redactMessage(`ENOENT: no such file or directory, open '${homedir()}/x/${REPO_ROOT}/y'`);
+    check('ci: error messages are redacted before printing', !msg.includes(homedir()) && !msg.includes(REPO_ROOT) && msg.startsWith('ENOENT'), msg);
+  }
+
+  // --- runner pre-job hook (runner-hooks/pre-job.sh; the .ps1 twin is not run here) ---
+  if (process.platform !== 'win32') {
+    const hook = join(REPO_ROOT, 'tools', 'herdr', 'runner-hooks', 'pre-job.sh');
+    const OK = {
+      GITHUB_REPOSITORY: 'RossGraeber/OAC',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_WORKFLOW_REF: 'RossGraeber/OAC/.github/workflows/herdr-provider-optin.yml@refs/heads/main',
+      GITHUB_REF: 'refs/heads/main',
+    };
+    const runHook = (over) => {
+      const env = { PATH: process.env.PATH, ...OK, ...over };
+      for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
+      return spawnSync('bash', ['-e', hook], { env, encoding: 'utf8' }).status;
+    };
+    check('hook: the opt-in workflow on main (dispatch) is allowed', runHook({}) === 0);
+    check('hook: the opt-in workflow on main (push) is allowed', runHook({ GITHUB_EVENT_NAME: 'push' }) === 0);
+    const refused = {
+      'a fork PR through another workflow': { GITHUB_EVENT_NAME: 'pull_request', GITHUB_WORKFLOW_REF: 'RossGraeber/OAC/.github/workflows/boundary-lint.yml@refs/pull/7/merge', GITHUB_REF: 'refs/pull/7/merge' },
+      'a fork PR through an edited opt-in workflow': { GITHUB_EVENT_NAME: 'pull_request', GITHUB_WORKFLOW_REF: 'RossGraeber/OAC/.github/workflows/herdr-provider-optin.yml@refs/pull/7/merge', GITHUB_REF: 'refs/pull/7/merge' },
+      'pull_request_target on main': { GITHUB_EVENT_NAME: 'pull_request_target' },
+      'an issues event on main': { GITHUB_EVENT_NAME: 'issues' },
+      'a dispatch from another branch': { GITHUB_WORKFLOW_REF: 'RossGraeber/OAC/.github/workflows/herdr-provider-optin.yml@refs/heads/evil', GITHUB_REF: 'refs/heads/evil' },
+      'another workflow on main': { GITHUB_WORKFLOW_REF: 'RossGraeber/OAC/.github/workflows/boundary-lint.yml@refs/heads/main' },
+      'another repository': { GITHUB_REPOSITORY: 'someone/OAC', GITHUB_WORKFLOW_REF: 'someone/OAC/.github/workflows/herdr-provider-optin.yml@refs/heads/main' },
+      'missing variables': { GITHUB_REPOSITORY: undefined, GITHUB_EVENT_NAME: undefined, GITHUB_WORKFLOW_REF: undefined, GITHUB_REF: undefined },
+    };
+    for (const [name, over] of Object.entries(refused)) check(`hook: refuses ${name}`, runHook(over) === 1);
   }
 
   // --- cleanup ---

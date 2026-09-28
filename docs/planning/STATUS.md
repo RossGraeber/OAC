@@ -1201,9 +1201,11 @@ without an UNVERIFIED label.
   recorded" is open: the record table in `docs/planning/gates/herdr-runner.md` §8 is
   empty. Checked statically only: actionlint, the containment lint's workflow rules
   (check 9) and the stage-gate self-test against the fake herdr. The repository is public,
-  so the fork-PR controls in `herdr-runner.md` §1 (repository settings, not testable
-  here) must be set before any runner is registered (`docs/planning/v0.1/11-risks.md`
-  row 52). Owner: the operator, per `herdr-runner.md` §7.
+  and GitHub states that fork-PR approval does not protect self-hosted runners. So the
+  runner pre-job hook in `tools/herdr/runner-hooks/` must be installed on each runner and
+  observed refusing and allowing a job before any harness run (`herdr-runner.md` §1).
+  Its bash logic is self-tested only; the PowerShell version has never run
+  (`docs/planning/v0.1/11-risks.md` row 52). Owner: the operator, per `herdr-runner.md` §7.
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to

@@ -20,7 +20,7 @@ the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; chec
 so are check 9's two workflow targets (K6: `boundary-lint.yml` and
 `herdr-provider-optin.yml`, 0 hits), while check 9's six other targets (the five product
 paths and manifests outside `tools/herdr/`) are still **pending**, so the script's last
-line reads `Result: PENDING`; its `--self-test` passes 62/62.
+line reads `Result: PENDING`; its `--self-test` passes 83/83.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code
@@ -72,14 +72,22 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 #    (case-insensitive) in any git-tracked entry under adapters/ core/ cli/ transports/
 #    spec/, and no workspace or package manifest outside tools/herdr/ referencing
 #    tools/herdr. Workflows (K6): no workflow other than
-#    .github/workflows/herdr-provider-optin.yml names tools/herdr, the `oac-harness`
-#    runner label, or `self-hosted`; that opt-in workflow has no PR-event trigger, no
-#    trigger chained from another workflow, a comment or a schedule, no secrets context,
-#    no `${{ }}` inside a `run:` block, and no direct driver call or driver option.
-#    Line-based text rules: they apply to comments too, so the opt-in workflow's own
-#    comments avoid those words. They catch drift in this repository, not a fork: a
-#    fork's pull request runs its own copy of every workflow (see
-#    docs/planning/gates/herdr-runner.md).
+#    .github/workflows/herdr-provider-optin.yml names tools/herdr or any label a
+#    self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm,
+#    arm64 -- a job routes to any runner holding all its runs-on labels). The opt-in
+#    workflow is read with a small fail-closed YAML reader and must have: `on:` exactly
+#    {workflow_dispatch, push} (an allowlist: issues/watch/fork/discussion/PR events all
+#    fail), push limited to branches [main] and paths [docs/planning/PINS.md],
+#    workflow_dispatch with inputs only, top-level permissions exactly contents: read and
+#    no job-level permissions, every `uses:` actions/checkout or actions/upload-artifact
+#    at a 40-hex commit SHA, checkout with persist-credentials: false; and must not have
+#    any `secrets` use (secrets.X, secrets[..], toJSON(secrets), secrets: inherit), any
+#    `github.token`, a `${{ }}` inside a `run:` block, or a direct driver call or driver
+#    option. Text rules apply to comments too, so the opt-in workflow's own comments
+#    avoid those words. All of this catches drift in this repository, not a fork: a
+#    fork's pull request runs its own copy of every workflow and of this lint. The
+#    runner-side pre-job hook is what refuses a fork (docs/planning/gates/herdr-runner.md
+#    section 1).
 # 10. The herdr driver must not touch harness credentials or harness config (boundaries 3,
 #    4, 13) in entries under tools/herdr/: auth.json, .credentials.json, ANTHROPIC_API_KEY,
 #    OPENAI_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY,

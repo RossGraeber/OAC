@@ -33,20 +33,22 @@
 //
 // `stage` uploads nothing itself. It stages files only when ALL of these hold, else it
 // stages nothing and exits 1:
-//   - <workdir>/out/run-manifest.json exists as a regular file and its
-//     manifestRedaction.writtenClean is true;
+//   - <workdir>/out/run-manifest.json exists as a regular file, its
+//     manifestRedaction.writtenClean is true, and its teardown.clean is true (a run whose
+//     teardown was not clean may have left a process that could still rewrite files);
 //   - every capture the manifest lists was written (none withheld by the driver), has a
 //     name matching CAPTURE_NAME, exists as a regular file, and its recorded redaction
 //     report is clean (no residualLeaks, residualGenericHits or hazardProtocolFrames);
 //   - an independent re-scan of every file to be staged, with this machine's home path,
 //     user name and host name plus the checkout and work-dir paths, finds no residual hit.
+// Each file is read once: the bytes that were scanned are the bytes written to upload/.
 // Only run-manifest.json and the listed captures are staged. Anything else under out/ is
 // left behind and deleted by `cleanup`.
 //
 // Exit codes: run = the driver's (PASS 0, FAIL 1, usage 2, NOT RUN 3); stage and cleanup
 // 0 ok, 1 not clean, 2 usage error.
 
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, appendFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, appendFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -68,6 +70,9 @@ export const MANIFEST_NAME = 'run-manifest.json';
 
 // CI job tokens and workflow-command files: never handed to herdr or to the harness under test.
 const CI_TOKEN_ENV = /^(?:ACTIONS_.*|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_(?:ENV|OUTPUT|PATH|STATE|STEP_SUMMARY))$/i;
+// ...and any variable, whatever its name, whose value looks like a GitHub token (for
+// example a job token copied into a custom env: name).
+const GITHUB_TOKEN_VALUE = /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/;
 
 class UsageError extends Error {}
 
@@ -82,7 +87,7 @@ export function resolveScenario(value) {
 export function scrubEnv(env) {
   const removed = [];
   for (const key of Object.keys(env)) {
-    if (CI_TOKEN_ENV.test(key)) {
+    if (CI_TOKEN_ENV.test(key) || GITHUB_TOKEN_VALUE.test(String(env[key] ?? ''))) {
       delete env[key];
       removed.push(key);
     }
@@ -182,6 +187,7 @@ export function ciStage({ workdir }) {
     return fail(`${MANIFEST_NAME} is not valid JSON`);
   }
   if (manifest?.manifestRedaction?.writtenClean !== true) problems.push(`${MANIFEST_NAME}: manifestRedaction.writtenClean is not true`);
+  if (manifest?.teardown?.clean !== true) problems.push(`${MANIFEST_NAME}: teardown was not clean (a surviving process could still change the evidence)`);
 
   const files = [MANIFEST_NAME];
   const captures = Array.isArray(manifest?.captures) ? manifest.captures : null;
@@ -219,9 +225,12 @@ export function ciStage({ workdir }) {
     }
   }
   const scanner = createRedactor({ literals });
+  const scanned = new Map(); // file -> the exact bytes scanned; only these are staged
   for (const f of files) {
     if (!regularFile(join(p.out, f))) continue;
-    const { residualLeaks, residualGenericHits } = scanner.scan(readFileSync(join(p.out, f), 'utf8'));
+    const bytes = readFileSync(join(p.out, f));
+    scanned.set(f, bytes);
+    const { residualLeaks, residualGenericHits } = scanner.scan(bytes.toString('utf8'));
     if (residualLeaks.length || residualGenericHits.length) {
       const labels = [...new Set([...residualLeaks, ...residualGenericHits].map((h) => h.label))].join(', ');
       problems.push(`${f}: re-scan found ${residualLeaks.length} residual leak(s) and ${residualGenericHits.length} generic hit(s) [${labels}]`);
@@ -233,7 +242,7 @@ export function ciStage({ workdir }) {
 
   if (existsSync(p.upload)) return fail('the upload directory already exists; refusing to stage into it');
   mkdirSync(p.upload);
-  for (const f of files) copyFileSync(join(p.out, f), join(p.upload, f));
+  for (const f of files) writeFileSync(join(p.upload, f), scanned.get(f), { flag: 'wx' });
   return { ok: true, problems: [], files, upload: p.upload, manifest, ignored };
 }
 
@@ -256,6 +265,17 @@ function writeStepSummary(res) {
     appendFileSync(target, lines.join('\n'));
   } catch {
     /* the summary is a convenience */
+  }
+}
+
+export function redactMessage(message) {
+  try {
+    const literals = [{ value: REPO_ROOT, placeholder: '<REPO>' }];
+    if (process.env.RUNNER_TEMP) literals.push({ value: process.env.RUNNER_TEMP, placeholder: '<RUNNER_TEMP>' });
+    const { text, report } = createRedactor({ literals }).redactText(String(message ?? ''));
+    return reportIsClean(report) ? text.trimEnd() : '<error message withheld: redaction could not make it clean>';
+  } catch {
+    return '<error message withheld>';
   }
 }
 
@@ -323,7 +343,8 @@ async function main(argv) {
     if (res.ok) console.log('ci: work dir removed; checkout clean');
     return res.ok ? 0 : 1;
   } catch (err) {
-    console.error(err instanceof UsageError ? err.message : `ci error: ${err.message}`);
+    // Job logs are public; an fs or driver error message can carry a home path or user name.
+    console.error(err instanceof UsageError ? err.message : `ci error: ${redactMessage(err?.message)}`);
     return err instanceof UsageError ? USAGE_EXIT : 1;
   }
 }

@@ -1,7 +1,9 @@
 # Opt-in herdr provider-integration runs (Epic K, K6 #129) on operator-owned self-hosted
 # runners where the harness CLIs are already logged in. Runner prerequisites, the security
 # model and its residual risks: docs/planning/gates/herdr-runner.md. Read it before
-# registering a runner: this repository is public.
+# registering a runner: this repository is public. Each runner must run the pre-job hook in
+# tools/herdr/runner-hooks/, which refuses every job except this file on refs/heads/main;
+# nothing in this file can stop a fork's copy of another workflow, the hook does.
 #
 # This is NOT the default CI tier (oac-testing section 2; docs/planning/v0.1/09-test-strategy.md
 # section 4). Only a manual dispatch, or a push to main that changes docs/planning/PINS.md,
@@ -9,11 +11,13 @@
 #
 # Hard rules for this file. scripts/check-herdr-containment.mjs (oac-boundaries check 9)
 # fails the build if any is broken:
-#   - Triggers are workflow_dispatch and push-to-main-touching-PINS.md only. No PR-event
-#     trigger of any kind, and no event chained from another workflow or from a comment: a
-#     fork must never be able to start a job on a runner that holds a logged-in harness.
-#   - No secrets context, no provider API key, no harness credential path. Harness login is
-#     the runner operator's, done by hand before any run, never by this workflow.
+#   - Triggers are exactly workflow_dispatch and push-to-main-touching-PINS.md (checked
+#     as an allowlist). No PR-event trigger, no event chained from another workflow, and no
+#     event any stranger can fire (issues, stars, forks, discussions).
+#   - Permissions exactly contents: read. Every action pinned by full commit SHA.
+#   - No secrets context, no job token, no provider API key, no harness credential path.
+#     Harness login is the runner operator's, done by hand before any run, never by this
+#     workflow.
 #   - No expression inside a run: block. The dispatch input reaches the script only through
 #     env: (OAC_HERDR_SCENARIO), and tools/herdr/ci.mjs checks it against an allowlist.
 #   - Only tools/herdr/ci.mjs runs. It never re-runs the driver and passes it no options

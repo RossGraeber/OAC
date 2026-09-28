@@ -10,11 +10,14 @@
 //          entry under adapters/, core/, cli/, transports/, or spec/; and no workspace or
 //          package manifest outside tools/herdr/ that references tools/herdr. Workflows
 //          (K6 #129): no GitHub Actions workflow other than
-//          .github/workflows/herdr-provider-optin.yml references tools/herdr, the
-//          `oac-harness` runner label, or a self-hosted runner; and that opt-in workflow has
-//          no PR-event trigger, no trigger chained from another workflow or a comment, no
-//          secrets context, no expression inside a `run:` block, and no direct driver call
-//          or driver option (it runs tools/herdr/ci.mjs only).
+//          .github/workflows/herdr-provider-optin.yml references tools/herdr or a label a
+//          self-hosted runner carries; and that opt-in workflow's triggers are exactly
+//          workflow_dispatch + push (main, docs/planning/PINS.md), its permissions exactly
+//          contents: read, every action is actions/checkout or actions/upload-artifact at
+//          a commit SHA (checkout without persisted credentials), with no secrets or
+//          github.token use, no expression inside a `run:` block, and no direct driver
+//          call or driver option (it runs tools/herdr/ci.mjs only). Drift only: a fork's
+//          pull request runs its own copy of this lint.
 // Check 10 (driver hygiene): no harness-credential access or harness-config mutation in any
 //          git-tracked entry under tools/herdr/ -- auth.json, .credentials.json, provider
 //          and harness credential variables, keyring/keychain/OS credential-store access,
@@ -77,18 +80,212 @@ function runBlockExpressions(text) {
   return hits;
 }
 
+// A tolerant, fail-closed reader for the small YAML subset a workflow uses: block
+// mappings, block sequences (including `- key: value` items), flow sequences `[a, b]`,
+// `{}`/simple flow mappings, plain and quoted scalars, and `|`/`>` block scalars (skipped).
+// Anything else throws, and the rules that need the parse then fail. Mappings are Maps of
+// key -> { value, line }.
+function stripYamlComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '#' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i).trimEnd();
+  }
+  return line.trimEnd();
+}
+const unquote = (v) => {
+  const t = v.trim();
+  return /^(['"]).*\1$/.test(t) ? t.slice(1, -1) : t;
+};
+function parseFlow(v) {
+  const t = v.trim();
+  if (t.startsWith('[')) {
+    if (!t.endsWith(']')) throw new Error('unterminated flow sequence');
+    const inner = t.slice(1, -1).trim();
+    if (/[[\]{}]/.test(inner.replace(/\$\{\{.*?\}\}/g, ''))) throw new Error('nested flow collection');
+    return inner === '' ? [] : inner.split(',').map(unquote);
+  }
+  if (t.startsWith('{')) {
+    if (!t.endsWith('}')) throw new Error('unterminated flow mapping');
+    const inner = t.slice(1, -1).trim();
+    const m = new Map();
+    if (inner === '') return m;
+    for (const part of inner.split(',')) {
+      const kv = /^\s*([^:]+?)\s*:\s*(.*)$/.exec(part);
+      if (!kv) throw new Error('bad flow mapping');
+      m.set(unquote(kv[1]), { value: unquote(kv[2]), line: null });
+    }
+    return m;
+  }
+  return unquote(t);
+}
+function parseYamlLite(text) {
+  const lines = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    if (raw.includes('\t')) throw new Error(`tab indentation at line ${i + 1}`);
+    const c = stripYamlComment(raw);
+    if (c.trim() !== '') lines.push({ n: i + 1, indent: c.length - c.trimStart().length, text: c.trim() });
+  });
+  let pos = 0;
+  const KEY = /^("[^"]*"|'[^']*'|[^\s:'"][^:]*?)\s*:(?:\s+(.*))?$/;
+  function valueAfterKey(rest, indent) {
+    if (rest === undefined || rest === '') {
+      if (pos < lines.length && lines[pos].indent > indent) return parseBlock(lines[pos].indent);
+      if (pos < lines.length && lines[pos].indent === indent && lines[pos].text.startsWith('-')) return parseBlock(indent);
+      return null;
+    }
+    if (/^[|>][-+0-9]*$/.test(rest)) {
+      while (pos < lines.length && lines[pos].indent > indent) pos++;
+      return '<block scalar>';
+    }
+    return parseFlow(rest);
+  }
+  function parseBlock(indent) {
+    const first = lines[pos];
+    if (first.text === '-' || first.text.startsWith('- ')) {
+      const seq = [];
+      while (pos < lines.length && lines[pos].indent === indent && (lines[pos].text === '-' || lines[pos].text.startsWith('- '))) {
+        const item = lines[pos].text.slice(1).trim();
+        if (item === '') {
+          pos++;
+          seq.push(pos < lines.length && lines[pos].indent > indent ? parseBlock(lines[pos].indent) : null);
+        } else if (KEY.test(item) && !/^\$\{\{/.test(item)) {
+          lines[pos] = { n: lines[pos].n, indent: indent + 2, text: item };
+          seq.push(parseBlock(indent + 2));
+        } else {
+          pos++;
+          seq.push(parseFlow(item));
+        }
+      }
+      return seq;
+    }
+    const map = new Map();
+    while (pos < lines.length && lines[pos].indent === indent) {
+      const { n, text: t } = lines[pos];
+      if (t.startsWith('- ') || t === '-') break;
+      const m = KEY.exec(t);
+      if (!m) throw new Error(`cannot read line ${n}`);
+      pos++;
+      const key = unquote(m[1]);
+      if (map.has(key)) throw new Error(`duplicate key ${key} at line ${n}`);
+      map.set(key, { value: valueAfterKey(m[2], indent), line: n });
+    }
+    if (pos < lines.length && lines[pos].indent > indent) throw new Error(`unexpected indentation at line ${lines[pos].n}`);
+    return map;
+  }
+  if (lines.length === 0) return new Map();
+  const root = parseBlock(lines[0].indent);
+  if (pos !== lines.length) throw new Error(`unexpected content at line ${lines[pos].n}`);
+  if (!(root instanceof Map)) throw new Error('top level is not a mapping');
+  return root;
+}
+
+// A rule over the parsed workflow: fn(root) -> line numbers; a parse failure is one hit.
+const parsedRule = (fn) => (text) => {
+  let root;
+  try {
+    root = parseYamlLite(text);
+  } catch {
+    return [1];
+  }
+  return fn(root);
+};
+const keysOf = (v) => (v instanceof Map ? [...v.keys()] : Array.isArray(v) ? v : typeof v === 'string' ? [v] : []);
+const sameList = (v, want) => Array.isArray(v) && v.length === want.length && v.every((x, i) => x === want[i]);
+
+// on: exactly { workflow_dispatch, push } -- an allowlist, so any other event (issues,
+// watch, fork, discussion, pull_request*, workflow_run, schedule, ...) fails.
+const OPTIN_TRIGGERS = ['push', 'workflow_dispatch'];
+function optinTriggers(root) {
+  const on = root.get('on');
+  if (!on) return [1];
+  const keys = keysOf(on.value);
+  const bad = keys.filter((k) => !OPTIN_TRIGGERS.includes(k));
+  if (bad.length) return [on.value instanceof Map ? on.value.get(bad[0]).line : on.line];
+  if (keys.length !== OPTIN_TRIGGERS.length) return [on.line];
+  return [];
+}
+// push: branches exactly [main], paths exactly [docs/planning/PINS.md], nothing else;
+// workflow_dispatch: inputs only.
+function optinTriggerFilters(root) {
+  const on = root.get('on')?.value;
+  // List or scalar form: a push listed there has no branch or path filter at all.
+  if (!(on instanceof Map)) return keysOf(on).includes('push') ? [root.get('on')?.line ?? 1] : [];
+  const hits = [];
+  const push = on.get('push');
+  if (push) {
+    const pm = push.value;
+    const ok =
+      pm instanceof Map &&
+      pm.size === 2 &&
+      sameList(pm.get('branches')?.value, ['main']) &&
+      sameList(pm.get('paths')?.value, ['docs/planning/PINS.md']);
+    if (!ok) hits.push(push.line);
+  }
+  const wd = on.get('workflow_dispatch');
+  if (wd && wd.value !== null && !(wd.value instanceof Map && [...wd.value.keys()].every((k) => k === 'inputs'))) hits.push(wd.line);
+  return hits;
+}
+// permissions: exactly { contents: read } at the top, and no job-level permissions.
+function optinPermissions(root) {
+  const hits = [];
+  const perm = root.get('permissions');
+  const pm = perm?.value;
+  if (!(pm instanceof Map && pm.size === 1 && pm.get('contents')?.value === 'read')) hits.push(perm?.line ?? 1);
+  const jobs = root.get('jobs')?.value;
+  if (jobs instanceof Map) for (const { value } of jobs.values()) if (value instanceof Map && value.has('permissions')) hits.push(value.get('permissions').line);
+  return hits;
+}
+// Every `uses:` is a GitHub-owned action pinned by a full commit SHA; no reusable-workflow
+// call, no local or docker action. checkout never persists the token.
+const ALLOWED_USES = /^actions\/(?:checkout|upload-artifact)@[0-9a-f]{40}$/;
+function optinUses(text) {
+  const hits = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const m = /^\s*(?:-\s+)?uses\s*:\s*(.*)$/.exec(stripYamlComment(raw));
+    if (m && !ALLOWED_USES.test(unquote(m[1]))) hits.push(i + 1);
+  });
+  return hits;
+}
+const optinCheckoutToken = parsedRule((root) => {
+  const hits = [];
+  const jobs = root.get('jobs')?.value;
+  for (const { value: job } of jobs instanceof Map ? jobs.values() : []) {
+    const steps = job instanceof Map ? job.get('steps')?.value : null;
+    for (const step of Array.isArray(steps) ? steps : []) {
+      if (!(step instanceof Map)) continue;
+      const uses = step.get('uses');
+      if (uses && /^actions\/checkout@/.test(String(uses.value)) && step.get('with')?.value?.get?.('persist-credentials')?.value !== 'false') hits.push(uses.line);
+    }
+  }
+  return hits;
+});
+// Secrets in any spelling: secrets.X, secrets['X'], toJSON(secrets), secrets: inherit.
+const SECRETS_RE = /\bsecrets\s*(?:[.[)]|:)|\(\s*secrets\b|\$\{\{[^}]*\bsecrets\b/i;
+const JOB_TOKEN_RE = /\bgithub\s*(?:\.\s*token\b|\[\s*['"]token['"]\s*\])/i;
+
+// Labels a self-hosted runner carries by default (use-in-a-workflow.md) plus ours. A job in
+// another workflow whose runs-on names any of them could be routed to a harness runner.
+const RUNNER_LABEL_TOKEN = /(?<![\w.-])(?:self-hosted|oac-harness|linux|windows|macos|x64|arm64|arm)(?![\w.-])/i;
+
 const OTHER_WORKFLOW_RULES = [
   { label: `workflow other than ${OPTIN_WORKFLOW} references tools/herdr`, re: HERDR_PATH_REF },
-  { label: `workflow other than ${OPTIN_WORKFLOW} targets the oac-harness runner label`, re: /oac-harness/i },
-  { label: `workflow other than ${OPTIN_WORKFLOW} targets a self-hosted runner`, re: /self-hosted/i },
+  {
+    label: `workflow other than ${OPTIN_WORKFLOW} names a label a self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm, arm64)`,
+    re: RUNNER_LABEL_TOKEN,
+  },
 ];
 const OPTIN_WORKFLOW_RULES = [
-  { label: 'opt-in workflow has a PR-event trigger', re: /pull_request/i },
-  {
-    label: 'opt-in workflow has a trigger chained from another workflow, a comment, or a schedule',
-    re: /\b(?:workflow_run|workflow_call|repository_dispatch|issue_comment|discussion_comment|merge_group)\b|^\s*schedule\s*:/i,
-  },
-  { label: 'opt-in workflow reads the secrets context', re: /\bsecrets\s*[.[]/i },
+  { label: 'opt-in workflow triggers are not exactly workflow_dispatch and push', scan: parsedRule(optinTriggers) },
+  { label: 'opt-in workflow push is not main-only on docs/planning/PINS.md, or workflow_dispatch has more than inputs', scan: parsedRule(optinTriggerFilters) },
+  { label: 'opt-in workflow permissions are not exactly contents: read', scan: parsedRule(optinPermissions) },
+  { label: 'opt-in workflow uses an action that is not actions/checkout or actions/upload-artifact pinned by commit SHA', scan: optinUses },
+  { label: 'opt-in workflow checkout does not set persist-credentials: false', scan: optinCheckoutToken },
+  { label: 'opt-in workflow reads the secrets context', re: SECRETS_RE },
+  { label: 'opt-in workflow reads the job token (github.token)', re: JOB_TOKEN_RE },
   { label: 'opt-in workflow calls the driver directly or passes a driver option', re: /run\.mjs|--keep-scratch|--herdr-bin|--launch|--param|accept\s*=\s*driver/i },
   { label: 'opt-in workflow has an expression inside a run: block', scan: runBlockExpressions },
 ];
@@ -515,11 +712,16 @@ const OPTIN_CLEAN = [
   '  push:',
   '    branches: [main]',
   '    paths: [docs/planning/PINS.md]',
+  'permissions:',
+  '  contents: read',
   'jobs:',
   '  herdr:',
   '    name: herdr ${{ matrix.os }}',
   '    runs-on: [self-hosted, oac-harness, linux]',
   '    steps:',
+  '      - uses: actions/checkout@1111111111111111111111111111111111111111 # v7.0.1',
+  '        with:',
+  '          persist-credentials: false',
   '      - name: Run',
   '        env:',
   '          OAC_HERDR_SCENARIO: ${{ inputs.scenario }}',
@@ -687,9 +889,43 @@ const SELF_TEST_CASES = [
     OPTIN_CLEAN.replace('node tools/herdr/ci.mjs cleanup', 'node tools/herdr/run.mjs --scenario smoke')),
   violation('9 opt-in workflow passes accept=driver', '.github/workflows/herdr-provider-optin.yml',
     OPTIN_CLEAN.replace('OAC_HERDR_SCENARIO: ${{ inputs.scenario }}', 'OAC_HERDR_PARAMS: accept=driver')),
+  // Triggers are an allowlist: any event a stranger can fire (open an issue, star, fork,
+  // start a discussion) fails, not only the named PR events.
+  violation('9 opt-in workflow gains an issues trigger', '.github/workflows/herdr-provider-optin.yml', optin('  issues:', 'on:')),
+  violation('9 opt-in workflow gains a watch trigger', '.github/workflows/herdr-provider-optin.yml', optin('  watch:', 'on:')),
+  violation('9 opt-in workflow gains a fork trigger', '.github/workflows/herdr-provider-optin.yml', optin('  fork:', 'on:')),
+  violation('9 opt-in workflow gains a discussion trigger', '.github/workflows/herdr-provider-optin.yml', optin('  discussion:\n    types: [created]', 'on:')),
+  violation('9 opt-in workflow trigger list form with an extra event', '.github/workflows/herdr-provider-optin.yml',
+    OPTIN_CLEAN.replace(/^on:\n[\s\S]*?(?=^permissions:)/m, 'on: [workflow_dispatch, issues]\n')),
+  violation('9 opt-in workflow trigger list form: unfiltered push', '.github/workflows/herdr-provider-optin.yml',
+    OPTIN_CLEAN.replace(/^on:\n[\s\S]*?(?=^permissions:)/m, 'on: [push, workflow_dispatch]\n')),
+  violation('9 opt-in workflow push widened to another branch', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('branches: [main]', 'branches: [main, dev]')),
+  violation('9 opt-in workflow push gains tags', '.github/workflows/herdr-provider-optin.yml', optin('    tags: [v*]', '  push:')),
+  violation('9 opt-in workflow reads toJSON(secrets)', '.github/workflows/herdr-provider-optin.yml', optin('          ALL: ${{ toJSON(secrets) }}', '        env:')),
+  violation('9 opt-in workflow reads github.token', '.github/workflows/herdr-provider-optin.yml', optin('          T: ${{ github.token }}', '        env:')),
+  violation('9 opt-in workflow sets contents: write', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('  contents: read', '  contents: write')),
+  violation('9 opt-in workflow adds id-token: write', '.github/workflows/herdr-provider-optin.yml', optin('  id-token: write', 'permissions:')),
+  violation('9 opt-in workflow uses write-all', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('permissions:\n  contents: read', 'permissions: write-all')),
+  violation('9 opt-in workflow adds job-level permissions', '.github/workflows/herdr-provider-optin.yml', optin('    permissions:\n      contents: write', '  herdr:')),
+  violation('9 opt-in workflow pins checkout by a tag', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('actions/checkout@1111111111111111111111111111111111111111', 'actions/checkout@v7')),
+  violation('9 opt-in workflow pins upload-artifact by a branch', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('actions/upload-artifact@0000000000000000000000000000000000000000', 'actions/upload-artifact@main')),
+  violation('9 opt-in workflow uses a third-party action', '.github/workflows/herdr-provider-optin.yml', optin('      - uses: someone/setup@2222222222222222222222222222222222222222', '    steps:')),
+  violation('9 opt-in workflow checkout persists the token', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('          persist-credentials: false\n', '          fetch-depth: 1\n')),
+  // Other workflows: a bare default label routes to a self-hosted runner that carries it.
+  violation('9 other workflow runs on bare default labels', '.github/workflows/extra.yml', 'jobs:\n  a:\n    runs-on: [linux, x64]\n'),
+  violation('9 other workflow matrix names a bare windows label', '.github/workflows/extra.yml',
+    'jobs:\n  a:\n    strategy:\n      matrix:\n        os: [ubuntu-latest, "windows"]\n    runs-on: ${{ matrix.os }}\n'),
   // Controls: these must NOT fail.
   { name: 'control: empty tree reports PENDING', expect: 'pending', files: { 'README.md': '# empty\n' } },
   { name: 'control: clean full tree reports CLEAN', expect: 'clean', files: CLEAN_BASE },
+  {
+    name: 'control: other workflow on GitHub-hosted labels is clean',
+    expect: 'clean',
+    files: {
+      ...CLEAN_BASE,
+      '.github/workflows/matrix.yml': 'jobs:\n  a:\n    strategy:\n      matrix:\n        os: [ubuntu-latest, windows-latest, macos-15, ubuntu-24.04-arm]\n    runs-on: ${{ matrix.os }}\n',
+    },
+  },
   {
     name: 'control: untracked herdr file is ignored',
     expect: 'clean',
