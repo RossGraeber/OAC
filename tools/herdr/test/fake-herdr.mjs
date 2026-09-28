@@ -21,6 +21,8 @@
 //   fake-claude          `agent start --kind claude` runs test/fake-claude.mjs (a test double
 //                        of an interactive Claude Code session, K4) in the pane's cwd; agent
 //                        read/send-keys/prompt/wait then talk to it through files
+//   fake-codex           `agent start --kind codex` runs the `codex` on the pane's PATH (the
+//                        self-test's copy of test/fake-codex.mjs, K7) the same way
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -234,6 +236,20 @@ if (c0 === 'server' && c1 === undefined) {
     for (let t = 0; t < 100 && !settled(); t++) sleepSync(50);
     if (agentState({ dir: adir }) === 'blocked') fail('agent_not_ready', `agent ${c2} is blocked during startup`);
     out({ type: 'agent_started', agent: { name: c2, state: agentState({ dir: adir }) }, argv: ['claude', ...rest] });
+  }
+  if (MODES.has('fake-codex') && opt('--kind') === 'codex') {
+    // The pane runs whatever `codex` its PATH resolves (the self-test's copy of
+    // test/fake-codex.mjs), with exactly the args after `--`, as herdr runs its canonical
+    // executable for the kind.
+    const adir = join(sdir, 'agents', `${c2}.d`);
+    mkdirSync(adir, { recursive: true });
+    const child = spawn('codex', rest, { cwd: p.cwd, env: { ...p.env, FAKE_CODEX_AGENT_DIR: adir, FAKE_CODEX_PANE_BUF: bufFile(p.id) }, detached: true, stdio: 'ignore' });
+    child.unref();
+    writeFileSync(join(sdir, 'agents', `${c2}.json`), JSON.stringify({ pane: p.id, pid: child.pid, dir: adir, argv: ['codex', ...rest] }));
+    const settled = () => existsSync(join(adir, 'state')) && ['blocked', 'idle'].includes(agentState({ dir: adir }));
+    for (let t = 0; t < 100 && !settled(); t++) sleepSync(50);
+    if (agentState({ dir: adir }) === 'blocked') fail('agent_not_ready', `agent ${c2} is blocked during startup`);
+    out({ type: 'agent_started', agent: { name: c2, state: agentState({ dir: adir }) }, argv: ['codex', ...rest] });
   }
   writeFileSync(join(sdir, 'agents', `${c2}.json`), JSON.stringify({ pane: p.id }));
   append(p.id, `[agent ${opt('--kind')} started]\n`);
