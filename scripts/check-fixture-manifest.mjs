@@ -80,6 +80,9 @@ for (const entry of entries) {
   if (!entry.path.startsWith(`${fixturesDir}/`)) {
     problems.push(`${label}: path is outside ${fixturesDir}/`);
   }
+  if (entry.path === manifestRelPath) {
+    problems.push(`${label}: an entry must not describe MANIFEST.json itself`);
+  }
   if (!existsSync(join(root, entry.path))) {
     problems.push(`${label}: listed in MANIFEST.json but not found on disk`);
   }
