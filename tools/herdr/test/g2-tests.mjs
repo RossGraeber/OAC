@@ -23,7 +23,7 @@ import { parseCodexLastObserved, parseCodexCliVersion, parseCodexUserAgentVersio
 import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
-  splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText,
+  splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError,
 } from '../lib/g2.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
 import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, writeRefusal, renderReport } from '../lib/g2-report.mjs';
@@ -60,9 +60,49 @@ export function g2Unit(check) {
   check('g2 pin: equal -> no trigger; different -> a pin-move trigger naming both, re-verify §3.2, no PINS.md edit', codexPinMoveTrigger({ observed: '0.157.1', lastObserved: '0.157.1', source: 'x' }) === null && /^PIN-MOVE TRIGGER/.test(trig) && trig.includes('0.158.0') && trig.includes('0.157.1') && /§3\.2/.test(trig) && /does not edit PINS\.md/.test(trig) && /no parseable version/.test(codexPinMoveTrigger({ observed: null, lastObserved: '0.157.1', source: 'x' })));
 
   // --- criteria, read from the reference file ---------------------------------------------
-  const crit = readG2Criteria(REPO);
+  const { criteria: crit, reference: critRef } = readG2Criteria(REPO);
   check('g2: the four G2 criteria are read verbatim from the oac-gates reference', crit.length === 4 && /^A TUI launched normally \(no config overrides\) attaches/.test(crit[0]) && /control socket `CODEX_HOME\/app-server-control\/app-server-control\.sock`\)\.$/.test(crit[0]) && /^A second client of the same daemon/.test(crit[1]) && /^The TUI user sees/.test(crit[2]) && /^OAC holds no /.test(crit[3]));
   check('g2: a reference with the wrong number of criteria is refused', throws(() => parseG2Criteria('## Pass criteria\n\n- [ ] one\n\n## Next\n')));
+  check('g2: the criteria are read from HEAD and match the pinned sha256; the source is recorded', critRef.criteriaSha256 === G2_CRITERIA_SHA256 && critRef.path === '.claude/skills/oac-gates/references/G2-codex-inject.md' && /^[0-9a-f]{40}$/.test(critRef.headCommit) && /^[0-9a-f]{64}$/.test(critRef.fileSha256));
+  // Review finding (K7): scoring must not drift from the criteria text. A throwaway git repo
+  // holds the reference; a committed reword or reorder is refused, an uncommitted edit is
+  // never read.
+  const refText = read(join(REPO, critRef.path));
+  const lines = refText.split('\n');
+  const idx = lines.map((l, i) => (/^- \[[ x]\] /.test(l) ? i : -1)).filter((i) => i !== -1);
+  const gr = mkdtempSync(join(tmpdir(), 'oac-g2-crit-'));
+  try {
+    const git = (...a) => spawnSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...a], { cwd: gr, encoding: 'utf8', timeout: 15000 });
+    const put = (text) => {
+      mkdirSync(join(gr, dirname(critRef.path)), { recursive: true });
+      writeFileSync(join(gr, critRef.path), text);
+    };
+    git('init', '-q');
+    put(refText);
+    git('add', '.');
+    git('commit', '-q', '-m', 'ref');
+    const same = readG2Criteria(gr);
+    const reworded = lines.map((l, i) => (i === idx[3] ? l.replace(/at any point in the exchange/, 'most of the time') : l)).join('\n');
+    put(reworded);
+    const uncommitted = readG2Criteria(gr);
+    const swap = [...lines];
+    [swap[idx[2]], swap[idx[3]]] = [swap[idx[3]], swap[idx[2]]];
+    const drift = (text) => {
+      put(text);
+      git('commit', '-q', '-am', 'drift');
+      return throws(() => readG2Criteria(gr), CriteriaDriftError, /the reference changed; re-review K7's scoring/);
+    };
+    check('g2 criteria drift: the committed reference as K7 found it passes', same.reference.criteriaSha256 === G2_CRITERIA_SHA256 && same.reference.workingTreeMatchesHead);
+    check('g2 criteria drift: an UNCOMMITTED reword is never read (HEAD is), and is reported', reworded !== refText && JSON.stringify(uncommitted.criteria) === JSON.stringify(crit) && uncommitted.reference.workingTreeMatchesHead === false);
+    check('g2 criteria drift: a committed reword of criterion 4 is refused', drift(reworded));
+    git('checkout', '-q', 'HEAD~1', '--', critRef.path);
+    git('commit', '-q', '-am', 'restore');
+    check('g2 criteria drift: a committed reorder of criteria 3 and 4 is refused', readG2Criteria(gr).reference.criteriaSha256 === G2_CRITERIA_SHA256 && drift(swap.join('\n')));
+  } finally {
+    rmSync(gr, { recursive: true, force: true });
+  }
+  const swapped = [crit[0], crit[1], crit[3], crit[2]];
+  check('g2 criteria drift: evaluateG2 itself refuses reordered or reworded criteria', throws(() => evaluateG2({ manifest: { outcome: 'NOT RUN' }, baselineText: BASELINE, criteria: swapped }), CriteriaDriftError) && throws(() => evaluateG2({ manifest: { outcome: 'NOT RUN' }, baselineText: BASELINE, criteria: [...crit.slice(0, 3), `${crit[3]} (edited)`] }), CriteriaDriftError));
 
   // --- facts from the REAL human-run fixtures -------------------------------------------------
   const bf = g2Facts(parseG2Transcript(BASELINE));
@@ -192,7 +232,7 @@ export function g2Cases(check) {
   const cases = [];
   const run = (name, opts, assert) => cases.push({ name, opts: { scenario: 'g2-codex-inject', mode: 'fake-codex', ...opts }, assert });
   const names = () => fixtureNames(today(), PIN);
-  const crit = readG2Criteria(REPO);
+  const { criteria: crit } = readG2Criteria(REPO);
   const evalRun = (r, operatorScores = {}) => evaluateG2({ manifest: r.manifest, transcriptText: r.capture(names().transcript), paneText: r.capture(names().pane), baselineText: BASELINE, criteria: crit, operatorScores });
   const daemonStarted = (r) => existsSync(join(r.env.CODEX_HOME, 'app-server-control', 'fake-daemon.pid'));
   const DELIVERED = /OAC G2|second daemon client|G2 spike (?:busy-turn|queued)/;
@@ -242,7 +282,7 @@ export function g2Cases(check) {
 
     // The report CLI: draft, then --write into a temporary root (never the repo).
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
-    check('g2 report CLI: draft printed, not verdict-bearing, attestation unticked, with the per-connection diff', draft.status === 0 && /Not verdict-bearing/.test(draft.stdout) && /## Method-sequence diff/.test(draft.stdout) && /^- \[ \] \*\*herdr:\*\*/m.test(draft.stdout) && /== busyqueue:/.test(draft.stdout), draft.stderr);
+    check('g2 report CLI: draft printed, not verdict-bearing, attestation unticked, with the per-connection diff', draft.status === 0 && /Not verdict-bearing/.test(draft.stdout) && /## Method-sequence diff/.test(draft.stdout) && /^- \[ \] \*\*herdr:\*\*/m.test(draft.stdout) && /== busyqueue:/.test(draft.stdout) && new RegExp(`Criteria source:.*G2-codex-inject\\.md.*${G2_CRITERIA_SHA256}`).test(draft.stdout), draft.stderr);
     const bad = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--score', '4=equivalent', '--note', '4=trust me'], { encoding: 'utf8', timeout: 20000 });
     check('g2 report CLI: refuses an operator score for a mechanically scored criterion', bad.status === 2 && /only criterion 3 takes an operator score/.test(bad.stderr));
     const root = mkdtempSync(join(tmpdir(), 'oac-g2-report-'));
@@ -321,6 +361,14 @@ export function g2Cases(check) {
     check('g2 divergence: thread/queue/add sent once only, never retried', g2Facts(parseG2Transcript(r.capture(names().transcript))).queueAdds.length === 1);
     const ev = evalRun(r);
     check('g2 divergence: every criterion not evaluable', ev.rows.every((x) => x.score === SCORES.NE));
+  });
+
+  run('g2 Codex version moves mid-run', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_POST_CLI_VERSION: '0.158.0' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    check('g2 mid-run move: recorded as a finding; the captures lose their fixture names (unverified-*)', g2.postRun.matches === false && g2.postRun.cli === '0.158.0' && m.findings.some((f) => /changed during the run/.test(f)) && g2.fixtures === null && g2.versions.verified === false && m.captures.length === 2 && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
+    const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', join(r.base, 'nowrite')], { encoding: 'utf8', timeout: 20000 });
+    check('g2 mid-run move: report --write refuses', w.status === 2 && /--write refused/.test(w.stderr) && !existsSync(join(r.base, 'nowrite')), w.stderr);
   });
 
   run('g2 human accept timeout', { args: ['--param', 'accept=human', '--param', 'humanAcceptTimeoutMs=1500', ...FAST], fakeCodex: {} }, (r) => {

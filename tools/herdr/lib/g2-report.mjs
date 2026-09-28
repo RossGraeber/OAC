@@ -39,9 +39,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, EXPECTED_REPLIES, FIXTURE_DIR, HERDR_RUNS_DIR, MANIFEST_PATH, BUSY_TEXT_MARK, QUEUED_TEXT_MARK,
-  DEFAULT_OPERATOR_PROMPT, compareByMode, formatModeDiff, g2Facts, identifyTuiThread, parseG2Transcript, readG2Criteria,
+  DEFAULT_OPERATOR_PROMPT, compareByMode, formatModeDiff, g2Facts, identifyTuiThread, parseG2Transcript, readG2Criteria, G2_CRITERIA_SHA256, CriteriaDriftError,
 } from './g2.mjs';
-import { parseSections, committedFile } from './g1.mjs';
+import { parseSections, committedFile, sha256 } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -87,6 +87,11 @@ export function credentialShapedFields(value, path = '$', out = []) {
 }
 
 export function evaluateG2({ manifest, transcriptText, paneText, baselineText, criteria, operatorScores = {} }) {
+  // The checks below are written for exactly these four criteria in this order; any other
+  // text is refused rather than scored (lib/g2.mjs G2_CRITERIA_SHA256).
+  if (!Array.isArray(criteria) || sha256(JSON.stringify(criteria)) !== G2_CRITERIA_SHA256) {
+    throw new CriteriaDriftError(`the criteria given hash to ${Array.isArray(criteria) ? sha256(JSON.stringify(criteria)) : 'nothing'}, not the ${G2_CRITERIA_SHA256} this scoring is written against; the reference changed, re-review K7's scoring`);
+  }
   const g2 = manifest?.scenarioData?.g2 ?? null;
   const baseEntries = parseG2Transcript(baselineText);
   const base = g2Facts(baseEntries);
@@ -219,7 +224,7 @@ export function evaluateG2({ manifest, transcriptText, paneText, baselineText, c
 
 const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
-export function renderReport({ manifest, evaluation, diffText, date, fixtures, runManifestName, baselinePath = BASELINE_TRANSCRIPT }) {
+export function renderReport({ manifest, evaluation, diffText, date, fixtures, runManifestName, baselinePath = BASELINE_TRANSCRIPT, reference = null }) {
   const g2 = manifest?.scenarioData?.g2 ?? {};
   const v = g2.versions ?? {};
   const d = v.daemon ?? {};
@@ -245,6 +250,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push(`- **Fixture sanitizer:** ${g2.sanitizer ? `${g2.sanitizer.threadListEntriesRemoved} unrelated thread/list entr(ies) removed; serverName ${g2.sanitizer.serverNames}, installationId ${g2.sanitizer.installationIds}, plan ${g2.sanitizer.planFields}, credit ${g2.sanitizer.creditFields} field(s) replaced` : 'not run'}`);
   out.push(`- **Run manifest:** \`${runManifestName}\` (beside this file); harness config unchanged: ${manifest?.harnessConfig?.unchanged ?? '?'}; teardown clean: ${manifest?.teardown?.clean ?? '?'}`);
   out.push(`- **Baseline:** \`${baselinePath}\` and \`docs/planning/gates/G2-result.md\` (the human-run 0.157.1 re-run)`);
+  out.push(`- **Criteria source:** ${reference ? `\`${reference.path}\` as committed at \`${reference.headCommit}\` (file sha256 \`${reference.fileSha256}\`); the four parsed criteria hash to \`${reference.criteriaSha256}\`, the pin the scoring is written against${reference.workingTreeMatchesHead ? '' : ' (the working-tree copy differs from HEAD and was not used)'}` : 'not recorded'}`);
   out.push('');
   out.push('## Criteria');
   out.push('');
@@ -429,12 +435,13 @@ function main(argv) {
   const paneText = names && written(names.pane) ? readFileSync(join(runDir, names.pane), 'utf8') : null;
   const baselinePath = o.baseline ?? BASELINE_TRANSCRIPT;
   const baselineText = readFileSync(resolve(REPO, baselinePath), 'utf8');
-  const evaluation = evaluateG2({ manifest, transcriptText, paneText, baselineText, criteria: readG2Criteria(REPO), operatorScores });
+  const { criteria, reference } = readG2Criteria(REPO); // throws, before anything is printed or written, if the criteria drifted
+  const evaluation = evaluateG2({ manifest, transcriptText, paneText, baselineText, criteria, operatorScores });
   const diffText = transcriptText ? formatModeDiff(compareByMode(parseG2Transcript(baselineText), parseG2Transcript(transcriptText))) : null;
   const date = g2?.date ?? manifest.timebox?.start?.slice(0, 10) ?? 'unknown-date';
   const runManifestName = `G2-${date}.run-manifest.json`;
   const refusal = writeRefusal(manifest);
-  const report = renderReport({ manifest, evaluation, diffText, date, fixtures: !refusal ? { transcript: `${FIXTURE_DIR}/${fixtures.transcript}`, pane: `${FIXTURE_DIR}/${fixtures.pane}` } : null, runManifestName, baselinePath });
+  const report = renderReport({ manifest, evaluation, diffText, date, fixtures: !refusal ? { transcript: `${FIXTURE_DIR}/${fixtures.transcript}`, pane: `${FIXTURE_DIR}/${fixtures.pane}` } : null, runManifestName, baselinePath, reference });
   if (!o.write) {
     console.log(report);
     return 0;

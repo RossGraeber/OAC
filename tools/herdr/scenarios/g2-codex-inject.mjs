@@ -603,7 +603,13 @@ export default {
       const postDaemonOk = CODEX_DAEMON_VERSION_FIELDS.every((k) => g2.daemon.versionAfter.parsed?.[k] === pin.lastObserved);
       const wireVersions = [...new Set(facts().connections.map((c) => c.userAgentVersion))];
       g2.postRun = { cliOutput: post.codex, cli: postCli, daemon: g2.daemon.versionAfter.parsed, wireVersionsSeen: wireVersions, matches: postCli === cli && postDaemonOk && wireVersions.length === 1 && wireVersions[0] === pin.lastObserved };
-      if (!g2.postRun.matches) ctx.finding(`the Codex version changed during the run or differed between connections (CLI ${cliRaw} before, ${post.codex} after; daemon after ${JSON.stringify(g2.daemon.versionAfter.parsed)}; wire versions ${JSON.stringify(wireVersions)}); the daemon can update itself mid-run (PINS.md "Floating-version policy")`);
+      if (!g2.postRun.matches) {
+        ctx.finding(`the Codex version changed during the run or differed between connections (CLI ${cliRaw} before, ${post.codex} after; daemon after ${JSON.stringify(g2.daemon.versionAfter.parsed)}; wire versions ${JSON.stringify(wireVersions)}); the daemon can update itself mid-run (PINS.md "Floating-version policy"). The captures lose their fixture names`);
+        // Evidence spanning two Codex versions is not a fixture of either: back to unverified-*.
+        g2.versions.verified = false;
+        g2.fixtures = null;
+        g2.captureNames = unverifiedNames(g2.date);
+      }
       g2.paneArgv.push(await recordPaneArgv(ws.paneId, 'end of run'));
     } finally {
       if (watchProc) {

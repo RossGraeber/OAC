@@ -38,6 +38,8 @@
 //   FAKE_CODEX_REJECT          comma list of app-server methods answered with an error
 //   FAKE_CODEX_TURN_MS         duration of an ordinary turn (default 400)
 //   FAKE_CODEX_LONG_MS         duration of the busy (lighthouse) turn (default 4500)
+//   FAKE_CODEX_POST_CLI_VERSION `codex --version` once the daemon has answered
+//                              thread/turns/list (stands in for a mid-run update)
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -70,7 +72,8 @@ const canConnect = () =>
 
 async function main() {
   if (args[0] === '--version') {
-    console.log(`codex-cli ${env.FAKE_CODEX_CLI_VERSION || VERSION}`);
+    const moved = env.FAKE_CODEX_POST_CLI_VERSION && existsSync(join(CTL, 'turns-listed'));
+    console.log(`codex-cli ${moved ? env.FAKE_CODEX_POST_CLI_VERSION : env.FAKE_CODEX_CLI_VERSION || VERSION}`);
     return;
   }
   if (args[0] === 'app-server' && args[1] === 'daemon' && args[2] === 'start') {
@@ -227,6 +230,7 @@ function daemon() {
     }
     if (method === 'thread/turns/list') {
       if (!t) return error(-32600, 'thread not found');
+      writeFileSync(join(CTL, 'turns-listed'), '');
       return reply({ data: [...t.turns].reverse().slice(0, params.limit ?? 5).map((tn) => turnObj(tn, true)), nextCursor: null });
     }
     return error(-32601, `method not found: ${method}`);

@@ -41,8 +41,9 @@ export const MANIFEST_PATH = 'docs/planning/gates/fixtures/MANIFEST.json';
 export const COMMITTED_CLIENT_SHA256 = '134d41a57e861a92f5381dce045e990cb77b7171aed8d5d81901ea6e6c4347d9';
 
 // The four G2 pass criteria are read verbatim, at run time, from the gate's reference file
-// rather than restated here: criterion 4's wording names the provider and its credential
-// store, which the containment lint (oac-boundaries check 10) keeps out of tools/herdr/.
+// as committed at HEAD, rather than restated here: criterion 4's wording names the provider
+// and its credential store, which the containment lint (oac-boundaries check 10) keeps out
+// of tools/herdr/. G2_CRITERIA_SHA256 below binds the text read to the text scored.
 export const G2_REFERENCE = '.claude/skills/oac-gates/references/G2-codex-inject.md';
 export function parseG2Criteria(referenceText) {
   const lines = String(referenceText).split(/\r?\n/);
@@ -58,8 +59,32 @@ export function parseG2Criteria(referenceText) {
   if (items.length !== 4) throw new Error(`${G2_REFERENCE} lists ${items.length} pass criteria; G2 has four`);
   return items;
 }
-export function readG2Criteria(repoRoot) {
-  return parseG2Criteria(readFileSync(join(repoRoot, G2_REFERENCE), 'utf8'));
+// The scoring in lib/g2-report.mjs is written against exactly these four criteria, in this
+// order. Their text is bound by this sha256 of JSON.stringify(<the four parsed criteria>),
+// taken from the reference as committed when K7 was written (the hash carries none of the
+// criterion text). A reworded, reordered, added or removed criterion changes it, and the
+// report refuses to score until K7's scoring has been re-reviewed against the new text and
+// this pin moved in the same change.
+export const G2_CRITERIA_SHA256 = '012480fff690f067f608c16183949bf0eb9072e4d356f3024732418af105cd67';
+
+export class CriteriaDriftError extends Error {}
+
+// The criteria as COMMITTED at HEAD (never the working tree; K4's pattern), verified
+// against G2_CRITERIA_SHA256. -> { criteria, reference: { path, headCommit, fileSha256,
+// criteriaSha256, workingTreeMatchesHead } }. Throws CriteriaDriftError on a mismatch.
+// `pin` exists only so the self-test can plant a drift in a throwaway repository.
+export function readG2Criteria(repoRoot, { pin = G2_CRITERIA_SHA256 } = {}) {
+  const c = committedFile(repoRoot, G2_REFERENCE);
+  const criteria = parseG2Criteria(c.bytes.toString('utf8'));
+  const criteriaSha256 = sha256(JSON.stringify(criteria));
+  const reference = { path: G2_REFERENCE, headCommit: c.headCommit, fileSha256: c.committedSha256, criteriaSha256, workingTreeMatchesHead: c.workingTreeMatchesHead };
+  if (criteriaSha256 !== pin) {
+    throw new CriteriaDriftError(
+      `the G2 pass criteria in ${G2_REFERENCE} at HEAD ${c.headCommit} hash to ${criteriaSha256}, not the ${pin} lib/g2-report.mjs scores against: ` +
+        "the reference changed; re-review K7's scoring against the new criteria and move G2_CRITERIA_SHA256 (tools/herdr/lib/g2.mjs) in the same change. Nothing was scored or written",
+    );
+  }
+  return { criteria, reference };
 }
 
 // Operator's own TUI message in the human 0.157.1 re-run (G2-result.md, thread/list preview
