@@ -365,6 +365,17 @@
   | 2026-09-25 | Codex CLI / app-server `0.154.0` (matches PINS.md); Windows only | PASS | Codex CLI / app-server pin 0.154.0 -> floating (last observed 0.157.1), 2026-09-26 |
   | 2026-09-26 | Codex CLI / app-server `0.157.1` (floating row, last observed version; matches PINS.md and the environment); Windows only | PASS | — (current) |
 
+#### Scripted re-run through herdr (K7) — pointer only, not verdict-bearing
+
+A herdr-driven re-run of this gate's `0.157.1` re-run exists as test tooling (Epic K, K7
+issue #130): `tools/herdr/scenarios/g2-codex-inject.mjs`, compared against
+`fixtures/g2-codex-inject/transcript-2026-09-26-0.157.1.jsonl` by
+`tools/herdr/lib/g2-report.mjs`. It has **never run live**: it is exercised only against
+test doubles (`node tools/herdr/run.mjs --self-test`), so no `-herdr` fixture and no
+`docs/planning/gates/herdr-runs/G2-<date>.md` record exist. When one does, it is linked
+here and changes nothing above: this gate's verdict comes only from the human-run
+procedure (`oac-gates` `references/scripted-runs.md` "Verdict eligibility").
+
 #### 0.154.0 baseline run (superseded by the current 0.157.1 verdict above; retained for its source-level detail)
 
 - **Pinned version(s):** `@openai/codex` `0.154.0`. The CLI, the managed daemon binary and

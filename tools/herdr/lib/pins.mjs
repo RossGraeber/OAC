@@ -103,3 +103,70 @@ export function claudePinMoveTrigger({ observed, lastObserved, source }) {
     're-running G1. This scripted run stops here and does not edit PINS.md.'
   );
 }
+
+// --- Codex CLI / app-server: floating, last-observed version (K7) ------------------------
+//
+// PINS.md's `Codex CLI / app-server` row floats too, but its cell names the npm package and
+// a commit instead of a `v`-prefixed tag: "**floating** — last observed
+// `@<scope>/codex@0.157.1` (commit `<40 hex>`); ..." (PINS.md "Floating-version policy",
+// operator decision 2026-09-26). Codex reports its version from three places that policy
+// names: the CLI (`codex --version`, e.g. `codex-cli 0.157.1`), the daemon
+// (`codex app-server daemon version`: cliVersion / appServerVersion / managedCodexVersion)
+// and the wire (the `initialize` result's `userAgent`, e.g. `codex-tui/0.157.1 (...)`).
+
+export const CODEX_PIN_ROW = 'Codex CLI / app-server';
+
+// -> { row, lastObserved: '0.157.1', commit: '<40 hex>' | null, cell }
+export function parseCodexLastObserved(pinsText) {
+  const cell = pinTableCell(pinsText, CODEX_PIN_ROW, 'Pinned version');
+  const m = /last[\s-]+observed\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i.exec(cell);
+  if (!m) throw new Error(`PINS.md "${CODEX_PIN_ROW}" row has no "last observed \`@<scope>/codex@X.Y.Z\`" version in its version cell`);
+  const c = /commit\s+`([0-9a-f]{40})`/i.exec(cell);
+  return { row: CODEX_PIN_ROW, lastObserved: m[1], commit: c ? c[1] : null, cell };
+}
+
+// `codex --version` prints `codex-cli 0.157.1` (G2-result.md). Bare X.Y.Z, or null.
+export function parseCodexCliVersion(stdout) {
+  const m = /^\s*codex-cli\s+v?(\d+\.\d+\.\d+)(?=$|\s)/.exec(String(stdout ?? ''));
+  return m ? m[1] : null;
+}
+
+// The `userAgent` of an `initialize` result: `<originator>/<X.Y.Z> (...)`. Bare X.Y.Z, or null.
+export function parseCodexUserAgentVersion(userAgent) {
+  const m = /^[^\s/]+\/v?(\d+\.\d+\.\d+)(?=$|[\s(])/.exec(String(userAgent ?? ''));
+  return m ? m[1] : null;
+}
+
+// `codex app-server daemon version` prints one JSON object (G2-result.md quotes
+// `{"status":"running",...,"managedCodexVersion":"0.157.1","cliVersion":"0.157.1",
+// "appServerVersion":"0.157.1"}`). Returns the three version fields and the status only
+// (nothing else from the output is kept), or null when no JSON object is found.
+export const CODEX_DAEMON_VERSION_FIELDS = Object.freeze(['cliVersion', 'appServerVersion', 'managedCodexVersion']);
+export function parseCodexDaemonVersion(stdout) {
+  const s = String(stdout ?? '');
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  let j;
+  try {
+    j = JSON.parse(s.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const out = { status: typeof j.status === 'string' ? j.status : null };
+  for (const k of CODEX_DAEMON_VERSION_FIELDS) out[k] = typeof j[k] === 'string' && /^\d+\.\d+\.\d+$/.test(j[k]) ? j[k] : null;
+  return out;
+}
+
+// The pin-move-trigger check for a scripted Codex-side run: null when the observed version
+// equals PINS.md's last-observed version, else why the run must stop.
+export function codexPinMoveTrigger({ observed, lastObserved, source }) {
+  if (observed && observed === lastObserved) return null;
+  const seen = observed ? observed : 'no parseable version';
+  return (
+    `PIN-MOVE TRIGGER: ${source} reports ${seen}, but docs/planning/PINS.md "${CODEX_PIN_ROW}" last observed ` +
+    `${lastObserved}. Under PINS.md's floating-version policy a newly observed Codex version is a pin-move ` +
+    'trigger: run the pin-move checklist (and re-verify the PLANNING-PROMPT.md §3.2 facts) before re-running G2. ' +
+    'This scripted run stops here and does not edit PINS.md.'
+  );
+}

@@ -40,7 +40,8 @@ verdicts under `herdr-runs/` (see "Scripted runs (herdr)" below).
 - herdr-run records: `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md`, the
   criterion-by-criterion comparison with the human-run baseline, with the driver's
   redacted run manifest beside it as `G<n>-<YYYY-MM-DD>.run-manifest.json`. Written by the
-  gate's report generator (G1: `tools/herdr/lib/g1-report.mjs --write`), which never
+  gate's report generator (G1: `tools/herdr/lib/g1-report.mjs --write`; G2:
+  `tools/herdr/lib/g2-report.mjs --write`), which never
   overwrites an existing file.
 
 ## Fixture manifest
