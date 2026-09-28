@@ -17,7 +17,7 @@ Status as last verified against this repo (2026-09-28): checks 1, 2, 4, 5, 6, 7 
 **pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
 the current tree, which is docs/backlog plus `scripts/`; checks 9 and 10 are **pending** — the
 script prints `PENDING` for all seven targets (no product path, no workspace manifest, no
-`tools/herdr/` yet; K3 creates the driver) and its `--self-test` passes 20/20.
+`tools/herdr/` yet; K3 creates the driver) and its `--self-test` passes 37/37.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code
@@ -66,14 +66,21 @@ rg -n --glob '!target' 'auth\.json|Keychain|CredentialManager|Secret Service' ad
 rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 
 # 9. herdr (Epic K dev/test tooling) must not reach product code: no `herdr` / `HERDR_`
-#    (case-insensitive) in git-tracked files under adapters/ core/ cli/ transports/ spec/,
-#    and no workspace or package manifest outside tools/herdr/ referencing tools/herdr.
-# 10. The herdr driver must not touch harness credentials or harness config: no auth.json,
-#    .credentials.json, ANTHROPIC_API_KEY, OPENAI_API_KEY, keyring/keychain/OS
-#    credential-store access, or `integration install` in git-tracked files under
-#    tools/herdr/ (boundaries 3, 4, 13). One script runs both; hits print file:line and the
-#    rule, never the matched line. --self-test plants one violation per rule in a temporary
-#    git tree and asserts each exits non-zero, plus controls that must not.
+#    (case-insensitive) in any git-tracked entry under adapters/ core/ cli/ transports/
+#    spec/, and no workspace or package manifest outside tools/herdr/ referencing
+#    tools/herdr. An entry is matched by its path, a file by its content, a symlink by its
+#    stored target (and the file it resolves to), a submodule by its path and .gitmodules url.
+# 10. The herdr driver must not touch harness credentials or harness config (boundaries 3,
+#    4, 13), matched the same way in entries under tools/herdr/: auth.json,
+#    .credentials.json, ANTHROPIC_API_KEY, OPENAI_API_KEY, ANTHROPIC_AUTH_TOKEN,
+#    CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY, keyring/keychain/OS credential-store access,
+#    `integration install`, harness config-mutating CLI calls (`claude|codex mcp add`,
+#    `plugin install`, `login`, ...), and a write to ~/.claude/settings(.local).json,
+#    ~/.codex/config.toml or hooks.json. Reading/hashing harness config is allowed; the write
+#    rule is a same-line heuristic, so do not route a config path through a variable into a
+#    write call. One script runs both; hits print file:line and the rule, never the matched
+#    line. --self-test plants one violation per rule in a temporary git tree and asserts each
+#    exits non-zero with exactly one hit, plus controls that must not.
 node scripts/check-herdr-containment.mjs
 node scripts/check-herdr-containment.mjs --self-test
 ```
