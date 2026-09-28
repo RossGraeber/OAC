@@ -8,6 +8,11 @@
 // against a real herdr is a separate, operator-run step.
 //
 // POSIX only for the lifecycle half (the fake runs pane commands with `sh`).
+//
+// K4 (#127) adds test/g1-tests.mjs: unit checks for the transcript comparator, the Claude
+// Code pin-move check, the G1 helpers and the report's scoring rules, and lifecycle cases
+// that run scenarios/g1-claude-wake.mjs against the fake herdr plus test/fake-claude.mjs (a
+// test double of Claude Code -- again proving the driver and scenario, not Claude Code).
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -22,6 +27,7 @@ import { createRedactor, reportIsClean, parseLiteralSpec } from '../lib/redact.m
 import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSessionName } from '../lib/herdr.mjs';
 import { harnessConfigFiles, herdrLaunchEnv } from '../lib/manifest.mjs';
 import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
+import { g1Unit, g1Cases, installFakeClaudeCli } from './g1-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -336,10 +342,11 @@ function makeBase(stateUnder = []) {
   return { base, state, env, files };
 }
 
-function driverEnv(b, mode) {
+function driverEnv(b, mode, extra = {}) {
   return {
     ...process.env,
     ...b.env,
+    ...extra,
     FAKE_HERDR_STATE: b.state,
     FAKE_HERDR_MODE: mode ?? '',
     CODEX_THREAD_ID: 'selftest-thread',
@@ -354,6 +361,7 @@ function collect(b, res) {
   const manifestPath = join(b.base, 'out', 'run-manifest.json');
   return {
     ...res,
+    outDir: join(b.base, 'out'),
     manifestText: read(manifestPath),
     manifest: existsSync(manifestPath) ? JSON.parse(read(manifestPath)) : null,
     calls: lines(join(b.state, 'calls.log')),
@@ -362,12 +370,14 @@ function collect(b, res) {
   };
 }
 
-function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder }) {
+function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude }) {
   const b = makeBase(stateUnder);
+  // fakeClaude: env for test/fake-claude.mjs, plus a fake `claude` CLI on PATH.
+  const extra = fakeClaude ? { ...fakeClaude, PATH: `${installFakeClaudeCli(b.base)}:${process.env.PATH}` } : {};
   const res = spawnSync(process.execPath, [RUN, '--scenario', scenario, '--herdr-bin', herdrBin, '--out', join(b.base, 'out'), ...args], {
-    env: driverEnv(b, mode),
+    env: driverEnv(b, mode, extra),
     encoding: 'utf8',
-    timeout: 90000,
+    timeout: 120000,
   });
   return { b, r: collect(b, { status: res.status, stdout: res.stdout, stderr: res.stderr }) };
 }
@@ -558,6 +568,8 @@ async function lifecycle() {
     check('timebox: wait clipped to the timebox, run NOT RUN', r.status === 3 && t?.bound.clippedToTimebox === true && t.bound.herdrTimeoutMs < 2500, JSON.stringify(t?.bound));
   });
 
+  cases.push(...g1Cases(check));
+
   for (const c of cases) {
     const { b, r } = runDriver(c.opts);
     try {
@@ -630,6 +642,7 @@ export async function runSelfTest() {
   unitQuoting();
   unitRedaction();
   await unitGuards();
+  g1Unit(check);
   if (process.platform === 'win32') {
     console.log('lifecycle checks skipped: the fake herdr runs pane commands with sh (POSIX only)');
   } else {

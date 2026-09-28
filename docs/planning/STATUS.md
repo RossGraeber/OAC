@@ -1183,6 +1183,16 @@ without an UNVERIFIED label.
   K1's go/no-go is therefore provisional, not final. Owner: an operator-run live leg per
   `docs/planning/decisions/K1-herdr-evaluation.md` §6. See also
   `docs/planning/v0.1/11-risks.md` row 51 (`RISK-HERDR`).
+- **New, from K4 (issue #127, 2026-09-28):** the scripted G1 re-run through herdr is
+  built but has **never run live**. `tools/herdr/scenarios/g1-claude-wake.mjs`, the
+  comparator `tools/herdr/lib/compare-transcripts.mjs` and the report generator
+  `tools/herdr/lib/g1-report.mjs` are exercised only against test doubles (a fake herdr
+  and a fake Claude Code, `node tools/herdr/run.mjs --self-test`). No `-herdr` fixture,
+  no `docs/planning/gates/herdr-runs/G1-<date>.md` record and no comparison result exist
+  yet. The Claude Code pane-text patterns the scenario schedules on (the in-progress
+  indicator, and every dialog except the dev-channels one recorded in Box C) are
+  unconfirmed. The run is not verdict-bearing either way: G1's verdict is unchanged.
+  Owner: an operator run per the scenario's header comment.
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to

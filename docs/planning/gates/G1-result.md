@@ -204,6 +204,15 @@
   | 2026-09-28 (Box B) | Claude Code v2.1.283 (observed pre- and post-box; matches PINS.md's floating last-observed) | **INCOMPLETE** — see "Re-run attempt 1 (Box B)" below. Several pass-criteria probes were not attempted; not a verdict. | n/a — recorded as an incomplete attempt, not verdict-bearing |
   | 2026-09-28 (Box C) | Claude Code v2.1.283 (observed pre- and post-box; matches PINS.md's floating last-observed) | **PASS** — see "Pass criteria evaluated" above. Operator decision 2026-09-28: criterion 3 satisfied as worded (order preserved, nothing dropped, nothing interleaved); the delivery-at-two-boundaries pattern is recorded as an observed `2.1.283` behavior change, not a failure. **This is the current, verdict-bearing result** (all top-level fields on this page describe this run). | n/a — current verdict |
 
+### Scripted re-run through herdr (K4) — pointer only, not verdict-bearing
+
+A herdr-driven re-run of this gate's Box C probes exists as test tooling (Epic K, K4
+issue #127): `tools/herdr/scenarios/g1-claude-wake.mjs`, compared against Box C by
+`tools/herdr/lib/g1-report.mjs`. It never changes the verdict above. **No live run has
+happened yet**; when one does, its record lands in
+`docs/planning/gates/herdr-runs/G1-<YYYY-MM-DD>.md` with its run manifest beside it, and
+this pointer names it.
+
 ### Original run (2026-09-25, v2.1.282) — superseded
 
 - **Pinned version(s):** Claude Code `v2.1.282` (the version actually observed connecting

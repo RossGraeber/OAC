@@ -227,6 +227,12 @@ export async function runScenario(opts) {
       record(key, value) {
         manifest.scenarioData[key] = value;
       },
+      // `<harness> --version` as recorded in the manifest before the scenario started
+      // (first line, or an `N/A (...)` string), for the harnesses the scenario declares.
+      harnessVersion(name) {
+        const v = manifest.harnessVersions?.[name];
+        return typeof v === 'string' ? v : null;
+      },
       recordLaunchArgv(argv) {
         manifest.launch.herdrReportedArgv = argv;
       },
