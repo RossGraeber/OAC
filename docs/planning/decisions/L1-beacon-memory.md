@@ -691,6 +691,8 @@ entry; the L1 "Open UNVERIFIED items" entry narrowed to U1, with U2-U4 recorded 
 by this section; the `## Pins` summary cell. `docs/planning/v0.1/11-risks.md`: rows 54-56
 marked CLOSED with citations, row 53 narrowed, one sentence in the traceability preamble.
 `docs/planning/PINS.md`: the Beacon row's UNVERIFIED count and one note in its record.
+`docs/planning/v0.1/06-security.md` §14 row 23: the residual cell now carries item 1's
+finding (L4 merged first, so this lands as a follow-up edit).
 No pin value, gate verdict, skill, spec or ADR text changes. No Beacon code, binary,
 fixture or spike code is committed.
 
