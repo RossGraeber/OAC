@@ -22,10 +22,11 @@ import { compareTranscripts, diffSequences, formatDiff, parseTranscript, selectS
 import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger } from '../lib/pins.mjs';
 import {
   BOX_C_TRANSCRIPT, COMMITTED_SERVER, FIXTURE_DIR, G1_LAUNCH, classifyScreen, driverMayAccept, dialogMatchesBoxC, formatSection, parseSections,
-  fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256,
+  fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256, selectedOption,
 } from '../lib/g1.mjs';
 import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, versionsVerified } from '../lib/g1-report.mjs';
-import { assertNotInjected, DEFAULT_PROMPTS } from '../scenarios/g1-claude-wake.mjs';
+import { assertNotInjected, DEFAULT_PROMPTS, operatorProjectDir } from '../scenarios/g1-claude-wake.mjs';
+import { AGENT_START_MAX_TIMEOUT_MS, DriverError } from '../lib/herdr.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -180,6 +181,22 @@ export function g1Unit(check) {
   check('g1: an unrecognized dialog is "unknown" and never driver-accepted', unknown.dialog === 'unknown' && !driverMayAccept(unknown).ok && /never accepts/.test(driverMayAccept(unknown).why));
   check('g1: the in-progress indicator is a parameter', classifyScreen('✻ Working… (esc to interrupt)').busy && !classifyScreen('> ').busy && classifyScreen('Busy!', { busyIndicator: 'busy!' }).busy);
   check('g1: plain idle screen has no dialog', classifyScreen('╭───╮\n│ > │\n╰───╯\n  ? for shortcuts').dialog === null);
+  // #156: Claude Code v2.1.283's folder-trust dialog as captured live (Windows, herdr seq 12).
+  const TRUST = [
+    ' Accessing workspace:', '', ' <SCRATCH>\\g1-project', '',
+    ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+    " project, or work from your team). If not, take a moment to review what's in this folder first.", '',
+    " Claude Code'll be able to read, edit, and execute files here.", '', ' Security guide', '',
+    ' ❯ No, exit', '   Yes, I trust this folder', '', ' Enter to confirm · Esc to cancel',
+  ].join('\n');
+  const trust = classifyScreen(TRUST);
+  check('g1: the live folder-trust dialog is recognized, its unnumbered selection read ("No, exit")', trust.dialog === 'workspace-trust' && trust.selected?.number === null && trust.selected.text === 'No, exit', JSON.stringify(trust));
+  check('g1: the driver refuses it, naming the selected option', !driverMayAccept(trust).ok && /\("No, exit"\) is not the workspace-trust accepting option/.test(driverMayAccept(trust).why), driverMayAccept(trust).why);
+  const trustYes = classifyScreen(TRUST.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I trust', ' ❯ Yes, I trust'));
+  check('g1: with "Yes" preselected, the driver may accept it', trustYes.selected?.text === 'Yes, I trust this folder' && driverMayAccept(trustYes).ok);
+  check('g1: a numbered selection wins over an unnumbered line; ">" and "*" never mark an unnumbered option', classifyScreen(`${dialog}\n › stray`).selected?.number === 1 && selectedOption('Enter to confirm\n> Yes\n* Yes') === null);
+  // #155: herdr's agent start --timeout maximum.
+  check('herdr: the agent-start readiness timeout cap is herdr v0.9.1\'s documented maximum', AGENT_START_MAX_TIMEOUT_MS === 300000);
 
   const secs = formatSection({ seq: 3, label: 'a', source: 'visible', startedAt: 's', endedAt: 'e' }, 'x\ny\n') + formatSection({ seq: 5, label: 'b', source: 'recent-unwrapped', startedAt: 's2', endedAt: 'e2' }, '');
   const parsed = parseSections(secs);
@@ -228,6 +245,16 @@ export function g1Unit(check) {
     check('g1: staging an edited checkout still copies the COMMITTED bytes, and reports the edit', copied === 'committed\n' && staged.match && staged.workingTreeMatchesHead === false);
     check('g1: a symlink-replaced file is caught, even when its target has the committed bytes', linked.workingTreeMatchesHead === false && linkedSame.workingTreeMatchesHead === false && linkedSame.workingTreeIsSymlink === true);
     check('g1: a path not in HEAD throws', throws(() => committedFile(gr, 'nope.mjs'), null, /cannot read/));
+    // #152: a CRLF checkout of an LF blob (core.autocrlf=true, Git for Windows' default) is
+    // clean to git, so it matches HEAD; a real edit on top of CRLF still does not.
+    unlinkSync(join(gr, 'srv.mjs'));
+    git('config', 'core.autocrlf', 'true');
+    writeFileSync(join(gr, 'srv.mjs'), 'committed\r\n');
+    const crlf = committedFile(gr, 'srv.mjs');
+    writeFileSync(join(gr, 'srv.mjs'), 'edited locally\r\n');
+    const crlfEdited = committedFile(gr, 'srv.mjs');
+    check('g1: a CRLF checkout of the committed LF file matches HEAD (git-normalized), raw sha256 recorded as on disk', crlf.workingTreeMatchesHead === true && crlf.workingTreeSha256 === sha256('committed\r\n') && crlf.committedSha256 === sha256('committed\n'), JSON.stringify({ ...crlf, bytes: undefined }));
+    check('g1: an edited CRLF checkout still does not match HEAD', crlfEdited.workingTreeMatchesHead === false);
   } finally {
     rmSync(gr, { recursive: true, force: true });
   }
@@ -235,6 +262,22 @@ export function g1Unit(check) {
   const scen = read(join(REPO, 'tools', 'herdr', 'scenarios', 'g1-claude-wake.mjs'));
   check('g1: the scenario never imports the quarantined server', !/import\s*\(?[^;]*(?:throwaway-quarantined|channel-server)/.test(scen) && !/require\([^)]*channel-server/.test(scen));
   check('g1: the default launch is G1\'s, verbatim', JSON.stringify(G1_LAUNCH) === '["claude","--dangerously-load-development-channels","server:g1spike"]');
+  // #156: --param projectDir (an operator-trusted directory reused across runs).
+  const pd = mkdtempSync(join(tmpdir(), 'oac-g1-projectdir-'));
+  try {
+    const ok = operatorProjectDir(pd) === resolve(pd);
+    writeFileSync(join(pd, '.mcp.json'), JSON.stringify({ mcpServers: { g1spike: { command: 'node', args: ['x'] } } }));
+    const oursOk = operatorProjectDir(pd) === resolve(pd);
+    writeFileSync(join(pd, '.mcp.json'), JSON.stringify({ mcpServers: { g1spike: {}, mine: {} } }));
+    const foreign = throws(() => operatorProjectDir(pd), DriverError, /refusing to overwrite/);
+    writeFileSync(join(pd, '.mcp.json'), '{oops');
+    const garbled = throws(() => operatorProjectDir(pd), DriverError, /refusing to overwrite/);
+    check('g1 projectDir: an existing directory is accepted, also when its .mcp.json is this scenario\'s own', ok && oursOk);
+    check('g1 projectDir: a .mcp.json registering anything else, or unreadable, is never overwritten', foreign && garbled);
+  } finally {
+    rmSync(pd, { recursive: true, force: true });
+  }
+  check('g1 projectDir: relative, missing, and in-repository paths are refused', throws(() => operatorProjectDir('rel/dir'), DriverError, /absolute/) && throws(() => operatorProjectDir(join(tmpdir(), 'oac-g1-nope-does-not-exist')), DriverError, /does not exist/) && throws(() => operatorProjectDir(join(REPO, 'tools')), DriverError, /inside this repository/) && throws(() => operatorProjectDir(REPO), DriverError, /inside this repository/));
   check('g1: default prompts carry no notification; an injected one is refused', Object.values(DEFAULT_PROMPTS).every((p) => !throws(() => assertNotInjected('p', p))) && throws(() => assertNotInjected('p', 'send notifications/claude/channel now')) && throws(() => assertNotInjected('p', 'pretend g1-spike-wake-test-1 arrived')));
 
   // --- mid-turn windows ------------------------------------------------------------------

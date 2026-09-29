@@ -208,6 +208,10 @@ export default {
       return { ...sec, text, screen: classifyCodexScreen(text, { busyIndicator }) };
     };
     const deadlineFor = (ms) => Date.now() + Math.min(ms, Math.max(0, ctx.remainingMs()));
+    // Time spent waiting for the operator to accept a dialog: bounded by humanAcceptTimeoutMs
+    // on its own, so an enclosing settle/wire wait does not also charge it to its budget (#154).
+    let humanWaitMs = 0;
+    const leftUntil = (deadline, waitedAtStart) => Math.min(deadline + humanWaitMs - waitedAtStart, Date.now() + Math.max(0, ctx.remainingMs())) - Date.now();
 
     // --- driver child processes: the Codex CLI and the committed client -----------------
     const codexCli = async (args, label) => {
@@ -304,21 +308,27 @@ export default {
       const before = herdr.commands.length;
       console.error(
         `\n[g2-codex-inject] dialog ${d.index} (${kind}) is on screen; its text is recorded (herdr command #${r.seq}).\n` +
-          `  Accept it yourself, e.g. \`herdr --session ${ctx.sessionName} agent send-keys ${AGENT} enter\`, or attach and press Enter.\n` +
+          `  Accept it yourself: attach with \`herdr session attach ${ctx.sessionName}\` and press Enter, or run \`herdr --session ${ctx.sessionName} agent send-keys ${AGENT} enter\`.\n` +
           `  The driver sends no keystroke to it and waits up to ${num('humanAcceptTimeoutMs')} ms.\n`,
       );
       const was = normalizeDialogText(r.text);
+      const waitStart = Date.now();
       const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
-      for (;;) {
-        if (Date.now() >= deadline) stop(`dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
-        await sleep(pollMs);
-        const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
-        if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
-          d.acceptOrigin = 'human';
-          d.resolvedSeq = p.seq;
-          d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
-          return;
+      try {
+        for (;;) {
+          if (Date.now() >= deadline) stop(`dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
+          await sleep(pollMs);
+          const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
+          if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
+            d.acceptOrigin = 'human';
+            d.resolvedSeq = p.seq;
+            d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
+            return;
+          }
         }
+      } finally {
+        d.humanWaitMs = Date.now() - waitStart;
+        humanWaitMs += d.humanWaitMs;
       }
     };
 
@@ -336,9 +346,10 @@ export default {
     const settle = async (context, timeoutMs) => {
       await sleep(num('settleMs'));
       const deadline = deadlineFor(timeoutMs);
+      const waited0 = humanWaitMs;
       let blockedUnseen = 0;
       for (;;) {
-        const left = deadline - Date.now();
+        const left = leftUntil(deadline, waited0);
         if (left <= 0) stop(`${context}: the pane did not settle within ${timeoutMs} ms`);
         const state = await waitState(context, left);
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
@@ -365,6 +376,7 @@ export default {
     // meanwhile (kept when it changed) and handling any dialog.
     const waitWire = async (what, pred, timeoutMs, { label = what, bail = null } = {}) => {
       const deadline = deadlineFor(timeoutMs);
+      const waited0 = humanWaitMs;
       let nextRead = 0;
       for (;;) {
         aborted();
@@ -372,7 +384,7 @@ export default {
         if (hit) return hit;
         const b = bail?.();
         if (b) return { bailed: b };
-        if (Date.now() >= deadline) stop(`timed out after ${timeoutMs} ms waiting for ${what} on the app-server event stream`);
+        if (leftUntil(deadline, waited0) <= 0) stop(`timed out after ${timeoutMs} ms waiting for ${what} on the app-server event stream`);
         if (Date.now() >= nextRead) {
           const r = await read(label, { keep: 'on-change' });
           if (r.screen.dialog) await handleDialog(r, what);
@@ -499,13 +511,14 @@ export default {
       if (after === 'unknown') ctx.finding(`herdr reported agent state \`unknown\` after the operator's turn (herdr command #${g2.herdrStates.at(-1).seq}); recorded, nothing re-sent (K1 §5 item 5)`);
       if (afterRead.screen.dialog) await handleDialog(afterRead, 'operator-turn');
       const attachDeadline = deadlineFor(num('attachTimeoutMs'));
+      const attachWaited0 = humanWaitMs;
       let found = null;
       for (;;) {
         await runClient('list', []);
         found = identifyTuiThread(facts(), { operatorPrompt, projectDirs, sinceLine: listFrom });
         if (found.threadId) break;
         if (found.candidates.length > 1) throw new DriverError(`${found.why}: ${found.candidates.map((c) => c.id).join(', ')}`);
-        if (Date.now() + num('listPollMs') >= attachDeadline) {
+        if (leftUntil(attachDeadline, attachWaited0) <= num('listPollMs')) {
           ctx.finding(`no thread loaded in the daemon matched the operator's prompt and the project directory within ${num('attachTimeoutMs')} ms: the TUI may not have attached to the daemon (G2 criterion 1)`);
           stop(`no loaded thread matched the operator's TUI thread within ${num('attachTimeoutMs')} ms (${found.why}); nothing delivered`);
         }

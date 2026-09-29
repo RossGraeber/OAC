@@ -14,6 +14,9 @@ import { openSync, closeSync } from 'node:fs';
 import { runBounded, spawnLongRunning, killTree, isAlive, within, sleep, processesForSession, processStartTime, descendants } from './proc.mjs';
 
 export const ROLES = Object.freeze(['operator-input', 'dialog-accept', 'wait', 'read', 'lifecycle', 'preflight']);
+
+// `herdr agent start --timeout` maximum at v0.9.1 (`herdr agent start --help`).
+export const AGENT_START_MAX_TIMEOUT_MS = 300000;
 const INPUT_ROLES = new Set(['operator-input', 'dialog-accept']);
 
 // A timeout, a refused precondition (wrong herdr version), an expired timebox, or an
@@ -384,13 +387,17 @@ export class HerdrSession {
 
   // launchArgv[0] is the herdr agent kind (claude, codex, ...): herdr fixes the executable
   // by kind and passes everything after `--` through unchanged (K1 §5 item 2).
+  // herdr v0.9.1 `agent start --help`: "--timeout <MS> Wait for interactive readiness
+  // (default: 30000; max: 300000)"; a larger value is refused with invalid_agent_timeout
+  // (#155). The readiness wait is clamped here; a scenario's own startup budget is separate.
   async agentStart(name, { launchArgv, paneId, timeoutMs, allowErrorCodes = [] }) {
     if (!Array.isArray(launchArgv) || launchArgv.length === 0) throw new DriverError('agentStart needs a launch argv');
     const [kind, ...rest] = launchArgv;
     const args = ['agent', 'start', name, '--kind', kind, '--pane', paneId];
     if (rest.length) args.push('--', ...rest);
-    const r = await this.exec('operator-input', args, { target: name, herdrTimeoutMs: timeoutMs, json: true, allowErrorCodes });
-    return { argv: r.json?.result?.argv ?? null, errorCode: r.errorCode, agent: r.json?.result?.agent ?? null };
+    const herdrTimeoutMs = timeoutMs == null ? timeoutMs : Math.min(timeoutMs, AGENT_START_MAX_TIMEOUT_MS);
+    const r = await this.exec('operator-input', args, { target: name, herdrTimeoutMs, json: true, allowErrorCodes });
+    return { argv: r.json?.result?.argv ?? null, errorCode: r.errorCode, agent: r.json?.result?.agent ?? null, herdrTimeoutMs };
   }
 
   // No --timeout exists for `agent read` at v0.9.1: bounded by the driver deadline only.
