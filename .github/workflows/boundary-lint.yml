@@ -1,5 +1,5 @@
 # ADR-001 boundary lint: the scripted/CI-safe subset of
-# .claude/skills/oac-boundaries/references/mechanical-checks.md (checks 3, 8, 9, 10).
+# .claude/skills/oac-boundaries/references/mechanical-checks.md (checks 3, 8, 9, 10, 11).
 # That file is the source of truth for every check; if a command changes there, change it
 # here too. Checks 1, 2, 4-7 target paths that do not exist yet and stay manual until then.
 # Minimal on purpose: the full CI pipeline is a separate task (F12).
@@ -50,4 +50,24 @@ jobs:
           status=$?
           [ "$status" -eq 1 ] && { echo "check 8 clean"; exit 0; }
           echo "check 8 failed (rg exit $status): stop and cite the boundary (oac-boundaries)"
+          exit 1
+
+      # Scans git-tracked files only (what CI sees). No tracked files under the product
+      # paths prints PENDING and exits 0 -- pending is not a pass. Hits in a tracked path
+      # name or in file content fail.
+      - name: Check 11 - no Beacon in product paths
+        run: |
+          set +e
+          pattern='\bbeacon\b|beacon_|beacon-managed|agent-beacon|asymptote-labs|memory\.db|get_memory_context|search_memory|get_memory\b'
+          mapfile -d '' files < <(git ls-files -z -- adapters core cli transports spec Cargo.toml Cargo.lock)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "check 11 PENDING: no tracked files under adapters/ core/ cli/ transports/ spec/ or root Cargo manifests"
+            exit 0
+          fi
+          printf '%s\n' "${files[@]}" | rg -n -i -e "$pattern"
+          pstatus=$?
+          rg -H -n -i -e "$pattern" -- "${files[@]}"
+          status=$?
+          [ "$pstatus" -eq 1 ] && [ "$status" -eq 1 ] && { echo "check 11 clean (${#files[@]} tracked files)"; exit 0; }
+          echo "check 11 failed (rg exit $pstatus/$status): stop and cite the boundary (oac-boundaries)"
           exit 1
