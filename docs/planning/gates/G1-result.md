@@ -208,10 +208,10 @@
 
 A herdr-driven re-run of this gate's Box C probes exists as test tooling (Epic K, K4
 issue #127): `tools/herdr/scenarios/g1-claude-wake.mjs`, compared against Box C by
-`tools/herdr/lib/g1-report.mjs`. It never changes the verdict above. **No live run has
-happened yet**; when one does, its record lands in
-`docs/planning/gates/herdr-runs/G1-<YYYY-MM-DD>.md` with its run manifest beside it, and
-this pointer names it.
+`tools/herdr/lib/g1-report.mjs`. It never changes the verdict above. First live record:
+[`herdr-runs/G1-2026-09-29.md`](herdr-runs/G1-2026-09-29.md) (run
+`20260929T034856Z-05b135`, herdr 0.9.1, Claude Code 2.1.283, human accept; all five
+criteria scored equivalent to Box C), with its run manifest beside it.
 
 ### Original run (2026-09-25, v2.1.282) — superseded
 
