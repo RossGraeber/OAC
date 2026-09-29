@@ -4,6 +4,17 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-29 (**L2/issue #167 (Epic L #165): Beacon desk research at pin
+`v1.3.29`.** `docs/planning/decisions/L1-beacon-memory.md` gains §11 (desk research) and
+§12 (operator-run live checklist, NOT RUN, never in CI). Of L1's four UNVERIFIED items,
+U2 (memory ID and result shape) and U3 (`memory.db` concurrency: SQLite WAL, 5 s busy
+timeout, from source) are CONFIRMED and U4 (config collision with OAC's launch paths) is
+REFUTED, each cited `path@v1.3.29`, and removed from "Open UNVERIFIED items" below. U1
+(does Beacon capture OAC-delivered input) stays open, narrowed to the harness side:
+Beacon records whatever the harness reports as a prompt, and OAC's outbound tool-call
+arguments are confirmed captured. `docs/planning/v0.1/11-risks.md` rows 53-56 updated.
+No gate verdict, pin value, skill, spec or ADR text changes.)
+
 **Last updated:** 2026-09-29 (**L7/issue #172 (Epic L #165): agent enablement.** New
 tier-3 reference `.claude/skills/oac-boundaries/references/beacon.md` routes "integrate
 Beacon" / "add shared memory" work to the "beside, not inside" rule, Q1-Q5 outcomes and
@@ -781,7 +792,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
 | `serde_jcs` | `0.2.0`; RFC 8785 JCS canonicalization; MIT OR Apache-2.0 | PINS.md — `serde_jcs` |
 | herdr (test tooling) | `v0.9.1` (2026-09-16), fixed; Apache-2.0; dev/test tooling only, never shipped; gates affected: none; live behavior verified on Windows 2026-09-28, Linux and macOS UNVERIFIED (K1 go on Windows, provisional overall) | PINS.md — herdr (test tooling) |
-| Beacon (external memory service) | `v1.3.29` (tagger date 2026-09-28), fixed; MIT; external service each harness connects to natively, never shipped or called by OAC; gates affected: none; four facts UNVERIFIED (L1 §6) | PINS.md — Beacon (external memory service) |
+| Beacon (external memory service) | `v1.3.29` (tagger date 2026-09-28), fixed; MIT; external service each harness connects to natively, never shipped or called by OAC; gates affected: none; one fact UNVERIFIED (L1 §6, narrowed by L2 in L1 §11) | PINS.md — Beacon (external memory service) |
 
 ## Decisions landed
 
@@ -1286,23 +1297,23 @@ without an UNVERIFIED label.
   registration), and every pane-text pattern. No `-herdr` fixture and no G4/G5
   `herdr-runs/` record exist. Neither verdict changes: G4 stays PASS, G5 stays FAIL.
   Owner: an operator run per each scenario's header comment.
-- **New, from L1 (issue #166, 2026-09-29):** four Beacon (agent-beacon) facts are
-  UNVERIFIED at pin `v1.3.29` (`docs/planning/decisions/L1-beacon-memory.md` §6), each
-  re-read at the tag and not closed:
-  - U1: whether Beacon's Claude Code capture (hooks/OTLP) records the content of an OAC
-    channel notification delivered into the session, or only harness-visible
-    tool/prompt events; the same question for input OAC's Codex adapter delivers (no
-    first-party statement found);
-  - U2: the shape and stability of the memory item ID and of `get_memory` /
-    `get_memory_context` results across releases (no versioned response schema);
-  - U3: whether one `memory.db` can be read by several harness sessions concurrently
-    without a documented locking model (not stated);
-  - U4: whether Beacon's Codex configuration writes (`~/.codex/config.toml` OTLP
-    exporter tables, `~/.codex/hooks.json`, the `beacon-managed` entry) conflict with
-    OAC's Codex adapter launch (OAC's launch path is not built).
+- **New, from L1 (issue #166, 2026-09-29), narrowed by L2 (issue #167, 2026-09-29):**
+  one Beacon (agent-beacon) fact stays UNVERIFIED at pin `v1.3.29`
+  (`docs/planning/decisions/L1-beacon-memory.md` §6 U1, §11 item 1):
+  - U1: whether Claude Code reports a `notifications/claude/channel` delivery through
+    `UserPromptSubmit`, its `claude_code.user_prompt` OTLP event, or a non-meta `user`
+    session-file entry (any of which Beacon records verbatim as `prompt.submitted`), and
+    whether Codex logs `codex.user_prompt` or writes a `user` rollout message for input
+    sent with `thread/queue/add` / `turn/start`. Beacon's side is confirmed from source;
+    the open half is harness behaviour. OAC's outbound tool-call arguments are confirmed
+    captured (L1 §11 item 1).
 
-  Owner: L2 (Epic L #165, timeboxed desk-plus-live spike). See
-  `docs/planning/v0.1/11-risks.md` rows 53-56 (`RISK-BEACON`).
+  Owner: backlog L3, the operator-run live leg in L1 §12 (never in CI). See
+  `docs/planning/v0.1/11-risks.md` row 53 (`RISK-BEACON`). **Closed by L2** (L1 §11,
+  citations there, `path@v1.3.29`, retrieved 2026-09-29): U2 memory ID and
+  memory-tool result shape (CONFIRMED; row 54), U3 `memory.db` concurrency (CONFIRMED:
+  SQLite WAL with a 5 s busy timeout, from source; row 55), U4 config collision with
+  OAC's launch paths (REFUTED: no shared key; row 56).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to
