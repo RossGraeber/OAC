@@ -91,9 +91,9 @@ export async function harnessVersions(harnesses, { env = process.env, deadlineMs
 // shell inside a Claude Code session, these would reach the harness under test through the
 // herdr server and pane: it would run as that session's child (no transcript, its permission
 // mode) and could reach models through the enclosing app's relay (ANTHROPIC_BASE_URL) instead
-// of its own sign-in (README "Reuse contract" point 6). Other ANTHROPIC_* variables, e.g. an
-// operator's own ANTHROPIC_API_KEY, are the operator's sign-in and are kept (operator decision
-// on #163).
+// of its own sign-in (README "Reuse contract" point 6). No other ANTHROPIC_* variable is
+// matched: those belong to the operator and pass through untouched (operator decision on
+// #163).
 export const HOST_HARNESS_ENV = /^(?:CLAUDECODE|CLAUDE_CODE_.*|CLAUDE_PID|CLAUDE_AGENT_SDK_.*|CLAUDE_PREVIEW_.*|ANTHROPIC_BASE_URL)$/i;
 
 // The env the driver hands to every herdr process: the operator's environment unchanged,

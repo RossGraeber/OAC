@@ -190,7 +190,8 @@ directory, and strips any inherited `HERDR_*` variable from herdr's environment.
 strips an enclosing Claude Code session's variables (`CLAUDECODE`, `CLAUDE_CODE_*`,
 `CLAUDE_PID`, `CLAUDE_AGENT_SDK_*`, `CLAUDE_PREVIEW_*`, `ANTHROPIC_BASE_URL`), so a harness
 started from a shell inside Claude Code doesn't run as that session's child or through its
-relay. It records their names and a finding (#163). Your own `ANTHROPIC_API_KEY` is kept.
+relay. It records their names and a finding (#163). No other `ANTHROPIC_*` variable is
+touched.
 For a run you intend to record, start the driver from a standalone terminal anyway. When a
 scenario waits for you to accept a dialog, it prints the session name and the command to
 attach (`herdr session attach <session>`). Never run herdr's command that writes hooks into

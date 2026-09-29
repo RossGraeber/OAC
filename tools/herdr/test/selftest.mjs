@@ -276,10 +276,10 @@ async function unitGuards() {
   const { env, delta } = herdrLaunchEnv({ PATH: '/bin', HERDR_SOCKET_PATH: '/x.sock', HERDR_SESSION: 's', herdr_log: 'debug' }, '/tmp/cfg.toml');
   check('guard: inherited HERDR_* stripped from the herdr launch env', !('HERDR_SOCKET_PATH' in env) && !('HERDR_SESSION' in env) && !('herdr_log' in env) && env.HERDR_CONFIG_PATH === '/tmp/cfg.toml' && env.PATH === '/bin' && delta.removed.length === 3);
   // #163: an enclosing Claude Code session's variables never reach the harness under test;
-  // the operator's own ANTHROPIC_API_KEY (a sign-in) is kept.
-  const host = { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_MESSAGING_TOKEN: 't', CLAUDE_PID: '9', CLAUDE_AGENT_SDK_VERSION: 'x', CLAUDE_PREVIEW_CLASSIFIER_FLOOR: 'y', ANTHROPIC_BASE_URL: 'http://127.0.0.1:1', ANTHROPIC_API_KEY: 'k', CLAUDE_CONFIG_DIR: '/c' };
+  // other ANTHROPIC_* variables and CLAUDE_CONFIG_DIR are the operator's and pass through.
+  const host = { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_MESSAGING_TOKEN: 't', CLAUDE_PID: '9', CLAUDE_AGENT_SDK_VERSION: 'x', CLAUDE_PREVIEW_CLASSIFIER_FLOOR: 'y', ANTHROPIC_BASE_URL: 'http://127.0.0.1:1', ANTHROPIC_LOG: 'debug', CLAUDE_CONFIG_DIR: '/c' };
   const h = herdrLaunchEnv(host, '/tmp/cfg.toml');
-  check('guard #163: host Claude Code session variables and ANTHROPIC_BASE_URL are stripped, names recorded; ANTHROPIC_API_KEY and CLAUDE_CONFIG_DIR are kept', ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_PREVIEW_CLASSIFIER_FLOOR', 'ANTHROPIC_BASE_URL'].every((k) => !(k in h.env) && h.delta.removed.includes(k)) && h.env.ANTHROPIC_API_KEY === 'k' && h.env.CLAUDE_CONFIG_DIR === '/c' && !JSON.stringify(h.delta).includes('http://127.0.0.1:1'), JSON.stringify(h.delta));
+  check('guard #163: host Claude Code session variables and ANTHROPIC_BASE_URL are stripped, names recorded; other ANTHROPIC_* and CLAUDE_CONFIG_DIR pass through', ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_PREVIEW_CLASSIFIER_FLOOR', 'ANTHROPIC_BASE_URL'].every((k) => !(k in h.env) && h.delta.removed.includes(k)) && h.env.ANTHROPIC_LOG === 'debug' && h.env.CLAUDE_CONFIG_DIR === '/c' && !JSON.stringify(h.delta).includes('http://127.0.0.1:1'), JSON.stringify(h.delta));
 
   const base = mkdtempSync(join(tmpdir(), 'oac-herdr-unit-'));
   try {
