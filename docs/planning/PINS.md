@@ -86,7 +86,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
-| herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior UNVERIFIED — provisional go, live leg NOT RUN, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
+| herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior verified on Windows 2026-09-28 (K1 go on Windows), Linux and macOS UNVERIFIED, overall go provisional, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
 
 ## Pin records
 
@@ -582,12 +582,12 @@ semver, and are recorded verbatim — never reformatted.
   and https://github.com/herdrdev/herdr/blob/v0.9.1/Cargo.toml (`license =
   "Apache-2.0"`), retrieved 2026-09-28. It is recorded as dev/test tooling, not shipped,
   in `docs/planning/v0.1/07-repository-and-dependencies.md` §5.
-- **Live behavior UNVERIFIED.** No herdr behavior at this pin has been observed. K1's
-  go/no-go is **provisional — pending live confirmation**, and its live leg is
-  **NOT RUN**. That covers named-session start, `agent start` argv/cwd, the timeout
-  options, dialog readability, Codex's post-response state, the launch-environment
-  delta, and per-OS support (Linux, macOS, Windows are herdr's documentation claim
-  only). See `docs/planning/decisions/K1-herdr-evaluation.md` §5-§7 and
+- **Live behavior verified on Windows only.** K1's live leg ran on native Windows on
+  2026-09-28 (herdr 0.9.1, Claude Code 2.1.283, Codex 0.158.0) and hit no no-go condition:
+  named-session start, `agent start` argv/cwd, the timeout options, dialog readability,
+  Codex's post-response state and the launch-environment delta were observed. Linux and
+  macOS (herdr's documentation claim only) are UNVERIFIED, so K1's overall go/no-go is
+  **provisional**. See `docs/planning/decisions/K1-herdr-evaluation.md` §5-§7 and
   `docs/planning/STATUS.md` "Open UNVERIFIED items".
 - **Gates affected: none.** No `G<n>-result.md` verdict depends on this row. Human-operated
   gate spikes remain the authoritative verification method (Epic K #123). A move of
