@@ -218,6 +218,22 @@ are an exception to this file's C1/C2/C4-only sourcing rule above.
 |---|---|---|---|---|---|---|
 | herdr | `v0.9.1` (commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`) | Apache-2.0 | Terminal multiplexer that test tooling uses to drive real harness CLI sessions for scripted gate re-runs and opt-in integration runs (Epic K #123) | **No** — dev/test tooling only, never CI-default | K1 §2-§3 (live behavior UNVERIFIED; K1's go/no-go is provisional pending live confirmation) | Test tooling outside product paths only (Epic K driver) |
 
+### External services — not shipped (outside this inventory)
+
+The service below is recorded here only so its license is on file. It is **not** a
+dependency of the `oac` binary. It is not part of the §5 table,
+not counted in §6's copyleft flag, and not covered by §7's Apache-2.0 verdict. The
+operator installs it separately, and each harness connects to it natively over its own
+MCP configuration. It is never imported by, linked into, vendored into, spawned from or
+configured by `core/`, `spec/`, `adapters/*`, `transports/zenoh/` or `cli/`. Its
+facts come from `docs/planning/decisions/L1-beacon-memory.md` §2-§3 and
+`docs/planning/PINS.md` "Beacon (external memory service)". They are cited, not
+re-derived, and are an exception to this file's C1/C2/C4-only sourcing rule above.
+
+| Tool | Version | License | Why needed | Shipped? | Source decision | Used from |
+|---|---|---|---|---|---|---|
+| Beacon (agent-beacon) | `v1.3.29` (commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`) | MIT | Optional external memory service a harness may use beside OAC sessions (Epic L #165). OAC does not need it and does not use it | **No** — external service each harness connects to natively; OAC never imports, links, vendors, spawns or configures it | L1 §2-§3 (four facts UNVERIFIED, L1 §6) | Nowhere in OAC. Harness MCP configuration only, owned by the harness and the operator |
+
 ---
 
 ## 6. Copyleft flag
@@ -282,6 +298,7 @@ Per `oac-evidence` §4/§5, one label per surface this file names:
 | `interprocess` | supported | General-purpose, actively maintained; not a preview/experimental provider surface (C2 §10) |
 | `age` | supported | Actively maintained reference implementation of a published format (C4-session-identity.md line 677) |
 | herdr (dev/test tooling, not shipped — §5 "Dev/test tooling") | supported | herdr's own documented CLI. Live behavior at `v0.9.1` is UNVERIFIED (`docs/planning/decisions/K1-herdr-evaluation.md` §9) |
+| Beacon (external service, not shipped — §5 "External services") | supported | Beacon's own documented local MCP server and `beacon memory` CLI at `v1.3.29`, reached by harnesses only. Four facts UNVERIFIED (`docs/planning/decisions/L1-beacon-memory.md` §6, §7) |
 
 **Open UNVERIFIED items carried forward, not re-opened.** Per `docs/planning/
 STATUS.md`, the ledger of record:

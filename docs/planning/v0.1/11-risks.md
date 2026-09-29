@@ -547,6 +547,35 @@ list.
   before any harness run, per `docs/planning/gates/herdr-runner.md` §1 and §7. If that
   cannot be done, do not register the runners and keep scripted runs local (row 52).
 
+### RISK-BEACON — Beacon external memory service: fast-moving upstream, older MCP revision, four facts unverified
+
+- **Risk.** Beacon (agent-beacon), the external memory service Epic L documents beside
+  OAC sessions, is pinned at `v1.3.29` (fixed) but ships often: `v1.3.27`, `v1.3.28`
+  and `v1.3.29` are consecutive recent tags, and branch head had already renamed its
+  hosted service between the tag and 2026-09-29
+  (`docs/planning/decisions/L1-beacon-memory.md` §2). The pin stays fixed only while
+  Beacon's opt-in package self-updates (off by default) stay off (L1 §2). Its local MCP
+  server advertises an older MCP protocol revision, `2024-11-05`, which predates OAC's
+  "MCP — legacy era" pin `2025-11-25` (L1 §6). Four facts are UNVERIFIED at the pin (L1 §6,
+  rows 53-56): whether Beacon's capture records OAC-delivered input, the stability of
+  the memory ID and memory-tool results, concurrent `memory.db` access, and whether
+  Beacon's Codex configuration writes collide with OAC's Codex adapter launch.
+- **What it invalidates.** Nothing in v0.1. Beacon is an external service, never
+  shipped or called by OAC, with `Gates affected: none` (`docs/planning/PINS.md`
+  "Beacon (external memory service)"). No spec text depends on it: L1 chose docs-only
+  (L1 §4 Q1). A drift costs only Epic L's docs (L5), threat rows (L4) and opt-in
+  scenario (L6). If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
+- **Early-warning signal.** A new Beacon release tag appears; a cited Beacon doc
+  changes at a new tag; L2's live leg shows OAC-delivered input in Beacon's
+  `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.
+- **Response.** On a new tag, re-read L1 §6 and every L1 §10 citation at it before moving
+  the PINS.md row (`oac-evidence` §7). L2 runs the four items to a closed or refuted
+  state and records the Beacon version it ran on. If U1 confirms capture, L4's threat
+  rows carry it as a residual; L1 §4 Q3's Local / Metadata-only recommendation already
+  limits forwarding but not local capture. If U4 finds a collision, record it as a
+  finding against the Codex adapter's launch design, not a workaround
+  (`docs/planning/STATUS.md` "Open UNVERIFIED items").
+
 ## Traceability — every `docs/planning/STATUS.md` "Open UNVERIFIED items" entry
 
 Mechanical proof for issue #32's first acceptance box: every entry in
@@ -582,14 +611,20 @@ literally named `source`) and 48 (`turn/start.additionalContext`) are informatio
 exploratory and are **not** tracked in STATUS.md at all, under C13 or otherwise. This
 table's own "every entry disposed of here" claim (above) is scoped to STATUS.md's "Open
 UNVERIFIED items" list specifically, which rows 45-48 are not members of — noted here
-rather than silently overclaimed. The table is therefore 48 rows: of rows 1-44 (the ones
+rather than silently overclaimed. The table is therefore 56 rows: of rows 1-44 (the ones
 that do correspond to STATUS.md's "Open UNVERIFIED items" list), 42 are still listed
 there (row 31 among them, confirmed not a risk, but kept as a correction note per that
 row's own text) and 2 are closed (rows 32, 40); rows 45-48 are additional risk-table
 entries, tracked (45-46) or untracked (47-48) in STATUS.md as described above. Every row
 carries a risk id, except row 31 (which cites the
 evidence that confirmed it), row 32 (closed, cites its own closing evidence), and row 40
-(closed, cites its own closing evidence). No cell is blank.
+(closed, cites its own closing evidence). No cell is blank. Rows 49-52 were added after
+rows 45-48 (G1 mid-turn batching, Codex `turn/start`/`thread/queue/add` event
+subscription, herdr's non-Windows live legs, and the K6 self-hosted-runner exposure);
+each cell carries its own disposition. Rows 53-56 were added
+2026-09-29 from L1 (issue #166): the four Beacon facts left UNVERIFIED at pin `v1.3.29`
+(`docs/planning/decisions/L1-beacon-memory.md` §6), all under `RISK-BEACON` and all
+listed in STATUS.md's "Open UNVERIFIED items" as one L1 entry.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -645,6 +680,10 @@ evidence that confirmed it), row 32 (closed, cites its own closing evidence), an
 | 50 | Whether `turn/start` and `thread/queue/add` subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`, `thread/resume`, and `thread/fork` are source-confirmed to (`codex-rs/app-server/src/request_processors/thread_processor.rs` L1562-1580, L4009-4015, L5227), is UNVERIFIED — inferred only from the same file's request-handling structure not carrying an equivalent "Auto-attach a thread listener" call near either handler; not directly source-confirmed. From D6/T5-T7 (issue #39), `oac-codex-appserver/references/thread-lifecycle.md` | RISK-CODEX-EXPERIMENTAL |
 | 51 | herdr `v0.9.1` (Epic K test tooling) live behavior verified on Windows only (2026-09-28: go, no §8 no-go condition hit); Linux and macOS live legs NOT RUN, so K1's overall go/no-go is provisional. Windows findings for the driver: Codex reports `idle` on its trust dialog, the "`unknown` after a response" premise did not reproduce, the server inherits the launching shell's env, `agent read`/`agent send-keys` have no timeout option. Per-OS support (from K1, issue #124, `docs/planning/decisions/K1-herdr-evaluation.md`) | RISK-HERDR |
 | 52 | The K6 opt-in workflow (`.github/workflows/herdr-provider-optin.yml`) runs on operator-owned self-hosted runners that hold a logged-in harness, in a **public** repository. GitHub's guidance is that self-hosted runners "should almost never be used for public repositories", and that fork-PR approval policies are not a protection for them. A fork's pull request can retarget any PR-triggered workflow at those runners, and a collaborator with write access can dispatch a modified branch. The runner-side pre-job hook (`tools/herdr/runner-hooks/`) refuses both, but it is UNVERIFIED on a real runner (bash logic self-tested; PowerShell 7 run by the K6 review; Windows PowerShell 5.1 untested; a compromised admitted job can unset it via the runner's `.env`). No runner is registered and no dispatch has run, so the workflow itself is also UNVERIFIED live (from K6, issue #129, `docs/planning/gates/herdr-runner.md` §1 and §6) | RISK-HERDR |
+| 53 | Whether Beacon's Claude Code capture (hooks/OTLP) records the content of an OAC channel notification delivered into the session, or only harness-visible tool/prompt events; same open question for input OAC's Codex adapter delivers. No first-party statement at Beacon `v1.3.29` (from L1, issue #166, `docs/planning/decisions/L1-beacon-memory.md` §6 U1) | RISK-BEACON |
+| 54 | The exact shape and stability of Beacon's memory item ID and of `get_memory` / `get_memory_context` results across releases. Docs at `v1.3.29` show tools and skill provenance keys, no versioned response schema (from L1, issue #166, L1 §6 U2) | RISK-BEACON |
+| 55 | Whether one Beacon `memory.db` can be read by several harness sessions concurrently without a documented locking model. Not stated at `v1.3.29` (from L1, issue #166, L1 §6 U3) | RISK-BEACON |
+| 56 | Whether Beacon's Codex integration (`beacon endpoint install` writes OTLP exporter tables to `~/.codex/config.toml`; hooks to `~/.codex/hooks.json`; `beacon mcp connect` edits one `beacon-managed` entry) conflicts with OAC's Codex adapter launch. OAC's launch path is not built (from L1, issue #166, L1 §6 U4) | RISK-BEACON |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 
