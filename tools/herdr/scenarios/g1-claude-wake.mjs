@@ -76,7 +76,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
 import {
   G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
-  formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText,
+  formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText, sameDialog, acceptHint,
   COMMITTED_SERVER_SHA256, PINS_PATH,
 } from '../lib/g1.mjs';
 
@@ -298,23 +298,30 @@ export default {
       const before = herdr.commands.length;
       console.error(
         `\n[g1-claude-wake] dialog ${d.index} (${kind}) is on screen; its text is recorded (herdr command #${r.seq}).\n` +
-          `  Accept it yourself: attach with \`herdr session attach ${ctx.sessionName}\` and press Enter, or run \`herdr --session ${ctx.sessionName} agent send-keys ${AGENT} enter\`.\n` +
+          acceptHint({ sessionName: ctx.sessionName, agent: AGENT, kind, selected: r.screen.selected }) +
           `  The driver sends no keystroke to it and waits up to ${num('humanAcceptTimeoutMs')} ms.\n`,
       );
-      const was = normalizeDialogText(r.text);
       const waitStart = Date.now();
       const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
+      d.redrawSeqs = [];
+      let shown = normalizeDialogText(r.text);
       try {
         for (;;) {
           if (Date.now() >= deadline) stop(`dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
           await sleep(pollMs);
           const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
-          if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
-            d.acceptOrigin = 'human';
-            d.resolvedSeq = p.seq;
-            d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
-            return;
+          // A redraw of the same dialog (resize on attach, scroll, moved selection) is not an
+          // answer to it (#160): recorded, and the wait goes on.
+          if (sameDialog(r.text, p, kind)) {
+            const now = normalizeDialogText(p.text);
+            if (now !== shown) d.redrawSeqs.push(p.seq);
+            shown = now;
+            continue;
           }
+          d.acceptOrigin = 'human';
+          d.resolvedSeq = p.seq;
+          d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
+          return;
         }
       } finally {
         d.humanWaitMs = Date.now() - waitStart;

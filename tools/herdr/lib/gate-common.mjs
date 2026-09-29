@@ -12,7 +12,7 @@ import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join } from 'node:path';
 
-import { committedFile, sha256, formatSection, normalizeDialogText } from './g1.mjs';
+import { committedFile, sha256, formatSection, normalizeDialogText, sameDialog, acceptHint } from './g1.mjs';
 import { NotRunError } from './herdr.mjs';
 
 export class CriteriaDriftError extends Error {}
@@ -152,13 +152,12 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
       d.acceptSeq = res.entry.seq;
       d.inputBetweenReadAndAccept = herdr.commands.filter((c) => c.seq > r.seq && c.seq < res.entry.seq && INPUT_ROLES.has(c.role)).length;
       // Never a second keystroke into the same dialog: wait (bounded) for the screen to leave
-      // it before anything else reads it as a new one.
-      const was = normalizeDialogText(r.text);
+      // it before anything else reads it as a new one. A redraw of it is not leaving (#160).
       const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
       for (;;) {
         await sleep(num('pollMs'));
         const p = await read(`dialog-${d.index}-after-accept`, { keep: 'on-change' });
-        if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
+        if (!sameDialog(r.text, p, kind, dialogKinds)) {
           d.resolvedSeq = p.seq;
           return;
         }
@@ -168,23 +167,29 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     const before = herdr.commands.length;
     console.error(
       `\n[${name}] ${label} dialog ${d.index} (${kind}) is on screen; its text is recorded (herdr command #${r.seq}).\n` +
-        `  Accept it yourself: attach with \`herdr session attach ${ctx.sessionName}\` and press Enter, or run \`herdr --session ${ctx.sessionName} agent send-keys ${name} enter\`.\n` +
+        acceptHint({ sessionName: ctx.sessionName, agent: name, kind, selected: r.screen.selected, dialogKinds }) +
         `  The driver sends no keystroke to it and waits up to ${num('humanAcceptTimeoutMs')} ms.\n`,
     );
-    const was = normalizeDialogText(r.text);
     const waitStart = Date.now();
     const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
+    d.redrawSeqs = [];
+    let shown = normalizeDialogText(r.text);
     try {
       for (;;) {
         if (Date.now() >= deadline) stop(`${label} dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
         await sleep(num('pollMs'));
         const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
-        if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
-          d.acceptOrigin = 'human';
-          d.resolvedSeq = p.seq;
-          d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
-          return;
+        // A redraw of the same dialog is not an answer to it (#160): recorded, wait goes on.
+        if (sameDialog(r.text, p, kind, dialogKinds)) {
+          const now = normalizeDialogText(p.text);
+          if (now !== shown) d.redrawSeqs.push(p.seq);
+          shown = now;
+          continue;
         }
+        d.acceptOrigin = 'human';
+        d.resolvedSeq = p.seq;
+        d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
+        return;
       }
     } finally {
       d.humanWaitMs = Date.now() - waitStart;

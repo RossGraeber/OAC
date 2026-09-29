@@ -79,7 +79,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, codexPinMoveTrigger, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
-import { committedFile, formatSection } from '../lib/g1.mjs';
+import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, processArgv, codexLaunchProof, parseG2Transcript,
@@ -308,23 +308,29 @@ export default {
       const before = herdr.commands.length;
       console.error(
         `\n[g2-codex-inject] dialog ${d.index} (${kind}) is on screen; its text is recorded (herdr command #${r.seq}).\n` +
-          `  Accept it yourself: attach with \`herdr session attach ${ctx.sessionName}\` and press Enter, or run \`herdr --session ${ctx.sessionName} agent send-keys ${AGENT} enter\`.\n` +
+          acceptHint({ sessionName: ctx.sessionName, agent: AGENT, kind, selected: r.screen.selected, dialogKinds: CODEX_DIALOG_KINDS }) +
           `  The driver sends no keystroke to it and waits up to ${num('humanAcceptTimeoutMs')} ms.\n`,
       );
-      const was = normalizeDialogText(r.text);
       const waitStart = Date.now();
       const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
+      d.redrawSeqs = [];
+      let shown = normalizeDialogText(r.text);
       try {
         for (;;) {
           if (Date.now() >= deadline) stop(`dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
           await sleep(pollMs);
           const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
-          if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
-            d.acceptOrigin = 'human';
-            d.resolvedSeq = p.seq;
-            d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
-            return;
+          // A redraw of the same dialog is not an answer to it (#160): recorded, wait goes on.
+          if (sameDialog(r.text, p, kind, CODEX_DIALOG_KINDS)) {
+            const now = normalizeDialogText(p.text);
+            if (now !== shown) d.redrawSeqs.push(p.seq);
+            shown = now;
+            continue;
           }
+          d.acceptOrigin = 'human';
+          d.resolvedSeq = p.seq;
+          d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
+          return;
         }
       } finally {
         d.humanWaitMs = Date.now() - waitStart;

@@ -146,9 +146,12 @@ export const DIALOG_KINDS = Object.freeze({
     verified: 'herdr run 2026-09-29, Claude Code v2.1.283 on Windows (#156); "No, exit" is preselected, so the driver never accepts it',
   },
   'mcp-server-approval': {
-    detect: /New MCP server(?:s)? found in \.mcp\.json|MCP servers? (?:found|defined) in \.mcp\.json/i,
+    detect: /New MCP servers? found in (?:this project|\.mcp\.json)|MCP servers? (?:found|defined) in \.mcp\.json/i,
     acceptOption: /^Use this(?: and all future)? MCP server/i,
-    verified: null, // UNVERIFIED: G1 Box C reported no such dialog (trust already established)
+    // Seen live (#161): "New MCP server found in this project: g1spike", unnumbered options
+    // "Use this MCP server" / "Use this and all future MCP servers in this project" /
+    // "Continue without using this MCP server" (the last selected on first read).
+    verified: 'herdr run 2026-09-29, Claude Code v2.1.283 on Windows (#161)',
   },
   'tool-permission': {
     detect: /Do you want to (?:proceed|allow|make this edit)|Allow (?:this )?tool/i,
@@ -215,6 +218,41 @@ export function normalizeDialogText(s) {
     .replace(/(^|\s)>(?=\s)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// The dialog's own text: from the start of the line its kind's detect pattern matches (or,
+// for an unrecognized dialog, the whole screen) to the end of its footer ("Enter to confirm
+// …"), with box drawing, selection markers and ALL whitespace removed. A re-wrap (an attach
+// resizes the pane), a scroll of lines above the dialog, or a moved selection leaves it
+// unchanged; a different dialog does not (#160).
+export function dialogBody(text, kind, dialogKinds = DIALOG_KINDS) {
+  const s = String(text ?? '');
+  const m = dialogKinds[kind]?.detect.exec(s);
+  const start = m ? s.lastIndexOf('\n', m.index) + 1 : 0;
+  const rest = s.slice(start);
+  const foot = /(?:Press )?Enter to (?:confirm|continue)[^\n]*|Esc to (?:cancel|exit)[^\n]*|\(y\/n\)[^\n]*/i.exec(rest);
+  const body = foot ? rest.slice(0, foot.index + foot[0].length) : rest;
+  return normalizeDialogText(body).replace(/\s+/g, '');
+}
+
+// Is `after` (a classified read) still the dialog first read as `beforeText`? Only then is a
+// changed screen NOT the dialog being answered (#160).
+export function sameDialog(beforeText, after, kind, dialogKinds = DIALOG_KINDS) {
+  return after.screen.dialog === kind && dialogBody(after.text, kind, dialogKinds) === dialogBody(beforeText, kind, dialogKinds);
+}
+
+// What the operator is told while the driver waits for a human accept (#162). "Press Enter"
+// only when the preselected option is the kind's accepting one; otherwise the operator is
+// told what is preselected and to move the selection first.
+export function acceptHint({ sessionName, agent, kind, selected, dialogKinds = DIALOG_KINDS }) {
+  const def = dialogKinds[kind];
+  const sel = selected ? `"${selected.number == null ? '' : `${selected.number}. `}${selected.text}"` : 'none found';
+  const attach = `herdr session attach ${sessionName}`;
+  if (def && selected && def.acceptOption.test(selected.text)) {
+    return `  Preselected: ${sel}, the accepting option. Accept it yourself: attach with \`${attach}\` and press Enter, or run \`herdr --session ${sessionName} agent send-keys ${agent} enter\`.\n`;
+  }
+  const why = def ? `, which is NOT this dialog's accepting option` : ' (dialog not recognized)';
+  return `  Preselected: ${sel}${why}. Do not just press Enter: attach with \`${attach}\`, read the dialog, move the selection to the option you mean, then press Enter.\n`;
 }
 
 export function dialogMatchesBoxC(text) {

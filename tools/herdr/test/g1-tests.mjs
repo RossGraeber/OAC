@@ -22,7 +22,7 @@ import { compareTranscripts, diffSequences, formatDiff, parseTranscript, selectS
 import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger } from '../lib/pins.mjs';
 import {
   BOX_C_TRANSCRIPT, COMMITTED_SERVER, FIXTURE_DIR, G1_LAUNCH, classifyScreen, driverMayAccept, dialogMatchesBoxC, formatSection, parseSections,
-  fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256, selectedOption,
+  fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256, selectedOption, sameDialog, acceptHint,
 } from '../lib/g1.mjs';
 import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, versionsVerified } from '../lib/g1-report.mjs';
 import { assertNotInjected, DEFAULT_PROMPTS, operatorProjectDir } from '../scenarios/g1-claude-wake.mjs';
@@ -195,6 +195,37 @@ export function g1Unit(check) {
   const trustYes = classifyScreen(TRUST.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I trust', ' ❯ Yes, I trust'));
   check('g1: with "Yes" preselected, the driver may accept it', trustYes.selected?.text === 'Yes, I trust this folder' && driverMayAccept(trustYes).ok);
   check('g1: a numbered selection wins over an unnumbered line; ">" and "*" never mark an unnumbered option', classifyScreen(`${dialog}\n › stray`).selected?.number === 1 && selectedOption('Enter to confirm\n> Yes\n* Yes') === null);
+  // #160: the same trust dialog after an attach resized the pane (live run, seq 12 -> seq 33):
+  // re-wrapped, and the shell lines above it scrolled off. Still the same dialog.
+  const SHELL = 'PS <PROJECT>> C:\\nvm4w\\nodejs\\node.exe <REPO>\\tools\\herdr\\lib\\env-probe.mjs <USER_HOME>\\\nENVPROBE-OK-1\n\n';
+  const TRUST_REWRAPPED = [
+    ' Accessing workspace:', '', ' <PROJECT>', '',
+    ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a',
+    ' well-known open source project, or work from your team). If not, take a moment to review',
+    " what's in this folder first.", '',
+    " Claude Code'll be able to read, edit, and execute files here.", '', ' Security guide', '',
+    ' ❯ No, exit', '   Yes, I trust this folder', '', ' Enter to confirm · Esc to cancel',
+  ].join('\n');
+  const asRead = (text) => ({ text, screen: classifyScreen(text) });
+  check('g1 #160: a re-wrapped, scrolled redraw of the same dialog is the same dialog (not an answer to it)', sameDialog(SHELL + TRUST.replace('<SCRATCH>\\g1-project', '<PROJECT>'), asRead(TRUST_REWRAPPED), 'workspace-trust'));
+  check('g1 #160: a moved selection is still the same dialog', sameDialog(TRUST, asRead(TRUST.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I trust', ' ❯ Yes, I trust')), 'workspace-trust'));
+  check('g1 #160: the dialog gone, or a different dialog, is not the same dialog', !sameDialog(TRUST, asRead('╭───╮\n│ > │\n╰───╯\n  ? for shortcuts'), 'workspace-trust') && !sameDialog(TRUST, asRead(dialog), 'workspace-trust') && !sameDialog(TRUST, asRead(TRUST.replace('Security guide', 'Security guide v2')), 'workspace-trust'));
+  // #161: the project MCP-server dialog as captured live (seq 47, first read).
+  const MCP = [
+    '  New MCP server found in this project: g1spike', '',
+    '  MCP servers may execute code or access system resources. All tool calls require approval.',
+    '  Learn more in the MCP documentation.', '',
+    '    Use this MCP server', '    Use this and all future MCP servers in this project',
+    '  ❯ Continue without using this MCP server', '', '  Enter to confirm · Esc to cancel',
+  ].join('\n');
+  const mcpCls = classifyScreen(MCP);
+  check('g1 #161: the live MCP-server dialog is recognized; "Continue without…" preselected, so the driver refuses it', mcpCls.dialog === 'mcp-server-approval' && mcpCls.selected?.text === 'Continue without using this MCP server' && !driverMayAccept(mcpCls).ok, JSON.stringify(mcpCls));
+  const mcpUse = classifyScreen(MCP.replace('  ❯ Continue', '    Continue').replace('    Use this MCP server', '  ❯ Use this MCP server'));
+  check('g1 #161: with "Use this MCP server" preselected, the driver may accept it', mcpUse.selected?.text === 'Use this MCP server' && driverMayAccept(mcpUse).ok);
+  // #162: the human-accept hint.
+  const hint = (t) => { const c = classifyScreen(t); return acceptHint({ sessionName: 's1', agent: 'a1', kind: c.dialog, selected: c.selected }); };
+  check('g1 #162: when the preselected option declines, the hint names it and never suggests pressing Enter or send-keys enter', /Preselected: "No, exit", which is NOT/.test(hint(TRUST)) && /Do not just press Enter/.test(hint(TRUST)) && !/send-keys/.test(hint(TRUST)) && !/send-keys/.test(hint(MCP)), hint(TRUST));
+  check('g1 #162: when the preselected option accepts, the hint offers Enter and send-keys enter; an unknown dialog gets the careful hint', /the accepting option/.test(hint(dialog)) && /herdr --session s1 agent send-keys a1 enter/.test(hint(dialog)) && /herdr session attach s1/.test(hint(dialog)) && /not recognized/.test(hint('Something new\n❯ 1. Continue\nEnter to confirm · Esc to cancel')) && !/send-keys/.test(hint('Something new\n❯ 1. Continue\nEnter to confirm · Esc to cancel')));
   // #155: herdr's agent start --timeout maximum.
   check('herdr: the agent-start readiness timeout cap is herdr v0.9.1\'s documented maximum', AGENT_START_MAX_TIMEOUT_MS === 300000);
 
