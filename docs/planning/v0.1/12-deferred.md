@@ -128,7 +128,10 @@ model router").
   (`docs/planning/ADR-001.md` line 24, `docs/planning/DESIGN.md` line 15). Each
   harness keeps its own context; OAC's neutral types
   (`docs/planning/v0.1/05-interfaces.md` §14) carry no session-context payload,
-  only messages, identity, and delivery state.
+  only messages, identity, and delivery state. OAC as a shared memory layer
+  (storing, fetching, attaching or injecting memory such as Beacon's) is
+  boundary, not backlog: each harness reaches such a service natively, and OAC
+  never touches it (`docs/planning/decisions/L1-beacon-memory.md` §1, §5).
 - **Replacement provider auth.** OAC MUST NOT steal or reuse another harness's
   provider credentials (`docs/planning/ADR-001.md` line 24); `docs/planning/DESIGN.md`
   line 15 names this "replacement provider auth." G2's own pass criteria require

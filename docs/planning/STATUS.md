@@ -4,6 +4,16 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-29 (**L5/issue #170 (Epic L #165): docs — running OAC sessions
+beside Beacon.** `docs/planning/v0.1/08-cli-and-deployment.md` gains §20 "Running beside
+an external memory service (Beacon)": the operator configures Beacon in each harness's own
+MCP config with Beacon's documented commands only, launches OAC with §7/§9's commands, puts
+memory IDs in message text (Q1), prefers Beacon Local mode or Metadata-only forwarding with
+local `runtime.jsonl` capture left as an open risk (Q3), and reads the scoping mismatch
+(Q4) and a "What OAC does not do" list. §6 states `oac doctor` has no Beacon check (Q2).
+`docs/planning/v0.1/12-deferred.md` §2 names OAC as a shared memory layer as boundary, not
+backlog. Docs only: no `cli/` path, pin, gate verdict or UNVERIFIED item changes.)
+
 **Last updated:** 2026-09-29 (**L4/issue #169 (Epic L #165): memory-reference doctrine
 and threat rows 21-23.** `docs/planning/v0.1/06-security.md` §2 states that a memory
 reference is sender-claimed content and resolved memory is untrusted text to the
