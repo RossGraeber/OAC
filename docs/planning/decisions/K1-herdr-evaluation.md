@@ -3,12 +3,14 @@
 **Issue:** #124 (Epic K #123, backlog key `K1`). **Depends on:** none. **Source:**
 issue #123 Phase 1; `docs/planning/backlog/06-tasks-K.json` key `K1`.
 
-**Status:** **Provisional go — pending live confirmation.** This is not a final verdict.
-The desk leg (first-party docs and source at the pinned tag) is complete and found no
-disqualifier. The live leg — every acceptance item that needs herdr driving a real,
-logged-in Claude Code or Codex session — is **NOT RUN**. The go/no-go becomes final only
-when the live leg in §6 has run and been recorded in this file. Issue #124 stays open
-until then.
+**Status:** **Go on Windows; provisional overall — Linux live leg still NOT RUN.** The desk
+leg found no disqualifier. The Windows live leg ran on 2026-09-28 (§7, §7.1) and hit none
+of the §8 no-go conditions: a headless named session, the G1 argv and the dialog text
+are readable before any keystroke, and no harness config was written by herdr. Success
+criterion 5 needs Linux as well, so the verdict is not final for Epic K until the §6
+checklist has run and been recorded for Linux. Issue #124 stays open until then. The
+Windows findings (§7.1) are driver requirements, not blockers: read the pane before every
+key, never score on herdr state, and start the server from a clean shell.
 
 **Why the live leg is NOT RUN.** This record was written by a cloud agent session with no
 herdr binary, no Claude Code install and no Codex install, and no harness login. Per

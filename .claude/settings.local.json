@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(herdr:*)",
+      "Bash(node tools/herdr/run.mjs:*)",
+      "Bash(node tools/herdr/lib/*:*)"
+    ]
+  }
+}

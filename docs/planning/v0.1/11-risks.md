@@ -512,14 +512,14 @@ list.
   first-party MQTT specification/broker documentation before any MQTT transport
   module is built (`docs/planning/v0.1/05-interfaces.md` §17).
 
-### RISK-HERDR — herdr test tooling's live behavior unverified
+### RISK-HERDR — herdr test tooling's live behavior unverified off Windows
 
 - **Risk.** herdr `v0.9.1`, the Epic K test-side driver for real harness CLI sessions,
-  has been evaluated only at the desk. Its live behavior is UNVERIFIED, and K1's go/no-go
-  is provisional pending live confirmation. The unobserved behaviors are named-session
-  start with no attached terminal, `agent start` argv/cwd, dialog readability before any
-  keystroke, Codex's post-response state, the launch-environment delta, and per-OS
-  support (`docs/planning/decisions/K1-herdr-evaluation.md` §5-§7).
+  was evaluated at the desk and then live on Windows on 2026-09-28 (go on Windows, none of
+  the §8 no-go conditions hit). Its live behavior on Linux and macOS is UNVERIFIED, so K1's
+  overall go/no-go is provisional. The Windows run also found driver hazards (Codex reads
+  `idle` on its trust dialog, inherited `CLAUDE_CODE_CHILD_SESSION`, three Claude startup
+  dialogs) recorded in `docs/planning/decisions/K1-herdr-evaluation.md` §7.1.
 - **What it invalidates.** Nothing in v0.1. herdr is dev/test tooling, never shipped,
   with `Gates affected: none` (`docs/planning/PINS.md` "herdr (test tooling)").
   Human-operated gate spikes remain authoritative. A no-go would cost only Epic K's
@@ -643,7 +643,7 @@ evidence that confirmed it), row 32 (closed, cites its own closing evidence), an
 | 48 | `turn/start.additionalContext` (`kind: "application"`) is a second, presently unused, machine-set-metadata carrier on Codex, distinct from the header-and-delimiter framing; exploratory only, not verdict-bearing (from G5 case X6) | RISK-G5 |
 | 49 | Whether mid-turn `notifications/claude/channel` deliveries batch together at a single tool-call boundary, or can arrive at separate boundaries one at a time, is UNVERIFIED as a guarantee (may depend on send timing). Original G1 PASS (`v2.1.282`) observed two notifications delivered together, between the same pair of tool calls; G1 Box C (`v2.1.283`, issue #39, 2026-09-28) observed two notifications, sent ~1.85s apart, delivered at two separate tool-call boundaries instead. Both agree on order-preserved, nothing dropped, nothing interleaved — only the batching claim is unconfirmed. `PLANNING-PROMPT.md` §3.1, `oac-claude-channels`, `oac-gates/references/G1-claude-wake.md`, and `docs/planning/v0.1/04-architecture.md` are each amended with a dated note, not silently rewritten (from G1 Box C, `docs/planning/gates/G1-result.md`) | RISK-CLAUDE-PREVIEW |
 | 50 | Whether `turn/start` and `thread/queue/add` subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`, `thread/resume`, and `thread/fork` are source-confirmed to (`codex-rs/app-server/src/request_processors/thread_processor.rs` L1562-1580, L4009-4015, L5227), is UNVERIFIED — inferred only from the same file's request-handling structure not carrying an equivalent "Auto-attach a thread listener" call near either handler; not directly source-confirmed. From D6/T5-T7 (issue #39), `oac-codex-appserver/references/thread-lifecycle.md` | RISK-CODEX-EXPERIMENTAL |
-| 51 | herdr `v0.9.1` (Epic K test tooling) live behavior UNVERIFIED — K1's live leg is NOT RUN, so K1's go/no-go is provisional pending live confirmation. Covers named-session start, `agent start` argv/cwd, the timeout options (`agent read`/`agent send-keys` have none, refuted at the desk), dialog readability before any keystroke, Codex's post-response state, the launch-environment delta, and per-OS support (from K1, issue #124, `docs/planning/decisions/K1-herdr-evaluation.md`) | RISK-HERDR |
+| 51 | herdr `v0.9.1` (Epic K test tooling) live behavior verified on Windows only (2026-09-28: go, no §8 no-go condition hit); Linux and macOS live legs NOT RUN, so K1's overall go/no-go is provisional. Windows findings for the driver: Codex reports `idle` on its trust dialog, the "`unknown` after a response" premise did not reproduce, the server inherits the launching shell's env, `agent read`/`agent send-keys` have no timeout option. Per-OS support (from K1, issue #124, `docs/planning/decisions/K1-herdr-evaluation.md`) | RISK-HERDR |
 | 52 | The K6 opt-in workflow (`.github/workflows/herdr-provider-optin.yml`) runs on operator-owned self-hosted runners that hold a logged-in harness, in a **public** repository. GitHub's guidance is that self-hosted runners "should almost never be used for public repositories", and that fork-PR approval policies are not a protection for them. A fork's pull request can retarget any PR-triggered workflow at those runners, and a collaborator with write access can dispatch a modified branch. The runner-side pre-job hook (`tools/herdr/runner-hooks/`) refuses both, but it is UNVERIFIED on a real runner (bash logic self-tested; PowerShell 7 run by the K6 review; Windows PowerShell 5.1 untested; a compromised admitted job can unset it via the runner's `.env`). No runner is registered and no dispatch has run, so the workflow itself is also UNVERIFIED live (from K6, issue #129, `docs/planning/gates/herdr-runner.md` §1 and §6) | RISK-HERDR |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)

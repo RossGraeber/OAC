@@ -4,8 +4,15 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-09-28 (**K1/issue #124 (Epic K #123): herdr evaluation, desk leg
-landed — provisional go, pending live confirmation; live leg NOT RUN.** The new file
+**Last updated:** 2026-09-28 (**K1/issue #124 (Epic K #123): Windows live leg run — go on
+Windows; overall stays provisional until the Linux leg runs.** The operator-run checklist
+(K1 §6, L0-L9) ran on native Windows with herdr 0.9.1, Claude Code 2.1.283 and Codex
+0.158.0 inside its 45-minute box, and hit none of the §8 no-go conditions. Results and
+eight driver-facing findings are in `docs/planning/decisions/K1-herdr-evaluation.md` §7 and
+§7.1. The two that matter most: Codex showed `idle` and `interactive_ready` while on its
+folder-trust dialog, and the "`unknown` after a response" premise did not reproduce
+(`done`, stable). Earlier K1 text follows. **K1/issue #124, desk leg:** provisional go,
+pending live confirmation. The new file
 `docs/planning/decisions/K1-herdr-evaluation.md` pins herdr at `v0.9.1`, fixed (tag
 `v0.9.1` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`, GitHub "Latest",
 retrieved 2026-09-28). It records the Apache-2.0 license and herdr's own per-OS
@@ -730,7 +737,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | Rust MCP SDK | `rmcp` `3.4.0` (2026-09-15); legacy revision `2025-11-25` supported and is the SDK's default | PINS.md — Rust MCP SDK (`rmcp`) |
 | `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
 | `serde_jcs` | `0.2.0`; RFC 8785 JCS canonicalization; MIT OR Apache-2.0 | PINS.md — `serde_jcs` |
-| herdr (test tooling) | `v0.9.1` (2026-09-16), fixed; Apache-2.0; dev/test tooling only, never shipped; gates affected: none; live behavior UNVERIFIED (K1 provisional go) | PINS.md — herdr (test tooling) |
+| herdr (test tooling) | `v0.9.1` (2026-09-16), fixed; Apache-2.0; dev/test tooling only, never shipped; gates affected: none; live behavior verified on Windows 2026-09-28, Linux and macOS UNVERIFIED (K1 go on Windows, provisional overall) | PINS.md — herdr (test tooling) |
 
 ## Decisions landed
 
@@ -819,10 +826,10 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   evidence: `docs/planning/decisions/C7-zenoh-transport.md`, which remains
   authoritative; cited (not copied) in `docs/planning/v0.1/03-decisions-and-amendments.md`
   decision 10 (Epic A task A4, landed) — this file is not a redirect stub.
-- **K1 — herdr evaluation (test tooling)** (issue #124, Epic K #123): **provisional go,
-  pending live confirmation; live leg NOT RUN.** herdr is pinned at `v0.9.1` (fixed,
+- **K1 — herdr evaluation (test tooling)** (issue #124, Epic K #123): **go on Windows
+  (live leg run 2026-09-28); provisional overall, Linux live leg NOT RUN.** herdr is pinned at `v0.9.1` (fixed,
   Apache-2.0) as dev/test tooling only, never shipped, with `Gates affected: none`. The
-  final go/no-go waits on the operator-run live checklist. Full record:
+  final go/no-go waits on the Linux live checklist. Full record:
   `docs/planning/decisions/K1-herdr-evaluation.md`. This is a test-tooling decision, not
   folded into `docs/planning/v0.1/03-decisions-and-amendments.md`.
 
@@ -1163,8 +1170,13 @@ without an UNVERIFIED label.
   `docs/planning/gates/G1-result.md` "Re-run attempt 2 (Box C)" and
   `docs/planning/v0.1/11-risks.md` row 49.
 - **New, from K1 (issue #124, 2026-09-28):** herdr `v0.9.1`'s live behavior is
-  UNVERIFIED. The K1 live leg is NOT RUN: the session that wrote the record had no herdr
-  binary and no logged-in harness. Open items:
+  verified on **Windows only** (live leg run 2026-09-28, K1 §7 and §7.1); Linux and macOS
+  are still UNVERIFIED. Closed on Windows: named-session start with no attached terminal,
+  `agent start` argv/cwd (claude is launched through a PowerShell wrapper), the timeout
+  options (`agent read`/`send-keys` list none), dialog readability before any keystroke,
+  Codex's post-response state (`done`, the `unknown` premise refuted), the launch-env
+  delta, and harness config (only operator-confirmed trust entries changed). Still open,
+  from the original list:
   - named-session start with no attached terminal;
   - `agent start --kind claude` / `--kind codex` argv and cwd, including `claude
     --dangerously-load-development-channels server:<name>`;
@@ -1180,7 +1192,8 @@ without an UNVERIFIED label.
   - per-OS support on Linux, macOS and Windows, which is herdr's documentation claim
     only.
 
-  K1's go/no-go is therefore provisional, not final. Owner: an operator-run live leg per
+  K1's go/no-go is therefore final for Windows and provisional overall. Owner: an
+  operator-run Linux live leg per
   `docs/planning/decisions/K1-herdr-evaluation.md` §6. See also
   `docs/planning/v0.1/11-risks.md` row 51 (`RISK-HERDR`).
 - **New, from K4 (issue #127, 2026-09-28):** the scripted G1 re-run through herdr is
