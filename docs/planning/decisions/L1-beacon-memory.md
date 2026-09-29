@@ -89,8 +89,9 @@ from issue #165 "What stays in bounds" and adjusted only where §4 Q1 closed an 
 - `[ADR-001 v0.1 scope]` defers "durable offline mailboxes" and "attachments".
   (`docs/planning/ADR-001.md` line 63.)
 - `[ADR-001 Boundary]` "MUST NOT steal or reuse another harness's provider
-  credentials" — read here as also covering any Beacon hosted-service OAuth session a
-  harness holds.
+  credentials" — read here as also covering any Beacon Cloud OAuth session a harness
+  holds. ("Beacon Cloud" is #165's branch-head name; the tag calls the same service
+  "Beacon Managed", §2 D1.)
 - `[ADR-001 Boundary]` "MUST NOT leak Zenoh-specific concepts into the neutral
   protocol."
 
@@ -124,12 +125,20 @@ memory on a peer's behalf.
   2026-09-29T06:18:22-04:00), which is newer than the tag and is not a release. A pin is
   a release. Every Beacon fact in this record was re-read **at `v1.3.29`**; two drifts
   between the tag and branch head are recorded below.
-- **Fixed, not floating.** Beacon is installed and upgraded by the operator through a
-  package manager ("Upgrade | `brew upgrade beacon`", `docs/get-started/quickstart.mdx`
-  L110 at `v1.3.29`). No first-party source at the tag describes a background
-  self-update. The pin can therefore hold a fixed version. It is still expected to move
-  often: `v1.3.27`, `v1.3.28` and `v1.3.29` are consecutive recent tags (§6,
-  `RISK-BEACON`).
+- **Fixed, not floating, while self-updates stay off.** Beacon is installed and upgraded
+  by the operator through a package manager ("Upgrade | `brew upgrade beacon`",
+  `docs/get-started/quickstart.mdx` L110 at `v1.3.29`). Beacon does ship a package
+  self-update, but it is off by default and opt-in: "Endpoint package self-updates are
+  available for Apple Silicon system package installs, but remain off by default; IT
+  admins can opt into `check-only` monitoring or `auto` package updates during Jamf or
+  Fleet rollout." (`docs/mdm/index.mdx` L10 at `v1.3.29`, commit
+  `91e92216b79108475ba9b587d49c5ff3f7356fd8`, retrieved 2026-09-29; the same default is
+  stated in `docs/mdm/fleet.mdx` L88-90, `docs/mdm/jamf.mdx` L76-77 and
+  `docs/mdm/rippling.mdx` L235). The pin therefore holds a fixed version **only while
+  those self-updates stay off**. Operators running Beacon beside OAC should leave them
+  off (no `check-only` or `auto` opt-in), and L2's fixtures record the Beacon version
+  actually running. The pin is still expected to move often: `v1.3.27`, `v1.3.28` and
+  `v1.3.29` are consecutive recent tags (§6, `RISK-BEACON`).
 - **Gates affected: none.** No G1-G5 verdict depends on Beacon. A move of this row
   invalidates no gate. It does require the §6 items and every §10 citation to be re-read
   at the new tag, and L2's fixtures to record the version they ran on.
@@ -139,7 +148,7 @@ memory on a peer's behalf.
 
 | # | Fact | At tag `v1.3.29` | At head `26581914` (as #165 read it) | Effect |
 |---|---|---|---|---|
-| D1 | Name of Beacon's hosted forwarding destination | "Beacon Managed" (`README.md` L49, L151; `cli/beacon/README.md` `## Beacon Managed` L519; `docs/cli/mcp.mdx` `## Local and Beacon Managed servers` L22). `SECURITY.md` L71 names the same channel "Asymptote Managed forwarding" | "Beacon Cloud" (`README.md` L49, L151; `cli/beacon/README.md` `## Beacon Cloud` L519) | Naming only. The MCP server name `beacon-managed` and the flag `--privacy-mode metadata-only` are identical at both. This record says "Beacon's hosted service" and quotes the tag's own name where it quotes. |
+| D1 | Name of Beacon's hosted forwarding destination | "Beacon Managed" (`README.md` L49, L151; `cli/beacon/README.md` `## Beacon Managed` L519; `docs/cli/mcp.mdx` `## Local and Beacon Managed servers` L22). `SECURITY.md` L71 names the same channel "Asymptote Managed forwarding" | "Beacon Cloud" (`README.md` L49, L151; `cli/beacon/README.md` `## Beacon Cloud` L519; `docs/cli/mcp.mdx` `## Local and Beacon Cloud servers` L22) | Naming only. The MCP server name `beacon-managed` and the flag `--privacy-mode metadata-only` are identical at both. This record says "Beacon's hosted service" and quotes the tag's own name where it quotes. |
 | D2 | Where "hold other servers' credentials" is written | `docs/cli/mcp-connect.mdx` L102 | `docs/cli/mcp-connect.mdx` L102 | **Citation correction, not upstream drift.** Issue #166 attributes the quote to `docs/cli/mcp-doctor.mdx`; it is in `mcp-connect.mdx` at both commits. `mcp-doctor.mdx` holds the stdio `mcpServers` entry (L43-52). §4 Q2 cites the right file. |
 
 ## 3. License
@@ -335,9 +344,10 @@ All four sources: https://github.com/Asymptote-Labs/agent-beacon/tree/v1.3.29, t
 
 **Closed at the desk by first-party evidence** (not UNVERIFIED): the pin `v1.3.29` (§2);
 the MIT license (§3); the Metadata-only scope (§4 Q3); the memory scoping rule (§4 Q4);
-the local server's MCP era, `"protocolVersion": "2024-11-05"`
-(`cli/beacon/internal/mcpserver/server.go` L211 at `v1.3.29`, same line as at head). The
-MCP era is informational: it is Beacon-to-harness, not an OAC surface, and does not touch
+the local server's MCP protocol revision, `"protocolVersion": "2024-11-05"`
+(`cli/beacon/internal/mcpserver/server.go` L211 at `v1.3.29`, same line as at head), an
+older revision than OAC's "MCP — legacy era" pin `2025-11-25`. The revision is
+informational: it is Beacon-to-harness, not an OAC surface, and does not touch
 gate G4.
 
 ## 7. Surface labels, boundary pass
@@ -439,10 +449,13 @@ All at https://github.com/Asymptote-Labs/agent-beacon, tag `v1.3.29` (commit
 - `docs/security/retention-redaction.mdx` §"Forwarding implications"
 - `docs/runtimes/claude-code.mdx`, `docs/runtimes/codex-cli.mdx`
 - `docs/get-started/quickstart.mdx` (§"Useful commands")
+- `docs/mdm/index.mdx` L10, `docs/mdm/fleet.mdx` §"Self-updates" L88-90,
+  `docs/mdm/jamf.mdx` L76-77, `docs/mdm/rippling.mdx` L235 (package self-updates, off by
+  default)
 - `cli/beacon/internal/mcpserver/server.go` L211
 - For the drift table (§2) only: the same repository at default-branch head
   `26581914e86f525e225096613c3a9b808043ff85`, retrieved 2026-09-29 (`README.md`,
-  `cli/beacon/README.md`, `docs/cli/mcp-connect.mdx`)
+  `cli/beacon/README.md`, `docs/cli/mcp.mdx`, `docs/cli/mcp-connect.mdx`)
 
 OAC-internal: `docs/planning/ADR-001.md` lines 24, 26, 58, 63; `docs/planning/DESIGN.md`
 "Non-goals", "Delivery semantics", "Security"; `docs/planning/PLANNING-PROMPT.md` §10;

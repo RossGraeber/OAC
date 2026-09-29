@@ -621,11 +621,17 @@ semver, and are recorded verbatim — never reformatted.
   tag `v1.3.29`, retrieved 2026-09-29. Issue #165's facts were read at the newer, unreleased branch head
   `26581914e86f525e225096613c3a9b808043ff85`; L1 re-read every cited doc at the tag and
   records two drifts (L1 §2).
-- **Fixed, not floating.** Beacon is upgraded by the operator through a package manager
-  (`brew upgrade beacon`,
+- **Fixed, not floating, while self-updates stay off.** Beacon is upgraded by the
+  operator through a package manager (`brew upgrade beacon`,
   https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/docs/get-started/quickstart.mdx
-  L110, retrieved 2026-09-29), and no first-party source at the tag describes a
-  background self-update. It ships often (`v1.3.27`-`v1.3.29` are consecutive recent
+  L110, retrieved 2026-09-29). Beacon also ships package self-updates for Apple Silicon
+  system-package installs, off by default and opt-in (`check-only` or `auto`): "Endpoint
+  package self-updates are available for Apple Silicon system package installs, but
+  remain off by default"
+  (https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/docs/mdm/index.mdx L10,
+  commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`, retrieved 2026-09-29). This row
+  holds a fixed version only while those self-updates stay off; operators should leave
+  them off (L1 §2). It ships often (`v1.3.27`-`v1.3.29` are consecutive recent
   tags), so this row is expected to move; see `RISK-BEACON` in
   `docs/planning/v0.1/11-risks.md`.
 - License: **MIT** ("Copyright (c) 2026 Asymptote Labs"). Source:

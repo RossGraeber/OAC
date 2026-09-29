@@ -547,14 +547,16 @@ list.
   before any harness run, per `docs/planning/gates/herdr-runner.md` §1 and §7. If that
   cannot be done, do not register the runners and keep scripted runs local (row 52).
 
-### RISK-BEACON — Beacon external memory service: floating upstream, legacy MCP era, four facts unverified
+### RISK-BEACON — Beacon external memory service: fast-moving upstream, older MCP revision, four facts unverified
 
 - **Risk.** Beacon (agent-beacon), the external memory service Epic L documents beside
   OAC sessions, is pinned at `v1.3.29` (fixed) but ships often: `v1.3.27`, `v1.3.28`
   and `v1.3.29` are consecutive recent tags, and branch head had already renamed its
   hosted service between the tag and 2026-09-29
-  (`docs/planning/decisions/L1-beacon-memory.md` §2). Its local MCP server advertises
-  the legacy MCP era `2024-11-05` (L1 §6). Four facts are UNVERIFIED at the pin (L1 §6,
+  (`docs/planning/decisions/L1-beacon-memory.md` §2). The pin stays fixed only while
+  Beacon's opt-in package self-updates (off by default) stay off (L1 §2). Its local MCP
+  server advertises an older MCP protocol revision, `2024-11-05`, which predates OAC's
+  "MCP — legacy era" pin `2025-11-25` (L1 §6). Four facts are UNVERIFIED at the pin (L1 §6,
   rows 53-56): whether Beacon's capture records OAC-delivered input, the stability of
   the memory ID and memory-tool results, concurrent `memory.db` access, and whether
   Beacon's Codex configuration writes collide with OAC's Codex adapter launch.
@@ -562,7 +564,7 @@ list.
   shipped or called by OAC, with `Gates affected: none` (`docs/planning/PINS.md`
   "Beacon (external memory service)"). No spec text depends on it: L1 chose docs-only
   (L1 §4 Q1). A drift costs only Epic L's docs (L5), threat rows (L4) and opt-in
-  scenario (L6). If a harness drops legacy-era MCP, Beacon, not OAC, has to move.
+  scenario (L6). If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
 - **Early-warning signal.** A new Beacon release tag appears; a cited Beacon doc
   changes at a new tag; L2's live leg shows OAC-delivered input in Beacon's
   `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.
@@ -609,14 +611,17 @@ literally named `source`) and 48 (`turn/start.additionalContext`) are informatio
 exploratory and are **not** tracked in STATUS.md at all, under C13 or otherwise. This
 table's own "every entry disposed of here" claim (above) is scoped to STATUS.md's "Open
 UNVERIFIED items" list specifically, which rows 45-48 are not members of — noted here
-rather than silently overclaimed. The table is therefore 48 rows: of rows 1-44 (the ones
+rather than silently overclaimed. The table is therefore 56 rows: of rows 1-44 (the ones
 that do correspond to STATUS.md's "Open UNVERIFIED items" list), 42 are still listed
 there (row 31 among them, confirmed not a risk, but kept as a correction note per that
 row's own text) and 2 are closed (rows 32, 40); rows 45-48 are additional risk-table
 entries, tracked (45-46) or untracked (47-48) in STATUS.md as described above. Every row
 carries a risk id, except row 31 (which cites the
 evidence that confirmed it), row 32 (closed, cites its own closing evidence), and row 40
-(closed, cites its own closing evidence). No cell is blank. Rows 53-56 were added
+(closed, cites its own closing evidence). No cell is blank. Rows 49-52 were added after
+rows 45-48 (G1 mid-turn batching, Codex `turn/start`/`thread/queue/add` event
+subscription, herdr's non-Windows live legs, and the K6 self-hosted-runner exposure);
+each cell carries its own disposition. Rows 53-56 were added
 2026-09-29 from L1 (issue #166): the four Beacon facts left UNVERIFIED at pin `v1.3.29`
 (`docs/planning/decisions/L1-beacon-memory.md` §6), all under `RISK-BEACON` and all
 listed in STATUS.md's "Open UNVERIFIED items" as one L1 entry.
