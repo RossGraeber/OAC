@@ -447,7 +447,7 @@ table body itself is **not restated here**; only the row number, a one-line atta
 for orientation, and the proving test already named at §7 above (or cited to §14's own
 "Proving test" cell where this file does not repeat it). Any mitigation without a
 currently passing proving test is an explicit v0.1 gap, per §14's row content and §15's
-"unproven-mitigation disposition" — none of the twenty rows currently has a passing
+"unproven-mitigation disposition" — none of the twenty-three rows currently has a passing
 **test** (F11/H2/H3/G3/G7/G8/G9 are all `NOT RUN`, Pre-Stage 0), though rows 5, 16, and
 17's named gate has since run: gate **G1 `PASS`** (row 16 — originally on Claude Code
 `v2.1.282`, invalidated when the pin went floating 2026-09-27, re-run and PASSED again
@@ -455,7 +455,11 @@ currently passing proving test is an explicit v0.1 gap, per §14's row content a
 gate G5 **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (rows 5, 16, 17 — `docs/planning/gates/
 G5-result.md`). A gate result is not one of this file's test tiers, so it does not by
 itself close a row; see §14 rows 5, 16, 17 (`06-security.md`) for what each gate
-actually confirmed.
+actually confirmed. Rows 21-23 (L4, issue #169) cover an external memory service beside
+OAC (`docs/planning/decisions/L1-beacon-memory.md`); rows 21-22's scenario is L10, an
+opt-in provider-integration scenario blocked until Stage 5 opens, never CI-default
+(§3). Row 23 has no proving test by design — it is an open risk outside OAC's control
+(`06-security.md` §15), carried as `RISK-BEACON` in `docs/planning/v0.1/11-risks.md`.
 
 | `06-security.md` §14 row | Attack (one line) | Proving test named at §7 or §14 | Status |
 |---|---|---|---|
@@ -479,6 +483,9 @@ actually confirmed.
 | 18 | Reply misattribution via forged `in_reply_to` | task G8 | v0.1 gap — `NOT RUN`; whether Codex reliably echoes a header-supplied id back at all is itself UNVERIFIED (`docs/planning/STATUS.md`) |
 | 19 | Stale-registration replay after resume | F4; H2 | v0.1 gap — `NOT RUN` |
 | 20 | Session-id spoofing | F11; H2 | v0.1 gap — `NOT RUN` |
+| 21 | Prompt injection via a memory reference or resolved memory | L10 (Stage 5 opt-in scenario); gate G5; F11 | v0.1 gap — L10 `NOT RUN` (blocked, Stage 5); gate G5 **FAIL** (2026-09-27, `docs/planning/gates/G5-result.md`); F11 `NOT RUN`; mitigation is doctrine plus rendering, as row 5 |
+| 22 | False authority via a cited memory ID | L10 (memory ID absent from Claude `meta` and the Codex header block); gate G5; F11 | v0.1 gap — L10/F11 `NOT RUN`; inherits row 17's Codex residual until C13 is resolved |
+| 23 | Capture of an OAC-delivered message by an external memory/telemetry service | None — open risk, not a mitigation (`06-security.md` §15); L2/L3 observe whether capture happens | Open risk — `RISK-BEACON`; capture itself UNVERIFIED (L1 §6 U1) |
 
 ---
 
@@ -700,7 +707,8 @@ Checked against issue #30's four acceptance boxes:
   tier and the Zenoh-containment criterion resolved to the lint (both decided, not left
   open), the CI-default/opt-in split and its pin-move-invalidation mechanics, the
   no-polling assertion spec naming `contract/adapter/no-polling`, the two mandatory
-  traceability tables (all ten acceptance criteria, all twenty threat-table rows — every
+  traceability tables (all ten acceptance criteria, all threat-table rows then in §14,
+  rows 1-20; L4 later added rows 21-23 — every
   row `not-yet-written`/`NOT RUN`, none marked done), and the fixture capture/refresh
   process. No pin moved, no gate verdict changed, no new UNVERIFIED item added — every
   UNVERIFIED item this file cites (§17) was already open, carried from

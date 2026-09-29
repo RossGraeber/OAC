@@ -575,6 +575,13 @@ list.
   limits forwarding but not local capture. If U4 finds a collision, record it as a
   finding against the Codex adapter's launch design, not a workaround
   (`docs/planning/STATUS.md` "Open UNVERIFIED items").
+- **Capture-side residual (`docs/planning/v0.1/06-security.md` §14 row 23, L4).** An
+  external memory/telemetry service instrumenting a harness session may record messages
+  OAC delivered into it. OAC cannot mitigate this — it never configures the service —
+  so row 23 is an open risk with no proving test. L1 §4 Q3's Local / Metadata-only
+  recommendation limits hosted forwarding only; local `runtime.jsonl` still holds
+  redacted, sanitized, truncated content, and the service scopes recall per repository,
+  not per `working_directory` (L1 §4 Q4). Whether capture happens at all is U1 (row 53).
 
 ## Traceability — every `docs/planning/STATUS.md` "Open UNVERIFIED items" entry
 
