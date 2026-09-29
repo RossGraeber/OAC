@@ -309,6 +309,11 @@ L2 (the timeboxed desk-plus-live spike). Mirrored in `docs/planning/STATUS.md` "
 UNVERIFIED items" and in `docs/planning/v0.1/11-risks.md` `RISK-BEACON`, traceability
 rows 53-56.
 
+**L2 update (issue #167, 2026-09-29):** the desk leg's results are in §11. U2 and U3 are
+CONFIRMED and U4 is REFUTED, each with `path@v1.3.29` citations. U1 stays UNVERIFIED,
+narrowed to the harness side, and goes to §12's operator-run live leg. The text below is
+L1's original wording, kept for traceability.
+
 - **U1.** Whether Beacon's Claude Code capture (hooks/OTLP) records the content of an OAC
   channel notification delivered into the session, or only the harness-visible
   tool/prompt events (UNVERIFIED — no first-party statement found at `v1.3.29`).
@@ -463,3 +468,360 @@ OAC-internal: `docs/planning/ADR-001.md` lines 24, 26, 58, 63; `docs/planning/DE
 §14; `docs/planning/decisions/C4-session-identity.md` §5;
 `docs/planning/decisions/C5-envelope-auth.md`; `docs/planning/decisions/K1-herdr-evaluation.md`
 (section shape); issues #165 and #166.
+
+## 11. Desk research (L2)
+
+**Issue:** #167 (Epic L #165, backlog key `L2`), desk leg only. It closes, refutes or
+carries each §6 item from Beacon's own source and docs **at the pinned tag**.
+
+- **Timebox:** 90 minutes of desk reading, declared at 2026-09-29T18:39Z before the tag
+  re-read started. The record below was written as-is inside the box. The box was not
+  extended. What the desk could not settle is carried to §12's live leg, not guessed.
+- **Where each fact was read.** A `--depth 1` clone of tag `v1.3.29` (commit
+  `91e92216b79108475ba9b587d49c5ff3f7356fd8`). Every citation below is written
+  `path@v1.3.29 L<n>` and means
+  `https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/<path>`, retrieved
+  2026-09-29. Branch head was not used for any fact. As a drift check, nine of the Go
+  source files cited below were byte-compared against branch head
+  `26581914e86f525e225096613c3a9b808043ff85` (retrieved 2026-09-29): the MCP server, the
+  memory store, the memory record type, both session mappers, the harness configurator,
+  the Claude and Codex hook installers and the prompt hook. All nine are identical, so
+  §2's drift table gains no row.
+- **Harness-side behaviour is out of reach here.** Item 1 turns partly on what Claude
+  Code and Codex write into their own hooks, telemetry and session files when OAC
+  delivers input. Beacon's tree cannot answer that. The desk leg records what Beacon
+  does with whatever the harness emits, and hands the harness side to §12.
+- **Verdict words.** CONFIRMED means the question's fact was established from
+  first-party Beacon source at the tag. REFUTED means the hypothesis in the question (for
+  item 4, a collision) is false at the tag. UNVERIFIED means it stays open, narrowed.
+
+### Item 1 — Does Beacon's capture record OAC-delivered input? → UNVERIFIED (narrowed; Beacon side confirmed, harness side open)
+
+**Beacon has no channel-specific handling at all.** A search of the whole tag tree for
+`notifications/claude/channel`, `claude/channel` and `<channel` (Go, TypeScript, JSON,
+Markdown and MDX files) returns zero hits. Beacon neither filters nor tags a channel
+delivery. It records whatever the harness reports through its three Claude Code paths
+and its Codex paths:
+
+- **Claude Code hooks.** `beacon endpoint hooks install` writes a `UserPromptSubmit`
+  hook, a `PreToolUse` hook whose matcher includes `mcp__.*`, and `PostToolUse` /
+  `PostToolUseFailure` hooks with matcher `*` (`cli/beacon/internal/endpoint/hooks/claude.go@v1.3.29`
+  L63-77). The prompt hook takes the text from the first non-empty field among
+  `prompt`, `user_prompt`, `userPrompt`, `text`, `promptText`, `input`, and stores it as
+  `prompt.text` plus retained content on a `prompt.submitted` event
+  (`cli/beacon-hooks/cmd/prompt_submit.go@v1.3.29` L37-60).
+- **Claude Code OTLP.** `beacon endpoint install` sets `OTEL_LOG_USER_PROMPTS` = `1`
+  and `OTEL_LOG_TOOL_DETAILS` = `1` in the `env` block of `~/.claude/settings.json`
+  (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L359-397, the two keys at
+  L386-387). The collector maps `claude_code.user_prompt` to `prompt.submitted`
+  (`collector-builder/exporter/beaconjsonexporter/internal/beaconevent/converter.go@v1.3.29`
+  L43). Tool details include "MCP server/tool arguments"
+  (`docs/runtimes/claude-code.mdx@v1.3.29` L69).
+- **Claude Code poll** (`beacon endpoint claude sync`, explicit or scheduled, "for
+  backfill and catch-up", `docs/runtimes/claude-code.mdx@v1.3.29` L43, L123-125). It
+  reads the session files under `~/.claude/projects` and maps **every** `user` entry
+  that is not `isMeta` to `prompt.submitted` with its text
+  (`cli/beacon/internal/claudesession/mapper.go@v1.3.29` L68-107, L161-166). The only
+  text it drops contains `<local-command-caveat>` or `<command-name>` (same file
+  L416-422). It also maps each assistant `tool_use` block, input included, to
+  `tool.invoked`, or `mcp.tool_invoked` for an `mcp__<server>__<tool>` name (L128-139,
+  L190-210). It maps `tool_result` blocks and assistant text as well (L96-99, L140-143).
+- **Codex OTLP.** `beacon endpoint install` writes an `[otel]` table with
+  `log_user_prompt = true` into `~/.codex/config.toml`
+  (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L399-415, L505-521). The
+  collector handles `codex.user_prompt` (`converter.go@v1.3.29` L22). Beacon's doc says
+  Codex Desktop's `codex-app-server` emits the same telemetry once the user-level
+  `~/.codex/config.toml` enables OTLP (`docs/runtimes/codex-cli.mdx@v1.3.29` L23).
+- **Codex hooks.** Metadata-only: the Codex hook set is a single `SessionStart`
+  `codex-session-context` hook (`cli/beacon/internal/endpoint/hooks/codex.go@v1.3.29`
+  L63-73). Beacon's doc says it "never reads transcript content"
+  (`docs/runtimes/codex-cli.mdx@v1.3.29` L23).
+- **Codex poll** (`beacon endpoint codex sync`, explicit, "Beacon does not read
+  `~/.codex/sessions` during normal Codex hook execution", `docs/runtimes/codex-cli.mdx@v1.3.29`
+  L35-39). It maps every `message` response item with role `user` to `prompt.submitted`
+  with its text (`cli/beacon/internal/codexsession/mapper.go@v1.3.29` L154-168,
+  L291-296).
+
+**What this settles (CONFIRMED at the tag):**
+
+1. If Claude Code reports a channel delivery through `UserPromptSubmit`, through its
+   `claude_code.user_prompt` OTLP event, or as a non-meta `user` entry in its session
+   file, Beacon records the text verbatim as `prompt.submitted`, subject only to its own
+   redaction and truncation (`SECURITY.md@v1.3.29` L52-57).
+2. Independent of item 1's open half, OAC message content reaches Beacon's
+   `runtime.jsonl` on the **outbound** side. A Claude session that sends through an OAC
+   MCP tool is recorded with the tool's arguments by the `mcp__.*` `PreToolUse` hook,
+   by OTLP tool details, and by the poll mapper. A harness's own reply is recorded as
+   `agent.message`. A tool result is recorded as well, so a message read back through an
+   OAC tool is captured on the poll path.
+3. The same holds for Codex: any turn input Codex logs as `codex.user_prompt`, or writes
+   to its session file as a `user` message, is recorded as `prompt.submitted`.
+
+**What stays open (UNVERIFIED — harness behaviour, not Beacon's):**
+
+- Whether Claude Code fires `UserPromptSubmit`, emits `claude_code.user_prompt`, or
+  writes a non-meta `user` entry for a `notifications/claude/channel` delivery, or
+  represents it some other way (for example as an attachment or a meta entry, which the
+  poll mapper skips). No first-party Claude Code statement was found. G1 and G5's
+  fixtures are JSON-RPC wire transcripts, not Claude session files, so they do not answer
+  it.
+- Whether Codex logs `codex.user_prompt`, or writes a `user` message to the rollout, for
+  input an app-server client sends with `thread/queue/add` or `turn/start`.
+
+**Input to L4 (row 23's residual-risk cell).** Treat OAC message content as **captured
+into local `runtime.jsonl`** when Beacon runs beside an OAC session. The outbound half is
+confirmed above. The inbound half is unverified but likely enough that the conservative
+reading is the safe one. §4 Q3's Local / Metadata-only recommendation limits forwarding,
+not this local capture.
+
+### Item 2 — Memory item ID shape and memory-tool result shape → CONFIRMED (no versioned schema for summaries)
+
+- **ID shape.** An approved memory ID is `memory_` followed by 32 lowercase hex
+  characters: the first 16 bytes of a SHA-256 over the project ID, candidate ID, kind and
+  title joined with NUL bytes (`MemoryID` and `idFor`,
+  `cli/beacon/internal/learning/store.go@v1.3.29` L694-701). Candidate IDs use the same
+  scheme with prefix `candidate_` (L686-692).
+- **Stability.** The ID is content-derived and deterministic, not random. It is stable
+  for as long as its inputs are. The project ID is
+  `sha256:` + hex SHA-256 of the lower-cased remote URL, or the path when no remote exists
+  (`store.go@v1.3.29` L199-206). A repository whose remote URL changes therefore gets a
+  new project ID, and memories approved afterwards get IDs under it. A superseded memory
+  keeps its ID but has `superseded_by` set (`cli/beacon/internal/learning/candidate.go@v1.3.29`
+  L235-251). `get_memory` then answers with an error, `memory not found: <id>`
+  (`cli/beacon/internal/mcpserver/server.go@v1.3.29` L338-357). An ID quoted in an OAC
+  message can therefore go stale. With Q1 = (a), OAC never resolves it; L5's walkthrough
+  should say so.
+- **Result shape.** Every tool result is one MCP `text` content item holding the JSON
+  encoding of the value (`server.go@v1.3.29` L245-257).
+  - `get_memory` returns the full stored record, `LearningMemoryV1`: `schema_version`,
+    `id`, `candidate_id`, `kind`, `title`, `body`, `applicability`, `tags`, `project`,
+    `evidence`, `created_at`, `updated_at`, `superseded_by`
+    (`pkg/asymptoteobserve/learning.go@v1.3.29` L108-122). Its `schema_version` is
+    `beacon.learning.v1` (same file L3, set in `PutMemory`, `store.go@v1.3.29`
+    L569-572).
+  - `get_memory_context` returns `{"context": [...], "returned": n, "limit": n}` with at
+    most 5 entries. `search_memory` returns `{"memories": [...], "returned": n,
+    "limit": n}` with at most 20. Each entry is a summary with `id`, `kind`, `title`,
+    `applicability`, `body` (cleaned and cut to 1200 characters) and `tags`
+    (`server.go@v1.3.29` L80-99, L318-378, L419-431).
+- **Versioned response schema?** **Partly.** `get_memory`'s record carries
+  `schema_version` = `beacon.learning.v1`. The `search_memory` / `get_memory_context`
+  wrappers and summaries carry no version field. No Beacon doc at the tag promises either
+  shape across releases. The summary shape is a Beacon implementation detail. Since OAC
+  never parses these results (Q1 = (a)), none of this is an OAC dependency.
+- **Local store schema.** `memory.db` tables `evaluations`, `candidates`, `memories`,
+  with `PRAGMA user_version` = 1. A Beacon build refuses a newer store: "memory store
+  schema %d is newer than this beacon supports (%d)" (`store.go@v1.3.29` L19-22,
+  L94-157).
+
+### Item 3 — Concurrent access to one `memory.db` → CONFIRMED (SQLite WAL with a 5 s busy timeout, in source only; no documented model)
+
+- **Storage engine.** SQLite, through the pure-Go driver `modernc.org/sqlite` `v1.59.0`
+  (`cli/beacon/internal/learning/store.go@v1.3.29` L14; `cli/beacon/go.mod@v1.3.29`
+  L14).
+- **Locking model, from source.** Every store operation opens its own connection and
+  closes it when done. On open, Beacon runs `PRAGMA journal_mode=WAL; PRAGMA
+  busy_timeout=5000;` and its connection URI also carries `_pragma=busy_timeout(5000)`
+  (`store.go@v1.3.29` L65-92). Each write is one `INSERT ... ON CONFLICT(id) DO UPDATE`
+  statement (e.g. `PutMemory`, L569-595). `store.go` opens no explicit transaction (no
+  `Begin` / `Tx` in the file). Each open also runs the idempotent
+  `CREATE TABLE IF NOT EXISTS` set (L94-157).
+- **Who writes.** The MCP memory tools are read-only (`docs/cli/memory.mdx@v1.3.29`
+  L265-271; the three handlers call only `ListMemories` / `GetMemory`,
+  `server.go@v1.3.29` L318-378). Several harness sessions resolving memory at once are
+  therefore concurrent **readers**, apart from the idempotent schema check each open
+  runs. Writes come from operator-run `beacon memory`
+  commands (evaluate, create, approve, supersede).
+- **Not documented.** No Beacon doc at the tag states a concurrency or locking model.
+  `memory.mdx` calls the store "durable local state" (L28-31) and says nothing more.
+  The model above is read from code, so it can change in any release without notice. It
+  is re-read whenever the PINS.md row moves.
+- **OAC consequence.** None. OAC never opens `memory.db` (§1). The item matters only to
+  L5's docs and L10's opt-in scenario. Neither needs to say more than "Beacon's store is a local
+  SQLite file in WAL mode that several harness sessions may read".
+
+### Item 4 — Do Beacon's config writes collide with OAC's launch paths? → REFUTED (no shared key; two side effects recorded)
+
+**OAC's planned launch paths** (`docs/planning/v0.1/08-cli-and-deployment.md`):
+
+- **Claude (§7).** `claude --dangerously-load-development-channels server:oac`. This is
+  a command-line flag typed by the user. It writes no file. It needs an MCP server named
+  `oac` in Claude Code's MCP configuration; §7 does not name the file, and G1 used a
+  project `.mcp.json` (`docs/planning/gates/G1-result.md`).
+- **Codex (§9).** `codex mcp add oac -- oac mcp-shim`: Codex's own CLI registers a server
+  named `oac` in Codex's configuration. The live-inject path (§10) is app-server runtime
+  behaviour, not a config write.
+
+**What Beacon writes, at the tag:**
+
+| Beacon command | File | What it changes | Can it touch OAC's entry? |
+|---|---|---|---|
+| `beacon endpoint install` (Claude) | `~/.claude/settings.json` | Sets 8 keys in the `env` object (telemetry and OTLP exporter settings, including `OTEL_LOG_USER_PROMPTS`). Backs the file up, then re-encodes the whole file with Go's `json.MarshalIndent` (`harness.go@v1.3.29` L359-397) | **No.** It changes only those `env` keys. It never writes MCP server entries |
+| `beacon endpoint hooks install` (Claude) | `~/.claude/settings.json` (user) or `./.claude/settings.json` (project) | Removes Beacon's own hook entries, then merges its hook groups for the 10 events. Non-Beacon hooks are kept (`cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205; `docs/cli/hooks.mdx@v1.3.29` L33, L310) | **No.** OAC's plan installs no Claude hook |
+| `beacon endpoint install` (Codex) | `~/.codex/config.toml` | Replaces the `[otel]` table and every `[otel.*]` table with Beacon's block. Every other line, including every `[mcp_servers.*]` table, is copied through unchanged (`mergeCodexOTELWithPrompt`, `harness.go@v1.3.29` L464-503) | **No.** It changes only `[otel]` / `[otel.*]` |
+| `beacon endpoint hooks install --harness codex` | `~/.codex/hooks.json` or `./.codex/hooks.json` | One `SessionStart` hook, merged the same way (`hooks/codex.go@v1.3.29` L63-73; `docs/cli/hooks.mdx@v1.3.29` L34, L449) | **No.** OAC's plan installs no Codex hook |
+| `beacon mcp connect` (explicit, opt-in; `endpoint install` never runs it) | `~/.claude.json` via `claude mcp add --scope user`; `~/.codex/config.toml` | Adds exactly one server named `beacon-managed`, as a text edit. It re-parses the result and writes nothing if any other byte would change (`docs/cli/mcp-connect.mdx@v1.3.29` L32-35, L100-107, L176-179) | **No.** It uses a different name. Out of Epic L's scope anyway (§1) |
+| `beacon mcp serve` config printed by `beacon mcp doctor` | none; the operator pastes it | A stdio server named `beacon` (`docs/cli/mcp-connect.mdx@v1.3.29` L19-26) | **No.** It uses a different name |
+
+**Verdict.** No Beacon write at the tag touches a server named `oac`, the
+`--dangerously-load-development-channels` flag, or the app-server. The hypothesised
+collision is refuted.
+
+**Two side effects recorded as findings, not collisions:**
+
+1. **Codex prompt logging applies to OAC-launched Codex too.** The `[otel]` table Beacon
+   writes (`log_user_prompt = true`) is user-level. It therefore applies to every Codex
+   process that reads that `~/.codex/config.toml`, including an app-server OAC's Codex
+   adapter talks to under the same Codex home. This feeds item 1's Codex half and L4's
+   residual. It is Beacon's behaviour at the tag, not an OAC defect.
+2. **Formatting churn in `~/.claude/settings.json`.** The Claude telemetry write
+   re-encodes the whole file, so key order and formatting change. Content outside `env`
+   is kept when the file parses. If it does not parse, the parse error is ignored and the
+   file is rewritten holding only Beacon's `env` block; the backup taken just before is
+   then the only copy of the old content (`harness.go@v1.3.29` L365-371).
+   `beacon mcp connect`'s byte-preserving guarantee does **not** extend to this write.
+   OAC's plan does not write this file, so nothing of OAC's is lost. An operator diffing
+   the file should expect the churn.
+
+Anything that replaces a user's pre-existing `[otel]` table is the operator's concern
+between Beacon and Codex. OAC's plan writes no `[otel]` table.
+
+**Cross-file updates in L2's change.** `docs/planning/STATUS.md`: a `**Last updated:**`
+entry; the L1 "Open UNVERIFIED items" entry narrowed to U1, with U2-U4 recorded as closed
+by this section; the `## Pins` summary cell. `docs/planning/v0.1/11-risks.md`: rows 54-56
+marked CLOSED with citations, row 53 narrowed, one sentence in the traceability preamble.
+`docs/planning/PINS.md`: the Beacon row's UNVERIFIED count and one note in its record.
+No pin value, gate verdict, skill, spec or ADR text changes. No Beacon code, binary,
+fixture or spike code is committed.
+
+## 12. Live-verification checklist (operator-run, NOT RUN)
+
+Every step below is **UNVERIFIED — pending operator run**. Backlog task L3 ("Beacon live
+leg (operator-run)", `docs/planning/backlog/07-tasks-L.json`) executes it. That key reuses
+#165's closed spec-touchpoint number (§4 Q1).
+**The live leg is operator-run only and must not run in CI.** It needs Beacon installed
+in Local mode on a real machine, logged-in Claude Code and Codex, and a person at the
+keyboard. No CI workflow, `tools/herdr/` scenario or test may drive it. OAC never calls,
+spawns or configures Beacon in any step (§1). The operator installs and connects Beacon
+only with Beacon's own documented commands.
+
+**Timebox: 60 minutes**, declared before B0 and not extended. When it expires, write
+the results into `## 13. Live results (L3)` in this file as-is. A step not reached is
+recorded `NOT RUN` with the reason, never guessed.
+
+**Probe content.** There is no OAC product yet, so delivery uses the Stage 1 pattern.
+Copy `tools/herdr/gate-servers/` (`g5-channel.mjs`, `g5-codex.mjs`, `g5-cases.json`) to a
+scratch directory **outside the repo**. In the copy's `g5-cases.json`, add one Claude case
+and one Codex case whose body carries a unique marker (`L3-PROBE-<random>`) and a fake,
+secret-shaped token (for example `sk-l3fake-<random>`, never a real one). Both tools read
+case bodies only from that file. Never commit the modified copy.
+
+**Redaction rules** (same spirit as `docs/planning/decisions/K1-herdr-evaluation.md` §6
+and `oac-gates` §"Fixture capture procedure"):
+
+- Commit no raw `runtime.jsonl` lines, session files, `settings.json`, `.claude.json`,
+  `config.toml` or `hooks.json`. They hold prompts, paths, usernames and other servers'
+  credentials. **No fixture file** is committed: `docs/planning/gates/fixtures/` is
+  reserved for the G1-G5 and D6 slugs.
+- Record field names, `event.action` values and hashes. Inline excerpts in §13 are short
+  and redacted: home paths become `~`, usernames `<user>`, account IDs `<account>`, and
+  anything token-shaped other than the fake probe token becomes `<redacted>`.
+- Stay in Beacon **Local** mode (§4 Q3). Do not run `beacon endpoint connect` or
+  `beacon mcp connect`, and do not sign in to Beacon's hosted service.
+
+**B0 — Preflight and baselines**
+
+```bash
+beacon version                          # must report version 1.3.29; stop otherwise (§2)
+claude --version; codex --version       # record both (floating pins, PINS.md)
+CL="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; CX="${CODEX_HOME:-$HOME/.codex}"
+sha256sum "$CL/settings.json" "$HOME/.claude.json" "$CX/config.toml" "$CX/hooks.json" 2>&1 | tee hashes-before.txt
+```
+
+Also copy those four files to a backup directory outside the repo. Evidence to record:
+the three versions, `hashes-before.txt` (hashes only, paths redacted), the timebox start
+time, and confirmation that Beacon package self-updates are off (§2).
+
+**B1 — Install Beacon's endpoint (item 4)**
+
+Run `beacon endpoint install`, choose Local, and include the `claude` and `codex`
+harnesses. Hash the four files again and diff each against its B0 backup.
+
+Evidence to record: which files changed. For `config.toml`, whether any line outside
+`[otel]` / `[otel.*]` changed. For `settings.json`, whether anything outside `env` and
+`hooks` changed in content, not just in formatting. For `.claude.json`, whether it
+changed at all. Attribute each change to this Beacon step. Any change beyond §11 item 4's
+table is a finding.
+
+**B2 — Claude channel delivery (item 1, Claude half)**
+
+Register the copied `g5-channel.mjs` in a scratch project's `.mcp.json` and launch Claude
+Code with the development-channel flag, as G1 did (`docs/planning/gates/G1-result.md`).
+Confirm the development-channel dialog appears and the server connects, which also checks
+item 4 live for the Claude launch. Trigger the probe case. Wait for the turn to finish.
+
+```bash
+grep -c 'L3-PROBE-' ~/.beacon/endpoint/logs/runtime.jsonl
+grep -c 'sk-l3fake-' ~/.beacon/endpoint/logs/runtime.jsonl
+beacon endpoint claude sync --print | grep -c 'L3-PROBE-'
+```
+
+Evidence to record: for each marker hit, its `event.action`,
+`harness.collection_method`, and which field held it (prompt text, tool arguments,
+agent message, tool result). Whether the fake token appears unredacted. How Claude's
+session file represents the delivery: a `user` entry, a meta entry or an attachment
+(entry type and flags only, no content). Zero hits on a path is a result.
+
+**B3 — Claude outbound capture (item 1, the confirmed half)**
+
+Have the B2 session answer through the channel server's reply tool with the marker in
+the reply. Repeat B2's greps.
+
+Evidence to record: `mcp.tool_invoked` / `tool.invoked` hits and whether their
+arguments carried the marker. This checks §11 item 1 point 2 live.
+
+**B4 — Codex app-server input (item 1, Codex half; item 4 for Codex)**
+
+With the shared Codex daemon running (G2 setup, `docs/planning/gates/G2-result.md`),
+deliver the Codex probe case with the copied `g5-codex.mjs`: once with `deliver`
+(`turn/start`) and once with `x4` (which sends `thread/queue/add` while a turn runs).
+Confirm the thread took both inputs, which also checks item 4 live for the Codex path.
+
+```bash
+grep -c 'L3-PROBE-' ~/.beacon/endpoint/logs/runtime.jsonl
+grep -c 'sk-l3fake-' ~/.beacon/endpoint/logs/runtime.jsonl
+beacon endpoint codex sync --print | grep -c 'L3-PROBE-'
+```
+
+Evidence to record: hits per method and per path (OTLP versus poll), each with
+`event.action`, and whether the fake token appears unredacted. Zero hits is a result.
+
+**B5 — Memory candidates (optional, only if time remains)**
+
+Run Beacon's own `beacon memory` evaluation on the B2 trace
+(`docs/cli/memory.mdx@v1.3.29` §"Evaluate traces"). Evidence to record: whether any
+candidate's text contains the marker. Do not approve a candidate.
+
+**B6 — Concurrent memory reads (item 3, live confirmation only)**
+
+With one approved memory in a scratch repository, have the Claude and the Codex session
+call `get_memory_context` at the same time, three times, while the operator runs
+`beacon memory list` in a terminal (`docs/cli/memory.mdx@v1.3.29` L220-229).
+
+Evidence to record: any error text (for example `database is locked`), and whether all
+six calls returned. §11 item 3 is already CONFIRMED from source. A lock error here is a
+finding against that record.
+
+**B7 — Tear down**
+
+Run `beacon endpoint uninstall` if the machine should not keep Beacon. Restore the B0
+backups where files differ. Hash the four files and compare with `hashes-before.txt`.
+Delete the scratch copy of the gate servers.
+
+Evidence to record: the hash comparison. If a file could not be restored, say which.
+
+**Exit.** Write `## 13. Live results (L3)`: one line per step (PASS / FINDING /
+NOT RUN) with the recorded evidence, the Beacon, Claude Code and Codex versions, and the
+date. In the same change, update item 1's verdict in §11 (and item 4's, if B1-B4 found
+a collision), `docs/planning/STATUS.md` "Open UNVERIFIED items", and
+`docs/planning/v0.1/11-risks.md` rows 53 and 56.
