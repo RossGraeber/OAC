@@ -232,7 +232,7 @@ re-derived, and are an exception to this file's C1/C2/C4-only sourcing rule abov
 
 | Tool | Version | License | Why needed | Shipped? | Source decision | Used from |
 |---|---|---|---|---|---|---|
-| Beacon (agent-beacon) | `v1.3.29` (commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`) | MIT | Optional external memory service a harness may use beside OAC sessions (Epic L #165). OAC does not need it and does not use it | **No** — external service each harness connects to natively; OAC never imports, links, vendors, spawns or configures it | L1 §2-§3 (four facts UNVERIFIED, L1 §6) | Nowhere in OAC. Harness MCP configuration only, owned by the harness and the operator |
+| Beacon (agent-beacon) | `v1.3.29` (commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`) | MIT | Optional external memory service a harness may use beside OAC sessions (Epic L #165). OAC does not need it and does not use it | **No** — external service each harness connects to natively; OAC never imports, links, vendors, spawns or configures it | L1 §2-§3 (one fact UNVERIFIED after L2, L1 §6 and §11) | Nowhere in OAC. Harness MCP configuration only, owned by the harness and the operator |
 
 ---
 
@@ -298,7 +298,7 @@ Per `oac-evidence` §4/§5, one label per surface this file names:
 | `interprocess` | supported | General-purpose, actively maintained; not a preview/experimental provider surface (C2 §10) |
 | `age` | supported | Actively maintained reference implementation of a published format (C4-session-identity.md line 677) |
 | herdr (dev/test tooling, not shipped — §5 "Dev/test tooling") | supported | herdr's own documented CLI. Live behavior at `v0.9.1` is UNVERIFIED (`docs/planning/decisions/K1-herdr-evaluation.md` §9) |
-| Beacon (external service, not shipped — §5 "External services") | supported | Beacon's own documented local MCP server and `beacon memory` CLI at `v1.3.29`, reached by harnesses only. Four facts UNVERIFIED (`docs/planning/decisions/L1-beacon-memory.md` §6, §7) |
+| Beacon (external service, not shipped — §5 "External services") | supported | Beacon's own documented local MCP server and `beacon memory` CLI at `v1.3.29`, reached by harnesses only. One fact UNVERIFIED after L2's desk research; three closed (`docs/planning/decisions/L1-beacon-memory.md` §6, §7, §11) |
 
 **Open UNVERIFIED items carried forward, not re-opened.** Per `docs/planning/
 STATUS.md`, the ledger of record:

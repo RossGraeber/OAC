@@ -21,8 +21,8 @@ the ADR-001 boundary — stop and cite per `SKILL.md` "Stop, cite the boundary".
 - Boundary lines it runs up against, quoted: same file, §1 "Boundary lines this decision
   runs up against".
 - Rejected reading ("OAC as the shared context layer") and the amendment route: §5.
-- Pin, license and UNVERIFIED items: §2, §3, §6 — cite Beacon facts through L1, never
-  re-derive or copy the pin here.
+- Pin, license and UNVERIFIED items: §2, §3, §6 (status §11, live leg §12) — cite
+  Beacon facts through L1, never re-derive or copy the pin here.
 
 ## Operator decisions Q1-Q5 (2026-09-29, not re-opened)
 
@@ -45,7 +45,7 @@ Each one is a boundary hit, not a feature request.
    recalls in its own turn (L1 §1 point 2).
 2. **Auto-attaching memory to envelopes**, or injecting recall results into inbound
    messages. Same boundaries; also puts memory where provenance could be confused with
-   content (`06-security.md` §2, row 22).
+   content (`06-security.md` §2, §14 rows 21-22).
 3. **Using `runtime.jsonl` as a catch-up mailbox** (e.g. `search_activity` to replay missed
    messages). Deferred durable offline mailbox plus inbox polling: boundaries #11 and #14
    (L1 §1 point 6).
@@ -58,7 +58,7 @@ Each one is a boundary hit, not a feature request.
 ## Where the content lives
 
 - Decision record: `docs/planning/decisions/L1-beacon-memory.md` (§1, §4, §5; pin §2,
-  license §3, UNVERIFIED §6).
+  license §3, UNVERIFIED §6 (status §11, live leg §12)).
 - Doctrine and threats: `docs/planning/v0.1/06-security.md` §2 (memory references are
   content), §13 (capture outside `working_directory` scoping), §14 rows 21-23.
 - Risk register: `docs/planning/v0.1/11-risks.md` `RISK-BEACON`.

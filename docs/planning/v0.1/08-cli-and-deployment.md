@@ -485,8 +485,10 @@ them.
    `beacon endpoint install --harness claude,codex,cursor`
    (`docs/get-started/quickstart.mdx@v1.3.29` L37-39). The two-harness form writes to
    Codex's own configuration (`docs/runtimes/codex-cli.mdx@v1.3.29` L43, L88). Whether that conflicts with OAC's
-   Codex launch is L1 item U4 (UNVERIFIED — OAC's Codex launch path is not built and no one
-   has compared the two; see `docs/planning/STATUS.md` "Open UNVERIFIED items").
+   Codex launch was L1 item U4. L2 refuted it for OAC's planned launch paths: Beacon
+   replaces only the `[otel]` / `[otel.*]` tables, with one edge case (a table header
+   carrying a trailing comment right after `[otel]` is dropped), and it uses its own
+   server names (L1 §11 item 4).
 3. **Give each harness Beacon's local MCP server.** Pick one of Beacon's two documented
    routes, per harness:
    - **Stdio entry.** Add Beacon's local server entry, named `beacon`, to the harness's
@@ -539,9 +541,9 @@ reads the Beacon entry.
   untrusted body, never in the machine-set provenance block
   (`docs/planning/v0.1/06-security.md` §3(e); L1 §1 point 4). Whatever Beacon returns is
   untrusted text to the receiving harness as well.
-- The exact shape and stability of a memory ID across Beacon releases is L1 item U2
-  (UNVERIFIED — no versioned response schema at the pin; see
-  `docs/planning/STATUS.md` "Open UNVERIFIED items"). OAC never parses it.
+- The shape of a memory ID is settled at the pin (L1 item U2, CONFIRMED by L2 in L1 §11
+  item 2): `memory_` plus 32 hex characters, derived from the memory's content, with no
+  cross-release promise. A superseded memory's ID stops resolving. OAC never parses it.
 
 ### 20.5 Privacy recommendation (Q3)
 
@@ -562,9 +564,11 @@ A recommendation with rationale, not a requirement (L1 §4 Q3):
   event-size limits (`SECURITY.md@v1.3.29` L54-57), into local `runtime.jsonl`, rotated
   at 10 MiB with five archives (`SECURITY.md@v1.3.29` L20). A message OAC delivered into a
   Beacon-instrumented session may therefore sit in that file, redacted and sanitized.
-  Whether Beacon's capture records the content of an OAC-delivered message at all is L1
-  item U1 (UNVERIFIED — no first-party statement at the pin; see
-  `docs/planning/STATUS.md` "Open UNVERIFIED items").
+  Whether Beacon's capture records the content of an OAC-delivered message is L1 item U1
+  (UNVERIFIED, narrowed by L2 in L1 §11 item 1: Beacon records whatever the harness
+  reports as a prompt, and OAC's outbound tool-call arguments are confirmed captured;
+  whether the harness reports a delivered message awaits the operator-run live leg, L1
+  §12; see `docs/planning/STATUS.md` "Open UNVERIFIED items").
 - **Rationale.** Local mode keeps delivered peer messages on the machine; Metadata-only
   keeps their text off the hosted service when forwarding is on. Neither removes the local
   copy, so that residual is an **open risk**, not a mitigation. It is recorded as threat
@@ -614,5 +618,6 @@ Each line is `oac-boundaries` #12 (OAC is not a "shared context manager",
   `path@v1.3.29` citation.
 - No step has OAC call, spawn or configure Beacon (checked against `oac-boundaries` #12
   and §20.7).
-- No new UNVERIFIED item: U1, U2 and U4 are L1's, already in `docs/planning/STATUS.md`
-  "Open UNVERIFIED items" and `docs/planning/v0.1/11-risks.md` `RISK-BEACON`.
+- No new UNVERIFIED item: U1, U2 and U4 are L1's. After L2 (L1 §11), only U1 is still
+  in `docs/planning/STATUS.md` "Open UNVERIFIED items"; U2 and U4 are closed, and
+  `docs/planning/v0.1/11-risks.md` rows 53-56 (`RISK-BEACON`) record all four.

@@ -547,7 +547,7 @@ list.
   before any harness run, per `docs/planning/gates/herdr-runner.md` §1 and §7. If that
   cannot be done, do not register the runners and keep scripted runs local (row 52).
 
-### RISK-BEACON — Beacon external memory service: fast-moving upstream, older MCP revision, four facts unverified
+### RISK-BEACON — Beacon external memory service: fast-moving upstream, older MCP revision, one fact unverified
 
 - **Risk.** Beacon (agent-beacon), the external memory service Epic L documents beside
   OAC sessions, is pinned at `v1.3.29` (fixed) but ships often: `v1.3.27`, `v1.3.28`
@@ -556,10 +556,14 @@ list.
   (`docs/planning/decisions/L1-beacon-memory.md` §2). The pin stays fixed only while
   Beacon's opt-in package self-updates (off by default) stay off (L1 §2). Its local MCP
   server advertises an older MCP protocol revision, `2024-11-05`, which predates OAC's
-  "MCP — legacy era" pin `2025-11-25` (L1 §6). Four facts are UNVERIFIED at the pin (L1 §6,
-  rows 53-56): whether Beacon's capture records OAC-delivered input, the stability of
-  the memory ID and memory-tool results, concurrent `memory.db` access, and whether
-  Beacon's Codex configuration writes collide with OAC's Codex adapter launch.
+  "MCP — legacy era" pin `2025-11-25` (L1 §6). L1 left four facts UNVERIFIED at the pin
+  (L1 §6, rows 53-56). L2's desk research (L1 §11, 2026-09-29) settled three from source
+  at the tag: the memory ID and memory-tool result shape is CONFIRMED (row 54),
+  concurrent `memory.db` access is CONFIRMED as SQLite WAL with a 5 s busy timeout
+  (row 55), and a collision between Beacon's config writes and OAC's planned launch
+  paths is REFUTED (row 56). One stays open, narrowed: whether the harness reports
+  OAC-delivered input to Beacon at all; Beacon's side and OAC's outbound tool-call
+  capture are confirmed (row 53).
 - **What it invalidates.** Nothing in v0.1. Beacon is an external service, never
   shipped or called by OAC, with `Gates affected: none` (`docs/planning/PINS.md`
   "Beacon (external memory service)"). No spec text depends on it: L1 chose docs-only
@@ -569,11 +573,11 @@ list.
   changes at a new tag; L3's operator-run live leg shows OAC-delivered input in Beacon's
   `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.
 - **Response.** On a new tag, re-read L1 §6 and every L1 §10 citation at it before moving
-  the PINS.md row (`oac-evidence` §7). L2 (desk research) and L3 (operator-run live leg)
-  run the four items to a closed or refuted state and record the Beacon version they
-  ran on. If U1 confirms capture, L4's threat
-  rows carry it as a residual; L1 §4 Q3's Local / Metadata-only recommendation already
-  limits forwarding but not local capture. If U4 finds a collision, record it as a
+  the PINS.md row (`oac-evidence` §7); L1 §11's source-level findings are re-read at the
+  new tag too. For U1 only, L3 runs the operator-run live leg (L1 §12, never in CI) and
+  records the Beacon version it ran on in L1 §13. L4's row 23 already carries capture as
+  a residual; L1 §4 Q3's Local / Metadata-only recommendation limits forwarding but not
+  local capture. If L3's B1-B4 steps find a config collision after all, record it as a
   finding against the Codex adapter's launch design, not a workaround
   (`docs/planning/STATUS.md` "Open UNVERIFIED items").
 - **Capture-side residual (`docs/planning/v0.1/06-security.md` §14 row 23, L4).** An
@@ -694,7 +698,7 @@ of a risk id.
 | 53 | Whether Beacon's Claude Code capture (hooks/OTLP) records the content of an OAC channel notification delivered into the session, or only harness-visible tool/prompt events; same open question for input OAC's Codex adapter delivers. No first-party statement at Beacon `v1.3.29` (from L1, issue #166, `docs/planning/decisions/L1-beacon-memory.md` §6 U1). **Narrowed by L2 (issue #167, 2026-09-29, L1 §11 item 1):** Beacon has no channel-specific handling and records whatever the harness reports as a prompt (hook `UserPromptSubmit`, OTLP `claude_code.user_prompt` / `codex.user_prompt`, or a non-meta `user` session-file entry) verbatim as `prompt.submitted`; OAC's outbound MCP tool-call arguments are confirmed captured (`cli/beacon/internal/endpoint/hooks/claude.go@v1.3.29` L63-77, `cli/beacon/internal/claudesession/mapper.go@v1.3.29` L68-107, L190-210). **Still open:** whether Claude Code and Codex emit any of those for OAC-delivered input — harness behaviour, owned by the operator-run live leg (L1 §12, not CI) | RISK-BEACON |
 | 54 | The exact shape and stability of Beacon's memory item ID and of `get_memory` / `get_memory_context` results across releases (from L1, issue #166, L1 §6 U2) | **CLOSED** — CONFIRMED by L2 (issue #167, 2026-09-29, L1 §11 item 2): ID is `memory_` + 32 hex chars, a truncated SHA-256 over project ID, candidate ID, kind and title (`cli/beacon/internal/learning/store.go@v1.3.29` L694-701); `get_memory` returns `LearningMemoryV1` with `schema_version` `beacon.learning.v1` (`pkg/asymptoteobserve/learning.go@v1.3.29` L3, L108-122); `search_memory` / `get_memory_context` summaries carry no version field (`cli/beacon/internal/mcpserver/server.go@v1.3.29` L80-99). Retrieved 2026-09-29. Not an OAC dependency (L1 §4 Q1). RISK-BEACON stays open for row 53 and the fast-moving pin |
 | 55 | Whether one Beacon `memory.db` can be read by several harness sessions concurrently without a documented locking model (from L1, issue #166, L1 §6 U3) | **CLOSED** — CONFIRMED by L2 (issue #167, 2026-09-29, L1 §11 item 3): SQLite via `modernc.org/sqlite` `v1.59.0`, `PRAGMA journal_mode=WAL` and `busy_timeout=5000` on every per-call connection, single-statement upserts (`cli/beacon/internal/learning/store.go@v1.3.29` L14, L65-92, L569-595); MCP memory tools are read-only. No Beacon doc states the model, so it is re-read on every pin move. Retrieved 2026-09-29 |
-| 56 | Whether Beacon's Codex integration (`beacon endpoint install` writes OTLP exporter tables to `~/.codex/config.toml`; hooks to `~/.codex/hooks.json`; `beacon mcp connect` edits one `beacon-managed` entry) conflicts with OAC's Codex adapter launch (from L1, issue #166, L1 §6 U4) | **CLOSED** — REFUTED by L2 (issue #167, 2026-09-29, L1 §11 item 4): Beacon replaces only `[otel]` / `[otel.*]` in `config.toml` and copies every other table through (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L464-503), writes only `env` keys and its own hooks in Claude `settings.json` (same file L359-397; `cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205), and names its servers `beacon` / `beacon-managed`; no write touches a server named `oac` or the `--dangerously-load-development-channels` launch. Side effect recorded: user-level `log_user_prompt = true` also applies to OAC-launched Codex (feeds row 53). Retrieved 2026-09-29 |
+| 56 | Whether Beacon's Codex integration (`beacon endpoint install` writes OTLP exporter tables to `~/.codex/config.toml`; hooks to `~/.codex/hooks.json`; `beacon mcp connect` edits one `beacon-managed` entry) conflicts with OAC's Codex adapter launch (from L1, issue #166, L1 §6 U4) | **CLOSED** — REFUTED by L2 (issue #167, 2026-09-29, L1 §11 item 4): Beacon replaces only `[otel]` / `[otel.*]` in `config.toml` and copies every other recognised table through (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L464-503); edge case: its line merge recognises a header only when the trimmed line starts with `[` and ends with `]` (L471-485), so a header with a trailing comment (e.g. `[mcp_servers.oac] # x`) directly after an `[otel]` section is dropped with its keys — not OAC's planned path, which registers `oac` with `codex mcp add` rather than by hand (not source-checked against Codex; L1 §12 B1 checks it), writes only `env` keys and its own hooks in Claude `settings.json` (same file L359-397; `cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205), and names its servers `beacon` / `beacon-managed`; no write touches a server named `oac` or the `--dangerously-load-development-channels` launch. Side effect recorded: user-level `log_user_prompt = true` also applies to OAC-launched Codex (feeds row 53). Retrieved 2026-09-29 |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

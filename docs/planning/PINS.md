@@ -638,8 +638,8 @@ semver, and are recorded verbatim — never reformatted.
   https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/LICENSE, retrieved
   2026-09-29. It is recorded as an external service, not shipped, in
   `docs/planning/v0.1/07-repository-and-dependencies.md` §5.
-- **Four facts UNVERIFIED at this pin** (L1 §6, `docs/planning/STATUS.md` "Open
-  UNVERIFIED items"): capture of OAC-delivered input, memory ID and result schema
+- **Four facts were UNVERIFIED at this pin; one remains after L2** (L1 §6,
+  `docs/planning/STATUS.md` "Open UNVERIFIED items"): capture of OAC-delivered input, memory ID and result schema
   stability, concurrent `memory.db` access, and Codex config interaction. L2 owns them.
   **L2 (issue #167, 2026-09-29, L1 §11):** the last three are closed from source at this
   tag (CONFIRMED, CONFIRMED, REFUTED); the first stays UNVERIFIED, narrowed to harness
@@ -647,8 +647,8 @@ semver, and are recorded verbatim — never reformatted.
   L1 §11's source-level facts to be re-read at the new tag.
 - **Gates affected: none.** No `G<n>-result.md` verdict depends on this row. A move of
   this row invalidates no gate verdict. It does require L1 §6's items and every L1 §10
-  citation to be re-read at the new tag, and L2's fixtures to record the Beacon version
-  they ran on.
+  citation to be re-read at the new tag, and the L3 live leg to record the Beacon version
+  it ran on in L1 §13 (L2 commits no fixtures).
 
 ## Constraint floors
 

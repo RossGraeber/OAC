@@ -9,7 +9,8 @@ review-gated memory service that each harness connects to natively over MCP. OAC
 stores, fetches, summarizes, or injects memory. Beacon is pinned at `v1.3.29`, fixed
 (§2). Its license is MIT, recorded as an external service that OAC does not ship (§3).
 The operator's answers to Q1-Q5 (2026-09-29) are recorded in §4 and are not re-opened
-by later Epic L tasks. Four facts stay UNVERIFIED and are handed to L2 (§6).
+by later Epic L tasks. Four facts stayed UNVERIFIED and were handed to L2 (§6); L2's
+desk research closed three and narrowed one (§11), and §12 is the live leg for the last.
 
 **Where this record lives.** `docs/planning/decisions/` holds the C-series product
 decisions and K1's test-tooling decision. L1 is an integration-boundary decision about a
@@ -624,7 +625,10 @@ not this local capture.
   busy_timeout=5000;` and its connection URI also carries `_pragma=busy_timeout(5000)`
   (`store.go@v1.3.29` L65-92). Each write is one `INSERT ... ON CONFLICT(id) DO UPDATE`
   statement (e.g. `PutMemory`, L569-595). `store.go` opens no explicit transaction (no
-  `Begin` / `Tx` in the file). Each open also runs the idempotent
+  `Begin` / `Tx` in the file). Multi-step writes are therefore not atomic: supersede
+  reads the memory with `GetMemory` and writes it back with `PutMemory`
+  (`cli/beacon/internal/learning/candidate.go@v1.3.29` L243-251), so two concurrent
+  operator writes to the same memory can lose an update. MCP readers are unaffected. Each open also runs the idempotent
   `CREATE TABLE IF NOT EXISTS` set (L94-157).
 - **Who writes.** The MCP memory tools are read-only (`docs/cli/memory.mdx@v1.3.29`
   L265-271; the three handlers call only `ListMemories` / `GetMemory`,
@@ -657,15 +661,23 @@ not this local capture.
 | Beacon command | File | What it changes | Can it touch OAC's entry? |
 |---|---|---|---|
 | `beacon endpoint install` (Claude) | `~/.claude/settings.json` | Sets 8 keys in the `env` object (telemetry and OTLP exporter settings, including `OTEL_LOG_USER_PROMPTS`). Backs the file up, then re-encodes the whole file with Go's `json.MarshalIndent` (`harness.go@v1.3.29` L359-397) | **No.** It changes only those `env` keys. It never writes MCP server entries |
-| `beacon endpoint hooks install` (Claude) | `~/.claude/settings.json` (user) or `./.claude/settings.json` (project) | Removes Beacon's own hook entries, then merges its hook groups for the 10 events. Non-Beacon hooks are kept (`cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205; `docs/cli/hooks.mdx@v1.3.29` L33, L310) | **No.** OAC's plan installs no Claude hook |
-| `beacon endpoint install` (Codex) | `~/.codex/config.toml` | Replaces the `[otel]` table and every `[otel.*]` table with Beacon's block. Every other line, including every `[mcp_servers.*]` table, is copied through unchanged (`mergeCodexOTELWithPrompt`, `harness.go@v1.3.29` L464-503) | **No.** It changes only `[otel]` / `[otel.*]` |
+| `beacon endpoint hooks install` (Claude) | `~/.claude/settings.json` (user) or `./.claude/settings.json` (project) | Removes Beacon's own hook entries, then merges its hook groups for the 10 events. Non-Beacon hooks are kept (`cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205; path from `docs/cli/hooks.mdx@v1.3.29` L33) | **No.** OAC's plan installs no Claude hook |
+| `beacon endpoint install` (Codex) | `~/.codex/config.toml` | Replaces the `[otel]` table and every `[otel.*]` table with Beacon's block. Every other line under a header it recognises is copied through unchanged (`mergeCodexOTELWithPrompt`, `harness.go@v1.3.29` L464-503). **Edge case:** the merge is line-based and treats a line as a table header only when the trimmed line starts with `[` **and** ends with `]` (L471-485). A header with a trailing comment, e.g. `[mcp_servers.oac] # oac`, directly after an `[otel]` section is therefore not recognised: it and its keys are dropped until the next recognised header | **No, on OAC's planned path**: OAC registers `oac` with `codex mcp add`, not by hand-editing, and a CLI-written header carries no trailing comment (not source-checked against Codex; §12 B1 checks it). A hand-edited `oac` header with a trailing comment placed after `[otel]` would be lost; §12 B1 checks for it |
 | `beacon endpoint hooks install --harness codex` | `~/.codex/hooks.json` or `./.codex/hooks.json` | One `SessionStart` hook, merged the same way (`hooks/codex.go@v1.3.29` L63-73; `docs/cli/hooks.mdx@v1.3.29` L34, L449) | **No.** OAC's plan installs no Codex hook |
 | `beacon mcp connect` (explicit, opt-in; `endpoint install` never runs it) | `~/.claude.json` via `claude mcp add --scope user`; `~/.codex/config.toml` | Adds exactly one server named `beacon-managed`, as a text edit. It re-parses the result and writes nothing if any other byte would change (`docs/cli/mcp-connect.mdx@v1.3.29` L32-35, L100-107, L176-179) | **No.** It uses a different name. Out of Epic L's scope anyway (§1) |
 | `beacon mcp serve` config printed by `beacon mcp doctor` | none; the operator pastes it | A stdio server named `beacon` (`docs/cli/mcp-connect.mdx@v1.3.29` L19-26) | **No.** It uses a different name |
 
-**Verdict.** No Beacon write at the tag touches a server named `oac`, the
-`--dangerously-load-development-channels` flag, or the app-server. The hypothesised
-collision is refuted.
+**Verdict.** On OAC's planned launch paths, no Beacon write at the tag touches a server
+named `oac`, the `--dangerously-load-development-channels` flag, or the app-server. The
+hypothesised collision is refuted for those paths. The one exception is the
+trailing-comment header edge case in the table above, which OAC's documented
+`codex mcp add` path is not expected to produce (§12 B1 checks it live).
+
+**Paths Beacon writes, whatever the environment says.** `ConfigureClaude` always writes
+`$HOME/.claude/settings.json` and ignores `CLAUDE_CONFIG_DIR` (`harness.go@v1.3.29`
+L364). `ConfigureCodex` always writes `$HOME/.codex/config.toml` and ignores
+`CODEX_HOME` (L404). An operator who runs Claude Code or Codex with either variable set
+gets Beacon's telemetry settings in a file that session may not read.
 
 **Two side effects recorded as findings, not collisions:**
 
@@ -675,7 +687,9 @@ collision is refuted.
    adapter talks to under the same Codex home. This feeds item 1's Codex half and L4's
    residual. It is Beacon's behaviour at the tag, not an OAC defect.
 2. **Formatting churn in `~/.claude/settings.json`.** The Claude telemetry write
-   re-encodes the whole file, so key order and formatting change. Content outside `env`
+   re-encodes the whole file, so key order and formatting change. The write is
+   `os.WriteFile(path, data, 0600)` (`harness.go@v1.3.29` L396): the 0600 mode applies
+   when Beacon creates the file; an existing file keeps its mode. Content outside `env`
    is kept when the file parses. If it does not parse, the parse error is ignored and the
    file is rewritten holding only Beacon's `env` block; the backup taken just before is
    then the only copy of the old content (`harness.go@v1.3.29` L365-371).
@@ -693,6 +707,11 @@ marked CLOSED with citations, row 53 narrowed, one sentence in the traceability 
 `docs/planning/PINS.md`: the Beacon row's UNVERIFIED count and one note in its record.
 `docs/planning/v0.1/06-security.md` §14 row 23: the residual cell now carries item 1's
 finding (L4 merged first, so this lands as a follow-up edit).
+After L5 and L7 merged, the review round also updated stale U1-U4 wording in
+`docs/planning/v0.1/08-cli-and-deployment.md` §20, `07-repository-and-dependencies.md`
+§5/§9 and `11-risks.md` `RISK-BEACON`, and pointers in
+`.claude/skills/oac-boundaries/references/beacon.md` (the one edit outside
+`docs/planning/`, made at review request).
 No pin value, gate verdict, skill, spec or ADR text changes. No Beacon code, binary,
 fixture or spike code is committed.
 
@@ -736,11 +755,15 @@ and `oac-gates` §"Fixture capture procedure"):
 ```bash
 beacon version                          # must report version 1.3.29; stop otherwise (§2)
 claude --version; codex --version       # record both (floating pins, PINS.md)
-CL="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; CX="${CODEX_HOME:-$HOME/.codex}"
-sha256sum "$CL/settings.json" "$HOME/.claude.json" "$CX/config.toml" "$CX/hooks.json" 2>&1 | tee hashes-before.txt
+# Beacon writes these fixed paths whatever CLAUDE_CONFIG_DIR / CODEX_HOME say
+# (harness.go@v1.3.29 L364, L404; §11 item 4)
+sha256sum "$HOME/.claude/settings.json" "$HOME/.claude.json" "$HOME/.codex/config.toml" "$HOME/.codex/hooks.json" 2>&1 | tee hashes-before.txt
+env | grep -E '^(CLAUDE_CONFIG_DIR|CODEX_HOME)=' | sed 's/=.*/=<set>/'   # record only whether set
 ```
 
-Also copy those four files to a backup directory outside the repo. Evidence to record:
+If `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set, the harness may read a different file
+than the one Beacon writes: record that as a finding and also hash the harness's own
+files. Also copy the four files to a backup directory outside the repo. Evidence to record:
 the three versions, `hashes-before.txt` (hashes only, paths redacted), the timebox start
 time, and confirmation that Beacon package self-updates are off (§2).
 
@@ -749,8 +772,13 @@ time, and confirmation that Beacon package self-updates are off (§2).
 Run `beacon endpoint install`, choose Local, and include the `claude` and `codex`
 harnesses. Hash the four files again and diff each against its B0 backup.
 
+Before installing, check the edge case from §11 item 4: whether `config.toml` has any
+table header with a trailing comment (`grep -nE '^\s*\[[^]]*\]\s*#' ~/.codex/config.toml`)
+and whether one follows an `[otel]` section. If so, confirm after install whether that
+table and its keys survived.
+
 Evidence to record: which files changed. For `config.toml`, whether any line outside
-`[otel]` / `[otel.*]` changed. For `settings.json`, whether anything outside `env` and
+`[otel]` / `[otel.*]` changed, and the result of the trailing-comment check. For `settings.json`, whether anything outside `env` and
 `hooks` changed in content, not just in formatting. For `.claude.json`, whether it
 changed at all. Attribute each change to this Beacon step. Any change beyond §11 item 4's
 table is a finding.
