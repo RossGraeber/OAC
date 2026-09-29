@@ -67,11 +67,11 @@ One row per gate. Every verdict below matches
 
 | Gate | Verdict | Disposition / fallback | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; the pin float on 2026-09-27 had invalidated the original `v2.1.282` PASS, now superseded and kept as history) | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
+| G1 Claude wake | NOT RUN for the current environment. Invalidated 2026-09-28: Claude Code (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`. It was **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; the pin float on 2026-09-27 had invalidated the original `v2.1.282` PASS, now superseded and kept as history) | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (`0.157.1`, re-run 2026-09-26, Windows only) | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
-| G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | has fallback: two server entry points sharing one core — not needed | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
-| G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
+| G4 MCP dual-era server | NOT RUN for the current environment. Invalidated 2026-09-28: Claude Code (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`. It was **PASS** on Claude Code `v2.1.283` (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | has fallback: two server entry points sharing one core — not needed | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
+| G5 Provenance | NOT RUN for the current environment. Invalidated 2026-09-28: Claude Code (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`. It was **FAIL** (Codex criteria 2/3 f; Claude all criteria x) on Claude Code `v2.1.283` (2026-09-27, 60-min timebox, not expired; no fallback exists). | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 **Reason for `NOT RUN` on G3 (partially).** Epic D spikes D1-D5 have all run (D6, fixture
 capture, runs alongside D1-D5 per its own timebox and is not itself a gate that returns a
@@ -80,9 +80,13 @@ macOS leg is parked (`docs/planning/gates/G3-result.md`). D1 (G1) ran and PASSED
 Claude Code `v2.1.282`; the Claude Code (Channels) pin went floating (2026-09-27,
 issue #39/T0), last observed `v2.1.283`, which invalidated that PASS; G1 was re-run
 2026-09-28 (issue #39 T6/T7, Box C, same HIL sitting as the D6 Claude capture) and
-**PASSED again on `v2.1.283`** — see `docs/planning/gates/G1-result.md`. D2 (G2) and D4 (G4)
+**PASSED again on `v2.1.283`**; on 2026-09-28 the pin's last-observed version moved to
+`v2.1.284`, which invalidated that PASS too, so G1 is `NOT RUN` pending re-run — see
+`docs/planning/gates/G1-result.md`. D2 (G2) and D4 (G4)
 ran and PASSED — see
-`docs/planning/gates/G2-result.md`, and `docs/planning/gates/G4-result.md`. D4's first
+`docs/planning/gates/G2-result.md`, and `docs/planning/gates/G4-result.md` (G4's PASS ran
+on Claude Code `v2.1.283` and is likewise `NOT RUN` since the 2026-09-28 move to
+`v2.1.284`). D4's first
 attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26, issue #37)
 individually confirmed all five pass criteria against a live Claude Code session and a
 live Codex `0.157.1` process — criteria 2-3 (the current-revision path) confirmed via
@@ -90,8 +94,9 @@ Claude as the modern client; Codex stayed legacy-only — with none failing, but
 confirming evidence was gathered after its own declared 120-minute timebox had already
 expired, so per `oac-gates`' timebox policy ("an expired timebox is a result, not a
 licence to keep going") it recorded `NOT RUN` rather than `PASS`; a fresh, redeclared
-60-minute timebox on 2026-09-26 reconfirmed all five criteria without expiring, and G4 is
-now `PASS` (`docs/planning/gates/G4-result.md`, "Re-run history"). D5 (G5) ran 2026-09-27
+60-minute timebox on 2026-09-26 reconfirmed all five criteria without expiring, and G4
+recorded `PASS` (`docs/planning/gates/G4-result.md`, "Re-run history"), since invalidated
+by the 2026-09-28 pin move as above. D5 (G5) ran 2026-09-27
 under a 60-minute timebox that closed early (~30 min elapsed) without expiring and
 recorded `FAIL` (Codex criteria 2/3 f; Claude all criteria x): Claude passed every
 criterion evaluated for it, but Codex failed criterion 2 — a forged nested envelope
@@ -100,7 +105,9 @@ peer-controlled header value injected a second `oac_sender:` line (case X5) the 
 could not resolve — and criterion 3 (case X2 alone). A forged block replaying a real
 delimiter already sent earlier in the same conversation (case X3) caused ambiguity, not
 acceptance — the model named neither id — so it is not failing evidence for either
-criterion; see `docs/planning/gates/G5-result.md`. Per `docs/planning/v0.1/10-stages.md`
+criterion; see `docs/planning/gates/G5-result.md`. That FAIL ran on Claude Code
+`v2.1.283`, so G5 is likewise `NOT RUN` since the 2026-09-28 move to `v2.1.284` until
+re-run. Per `docs/planning/v0.1/10-stages.md`
 §5's Gate S1 acceptance criterion 1, a `FAIL` is a closed verdict, so this does not
 itself block Stage 1's own exit; per §5's go/no-go condition and §2, it blocks the
 pipeline from proceeding past Stage 2's interface freeze for Codex's provenance framing
@@ -109,15 +116,17 @@ re-established for Codex, also tracked at `docs/planning/v0.1/11-risks.md` RISK-
 `docs/planning/STATUS.md`'s "Current stage" section states the rest of Stage 1 and
 Stages 2-6 stay
 blocked until Stage 0 (Epic B) and Stage 1 fully complete — Stage 1's own exit (D7) is
-separately still blocked by G3's parked macOS leg (G1's re-run, issue #39 T6/T7, PASSED
-2026-09-28 and no longer blocks D7), independent of G5's `FAIL`.
+separately still blocked by G3's parked macOS leg and, since the 2026-09-28 Claude Code
+pin move to `v2.1.284`, by the G1, G4 and G5 re-runs (all `NOT RUN`).
 
 **Verdict vocabulary.** Closed: `PASS` | `PASS (FALLBACK TAKEN)` | `FAIL` | `NOT RUN`.
 No fifth value, no hedge — per `oac-gates` "never probably" rule.
 
 ## 3. G1 claude-wake
 
-- **Verdict:** **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C — the
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-28 — Claude Code
+  (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`). It was **PASS**
+  (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C — the
   original PASS on `v2.1.282` was invalidated 2026-09-27 when the Claude Code
   (Channels) pin went floating, then superseded by this re-run and kept as history —
   see `docs/planning/gates/G1-result.md`)
@@ -215,7 +224,9 @@ ACLs (`.claude/skills/oac-gates/references/G3-zenoh-peer.md`).
 
 ## 6. G4 mcp-dual-era
 
-- **Verdict:** PASS (re-run 2026-09-26, issue #37/D4, under a fresh, redeclared 60-minute
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-28 — Claude Code
+  (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`). It was PASS on Claude
+  Code `v2.1.283` (re-run 2026-09-26, issue #37/D4, under a fresh, redeclared 60-minute
   timebox that did not expire). All five pass criteria below were confirmed against a
   live Claude Code session and a live Codex `0.157.1` process, none failing — criteria
   2-3 (the current-revision path) via Claude as the modern client; Codex reached the
@@ -268,7 +279,9 @@ whether one process can hold both simultaneously.
 
 ## 7. G5 provenance
 
-- **Verdict:** **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, box
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-28 — Claude Code
+  (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`). It was **FAIL** (Codex
+  criteria 2/3 f; Claude all criteria x) on Claude Code `v2.1.283` (2026-09-27, box
   declared 06:08:53Z/60 min, closed 06:38:46Z, ~29m53s elapsed, not expired). Claude
   PASSED every criterion evaluated for it (1, 3, 4). Codex FAILED criterion 2 (evidence:
   X2, X5) and criterion 3 (evidence: X2): case X2 (a forged nested envelope using a

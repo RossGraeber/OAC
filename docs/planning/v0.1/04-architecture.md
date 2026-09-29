@@ -16,7 +16,8 @@ Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer
 `NOT RUN`**. Every transport-behavior statement below — loopback discovery, presence
 liveliness, local/LAN security profiles — is a **designed** mechanism this file diagrams,
 not a **proven** one. Gate **G5 (Provenance)** has since run and recorded **FAIL**
-(Codex criteria 2/3 f; Claude all criteria x) (`docs/planning/gates/G5-result.md`) —
+(Codex criteria 2/3 f; Claude all criteria x) on Claude Code `v2.1.283`, `NOT RUN` since
+the 2026-09-28 pin move to `v2.1.284` pending re-run (`docs/planning/gates/G5-result.md`) —
 **harness behaviour confirmed by G5; OAC mitigation still designed**: G5's spike server
 (not OAC's own eventual adapter) sent the Claude `meta` map and built the Codex header
 frame, so what G5 confirmed is that Claude Code's channel rendering cannot be forged
@@ -27,12 +28,15 @@ name the forged id as sender; a forged block replaying a real delimiter from an 
 delivery (case X3) did not get the model to name the forged id but did leave it unable
 to resolve a sender at all (conflict-register entry C13,
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4). Gate **G1 (Claude wake)** is
-**PASS** (originally on Claude Code `v2.1.282`; the Claude Code (Channels) pin went
-floating 2026-09-27, last observed `v2.1.283`, invalidating that PASS; re-run and
-**PASSED again** 2026-09-28 on `v2.1.283` — see `docs/planning/gates/G1-result.md`),
+**NOT RUN** for the current environment (originally PASSED on Claude Code `v2.1.282`; the
+Claude Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283`,
+invalidating that PASS; re-run and PASSED again 2026-09-28 on `v2.1.283`; invalidated
+again 2026-09-28 when the last-observed version moved to `v2.1.284` — see
+`docs/planning/gates/G1-result.md`),
 gate **G2 (Codex live inject)** is **PASS** (`0.157.1`, re-run 2026-09-26, Windows only,
-per `docs/planning/gates/G2-result.md`), and gate **G4 (MCP dual-era server)** is **PASS**
-(re-run 2026-09-26, fresh unexpired timebox, per `docs/planning/gates/G4-result.md`): the
+per `docs/planning/gates/G2-result.md`), and gate **G4 (MCP dual-era server)** PASSED on
+Claude Code `v2.1.283` (re-run 2026-09-26, fresh unexpired timebox, per
+`docs/planning/gates/G4-result.md`) and is `NOT RUN` since the same 2026-09-28 move: the
 wake/daemon-attach/dual-era-coexistence mechanisms these flows rely on are confirmed on
 their respective scopes; the adapter flows themselves remain designed, not proven — G1,
 G2, and G4 were all throwaway spikes that exercised the provider-side wake/attach/
@@ -231,7 +235,7 @@ tool-call boundary rather than batched "together" at one; order/no-drop/no-inter
 confirmed, batching is not. See `docs/planning/gates/G1-result.md`.
 
 **Surface label, at first mention.** Claude Code Channels is a **research preview**.
-Pinned version: **floating** — last observed `v2.1.283` (`docs/planning/PINS.md` —
+Pinned version: **floating** — last observed `v2.1.284` (`docs/planning/PINS.md` —
 Claude Code Channels, "Floating-version policy"). Compatibility shim boundary:
 `adapters/claude/` (UNVERIFIED — the module/interface name
 itself is not yet fixed in `DESIGN.md`; open ledger entry C11,
@@ -472,7 +476,7 @@ Per `oac-evidence` §8, checked against this file:
   gating)** (§9).
 - Preview/experimental surfaces carry a shim boundary and pinned version: Claude —
   `adapters/claude/` (UNVERIFIED — C11, not yet fixed in `DESIGN.md`), **floating**, last
-  observed `v2.1.283` (§7; `docs/planning/PINS.md`); Codex — `adapters/codex/`
+  observed `v2.1.284` (§7; `docs/planning/PINS.md`); Codex — `adapters/codex/`
   (UNVERIFIED — same C11), **floating**, last observed
   `@openai/codex@0.157.1` @ `36650394c5b38c2990ccf2a3457165ca3e9d9726` (§9;
   `docs/planning/PINS.md`).

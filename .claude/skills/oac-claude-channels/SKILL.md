@@ -148,8 +148,10 @@ the Agent SDK can drive or receive channels.
 
 ## Pin
 
-**Floating** (operator decision, 2026-09-27). Last observed `v2.1.283`. Everything below
-was verified on `v2.1.274` only (STATUS.md open item).
+**Floating** (operator decision, 2026-09-27). Last observed `v2.1.284` (moved from
+`v2.1.283` 2026-09-28; G1, G4 and G5, all run on `v2.1.283`, are `NOT RUN` until re-run —
+see `docs/planning/PINS.md`). Everything below was verified on `v2.1.274` only (STATUS.md
+open item).
 
 **Re-verified pin (B2):** Claude Code `v2.1.274` (Channels research preview),
 published 2026-09-17T00:12:02Z UTC. Both floors satisfied: channels-exist

@@ -266,8 +266,9 @@ explicitly unnamed) shim boundary in `docs/planning/PINS.md`; this section only 
 which are likeliest to force a re-run.
 
 - **Claude Code Channels — `research preview`** is **floating** by operator decision
-  (2026-09-27), mirroring the Codex row. The last observed version is `v2.1.283`
-  (`docs/planning/PINS.md`, Claude Code Channels, "Floating-version policy"). Channels
+  (2026-09-27), mirroring the Codex row. The last observed version is `v2.1.284`
+  (moved from `v2.1.283` 2026-09-28; `docs/planning/PINS.md`, Claude Code Channels,
+  "Floating-version policy"). Channels
   floor `v2.1.232`, permission-relay floor `v2.1.234` still hold at this version. Affects
   **G1**, **G4** (legacy-MCP negotiation), and **G5**. Expect the most frequent
   invalidation here alongside Codex: Claude Code ships releases at high cadence and the

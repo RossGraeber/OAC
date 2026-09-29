@@ -83,8 +83,9 @@ design, restated per-decision below and carrying forward each source document's 
 opening caveat:
 
 - **Decision 5 (envelope authenticity) and decision 8 (provenance rendering)** — gate
-  **G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude all criteria x)
-  (2026-09-27,
+  **G5 (Provenance) recorded `FAIL`** (Codex criteria 2/3 f; Claude all criteria x)
+  (2026-09-27, on Claude Code `v2.1.283`; `NOT RUN` since the 2026-09-28 pin move to
+  `v2.1.284`, pending re-run;
   `docs/planning/gates/G5-result.md`). `docs/planning/decisions/C5-envelope-auth.md` and
   `docs/planning/decisions/C6-trust-rendering.md` each carry this updated caveat: Claude's
   `meta`-attribute rendering is confirmed unforgeable from content; Codex's header-and-
@@ -278,7 +279,7 @@ offline-mailbox pattern).
 independently exercised, carried UNVERIFIED, not fired.
 
 **Gate dependency.** Gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
-(2026-09-27, `docs/planning/gates/G5-result.md`) — this decision's envelope-authenticity
+(2026-09-27, on Claude Code `v2.1.283`; `NOT RUN` since the 2026-09-28 pin move to `v2.1.284`, pending re-run, `docs/planning/gates/G5-result.md`) — this decision's envelope-authenticity
 mechanism is a separate layer from what G5 tests (the rendering layer,
 `docs/planning/decisions/C6-trust-rendering.md` §2-§5 and `oac-security-work` §5); G5's
 result bears on that rendering layer, not on signature verification itself.
@@ -313,7 +314,7 @@ signing mechanism shares. The v0.1 posture (no online key rotation, manual re-pa
 is a deliberate scope limit (C5 §4), not an open reversal test.
 
 **Gate dependency.** Gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
-(2026-09-27) — the same caveat as decision 5.
+(2026-09-27, on Claude Code `v2.1.283`; `NOT RUN` since the 2026-09-28 pin move to `v2.1.284`, pending re-run) — the same caveat as decision 5.
 
 ### Decision 7 — Key storage
 
@@ -375,13 +376,15 @@ permission relay on by default behind an allowlist (the exact collapse C10 names
 structured-provenance surface beyond the current `content`/`meta` string-and-map pair.
 Not fired at the pinned version.
 
-**Gate dependency.** Gate **G1 (Claude wake)**, **PASS** (originally on Claude Code
-`v2.1.282`; the Claude Code (Channels) pin went floating 2026-09-27, last observed
-`v2.1.283`, invalidating that PASS; re-run and **PASSED again** 2026-09-28 on
-`v2.1.283` — see `docs/planning/gates/G1-result.md`), exercised
+**Gate dependency.** Gate **G1 (Claude wake)**, now **NOT RUN** for the current
+environment (originally PASSED on Claude Code `v2.1.282`; the Claude Code (Channels) pin
+went floating 2026-09-27, last observed `v2.1.283`, invalidating that PASS; re-run and
+PASSED again 2026-09-28 on `v2.1.283`; invalidated again 2026-09-28 when the
+last-observed version moved to `v2.1.284` — see `docs/planning/gates/G1-result.md`),
+exercised
 the real Claude
 rendering this design assumes; gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f;
-Claude all criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`), exercised whether forged-sender
+Claude all criteria x) (2026-09-27, on Claude Code `v2.1.283`; `NOT RUN` since the 2026-09-28 pin move to `v2.1.284`, pending re-run, `docs/planning/gates/G5-result.md`), exercised whether forged-sender
 content is actually shown contradicted by machine-set provenance — confirmed on Claude,
 not yet sufficient on Codex.
 
@@ -419,7 +422,7 @@ channel-tag convention — a documented structured-metadata field on `turn/start
 
 **Gate dependency.** Gate **G2 (Codex live inject)**, **PASS** (`0.157.1`, re-run
 2026-09-26, Windows only); gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
-(2026-09-27, `docs/planning/gates/G5-result.md`).
+(2026-09-27, on Claude Code `v2.1.283`; `NOT RUN` since the 2026-09-28 pin move to `v2.1.284`, pending re-run, `docs/planning/gates/G5-result.md`).
 
 ### Decision 10 — Transport mapping
 

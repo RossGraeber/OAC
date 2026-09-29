@@ -1,6 +1,14 @@
 ### G1 claude-wake
 
-> **PASS, current, Claude Code `v2.1.283` (Box C, 2026-09-28).** Operator decision
+> **INVALIDATED (2026-09-28).** The Box C PASS below was recorded on Claude Code
+> `v2.1.283`. The Claude Code (Channels) floating row in `docs/planning/PINS.md` moved its
+> last-observed version to `v2.1.284` (operator decision, 2026-09-28; the local `claude`
+> auto-updated during the scripted run `20260929T034856Z-05b135`) — one version above what
+> this run recorded. G1 is `NOT RUN` for the current environment until it is re-run on
+> `v2.1.284`. The record below is kept unchanged as the `v2.1.283` result, and the
+> superseded PASS is kept in the Re-run history.
+
+> **PASS on Claude Code `v2.1.283` (Box C, 2026-09-28) — superseded, see the callout above.** Claude Code `v2.1.283` (Box C, 2026-09-28).** Operator decision
 > 2026-09-28 (issue #39, chat): G1 = **PASS**, judged directly against criterion 3's
 > literal text ("queued and delivered at the next turn, in order (not dropped, not
 > interleaved out of order)") — order preserved, nothing dropped, nothing interleaved
@@ -121,7 +129,10 @@
         explanation that project-level MCP-server trust, once established, persists
         across separate launches rather than being re-prompted per session (see
         "Original run" below, criterion 5).
-- **Verdict:** **PASS.** All five criteria are evidenced: criteria 1, 2, 4 as cleanly as
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-28 by the Claude
+  Code (Channels) pin move `v2.1.283` -> `v2.1.284`; see the callout at the top). The
+  verdict recorded for Box C on Claude Code `v2.1.283` was **PASS**, kept in the Re-run
+  history; the rest of this field is that record. All five criteria are evidenced: criteria 1, 2, 4 as cleanly as
   the original PASS (criterion 1 with the added, non-disqualifying `server/discover`
   behavior note); criterion 5 with stronger evidence than both the original PASS and Box
   B (the dialog's own text, captured verbatim before acceptance); criterion 3 as
@@ -202,7 +213,7 @@
   |---|---|---|---|
   | 2026-09-25 | Claude Code v2.1.282 (observed; PINS.md pin was v2.1.274, now stale — see "Pin drift" under "Original run" below) | PASS | Claude Code pin `v2.1.274` -> floating (last observed `v2.1.283`), 2026-09-27 — superseded 2026-09-28 by the v2.1.283 re-run below, kept as history |
   | 2026-09-28 (Box B) | Claude Code v2.1.283 (observed pre- and post-box; matches PINS.md's floating last-observed) | **INCOMPLETE** — see "Re-run attempt 1 (Box B)" below. Several pass-criteria probes were not attempted; not a verdict. | n/a — recorded as an incomplete attempt, not verdict-bearing |
-  | 2026-09-28 (Box C) | Claude Code v2.1.283 (observed pre- and post-box; matches PINS.md's floating last-observed) | **PASS** — see "Pass criteria evaluated" above. Operator decision 2026-09-28: criterion 3 satisfied as worded (order preserved, nothing dropped, nothing interleaved); the delivery-at-two-boundaries pattern is recorded as an observed `2.1.283` behavior change, not a failure. **This is the current, verdict-bearing result** (all top-level fields on this page describe this run). | n/a — current verdict |
+  | 2026-09-28 (Box C) | Claude Code v2.1.283 (observed pre- and post-box; matches PINS.md's floating last-observed) | **PASS** — see "Pass criteria evaluated" above. Operator decision 2026-09-28: criterion 3 satisfied as worded (order preserved, nothing dropped, nothing interleaved); the delivery-at-two-boundaries pattern is recorded as an observed `2.1.283` behavior change, not a failure. This was the current, verdict-bearing result until 2026-09-28 (all top-level fields on this page describe this run). | Claude Code (Channels) pin v2.1.283 -> v2.1.284, 2026-09-28 |
 
 ### Scripted re-run through herdr (K4) — pointer only, not verdict-bearing
 
@@ -211,7 +222,10 @@ issue #127): `tools/herdr/scenarios/g1-claude-wake.mjs`, compared against Box C 
 `tools/herdr/lib/g1-report.mjs`. It never changes the verdict above. First live record:
 [`herdr-runs/G1-2026-09-29.md`](herdr-runs/G1-2026-09-29.md) (run
 `20260929T034856Z-05b135`, herdr 0.9.1, Claude Code 2.1.283, human accept; all five
-criteria scored equivalent to Box C), with its run manifest beside it.
+criteria scored equivalent to Box C), with its run manifest beside it. The `v2.1.283` ->
+`v2.1.284` pin move (2026-09-28) invalidates the Box C verdict but not that equivalence
+record: per `oac-gates` `references/scripted-runs.md`, a later pin move that makes the
+human run non-verdict-bearing does not undo the record's basis.
 
 ### Original run (2026-09-25, v2.1.282) — superseded
 

@@ -4,6 +4,22 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-28 (**Claude Code (Channels) floating pin moved `v2.1.283` ->
+`v2.1.284`**, operator decision (Ross Graeber, 2026-09-28, chat). Trigger: during the
+operator's scripted G1 run `20260929T034856Z-05b135` (2026-09-29 UTC,
+`docs/planning/gates/herdr-runs/G1-2026-09-29.md`) the local `claude` auto-updated; the
+session under test stayed on `2.1.283` (CLI and wire) and post-run `claude --version`
+reported `2.1.284 (Claude Code)`. PINS.md's Claude Code (Channels) row now records
+`v2.1.284` as last observed (GitHub release tag `v2.1.284`, published
+2026-09-28T18:02:03Z UTC, retrieved 2026-09-28); environment check: `claude --version`
+reported `2.1.284 (Claude Code)` on 2026-09-28. Per the pin-move checklist, **G1 (PASS,
+Box C), G4 (PASS) and G5 (FAIL) are invalidated** — each recorded `v2.1.283`, not the new
+last-observed `v2.1.284` — and revert to `NOT RUN` until re-run on `v2.1.284`. The G1
+herdr equivalence record is not invalidated (`oac-gates` `references/scripted-runs.md`).
+D7 is now also blocked on the G1, G4 and G5 re-runs. No new UNVERIFIED item is added —
+the Claude §3.1 re-verification gap stays open, now at `v2.1.284` too (see "Open
+UNVERIFIED items").)
+
 **Last updated:** 2026-09-28 (**K1/issue #124 (Epic K #123): Windows live leg run — go on
 Windows; overall stays provisional until the Linux leg runs.** The operator-run checklist
 (K1 §6, L0-L9) ran on native Windows with herdr 0.9.1, Claude Code 2.1.283 and Codex
@@ -639,8 +655,8 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked; G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg, and D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is still blocked on D3's macOS leg only, G1's re-run PASSED 2026-09-28 and no longer blocks it; separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), re-run and PASSED again 2026-09-28 on `v2.1.283` (issue #39 T6/T7, Box C), and **now `NOT RUN` again** — invalidated 2026-09-28 when the pin's last-observed version moved to `v2.1.284` (see `docs/planning/gates/G1-result.md`); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked; G4/D4 PASSED on Claude Code `v2.1.283` (re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`), **now `NOT RUN`** — invalidated by the same `v2.1.284` move, see `docs/planning/gates/G4-result.md`; G5/D5 recorded **FAIL** on Codex, Claude PASS (2026-09-27, Claude Code `v2.1.283`), **now `NOT RUN`** — invalidated by the same move, see `docs/planning/gates/G5-result.md`), J (agent skills) |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg, and D7 (D7 is blocked on D3's macOS leg and, since the 2026-09-28 Claude Code pin move to `v2.1.284`, on the G1, G4 and G5 re-runs — all three are `NOT RUN`, which is not a closed verdict. Once G5 is re-run, a `FAIL` would not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict); separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -680,7 +696,10 @@ at one, as the original PASS recorded — this is treated as an observed `2.1.28
 behavior change, not a criterion failure; every "delivered together" statement in this
 repo has been amended with a dated note, and delivery batching is now tracked as
 UNVERIFIED-as-a-guarantee (`docs/planning/v0.1/11-risks.md` row 49). **G1 is now PASS**
-(current, `v2.1.283`); the original `v2.1.282` PASS is superseded and kept as history.
+on `v2.1.283`; the original `v2.1.282` PASS is superseded and kept as history. **On
+2026-09-28 the Claude Code (Channels) pin's last-observed version moved to `v2.1.284`**
+(operator decision; the local `claude` auto-updated during the scripted G1 run
+`20260929T034856Z-05b135`), so **G1 is `NOT RUN` again** until re-run on `v2.1.284`.
 See `docs/planning/gates/G1-result.md`. G2 PASSED on Codex `0.154.0` (2026-09-25,
 issue #35/D2), was invalidated when the Codex row went floating, and has been **re-run and
 PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
@@ -690,8 +709,9 @@ gate-level verdict stays `NOT RUN` until the macOS leg runs. G4 spiked on 2026-0
 (issue #37/D4); that run's evidence was gathered after its declared 120-minute timebox
 had already expired, so it recorded `NOT RUN` despite every criterion individually
 confirming. A fresh, redeclared 60-minute timebox on 2026-09-26 stayed unexpired
-(~8.5 minutes of live work) and reconfirmed all five criteria — **G4 is now PASS**, no
-fallback needed. See `docs/planning/gates/G4-result.md` for both runs and the full
+(~8.5 minutes of live work) and reconfirmed all five criteria — G4 PASSED on Claude Code
+`v2.1.283`, no fallback needed, and is **`NOT RUN` since the 2026-09-28 pin move to
+`v2.1.284`**. See `docs/planning/gates/G4-result.md` for both runs and the full
 timebox accounting. **G5 spiked on 2026-09-27 (issue #38/D5) under a 60-minute timebox
 that closed early (~30 min elapsed) without expiring and recorded FAIL** (Codex criteria
 2/3 f; Claude all criteria x): Claude passed every criterion evaluated for it; Codex
@@ -701,23 +721,24 @@ peer-controlled header-value injection produced two `oac_sender:` lines the mode
 not resolve — case X5) and criterion 3 (case X2 alone). A forged block replaying a real,
 already-sent delimiter (case X3) caused ambiguity, not acceptance — the model named
 neither id — so it is not failing evidence for either criterion. No fallback exists for
-G5. See `docs/planning/gates/G5-result.md`.
+G5. That FAIL ran on Claude Code `v2.1.283`; **G5 is `NOT RUN` since the 2026-09-28
+pin move to `v2.1.284`** until re-run. See `docs/planning/gates/G5-result.md`.
 Every task labelled `gate:G1`, `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
 gate has a current gate-level verdict. Per `docs/planning/v0.1/10-stages.md` §5's Gate S1
 acceptance criterion 1, a `FAIL` is a closed verdict, so this does not itself block
-**Stage 1's own exit** (D7 — separately still blocked by G3's macOS leg only; G1's
-re-run PASSED 2026-09-28 and no longer blocks it); per §5's
+**Stage 1's own exit** once G5 is re-run (D7 — separately still blocked by G3's macOS
+leg, and by the G1, G4 and G5 re-runs on `v2.1.284`, all `NOT RUN`); per §5's
 go/no-go condition and §2, it blocks the pipeline from proceeding past **Stage 2's
 interface freeze** for Codex's provenance framing until conflict-register entry C13
 lands and DESIGN acceptance criterion 6 is re-established for Codex.
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; primary path: legacy MCP negotiation, idle wake, mid-turn queueing, tool reply — the mid-turn pair landed at two separate tool-call boundaries rather than batched together at one, an observed `2.1.283` behavior change, not a criterion failure). Originally PASSED on `v2.1.282` (2026-09-25); invalidated 2026-09-27 when the Claude Code (Channels) pin went floating; that original record is kept as history. | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
+| G1 Claude wake | NOT RUN for the current environment. Invalidated 2026-09-28: Claude Code (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`. It was **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; primary path: legacy MCP negotiation, idle wake, mid-turn queueing, tool reply — the mid-turn pair landed at two separate tool-call boundaries rather than batched together at one, an observed `2.1.283` behavior change, not a criterion failure). Originally PASSED on `v2.1.282` (2026-09-25); invalidated 2026-09-27 when the Claude Code (Channels) pin went floating; that original record is kept as history. | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
-| G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
-| G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
+| G4 MCP dual-era server | NOT RUN for the current environment. Invalidated 2026-09-28: Claude Code (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`. It was **PASS** on Claude Code `v2.1.283` (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
+| G5 Provenance | NOT RUN for the current environment. Invalidated 2026-09-28: Claude Code (Channels) last-observed version moved `v2.1.283` -> `v2.1.284`. It was **FAIL** (Codex criteria 2/3 f; Claude all criteria x) on Claude Code `v2.1.283` (2026-09-27, 60-min timebox, not expired; no fallback exists). | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
 checklist): `docs/planning/gates/README.md`.
@@ -728,7 +749,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 
 | Surface | Pinned version | Source |
 |---|---|---|
-| Claude Code | **floating**; last observed `v2.1.283` (2026-09-25T21:50:12Z UTC). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied | PINS.md — Claude Code Channels ("Floating-version policy") |
+| Claude Code | **floating**; last observed `v2.1.284` (2026-09-28T18:02:03Z UTC; previously `v2.1.283`). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied | PINS.md — Claude Code Channels ("Floating-version policy") |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
 | Codex CLI | **floating**; last observed `@openai/codex@0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726` (2026-09-26). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Floating-version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
@@ -923,6 +944,10 @@ without an UNVERIFIED label.
   2026-09-28** (issue #39 T6/T7, Box C) — see `docs/planning/gates/G1-result.md`. This
   does not close the re-verification gap above; the full §3.1 B2-style re-verification
   at `v2.1.283` remains open — only G1's own five pass criteria were re-checked.
+  **Pin moved to `v2.1.284` (2026-09-28, operator decision):** the local `claude`
+  auto-updated during the scripted G1 run `20260929T034856Z-05b135`; PINS.md now records
+  `v2.1.284` as last observed, and G1, G4 and G5 (all run on `v2.1.283`) are `NOT RUN`
+  until re-run. The §3.1 re-verification gap remains open, now at `v2.1.284` too.
 - **New, from G1:** the exact wire framing for Claude Code's MCP stdio transport
   (newline-delimited JSON, not `Content-Length`-prefixed) — confirmed directly during
   G1, but not previously stated in any OAC document; carried here as new evidence, not

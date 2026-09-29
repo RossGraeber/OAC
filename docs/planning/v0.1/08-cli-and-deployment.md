@@ -21,10 +21,12 @@ pre-rename CLI block is quoted verbatim and marked as such.
 
 ## Gate-verdict caveat, read before the rest of this file
 
-Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G1 (Claude wake) is `PASS`**
-(originally on Claude Code `v2.1.282`; the Claude Code (Channels) pin went floating
-2026-09-27, last observed `v2.1.283`, invalidating that result; re-run and **PASSED
-again** 2026-09-28 on `v2.1.283` — see `docs/planning/gates/G1-result.md`), **and gate
+Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G1 (Claude wake) is `NOT RUN`**
+for the current environment (originally PASSED on Claude Code `v2.1.282`; the Claude Code
+(Channels) pin went floating 2026-09-27, last observed `v2.1.283`, invalidating that
+result; re-run and PASSED again 2026-09-28 on `v2.1.283`; invalidated again 2026-09-28
+when the last-observed version moved to `v2.1.284` — see
+`docs/planning/gates/G1-result.md`), **and gate
 G2 (Codex live inject) is `PASS`** (`0.157.1`, re-run 2026-09-26, Windows only). Every
 launch command in this file — §7's Claude Code command, §9's Codex command, §10's
 daemon-attach target — is a **documented target**, a command verified against

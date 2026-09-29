@@ -43,7 +43,15 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-28 (K1, issue #124: added row `herdr (test tooling)`, a fixed
+**Last updated:** 2026-09-28 (Claude Code (Channels) floating row's last-observed version
+moved `v2.1.283` -> `v2.1.284` (GitHub release tag `v2.1.284`, published
+2026-09-28T18:02:03Z UTC), by operator decision (Ross Graeber, 2026-09-28, chat). Trigger:
+the local `claude` auto-updated during the operator's scripted G1 run
+`20260929T034856Z-05b135`. The pin-move checklist was executed in the same commit: G1
+(PASS, Box C, 2026-09-28), G4 (PASS, re-run 2026-09-26) and G5 (FAIL, 2026-09-27) all
+recorded `v2.1.283`, which does not equal the new last-observed `v2.1.284`, so all three
+are invalidated and revert to `NOT RUN`. See "Floating-version policy" under the Claude
+Code Channels record.) Previously 2026-09-28 (K1, issue #124: added row `herdr (test tooling)`, a fixed
 pin at `v0.9.1`, `Gates affected: none`, see "herdr (test tooling)" below and
 `docs/planning/decisions/K1-herdr-evaluation.md`. The pin-move checklist was executed in
 the same commit. A row was added, but it names no gate, so no `G<n>-result.md` `Pin rows
@@ -73,7 +81,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | **floating** — last observed `v2.1.283`; see "Floating-version policy" below | 2026-09-25T21:50:12Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.283 | 2026-09-27 | G1; G4 (legacy-MCP negotiation); G5 |
+| Claude Code (Channels) | research preview | **floating** — last observed `v2.1.284`; see "Floating-version policy" below | 2026-09-28T18:02:03Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.284 | 2026-09-28 | G1; G4 (legacy-MCP negotiation); G5 |
 | Codex CLI / app-server | experimental (per-method gating) | **floating** — last observed `@openai/codex@0.157.1` (commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`); see "Floating-version policy" below | 2026-09-26 | https://github.com/openai/codex/releases/tag/rust-v0.157.1 | 2026-09-26 | G2, G5, G4 (Codex leg) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
@@ -131,16 +139,22 @@ mirroring the Codex row's rule:
   recorded stays current.
 - The §3.1 facts must be re-verified against each newly observed version before a
   Claude-side gate is re-run on it (`oac-evidence` §7). This re-verification has not yet
-  been done at either `v2.1.282` or `v2.1.283` — see "Open questions carried into B2"
-  below, unchanged by this policy change.
+  been done at `v2.1.282`, `v2.1.283` or `v2.1.284` — see "Open questions carried into
+  B2" below, unchanged by this policy change.
 - Version history of this row: `v2.1.274` (2026-09-17T00:12:02Z; B1 pin), then `v2.1.282`
   (GitHub release tag `v2.1.282`, published 2026-09-24T18:38:05Z UTC, retrieved
   2026-09-27 via `gh api repos/anthropics/claude-code/releases/tags/v2.1.282`; observed
   connecting during G1, 2026-09-25), then `v2.1.283` (GitHub release tag `v2.1.283`,
   published 2026-09-25T21:50:12Z UTC, retrieved 2026-09-27 via `gh api
   repos/anthropics/claude-code/releases/tags/v2.1.283`; observed connecting during both
-  the G4 re-run, 2026-09-26, and the G5 spike, 2026-09-27; **now the last-observed
-  version**).
+  the G4 re-run, 2026-09-26, the G5 spike, 2026-09-27, and G1 Box C, 2026-09-28; the
+  last-observed version until 2026-09-28, no longer), then `v2.1.284` (GitHub release tag
+  `v2.1.284`, published 2026-09-28T18:02:03Z UTC, not a prerelease, retrieved 2026-09-28
+  via `gh api repos/anthropics/claude-code/releases/tags/v2.1.284`; the local `claude`
+  auto-updated to it during the operator's scripted G1 run `20260929T034856Z-05b135` —
+  the session under test stayed on `2.1.283` (CLI and wire) and post-run `claude
+  --version` reported `2.1.284 (Claude Code)`, see
+  `docs/planning/gates/herdr-runs/G1-2026-09-29.md`; **now the last-observed version**).
 - **Environment check at this pin move:** `claude --version` on this host reported
   `2.1.283 (Claude Code)` on 2026-09-27, matching the new last-observed version above —
   recorded here the same way the Codex floating-pin move recorded a fresh environment
@@ -158,7 +172,20 @@ mirroring the Codex row's rule:
   last-observed version (`v2.1.283`) in two attempts, Box B (incomplete) and Box C
   (verdict-bearing) — **G1 PASSED**, operator decision 2026-09-28. G1 is no longer
   `NOT RUN`; the invalidation this pin move triggered is closed. Full evidence:
-  `docs/planning/gates/G1-result.md`.
+  `docs/planning/gates/G1-result.md`. (That PASS is itself invalidated by the
+  `v2.1.283` -> `v2.1.284` move below.)
+- **Environment check at the `v2.1.284` pin move:** `claude --version` on this host
+  reported `2.1.284 (Claude Code)` on 2026-09-28 (local date), matching the new
+  last-observed version — recorded the same way the `v2.1.283` move recorded one.
+- Applying the pin-move checklist to the `v2.1.283` -> `v2.1.284` change (operator
+  decision, Ross Graeber, 2026-09-28, chat): G1 (PASS, Box C, 2026-09-28), G4 (PASS,
+  re-run 2026-09-26) and G5 (FAIL, 2026-09-27) each recorded `v2.1.283`, which does not
+  equal the new last-observed `v2.1.284`, so **G1, G4 and G5 are all invalidated** and
+  revert to `NOT RUN` until re-run on `v2.1.284` (see each `G<n>-result.md`'s Re-run
+  history and `docs/planning/STATUS.md`). The G1 herdr equivalence record
+  (`docs/planning/gates/herdr-runs/G1-2026-09-29.md`) is not invalidated: per
+  `oac-gates` `references/scripted-runs.md`, a later pin move that makes that human run
+  non-verdict-bearing does not undo the record's basis.
 
 The B1 record below describes the original `v2.1.274` pin and is kept as history.
 
@@ -207,11 +234,12 @@ The B1 record below describes the original `v2.1.274` pin and is kept as history
   Claude Channels preview surface (checked: no "shim" term appears in DESIGN.md).
   `shim boundary: UNNAMED — see DESIGN.md`. Carried to task 12's open-items list below
   and is a B2/C-decision input, not resolved here.
-- Gates affected: **G1** (Claude wake — go/no-go, no fallback; **currently `NOT RUN`,
-  stale after this pin move** — see "Floating-version policy" above), **G4** via the
+- Gates affected: **G1** (Claude wake — go/no-go, no fallback), **G4** via the
   legacy-MCP negotiation constraint above, and **G5** (Provenance: STATUS.md's Gate
   verdicts table states G5's verdict depends on machine-set provenance rendering on
-  both providers, so it depends on this pin, not only on the Codex pin).
+  both providers, so it depends on this pin, not only on the Codex pin). **All three are
+  currently `NOT RUN`**, stale after the `v2.1.283` -> `v2.1.284` move (2026-09-28) — see
+  "Floating-version policy" above.
 
 ### Codex CLI and app-server
 

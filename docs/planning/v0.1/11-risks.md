@@ -33,13 +33,13 @@ a citation-source or pin-provenance gap.**
 - **R1 — gate-decided viability risks.** G1, G2, G3, G4, G5
   (`docs/planning/v0.1/02-gating-findings.md` §3-§7). Each gate decides a named leg of
   the ADR-001 validation criterion or a DESIGN acceptance criterion outright; a `NOT RUN`
-  or `FAIL` verdict on any of them blocks that leg (G2 and G4 have since run and
-  PASSED — `docs/planning/gates/G2-result.md`, `G4-result.md`; G1 PASSED on Claude Code
-  `v2.1.282` but is now `NOT RUN` for the current environment — the Claude Code
-  (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
-  `docs/planning/gates/G1-result.md`; G3 is
-  partial; G5 has run and recorded **FAIL** (Codex criteria 2/3 f; Claude all criteria
-  x), `docs/planning/gates/G5-result.md`); G1 and G5 have no fallback. Per
+  or `FAIL` verdict on any of them blocks that leg (G2 has since run and PASSED —
+  `docs/planning/gates/G2-result.md`; G1, G4 and G5 are `NOT RUN` for the current
+  environment — invalidated 2026-09-28 when the Claude Code (Channels) pin's
+  last-observed version moved `v2.1.283` -> `v2.1.284`; on `v2.1.283` G1 had PASSED on
+  its 2026-09-28 re-run, G4 had PASSED, and G5 had recorded **FAIL** (Codex criteria 2/3
+  f; Claude all criteria x) — see `docs/planning/gates/G1-result.md`, `G4-result.md`,
+  `G5-result.md`; G3 is partial); G1 and G5 have no fallback. Per
   `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1, a `FAIL` is a
   closed verdict, so G5's `FAIL` does not itself block Stage 1's own exit; per §5's
   go/no-go condition and §2, it stops the pipeline at Stage 2's interface freeze on the
@@ -243,7 +243,10 @@ list.
   (`.claude/skills/oac-evidence/SKILL.md` §7 trigger). **This signal fired 2026-09-27**:
   the pin moved to floating (last observed `v2.1.283`), invalidating G1's original
   `PASS` on `v2.1.282`. **Re-run and closed 2026-09-28** (issue #39 T6/T7, Box C):
-  G1 PASSED again on `v2.1.283` — see `docs/planning/gates/G1-result.md`. The signal
+  G1 PASSED again on `v2.1.283` — see `docs/planning/gates/G1-result.md`. **Fired again
+  2026-09-28:** the last-observed version moved to `v2.1.284` (the local `claude`
+  auto-updated during the scripted G1 run `20260929T034856Z-05b135`), invalidating G1,
+  G4 and G5, all run on `v2.1.283`; they are `NOT RUN` pending re-run. The signal
   will fire again on any further Claude Code Channels release.
 - **Response.** Re-verify per `.claude/skills/oac-evidence/SKILL.md` §7 on the
   pin move. Until the shim boundary is named, containment already holds by
@@ -567,8 +570,9 @@ re-verification surfaced. Rows 42-43 were added 2026-09-26 from the first G4 run
 evidence was gathered, and it re-confirmed row 41 (Codex `0.157.1` connected but never
 negotiated the modern era) plus surfaced two genuinely new UNVERIFIED items
 (rows 42-43). A fresh, redeclared timebox the same day (2026-09-26) reconfirmed all five
-criteria without expiring, so **G4 is now `PASS`**
-(`docs/planning/gates/G4-result.md`); that re-run reproduced rows 41-43 unchanged and
+criteria without expiring, so **G4 recorded `PASS`** on Claude Code `v2.1.283`
+(`docs/planning/gates/G4-result.md`; `NOT RUN` since the 2026-09-28 pin move to
+`v2.1.284`, pending re-run); that re-run reproduced rows 41-43 unchanged and
 surfaced one further new item, row 44. Rows 45-48 were added 2026-09-27 from the G5 spike
 (issue #38/D5): row 45 (Codex header/delimiter framing does not reliably stop a forged
 sender from being named), row 46 (peer-controlled envelope field values inserted
@@ -622,7 +626,7 @@ evidence that confirmed it), row 32 (closed, cites its own closing evidence), an
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
-| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`) | RISK-CLAUDE-PREVIEW |
+| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). **2026-09-28:** last observed moved to `v2.1.284` (operator decision); G1, G4 and G5 (all run on `v2.1.283`) are invalidated and `NOT RUN` until re-run; no §3.1 re-verification done at `v2.1.284` either. A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`) | RISK-CLAUDE-PREVIEW |
 | 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |
 | 32 | Exact wrapper text for a mid-turn-delivered channel notification (from G1) | **CLOSED** — captured verbatim by G5 case C6 at Claude Code `2.1.283` (`docs/planning/gates/G5-result.md`): the full `<system-reminder>A message arrived from … while you were working: … IMPORTANT: This is NOT from your user …</system-reminder>` wrapper text, with the real `oac_*` attributes intact inside it. |
 | 33 | G3 criteria 1-4 on macOS (from G3) | RISK-G3 |

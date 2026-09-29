@@ -1,5 +1,12 @@
 ### G5 provenance
 
+> **INVALIDATED (2026-09-28).** The FAIL below (2026-09-27) was recorded on Claude Code
+> `2.1.283`. The Claude Code (Channels) floating row in `docs/planning/PINS.md` moved its
+> last-observed version to `v2.1.284` (operator decision, 2026-09-28) — one version above
+> what this run recorded. G5 is `NOT RUN` for the current environment until it is re-run
+> on `v2.1.284`. The record below is kept unchanged as the `2.1.283` result, and the
+> superseded FAIL is kept in the Re-run history.
+
 - **Gate id:** G5
 - **Pinned version(s):** Claude Code `2.1.283` (client-reported `clientInfo.version` on
   the wire, `docs/planning/gates/fixtures/g5-provenance/transcript-claude-2026-09-27.jsonl`
@@ -304,7 +311,11 @@
     criterion. (Criterion 4, the `meta`-key-drop criterion, does not apply to Codex —
     Codex has no side-channel metadata field; C6 §5 already states provenance rides
     inside the single `text` string because none exists.)
-- **Verdict:** **FAIL** (Codex criteria 2/3 f; Claude all criteria x). Per the gate
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-28 by the Claude
+  Code (Channels) pin move `v2.1.283` -> `v2.1.284`; see the callout at the top). The
+  verdict recorded for the 2026-09-27 run on Claude Code `2.1.283` was **FAIL** (Codex
+  criteria 2/3 f; Claude all criteria x), kept in the Re-run history; the rest of this
+  field is that record. Per the gate
   reference's own failure text — "Any of the four unmet is a FAIL for that provider;
   report per-provider results since the gate spans both" — and per the frozen
   per-provider rule (`S0-notes.md` §3: "The gate verdict is PASS only if every
@@ -418,7 +429,7 @@
 
   | Date | Pinned versions | Verdict | Invalidated by |
   |---|---|---|---|
-  | 2026-09-27 (box declared 06:08:53Z, 60 min; closed 06:38:46Z, ~29m53s elapsed, not expired) | Claude Code `2.1.283`; `@openai/codex` `0.157.1`; Windows only | **FAIL** (Codex criterion 2: X2, X5; criterion 3: X2) | — (current) |
+  | 2026-09-27 (box declared 06:08:53Z, 60 min; closed 06:38:46Z, ~29m53s elapsed, not expired) | Claude Code `2.1.283`; `@openai/codex` `0.157.1`; Windows only | **FAIL** (Codex criterion 2: X2, X5; criterion 3: X2) | Claude Code (Channels) pin v2.1.283 -> v2.1.284, 2026-09-28 |
 
 #### Scripted re-run through herdr (K8) — pointer only, not verdict-bearing; G5 stays FAIL
 

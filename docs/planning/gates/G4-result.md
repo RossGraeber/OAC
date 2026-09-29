@@ -1,5 +1,12 @@
 ### G4 mcp-dual-era
 
+> **INVALIDATED (2026-09-28).** The PASS below (re-run 2026-09-26) was recorded on Claude
+> Code `v2.1.283`. The Claude Code (Channels) floating row in `docs/planning/PINS.md`
+> moved its last-observed version to `v2.1.284` (operator decision, 2026-09-28) — one
+> version above what this run recorded. G4 is `NOT RUN` for the current environment until
+> it is re-run on `v2.1.284`. The record below is kept unchanged as the `v2.1.283` result,
+> and the superseded PASS is kept in the Re-run history.
+
 - **Gate id:** G4
 - **Pinned version(s):** Claude Code `v2.1.283` (client-reported on the wire; the
   `docs/planning/PINS.md` pin is `v2.1.274`, already flagged stale by G1 at `v2.1.282`);
@@ -177,7 +184,11 @@
         **delivery failed twice**: both of its wake-test pushes (lines 22 and 57) were
         not observed arriving in Claude, in contrast to the legacy server's equivalent
         pushes (lines 23 and 55), which both arrived.
-- **Verdict:** PASS. **Caveat, prominent by design, not a footnote:** the
+- **Verdict:** NOT RUN for the current environment (invalidated 2026-09-28 by the Claude
+  Code (Channels) pin move `v2.1.283` -> `v2.1.284`; see the callout at the top). The
+  verdict recorded for the 2026-09-26 re-run on Claude Code `v2.1.283` was PASS, kept in
+  the Re-run history; the rest of this field is that record. **Caveat, prominent by
+  design, not a footnote:** the
   current-revision (`2026-07-28`) leg of criterion 2 is proven with **Claude Code as the
   modern client only**. Codex `0.157.1` reached this server exactly the way the
   reference expects — `codex mcp add g4 --url http://127.0.0.1:17448/mcp`, matching the
@@ -295,7 +306,7 @@
   | Date | Pinned versions | Verdict | Invalidated by |
   |---|---|---|---|
   | timebox declared 2026-09-25T07:20:35Z (120 min); evidence gathered 2026-09-26, ~21-23h after box close | Claude Code `v2.1.283`; Codex CLI / app-server `0.157.1`; MCP current `2026-07-28` / legacy `2025-11-25`; `rmcp` not exercised; Windows only | NOT RUN — timebox expired before the confirming evidence was gathered; all five pass criteria individually confirmed, none failed | Superseded by a fresh, redeclared timebox, 2026-09-26 |
-  | 2026-09-26 (box declared 2026-09-26T20:46:03Z, 60 min; live work 20:46:03Z-20:54:30Z, ~8.5 min, not expired) | Claude Code `v2.1.283`; Codex CLI / app-server `0.157.1`; MCP current `2026-07-28` / legacy `2025-11-25`; `rmcp` not exercised; Windows only | **PASS** | — (current) |
+  | 2026-09-26 (box declared 2026-09-26T20:46:03Z, 60 min; live work 20:46:03Z-20:54:30Z, ~8.5 min, not expired) | Claude Code `v2.1.283`; Codex CLI / app-server `0.157.1`; MCP current `2026-07-28` / legacy `2025-11-25`; `rmcp` not exercised; Windows only | **PASS** | Claude Code (Channels) pin v2.1.283 -> v2.1.284, 2026-09-28 |
 - **Process notes (for future gate spikes, not part of the pass/fail record):**
   - This re-run is the direct fix for the prior run's own worst finding: the operator
     closed the prior sessions, their servers exited, and the previous transcript was
