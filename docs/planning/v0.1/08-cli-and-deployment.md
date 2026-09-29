@@ -163,8 +163,10 @@ for a Beacon entry: those files "hold other servers' credentials"
 (https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/docs/cli/mcp-connect.mdx
 L102, tag `v1.3.29`, retrieved 2026-09-29), and such a check would be OAC inspecting
 Beacon, which `docs/planning/decisions/L1-beacon-memory.md` §4 Q2 rules out; an operator
-runs Beacon's own `beacon mcp doctor` instead (`docs/cli/mcp-doctor.mdx@v1.3.29` L6-16;
-§20.2 step 4).
+runs Beacon's own `beacon mcp doctor` instead
+(https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/docs/cli/mcp-doctor.mdx
+L6-16, tag `v1.3.29`, commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`, retrieved
+2026-09-29; §20.2 step 4).
 
 ---
 
@@ -473,11 +475,16 @@ them.
 1. **Install Beacon and choose Local during setup.** Follow Beacon's quickstart
    (`docs/get-started/quickstart.mdx@v1.3.29` L6-39). Interactive setup "preselects
    Beacon Managed, with an explicit Local opt-out"; choose Local
-   (`README.md@v1.3.29` L48-49, L151-155). The privacy reasoning is §20.5.
+   (`README.md@v1.3.29` L48-49, L151-155; `docs/get-started/quickstart.mdx@v1.3.29`
+   L41-49). The privacy reasoning is §20.5.
 2. **Endpoint capture, if the operator wants traces to become memory.**
-   `beacon endpoint install --harness claude,codex` (`docs/get-started/quickstart.mdx@v1.3.29`
-   L37-39) configures capture for both harnesses. It writes to Codex's own configuration
-   (`docs/runtimes/codex-cli.mdx@v1.3.29` L43, L88). Whether that conflicts with OAC's
+   `beacon endpoint install --harness claude,codex` configures capture for exactly these
+   two harnesses: `--harness` takes "an exact comma-separated list", and an explicit list
+   "configures only the runtimes it names" (`docs/cli/endpoint-install.mdx@v1.3.29` L16,
+   L29). Beacon's quickstart shows the three-harness example
+   `beacon endpoint install --harness claude,codex,cursor`
+   (`docs/get-started/quickstart.mdx@v1.3.29` L37-39). The two-harness form writes to
+   Codex's own configuration (`docs/runtimes/codex-cli.mdx@v1.3.29` L43, L88). Whether that conflicts with OAC's
    Codex launch is L1 item U4 (UNVERIFIED — OAC's Codex launch path is not built and no one
    has compared the two; see `docs/planning/STATUS.md` "Open UNVERIFIED items").
 3. **Give each harness Beacon's local MCP server.** Pick one of Beacon's two documented
@@ -591,7 +598,8 @@ Each line is `oac-boundaries` #12 (OAC is not a "shared context manager",
   sender put in a message; recall happens in each harness's own turn
   (`[ADR-001 Boundary]` "MUST NOT ... implement inference/model routing/context
   management", `docs/planning/ADR-001.md` line 24).
-- OAC **never holds Beacon Cloud or Jev credentials**, nor any hosted-service OAuth
+- OAC **never holds credentials for Beacon's hosted service (Beacon Managed at the pin)
+  or Jev**, nor any hosted-service OAuth
   session or personal token a harness holds for Beacon (`[ADR-001 Boundary]` "MUST NOT
   steal or reuse another harness's provider credentials"; L1 §1 point 5).
 - **Beacon's activity log is not a mailbox, a presence source or a catch-up mechanism.**
