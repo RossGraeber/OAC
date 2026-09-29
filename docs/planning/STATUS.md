@@ -14,6 +14,16 @@ local `runtime.jsonl` capture left as an open risk (Q3), and reads the scoping m
 `docs/planning/v0.1/12-deferred.md` §2 names OAC as a shared memory layer as boundary, not
 backlog. Docs only: no `cli/` path, pin, gate verdict or UNVERIFIED item changes.)
 
+**Last updated:** 2026-09-29 (**L4/issue #169 (Epic L #165): memory-reference doctrine
+and threat rows 21-23.** `docs/planning/v0.1/06-security.md` §2 states that a memory
+reference is sender-claimed content and resolved memory is untrusted text to the
+receiving harness; §3(e), §8, §9 and §10 keep memory IDs and bodies out of Claude `meta`
+and the Codex header block; §13 notes external memory/telemetry capture sits outside
+`working_directory` scoping; §14 gains rows 21-23 (row 23 an explicit open risk under
+`RISK-BEACON`), §15 updated. `09-test-strategy.md` §12, `10-stages.md` §9 and
+`11-risks.md` `RISK-BEACON` follow. No pin, gate verdict, UNVERIFIED item or ADR text
+changes.)
+
 **Last updated:** 2026-09-29 (**L1/issue #166 (Epic L #165): decision record — Beacon
 beside OAC, not inside it.** New file `docs/planning/decisions/L1-beacon-memory.md` fixes
 the shape: Beacon (agent-beacon) is an external memory service each harness connects to
