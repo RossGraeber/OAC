@@ -3,8 +3,8 @@
 The one boundary lint script is `scripts/check-herdr-containment.mjs` (checks 9 and 10).
 Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
-budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 3, 8, 9
-and 10 on every push and pull request; checks 1, 2, 4-7 are not wired to CI and stay manual.
+budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 3, 8, 9,
+10 and 11 on every push and pull request; checks 1, 2, 4-7 are not wired to CI and stay manual.
 
 All commands are Git Bash / ripgrep syntax. `spec/`, `core/`, `adapters/`, `cli/`, and
 `transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
@@ -20,7 +20,8 @@ the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; chec
 so are check 9's two workflow targets (K6: `boundary-lint.yml` and
 `herdr-provider-optin.yml`, 0 hits), while check 9's six other targets (the five product
 paths and manifests outside `tools/herdr/`) are still **pending**, so the script's last
-line reads `Result: PENDING`; its `--self-test` passes 83/83.
+line reads `Result: PENDING`; its `--self-test` passes 83/83. Check 11 (added 2026-09-29)
+is **pending**: none of its product paths or root Cargo manifests has a tracked file yet.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code
@@ -119,8 +120,26 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 #    inline at the one read/hash site and never hand them to a write.
 node scripts/check-herdr-containment.mjs
 node scripts/check-herdr-containment.mjs --self-test
+
+# 11. Beacon (agent-beacon, the external shared-memory tool, Epic L #165) runs beside OAC,
+#    never inside it: no Beacon identifier, MCP tool name, store path, or dependency in any
+#    git-tracked entry under adapters/ core/ cli/ transports/ spec/, or in a root
+#    Cargo.toml / Cargo.lock (boundaries 2 and 12 -- OAC owning shared memory is context
+#    management; boundary 3 -- no reading another tool's store or credentials). There is
+#    no spec/ exception: Beacon guidance is docs-only, so spec/ text never names it.
+#    Case-insensitive; a hit in a tracked path name or in file content fails. Scans the
+#    git index (git ls-files), not the work tree. No tracked file in scope prints PENDING
+#    and exits 0 -- pending is not a pass. CI runs this exact command as boundary-lint.yml
+#    step "Check 11 - no Beacon in product paths"; change both together.
+pattern='\bbeacon\b|beacon_|beacon-managed|agent-beacon|asymptote-labs|memory\.db|get_memory_context|search_memory|get_memory\b'
+mapfile -d '' files < <(git ls-files -z -- adapters core cli transports spec Cargo.toml Cargo.lock)
+if [ "${#files[@]}" -eq 0 ]; then echo "check 11 PENDING"; else
+  printf '%s\n' "${files[@]}" | rg -n -i -e "$pattern"; pstatus=$?
+  rg -H -n -i -e "$pattern" -- "${files[@]}"; status=$?
+  [ "$pstatus" -eq 1 ] && [ "$status" -eq 1 ] && echo "check 11 clean" || echo "check 11 FAIL"
+fi
 ```
 
-A clean run is zero hits on checks 3 and 8 today and `Result: PENDING` (zero violations) on
-checks 9 and 10; checks 1, 2, 4, 5, 6 and 7 report the missing-path error until the
-corresponding tree exists, at which point zero hits (and `Result: CLEAN`) is the bar.
+A clean run is zero hits on checks 3 and 8 today, `Result: PENDING` (zero violations) on
+checks 9 and 10, and `check 11 PENDING` on check 11; checks 1, 2, 4, 5, 6 and 7 report the
+missing-path error until the corresponding tree exists, at which point zero hits (and `Result: CLEAN`) is the bar.

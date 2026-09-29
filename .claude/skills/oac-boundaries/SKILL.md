@@ -121,7 +121,8 @@ you're doing is actually this, before treating it as a violation.
 
 `scripts/check-herdr-containment.mjs` (checks 9-10: herdr kept out of product paths, no
 credential access in the herdr driver) is the one boundary lint; CI runs it via
-`.github/workflows/boundary-lint.yml`. The full runnable set, with current pass/pending
+`.github/workflows/boundary-lint.yml`, which also runs greps 3, 8 and 11 (11: no
+Beacon in product paths). The full runnable set, with current pass/pending
 status against this repo, is `references/mechanical-checks.md`. Run it before every
 `type:code`/`type:spec` work item; the paths it targets (`spec/`, `core/`, `adapters/`,
 `cli/`, `transports/zenoh/`) mostly don't exist yet, so most checks report a missing-path
