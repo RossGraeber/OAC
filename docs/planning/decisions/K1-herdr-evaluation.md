@@ -517,13 +517,40 @@ Evidence to record: both outputs, and that no `herdr` process remains.
 
 | Item | Linux | macOS | Windows |
 |---|---|---|---|
-| 1 Named session, no attached terminal | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run |
-| 2 `agent start` argv/cwd (claude, codex) | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run |
-| 3 Timeouts (3 confirmed, 2 refuted at desk) | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run |
-| 4 Dialog readable before keystroke | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run |
-| 5 Codex state after a response | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run |
-| 6 Env delta; harness config unchanged; no `integration install` | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run |
-| Timebox (declared / elapsed) | NOT RUN | NOT RUN | NOT RUN |
+| 1 Named session, no attached terminal | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | CONFIRMED (Windows): `herdr --session k1eval server` ran headless, no client attached; `status server` running, `session list` shows it. |
+| 2 `agent start` argv/cwd (claude, codex) | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | CONFIRMED (Windows): claude: `agent_not_ready` (folder-trust dialog blocks), then ready after dialogs; codex: `argv:["codex"]`, exit 0. Windows launches claude via a PowerShell wrapper, argv is not a bare `claude ...`. cwd matched. |
+| 3 Timeouts (3 confirmed, 2 refuted at desk) | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | CONFIRMED (Windows): `agent wait`, `pane wait-output`, `agent prompt --timeout 1` each exit 1, JSON `code:"timeout"` (not `agent_prompt_stalled`); prompt not delivered. `agent read`/`send-keys --help` list no `--timeout`. Caveat: `agent wait --until blocked` returns at once if already blocked. |
+| 4 Dialog readable before keystroke | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | CONFIRMED (Windows): text read before any key; three dialogs in turn (folder trust, MCP server approval, dev-channels warning), the last matching G1 Box C wording. |
+| 5 Codex state after a response | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | REFUTED premise (Windows, Codex 0.158.0): `done` after the response, stable at a second sample 10 s later; `agent explain` reports state `idle`, `matched_rule` null, `fallback_reason` `default_known_agent_idle_fallback`. |
+| 6 Env delta; harness config unchanged; no `integration install` | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | CONFIRMED (Windows): added names COLORTERM, HERDR_BIN_PATH, HERDR_ENV, HERDR_PANE_ID, HERDR_SESSION, HERDR_SOCKET_PATH, HERDR_TAB_ID, HERDR_WORKSPACE_ID (names only; HERDR_ENV=1, TERM=xterm-256color, COLORTERM=truecolor); rest is casing/shell noise. `integration install` count 0. Config: `~/.claude/settings.json` UNCHANGED; `~/.codex/config.toml` changed by the operator-confirmed Codex trust entry for the scratch dir only (no herdr write). No `hooks.json` exists. |
+| Timebox (declared / elapsed) | NOT RUN | NOT RUN | 45 min declared 2026-09-28 21:12 CDT / about 13 min elapsed, completed within the box |
+
+### 7.1 Windows live run, 2026-09-28 (operator: Ross Graeber)
+
+herdr 0.9.1, Claude Code 2.1.283, Codex 0.158.0, native Windows 11, headless session `k1eval`.
+Linux and macOS remain UNVERIFIED. Findings a driver must handle:
+
+1. **Codex false-idle.** With Codex 0.158.0 on Windows, `agent start` returned success with
+   `agent_status: idle` and `interactive_ready: true` while the pane sat on Codex's "Trust this
+   folder?" dialog. The manifest `trust_directory` blocked rule did not match; explain shows the
+   default idle fallback. A driver must read the pane before any key, and never trust herdr state
+   alone.
+2. **Claude startup dialogs.** A fresh directory shows the folder-trust dialog, then the MCP
+   server approval, then the dev-channels warning. `❯ No, exit` is preselected on the first, so
+   Enter alone would exit. Each needs an operator decision and writes a trust or approval entry
+   to harness config, so L8 must expect deltas.
+3. **Inherited env.** The herdr server inherited `CLAUDE_CODE_CHILD_SESSION` from the launching
+   Claude session: the child Claude reported "Transcript saving is off" and "auto mode on".
+   Launch the server from a clean shell.
+4. **`agent wait` on an already-blocked agent** returns exit 0 at once, so it cannot detect a
+   later dialog. Read the pane instead.
+5. **PowerShell wrapper.** The agent argv on Windows is a PowerShell command line, not `claude ...`.
+6. **Doc premise refuted:** Codex "unknown after a response" did not occur (item 5).
+7. **Windows self-test:** `tools/herdr/run.mjs --self-test` fails with `EPERM` on `symlink`
+   without Developer Mode.
+8. `jq` is not available in Git Bash here; the checklist's `jq` steps need a node substitute.
+
+Teardown: `session stop` and `session delete` returned success; the `default` session was not touched.
 
 When the live leg runs, it records the harness versions actually observed
 (`claude --version`, `codex --version`). Both rows float in `docs/planning/PINS.md`. The

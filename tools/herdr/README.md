@@ -172,6 +172,49 @@ not resolved silently):
 - Point 5 means an unattended opt-in CI run of any test that shows the G11 confirmation is
   impossible under the current rule.
 
+## Operator setup (Windows, and Claude Code permissions)
+
+Live runs are operator-run. These are the settings a run needs; none is committed, because
+they are per-machine and belong to the operator.
+
+**1. herdr on PATH.** The Windows installer puts the binary under
+`%USERPROFILE%\.herdr\packages\standalone\releases\<version>-x86_64-pc-windows-msvc\herdr.exe`
+and does not add it to PATH. Add that directory to the user PATH (or prepend it in the shell
+that runs the driver), then check `herdr --version` prints the pin in `docs/planning/PINS.md`.
+
+**2. Isolation env.** Set `HERDR_SESSION=<name>` (a named, headless session) and
+`HERDR_CONFIG_PATH=<scratch>/herdr-config.toml` with `[update]` `version_check = false` and
+`manifest_check = false`. Never run `herdr integration install`. Use a scratch directory
+outside the repo, and do not commit raw pane or env captures.
+
+**3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
+On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
+shell; without it the G1 git test fails with `EPERM` on `symlink`.
+
+**4. Claude Code permission rules, when an agent runs the live steps.** Claude Code's
+permission prompts and its auto-mode classifier may refuse a command that launches a real
+logged-in harness. To let an agent run the herdr commands, add allow rules to
+`.claude/settings.local.json` (per operator; do not commit it), not `.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(herdr:*)",
+      "Bash(node tools/herdr/run.mjs:*)",
+      "Bash(node tools/herdr/lib/*:*)"
+    ]
+  }
+}
+```
+
+Rules match the command prefix, so `herdr` must resolve on PATH (step 1) and be the first
+word of the command; env assignments and `cd ... &&` prefixes make a rule miss. Keep them
+narrow: do not allow `Bash(claude:*)` or `Bash(codex:*)`. The harness is started by herdr,
+and the operator still answers the harness's own consent dialogs. A rule does not
+override a classifier denial in auto mode; if one is denied, run the step yourself or
+switch the session's permission mode.
+
 ## Self-test
 
 ```bash
