@@ -184,7 +184,7 @@ that runs the driver), then check `herdr --version` prints the pin in `docs/plan
 
 **2. Isolation env.** Set `HERDR_SESSION=<name>` (a named, headless session) and
 `HERDR_CONFIG_PATH=<scratch>/herdr-config.toml` with `[update]` `version_check = false` and
-`manifest_check = false`. Never run herdr's harness-integration installer (it edits harness config). Use a scratch directory
+`manifest_check = false`. Never run herdr's command that writes hooks into harness config. Use a scratch directory
 outside the repo, and do not commit raw pane or env captures.
 
 **3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
