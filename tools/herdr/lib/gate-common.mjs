@@ -12,7 +12,7 @@ import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join } from 'node:path';
 
-import { committedFile, sha256, formatSection, normalizeDialogText } from './g1.mjs';
+import { committedFile, sha256, formatSection, normalizeDialogText, sameDialog, acceptHint } from './g1.mjs';
 import { NotRunError } from './herdr.mjs';
 
 export class CriteriaDriftError extends Error {}
@@ -59,31 +59,32 @@ export function assertCriteriaPin(criteria, pin, owner) {
   if (got !== pin) throw new CriteriaDriftError(`the criteria given hash to ${got ?? 'nothing'}, not the ${pin} ${owner} is written against; the reference changed, re-review the scoring`);
 }
 
-// Stage reconstructed gate-server files into destDir, from the WORKING TREE (these are the
-// driver's own committed tooling, not a quarantined spike blob). Each file's state is
-// recorded: its sha256 as committed at HEAD (null when not committed), the working-tree
-// sha256, whether they match, and the copy's sha256. A symlink is refused. Publishing a run
-// (--write) requires every file to match HEAD and a clean tools/herdr/ (the report checks).
+// Stage reconstructed gate-server files into destDir (these are the driver's own committed
+// tooling, not a quarantined spike blob). Each file's state is recorded: its sha256 as
+// committed at HEAD (null when not committed), the raw working-tree sha256, whether the
+// working tree matches HEAD (in git's normalized form, see committedFile), and the copy's
+// sha256. When it matches, the COMMITTED bytes are staged, so a CRLF checkout stages the same
+// bytes an LF one does (#152); otherwise the working-tree bytes are. A symlink is refused.
+// Publishing a run (--write) requires every file to match HEAD and a clean tools/herdr/ (the
+// report checks).
 export function stageGateFiles(repoRoot, names, destDir) {
   return names.map((name) => {
     const rel = `${GATE_SERVERS_DIR}/${name}`;
     const abs = join(repoRoot, rel);
     if (lstatSync(abs).isSymbolicLink()) throw new Error(`${rel} is a symlink; refusing to stage it`);
-    const bytes = readFileSync(abs);
-    let committedSha256 = null;
-    let headCommit = null;
+    const workingBytes = readFileSync(abs);
+    let c = null;
     try {
-      const c = committedFile(repoRoot, rel);
-      committedSha256 = c.committedSha256;
-      headCommit = c.headCommit;
+      c = committedFile(repoRoot, rel);
     } catch {
       /* not committed yet */
     }
+    const workingTreeMatchesHead = c?.workingTreeMatchesHead === true;
+    const bytes = workingTreeMatchesHead ? c.bytes : workingBytes;
     const copyPath = join(destDir, basename(name));
     writeFileSync(copyPath, bytes);
-    const workingTreeSha256 = sha256(bytes);
     const copySha256 = sha256(readFileSync(copyPath));
-    return { path: rel, headCommit, committedSha256, workingTreeSha256, workingTreeMatchesHead: committedSha256 === workingTreeSha256, copy: copyPath, copySha256, match: copySha256 === workingTreeSha256 };
+    return { path: rel, headCommit: c?.headCommit ?? null, committedSha256: c?.committedSha256 ?? null, workingTreeSha256: sha256(workingBytes), workingTreeMatchesHead, copy: copyPath, copySha256, match: copySha256 === sha256(bytes) };
   });
 }
 
@@ -115,6 +116,10 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
   let lastKeptKey = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
   const deadlineFor = (ms) => Date.now() + Math.min(ms, Math.max(0, ctx.remainingMs()));
+  // Time spent waiting for the operator to accept a dialog: bounded by humanAcceptTimeoutMs
+  // on its own, so an enclosing settle/waitFor does not also charge it to its budget (#154).
+  let humanWaitMs = 0;
+  const leftUntil = (deadline, waitedAtStart) => Math.min(deadline + humanWaitMs - waitedAtStart, Date.now() + Math.max(0, ctx.remainingMs())) - Date.now();
 
   const keep = (sec, text) => {
     if (keptSeqs.has(sec.seq)) return;
@@ -147,13 +152,12 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
       d.acceptSeq = res.entry.seq;
       d.inputBetweenReadAndAccept = herdr.commands.filter((c) => c.seq > r.seq && c.seq < res.entry.seq && INPUT_ROLES.has(c.role)).length;
       // Never a second keystroke into the same dialog: wait (bounded) for the screen to leave
-      // it before anything else reads it as a new one.
-      const was = normalizeDialogText(r.text);
+      // it before anything else reads it as a new one. A redraw of it is not leaving (#160).
       const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
       for (;;) {
         await sleep(num('pollMs'));
         const p = await read(`dialog-${d.index}-after-accept`, { keep: 'on-change' });
-        if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
+        if (!sameDialog(r.text, p, kind, dialogKinds)) {
           d.resolvedSeq = p.seq;
           return;
         }
@@ -163,21 +167,33 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     const before = herdr.commands.length;
     console.error(
       `\n[${name}] ${label} dialog ${d.index} (${kind}) is on screen; its text is recorded (herdr command #${r.seq}).\n` +
-        `  Accept it yourself, e.g. \`herdr --session ${ctx.sessionName} agent send-keys ${name} enter\`, or attach and press Enter.\n` +
+        acceptHint({ sessionName: ctx.sessionName, agent: name, kind, selected: r.screen.selected, dialogKinds }) +
         `  The driver sends no keystroke to it and waits up to ${num('humanAcceptTimeoutMs')} ms.\n`,
     );
-    const was = normalizeDialogText(r.text);
+    const waitStart = Date.now();
     const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
-    for (;;) {
-      if (Date.now() >= deadline) stop(`${label} dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
-      await sleep(num('pollMs'));
-      const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
-      if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
+    d.redrawSeqs = [];
+    let shown = normalizeDialogText(r.text);
+    try {
+      for (;;) {
+        if (Date.now() >= deadline) stop(`${label} dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
+        await sleep(num('pollMs'));
+        const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
+        // A redraw of the same dialog is not an answer to it (#160): recorded, wait goes on.
+        if (sameDialog(r.text, p, kind, dialogKinds)) {
+          const now = normalizeDialogText(p.text);
+          if (now !== shown) d.redrawSeqs.push(p.seq);
+          shown = now;
+          continue;
+        }
         d.acceptOrigin = 'human';
         d.resolvedSeq = p.seq;
         d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
         return;
       }
+    } finally {
+      d.humanWaitMs = Date.now() - waitStart;
+      humanWaitMs += d.humanWaitMs;
     }
   };
 
@@ -192,9 +208,10 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
   const settle = async (context, timeoutMs) => {
     await sleep(num('settleMs'));
     const deadline = deadlineFor(timeoutMs);
+    const waited0 = humanWaitMs;
     let blockedUnseen = 0;
     for (;;) {
-      const left = deadline - Date.now();
+      const left = leftUntil(deadline, waited0);
       if (left <= 0) stop(`${label} ${context}: the pane did not settle within ${timeoutMs} ms`);
       const state = await waitState(context, left);
       const r = await read(`${context}-settled?`, { keep: 'on-change' });
@@ -220,6 +237,7 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
   // Poll a predicate while reading this pane every pollMs (kept on change), handling dialogs.
   const waitFor = async (what, pred, timeoutMs, { lbl = what, bail = null } = {}) => {
     const deadline = deadlineFor(timeoutMs);
+    const waited0 = humanWaitMs;
     let nextRead = 0;
     for (;;) {
       if (herdr.abortSignal?.aborted) throw new NotRunError(herdr.abortReason());
@@ -227,7 +245,7 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
       if (hit) return hit;
       const b = bail?.();
       if (b) return { bailed: b };
-      if (Date.now() >= deadline) stop(`timed out after ${timeoutMs} ms waiting for ${what}`);
+      if (leftUntil(deadline, waited0) <= 0) stop(`timed out after ${timeoutMs} ms waiting for ${what}`);
       if (Date.now() >= nextRead) {
         const r = await read(lbl, { keep: 'on-change' });
         if (r.screen.dialog) await handleDialog(r, what);

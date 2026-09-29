@@ -61,7 +61,7 @@ const freePort = () =>
 
 // Drift of a pinned criteria reference, in a throwaway git repository (K7's review pattern).
 export function criteriaDriftChecks(check, { label, refPath, readCriteria, pin }) {
-  const refText = read(join(REPO, refPath));
+  const refText = read(join(REPO, refPath)).replace(/\r\n/g, '\n'); // LF as committed, also on a CRLF checkout
   const lines = refText.split('\n');
   const idx = lines.map((l, i) => (/^- \[[ x]\] /.test(l) ? i : -1)).filter((i) => i !== -1);
   const gr = mkdtempSync(join(tmpdir(), 'oac-k8-crit-'));
@@ -186,10 +186,24 @@ export async function replayG4Fixture() {
     };
     return { base: shape(bf, r), run: shape(nf, nr), nf };
   } finally {
-    legacy.child.kill('SIGKILL');
-    modern.child.kill('SIGKILL');
-    rmSync(dir, { recursive: true, force: true });
+    // Wait for both to exit before removing their working directory: on Windows a process
+    // that is still exiting holds it open and rmSync fails with EPERM.
+    await Promise.all([legacy.child, modern.child].map((c) => killAndWait(c)));
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+}
+
+// SIGKILL a child and wait (bounded) for it to exit.
+export function killAndWait(child, timeoutMs = 5000) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((res) => {
+    const t = setTimeout(res, timeoutMs);
+    child.once('exit', () => {
+      clearTimeout(t);
+      res();
+    });
+    child.kill('SIGKILL');
+  });
 }
 
 export async function g4Unit(check) {

@@ -171,7 +171,8 @@ export function driverMayAcceptCodex(classification) {
   if (!def) return { ok: false, why: `unrecognized dialog (${classification.dialog ?? 'none'}); the driver never accepts a dialog it cannot name` };
   if (!classification.selected) return { ok: false, why: 'no selected option found in the dialog text' };
   if (!def.acceptOption.test(classification.selected.text)) {
-    return { ok: false, why: `the selected option ("${classification.selected.number}. ${classification.selected.text}") is not the ${classification.dialog} accepting option` };
+    const { number, text } = classification.selected;
+    return { ok: false, why: `the selected option ("${number == null ? '' : `${number}. `}${text}") is not the ${classification.dialog} accepting option` };
   }
   return { ok: true, why: null };
 }

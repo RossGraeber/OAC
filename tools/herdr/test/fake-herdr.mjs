@@ -230,6 +230,8 @@ if (c0 === 'server' && c1 === undefined) {
   process.exit(0);
 } else if (c0 === 'agent' && c1 === 'start') {
   needsServer();
+  // herdr v0.9.1: "--timeout <MS> Wait for interactive readiness (default: 30000; max: 300000)".
+  if (opt('--timeout') && !(Number(opt('--timeout')) <= 300000)) fail('invalid_agent_timeout', `--timeout must be at most 300000 ms`);
   const p = pane(opt('--pane'));
   const sep = args.indexOf('--');
   const rest = sep === -1 ? [] : args.slice(sep + 1);

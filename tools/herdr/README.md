@@ -182,14 +182,37 @@ they are per-machine and belong to the operator.
 and does not add it to PATH. Add that directory to the user PATH (or prepend it in the shell
 that runs the driver), then check `herdr --version` prints the pin in `docs/planning/PINS.md`.
 
-**2. Isolation env.** Set `HERDR_SESSION=<name>` (a named, headless session) and
-`HERDR_CONFIG_PATH=<scratch>/herdr-config.toml` with `[update]` `version_check = false` and
-`manifest_check = false`. Never run herdr's command that writes hooks into harness config. Use a scratch directory
-outside the repo, and do not commit raw pane or env captures.
+**2. Isolation is the driver's job.** Set nothing. `run.mjs` starts its own named, headless
+session (`oac-k-<scenario>-<stamp>-<rand>`), writes its own `herdr-config.toml` (with
+`[update]` `version_check = false` and `manifest_check = false`) into a fresh scratch
+directory, and strips any inherited `HERDR_*` variable from herdr's environment. A
+`HERDR_SESSION` or `HERDR_CONFIG_PATH` you export has no effect on a run (#153). It also
+strips an enclosing Claude Code session's variables (`CLAUDECODE`, `CLAUDE_CODE_*`,
+`CLAUDE_PID`, `CLAUDE_AGENT_SDK_*`, `CLAUDE_PREVIEW_*`, `ANTHROPIC_BASE_URL`), so a harness
+started from a shell inside Claude Code doesn't run as that session's child or through its
+relay. It records their names and a finding (#163). No other `ANTHROPIC_*` variable is
+touched.
+For a run you intend to record, start the driver from a standalone terminal anyway. When a
+scenario waits for you to accept a dialog, it prints the session name and the command to
+attach (`herdr session attach <session>`). Never run herdr's command that writes hooks into
+harness config, and do not commit raw pane or env captures.
+
+**2a. Unattended G1 runs.** Every run otherwise starts Claude Code in a fresh scratch
+project, so its folder-trust dialog comes up every time, and that dialog preselects
+"No, exit", which the driver never accepts (#156). Create a directory outside the repo and
+pass it on every run as `--param projectDir=<absolute path>`. Make the first such run with
+`--param accept=human` and accept the folder-trust and MCP-server dialogs yourself. Later
+runs with `--param accept=driver` then need nobody at the keyboard. A driver accept of the
+dev-channels dialog is still recorded and never scored as meeting G1 criterion 5
+(`scripted-runs.md` "Operator-consent dialogs").
+
+**2b. Line endings.** A Git for Windows checkout (`core.autocrlf=true`) is fine. The driver
+compares working-tree files with HEAD in git's normalized form, as `git status` does (#152).
 
 **3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
-shell; without it the G1 git test fails with `EPERM` on `symlink`.
+shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
+self-test needs POSIX `sh` and is skipped on Windows.
 
 **4. Claude Code permission rules, when an agent runs the live steps.** Claude Code's
 permission prompts and its auto-mode classifier may refuse a command that launches a real

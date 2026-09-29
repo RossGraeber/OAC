@@ -275,6 +275,11 @@ async function unitGuards() {
   check('guard: session name is herdr-valid', /^[A-Za-z0-9._-]{1,64}$/.test(name) && name === 'oac-k-smoke-weird-name-20260928T123456Z-abc123', name);
   const { env, delta } = herdrLaunchEnv({ PATH: '/bin', HERDR_SOCKET_PATH: '/x.sock', HERDR_SESSION: 's', herdr_log: 'debug' }, '/tmp/cfg.toml');
   check('guard: inherited HERDR_* stripped from the herdr launch env', !('HERDR_SOCKET_PATH' in env) && !('HERDR_SESSION' in env) && !('herdr_log' in env) && env.HERDR_CONFIG_PATH === '/tmp/cfg.toml' && env.PATH === '/bin' && delta.removed.length === 3);
+  // #163: an enclosing Claude Code session's variables never reach the harness under test;
+  // other ANTHROPIC_* variables and CLAUDE_CONFIG_DIR are the operator's and pass through.
+  const host = { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_MESSAGING_TOKEN: 't', CLAUDE_PID: '9', CLAUDE_AGENT_SDK_VERSION: 'x', CLAUDE_PREVIEW_CLASSIFIER_FLOOR: 'y', ANTHROPIC_BASE_URL: 'http://127.0.0.1:1', ANTHROPIC_LOG: 'debug', CLAUDE_CONFIG_DIR: '/c' };
+  const h = herdrLaunchEnv(host, '/tmp/cfg.toml');
+  check('guard #163: host Claude Code session variables and ANTHROPIC_BASE_URL are stripped, names recorded; other ANTHROPIC_* and CLAUDE_CONFIG_DIR pass through', ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_PREVIEW_CLASSIFIER_FLOOR', 'ANTHROPIC_BASE_URL'].every((k) => !(k in h.env) && h.delta.removed.includes(k)) && h.env.ANTHROPIC_LOG === 'debug' && h.env.CLAUDE_CONFIG_DIR === '/c' && !JSON.stringify(h.delta).includes('http://127.0.0.1:1'), JSON.stringify(h.delta));
 
   const base = mkdtempSync(join(tmpdir(), 'oac-herdr-unit-'));
   try {
@@ -372,6 +377,10 @@ function driverEnv(b, mode, extra = {}) {
     CODEX_THREAD_ID: 'selftest-thread',
     HERDR_SOCKET_PATH: join(b.base, 'enclosing', 'herdr.sock'),
     HERDR_SESSION: 'enclosing-session',
+    // An enclosing Claude Code session (#163): must never reach the pane.
+    CLAUDECODE: '1',
+    CLAUDE_CODE_CHILD_SESSION: '1',
+    ANTHROPIC_BASE_URL: 'http://127.0.0.1:9/enclosing-relay',
   };
 }
 
@@ -460,6 +469,7 @@ async function lifecycle() {
     check('smoke PASS: roles preflight, lifecycle, read, wait, operator-input all recorded', ['preflight', 'lifecycle', 'read', 'wait', 'operator-input'].every((x) => roles.has(x)), [...roles].join(','));
     check('smoke PASS: launch argv recorded verbatim', JSON.stringify(m.launch.argv) === JSON.stringify(['echo', 'OAC-SMOKE-READY']));
     check('smoke PASS: server launch env delta recorded', m.env.serverLaunch.added.HERDR_CONFIG_PATH === '<SCRATCH>/herdr-config.toml' && m.env.serverLaunch.removed.includes('HERDR_SOCKET_PATH') && m.env.serverLaunch.removed.includes('HERDR_SESSION'));
+    check('smoke PASS #163: an enclosing Claude Code session\'s variables are stripped before herdr starts (never in the pane), recorded by name with a finding; no value leaks', ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'ANTHROPIC_BASE_URL'].every((k) => m.env.serverLaunch.removed.includes(k) && !(m.env.pane?.added ?? []).includes(k)) && m.findings.some((f) => /inside a Claude Code session/.test(f)) && !r.manifestText.includes('enclosing-relay'), JSON.stringify({ removed: m.env.serverLaunch.removed, findings: m.findings }));
     const pane = m.env.pane;
     check('smoke PASS: pane env delta has the HERDR_* additions', ['HERDR_ENV', 'HERDR_SOCKET_PATH', 'HERDR_BIN_PATH', 'HERDR_WORKSPACE_ID', 'HERDR_TAB_ID', 'HERDR_PANE_ID'].every((n) => pane?.added.includes(n)), JSON.stringify(pane?.added));
     check('smoke PASS: pane env delta has the removals', pane?.removed.includes('CODEX_THREAD_ID'), JSON.stringify(pane?.removed));

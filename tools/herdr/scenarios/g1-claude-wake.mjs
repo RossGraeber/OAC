@@ -18,6 +18,14 @@
 //     --param accept=human --out <run dir>
 //   node tools/herdr/lib/g1-report.mjs --run <run dir>            # draft comparison
 //
+// Unattended runs: Claude Code's folder-trust dialog preselects "No, exit", so the driver
+// never accepts it (#156). Create a directory outside the repository and pass it on every
+// run: --param projectDir=<absolute path>. Make the first such run with accept=human and
+// accept the folder-trust and MCP-server dialogs yourself; Claude Code remembers both for
+// that directory, so later runs (accept=driver) do not show them.
+// The dev-channels dialog still appears on every run; a driver accept of it is recorded
+// and never scored as meeting criterion 5.
+//
 // What it does, in Box C's order:
 //   0. Preflight. The launch must be G1's, verbatim. `claude --version` must equal the
 //      `Claude Code (Channels)` last-observed version in PINS.md AS COMMITTED at HEAD (an
@@ -58,8 +66,8 @@
 // The operator prompts are parameters. Box C's own prompt texts are not on record in this
 // repository (G1-result.md paraphrases them), so the defaults are not verbatim Box C.
 
-import { existsSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, lstatSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
@@ -68,7 +76,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
 import {
   G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
-  formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText,
+  formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText, sameDialog, acceptHint,
   COMMITTED_SERVER_SHA256, PINS_PATH,
 } from '../lib/g1.mjs';
 
@@ -102,6 +110,39 @@ export function assertNotInjected(label, text) {
   }
 }
 
+// --param projectDir: an existing directory the operator trusts in Claude Code by hand (on a
+// first accept=human run), reused across runs so the folder-trust dialog (whose preselected
+// option is "No, exit", #156) does not come up and a run can be unattended. The driver never
+// records that trust itself. It writes only the scenario's own `.mcp.json` there, and
+// refuses a directory inside this repository or one whose `.mcp.json` registers anything
+// but `g1spike`.
+export function operatorProjectDir(dir) {
+  const abs = resolve(String(dir));
+  if (!isAbsolute(String(dir))) throw new DriverError('--param projectDir must be an absolute path');
+  let st;
+  try {
+    st = lstatSync(abs);
+  } catch {
+    throw new DriverError(`--param projectDir ${abs} does not exist; create it and trust it in Claude Code first`);
+  }
+  if (st.isSymbolicLink() || !st.isDirectory()) throw new DriverError(`--param projectDir ${abs} is not a plain directory`);
+  const rel = relative(REPO, abs);
+  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) throw new DriverError(`--param projectDir ${abs} is inside this repository; use a directory outside it`);
+  const mcpPath = join(abs, '.mcp.json');
+  if (existsSync(mcpPath)) {
+    let names = null;
+    try {
+      names = Object.keys(JSON.parse(readFileSync(mcpPath, 'utf8')).mcpServers ?? {});
+    } catch {
+      /* unreadable: refused below */
+    }
+    if (!names || names.length !== 1 || names[0] !== G1_SERVER_NAME) {
+      throw new DriverError(`${mcpPath} exists and is not this scenario's (it must register exactly "${G1_SERVER_NAME}"); refusing to overwrite it`);
+    }
+  }
+  return abs;
+}
+
 export default {
   name: 'g1-claude-wake',
   description: 'G1 re-run through herdr for comparison with Box C (K4). Not verdict-bearing.',
@@ -123,6 +164,7 @@ export default {
       busyIndicator: 'esc to interrupt',
       readLines: '2000',
       maxDialogs: '12',
+      projectDir: '', // empty: a fresh scratch directory per run (folder-trust dialog every time)
       sleepCommand: SLEEP_DEFAULT,
       attributePrompt: DEFAULT_PROMPTS.attributePrompt,
       busyPrompt: '',
@@ -157,6 +199,7 @@ export default {
       launch: { expected: [...G1_LAUNCH], actual: launch, verbatim: null },
       versions: null,
       server: null,
+      projectDir: null,
       mcpJson: null,
       date: new Date().toISOString().slice(0, 10),
       fixtures: null, // K4 fixture names: set only after the CLI and wire versions are verified
@@ -211,6 +254,11 @@ export default {
     const lastInstance = () => selectSegment(wire(), 'last');
 
     const deadlineFor = (ms) => Date.now() + Math.min(ms, Math.max(0, ctx.remainingMs()));
+    // Time spent waiting for the operator to accept a dialog. It has its own bound
+    // (humanAcceptTimeoutMs), so an enclosing settle/wire wait does not also charge it
+    // against its own budget (#154). The run's timebox still covers all of it.
+    let humanWaitMs = 0;
+    const leftUntil = (deadline, waitedAtStart) => Math.min(deadline + humanWaitMs - waitedAtStart, Date.now() + Math.max(0, ctx.remainingMs())) - Date.now();
 
     // --- dialogs: text on record before any keystroke -----------------------------------
     const handleDialog = async (r, context) => {
@@ -250,21 +298,34 @@ export default {
       const before = herdr.commands.length;
       console.error(
         `\n[g1-claude-wake] dialog ${d.index} (${kind}) is on screen; its text is recorded (herdr command #${r.seq}).\n` +
-          `  Accept it yourself, e.g. \`herdr --session ${ctx.sessionName} agent send-keys ${AGENT} enter\`, or attach and press Enter.\n` +
+          acceptHint({ sessionName: ctx.sessionName, agent: AGENT, kind, selected: r.screen.selected }) +
           `  The driver sends no keystroke to it and waits up to ${num('humanAcceptTimeoutMs')} ms.\n`,
       );
-      const was = normalizeDialogText(r.text);
+      const waitStart = Date.now();
       const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
-      for (;;) {
-        if (Date.now() >= deadline) stop(`dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
-        await sleep(pollMs);
-        const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
-        if (p.screen.dialog !== kind || normalizeDialogText(p.text) !== was) {
+      d.redrawSeqs = [];
+      let shown = normalizeDialogText(r.text);
+      try {
+        for (;;) {
+          if (Date.now() >= deadline) stop(`dialog ${d.index} (${kind}) was not accepted by the operator within ${num('humanAcceptTimeoutMs')} ms`);
+          await sleep(pollMs);
+          const p = await read(`dialog-${d.index}-waiting`, { keep: 'on-change' });
+          // A redraw of the same dialog (resize on attach, scroll, moved selection) is not an
+          // answer to it (#160): recorded, and the wait goes on.
+          if (sameDialog(r.text, p, kind)) {
+            const now = normalizeDialogText(p.text);
+            if (now !== shown) d.redrawSeqs.push(p.seq);
+            shown = now;
+            continue;
+          }
           d.acceptOrigin = 'human';
           d.resolvedSeq = p.seq;
           d.inputBetweenReadAndAccept = herdr.commands.slice(before).filter((c) => INPUT_ROLES.has(c.role)).length;
           return;
         }
+      } finally {
+        d.humanWaitMs = Date.now() - waitStart;
+        humanWaitMs += d.humanWaitMs;
       }
     };
 
@@ -273,9 +334,10 @@ export default {
     const settle = async (context, timeoutMs) => {
       await sleep(num('settleMs'));
       const deadline = deadlineFor(timeoutMs);
+      const waited0 = humanWaitMs;
       let blockedUnseen = 0;
       for (;;) {
-        const left = deadline - Date.now();
+        const left = leftUntil(deadline, waited0);
         if (left <= 0) stop(`${context}: the pane did not settle within ${timeoutMs} ms`);
         const w = await herdr.agentWait(AGENT, { until: ['idle', 'done', 'blocked'], timeoutMs: Math.max(1000, left) });
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
@@ -305,11 +367,12 @@ export default {
     // dialog, e.g. a tool permission prompt) every pollMs while waiting.
     const waitWire = async (what, pred, timeoutMs, { watchPane = true, keep = 'on-change', label = what } = {}) => {
       const deadline = deadlineFor(timeoutMs);
+      const waited0 = humanWaitMs;
       let nextRead = 0;
       for (;;) {
         const hit = pred(lastInstance());
         if (hit) return hit;
-        if (Date.now() >= deadline) stop(`timed out after ${timeoutMs} ms waiting for ${what} on the wire`);
+        if (leftUntil(deadline, waited0) <= 0) stop(`timed out after ${timeoutMs} ms waiting for ${what} on the wire`);
         if (watchPane && Date.now() >= nextRead) {
           const r = await read(label, { keep });
           if (r.screen.dialog) await handleDialog(r, what);
@@ -391,7 +454,9 @@ export default {
       if (!staged.workingTreeMatchesHead) throw new DriverError(`${COMMITTED_SERVER} in the working tree differs from HEAD (edited, replaced or symlinked); refusing to run`);
       if (!staged.match) throw new DriverError('the staged channel-server copy does not match the committed blob (sha256)');
 
-      const projectDir = ctx.dir('g1-project');
+      const projectDir = params.projectDir ? operatorProjectDir(params.projectDir) : ctx.dir('g1-project');
+      if (params.projectDir) ctx.redactLiteral(projectDir, '<PROJECT>');
+      g1.projectDir = params.projectDir ? 'operator-supplied (--param projectDir), redacted as <PROJECT>' : 'fresh scratch directory';
       const mcp = { mcpServers: { [G1_SERVER_NAME]: { command: process.execPath, args: [staged.copyPath] } } };
       writeFileSync(join(projectDir, '.mcp.json'), `${JSON.stringify(mcp, null, 2)}\n`);
       g1.mcpJson = { path: join(projectDir, '.mcp.json'), contents: mcp };

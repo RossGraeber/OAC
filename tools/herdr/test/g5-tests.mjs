@@ -28,7 +28,7 @@ import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorSc
 import { buildFrame, crockford128, frameCase, collides, caseBody } from '../gate-servers/g5-codex.mjs';
 import { presend, SECURITY_KEYS } from '../gate-servers/g5-channel.mjs';
 import { parseClaudeLastObserved, parseCodexLastObserved } from '../lib/pins.mjs';
-import { criteriaDriftChecks } from './g4-tests.mjs';
+import { criteriaDriftChecks, killAndWait } from './g4-tests.mjs';
 import { busyPromptFor } from '../scenarios/g5-provenance.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -85,8 +85,8 @@ export async function replayG5Channel() {
     const shape = (entries) => entries.filter((e) => e.direction !== 'spike' || e.payload?.spike).map((e) => `${e.direction} ${JSON.stringify(e.payload)}`);
     return { base: shape(base.filter((e) => e.line > live)), run: shape(parseJsonl(read(tpath)).slice(1)) };
   } finally {
-    child.kill('SIGKILL');
-    rmSync(dir, { recursive: true, force: true });
+    await killAndWait(child); // before the rm: on Windows an exiting process holds dir open (EPERM)
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

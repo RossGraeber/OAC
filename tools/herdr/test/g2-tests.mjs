@@ -31,7 +31,9 @@ import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorS
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const read = (p) => readFileSync(p, 'utf8');
-const BASELINE = read(join(REPO, BASELINE_TRANSCRIPT));
+// LF, as committed: a CRLF checkout (core.autocrlf=true) must not make the byte-identity
+// checks below fail.
+const BASELINE = read(join(REPO, BASELINE_TRANSCRIPT)).replace(/\r\n/g, '\n');
 const OLD_BASELINE = read(join(REPO, FIXTURE_DIR, 'transcript.jsonl'));
 const PIN = parseCodexLastObserved(read(join(REPO, 'docs', 'planning', 'PINS.md'))).lastObserved;
 const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g2-report.mjs');

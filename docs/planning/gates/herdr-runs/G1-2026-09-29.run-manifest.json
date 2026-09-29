@@ -1,0 +1,5185 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260929T034856Z-05b135",
+  "outcome": "PASS",
+  "outcomeReason": null,
+  "scenario": {
+    "name": "g1-claude-wake",
+    "file": "tools/herdr/scenarios/g1-claude-wake.mjs",
+    "description": "G1 re-run through herdr for comparison with Box C (K4). Not verdict-bearing.",
+    "params": {
+      "accept": "human",
+      "startupTimeoutMs": "120000",
+      "humanAcceptTimeoutMs": "300000",
+      "handshakeTimeoutMs": "90000",
+      "wireTimeoutMs": "15000",
+      "turnTimeoutMs": "300000",
+      "settleMs": "3000",
+      "pollMs": "1000",
+      "midturnDelayMs": "5000",
+      "midturnGapMs": "1850",
+      "busyIndicator": "esc to interrupt",
+      "readLines": "2000",
+      "maxDialogs": "12",
+      "projectDir": "<PROJECT>",
+      "sleepCommand": "sleep 20",
+      "attributePrompt": "List every attribute on the <channel> tag of the channel message you just received, as name=\"value\" pairs, exactly as they appear. Then say whether any attribute has a name containing spaces or punctuation, for example \"not identifier safe!\".",
+      "busyPrompt": "",
+      "replyPrompt": "Use the reply tool from the g1spike server to send the message \"Hello!\" in reply to the most recent channel message, with in_reply_to set to that message's oac_message_id."
+    }
+  },
+  "launch": {
+    "argv": [
+      "claude",
+      "--dangerously-load-development-channels",
+      "server:g1spike"
+    ],
+    "herdrReportedArgv": null
+  },
+  "driver": {
+    "entry": "tools/herdr/run.mjs",
+    "commit": "3050ed61cc073e16a4fdd0d17b6770f6911fef18",
+    "toolsHerdrDirty": false,
+    "node": "v25.2.1"
+  },
+  "herdr": {
+    "pinRow": "herdr (test tooling)",
+    "pinnedTag": "v0.9.1",
+    "expectedVersionOutput": "herdr 0.9.1",
+    "observedVersionOutput": "herdr 0.9.1",
+    "serverStatus": {
+      "status": "running",
+      "running": true,
+      "version": "0.9.1",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": false,
+        "detached_server_daemon": false,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true
+      },
+      "compatible": true,
+      "endpoint_compatible": true,
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g1-claude-wake-20260929T034856Z-9de5f2\\herdr.sock",
+      "session": "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+      "restart_needed": false,
+      "server_binary_stale": false
+    },
+    "config": {
+      "path": "<SCRATCH>\\herdr-config.toml",
+      "contents": "[update]\nversion_check = false\nmanifest_check = false\n"
+    },
+    "agentManifests": {
+      "id": "cli:server:agent-manifests",
+      "result": {
+        "last_check_unix": 1790653045,
+        "last_result": "checked",
+        "manifests": [
+          {
+            "active_version": "2026.09.14.1",
+            "agent": "pi",
+            "cached_remote_version": "2026.09.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\pi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "claude",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\claude.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.23.1",
+            "agent": "codex",
+            "cached_remote_version": "2026.09.23.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\codex.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "gemini",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\gemini.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.03.1",
+            "agent": "cursor",
+            "cached_remote_version": "2026.08.03.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cursor.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.15.1",
+            "agent": "devin",
+            "cached_remote_version": "2026.06.15.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\devin.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.24.1",
+            "agent": "agy",
+            "cached_remote_version": "2026.06.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\agy.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "cline",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cline.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "opencode",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\opencode.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.29.1",
+            "agent": "copilot",
+            "cached_remote_version": "2026.08.29.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\copilot.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kimi",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kimi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.19.1",
+            "agent": "kiro",
+            "cached_remote_version": "2026.09.19.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kiro.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "droid",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\droid.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.1",
+            "agent": "amp",
+            "cached_remote_version": "2026.07.09.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\amp.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.18.1",
+            "agent": "grok",
+            "cached_remote_version": "2026.09.18.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\grok.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.24.1",
+            "agent": "hermes",
+            "cached_remote_version": "2026.07.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\hermes.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kilo",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kilo.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "qodercli",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qodercli.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.14.1",
+            "agent": "qwen",
+            "cached_remote_version": "2026.08.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qwen.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.24.1",
+            "agent": "letta",
+            "cached_remote_version": "2026.08.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\letta.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.2",
+            "agent": "maki",
+            "cached_remote_version": "2026.07.09.2",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\maki.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.26.1",
+            "agent": "muse",
+            "cached_remote_version": "2026.08.26.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790653045,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\muse.toml",
+            "source_kind": "remote"
+          }
+        ],
+        "type": "agent_manifest_status"
+      }
+    }
+  },
+  "harnessVersions": {
+    "claude": "2.1.283 (Claude Code)"
+  },
+  "os": {
+    "platform": "win32",
+    "type": "Windows_NT",
+    "release": "10.0.26200",
+    "arch": "x64"
+  },
+  "session": {
+    "name": "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+    "serverPid": 23088,
+    "panePids": [
+      4260,
+      16204
+    ]
+  },
+  "env": {
+    "serverLaunch": {
+      "added": {
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml"
+      },
+      "removed": []
+    },
+    "pane": {
+      "paneId": "w1:p1",
+      "added": [
+        "COLORTERM",
+        "HERDR_BIN_PATH",
+        "HERDR_ENV",
+        "HERDR_PANE_ID",
+        "HERDR_SESSION",
+        "HERDR_SOCKET_PATH",
+        "HERDR_TAB_ID",
+        "HERDR_WORKSPACE_ID",
+        "TERM"
+      ],
+      "removed": [
+        "WT_SESSION"
+      ],
+      "values": {
+        "COLORTERM": "truecolor",
+        "HERDR_BIN_PATH": "<USER_HOME>\\.herdr\\packages\\standalone\\releases\\0.9.1-x86_64-pc-windows-msvc\\herdr.exe",
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml",
+        "HERDR_ENV": "1",
+        "HERDR_PANE_ID": "w1:p1",
+        "HERDR_SESSION": "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "HERDR_SOCKET_PATH": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g1-claude-wake-20260929T034856Z-9de5f2\\herdr.sock",
+        "HERDR_TAB_ID": "w1:t1",
+        "HERDR_WORKSPACE_ID": "w1",
+        "TERM": "xterm-256color"
+      },
+      "note": "Names compared against the herdr server launch env. Values recorded for HERDR_*, TERM and COLORTERM only. Additions can also come from the pane shell's own startup files."
+    }
+  },
+  "harnessConfig": {
+    "before": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "59706fd8bdb91c2fb75467fcf7cfcdbd8466374d85151da4e8185ea88fc0944e"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "a949d6baa5e39f59319d21ee18fa8a18f76b4e25a5f10d5202c0d3daecd0d48b"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": false,
+        "sha256": null
+      }
+    ],
+    "after": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "59706fd8bdb91c2fb75467fcf7cfcdbd8466374d85151da4e8185ea88fc0944e"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "a949d6baa5e39f59319d21ee18fa8a18f76b4e25a5f10d5202c0d3daecd0d48b"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": false,
+        "sha256": null
+      }
+    ],
+    "unchanged": true,
+    "changed": []
+  },
+  "timebox": {
+    "budgetMs": 2700000,
+    "start": "2026-09-29T03:48:56.279Z",
+    "end": "2026-09-29T03:52:34.393Z",
+    "elapsedMs": 218114,
+    "expired": false,
+    "teardownEnd": "2026-09-29T03:52:35.281Z"
+  },
+  "commands": [
+    {
+      "seq": 1,
+      "role": "preflight",
+      "argv": [
+        "herdr",
+        "--version"
+      ],
+      "target": null,
+      "startedAt": "2026-09-29T03:48:56.384Z",
+      "endedAt": "2026-09-29T03:48:56.439Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 12,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 2,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "server"
+      ],
+      "target": null,
+      "startedAt": "2026-09-29T03:48:56.531Z",
+      "endedAt": null,
+      "durationMs": null,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": null,
+        "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
+      },
+      "pid": 23088
+    },
+    {
+      "seq": 3,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "status",
+        "server",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-09-29T03:48:56.540Z",
+      "endedAt": "2026-09-29T03:48:56.588Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 5000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 488,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 4,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "server",
+        "agent-manifests",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-09-29T03:48:56.588Z",
+      "endedAt": "2026-09-29T03:48:56.833Z",
+      "durationMs": 245,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 7137,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 5,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "workspace",
+        "create",
+        "--no-focus",
+        "--cwd",
+        "<PROJECT>",
+        "--label",
+        "oac-g1"
+      ],
+      "target": null,
+      "startedAt": "2026-09-29T03:48:57.199Z",
+      "endedAt": "2026-09-29T03:48:57.309Z",
+      "durationMs": 110,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 627,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 6,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-09-29T03:48:57.309Z",
+      "endedAt": "2026-09-29T03:48:57.367Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1411,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 7,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "pane",
+        "run",
+        "w1:p1",
+        "C:\\nvm4w\\nodejs\\node.exe <REPO>\\tools\\herdr\\lib\\env-probe.mjs <SCRATCH>\\env-probe-7ce1cb2a.json 7ce1cb2a"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-09-29T03:48:57.368Z",
+      "endedAt": "2026-09-29T03:48:57.418Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 0,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 8,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "pane",
+        "wait-output",
+        "w1:p1",
+        "--regex",
+        "^\\s*ENVPROBE-OK-7ce1cb2a\\s*$",
+        "--timeout",
+        "20000"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-09-29T03:48:57.418Z",
+      "endedAt": "2026-09-29T03:48:58.176Z",
+      "durationMs": 758,
+      "bound": {
+        "herdrTimeoutMs": 20000,
+        "driverDeadlineMs": 25000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 557,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 9,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "start",
+        "g1claude",
+        "--kind",
+        "claude",
+        "--pane",
+        "w1:p1",
+        "--timeout",
+        "120000",
+        "--",
+        "--dangerously-load-development-channels",
+        "server:g1spike"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:48:58.178Z",
+      "endedAt": "2026-09-29T03:49:01.856Z",
+      "durationMs": 3678,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 1,
+      "signal": null,
+      "errorCode": "agent_not_ready",
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 0,
+      "stderrBytes": 142
+    },
+    {
+      "seq": 10,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-09-29T03:49:01.856Z",
+      "endedAt": "2026-09-29T03:49:01.907Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 537,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 11,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "wait",
+        "g1claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        "120000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:04.916Z",
+      "endedAt": "2026-09-29T03:49:04.969Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 389,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 12,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:04.969Z",
+      "endedAt": "2026-09-29T03:49:05.024Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 13,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:06.030Z",
+      "endedAt": "2026-09-29T03:49:06.076Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 14,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:07.080Z",
+      "endedAt": "2026-09-29T03:49:07.123Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 15,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:08.128Z",
+      "endedAt": "2026-09-29T03:49:08.175Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 16,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:09.184Z",
+      "endedAt": "2026-09-29T03:49:09.244Z",
+      "durationMs": 60,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 17,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:10.247Z",
+      "endedAt": "2026-09-29T03:49:10.288Z",
+      "durationMs": 41,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 18,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:11.294Z",
+      "endedAt": "2026-09-29T03:49:11.341Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 19,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:12.346Z",
+      "endedAt": "2026-09-29T03:49:12.388Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 20,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:13.394Z",
+      "endedAt": "2026-09-29T03:49:13.439Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 21,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:14.441Z",
+      "endedAt": "2026-09-29T03:49:14.483Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 22,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:15.492Z",
+      "endedAt": "2026-09-29T03:49:15.536Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 23,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:16.546Z",
+      "endedAt": "2026-09-29T03:49:16.630Z",
+      "durationMs": 84,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 24,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:17.644Z",
+      "endedAt": "2026-09-29T03:49:17.706Z",
+      "durationMs": 62,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 25,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:18.710Z",
+      "endedAt": "2026-09-29T03:49:18.760Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 26,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:19.775Z",
+      "endedAt": "2026-09-29T03:49:19.821Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 27,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:20.832Z",
+      "endedAt": "2026-09-29T03:49:20.877Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 28,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:21.891Z",
+      "endedAt": "2026-09-29T03:49:21.935Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 29,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:22.941Z",
+      "endedAt": "2026-09-29T03:49:22.986Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 30,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:23.994Z",
+      "endedAt": "2026-09-29T03:49:24.064Z",
+      "durationMs": 70,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 31,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:25.076Z",
+      "endedAt": "2026-09-29T03:49:25.163Z",
+      "durationMs": 87,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 32,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:26.175Z",
+      "endedAt": "2026-09-29T03:49:26.254Z",
+      "durationMs": 79,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 33,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:27.255Z",
+      "endedAt": "2026-09-29T03:49:27.297Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 34,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:28.306Z",
+      "endedAt": "2026-09-29T03:49:28.353Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 35,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:29.356Z",
+      "endedAt": "2026-09-29T03:49:29.398Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 36,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:30.409Z",
+      "endedAt": "2026-09-29T03:49:30.452Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 37,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:31.459Z",
+      "endedAt": "2026-09-29T03:49:31.500Z",
+      "durationMs": 41,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 38,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:32.508Z",
+      "endedAt": "2026-09-29T03:49:32.571Z",
+      "durationMs": 63,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 39,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:33.574Z",
+      "endedAt": "2026-09-29T03:49:33.682Z",
+      "durationMs": 108,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 40,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:34.691Z",
+      "endedAt": "2026-09-29T03:49:34.746Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 41,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:35.750Z",
+      "endedAt": "2026-09-29T03:49:35.800Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 42,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:36.805Z",
+      "endedAt": "2026-09-29T03:49:36.850Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 43,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:37.854Z",
+      "endedAt": "2026-09-29T03:49:37.900Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 44,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:38.908Z",
+      "endedAt": "2026-09-29T03:49:38.949Z",
+      "durationMs": 41,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 45,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:39.954Z",
+      "endedAt": "2026-09-29T03:49:40.007Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 46,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:41.007Z",
+      "endedAt": "2026-09-29T03:49:41.067Z",
+      "durationMs": 60,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 47,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:42.072Z",
+      "endedAt": "2026-09-29T03:49:42.158Z",
+      "durationMs": 86,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 48,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:43.169Z",
+      "endedAt": "2026-09-29T03:49:43.215Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 49,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:44.221Z",
+      "endedAt": "2026-09-29T03:49:44.307Z",
+      "durationMs": 86,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 50,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:45.309Z",
+      "endedAt": "2026-09-29T03:49:45.353Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 51,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:46.353Z",
+      "endedAt": "2026-09-29T03:49:46.399Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 52,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:47.402Z",
+      "endedAt": "2026-09-29T03:49:47.445Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 53,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:48.451Z",
+      "endedAt": "2026-09-29T03:49:48.525Z",
+      "durationMs": 74,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 54,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:49.537Z",
+      "endedAt": "2026-09-29T03:49:49.613Z",
+      "durationMs": 76,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 55,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:50.619Z",
+      "endedAt": "2026-09-29T03:49:50.691Z",
+      "durationMs": 72,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 56,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:51.701Z",
+      "endedAt": "2026-09-29T03:49:51.749Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 57,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:52.752Z",
+      "endedAt": "2026-09-29T03:49:52.800Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 58,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:53.809Z",
+      "endedAt": "2026-09-29T03:49:53.859Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 59,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:54.866Z",
+      "endedAt": "2026-09-29T03:49:54.913Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 60,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:55.916Z",
+      "endedAt": "2026-09-29T03:49:55.961Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 61,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:56.976Z",
+      "endedAt": "2026-09-29T03:49:57.033Z",
+      "durationMs": 57,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 62,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:58.036Z",
+      "endedAt": "2026-09-29T03:49:58.100Z",
+      "durationMs": 64,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 63,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:49:59.101Z",
+      "endedAt": "2026-09-29T03:49:59.189Z",
+      "durationMs": 88,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 64,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:00.198Z",
+      "endedAt": "2026-09-29T03:50:00.241Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 65,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:01.252Z",
+      "endedAt": "2026-09-29T03:50:01.309Z",
+      "durationMs": 57,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 66,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:02.316Z",
+      "endedAt": "2026-09-29T03:50:02.363Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 67,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:03.370Z",
+      "endedAt": "2026-09-29T03:50:03.419Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 68,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:04.431Z",
+      "endedAt": "2026-09-29T03:50:04.477Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 69,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:05.482Z",
+      "endedAt": "2026-09-29T03:50:05.548Z",
+      "durationMs": 66,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 70,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:06.551Z",
+      "endedAt": "2026-09-29T03:50:06.609Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 71,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:07.614Z",
+      "endedAt": "2026-09-29T03:50:07.669Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 72,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:08.679Z",
+      "endedAt": "2026-09-29T03:50:08.725Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 73,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:09.732Z",
+      "endedAt": "2026-09-29T03:50:09.787Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 74,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:10.797Z",
+      "endedAt": "2026-09-29T03:50:10.849Z",
+      "durationMs": 52,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 75,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:11.851Z",
+      "endedAt": "2026-09-29T03:50:11.899Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 76,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:12.913Z",
+      "endedAt": "2026-09-29T03:50:12.971Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 77,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:13.979Z",
+      "endedAt": "2026-09-29T03:50:14.028Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 78,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:15.035Z",
+      "endedAt": "2026-09-29T03:50:15.141Z",
+      "durationMs": 106,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 79,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:16.144Z",
+      "endedAt": "2026-09-29T03:50:16.186Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 80,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:17.197Z",
+      "endedAt": "2026-09-29T03:50:17.315Z",
+      "durationMs": 118,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 81,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:18.326Z",
+      "endedAt": "2026-09-29T03:50:18.368Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 82,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:19.377Z",
+      "endedAt": "2026-09-29T03:50:19.423Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 83,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:20.427Z",
+      "endedAt": "2026-09-29T03:50:20.472Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 84,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:21.474Z",
+      "endedAt": "2026-09-29T03:50:21.518Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 85,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:22.527Z",
+      "endedAt": "2026-09-29T03:50:22.570Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1280,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 86,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:23.579Z",
+      "endedAt": "2026-09-29T03:50:23.646Z",
+      "durationMs": 67,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 668,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 87,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:24.661Z",
+      "endedAt": "2026-09-29T03:50:24.738Z",
+      "durationMs": 77,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 668,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 88,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:25.744Z",
+      "endedAt": "2026-09-29T03:50:25.803Z",
+      "durationMs": 59,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1095,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 89,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "wait",
+        "g1claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        "119891"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:25.804Z",
+      "endedAt": "2026-09-29T03:50:25.868Z",
+      "durationMs": 64,
+      "bound": {
+        "herdrTimeoutMs": 119891,
+        "driverDeadlineMs": 124891,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 403,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 90,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:25.869Z",
+      "endedAt": "2026-09-29T03:50:25.932Z",
+      "durationMs": 63,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1095,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 91,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:25.945Z",
+      "endedAt": "2026-09-29T03:50:26.004Z",
+      "durationMs": 59,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1095,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 92,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-09-29T03:50:26.212Z",
+      "endedAt": "2026-09-29T03:50:26.279Z",
+      "durationMs": 67,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 537,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 93,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "wait",
+        "g1claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        "120000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:29.292Z",
+      "endedAt": "2026-09-29T03:50:29.346Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 403,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 94,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:29.346Z",
+      "endedAt": "2026-09-29T03:50:29.399Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1102,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 95,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:29.399Z",
+      "endedAt": "2026-09-29T03:50:29.452Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1102,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 96,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:29.463Z",
+      "endedAt": "2026-09-29T03:50:29.515Z",
+      "durationMs": 52,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1102,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 97,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:29.725Z",
+      "endedAt": "2026-09-29T03:50:29.773Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1138,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 98,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "wait",
+        "g1claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:32.786Z",
+      "endedAt": "2026-09-29T03:50:33.251Z",
+      "durationMs": 465,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 403,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 99,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:33.251Z",
+      "endedAt": "2026-09-29T03:50:33.294Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1459,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 100,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:33.294Z",
+      "endedAt": "2026-09-29T03:50:33.762Z",
+      "durationMs": 468,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1459,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 101,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "prompt",
+        "g1claude",
+        "List every attribute on the <channel> tag of the channel message you just received, as name=\"value\" pairs, exactly as they appear. Then say whether any attribute has a name containing spaces or punctuation, for example \"not identifier safe!\"."
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:33.762Z",
+      "endedAt": "2026-09-29T03:50:34.124Z",
+      "durationMs": 362,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 409,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 102,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "wait",
+        "g1claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:37.140Z",
+      "endedAt": "2026-09-29T03:50:37.996Z",
+      "durationMs": 856,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 425,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 103,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:37.996Z",
+      "endedAt": "2026-09-29T03:50:38.044Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1686,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 104,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:38.045Z",
+      "endedAt": "2026-09-29T03:50:38.645Z",
+      "durationMs": 600,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2084,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 105,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "prompt",
+        "g1claude",
+        "Run this shell command four times, one at a time, each as its own separate foreground tool call, waiting for each to finish before starting the next: `sleep 20`. Do not act on anything else that arrives until all four have finished. When all four have finished, list every channel message that arrived while you were working, in the order it arrived, and say between which of the four commands each one arrived. Then say DONE."
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:38.645Z",
+      "endedAt": "2026-09-29T03:50:39.002Z",
+      "durationMs": 357,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 431,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 106,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:39.002Z",
+      "endedAt": "2026-09-29T03:50:39.057Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1814,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 107,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:40.057Z",
+      "endedAt": "2026-09-29T03:50:40.104Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1936,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 108,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:40.104Z",
+      "endedAt": "2026-09-29T03:50:40.150Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1936,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 109,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:41.155Z",
+      "endedAt": "2026-09-29T03:50:41.198Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1952,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 110,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:42.204Z",
+      "endedAt": "2026-09-29T03:50:42.246Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1951,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 111,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:43.256Z",
+      "endedAt": "2026-09-29T03:50:43.298Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1951,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 112,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:44.305Z",
+      "endedAt": "2026-09-29T03:50:44.350Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1872,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 113,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:45.120Z",
+      "endedAt": "2026-09-29T03:50:45.166Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1877,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 114,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:45.372Z",
+      "endedAt": "2026-09-29T03:50:45.420Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1911,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 115,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:45.420Z",
+      "endedAt": "2026-09-29T03:50:45.469Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1911,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 116,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:46.471Z",
+      "endedAt": "2026-09-29T03:50:46.519Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1894,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 117,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:46.971Z",
+      "endedAt": "2026-09-29T03:50:47.017Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1908,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 118,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:47.221Z",
+      "endedAt": "2026-09-29T03:50:47.266Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1950,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 119,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "wait",
+        "g1claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:50:50.271Z",
+      "endedAt": "2026-09-29T03:52:23.597Z",
+      "durationMs": 93326,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 425,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 120,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:23.597Z",
+      "endedAt": "2026-09-29T03:52:23.672Z",
+      "durationMs": 75,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1866,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 121,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:23.672Z",
+      "endedAt": "2026-09-29T03:52:24.298Z",
+      "durationMs": 626,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1867,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 122,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "prompt",
+        "g1claude",
+        "Use the reply tool from the g1spike server to send the message \"Hello!\" in reply to the most recent channel message, with in_reply_to set to that message's oac_message_id."
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:24.298Z",
+      "endedAt": "2026-09-29T03:52:24.666Z",
+      "durationMs": 368,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 431,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 123,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:24.667Z",
+      "endedAt": "2026-09-29T03:52:24.710Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1992,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 124,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:25.750Z",
+      "endedAt": "2026-09-29T03:52:25.858Z",
+      "durationMs": 108,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1784,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 125,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:26.907Z",
+      "endedAt": "2026-09-29T03:52:26.975Z",
+      "durationMs": 68,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1784,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 126,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:28.015Z",
+      "endedAt": "2026-09-29T03:52:28.061Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1806,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 127,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:29.096Z",
+      "endedAt": "2026-09-29T03:52:29.139Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1726,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 128,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:30.163Z",
+      "endedAt": "2026-09-29T03:52:30.213Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1728,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 129,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "wait",
+        "g1claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:33.427Z",
+      "endedAt": "2026-09-29T03:52:33.503Z",
+      "durationMs": 76,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 426,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 130,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:33.503Z",
+      "endedAt": "2026-09-29T03:52:33.543Z",
+      "durationMs": 40,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1718,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 131,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "agent",
+        "read",
+        "g1claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g1claude",
+      "startedAt": "2026-09-29T03:52:33.543Z",
+      "endedAt": "2026-09-29T03:52:34.235Z",
+      "durationMs": 692,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1719,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 132,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-09-29T03:52:34.345Z",
+      "endedAt": "2026-09-29T03:52:34.387Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 537,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 133,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "stop",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-09-29T03:52:34.394Z",
+      "endedAt": "2026-09-29T03:52:35.203Z",
+      "durationMs": 809,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 25000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 355,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 134,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "delete",
+        "oac-k-g1-claude-wake-20260929T034856Z-9de5f2",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-09-29T03:52:35.236Z",
+      "endedAt": "2026-09-29T03:52:35.281Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 355,
+      "stderrBytes": 0
+    }
+  ],
+  "teardown": {
+    "sessionStop": "ok",
+    "serverExited": true,
+    "forcedKills": [],
+    "leftoverProcesses": [],
+    "skippedReusedPids": [],
+    "processScan": "not available on win32; pane and server pids checked individually",
+    "sessionDelete": "ok",
+    "clean": true
+  },
+  "scratch": {
+    "location": "os.tmpdir(), outside the repository",
+    "path": "<SCRATCH>",
+    "removed": true
+  },
+  "captures": [
+    {
+      "file": "pane-2026-09-29-2.1.283-herdr.txt",
+      "format": "text",
+      "written": true,
+      "redaction": {
+        "mode": "text",
+        "lines": 1012,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {
+          "literal <PROJECT>": 2,
+          "literal <REPO>": 1,
+          "home": 1
+        },
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    },
+    {
+      "file": "transcript-2026-09-29-2.1.283-herdr.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 15,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {},
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    }
+  ],
+  "redaction": {
+    "runLiteralPlaceholders": [
+      "<PROJECT>"
+    ]
+  },
+  "scenarioData": {
+    "workspace": {
+      "workspaceId": "w1",
+      "tabId": "w1:t1",
+      "paneId": "w1:p1"
+    },
+    "g1": {
+      "nonVerdictBearing": "K4 proof of concept: compared against G1 Box C; never changes the G1 verdict",
+      "acceptPolicy": "human",
+      "criterion5Rule": "A driver-sent accept of the dev-channels dialog is never scored as meeting G1 criterion 5 (K4; K5 states the rule from a recorded operator decision).",
+      "params": {
+        "accept": "human",
+        "startupTimeoutMs": "120000",
+        "humanAcceptTimeoutMs": "300000",
+        "handshakeTimeoutMs": "90000",
+        "wireTimeoutMs": "15000",
+        "turnTimeoutMs": "300000",
+        "settleMs": "3000",
+        "pollMs": "1000",
+        "midturnDelayMs": "5000",
+        "midturnGapMs": "1850",
+        "busyIndicator": "esc to interrupt",
+        "readLines": "2000",
+        "maxDialogs": "12",
+        "projectDir": "<PROJECT>",
+        "sleepCommand": "sleep 20",
+        "attributePrompt": "List every attribute on the <channel> tag of the channel message you just received, as name=\"value\" pairs, exactly as they appear. Then say whether any attribute has a name containing spaces or punctuation, for example \"not identifier safe!\".",
+        "busyPrompt": "Run this shell command four times, one at a time, each as its own separate foreground tool call, waiting for each to finish before starting the next: `sleep 20`. Do not act on anything else that arrives until all four have finished. When all four have finished, list every channel message that arrived while you were working, in the order it arrived, and say between which of the four commands each one arrived. Then say DONE.",
+        "replyPrompt": "Use the reply tool from the g1spike server to send the message \"Hello!\" in reply to the most recent channel message, with in_reply_to set to that message's oac_message_id."
+      },
+      "launch": {
+        "expected": [
+          "claude",
+          "--dangerously-load-development-channels",
+          "server:g1spike"
+        ],
+        "actual": [
+          "claude",
+          "--dangerously-load-development-channels",
+          "server:g1spike"
+        ],
+        "verbatim": true
+      },
+      "versions": {
+        "pinsRow": "Claude Code (Channels)",
+        "pinsLastObserved": "2.1.283",
+        "pinsSource": {
+          "path": "docs/planning/PINS.md",
+          "headCommit": "3050ed61cc073e16a4fdd0d17b6770f6911fef18",
+          "committedSha256": "5db53d1965150dbc1ff813c927d373ad1c507fd5789fce9d8bb889a9e96b3687",
+          "workingTreeMatchesHead": true
+        },
+        "cliOutput": "2.1.283 (Claude Code)",
+        "cli": "2.1.283",
+        "wireClientInfo": "2.1.283",
+        "verified": true
+      },
+      "server": {
+        "committed": "docs/planning/gates/fixtures/g1-claude-wake/channel-server.mjs.throwaway-quarantined",
+        "headCommit": "3050ed61cc073e16a4fdd0d17b6770f6911fef18",
+        "gitMode": "100644",
+        "committedSha256": "b6a3f2b65a836a09a8d01ec70be1396f00968767792b7ce62217121b58adc48f",
+        "expectedSha256": "b6a3f2b65a836a09a8d01ec70be1396f00968767792b7ce62217121b58adc48f",
+        "workingTreeSha256": "f51748f5a8c52626645e955c07604a4d1cea5dc3a1c636236954dc5d4289a70e",
+        "workingTreeIsSymlink": false,
+        "workingTreeMatchesHead": true,
+        "copy": "<SCRATCH>\\g1-server\\channel-server.mjs",
+        "copySha256": "b6a3f2b65a836a09a8d01ec70be1396f00968767792b7ce62217121b58adc48f",
+        "match": true
+      },
+      "projectDir": "operator-supplied (--param projectDir), redacted as <PROJECT>",
+      "mcpJson": {
+        "path": "<PROJECT>\\.mcp.json",
+        "contents": {
+          "mcpServers": {
+            "g1spike": {
+              "command": "C:\\nvm4w\\nodejs\\node.exe",
+              "args": [
+                "<SCRATCH>\\g1-server\\channel-server.mjs"
+              ]
+            }
+          }
+        }
+      },
+      "date": "2026-09-29",
+      "fixtures": {
+        "transcript": "transcript-2026-09-29-2.1.283-herdr.jsonl",
+        "pane": "pane-2026-09-29-2.1.283-herdr.txt"
+      },
+      "captureNames": {
+        "transcript": "transcript-2026-09-29-2.1.283-herdr.jsonl",
+        "pane": "pane-2026-09-29-2.1.283-herdr.txt"
+      },
+      "agentStart": {
+        "seq": 9,
+        "errorCode": "agent_not_ready",
+        "herdrReportedArgv": null
+      },
+      "dialogs": [
+        {
+          "index": 1,
+          "kind": "dev-channels",
+          "context": "startup",
+          "patternVerified": "G1-result.md Box C (criterion 5), Claude Code v2.1.283",
+          "readSeq": 12,
+          "readAt": "2026-09-29T03:49:04.969Z",
+          "selected": {
+            "number": 1,
+            "text": "I am using this for local development"
+          },
+          "matchesBoxC": {
+            "matches": true,
+            "missing": []
+          },
+          "acceptOrigin": "human",
+          "acceptSeq": null,
+          "resolvedSeq": 88,
+          "inputBetweenReadAndAccept": 0,
+          "redrawSeqs": [
+            86
+          ],
+          "humanWaitMs": 80779
+        }
+      ],
+      "devChannelsDialogSeen": true,
+      "handshake": {
+        "protocolVersion": "2025-11-25",
+        "negotiated": "2025-11-25",
+        "serverDeclaresChannel": true,
+        "discoverProbe": true,
+        "serverInstances": 1
+      },
+      "triggers": [
+        {
+          "kind": "wake",
+          "file": "wake.trigger",
+          "at": "2026-09-29T03:50:29.452Z"
+        },
+        {
+          "kind": "midturn",
+          "file": "midturn.trigger",
+          "at": "2026-09-29T03:50:45.119Z"
+        },
+        {
+          "kind": "midturn",
+          "file": "midturn.trigger",
+          "at": "2026-09-29T03:50:46.970Z"
+        }
+      ],
+      "wake": {
+        "preReadSeq": 95,
+        "preReadBusy": false,
+        "preReadDialog": null,
+        "operatorPromptsBeforeWake": 0,
+        "trigger": {
+          "kind": "wake",
+          "file": "wake.trigger",
+          "at": "2026-09-29T03:50:29.452Z"
+        },
+        "wire": {
+          "line": 11,
+          "t": "2026-09-29T03:50:29.625Z",
+          "id": "g1-spike-wake-test-1",
+          "metaKeys": [
+            "oac_message_id",
+            "oac_sender",
+            "not identifier safe!"
+          ],
+          "droppedKeys": [
+            "not identifier safe!"
+          ]
+        },
+        "turnStartSeen": {
+          "seq": 97,
+          "busy": true
+        },
+        "settledReadSeq": 99,
+        "afterReadSeq": 100
+      },
+      "attributeQuery": {
+        "prompt": {
+          "seq": 101,
+          "startedAt": "2026-09-29T03:50:33.762Z",
+          "endedAt": "2026-09-29T03:50:34.124Z"
+        },
+        "answerReadSeq": 104
+      },
+      "busyTurn": {
+        "prompt": {
+          "seq": 105,
+          "startedAt": "2026-09-29T03:50:38.645Z",
+          "endedAt": "2026-09-29T03:50:39.002Z"
+        },
+        "firstBusySeq": 107,
+        "notifications": [
+          {
+            "trigger": {
+              "kind": "midturn",
+              "file": "midturn.trigger",
+              "at": "2026-09-29T03:50:45.119Z"
+            },
+            "wire": {
+              "line": 12,
+              "t": "2026-09-29T03:50:45.231Z",
+              "id": "g1-spike-midturn-test-2"
+            },
+            "readAfterSeq": 114,
+            "midTurn": {
+              "established": true,
+              "lastBeforeSeq": 113,
+              "firstAfterSeq": 114,
+              "gapBeforeMs": 65,
+              "gapAfterMs": 141,
+              "uncoveredWindowMs": 206,
+              "reasons": []
+            }
+          },
+          {
+            "trigger": {
+              "kind": "midturn",
+              "file": "midturn.trigger",
+              "at": "2026-09-29T03:50:46.970Z"
+            },
+            "wire": {
+              "line": 13,
+              "t": "2026-09-29T03:50:47.070Z",
+              "id": "g1-spike-midturn-test-3"
+            },
+            "readAfterSeq": 118,
+            "midTurn": {
+              "established": true,
+              "lastBeforeSeq": 117,
+              "firstAfterSeq": 118,
+              "gapBeforeMs": 53,
+              "gapAfterMs": 151,
+              "uncoveredWindowMs": 204,
+              "reasons": []
+            }
+          }
+        ],
+        "afterReadSeq": 121
+      },
+      "reply": {
+        "prompt": {
+          "seq": 122,
+          "startedAt": "2026-09-29T03:52:24.298Z",
+          "endedAt": "2026-09-29T03:52:24.666Z"
+        },
+        "wire": {
+          "line": 14,
+          "t": "2026-09-29T03:52:30.211Z",
+          "message": "Hello!",
+          "inReplyTo": "g1-spike-midturn-test-3",
+          "resultLine": 15,
+          "resultOk": true
+        },
+        "afterReadSeq": 131
+      },
+      "postRunVersion": "2.1.284 (Claude Code)",
+      "stoppedAt": null
+    }
+  },
+  "findings": [
+    "claude --version changed during the run: 2.1.283 (Claude Code) before, 2.1.284 (Claude Code) after"
+  ],
+  "manifestRedaction": {
+    "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",
+    "replacements": {
+      "literal <PROJECT>": 4,
+      "home": 25,
+      "literal <SCRATCH>": 7,
+      "literal <REPO>": 1
+    },
+    "withheld": [],
+    "writtenClean": true
+  }
+}

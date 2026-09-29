@@ -87,15 +87,25 @@ export async function harnessVersions(harnesses, { env = process.env, deadlineMs
   return out;
 }
 
+// An enclosing Claude Code session's own variables (#163). When the driver is started from a
+// shell inside a Claude Code session, these would reach the harness under test through the
+// herdr server and pane: it would run as that session's child (no transcript, its permission
+// mode) and could reach models through the enclosing app's relay (ANTHROPIC_BASE_URL) instead
+// of its own sign-in (README "Reuse contract" point 6). No other ANTHROPIC_* variable is
+// matched: those belong to the operator and pass through untouched (operator decision on
+// #163).
+export const HOST_HARNESS_ENV = /^(?:CLAUDECODE|CLAUDE_CODE_.*|CLAUDE_PID|CLAUDE_AGENT_SDK_.*|CLAUDE_PREVIEW_.*|ANTHROPIC_BASE_URL)$/i;
+
 // The env the driver hands to every herdr process: the operator's environment unchanged,
 // except that inherited HERDR_* variables are removed (so the driver can never talk to an
-// enclosing herdr session through HERDR_SOCKET_PATH) and HERDR_CONFIG_PATH points at the
-// run's own herdr config. Returns the env and its delta (names; the added value is a path).
+// enclosing herdr session through HERDR_SOCKET_PATH), an enclosing Claude Code session's
+// variables are removed (HOST_HARNESS_ENV), and HERDR_CONFIG_PATH points at the run's own
+// herdr config. Returns the env and its delta (names only; the added value is a path).
 export function herdrLaunchEnv(baseEnv, configPath) {
   const env = {};
   const removed = [];
   for (const [k, v] of Object.entries(baseEnv)) {
-    if (/^HERDR_/i.test(k)) removed.push(k);
+    if (/^HERDR_/i.test(k) || HOST_HARNESS_ENV.test(k)) removed.push(k);
     else env[k] = v;
   }
   env.HERDR_CONFIG_PATH = configPath;
