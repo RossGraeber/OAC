@@ -600,8 +600,8 @@ harness's provider credentials"), not a test failure to be triaged.
 - Gate S4 met (§8).
 - Real Claude Code and real Codex, at their pinned versions, are installable on each of
   Windows, macOS, and Linux — the validation criterion is executed on all three.
-- `docs/planning/v0.1/06-security.md` §14's twenty-row threat table exists as the checklist
-  H2, H3, and H5 verify against.
+- `docs/planning/v0.1/06-security.md` §14's twenty-three-row threat table exists as the
+  checklist H2, H3, and H5 verify against.
 
 **Prerequisite decisions.** All twelve (`docs/planning/v0.1/03-decisions-and-amendments.md`
 §1). Stage 5 verifies the system the decisions describe; the decisions with the most
@@ -644,8 +644,10 @@ clean shutdown on all three platforms (H4).
    test, and that test's current result is recorded. The mapping is
    `docs/planning/v0.1/09-test-strategy.md` §11's table, updated from `not-yet-written` to
    a real result — this file does not duplicate that table, it requires it be completed.
-2. Every one of the twenty threat-table mitigations maps to a proving test whose result is
-   recorded (`docs/planning/v0.1/09-test-strategy.md` §12).
+2. Every one of the threat-table mitigations (rows 1-22 of twenty-three) maps to a
+   proving test whose result is recorded (`docs/planning/v0.1/09-test-strategy.md`
+   §12); row 23 is an open risk outside OAC's control with no proving test, and records
+   the L2/L3 capture finding instead (`docs/planning/v0.1/06-security.md` §15).
 3. Anything unproven is published as an explicit v0.1 gap rather than quietly marked done
    — H5's own acceptance box states exactly this.
 4. The end-to-end criterion passes on all three platforms, or the failing platform is a

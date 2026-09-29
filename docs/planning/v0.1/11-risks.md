@@ -564,17 +564,25 @@ list.
   shipped or called by OAC, with `Gates affected: none` (`docs/planning/PINS.md`
   "Beacon (external memory service)"). No spec text depends on it: L1 chose docs-only
   (L1 §4 Q1). A drift costs only Epic L's docs (L5), threat rows (L4) and opt-in
-  scenario (L6). If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
+  scenario (L10). If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
 - **Early-warning signal.** A new Beacon release tag appears; a cited Beacon doc
-  changes at a new tag; L2's live leg shows OAC-delivered input in Beacon's
+  changes at a new tag; L3's operator-run live leg shows OAC-delivered input in Beacon's
   `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.
 - **Response.** On a new tag, re-read L1 §6 and every L1 §10 citation at it before moving
-  the PINS.md row (`oac-evidence` §7). L2 runs the four items to a closed or refuted
-  state and records the Beacon version it ran on. If U1 confirms capture, L4's threat
+  the PINS.md row (`oac-evidence` §7). L2 (desk research) and L3 (operator-run live leg)
+  run the four items to a closed or refuted state and record the Beacon version they
+  ran on. If U1 confirms capture, L4's threat
   rows carry it as a residual; L1 §4 Q3's Local / Metadata-only recommendation already
   limits forwarding but not local capture. If U4 finds a collision, record it as a
   finding against the Codex adapter's launch design, not a workaround
   (`docs/planning/STATUS.md` "Open UNVERIFIED items").
+- **Capture-side residual (`docs/planning/v0.1/06-security.md` §14 row 23, L4).** An
+  external memory/telemetry service instrumenting a harness session may record messages
+  OAC delivered into it. OAC cannot mitigate this — it never configures the service —
+  so row 23 is an open risk with no proving test. L1 §4 Q3's Local / Metadata-only
+  recommendation limits hosted forwarding only; local `runtime.jsonl` still holds
+  redacted, sanitized, truncated content, and the service scopes recall per repository,
+  not per `working_directory` (L1 §4 Q4). Whether capture happens at all is U1 (row 53).
 
 ## Traceability — every `docs/planning/STATUS.md` "Open UNVERIFIED items" entry
 
