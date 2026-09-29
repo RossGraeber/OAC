@@ -158,6 +158,14 @@ Expanded from the doctor row in §5, per `docs/planning/decisions/C2-process-mod
 **Report shape.** Each failing check reports on its own; `oac doctor` exits `0` only if
 every check passes, matching §5's exit-code cell for this command.
 
+**No Beacon check, deliberately.** `oac doctor` does not inspect harness MCP configuration
+for a Beacon entry: those files "hold other servers' credentials"
+(https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/docs/cli/mcp-connect.mdx
+L102, tag `v1.3.29`, retrieved 2026-09-29), and such a check would be OAC inspecting
+Beacon, which `docs/planning/decisions/L1-beacon-memory.md` §4 Q2 rules out; an operator
+runs Beacon's own `beacon mcp doctor` instead (`docs/cli/mcp-doctor.mdx@v1.3.29` L6-16;
+§20.2 step 4).
+
 ---
 
 ## 7. Claude Code launch command
@@ -397,6 +405,12 @@ Ticked against issue #29's four acceptance boxes, in the style of
   pointer; `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list is unchanged.
 - **No pin moved and no gate verdict changed by this file** — stated explicitly, per the
   task's own instruction to say so if true.
+- **L5 (issue #170, Epic L #165):** new §20 "Running beside an external memory service
+  (Beacon)", applying `docs/planning/decisions/L1-beacon-memory.md` Q1-Q4; one paragraph
+  in §6 stating that `oac doctor` has no Beacon check (Q2);
+  `docs/planning/v0.1/12-deferred.md` §2 names OAC as a shared memory layer as boundary,
+  not backlog; `docs/planning/STATUS.md` `**Last updated:**`. No `cli/` path, pin, gate
+  verdict or UNVERIFIED item changes.
 
 ---
 
@@ -412,9 +426,185 @@ Every reference below is a repo-relative path; no prior context is assumed.
 - `docs/planning/decisions/C5-envelope-auth.md`
 - `docs/planning/decisions/C6-trust-rendering.md`
 - `docs/planning/decisions/C7-zenoh-transport.md`
+- `docs/planning/decisions/L1-beacon-memory.md`
 - `docs/planning/v0.1/03-decisions-and-amendments.md`
 - `docs/planning/v0.1/04-architecture.md`
 - `docs/planning/v0.1/06-security.md`
 - `docs/planning/v0.1/07-repository-and-dependencies.md`
 - `docs/planning/STATUS.md`
 - `docs/planning/PINS.md`
+
+---
+
+## 20. Running beside an external memory service (Beacon)
+
+**Issue:** #170 (Epic L #165, backlog key `L5`). **Decision this section applies:**
+`docs/planning/decisions/L1-beacon-memory.md` (L1), shape "Beacon beside OAC, not inside
+it", operator answers Q1-Q5 in L1 §4. Nothing here re-opens them.
+
+**What this section is.** Beacon (agent-beacon) is an external, independently installed
+memory service. Each harness connects to it **natively**, through that harness's own MCP
+configuration, which the operator edits. OAC is not involved in that connection at any
+step. This section tells an operator how to run an OAC-enabled Claude Code session and an
+OAC-enabled Codex session with Beacon on both sides, and what OAC does not do with memory.
+
+**Sources.** Every Beacon fact below is read at https://github.com/Asymptote-Labs/agent-beacon,
+tag `v1.3.29` (commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`), retrieved 2026-09-29,
+and cited as `path@v1.3.29` with line numbers. Surface label: Beacon's local MCP server
+(`beacon mcp serve`, `docs/cli/mcp-serve.mdx@v1.3.29` L6-18) and its approved-memory
+tools are **supported** per L1 §7. They are Beacon's surfaces, reached by the harness
+only; none is an OAC provider surface.
+
+### 20.1 Prerequisites
+
+- **Beacon at the L1 pin.** The version is recorded once, in L1 §2 and in
+  `docs/planning/PINS.md` row "Beacon (external memory service)". It is not repeated here.
+  The pin holds a fixed version **only while Beacon's package self-updates stay off**
+  (L1 §2). Leave them off on an OAC-enabled machine.
+- **OAC installed.** OAC is planned, not built (see "Gate-verdict caveat" at the top of
+  this file). The OAC commands below are its documented targets.
+- **One repository per pair of peers, if they are meant to share memory** (§20.6).
+
+### 20.2 Beacon side — the operator's own configuration
+
+Only Beacon's own documented commands are used. OAC does not run, wrap or generate any of
+them.
+
+1. **Install Beacon and choose Local during setup.** Follow Beacon's quickstart
+   (`docs/get-started/quickstart.mdx@v1.3.29` L6-39). Interactive setup "preselects
+   Beacon Managed, with an explicit Local opt-out"; choose Local
+   (`README.md@v1.3.29` L48-49, L151-155). The privacy reasoning is §20.5.
+2. **Endpoint capture, if the operator wants traces to become memory.**
+   `beacon endpoint install --harness claude,codex` (`docs/get-started/quickstart.mdx@v1.3.29`
+   L37-39) configures capture for both harnesses. It writes to Codex's own configuration
+   (`docs/runtimes/codex-cli.mdx@v1.3.29` L43, L88). Whether that conflicts with OAC's
+   Codex launch is L1 item U4 (UNVERIFIED — OAC's Codex launch path is not built and no one
+   has compared the two; see `docs/planning/STATUS.md` "Open UNVERIFIED items").
+3. **Give each harness Beacon's local MCP server.** Pick one of Beacon's two documented
+   routes, per harness:
+   - **Stdio entry.** Add Beacon's local server entry, named `beacon`, to the harness's
+     own MCP configuration. Beacon documents it as an `mcpServers.beacon` entry with
+     `"command": "beacon"` and `"args": ["mcp", "serve", "--transport", "stdio"]`, that
+     is, `beacon mcp serve --transport stdio` (`docs/cli/mcp-doctor.mdx@v1.3.29` L38-52;
+     flag `--transport stdio|http` from `docs/cli/mcp-serve.mdx@v1.3.29` L37). The
+     operator writes the entry in each harness's own configuration format.
+   - **Plugin.** Claude Code: `/plugin marketplace add asymptote-labs/agent-beacon`, then
+     `/plugin install beacon@beacon`. Codex: `codex plugin marketplace add
+     asymptote-labs/agent-beacon`, then `codex plugin add beacon@beacon`
+     (`docs/concepts/beacon-skills.mdx@v1.3.29` L44, L46). The plugin "also registers
+     Beacon's local MCP server (`beacon mcp serve`) in harnesses that accept MCP servers
+     from plugins" (`docs/concepts/beacon-skills.mdx@v1.3.29` L33-35). These commands name
+     the repository with no tag, so L1's pin is stated against the installed `beacon`
+     binary, not against the plugin contents.
+4. **Check it with Beacon's own tool.** `beacon mcp doctor` validates the local server and
+   prints the client entry (`docs/cli/mcp-doctor.mdx@v1.3.29` L6-16, L38-52). This is the
+   check to run instead of an OAC one (§6, last paragraph).
+
+Do not run `beacon mcp connect` for this setup. It registers the separate hosted server
+`beacon-managed` (`docs/cli/mcp.mdx@v1.3.29` L22-37), which is out of Epic L's scope (L1
+§7).
+
+### 20.3 OAC side — the launch commands already in this file
+
+Only the commands in §5, §7 and §9 are used. Planned, not built; the "Gate-verdict
+caveat" at the top of this file applies to each.
+
+1. Start the per-device daemon with `oac start` (§5).
+2. Claude Code: launch the session with the development-channel command in §7. The
+   consent dialog in §8 is unchanged.
+3. Codex: register `oac mcp-shim` once with the command in §9.
+
+Each harness then holds two independent MCP servers in its own configuration: OAC's
+(`oac mcp-shim`) and Beacon's (`beacon`). Neither knows about the other, and OAC never
+reads the Beacon entry.
+
+### 20.4 Referencing memory across sessions (Q1)
+
+- **The memory ID goes in the message text.** A sender that wants a peer to look at a
+  Beacon memory item writes its ID into the ordinary text of the message, like any other
+  identifier. There is no memory content type in the OAC spec (L1 §4 Q1: option (a),
+  docs-only).
+- **The receiver looks it up itself.** The receiving harness fetches the item through its
+  own Beacon connection, with Beacon's `get_memory` tool ("Fetch one approved memory item
+  by ID", `docs/cli/mcp.mdx@v1.3.29` L68), in its own turn. OAC does not resolve, fetch or
+  expand the ID.
+- **The ID is untrusted content.** It is a claim by the sender, rendered inside the
+  untrusted body, never in the machine-set provenance block
+  (`docs/planning/v0.1/06-security.md` §3(e); L1 §1 point 4). Whatever Beacon returns is
+  untrusted text to the receiving harness as well.
+- The exact shape and stability of a memory ID across Beacon releases is L1 item U2
+  (UNVERIFIED — no versioned response schema at the pin; see
+  `docs/planning/STATUS.md` "Open UNVERIFIED items"). OAC never parses it.
+
+### 20.5 Privacy recommendation (Q3)
+
+A recommendation with rationale, not a requirement (L1 §4 Q3):
+
+- **Prefer Beacon Local mode** on a machine that runs OAC-enabled sessions. Local mode
+  keeps agent history on the machine; "Nothing is forwarded unless you explicitly
+  configure it" (`docs/get-started/quickstart.mdx@v1.3.29` L45-49).
+- **If Beacon's hosted forwarding is on** (named "Beacon Managed" at the pin, "Beacon
+  Cloud" at a later branch head, L1 §2 D1), use Metadata-only privacy for it:
+  `beacon endpoint connect --privacy-mode metadata-only`
+  (`docs/cli/endpoint-connect.mdx@v1.3.29` L104-106). It strips retained text, tool
+  arguments/results, command output, raw fields and diffs "before buffering or upload"
+  (`docs/security/retention-redaction.mdx@v1.3.29` L78-82).
+- **Local capture still happens in both modes.** Metadata-only is a forwarding mode, not a
+  capture mode. Beacon "may write prompt text, command output, raw attributes, tool input,
+  and diff content to local JSONL", after redaction, sanitization, truncation and
+  event-size limits (`SECURITY.md@v1.3.29` L54-57), into local `runtime.jsonl`, rotated
+  at 10 MiB with five archives (`SECURITY.md@v1.3.29` L20). A message OAC delivered into a
+  Beacon-instrumented session may therefore sit in that file, redacted and sanitized.
+  Whether Beacon's capture records the content of an OAC-delivered message at all is L1
+  item U1 (UNVERIFIED — no first-party statement at the pin; see
+  `docs/planning/STATUS.md` "Open UNVERIFIED items").
+- **Rationale.** Local mode keeps delivered peer messages on the machine; Metadata-only
+  keeps their text off the hosted service when forwarding is on. Neither removes the local
+  copy, so that residual is an **open risk**, not a mitigation. It is recorded as threat
+  row 23 in `docs/planning/v0.1/06-security.md` §14, added by L4 (issue #169).
+
+### 20.6 Scoping mismatch (Q4) — documented, not solved
+
+- Beacon memory is **per resolved repository**: "Approved memory is scoped to the
+  resolved project. Cross-project or user-global memory is not automatic."
+  (`docs/concepts/cross-harness-memory.mdx@v1.3.29` L71-72). "A linked git worktree
+  resolves to the same project as its main checkout." (`docs/cli/memory.mdx@v1.3.29`
+  L35-36).
+- OAC sessions are **per `working_directory`**
+  (`docs/planning/decisions/C4-session-identity.md` §5).
+- **Consequence.** Two peers in checkouts of different repositories see different memory,
+  even for what a person calls "the same project"; a memory ID from one may not resolve
+  for the other. Two peers in two worktrees of one repository are two OAC sessions but one
+  Beacon project. OAC does not promise shared memory across peers, and does not map
+  sessions to Beacon projects: that would be OAC configuring Beacon (L1 §4 Q4).
+
+### 20.7 What OAC does not do
+
+Each line is `oac-boundaries` #12 (OAC is not a "shared context manager",
+`[PLANNING-PROMPT §10]`) or another L1 §1 boundary, applied to Beacon:
+
+- OAC **never calls, spawns, proxies or configures Beacon.** It does not run `beacon` as a
+  subprocess, call any `beacon` MCP tool, write or edit a harness's Beacon entry, or read
+  harness MCP configuration to find one (§6; L1 §4 Q2).
+- OAC **never reads or writes `memory.db`.**
+- OAC **never attaches, injects, trims or summarizes memory.** It delivers only what a
+  sender put in a message; recall happens in each harness's own turn
+  (`[ADR-001 Boundary]` "MUST NOT ... implement inference/model routing/context
+  management", `docs/planning/ADR-001.md` line 24).
+- OAC **never holds Beacon Cloud or Jev credentials**, nor any hosted-service OAuth
+  session or personal token a harness holds for Beacon (`[ADR-001 Boundary]` "MUST NOT
+  steal or reuse another harness's provider credentials"; L1 §1 point 5).
+- **Beacon's activity log is not a mailbox, a presence source or a catch-up mechanism.**
+  Using `search_activity` over `runtime.jsonl` to recover missed messages would be the
+  deferred durable offline mailbox (`docs/planning/ADR-001.md` line 63) plus
+  application-level polling, which `docs/planning/DESIGN.md` "Delivery semantics" rules
+  out for adapters claiming active inbound support (L1 §1 point 6).
+
+### 20.8 Checks run for this section
+
+- Every OAC command above is in §5's table. Every `beacon` command carries a
+  `path@v1.3.29` citation.
+- No step has OAC call, spawn or configure Beacon (checked against `oac-boundaries` #12
+  and §20.7).
+- No new UNVERIFIED item: U1, U2 and U4 are L1's, already in `docs/planning/STATUS.md`
+  "Open UNVERIFIED items" and `docs/planning/v0.1/11-risks.md` `RISK-BEACON`.
