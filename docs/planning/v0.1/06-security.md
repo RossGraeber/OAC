@@ -440,20 +440,22 @@ memory service, e.g. Beacon per L1") so a later normative text can carry them.
 Per `oac-security-work` §1: **a mitigation with no proving test is not a mitigation.**
 §14 has twenty-three rows. Rows 1-22 each name a real proving test — a named test tier
 (F4, F5, F8, F11), a gate (gate G1-gate G5), or a backlog task (task G2, task G4, task
-G7, task G8, task G9, H2, L10) — and every one of those named tests currently has a
-verdict of `NOT RUN`, or the task that builds it does not exist yet or is blocked on a
-stage that is not open (`docs/planning/STATUS.md`, Pre-Stage 0; L10 waits on Stage 5).
+G7, task G8, task G9, H2, L10). **No named test tier has passed**: every F/H test and
+every backlog task named is `NOT RUN`, not yet built, or blocked on a stage that is not
+open (`docs/planning/STATUS.md`, Pre-Stage 0; L10 waits on Stage 5). The gate results
+that do exist — gate G1 `PASS` (row 16), gate G2 `PASS` (row 17), gate G5 `FAIL`
+(rows 5, 16, 17, 21, 22) — are cited in their rows for what each actually confirmed, but
+a gate result is not a test tier and does not by itself close a row
+(`docs/planning/v0.1/09-test-strategy.md` §12).
 **Row 23 is the exception, by design:** it names no proving test because the threat
 sits outside OAC's control (capture inside the harness session by a service OAC never
 configures); it is recorded as an explicit **open risk** under `RISK-BEACON` in
 `docs/planning/v0.1/11-risks.md`, not as a mitigation, and its "Proving test" cell says
 so rather than being left blank. No row's "proving test" cell is blank or "TBD"; none
-was invented to fill the column. Because none has run, every row 1-22 describes a
-**designed** mitigation, not a **proven** one, and row 23 describes no mitigation at
-all. Each row is carried forward as an open item for
-`docs/planning/v0.1/11-risks.md` (task A12, not yet written) rather than presented as a
-closed mitigation — A12 inherits this file's §14 table in full when it is
-written.
+was invented to fill the column. Rows 1-22 therefore describe **designed**
+mitigations, not **proven** ones, and are carried as open items in
+`docs/planning/v0.1/11-risks.md` rather than presented as closed mitigations; row 23
+describes no mitigation at all and is carried there as an open risk.
 
 ## 16. Cross-reference block
 
