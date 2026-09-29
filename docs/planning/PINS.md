@@ -43,7 +43,13 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-28 (K1, issue #124: added row `herdr (test tooling)`, a fixed
+**Last updated:** 2026-09-29 (L1, issue #166: added row `Beacon (external memory
+service)`, a fixed pin at `v1.3.29`, `Gates affected: none`, see "Beacon (external memory
+service)" below and `docs/planning/decisions/L1-beacon-memory.md`. The pin-move checklist
+was executed in the same commit. A row was added, but it names no gate, so no
+`G<n>-result.md` `Pin rows relied on` field or `docs/planning/STATUS.md` `Pins relied on`
+cell changes. No gate verdict is invalidated. Four Beacon facts at this pin are
+UNVERIFIED, L1 §6.) Previously 2026-09-28 (K1, issue #124: added row `herdr (test tooling)`, a fixed
 pin at `v0.9.1`, `Gates affected: none`, see "herdr (test tooling)" below and
 `docs/planning/decisions/K1-herdr-evaluation.md`. The pin-move checklist was executed in
 the same commit. A row was added, but it names no gate, so no `G<n>-result.md` `Pin rows
@@ -87,6 +93,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
 | herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior verified on Windows 2026-09-28 (K1 go on Windows), Linux and macOS UNVERIFIED, overall go provisional, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
+| Beacon (external memory service) | supported | `v1.3.29` (tag object `72fd6643b5cd5c6ff6741f6016b3577654f61915` → commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`); fixed, not floating; external service each harness connects to natively, never called, launched, configured or shipped by OAC; four facts UNVERIFIED, see "Beacon (external memory service)" below | 2026-09-28 (tagger date) | https://github.com/Asymptote-Labs/agent-beacon/tree/v1.3.29 | 2026-09-29 | none |
 
 ## Pin records
 
@@ -595,6 +602,43 @@ semver, and are recorded verbatim — never reformatted.
   new version and requires K3's driver version check to be updated in the same change.
   It also invalidates every herdr equivalence record, in the same commit
   (`docs/planning/gates/README.md` §f, "Scripted runs (herdr)").
+
+### Beacon (external memory service)
+
+- Surface label: **supported**. Beacon's own docs at the tag document its local MCP
+  server (`beacon mcp serve`, server name `beacon`) and its `beacon memory` CLI, with no
+  preview or experimental marker. Beacon is an external memory service that each harness
+  connects to natively over MCP. It is **not** an OAC provider surface and **not** a
+  shipped dependency. OAC never imports, links, vendors, spawns, configures or calls it,
+  and no Beacon reference appears under `adapters/`, `core/`, `cli/`, `transports/` or
+  `spec/` (`docs/planning/decisions/L1-beacon-memory.md` §1).
+- Pinned release: **`v1.3.29`**. It is the annotated tag `v1.3.29` (tag object
+  `72fd6643b5cd5c6ff6741f6016b3577654f61915`, tagger timestamp 2026-09-28T13:43:29Z)
+  pointing to commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`. No tag above it exists
+  on the retrieval date. The release date is the tagger date; the GitHub release page
+  itself was not reachable from the session that wrote L1 and is not cited. Source:
+  `git ls-remote --tags https://github.com/Asymptote-Labs/agent-beacon` and a clone of
+  tag `v1.3.29`, retrieved 2026-09-29. Issue #165's facts were read at the newer, unreleased branch head
+  `26581914e86f525e225096613c3a9b808043ff85`; L1 re-read every cited doc at the tag and
+  records two drifts (L1 §2).
+- **Fixed, not floating.** Beacon is upgraded by the operator through a package manager
+  (`brew upgrade beacon`,
+  https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/docs/get-started/quickstart.mdx
+  L110, retrieved 2026-09-29), and no first-party source at the tag describes a
+  background self-update. It ships often (`v1.3.27`-`v1.3.29` are consecutive recent
+  tags), so this row is expected to move; see `RISK-BEACON` in
+  `docs/planning/v0.1/11-risks.md`.
+- License: **MIT** ("Copyright (c) 2026 Asymptote Labs"). Source:
+  https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/LICENSE, retrieved
+  2026-09-29. It is recorded as an external service, not shipped, in
+  `docs/planning/v0.1/07-repository-and-dependencies.md` §5.
+- **Four facts UNVERIFIED at this pin** (L1 §6, `docs/planning/STATUS.md` "Open
+  UNVERIFIED items"): capture of OAC-delivered input, memory ID and result schema
+  stability, concurrent `memory.db` access, and Codex config interaction. L2 owns them.
+- **Gates affected: none.** No `G<n>-result.md` verdict depends on this row. A move of
+  this row invalidates no gate verdict. It does require L1 §6's items and every L1 §10
+  citation to be re-read at the new tag, and L2's fixtures to record the Beacon version
+  they ran on.
 
 ## Constraint floors
 
