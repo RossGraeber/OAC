@@ -186,7 +186,12 @@ that runs the driver), then check `herdr --version` prints the pin in `docs/plan
 session (`oac-k-<scenario>-<stamp>-<rand>`), writes its own `herdr-config.toml` (with
 `[update]` `version_check = false` and `manifest_check = false`) into a fresh scratch
 directory, and strips any inherited `HERDR_*` variable from herdr's environment. A
-`HERDR_SESSION` or `HERDR_CONFIG_PATH` you export has no effect on a run (#153). When a
+`HERDR_SESSION` or `HERDR_CONFIG_PATH` you export has no effect on a run (#153). It also
+strips an enclosing Claude Code session's variables (`CLAUDECODE`, `CLAUDE_CODE_*`,
+`CLAUDE_PID`, `CLAUDE_AGENT_SDK_*`, `CLAUDE_PREVIEW_*`, `ANTHROPIC_BASE_URL`), so a harness
+started from a shell inside Claude Code doesn't run as that session's child or through its
+relay. It records their names and a finding (#163). Your own `ANTHROPIC_API_KEY` is kept.
+For a run you intend to record, start the driver from a standalone terminal anyway. When a
 scenario waits for you to accept a dialog, it prints the session name and the command to
 attach (`herdr session attach <session>`). Never run herdr's command that writes hooks into
 harness config, and do not commit raw pane or env captures.

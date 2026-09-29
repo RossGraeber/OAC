@@ -39,7 +39,7 @@ import { readHerdrPin, versionMatches, PIN_ROW } from './lib/pins.mjs';
 import { HerdrSession, NotRunError, DriverError, makeSessionName } from './lib/herdr.mjs';
 import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
-  harnessVersions, herdrLaunchEnv, paneEnvDelta,
+  harnessVersions, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV,
 } from './lib/manifest.mjs';
 import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './lib/redact.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
@@ -194,6 +194,13 @@ export async function runScenario(opts) {
       scenarioData: {},
       findings: [],
     };
+    const hostVars = launchEnv.delta.removed.filter((k) => HOST_HARNESS_ENV.test(k));
+    if (hostVars.length) {
+      manifest.findings.push(
+        `the driver was started from inside a Claude Code session: ${hostVars.length} of its variables (names in env.serverLaunch.removed) were removed ` +
+          'so the harness under test does not run as that session\'s child or through its relay (#163)',
+      );
+    }
 
     ctx = {
       herdr,
