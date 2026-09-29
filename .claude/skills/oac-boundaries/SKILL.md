@@ -96,6 +96,7 @@ into it on this repo.
     shared context manager, or provider-auth abstraction." Drift: a "conversation memory"
     store shared across both providers so replies can reference earlier turns from either
     harness — that is a shared context manager.
+    Beacon / external shared-memory work: `references/beacon.md`.
 
 13. **[PLANNING-PROMPT §10]** "Do not substitute model APIs, UI automation, terminal
     scraping, credential reuse, private RPCs, or rollout-file manipulation for a supported
@@ -172,4 +173,5 @@ Before declaring any work item done (PLANNING-PROMPT.md §11 items 6-7):
   items 6-7 (self-review).
 - `docs/planning/SKILLS-MODEL.md` — Tier 2a description of this skill's role.
 - `references/mechanical-checks.md` — the full grep set, status, and scope notes.
+- `references/beacon.md` — Beacon beside OAC, not inside it (#12): rule, Q1-Q5, drift.
 - `oac-evidence` — sourcing/citation standard (separate skill, not restated here).

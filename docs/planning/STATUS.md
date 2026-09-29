@@ -4,6 +4,14 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-29 (**L7/issue #172 (Epic L #165): agent enablement.** New
+tier-3 reference `.claude/skills/oac-boundaries/references/beacon.md` routes "integrate
+Beacon" / "add shared memory" work to the "beside, not inside" rule, Q1-Q5 outcomes and
+five drift examples, linking L1, `06-security.md` §2/§13/§14 rows 21-23,
+`08-cli-and-deployment.md` §20 and mechanical check 11 rather than copying them.
+`oac-boundaries` SKILL.md points to it from #12 and its sources list. Skill tree only: no
+new skill, pin, gate verdict or UNVERIFIED item changes.)
+
 **Last updated:** 2026-09-29 (**L5/issue #170 (Epic L #165): docs — running OAC sessions
 beside Beacon.** `docs/planning/v0.1/08-cli-and-deployment.md` gains §20 "Running beside
 an external memory service (Beacon)": the operator configures Beacon in each harness's own
