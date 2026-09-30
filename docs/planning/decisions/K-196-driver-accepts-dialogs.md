@@ -16,13 +16,19 @@ Operator, on #196: "Please revise. The point, again, is automation of these proc
 during development and test." This follows #187: "The ENTIRE POINT of adding herdr was to
 automate implementation and testing tasks."
 
-1. **Dialogs.** In dev/test runs the herdr driver accepts three Claude Code dialogs itself:
-   workspace trust, project MCP-server approval, and the
-   `--dangerously-load-development-channels` warning.
-2. **Default.** `accept=driver` is the default in `g2-codex-inject`, `g4-mcp-dual-era`,
-   `g5-provenance` and `l3-beacon`. `accept=human` remains available everywhere.
-3. **G1 keeps `accept=human`.** `g1-claude-wake` keeps it as the default, and `accept=driver`
-   is allowed there (see §3).
+1. **Dialogs.** In dev/test runs the herdr driver accepts three Claude Code dialogs itself,
+   and only these three: workspace trust, project MCP-server approval, and the
+   `--dangerously-load-development-channels` warning. Every other dialog is refused (§2).
+2. **Default.** `accept=driver` is the default in every scenario: `g1-claude-wake`,
+   `g2-codex-inject`, `g4-mcp-dual-era`, `g5-provenance` and `l3-beacon`. `accept=human`
+   remains available everywhere.
+3. **G1 is fully driver-accepted.** Second operator decision on #196, 2026-09-30, recorded
+   for the #197 fix round: "G1 is fully driver-accepted — `g1-claude-wake` defaults to
+   `accept=driver` for all three dialogs". The operator accepted the consequence: G1
+   criterion 5 is `not evaluable` on driver-accepted runs, so they are not G1 equivalence
+   records (§3). This supersedes the PR's first draft, which kept G1 on `accept=human`. CI
+   runs G1 on its defaults, so a CI G1 run is now unattended and never a G1 equivalence
+   record.
 4. **Pane read first.** The pane text of every dialog is read verbatim, and kept, before any
    keystroke.
 5. **Truthful record.** The accept origin is recorded as `driver`. It is never inferred or
@@ -43,16 +49,30 @@ automate implementation and testing tasks."
   recorded ones, in order, with exactly one selected, and the selection is on the recorded
   preselection or already on the accepting option. Anything else is refused and the run ends
   `NOT RUN` with no key sent: an unrecognized dialog, an extra or changed option, or an
-  unexpected selection.
+  unexpected selection. The option list starts at the first recorded option or selection
+  marker. From there to the footer, every non-empty line must be a recorded option, at any
+  indentation. An unmarked extra line indented differently is refused too (#197 review).
 - **Keys one at a time.** Each key is a herdr `dialog-accept` command sent straight after a
   read of the pane. Each selection move must be confirmed by a later read that shows the
-  expected option selected. Enter is sent only after a read shows the accepting option
-  selected. The driver approves one MCP server only, never "all future MCP servers". A move
+  recorded options with exactly one selection marker, on the expected option
+  (`selectionCheck`). A read with two markers never verifies a move (#197 review). Enter is
+  sent only after such a read shows the accepting option selected. The driver approves one MCP server only, never "all future MCP servers". A move
   that does not land within 10 s ends the run `NOT RUN`, and nothing is re-sent. Code:
   `planDriverAccept` (`lib/g1.mjs`) and `driverAcceptDialog` (`lib/gate-common.mjs`).
-- **Codex.** No Codex dialog text is on record, so a Codex dialog is accepted only when its
-  accepting option is already preselected. The pre-#196 rule is unchanged for Codex, and for
-  Claude Code's tool-permission prompt.
+- **Everything else is refused (#197 review).** The driver never accepts a dialog kind
+  with no option text on record, whatever is preselected. That covers Claude Code's
+  tool-permission prompt ("Do you want to proceed?" before a tool call) and every Codex
+  dialog: no Codex dialog text is on record. The run ends `NOT RUN` with no key sent. There
+  is no opt-in.
+  - **Why.** The first draft of this PR kept the pre-#196 "accept when the accepting option
+    is preselected" path for these kinds. With `accept=driver` now the default, that path
+    would have let the driver approve any tool call mid-run. In G5 that includes one a
+    spoofed body induced while Claude runs shell commands.
+  - **Future change.** Tool approval is outside #196. Driver-approving it needs its own
+    recorded decision and a security note (`oac-security-work`, permission relay).
+  - **For runs that may meet such a dialog.** Use `accept=human`. That includes a real Codex
+    trust dialog in a fresh scratch project, which is UNVERIFIED: no live Codex dialog text
+    is on record.
 - **No harness config.** The driver writes no harness config: no `~/.claude.json` trust
   entry and no settings edit (`oac-boundaries` check 10). It never runs herdr's hook-writing
   command.
@@ -81,8 +101,9 @@ attestation:
 
 - **G1 criterion 5.** "actually exercised during the spike — not bypassed, scripted around,
   or skipped". A driver-sent accept is never scored as meeting it, and `g1-report.mjs` keeps
-  it `not evaluable`. An `accept=driver` G1 run is therefore never an equivalence record,
-  which is why `g1-claude-wake` and CI keep `accept=human`.
+  it `not evaluable`. An `accept=driver` G1 run is therefore never an equivalence record.
+  Per the operator's second decision (§1 item 3) that is G1's default, CI included. A G1 run
+  meant to be an equivalence record uses `--param accept=human`.
 - **G11 confirmation.** "not bypassed or automated away". It is not driver-accepted in any
   test until K8 and a further recorded operator decision.
 
@@ -101,5 +122,6 @@ The 2026-09-30 L3 probe run 3 ended `NOT RUN`. The workspace-trust dialog, with
   `docs/planning/gates/README.md`, `herdr-runner.md`, L1 §12, `K1-herdr-evaluation.md`, the
   L3 backlog entry and `09-test-strategy.md`; `oac-testing`.
 - Code: `tools/herdr/lib/g1.mjs`, `g2.mjs`, `gate-common.mjs`, every report lib
-  (`g1-report` … `g5-report`, `l3-report`) and the scenarios. Self-tests:
-  `tools/herdr/test/g1-tests.mjs` and `l3-tests.mjs`, with `fake-claude.mjs` option dialogs.
+  (`g1-report` … `g5-report`, `l3-report`), the scenarios, `ci.mjs` and the opt-in workflow's
+  comments. Self-tests: `tools/herdr/test/g1-tests.mjs`, `g2-tests.mjs` and `l3-tests.mjs`,
+  with `fake-claude.mjs` option and tool-permission dialogs.

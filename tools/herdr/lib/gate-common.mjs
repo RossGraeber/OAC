@@ -13,7 +13,7 @@ import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join } from 'node:path';
 
-import { committedFile, sha256, formatSection, normalizeDialogText, sameDialog, acceptHint } from './g1.mjs';
+import { committedFile, sha256, formatSection, normalizeDialogText, sameDialog, acceptHint, selectionCheck } from './g1.mjs';
 import { NotRunError } from './herdr.mjs';
 
 export class CriteriaDriftError extends Error {}
@@ -140,14 +140,15 @@ export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKind
       await sleep(Math.min(250, num('pollMs')));
       const p = await read(`dialog-${d.index}-select-${i + 1}`, { keep: 'on-change' });
       if (!sameDialog(r.text, p, kind, dialogKinds)) stop(`${who}: the screen left the dialog after selection key "${mv.key}" (herdr command #${res.entry.seq}), before Enter; nothing more sent`);
-      const now = p.screen.selected?.text ?? null;
-      if (now === mv.expect) {
+      // #197 review: exactly one marker, on the expected option, with the options on record.
+      const c = selectionCheck(p.screen, kind, mv.expect, prev, dialogKinds);
+      if (c.state === 'ok') {
         k.verifiedSeq = p.seq;
         last = p;
         break;
       }
-      if (now !== prev) stop(`${who}: after "${mv.key}" the selection is ${JSON.stringify(now)}, not ${JSON.stringify(mv.expect)}; nothing more sent`);
-      if (Date.now() >= deadline) stop(`${who}: the selection did not move to ${JSON.stringify(mv.expect)} within ${DIALOG_MOVE_TIMEOUT_MS} ms of "${mv.key}"; nothing re-sent`);
+      if (c.state === 'stop') stop(`${who}: after "${mv.key}" ${c.why}; nothing more sent`);
+      if (Date.now() >= deadline) stop(`${who}: the selection did not move cleanly to ${JSON.stringify(mv.expect)} within ${DIALOG_MOVE_TIMEOUT_MS} ms of "${mv.key}" (last read: ${c.why}); Enter not sent, nothing re-sent`);
     }
     prev = mv.expect;
   }

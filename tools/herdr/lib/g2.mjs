@@ -10,8 +10,8 @@
 //
 // Every Codex pane-text pattern below is UNVERIFIED against a live Codex TUI: no Codex
 // dialog or in-progress text is on record in this repository. They are best guesses to be
-// confirmed or corrected by the first operator run; an unrecognized dialog is never
-// accepted by the driver.
+// confirmed or corrected by the first operator run; no Codex dialog, recognized or not, is
+// ever accepted by the driver (#197 review).
 //
 // Credential hygiene: nothing here opens anything under the Codex home directory. The only
 // process data read is a pid's argv (/proc/<pid>/cmdline, `ps -o command=`, or the Win32
@@ -166,8 +166,9 @@ export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' }
   return { dialog, selected: dialog ? selectedOption(s) : null, busy };
 }
 
-// No Codex kind lists its options (no Codex dialog text is on record), so the driver accepts
-// a Codex dialog only when its accepting option is already preselected (planDriverAccept).
+// No Codex kind lists its options (no Codex dialog text is on record), so the driver never
+// accepts a Codex dialog: planDriverAccept refuses it and the run ends NOT RUN (#197 review).
+// Use accept=human for a run that may meet one.
 export function driverMayAcceptCodex(classification) {
   return planDriverAccept(classification, CODEX_DIALOG_KINDS);
 }

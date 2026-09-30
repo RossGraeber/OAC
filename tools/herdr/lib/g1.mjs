@@ -139,7 +139,7 @@ const SELECT_MARK_UNNUMBERED = /^[\s│|]*[❯›▶▸→]\s*(\S.*?)\s*[│|]*\
 // at a time, re-reading the pane after each key, and presses Enter only when a read shows
 // `accept` selected (planDriverAccept here, driverAcceptDialog in gate-common.mjs). Anything
 // else is refused: the run ends NOT RUN, and no keystroke is guessed. A kind without `options`
-// keeps the older rule: accepted only when its accepting option is already preselected.
+// (tool-permission; every Codex kind) is never driver-accepted (#197 review): NOT RUN, no key.
 export const DIALOG_KINDS = Object.freeze({
   'dev-channels': {
     // Box C, verbatim (the one live-observed dialog); the same text and preselection were seen
@@ -179,6 +179,8 @@ export const DIALOG_KINDS = Object.freeze({
     detect: /Do you want to (?:proceed|allow|make this edit)|Allow (?:this )?tool/i,
     acceptOption: /^Yes\b/i,
     verified: null, // UNVERIFIED: Box C's tool-permission prompts are not on record
+    // No `options`: recognized (so it is recorded and scheduled around) but NEVER accepted by
+    // the driver (#197 review; tool approval is outside #196).
   },
 });
 
@@ -234,12 +236,17 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
   });
   // Unnumbered options line up with the selected line's text; a line at that column (or any
   // numbered line) that is not a known option is an option the driver does not know.
+  // After the first option-shaped line (a known option, or a marked line), every non-empty line
+  // up to the footer must be a known option, whatever its indentation (#197 review).
   const optionCol = parsed.find((p) => p.selected)?.col ?? null;
+  let inOptions = false;
   for (const p of parsed) {
     if (p.selected) marked += 1;
     if (!p.body) continue;
-    if (def.options.includes(p.body)) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected });
-    else if (p.selected || p.num !== undefined || (optionCol !== null && p.col === optionCol)) unknown.push(p.body);
+    const known = def.options.includes(p.body);
+    if (known || p.selected) inOptions = true;
+    if (known) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected });
+    else if (inOptions || p.num !== undefined || (optionCol !== null && p.col === optionCol)) unknown.push(p.body);
   }
   found.marked = marked;
   found.unknown = unknown;
@@ -269,21 +276,21 @@ const optLabel = (o) => (o ? `"${o.number == null ? '' : `${o.number}. `}${o.tex
 // How may the DRIVER accept this dialog? -> { ok, why, moves: [{ key, expect }], keys }
 //   moves: the selection keys to send, one at a time, each followed by a read that must show
 //          `expect` selected; keys: every key in order, Enter last.
-// Only a recognized kind. A kind with `options` (see DIALOG_KINDS): the pane must show exactly
-// its known options, in order, one of them selected, and the selection must be on the
-// preselection on record or already on the accepting option. A kind without `options`: its
-// accepting option must already be preselected. Never a guessed keystroke.
+// Only a recognized kind WITH `options` on record (see DIALOG_KINDS): the pane must show
+// exactly its known options, in order, one of them selected, and the selection must be on the
+// preselection on record or already on the accepting option. A kind without `options` is
+// refused. Never a guessed keystroke.
 export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
   const kind = classification?.dialog;
   const def = dialogKinds[kind];
   const no = (why) => ({ ok: false, why, moves: [], keys: [] });
   if (!def) return no(`unrecognized dialog (${kind ?? 'none'}); the driver never accepts a dialog it cannot name`);
+  // #197 review: a kind with no option text on record (Claude Code's tool-permission prompt,
+  // every Codex dialog) is never driver-accepted, whatever is preselected. The driver accepts
+  // only the three dialogs K-196 lists; anything else ends the run NOT RUN with no key sent.
+  if (!def.options) return no(`${kind}: no option text on record; the driver accepts only the dialogs listed in K-196 (use accept=human)`);
   const sel = classification.selected;
   if (!sel) return no('no selected option found in the dialog text');
-  if (!def.options) {
-    if (!def.acceptOption.test(sel.text)) return no(`the selected option (${optLabel(sel)}) is not the ${kind} accepting option`);
-    return { ok: true, why: null, moves: [], keys: ['enter'] };
-  }
   const opts = classification.options ?? [];
   const texts = opts.map((o) => o.text);
   if (opts.unknown?.length || JSON.stringify(texts) !== JSON.stringify(def.options)) {
@@ -300,6 +307,23 @@ export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
   const moves = [];
   for (let i = at; i !== def.accept; i += step) moves.push({ key: step > 0 ? 'down' : 'up', expect: def.options[i + step] });
   return { ok: true, why: null, moves, keys: [...moves.map((mv) => mv.key), 'enter'] };
+}
+
+// Does a read taken after a selection key show the move landed cleanly (#197 review)? The
+// read must show the kind's options exactly as on record, exactly ONE selection marker, and
+// that marker on `expect`. -> { state: 'ok' } | { state: 'wait', why } (not yet, or a read
+// that is not clean: the driver reads again until its bound, and never sends Enter on it) |
+// { state: 'stop', why } (the selection moved somewhere else).
+export function selectionCheck(screen, kind, expect, prev, dialogKinds = DIALOG_KINDS) {
+  const def = dialogKinds[kind];
+  const opts = screen?.options;
+  if (!def?.options || !opts) return { state: 'wait', why: 'no option list read' };
+  if (opts.unknown?.length || JSON.stringify(opts.map((o) => o.text)) !== JSON.stringify(def.options)) return { state: 'wait', why: `options on screen ${JSON.stringify(opts.map((o) => o.text))} are not the ones on record` };
+  if (opts.marked !== 1) return { state: 'wait', why: `${opts.marked} selection markers on screen, not exactly one` };
+  const now = opts.find((o) => o.selected)?.text ?? null;
+  if (now === expect) return { state: 'ok' };
+  if (now === prev) return { state: 'wait', why: `the selection is still ${JSON.stringify(prev)}` };
+  return { state: 'stop', why: `the selection is ${JSON.stringify(now)}, not ${JSON.stringify(expect)}` };
 }
 
 // May the DRIVER accept this dialog (possibly after moving the selection)? The plan's ok/why.

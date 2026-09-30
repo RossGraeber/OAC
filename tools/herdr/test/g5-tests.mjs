@@ -238,12 +238,12 @@ export function g5Cases(check) {
     }
   });
 
-  run('g5 daemon version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DAEMON_VERSION: '0.158.0' } }, (r) => {
+  run('g5 daemon version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_DAEMON_VERSION: '0.158.0' } }, (r) => {
     const m = r.manifest;
     check('g5 pin move (daemon): NOT RUN naming G5, before any launch or delivery', r.status === 3 && /^PIN-MOVE TRIGGER: `codex app-server daemon version` cliVersion reports 0\.158\.0/.test(m.outcomeReason) && /re-running G5/.test(m.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')) && m.scenarioData.g5.injectionsSent.length === 0, m.outcomeReason);
   });
 
-  run('g5 client divergence at X4', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_REJECT: 'thread/queue/add' } }, (r) => {
+  run('g5 client divergence at X4', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_REJECT: 'thread/queue/add' } }, (r) => {
     const m = r.manifest;
     const g5 = m.scenarioData.g5;
     check('g5 divergence: FAIL, recorded as a divergence and a finding; nothing re-sent', r.status === 1 && /did not work unmodified/.test(m.outcomeReason) && g5.divergence.length === 1 && /thread\/queue\/add/.test(g5.divergence[0]) && m.findings.some((f) => /divergence/.test(f)), m.outcomeReason);
@@ -252,7 +252,7 @@ export function g5Cases(check) {
     check('g5 divergence: every row not evaluable', evalRun(r).rows.every((x) => x.score === SCORES.NE));
   });
 
-  run('g5 launch not verbatim', { args: [...FAST, '--launch', '["claude"]'], fakeCodex: {} }, (r) => {
+  run('g5 launch not verbatim', { args: [...FAST, '--launch', '["claude"]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g5 launch: a launch other than G5\'s verbatim one FAILs before anything starts', r.status === 1 && /not G5's verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent') || c.argv.includes('workspace')));
   });
   return cases;

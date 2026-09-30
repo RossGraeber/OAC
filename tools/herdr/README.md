@@ -36,12 +36,13 @@ never replaces a supported interface and it decides nothing.
 
 Operator decision of 2026-09-30 (#196, `docs/planning/decisions/K-196-driver-accepts-dialogs.md`):
 in dev/test runs the driver accepts Claude Code's workspace-trust, project-MCP-server and
-`--dangerously-load-development-channels` dialogs itself. `accept=driver` is the default in
-`g2-codex-inject`, `g4-mcp-dual-era`, `g5-provenance` and `l3-beacon`, and `accept=human` is
-still available. Each dialog is read verbatim before any key. It is accepted only if its
-options on screen are exactly the ones recorded in `lib/g1.mjs` `DIALOG_KINDS`. The selection
-is moved one key at a time, each move verified by a read, and Enter is pressed only on the
-accepting option:
+`--dangerously-load-development-channels` dialogs itself, and **only those three**.
+`accept=driver` is the default in every scenario, `g1-claude-wake` included, and
+`accept=human` is still available. Each dialog is read verbatim before any key. It is
+accepted only if its options on screen are exactly the ones recorded in `lib/g1.mjs`
+`DIALOG_KINDS`. The selection is moved one key at a time. Each move is verified by a read
+that shows exactly one selection marker, on the expected option. Enter is pressed only on
+the accepting option:
 
 | Dialog | Preselected (seen live) | Driver keys |
 |---|---|---|
@@ -49,11 +50,17 @@ accepting option:
 | mcp-server-approval | "Continue without using this MCP server" | `up`, `up` (read shows "Use this MCP server"; never "all future"), `enter` |
 | dev-channels | "1. I am using this for local development" | `enter` |
 
-Any other text, an extra option, or a move that does not land ends the run `NOT RUN`, with
-nothing guessed and nothing re-sent. Each accept is recorded as `driver` with its keys, and
-every report says so. `g1-claude-wake` keeps `accept=human` as its default: G1 criterion 5 is
-the dev-channels consent step itself, so a driver accept of it is never scored as meeting
-criterion 5. Rules and verdict eligibility: `scripted-runs.md` "Operator-consent dialogs".
+Any other text, an extra option at any indentation, a second selection marker, or a move that
+does not land ends the run `NOT RUN`, with nothing guessed and nothing re-sent. **Every other
+dialog is refused**, whatever is preselected: Claude Code's tool-permission prompt ("Do you
+want to proceed?") and every Codex dialog, since no Codex dialog text is on record (#197
+review). The run ends `NOT RUN` with no key sent. Use `accept=human` for a run that may meet
+one. Each accept is recorded as `driver` with its keys, and every report says so.
+`g1-claude-wake` defaults to `accept=driver` too, per the operator's second decision on #196.
+G1 criterion 5 is the dev-channels consent step itself, so on such a run it is `not
+evaluable` and the run is never a G1 equivalence record. CI's G1 run is one of these. Use
+`--param accept=human` for a G1 run meant to be an equivalence record. Rules and verdict
+eligibility: `scripted-runs.md` "Operator-consent dialogs".
 
 **Optional friction reducers (not required).**
 
@@ -250,8 +257,9 @@ Live runs are driven by `run.mjs`, started locally by an agent (the repository's
 Automating these runs is why herdr was added (operator decision, #187). The human attends
 only for what a driver must not do: signing in to the harnesses and granting elevation.
 Since #196 the driver accepts Claude Code's dialogs itself in dev/test runs (see "Dialogs"
-above). A human accepts only a consent step that a gate criterion is about: G1 criterion 5,
-under `g1-claude-wake`'s default `accept=human`, and the G11 confirmation. Live runs stay out
+above), G1 included. A human accepts only in a run that must meet a consent-step criterion:
+G1 criterion 5 with `--param accept=human`, and the G11 confirmation. Any dialog the driver
+refuses (tool permission, Codex) also needs `accept=human`. Live runs stay out
 of the default CI suite. These are the settings a run needs; none is committed, because
 they are per-machine and belong to the operator.
 
@@ -281,9 +289,11 @@ otherwise, so the folder-trust dialog, which preselects "No, exit", comes up eve
 "Yes, I trust this folder", with the move verified by a read before Enter. Before #196 the
 driver refused it (#156), and a run whose dialog nobody accepted ended `NOT RUN`. That
 happened in L3 probe run 3 on 2026-09-30, after 300000 ms. `--param projectDir` (G1) remains
-an optional way to avoid the dialog. A `g1-claude-wake` run with `--param accept=driver` needs
-nobody at the keyboard, but its driver accept of the dev-channels dialog is never scored as
-meeting G1 criterion 5 (`scripted-runs.md` "Operator-consent dialogs").
+an optional way to avoid the dialog. A `g1-claude-wake` run on its default (`accept=driver`)
+needs nobody at the keyboard, but its driver accept of the dev-channels dialog is never scored
+as meeting G1 criterion 5 (`scripted-runs.md` "Operator-consent dialogs"). A Codex dialog
+(G2, G4, G5, L3) is never driver-accepted: if real Codex shows one in the scratch project,
+the run ends `NOT RUN`, and it needs `accept=human`.
 
 **2b. Line endings.** A Git for Windows checkout (`core.autocrlf=true`) is fine. The driver
 compares working-tree files with HEAD in git's normalized form, as `git status` does (#152).

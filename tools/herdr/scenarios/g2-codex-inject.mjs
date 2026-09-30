@@ -38,11 +38,11 @@
 //   3. Launch through `herdr agent start --kind codex` with nothing after it. The pane's
 //      process argv is read from the OS (never its environment) and recorded as the proof
 //      of a plain launch; any argument after `codex` stops the run. Every dialog is read
-//      from the pane verbatim BEFORE any keystroke reaches it; accept=driver (the default
-//      since #196) accepts only a dialog it recognizes, and, as no Codex dialog's options are
-//      on record, only when its own preselected option is the accepting one (anything else
-//      ends the run NOT RUN); the accept is recorded as `driver`. accept=human sends nothing
-//      and waits for the operator. No G2 criterion names a consent step.
+//      from the pane verbatim BEFORE any keystroke reaches it. accept=driver (the default
+//      since #196) never accepts a Codex dialog: no Codex dialog's option text is on record,
+//      so the run ends NOT RUN with no key sent (#197 review). A run that meets a Codex dialog
+//      needs accept=human, which sends nothing and waits for the operator. No G2 criterion
+//      names a consent step.
 //   4. The operator's own message to their TUI (`agent prompt`, as the operator typed it
 //      in the human run; it is never a delivered message). herdr's agent state after it is
 //      recorded and used only to schedule the next step; an `unknown` state is recorded,

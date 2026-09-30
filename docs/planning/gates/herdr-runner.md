@@ -237,23 +237,30 @@ can therefore drop the older pending one. Re-dispatch it if you need it.
 The job's outcome follows the driver's exit code: `PASS` 0; `FAIL` 1; `NOT RUN` 3, which
 also fails the job. A red job is not a gate finding by itself. Read the run manifest.
 
-**`g1-claude-wake` needs the operator.** The scenario keeps its default `accept=human`,
-and CI cannot change it. In CI the `--dangerously-load-development-channels` confirmation
-is never accepted by the driver. Since 2026-09-30 (#196) other dev/test runs driver-accept
-it by default, but G1 criterion 5 is that consent step itself, so G1 and CI keep the human
-accept (`scripted-runs.md` "Operator-consent dialogs"). The folder-trust and MCP-server
-dialogs also wait for you under `accept=human`. Move the selection to "Yes, I trust this
-folder" or "Use this MCP server" before Enter, or reuse a trusted project directory. When the
-dialog is on screen, the job log prints the herdr session name and a command:
-`herdr --session <name> agent send-keys g1claude enter`. Run it yourself as the runner
-user on the runner machine within `humanAcceptTimeoutMs` (5 minutes by default), or the
-run ends `NOT RUN`. herdr keeps a named session's socket under the runner user's config
-directory (`$XDG_CONFIG_HOME` or `~/.config/herdr/sessions/<name>/` on Linux,
+**`g1-claude-wake` runs unattended in CI (amended 2026-09-30, #196).** CI passes no driver
+option, so the scenario runs on its defaults. Under the operator's second decision on #196,
+that default is `accept=driver`.
+
+- **What the driver accepts.** It accepts the folder-trust, project-MCP-server and
+  `--dangerously-load-development-channels` dialogs itself, each only when it matches the
+  recorded text, and records each accept as `driver`.
+- **What it refuses.** Any other dialog, for example a tool-permission prompt. The run then
+  ends `NOT RUN` with no key sent.
+- **What the run cannot be.** G1 criterion 5 is the dev-channels consent step itself, so on a
+  CI G1 run it is `not evaluable`, and the run is never a G1 equivalence record
+  (`scripted-runs.md` "Operator-consent dialogs").
+- **A human-accepted G1 run** (`--param accept=human`) cannot come from CI, because CI cannot
+  pass a parameter. Run it locally. The driver then sends nothing, and you accept each dialog
+  yourself at the pane (`herdr session attach <session>`). For trust and MCP, move the
+  selection to "Yes, I trust this folder" or "Use this MCP server" before Enter. The accept
+  counts only if you, the person who pressed it, attest to it.
+
+herdr keeps a named session's socket under the runner user's config directory
+(`$XDG_CONFIG_HOME` or `~/.config/herdr/sessions/<name>/` on Linux,
 `%APPDATA%\herdr\sessions\<name>\` on Windows). It is not under `TMPDIR`, so the job's
 `TMPDIR` redirect does not hide the session from your shell. That comes from reading the
 source at `v0.9.1` (`src/config/io.rs` `config_dir`/`platform_config_dir`,
-`src/session.rs` `api_socket_path_for`) and is UNVERIFIED live. By the rule in
-`scripted-runs.md`, the accept counts only if you, the person who pressed it, attest to it.
+`src/session.rs` `api_socket_path_for`) and is UNVERIFIED live.
 
 ## 4. What is uploaded, and the gate before it
 
@@ -324,7 +331,7 @@ as such in `docs/planning/v0.1/11-risks.md` row 52 and `docs/planning/STATUS.md`
 | A collaborator dispatches the workflow on a branch carrying modified driver or workflow code | Write access | Pre-job hook refuses any workflow ref but `…@refs/heads/main`; write access limited to trusted people; the workflow's own `if: github.ref == 'refs/heads/main'` (mistakes only) | `run.mjs --self-test` "hook: refuses a dispatch from another branch". Not proven on a real runner | Until the hook is observed live: **open risk**, bounded by who holds write access |
 | A crafted `docs/planning/PINS.md` merged to `main` injects commands when the push trigger fires | Merge to `main` | PINS.md is only a `paths:` filter: no workflow expression reads it, no expression appears in any `run:` block, and the driver parses it with a strict table parser (`tools/herdr/lib/pins.mjs`) that only extracts a `vX.Y.Z` tag and compares it with `herdr --version`. A mismatch is `NOT RUN` | `check-herdr-containment.mjs --self-test` ("expression in an inline run", "… in a block run"); `run.mjs --self-test` pin cases | Whoever can merge to `main` can edit the workflow or driver directly, so the boundary is merge rights, not PINS.md |
 | Expression injection through the dispatch input | Write access (dispatch) | `choice` input; passed only through `env:`; `ci.mjs` allowlist refuses paths, flags and unknown names | `run.mjs --self-test`: "ci: scenario … is refused" (8 cases); check 9 run-block cases | None known |
-| CI auto-accepts the `--dangerously-load-development-channels` confirmation | A driver option such as `accept=driver` reaching the driver | `ci.mjs` passes no driver option; check 9 fails the workflow if it names a driver option or calls `run.mjs` | check-herdr self-test "9 opt-in workflow passes accept=driver", "… calls the driver directly"; ci self-test "g1-claude-wake --param accept=driver is refused" | None known |
+| CI runs a scenario with a policy or parameters other than its committed defaults (amended 2026-09-30, #196: CI's G1 run now driver-accepts the three recorded dialogs by the scenario's own default, an operator decision; criterion 5 is then `not evaluable`, and anything else, a tool-permission prompt included, is refused and the run is `NOT RUN`) | A driver option such as `--param`, `--launch` or `accept=…` reaching the driver | `ci.mjs` passes no driver option; check 9 fails the workflow if it names a driver option or calls `run.mjs`; the driver refuses every dialog kind with no option text on record | check-herdr self-test "9 opt-in workflow passes accept=driver", "… calls the driver directly"; ci self-test "g1-claude-wake --param accept=driver is refused"; `run.mjs --self-test` "g1 #197 tool permission: default policy is driver, run NOT RUN, no dialog-accept command" | A change to a scenario's committed default goes through review, not the workflow |
 | Credentials or identifying data published in the artifact | Redaction misses a value, or a surviving process rewrites a file after the scan | K3 redaction; the driver withholds unclean captures; `ci.mjs stage` fails closed on any recorded or re-scanned residual and on a teardown that was not clean; it writes to `upload/` exactly the bytes it scanned; name allowlist; symlinks refused | `run.mjs --self-test`: "ci stage: …" (20 cases, including "a run whose teardown was not clean stages nothing" and "stages the bytes it scanned, not a later re-read"), "ci lifecycle: …", and K3's redaction cases | Redaction is pattern-based: a secret with no known shape and no known literal can pass (K3 limits). The upload step reads `upload/` later, so a process that survives despite a clean teardown record could still change it |
 | The harness under test, or herdr, is steered into reading the job token or writing `GITHUB_ENV` to influence later steps | Prompt injection into the harness during a run | Check 9 fails any `secrets` use (`secrets.X`, `secrets[…]`, `toJSON(secrets)`, `secrets: inherit`) and any `github.token`; tokens, token-shaped values under any name, and workflow-command file paths are removed from the driver's environment; `permissions` is exactly `contents: read`; scenario prompts are fixed; later steps run only `ci.mjs` and pinned actions | `check-herdr-containment.mjs --self-test` "9 opt-in workflow reads toJSON(secrets)", "… reads github.token", "… reads a secret", "… sets contents: write", "… adds id-token: write", "… uses write-all", "… adds job-level permissions"; `run.mjs --self-test` "ci: scrub removes …" (2 cases) | Defense in depth only: the harness runs as the runner user and could find those files on disk |
 | Paths or user names leak through the public job log | The driver, a scenario, or an exception prints raw values | `ci.mjs` prints the outcome from the redacted manifest and passes every error message through the redactor before printing | `run.mjs --self-test` "ci: error messages are redacted before printing" | Output the driver or a scenario prints directly (the G1 accept hint prints only a session name) |
@@ -357,7 +364,8 @@ stage gate's own checks.
       runner user.
 - [ ] No provider API key or harness token in the runner's environment.
 - [ ] First dispatch: `scenario=smoke`, `runner=linux`, then `runner=windows`. Then
-      `scenario=g1-claude-wake` per runner, with you at that machine to accept the dialog.
+      `scenario=g1-claude-wake` per runner. Since #196 it runs unattended: the driver accepts
+      the three recorded dialogs, and G1 criterion 5 is then `not evaluable`.
 
 ## 8. First-dispatch record (operator: fill in)
 

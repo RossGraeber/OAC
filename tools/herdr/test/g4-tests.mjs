@@ -364,27 +364,27 @@ export function g4Cases(check) {
     check('g4 draft entries (built directly, whatever the checkout state): Codex-touching entries carry an applicable:false schema; the transcript\'s coverage names the Claude-modern and Codex-legacy calls', entries[0].schema.applicable === false && entries[2].schema.applicable === false && !('schema' in entries[1]) && !!entries[0].coverage['tools/call (Claude HTTP-modern)'] && !!entries[0].coverage['tools/call (Codex HTTP legacy)']);
   });
 
-  run('g4 driver accept', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37458, 37460)], fakeCodex: {} }, (r) => {
+  run('g4 driver accept', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37458, 37460)], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
-    check('g4 driver: PASS; each recognized dialog read, then accepted by the driver with no input in between', r.status === 0 && g4.dialogs.length === 2 && g4.dialogs.every((d) => d.acceptOrigin === 'driver' && d.inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === d.acceptSeq - 1)?.argv.includes('read')), `${m.outcome} ${m.outcomeReason}`);
+    check('g4 driver: PASS; each recognized dialog read, then accepted by the driver with no input in between', r.status === 0 && g4.dialogs.length === 1 && g4.dialogs[0].agent === 'claude' && g4.dialogs.every((d) => d.acceptOrigin === 'driver' && d.inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === d.acceptSeq - 1)?.argv.includes('read')), `${m.outcome} ${m.outcomeReason}`);
     check('g4 driver: the report still scores nothing on the accept (no G4 criterion names it)', evalRun(r).rows.map((x) => x.score).join('|') === [SCORES.NE, SCORES.EQ, SCORES.EQ, SCORES.EQ, SCORES.NE].join('|'));
   });
 
-  run('g4 codex launch with a non-MCP override', { args: [...FAST, ...PORTS(37468, 37470), '--param', 'codexLaunch=["codex","-c","model=\\"other\\"","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37468/mcp\\""]'], fakeCodex: {} }, (r) => {
+  run('g4 codex launch with a non-MCP override', { args: [...FAST, ...PORTS(37468, 37470), '--param', 'codexLaunch=["codex","-c","model=\\"other\\"","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37468/mcp\\""]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g4 override: FAIL before anything starts (no workspace, no agent)', r.status === 1 && /codexLaunch refused/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('workspace') || c.argv.includes('agent')), r.manifest.outcomeReason);
   });
 
-  run('g4 launch not verbatim', { args: [...FAST, '--launch', '["claude","--dangerously-load-development-channels","server:g4spike"]'], fakeCodex: {} }, (r) => {
+  run('g4 launch not verbatim', { args: [...FAST, '--launch', '["claude","--dangerously-load-development-channels","server:g4spike"]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g4 launch: a launch other than G4\'s verbatim one FAILs before anything starts', r.status === 1 && /not G4's verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')));
   });
 
-  run('g4 Claude CLI version is a pin-move trigger', { args: [...FAST, ...PORTS(37478, 37480)], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999' }, fakeCodex: {} }, (r) => {
+  run('g4 Claude CLI version is a pin-move trigger', { args: [...FAST, ...PORTS(37478, 37480)], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     check('g4 pin move (Claude CLI): NOT RUN, a pin-move trigger naming G4, nothing launched, no capture', r.status === 3 && /^PIN-MOVE TRIGGER: `claude --version` reports v2\.1\.999/.test(m.outcomeReason) && /re-running G4/.test(m.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')) && m.captures.length === 0, m.outcomeReason);
   });
 
-  run('g4 Codex MCP wire version is a pin-move trigger', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37488, 37490)], fakeCodex: { FAKE_CODEX_MCP_VERSION: '0.158.0' } }, (r) => {
+  run('g4 Codex MCP wire version is a pin-move trigger', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37488, 37490)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_VERSION: '0.158.0' } }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
     check('g4 pin move (Codex wire): NOT RUN from the MCP client user-agent; nothing typed into Codex; captures unverified-* only', r.status === 3 && /^PIN-MOVE TRIGGER: the MCP client user-agent \(codex-mcp-client\/<version>\) reports 0\.158\.0/.test(m.outcomeReason) && !r.prompts.some((p) => p.target === 'g4codex') && g4.fixtures === null && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')), m.outcomeReason);
@@ -393,19 +393,19 @@ export function g4Cases(check) {
     check('g4 pin move (Codex wire): report --write refuses; the draft says NOT RUN, every criterion not evaluable', w.status === 2 && /--write refused: run outcome is NOT RUN/.test(w.stderr) && !existsSync(join(r.base, 'nowrite')) && (p.stdout.match(/\*\*not evaluable\*\* \|/g) ?? []).length === 5, w.stderr);
   });
 
-  run('g4 a second Codex registration also connects', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37508, 37510), '--param', 'codexLaunch=["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37508/mcp\\"","-c","mcp_servers.leftover.url=\\"http://127.0.0.1:37508/mcp\\""]'], fakeCodex: {} }, (r) => {
+  run('g4 a second Codex registration also connects', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37508, 37510), '--param', 'codexLaunch=["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37508/mcp\\"","-c","mcp_servers.leftover.url=\\"http://127.0.0.1:37508/mcp\\""]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     check('g4 two registrations: the run records a finding that the Codex traffic is not attributable to one registration', m.findings.some((f) => /2 Codex HTTP MCP sessions/.test(f) && /cannot be attributed/.test(f)) && m.scenarioData.g4.codex.sessions.length === 2, JSON.stringify(m.findings));
     const c4 = evalRun(r).rows[3];
     check('g4 two registrations: criterion 4 is not equivalent on the one-session check (never silently credited)', c4.score === SCORES.NEQ && /exactly one Codex HTTP MCP session/.test(c4.reason), c4.reason);
   });
 
-  run('g4 the human run\'s port', { args: [...FAST, ...PORTS(17448, 37520)], fakeCodex: {} }, (r) => {
+  run('g4 the human run\'s port', { args: [...FAST, ...PORTS(17448, 37520)], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g4 human-run port: refused before anything starts (a leftover global registration may name it)', r.status === 1 && /the human G4 run's/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')), r.manifest.outcomeReason);
   });
 
   let holder = null;
-  run('g4 port already in use', { args: [...FAST, ...PORTS(37498, 37500)], fakeCodex: {} }, (r) => {
+  run('g4 port already in use', { args: [...FAST, ...PORTS(37498, 37500)], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g4 port busy: NOT RUN before anything launches (a stale server must not answer for this run)', r.status === 3 && /127\.0\.0\.1:37498 is not free/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')), r.manifest.outcomeReason);
   }, () => new Promise((res) => {
     holder = createServer();

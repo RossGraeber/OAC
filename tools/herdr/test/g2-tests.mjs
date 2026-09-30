@@ -145,7 +145,7 @@ export function g2Unit(check) {
   // --- pane classification and the argv proof ----------------------------------------------
   const trust = 'Do you trust the files in this folder?\n\n› 1. Yes, continue\n  2. No, quit\n\nPress enter to continue';
   const tc = classifyCodexScreen(trust);
-  check('g2 pane: a trust dialog is recognized, option 1 selected, and the driver may accept it', tc.dialog === 'workspace-trust' && tc.selected?.number === 1 && driverMayAcceptCodex(tc).ok);
+  check('g2 pane #197: a trust dialog is recognized, option 1 selected, and the driver still REFUSES it (no Codex option text on record)', tc.dialog === 'workspace-trust' && tc.selected?.number === 1 && !driverMayAcceptCodex(tc).ok && /no option text on record/.test(driverMayAcceptCodex(tc).why) && driverMayAcceptCodex(tc).keys.length === 0, driverMayAcceptCodex(tc).why);
   check('g2 pane: with "No" preselected the driver refuses', !driverMayAcceptCodex(classifyCodexScreen(trust.replace('› 1.', '  1.').replace('  2. No', '› 2. No'))).ok);
   const unk = classifyCodexScreen('Allow command?\n› 1. Yes\n  2. No\nPress enter to confirm');
   check('g2 pane: an approval or any unnamed prompt is "unknown" and never driver-accepted', unk.dialog === 'unknown' && !driverMayAcceptCodex(unk).ok);
@@ -307,30 +307,36 @@ export function g2Cases(check) {
     }
   });
 
-  run('g2 driver accept, Codex settles to unknown', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_POST_STATE: 'unknown' } }, (r) => {
+  run('g2 driver accept, Codex settles to unknown', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_POST_STATE: 'unknown' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
     check('g2 unknown: PASS', r.status === 0 && m.outcome === 'PASS', `${m.outcome} ${m.outcomeReason}`);
     check('g2 unknown: herdr\'s `unknown` state was observed and recorded, with a finding', g2.herdrStates.some((s) => s.state === 'unknown') && m.findings.some((f) => /`unknown`/.test(f) && /nothing re-sent/.test(f)), JSON.stringify(g2.herdrStates));
     check('g2 unknown: it triggered no re-submission -- one operator prompt, each delivery once on the wire', r.prompts.length === 1 && g2.injectionsSent.length === 2 && g2Facts(parseG2Transcript(r.capture(names().transcript))).turnStarts.length === 2);
-    const d = g2.dialogs[0];
-    const acc = m.commands.find((x) => x.role === 'dialog-accept');
-    check('g2 unknown: the trust dialog was read, then accepted by the driver with no input in between', d.acceptOrigin === 'driver' && acc?.seq === d.acceptSeq && m.commands.find((x) => x.seq === acc.seq - 1)?.argv.includes('read') && d.inputBetweenReadAndAccept === 0);
+    check('g2 unknown: no Codex dialog shown (trusted project), so the driver sent no dialog key', g2.dialogs.length === 0 && !m.commands.some((x) => x.role === 'dialog-accept'));
   });
 
-  run('g2 CLI version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_CLI_VERSION: '0.158.0' } }, (r) => {
+  // #197 review: under the DEFAULT policy (accept=driver) the Codex trust dialog, whose option
+  // text is not on record, is refused: NOT RUN, no key sent. accept=human remains for such runs.
+  run('g2 default policy refuses the Codex trust dialog', { args: FAST, fakeCodex: {} }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    check('g2 #197 Codex trust: default policy driver; NOT RUN; no dialog-accept command; the dialog is on record as refused', r.status === 3 && g2.acceptPolicy === 'driver' && /no option text on record/.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept') && g2.dialogs[0]?.kind === 'workspace-trust' && g2.dialogs[0]?.acceptOrigin === 'none (driver refused)', `${r.status} ${m.outcomeReason}`);
+  });
+
+  run('g2 CLI version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_CLI_VERSION: '0.158.0' } }, (r) => {
     const m = r.manifest;
     check('g2 pin move (CLI): NOT RUN with a pin-move trigger naming both versions', r.status === 3 && /^PIN-MOVE TRIGGER: `codex --version` reports 0\.158\.0/.test(m.outcomeReason) && m.outcomeReason.includes(PIN) && m.findings.some((f) => /^PIN-MOVE TRIGGER/.test(f)), m.outcomeReason);
     check('g2 pin move (CLI): nothing started -- no daemon, no workspace, no agent, no capture', !daemonStarted(r) && !r.calls.some((c) => c.argv.includes('workspace') || c.argv.includes('agent')) && m.captures.length === 0);
   });
 
-  run('g2 daemon version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DAEMON_VERSION: '0.158.0' } }, (r) => {
+  run('g2 daemon version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_DAEMON_VERSION: '0.158.0' } }, (r) => {
     const m = r.manifest;
     check('g2 pin move (daemon): NOT RUN, the trigger names the daemon field', r.status === 3 && /^PIN-MOVE TRIGGER: `codex app-server daemon version` cliVersion reports 0\.158\.0/.test(m.outcomeReason), m.outcomeReason);
     check('g2 pin move (daemon): no launch, no client run, no fixture-named capture', !r.calls.some((c) => c.argv.includes('agent')) && m.scenarioData.g2.clientRuns.length === 0 && m.scenarioData.g2.fixtures === null && m.captures.every((c) => c.file.startsWith('unverified-')));
   });
 
-  run('g2 wire version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_WIRE_VERSION: '0.158.0' } }, (r) => {
+  run('g2 wire version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_WIRE_VERSION: '0.158.0' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
     check('g2 pin move (wire): NOT RUN with a pin-move trigger from the initialize userAgent', r.status === 3 && /^PIN-MOVE TRIGGER: the wire initialize userAgent reports 0\.158\.0/.test(m.outcomeReason), m.outcomeReason);
@@ -345,18 +351,18 @@ export function g2Cases(check) {
     }
   });
 
-  run('g2 launch with a config override', { args: ['--launch', '["codex","-c","model=other"]', ...FAST], fakeCodex: {} }, (r) => {
+  run('g2 launch with a config override', { args: ['--launch', '["codex","-c","model=other"]', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g2 override: FAIL before anything starts', r.status === 1 && /is not plain `codex`/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')) && !daemonStarted(r), r.manifest.outcomeReason);
   });
 
-  run('g2 TUI does not attach (embedded server)', { args: ['--param', 'accept=driver', ...FAST, '--param', 'attachTimeoutMs=3000'], fakeCodex: { FAKE_CODEX_NO_ATTACH: '1' } }, (r) => {
+  run('g2 TUI does not attach (embedded server)', { args: ['--param', 'accept=driver', ...FAST, '--param', 'attachTimeoutMs=3000'], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_NO_ATTACH: '1' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
     check('g2 no attach: NOT RUN, recorded as a criterion-1 finding, nothing delivered', r.status === 3 && /no loaded thread matched/.test(m.outcomeReason) && m.findings.some((f) => /may not have attached/.test(f)) && g2.injectionsSent.length === 0 && g2.thread === null, m.outcomeReason);
     check('g2 no attach: the transcript holds only list runs, and the thread/list entries were all dropped (no thread identified)', g2.clientRuns.every((x) => x.mode === 'list') && !/PRIVATE/.test(r.capture(names().transcript)));
   });
 
-  run('g2 client divergence', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_REJECT: 'thread/queue/add' } }, (r) => {
+  run('g2 client divergence', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_REJECT: 'thread/queue/add' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
     check('g2 divergence: FAIL, recorded as a divergence and a finding, the client not patched', r.status === 1 && /did not work unmodified/.test(m.outcomeReason) && g2.divergence.length === 1 && /thread\/queue\/add/.test(g2.divergence[0]) && m.findings.some((f) => /divergence/.test(f)), m.outcomeReason);
@@ -365,7 +371,7 @@ export function g2Cases(check) {
     check('g2 divergence: every criterion not evaluable', ev.rows.every((x) => x.score === SCORES.NE));
   });
 
-  run('g2 Codex version moves mid-run', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_POST_CLI_VERSION: '0.158.0' } }, (r) => {
+  run('g2 Codex version moves mid-run', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_POST_CLI_VERSION: '0.158.0' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
     check('g2 mid-run move: recorded as a finding; the captures lose their fixture names (unverified-*)', g2.postRun.matches === false && g2.postRun.cli === '0.158.0' && m.findings.some((f) => /changed during the run/.test(f)) && g2.fixtures === null && g2.versions.verified === false && m.captures.length === 2 && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));

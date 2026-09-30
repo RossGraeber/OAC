@@ -15,16 +15,18 @@
 //
 //   node tools/herdr/run.mjs --scenario g1-claude-wake \
 //     --launch '["claude","--dangerously-load-development-channels","server:g1spike"]' \
-//     --param accept=human --out <run dir>
+//     --out <run dir>
 //   node tools/herdr/lib/g1-report.mjs --run <run dir>            # draft comparison
 //
-// Accept policy (#196, docs/planning/decisions/K-196-driver-accepts-dialogs.md): with
-// accept=driver the driver accepts Claude Code's folder-trust ("No, exit" preselected: it
+// Accept policy (#196, docs/planning/decisions/K-196-driver-accepts-dialogs.md). The default is
+// accept=driver: the driver accepts Claude Code's folder-trust ("No, exit" preselected: it
 // moves down to "Yes, I trust this folder", verified by a read, then Enter), project-MCP-server
 // ("Continue without…" preselected: up, up to "Use this MCP server") and dev-channels dialogs,
-// and records each accept as `driver`. G1 keeps accept=human as its default because criterion
-// 5 IS the dev-channels consent step: a driver accept of it is recorded and never scored as
-// meeting criterion 5, so an accept=driver G1 run is never an equivalence record.
+// and records each accept as `driver`. Any other dialog (tool permission, anything not on
+// record) is refused: NOT RUN, no key. Operator decision on #196 (2026-09-30): G1 is fully
+// driver-accepted by default; criterion 5 (the dev-channels consent step) is then `not
+// evaluable`, so such a run is never a G1 equivalence record. For a run that is meant to be
+// one, pass --param accept=human: the driver then sends no key and the operator accepts.
 // Optional: --param projectDir=<absolute path outside the repository> reuses one directory, so
 // a folder trust and MCP approval Claude Code recorded for it (after a human or driver accept)
 // persist and those dialogs do not come back; the driver never writes that trust itself.
@@ -42,8 +44,8 @@
 //      registered it); no harness config is written.
 //   1. Launch through `herdr agent start --kind claude -- <launch[1..]>`. Every dialog is
 //      read from the pane verbatim BEFORE any keystroke reaches it. With --param
-//      accept=human (default) the driver sends nothing and waits for the operator to accept;
-//      with accept=driver it accepts only a dialog it recognizes whose options on screen are
+//      accept=human the driver sends nothing and waits for the operator to accept; with
+//      accept=driver (default) it accepts only a dialog it recognizes whose options on screen are
 //      exactly the ones on record (lib/g1.mjs DIALOG_KINDS), moving the selection one verified
 //      key at a time before Enter (lib/gate-common.mjs driverAcceptDialog). The accept origin
 //      is recorded. A driver-sent accept is never scored as meeting G1 criterion 5
@@ -157,7 +159,7 @@ export default {
     launch: [...G1_LAUNCH],
     timeboxMs: 45 * 60 * 1000, // Box C declared 45 minutes (G1-result.md "Timebox")
     params: {
-      accept: 'human', // kept: criterion 5 is the dev-channels consent step itself (#196 decision); accept=driver is allowed
+      accept: 'driver', // operator decision on #196: G1 fully driver-accepted; criterion 5 then not evaluable; accept=human remains
       startupTimeoutMs: '120000',
       humanAcceptTimeoutMs: '300000',
       handshakeTimeoutMs: '90000',
@@ -200,7 +202,7 @@ export default {
     const g1 = {
       nonVerdictBearing: 'K4 proof of concept: compared against G1 Box C; never changes the G1 verdict',
       acceptPolicy: accept,
-      criterion5Rule: 'A driver-sent accept of the dev-channels dialog is never scored as meeting G1 criterion 5 (scripted-runs.md "Operator-consent dialogs"; kept by the #196 decision, which lets the driver accept dialogs in dev/test runs).',
+      criterion5Rule: 'A driver-sent accept of the dev-channels dialog is never scored as meeting G1 criterion 5 (scripted-runs.md "Operator-consent dialogs"; kept by the #196 decisions, which make accept=driver the default and leave criterion 5 not evaluable on such runs).',
       params: { ...params, ...prompts },
       launch: { expected: [...G1_LAUNCH], actual: launch, verbatim: null },
       versions: null,

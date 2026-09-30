@@ -16,9 +16,10 @@ replaces a supported interface, and it decides nothing.
 **Who runs it.** An agent runs `node tools/herdr/run.mjs` locally; that is the default for
 any live leg, and the point of herdr (operator decision, #187). The human attends only to
 sign in to the harnesses and grant elevation. Since 2026-09-30 (#196) the driver accepts
-Claude Code's trust, MCP-approval and dev-channels dialogs itself in dev/test runs. A human
-accepts a dialog only where a gate criterion is itself that consent step (G1 criterion 5,
-G11; see "Operator-consent dialogs"). No live leg is "operator-typed only". Live runs are not in the default CI suite
+Claude Code's trust, MCP-approval and dev-channels dialogs itself in dev/test runs, G1
+included, and refuses every other dialog. A human accepts a dialog only in a run meant to
+meet a consent-step criterion (G1 criterion 5 under `accept=human`, G11; see
+"Operator-consent dialogs"). No live leg is "operator-typed only". Live runs are not in the default CI suite
 (`oac-testing` §2).
 
 ## Status at K5
@@ -167,8 +168,9 @@ replaces the K5 rule "only a human accept counts". The K5 text is kept, marked s
 at the end of this section.
 
 **The rule.** In dev/test runs the driver accepts Claude Code's workspace-trust, project
-MCP-server-approval and `--dangerously-load-development-channels` dialogs itself.
-`accept=driver` is the default in every scenario except `g1-claude-wake` (see G1 below).
+MCP-server-approval and `--dangerously-load-development-channels` dialogs itself, and
+**only those three**. `accept=driver` is the default in every scenario, `g1-claude-wake`
+included (second operator decision on #196, 2026-09-30: "G1 is fully driver-accepted").
 `accept=human` is still available.
 
 - **Read before any keystroke.** The driver reads the dialog's pane text verbatim
@@ -183,14 +185,20 @@ MCP-server-approval and `--dangerously-load-development-channels` dialogs itself
   Workspace-trust preselects "No, exit" and the MCP dialog preselects "Continue without
   using this MCP server", so the driver moves the selection first. It sends one key at a
   time, each straight after a read, and each move must be confirmed by a fresh read that
-  shows the expected option selected. It sends Enter only after a read shows the accepting
-  option selected. For MCP that option is "Use this MCP server", never "all future MCP
+  shows the recorded options with exactly one selection marker, on the expected option
+  (`selectionCheck` in `lib/g1.mjs`; a read with two markers never counts). It sends Enter
+  only after such a read shows the accepting option selected. Once the option list has
+  started, every non-empty line up to the footer must be a recorded option, whatever its
+  indentation. For MCP that option is "Use this MCP server", never "all future MCP
   servers". Planning: `planDriverAccept` in `tools/herdr/lib/g1.mjs`. Execution:
   `driverAcceptDialog` in `tools/herdr/lib/gate-common.mjs`. A move that does not land
   ends the run `NOT RUN`, and nothing is re-sent.
-- **Codex dialogs.** No Codex dialog's text is on record, so `CODEX_DIALOG_KINDS` lists no
-  options. The driver accepts a Codex dialog only when its accepting option is already
-  preselected.
+- **Every other dialog is refused (#197 review).** A kind with no option text on record is
+  never driver-accepted, whatever is preselected: Claude Code's tool-permission prompt ("Do
+  you want to proceed?"), and every Codex dialog (`CODEX_DIALOG_KINDS` lists no options).
+  The run ends `NOT RUN` with no key sent. A run that may meet one uses `accept=human`.
+  Tool approval is not in #196's scope. Driver-approving it would need its own recorded
+  decision and a security note (`oac-security-work`, permission relay).
 - **Recorded truthfully.** Every key is a `dialog-accept` command in the run manifest.
   Each dialog record carries `acceptOrigin: driver`, `acceptKeys` (key, herdr command seq,
   and the read that verified the move), and `acceptSeq` (the Enter). A driver accept is
@@ -211,17 +219,17 @@ attestation:
   "the plan must not weaken it"). A driver-sent accept of the dev-channels dialog is never
   scored as meeting it. `g1-report.mjs` enforces this: criterion 5 is `not evaluable` when
   the run holds any `dialog-accept` command or ran under a policy other than `human`, and
-  `--score 5=…` is refused. That is why `g1-claude-wake` keeps `accept=human` as its
-  default. `accept=driver` is allowed for dev/test G1 runs, but such a run is never an
-  equivalence record for G1.
+  `--score 5=…` is refused. The operator accepted the consequence (second decision on
+  #196): `g1-claude-wake` defaults to `accept=driver` for all three dialogs, so a default
+  G1 run, including every CI G1 run, has criterion 5 `not evaluable` and is never a G1
+  equivalence record. A G1 run meant to be one uses `--param accept=human`.
 - **G11.** The G11 confirmation ("not bypassed or automated away",
   `docs/planning/backlog/05-tasks-GHIJ.json` G11) is a consent step by definition. This file
   grants no permission to driver-accept it in any test. That stays K8's call and needs a
   recorded operator decision.
-- **Other dialogs.** Tool-permission prompts are UNVERIFIED: no text is on record. The
-  driver accepts one only when its accepting option is preselected. If a criterion later
-  names any dialog as a consent step, the human rule above applies to it until an operator
-  decision says otherwise.
+- **Other dialogs.** Tool-permission prompts and Codex dialogs are never driver-accepted
+  (above). If a criterion later names any dialog as a consent step, the human rule above
+  applies to it until an operator decision says otherwise.
 
 **The origin `human` is inferred.** Under `accept=human` the driver sends no key and waits
 for the screen to change. `acceptOrigin: human` therefore means only that the driver sent
@@ -239,8 +247,8 @@ accept of an operator-consent dialog is never verdict-bearing for G1 criterion 5
 G11 confirmation … Only a human accept counts … Folder trust, project MCP-server approval
 and tool permission … Under `accept=driver` the driver may accept one of them, but only …
 when that dialog's accepting option is already preselected." The G1 criterion 5 and G11
-parts are still in force, as above. The preselected-only limit still applies to the Codex
-dialogs and to tool permission.
+parts are still in force, as above. The preselected-only accept of Codex dialogs and
+tool-permission prompts was withdrawn in the #197 review: those are now refused.
 
 ## Operator attestation
 
@@ -267,7 +275,7 @@ The consent line states who accepted each dialog, exactly as the run manifest re
   step. Dialogs on record: <each dialog, with "accepted by the DRIVER (herdr dialog-accept:
   <keys and seqs>)" or "recorded as human">; each driver accept above was the driver's, not
   mine.`;
-- the driver accepted the consent step itself (G1 `accept=driver`): the line says so. The
+- the driver accepted the consent step itself (G1 `accept=driver`, G1's default): the line says so. The
   record is then not an equivalence record (criterion 5 is `not evaluable`).
 
 An operator never ticks a line that calls a driver accept their own.
@@ -335,8 +343,10 @@ An operator never ticks a line that calls a driver accept their own.
      `acceptKeys` and the `dialog-accept` commands.
 
   A criterion that is *about* a human consent step keeps its human accept and its human
-  attestation: G1 criterion 5, and the G11 confirmation. So an `accept=driver` G1 run is
-  never an equivalence record and never verdict-bearing for G1. G2, G4 and G5 name no
+  attestation: G1 criterion 5, and the G11 confirmation. So an `accept=driver` G1 run
+  (G1's default since the operator's second #196 decision) is never an equivalence record
+  and never verdict-bearing for G1. No other dialog can be driver-accepted at all: the
+  driver refuses it and the run is `NOT RUN`. G2, G4 and G5 name no
   consent step, so for them `accept=driver` and `accept=human` are equally eligible. Their
   accept policy is still part of `scenario.params`, so a verdict-bearing run must use the
   policy of its equivalence record.
