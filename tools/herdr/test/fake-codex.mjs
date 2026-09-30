@@ -42,6 +42,7 @@
 //   FAKE_CODEX_STARTUP_MS      #204: the startup draft lasts N ms (composer shown, no session,
 //                              no loaded thread; a prompt typed then is held) (default 0)
 //   FAKE_CODEX_STARTUP_HANG    1 = the startup draft never ends
+//   FAKE_CODEX_PRELOADED       1 = the daemon starts with another client's thread loaded
 //   FAKE_CODEX_HOOKS_REVIEW    1 = the startup hook review (seen live on 0.159.2, #204) follows
 //                              the draft and holds the session start until answered (esc);
 //                              FAKE_CODEX_SELF_ACCEPT_MS also answers it (stands in for the operator)
@@ -154,6 +155,12 @@ function daemon() {
   const reject = new Set((env.FAKE_CODEX_REJECT || '').split(',').filter(Boolean));
   const originEvents = env.FAKE_CODEX_ORIGIN_EVENTS !== '0';
   const threads = new Map();
+  // FAKE_CODEX_PRELOADED=1 (#205 review): a thread another client (e.g. Codex Desktop) already
+  // has loaded when the daemon starts; never listed, never the TUI's.
+  if (env.FAKE_CODEX_PRELOADED === '1') {
+    const id = '0190bbbb-0000-7000-8000-000000000002';
+    threads.set(id, { id, preview: null, cwd: '/home/someone-else/desktop', status: 'idle', turns: [], queue: [], subscribers: new Set(), loaded: true, tui: null });
+  }
   const conns = new Set();
   const nowSec = () => Math.floor(Date.now() / 1000);
   const saved = { id: '0190aaaa-0000-7000-8000-000000000001', preview: 'PRIVATE unrelated saved session preview', cwd: '/home/someone-else/private-project', path: join(HOME, 'sessions', 'rollout-private.jsonl') };

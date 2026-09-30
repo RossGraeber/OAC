@@ -245,6 +245,18 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
 //     indicator and no "Waiting for startup" footer.
 // The new thread is not proven to be the TUI's (another client of the shared daemon could load
 // one); the marker's thread is still identified afterwards by preview + cwd (identifyTuiThread).
+// The `thread/loaded/list` answer recorded after transcript line `sinceLine` (one poll's own
+// lines): its data, or null when there is none or it is an error. Never an older entry.
+export function loadedSince(loadedLists, sinceLine) {
+  const l = (loadedLists ?? []).filter((x) => x.line > sinceLine).at(-1);
+  return l && !l.error && Array.isArray(l.data) ? l.data : null;
+}
+
+// Findings a scenario records after the ready wait / on its expiry.
+export const CODEX_NOT_ATTACHED_FINDING = 'the Codex TUI showed its composer but no thread new since the launch was loaded in the daemon before the ready wait ran out: the TUI may not have attached to the daemon (G2 criterion 1), or its session never started';
+export const multipleNewThreadsFinding = (n) => `${n} threads new since the launch were loaded in the daemon when the Codex TUI became ready; another client of the shared daemon may have loaded one. The TUI's thread is still identified by the thread marker's preview and the project directory`;
+export const codexReadyTimeoutFinding = (v) => (v?.composer && !v.newThreads?.length && !v.waitingForStartup ? CODEX_NOT_ATTACHED_FINDING : null);
+
 export const CODEX_COMPOSER_IDLE = /^[ \t]*› Ask Codex to do anything[ \t]*\r?$/m;
 export const CODEX_WAITING_FOR_STARTUP = /Waiting for startup/;
 
@@ -259,7 +271,7 @@ export function codexReadiness({ text, screen, loaded, preLoaded }) {
   if (screen?.dialog) why = `a ${screen.dialog} screen is up`;
   else if (waitingForStartup) why = 'the TUI shows "Waiting for startup": a submission made during startup is held until the session is configured and its gates clear (codex-rs/tui/src/chatwidget/startup_submission.rs@rust-v0.159.2)';
   else if (!Array.isArray(loaded)) why = 'the daemon\'s `thread/loaded/list` could not be read';
-  else if (composer && !newThreads.length) why = 'the TUI shows its composer but no thread new since the launch is loaded in the daemon (`thread/loaded/list`): that composer is Codex\'s startup draft, before `thread/start` (codex-rs/tui/src/startup_draft.rs, app/startup.rs@rust-v0.159.2); the session has not started';
+  else if (composer && !newThreads.length) why = 'the TUI shows its composer but no thread new since the launch is loaded in the daemon (`thread/loaded/list`): either the session has not started (that composer is Codex\'s startup draft, before `thread/start`: codex-rs/tui/src/startup_draft.rs, app/startup.rs@rust-v0.159.2), or the TUI is not attached to this daemon (an embedded app-server; G2 criterion 1)';
   else if (!composer && newThreads.length) why = 'a new thread is loaded in the daemon but the TUI does not show its idle composer (another view or overlay holds its input)';
   else if (!composer) why = 'the TUI shows neither its composer nor a known startup screen, and no new thread is loaded in the daemon';
   else if (screen?.busy) why = 'the TUI shows the in-progress indicator';
@@ -273,7 +285,12 @@ export function codexReadiness({ text, screen, loaded, preLoaded }) {
 // naming the last blocker; nothing is typed, so nothing is ever re-sent.
 //   read(label, opts) -> classified read; listLoaded() -> string[] | null;
 //   stop(reason) throws; returns { readSeq, newThreads, polls, waitedMs, observations }.
-export async function waitCodexReady({ read, handleDialog, listLoaded, preLoaded, timeoutMs, pollMs, remainingMs, stop, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() }) {
+//   preLoaded must be the pre-launch baseline read from the pre-launch list's own lines: an
+//   unreadable baseline (null) stops the run, because falling back to [] would count any thread
+//   already loaded (e.g. by Codex Desktop) as new, a false "ready" (#205 review).
+//   onTimeout(v) runs before the stop on expiry (e.g. to record a finding).
+export async function waitCodexReady({ read, handleDialog, listLoaded, preLoaded, timeoutMs, pollMs, remainingMs, stop, onTimeout = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() }) {
+  if (!Array.isArray(preLoaded)) stop('the daemon\'s pre-launch `thread/loaded/list` could not be read, so a thread new since the launch cannot be told apart; the Codex session\'s readiness cannot be verified and nothing is typed');
   const t0 = now();
   let deadline = t0 + Math.min(timeoutMs, Math.max(0, remainingMs()));
   const observations = [];
@@ -293,6 +310,7 @@ export async function waitCodexReady({ read, handleDialog, listLoaded, preLoaded
     if (!last || last.why !== v.why) observations.push({ atMs: now() - t0, readSeq: r.seq, why: v.why, newThreads: v.newThreads.length });
     if (v.ready) return { readSeq: r.seq, newThreads: v.newThreads, polls, waitedMs: now() - t0, observations };
     if (now() + pollMs >= deadline) {
+      onTimeout?.(v);
       stop(`the Codex TUI session was not ready within ${timeoutMs} ms of its startup (or the box ran out), so the thread marker was not typed: ${v.why}; nothing typed, nothing re-sent`);
     }
     await sleep(pollMs);

@@ -87,7 +87,7 @@ import { driverAcceptDialog } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, processArgv, codexLaunchProof, parseG2Transcript,
-  g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS, waitCodexReady,
+  g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
 } from '../lib/g2.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -479,7 +479,9 @@ export default {
       const pre = await runClient('list', []);
       const preConn = clientProblems(pre).connections[0];
       const preFacts = facts();
-      g2.preLaunch = { run: g2.clientRuns.length - 1, loaded: preFacts.loadedLists.filter((l) => l.line > pre.linesBefore).at(-1)?.data ?? null };
+      g2.preLaunch = { run: g2.clientRuns.length - 1, loaded: loadedSince(preFacts.loadedLists, pre.linesBefore) };
+      // #205 review: the ready wait needs this baseline; without it nothing is launched.
+      if (g2.preLaunch.loaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; nothing launched');
       g2.versions.wireUserAgent = preConn.userAgent;
       g2.versions.wire = preConn.userAgentVersion;
       const wireTrigger = codexPinMoveTrigger({ observed: preConn.userAgentVersion, lastObserved: pin.lastObserved, source: 'the wire initialize userAgent' });
@@ -511,18 +513,19 @@ export default {
       const ready = await waitCodexReady({
         read,
         handleDialog,
-        listLoaded: async () => {
-          await runClient('list', []);
-          const l = facts().loadedLists.at(-1);
-          return l && !l.error ? l.data : null;
-        },
-        preLoaded: g2.preLaunch.loaded ?? [],
+        listLoaded: async () => loadedSince(facts().loadedLists, (await runClient('list', [])).linesBefore),
+        preLoaded: g2.preLaunch.loaded,
         timeoutMs: num('readyTimeoutMs'),
         pollMs: num('listPollMs'),
         remainingMs: () => ctx.remainingMs(),
         stop,
+        onTimeout: (v) => {
+          const f = codexReadyTimeoutFinding(v);
+          if (f) ctx.finding(f);
+        },
       });
       g2.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
+      if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
 
       // --- 4. the operator's own message; find the TUI's thread on the wire ----------------
       const res = await herdr.agentPrompt(AGENT, operatorPrompt);

@@ -1159,6 +1159,25 @@ export async function l3Cases(check, h) {
     }
   }
 
+  // --- #205 review: accept=human and the hook review: answered by the operator, recorded ---
+  {
+    const w = l3World(h, { accept: 'human' });
+    try {
+      const base = w.drive('baseline');
+      // The fake self-answers the review with esc ("Continue without trusting") after 1 s,
+      // standing in for the operator.
+      const p = w.drive('probe', ['--param', `baselineRun=${base.out}`, '--param', 'readSessionFile=false'], { FAKE_CODEX_HOOKS_REVIEW: '1' });
+      const m = p.manifest;
+      const l3 = m?.scenarioData?.l3;
+      const d = (l3?.dialogs ?? []).find((x) => x.kind === 'hooks-review');
+      check('l3 #205 human hook review: PASS; the review answered outside the driver (no key sent); a finding says Beacon\'s SessionStart hook may not have run', p.status === 0 && d?.acceptOrigin === 'human' && !m.commands.some((x) => x.role === 'dialog-accept') && m.findings.some((f) => /hook review was on screen and answered by the operator/.test(f) && /Continue without trusting/.test(f) && /SessionStart hook/.test(f)) && !!l3.thread?.id, `${p.status} ${m?.outcomeReason} ${JSON.stringify(m?.findings)}`);
+    } catch (err) {
+      check('l3 #205 human hook review: assertions ran', false, err.stack);
+    } finally {
+      w.cleanup();
+    }
+  }
+
   const gsAfter = gateServerHashes();
   check('l3: the committed tools/herdr/gate-servers/ files are byte-unchanged after every L3 run', JSON.stringify(gsBefore) === JSON.stringify(gsAfter));
 }

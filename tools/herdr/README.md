@@ -83,7 +83,12 @@ the run ends `NOT RUN` naming the blocker; nothing is typed or re-sent. Codex's 
 review ("Hooks need review", shown while any hook in the Codex hooks config is new or changed)
 and the hooks browser it opens are recognized kinds that the driver **never** answers: trusting
 a hook is the operator's decision. Review and trust the hooks in a Codex session of your own
-(`/hooks`) before the run, or run with `accept=human` and answer the review yourself.
+(`/hooks`) before the run, or run with `accept=human` and answer the review yourself. Under
+`accept=human`, L3 records a finding whenever the review was answered: the driver cannot see
+the choice, and "Continue without trusting" means Beacon's SessionStart hook did not run. For
+information only, not recommended and never set by the driver: Codex also skips this review when
+its config sets `bypass_hook_trust` (read as `config.bypass_hook_trust` in
+`codex-rs/tui/src/lib.rs@rust-v0.159.2`).
 
 `g1-claude-wake` defaults to `accept=driver` too, per the operator's second decision on #196.
 G1 criterion 5 is the dev-channels consent step itself, so on such a run it is `not
