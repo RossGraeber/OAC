@@ -574,11 +574,18 @@ function l3ReportReviewUnit(check, markers, fx, noValue) {
     check(`l3 report (review 6): Beacon ${bv.split(' ').pop()} is not the ${'1.3.29'} pin (B0 FINDING)`, !bd.err && lineFor(bd.text, 'B0').includes('FINDING') && bd.text.includes('Beacon version differs from the L1 §2 pin'));
   }
 
-  // 7. A phase that started before the box was declared.
-  const early = l3Runs(markers, fx);
-  for (const p of ['baseline', 'probe', 'verify']) early[p].manifest.scenarioData.l3.box.start = at(50);
-  const ed = tryDraft(early, { markers });
-  check('l3 report (review 7): phases that started before box.start are NOT RUN', !ed.err && ['B0', 'B2', 'B7'].every((id) => lineFor(ed.text, id).includes('before the L3 box was declared')), ed.err?.message);
+  // 7. Box declaration vs. phase starts. The baseline opens the box: run.mjs records its
+  // timebox.start before setup, so box.start lands slightly after it.
+  const boxAt = (runs, iso) => {
+    for (const p of ['baseline', 'probe', 'verify']) runs[p].manifest.scenarioData.l3.box.start = iso;
+    return runs;
+  };
+  const late2s = tryDraft(boxAt(l3Runs(markers, fx), new Date(T0 + 2000).toISOString()), { markers });
+  check('l3 report (review 7): a box declared 2 s after the baseline run started leaves B0 evaluated (PASS), and later phases too', !late2s.err && lineFor(late2s.text, 'B0').includes(':** PASS —') && lineFor(late2s.text, 'B2').includes(':** PASS —') && lineFor(late2s.text, 'B7').includes(':** PASS —'), late2s.err?.message);
+  const pre = tryDraft(boxAt(l3Runs(markers, fx), at(12)), { markers });
+  check('l3 report (review 7): a probe that started before box.start makes B2-B4 NOT RUN', !pre.err && ['B2', 'B3', 'B4'].every((id) => lineFor(pre.text, id).includes('the probe run started') && lineFor(pre.text, id).includes('before the L3 box was declared')), pre.err?.message);
+  const afterBase = tryDraft(boxAt(l3Runs(markers, fx), at(6)), { markers });
+  check('l3 report (review 7): a box declared after the baseline run ended makes B0 NOT RUN', !afterBase.err && lineFor(afterBase.text, 'B0').includes(':** NOT RUN — the L3 box was declared') && lineFor(afterBase.text, 'B0').includes('after the baseline run ended'), afterBase.err?.message);
 
   // 8. Unzoned timestamps count as not recorded.
   const uz = tryDraft(l3Runs(markers, fx, { verifyEnd: '2026-09-30T10:59:00' }), { markers });

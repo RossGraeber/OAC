@@ -160,7 +160,12 @@ function phaseBlock(phase, run, box, baseline) {
   const start = ms(m.timebox?.start);
   const end = ms(m.timebox?.end);
   if (!Number.isFinite(start) || !Number.isFinite(end)) return `the ${phase} run's start or end is not recorded as a zone-qualified ISO time, so the L3 box cannot be checked`;
-  if (start < box.startMs) return `the ${phase} run started ${m.timebox.start}, before the L3 box was declared (${box.start})`;
+  // The baseline run opens the box: run.mjs records its timebox.start before setup, so the
+  // scenario declares box.start slightly later. The baseline is refused only when the box was
+  // declared after the baseline run had ended. Probe and verify must start inside the box.
+  if (phase === 'baseline') {
+    if (box.startMs > end) return `the L3 box was declared (${box.start}) after the baseline run ended ${m.timebox.end}`;
+  } else if (start < box.startMs) return `the ${phase} run started ${m.timebox.start}, before the L3 box was declared (${box.start})`;
   if (end > box.endMs) return `L3 box expired: the ${phase} run ended ${m.timebox.end}, after the box ended ${box.end}`;
   if (phase !== 'baseline') {
     const b = run.record?.box;
