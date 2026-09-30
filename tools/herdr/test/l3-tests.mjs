@@ -393,7 +393,7 @@ function l3ReportUnit(check) {
   check('l3 report: poll path NOT RUN for a record without the sync --print field (pre-#195 record)', d.includes('`beacon endpoint claude sync --print`) at B2: NOT RUN (this record carries no poll-path result') && d.includes('`beacon endpoint codex sync --print`) at B4: NOT RUN') && d.includes('### Not recorded by the probe record') && /`sync --print` poll-path counts/.test(d));
   check('l3 report: header carries versions, pins, date, box and each phase\'s start and end', d.includes('- **Date:** 2026-09-30') && d.includes('`beacon version 1.3.29`') && d.includes('PINS.md last observed `2.1.284`') && d.includes(`ends ${at(60)}`) && d.includes(`\`${at(10)}\` to \`${at(30)}\``));
   check('l3 report: Driver lines as g1-report renders them, plus toolsHerdrDirty', d.includes('- **Driver (probe):** herdr (`herdr 0.9.1`, PINS.md `herdr (test tooling)` v0.9.1) via `tools/herdr/run.mjs`, scenario `tools/herdr/scenarios/l3-beacon.mjs`, driver commit') && d.includes('`driver.toolsHerdrDirty`: false'));
-  check('l3 report: states herdr-driven, accept=human, not a gate result', /herdr-driven/.test(d) && d.includes('`accept=human`') && /not a gate result/.test(d) && /changes no verdict/.test(d));
+  check('l3 report: states herdr-driven, accept=human per phase, not a gate result', /herdr-driven/.test(d) && d.includes('probe `accept=human` (the driver sent no dialog key)') && d.includes('accepted by me, a human at the keyboard') && /not a gate result/.test(d) && /changes no verdict/.test(d));
   check('l3 report: operator attestation present and unticked, naming Beacon', d.includes('### Operator attestation') && (d.match(/^- \[ \] /gm) ?? []).length === 4 && !/^- \[x\]/im.test(d) && d.includes('**Beacon:**') && d.includes('**Attested by:** <operator>'));
   check('l3 report: no probe value, raw log text, config content, home path or username in the draft', noValue(d) && !d.includes(LOG_CANARY) && !d.includes(CONFIG_CANARY) && !d.includes(homedir()) && !(userName.length >= 4 && d.toLowerCase().includes(userName.toLowerCase())));
   check('l3 report: the draft scans clean (redactor, placeholders neutralized)', clean(createRedactor(), d));
@@ -551,15 +551,30 @@ function l3ReportReviewUnit(check, markers, fx, noValue) {
     rmSync(tmp, { recursive: true, force: true });
   }
 
-  // 2. An accept policy other than exactly `human` (absent included) is not reported as human.
-  for (const [what, accept] of [['absent', undefined], ['"driver "', 'driver '], ['"Human"', 'Human']]) {
+  // 2. An accept policy other than exactly `human` or exactly `driver` (absent included), or a
+  // `human` run holding a dialog-accept command, is never reported as a human accept (#196).
+  for (const [what, accept, cmd] of [['absent', undefined], ['"driver "', 'driver '], ['"Human"', 'Human'], ['human with a dialog-accept command', 'human', true]]) {
     const a = l3Runs(markers, fx);
     for (const p of ['baseline', 'probe', 'verify']) {
       if (accept === undefined) delete a[p].manifest.scenario.params.accept;
       else a[p].manifest.scenario.params.accept = accept;
+      if (cmd) a[p].manifest.commands.push({ seq: 7, role: 'dialog-accept', argv: ['herdr', 'agent', 'send-keys', 'l3claude', 'enter'] });
     }
     const ad = tryDraft(a, { markers });
-    check(`l3 report (review 2): accept policy ${what} is flagged as not human`, !ad.err && ad.text.includes('whose accept policy is not `human`') && ad.text.includes('accept policy not `human`') && !ad.text.includes('every phase run records accept policy `human`'), ad.err?.message);
+    check(`l3 report (review 2): accept policy ${what} is reported as origin not established, never as human`, !ad.err && ad.text.includes('accept origin NOT established') && ad.text.includes('accept origin not established in the baseline, probe, verify run(s)') && !ad.text.includes('accepted by me, a human') && !ad.text.includes('`accept=human` (the driver sent no dialog key)'), ad.err?.message);
+  }
+  // #196: a driver-accepted probe is rendered as the driver's, with its keys, everywhere.
+  {
+    const a = l3Runs(markers, fx);
+    for (const p of ['baseline', 'probe', 'verify']) a[p].manifest.scenario.params.accept = 'driver';
+    a.probe.manifest.scenarioData.l3.acceptPolicy = 'driver';
+    a.probe.manifest.scenarioData.l3.dialogs = [
+      { agent: 'claude', kind: 'workspace-trust', readSeq: 11, acceptOrigin: 'driver', acceptSeq: 14, acceptKeys: [{ key: 'down', seq: 12 }, { key: 'enter', seq: 14 }] },
+      { agent: 'claude', kind: 'dev-channels', readSeq: 20, acceptOrigin: 'driver', acceptSeq: 21, acceptKeys: [{ key: 'enter', seq: 21 }] },
+    ];
+    const dd = tryDraft(a, { markers });
+    const t = dd.text ?? '';
+    check('l3 report #196: accept=driver runs are stated as driver accepts (header, finding, attestation), never as a human\'s', !dd.err && t.includes('probe `accept=driver` (accepted by the driver, #196)') && t.includes('accepted by the DRIVER, not by a human: claude workspace-trust (read #11; accepted by the DRIVER (herdr dialog-accept: down #12, enter #14))') && /- \[ \] \*\*Consent dialog:\*\* accepted by the DRIVER \(`accept=driver`, #196\), not by me/.test(t) && !t.includes('accepted by me, a human'), dd.err?.message ?? t.split('\n').filter((l) => /DRIVER|accept/.test(l)).join(' || '));
   }
 
   // 3. Free text cannot forge a step line.
@@ -710,7 +725,7 @@ export async function l3ScenarioUnit(check) {
   check('l3b beacon: the status side effects are recorded as audited, not as UNVERIFIED', /loopback probes to 4317\/4318\/13133/.test(STATUS_SIDE_EFFECTS) && /--version/.test(STATUS_SIDE_EFFECTS) && !src.includes('UNVERIFIED: that `beacon version`'));
   check('l3b: the scenario header says LIVE STATUS: UNVERIFIED and carries the three phase commands', /LIVE STATUS: UNVERIFIED/.test(src) && ['phase=baseline', 'phase=probe', 'phase=verify'].every((p) => src.includes(`--param ${p}`)));
   check('l3b: l3-beacon is not a CI scenario', !CI_SCENARIOS.includes('l3-beacon') && JSON.stringify(CI_SCENARIOS) === JSON.stringify(['smoke', 'g1-claude-wake']));
-  check('l3b: scenario defaults: the G5 launch, a 60-minute box, accept=human, readonly Beacon CLI', l3Scenario.name === 'l3-beacon' && JSON.stringify(l3Scenario.harnesses) === '["claude","codex"]' && l3Scenario.defaults.timeboxMs === L3_BOX_MS && L3_BOX_MS === 3600000 && l3Scenario.defaults.params.accept === 'human' && l3Scenario.defaults.params.beaconCli === 'readonly' && l3Scenario.defaults.launch.join(' ') === 'claude --dangerously-load-development-channels server:g5spike');
+  check('l3b: scenario defaults: the G5 launch, a 60-minute box, accept=driver (#196), readonly Beacon CLI', l3Scenario.name === 'l3-beacon' && JSON.stringify(l3Scenario.harnesses) === '["claude","codex"]' && l3Scenario.defaults.timeboxMs === L3_BOX_MS && L3_BOX_MS === 3600000 && l3Scenario.defaults.params.accept === 'driver' && l3Scenario.defaults.params.beaconCli === 'readonly' && l3Scenario.defaults.launch.join(' ') === 'claude --dangerously-load-development-channels server:g5spike');
   check('l3b: no harness-config write in the scenario (JS write API on a config path)', !/(?:writeFile|appendFile|copyFile|rename|rm|unlink)\w*\([^)]*(?:settings\.json|config\.toml|hooks\.json|\.claude\.json)/.test(code));
 
   // --- parsers ---
@@ -805,7 +820,11 @@ const gateServerHashes = () => Object.fromEntries(readdirSync(GATE_SERVERS).sort
 
 // One machine: a fake $HOME with synthetic harness config at Beacon's fixed paths, the harness
 // doubles and fake-beacon on PATH, and a fake Beacon runtime log.
-function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog = true, syncHistoryBytes = 0 } = {}) {
+// accept: the scenario's accept policy for every phase. `driver` (the default since #196): the
+// fakes never accept their own dialogs, so the driver must. `human`: the fakes self-accept after
+// 1 s (standing in for the operator) and the driver sends nothing. claudeDialogs: fake-claude's
+// FAKE_CLAUDE_DIALOG (default: the dev-channels dialog alone).
+function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog = true, syncHistoryBytes = 0, accept = 'driver', claudeDialogs = null } = {}) {
   const b = h.makeBase();
   const home = join(b.base, 'home');
   mkdirSync(home);
@@ -834,8 +853,10 @@ function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog =
     ...codexEnv,
     HOME: home,
     FAKE_BEACON_CALLS: calls,
-    FAKE_CLAUDE_SELF_ACCEPT_MS: '1000',
-    FAKE_CODEX_SELF_ACCEPT_MS: '1000',
+    // Under accept=driver the fake Codex shows no trust dialog: the driver refuses every Codex
+    // dialog (no option text on record, #197 review), which would end the probe NOT RUN.
+    ...(accept === 'human' ? { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000', FAKE_CODEX_SELF_ACCEPT_MS: '1000' } : { FAKE_CODEX_DIALOG: 'none' }),
+    ...(claudeDialogs ? { FAKE_CLAUDE_DIALOG: claudeDialogs } : {}),
     FAKE_CLAUDE_SESSION_FILE: '1',
     FAKE_CODEX_LONG_MS: '4500',
     ...(syncHistoryBytes ? { FAKE_BEACON_SYNC_HISTORY_BYTES: String(syncHistoryBytes) } : {}),
@@ -847,7 +868,7 @@ function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog =
     const tag = `${phase}-${++n}`;
     const bp = { ...b, state: join(b.base, `herdr-state-${tag}`) };
     const out = join(b.base, `out-${tag}`);
-    const res = spawnSync(process.execPath, [h.RUN, '--scenario', 'l3-beacon', '--herdr-bin', h.FAKE, '--out', out, '--param', `phase=${phase}`, '--param', `beaconBin=${beaconBin}`, '--param', `beaconLog=${log}`, ...FAST, ...args], {
+    const res = spawnSync(process.execPath, [h.RUN, '--scenario', 'l3-beacon', '--herdr-bin', h.FAKE, '--out', out, '--param', `phase=${phase}`, '--param', `beaconBin=${beaconBin}`, '--param', `beaconLog=${log}`, '--param', `accept=${accept}`, ...FAST, ...args], {
       env: h.driverEnv(bp, 'fake-claude,fake-codex', { ...env, ...extraEnv }),
       encoding: 'utf8',
       timeout: 240000,
@@ -907,7 +928,9 @@ export async function l3Cases(check, h) {
 
   // --- happy path, all three phases, traced ---
   {
-    const w = l3World(h, { trace: true, syncHistoryBytes: 9 * 1024 * 1024 + 4096 });
+    // #196: Claude Code's three dialogs in the live order, each with its live preselection; the
+    // driver (the default policy) accepts them.
+    const w = l3World(h, { trace: true, syncHistoryBytes: 9 * 1024 * 1024 + 4096, claudeDialogs: 'workspace-trust,mcp-server-approval,dev-channels' });
     try {
       const base = w.drive('baseline');
       const bm = base.manifest;
@@ -927,7 +950,7 @@ export async function l3Cases(check, h) {
         check('l3 probe: three probe markers recorded as ids and hashes only', l3.markers.length === 3 && l3.markers.every((m) => /^[0-9a-f]{64}$/.test(m.markerSha256) && /^[0-9a-f]{64}$/.test(m.tokenSha256) && Object.keys(m).length === 3));
         check('l3 probe: only the staged case table was augmented; the committed one is unchanged', l3.staging.casesAugmentedSha256 !== l3.staging.casesStagedSha256 && l3.staging.committedCasesUnchanged === true && l3.staging.files.every((f) => /^tools\/herdr\/gate-servers\//.test(f.path)));
         const bm2 = l3.steps.B2.log.cumulative.byMarker;
-        check('l3 probe B2: the channel probe reached the (fake) Beacon log; the fake token appears verbatim; the dialog was accepted by the human (fake self-accept)', bm2['claude-channel'].lines >= 1 && bm2['claude-channel'].tokenVerbatimLines >= 1 && l3.steps.B2.dialogs.length >= 1 && l3.steps.B2.dialogs.every((d) => d.acceptOrigin === 'human'), JSON.stringify({ bm2, dialogs: l3.steps.B2.dialogs }));
+        check('l3 probe B2: the channel probe reached the (fake) Beacon log; the fake token appears verbatim; trust, MCP and dev-channels dialogs accepted by the DRIVER (#196: down,enter / up,up,enter / enter)', bm2['claude-channel'].lines >= 1 && bm2['claude-channel'].tokenVerbatimLines >= 1 && l3.steps.B2.dialogs.map((d) => `${d.kind}:${d.acceptOrigin}:${d.acceptKeys.join(',')}`).join(' ') === 'workspace-trust:driver:down,enter mcp-server-approval:driver:up,up,enter dev-channels:driver:enter', JSON.stringify({ bm2, dialogs: l3.steps.B2.dialogs }));
         check('l3 probe B3: the reply tool was called with the probe marker (in-process check); B3 counted separately from B2', l3.steps.B3.replyToolCalls === 1 && l3.steps.B3.replyArgsCarryMarker === true && l3.steps.B3.log.delta.byMarker['claude-channel'].actions.includes('mcp.tool_invoked') && !l3.steps.B2.log.cumulative.byMarker['claude-channel'].actions.includes('mcp.tool_invoked'), JSON.stringify(l3.steps.B3.log.delta.byMarker['claude-channel']));
         check('l3 probe B4: turn/start and thread/queue/add both completed and both reached the (fake) log', l3.steps.B4.turnStart.status === 'completed' && l3.steps.B4.queueAdd.status === 'completed' && l3.steps.B4.turnStart.recordedByteIdentical && l3.scan.byMarker['codex-turn-start'].lines >= 1 && l3.scan.byMarker['codex-queue-add'].lines >= 1);
         check('l3 probe: poll-path counts from sync --print for B2 and B4, streamed past 9 MB of older history printed first (the probe session last)', l3.beacon.sync.B2.status === 'recorded' && l3.beacon.sync.B2.streamed === true && l3.beacon.sync.B2.bytes > 9 * 1024 * 1024 && l3.beacon.sync.B2.lines > 15000 && l3.beacon.sync.B2.byMarker['claude-channel'].lines >= 1 && l3.beacon.sync.B2.byMarker['claude-channel'].collectionMethods.includes('poll') && l3.beacon.sync.B4.byMarker['codex-turn-start'].lines >= 1 && l3.beacon.sync.B4.bytes > 9 * 1024 * 1024 && l3.beacon.sync.B4.truncated === false, JSON.stringify({ ...l3.beacon.sync.B2, bySession: undefined, byMarker: undefined, counts: undefined }));
@@ -937,7 +960,7 @@ export async function l3Cases(check, h) {
         check('l3 probe: the status side effects are recorded', /no writes/.test(l3.beacon.status.sideEffects) && /4317/.test(l3.beacon.status.sideEffects));
         check('l3 probe: no pin drift at the PINS.md versions', !pm.findings.some((f) => /pin drift/.test(f)) && l3.versions.pins.claude.differs === false && l3.versions.pins.codex.differs === false, JSON.stringify(pm.findings));
         check('l3 probe: captures written clean, none fixture-shaped', pm.captures.length === 4 && pm.captures.every((c) => c.written && /^l3-/.test(c.file) && !/-herdr\./.test(c.file)), JSON.stringify(pm.captures.map((c) => [c.file, c.written])));
-        check('l3 probe (L3c contract): accept policy, per-action/per-path counts, poll-path counts, probe session ids recorded', l3.acceptPolicy === 'human' && l3.scan.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.scan.counts['claude-channel'].byAction['prompt.submitted'] >= 1 && l3.scan.counts['claude-channel'].tokenLines >= 1 && Object.keys(l3.scan.counts['codex-queue-add'].byPath).includes('prompt.text') && l3.beacon.sync.B4.counts['codex-queue-add'].markerLines >= 1 && l3.beacon.sync.B2.harness === 'claude' && l3.steps.B3.log.delta.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.probeSessions.claude.length === 1 && l3.probeSessions.codex[0] === l3.thread.id && l3.scan.bySession.filter((s) => s.markerIds.length).every((s) => [...l3.probeSessions.claude, ...l3.probeSessions.codex].includes(s.sessionId)), JSON.stringify({ counts: l3.scan.counts, probeSessions: l3.probeSessions }));
+        check('l3 probe (L3c contract): accept policy, per-action/per-path counts, poll-path counts, probe session ids recorded', l3.acceptPolicy === 'driver' && l3.scan.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.scan.counts['claude-channel'].byAction['prompt.submitted'] >= 1 && l3.scan.counts['claude-channel'].tokenLines >= 1 && Object.keys(l3.scan.counts['codex-queue-add'].byPath).includes('prompt.text') && l3.beacon.sync.B4.counts['codex-queue-add'].markerLines >= 1 && l3.beacon.sync.B2.harness === 'claude' && l3.steps.B3.log.delta.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.probeSessions.claude.length === 1 && l3.probeSessions.codex[0] === l3.thread.id && l3.scan.bySession.filter((s) => s.markerIds.length).every((s) => [...l3.probeSessions.claude, ...l3.probeSessions.codex].includes(s.sessionId)), JSON.stringify({ counts: l3.scan.counts, probeSessions: l3.probeSessions }));
         check('l3 probe: typed text was only the reply prompt and the thread marker', probe.prompts.map((p) => p.text).sort().join('|') === [DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER].sort().join('|'));
       }
 
@@ -1057,11 +1080,12 @@ export async function l3Cases(check, h) {
 
   // --- zero hits is a result, not a failure; beaconCli=off runs no Beacon command ---
   {
-    const w = l3World(h, { harnessWritesLog: false });
+    const w = l3World(h, { harnessWritesLog: false, accept: 'human' });
     try {
       const base = w.drive('baseline');
       const p = w.drive('probe', ['--param', `baselineRun=${base.out}`]);
       const l3 = p.manifest?.scenarioData?.l3;
+      check('l3 accept=human (still available): the driver sent no dialog key; the dialog is recorded as accepted outside the driver', p.manifest?.scenarioData?.l3?.acceptPolicy === 'human' && !(p.manifest?.commands ?? []).some((c) => c.role === 'dialog-accept') && (l3?.steps?.B2?.dialogs ?? []).length >= 1 && l3.steps.B2.dialogs.every((d) => d.acceptOrigin === 'human'), JSON.stringify(l3?.steps?.B2?.dialogs));
       check('l3 zero hits: PASS with zero hits on every path, recorded, not NOT RUN', p.status === 0 && p.manifest.outcome === 'PASS' && Object.values(l3.scan.byMarker).every((x) => x.lines === 0) && l3.scan.hitCount === 0 && l3.steps.B2.log.hitSeenAfterMs === null, `${p.status} ${p.manifest?.outcomeReason}`);
       const before = w.beaconCalls().length;
       const off = w.drive('baseline', ['--param', 'beaconCli=off', '--param', 'beaconVersion=1.3.29', '--param', 'beaconBin=']);

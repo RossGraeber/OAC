@@ -15,16 +15,21 @@
 //
 //   node tools/herdr/run.mjs --scenario g1-claude-wake \
 //     --launch '["claude","--dangerously-load-development-channels","server:g1spike"]' \
-//     --param accept=human --out <run dir>
+//     --out <run dir>
 //   node tools/herdr/lib/g1-report.mjs --run <run dir>            # draft comparison
 //
-// Unattended runs: Claude Code's folder-trust dialog preselects "No, exit", so the driver
-// never accepts it (#156). Create a directory outside the repository and pass it on every
-// run: --param projectDir=<absolute path>. Make the first such run with accept=human and
-// accept the folder-trust and MCP-server dialogs yourself; Claude Code remembers both for
-// that directory, so later runs (accept=driver) do not show them.
-// The dev-channels dialog still appears on every run; a driver accept of it is recorded
-// and never scored as meeting criterion 5.
+// Accept policy (#196, docs/planning/decisions/K-196-driver-accepts-dialogs.md). The default is
+// accept=driver: the driver accepts Claude Code's folder-trust ("No, exit" preselected: it
+// moves down to "Yes, I trust this folder", verified by a read, then Enter), project-MCP-server
+// ("Continue without…" preselected: up, up to "Use this MCP server") and dev-channels dialogs,
+// and records each accept as `driver`. Any other dialog (tool permission, anything not on
+// record) is refused: NOT RUN, no key. Operator decision on #196 (2026-09-30): G1 is fully
+// driver-accepted by default; criterion 5 (the dev-channels consent step) is then `not
+// evaluable`, so such a run is never a G1 equivalence record. For a run that is meant to be
+// one, pass --param accept=human: the driver then sends no key and the operator accepts.
+// Optional: --param projectDir=<absolute path outside the repository> reuses one directory, so
+// a folder trust and MCP approval Claude Code recorded for it (after a human or driver accept)
+// persist and those dialogs do not come back; the driver never writes that trust itself.
 //
 // What it does, in Box C's order:
 //   0. Preflight. The launch must be G1's, verbatim. `claude --version` must equal the
@@ -39,10 +44,12 @@
 //      registered it); no harness config is written.
 //   1. Launch through `herdr agent start --kind claude -- <launch[1..]>`. Every dialog is
 //      read from the pane verbatim BEFORE any keystroke reaches it. With --param
-//      accept=human (default) the driver sends nothing and waits for the operator to accept;
-//      with accept=driver it accepts only a dialog it recognizes, only when the dialog's own
-//      preselected option is the accepting one. The accept origin is recorded. A
-//      driver-sent accept is never scored as meeting G1 criterion 5 (lib/g1-report.mjs).
+//      accept=human the driver sends nothing and waits for the operator to accept; with
+//      accept=driver (default) it accepts only a dialog it recognizes whose options on screen are
+//      exactly the ones on record (lib/g1.mjs DIALOG_KINDS), moving the selection one verified
+//      key at a time before Enter (lib/gate-common.mjs driverAcceptDialog). The accept origin
+//      is recorded. A driver-sent accept is never scored as meeting G1 criterion 5
+//      (lib/g1-report.mjs).
 //   2. Wait for the channel-server handshake on the wire; the wire clientInfo.version must
 //      equal the CLI version (else pin-move trigger, NOT RUN).
 //   3. Idle wake: `wake.trigger` is touched (the channel server's own trigger -- herdr never
@@ -74,6 +81,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
+import { driverAcceptDialog } from '../lib/gate-common.mjs';
 import {
   G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
   formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText, sameDialog, acceptHint,
@@ -110,10 +118,10 @@ export function assertNotInjected(label, text) {
   }
 }
 
-// --param projectDir: an existing directory the operator trusts in Claude Code by hand (on a
-// first accept=human run), reused across runs so the folder-trust dialog (whose preselected
-// option is "No, exit", #156) does not come up and a run can be unattended. The driver never
-// records that trust itself. It writes only the scenario's own `.mcp.json` there, and
+// --param projectDir: an existing directory, reused across runs so that once Claude Code has
+// recorded its folder trust (after an accept by a human, or by the driver under accept=driver,
+// #196) the folder-trust dialog does not come up again. Optional friction reducer only. The
+// driver never records that trust itself (Claude Code does, in its own state). It writes only the scenario's own `.mcp.json` there, and
 // refuses a directory inside this repository or one whose `.mcp.json` registers anything
 // but `g1spike`.
 export function operatorProjectDir(dir) {
@@ -151,7 +159,7 @@ export default {
     launch: [...G1_LAUNCH],
     timeboxMs: 45 * 60 * 1000, // Box C declared 45 minutes (G1-result.md "Timebox")
     params: {
-      accept: 'human',
+      accept: 'driver', // operator decision on #196: G1 fully driver-accepted; criterion 5 then not evaluable; accept=human remains
       startupTimeoutMs: '120000',
       humanAcceptTimeoutMs: '300000',
       handshakeTimeoutMs: '90000',
@@ -194,7 +202,7 @@ export default {
     const g1 = {
       nonVerdictBearing: 'K4 proof of concept: compared against G1 Box C; never changes the G1 verdict',
       acceptPolicy: accept,
-      criterion5Rule: 'A driver-sent accept of the dev-channels dialog is never scored as meeting G1 criterion 5 (K4; K5 states the rule from a recorded operator decision).',
+      criterion5Rule: 'A driver-sent accept of the dev-channels dialog is never scored as meeting G1 criterion 5 (scripted-runs.md "Operator-consent dialogs"; kept by the #196 decisions, which make accept=driver the default and leave criterion 5 not evaluable on such runs).',
       params: { ...params, ...prompts },
       launch: { expected: [...G1_LAUNCH], actual: launch, verbatim: null },
       versions: null,
@@ -282,16 +290,9 @@ export default {
       if (kind === 'dev-channels') g1.devChannelsDialogSeen = true;
       g1.dialogs.push(d);
       if (accept === 'driver') {
-        const may = driverMayAccept(r.screen);
-        if (!may.ok) {
-          d.acceptOrigin = 'none (driver refused)';
-          stop(`dialog ${d.index} (${kind}): ${may.why}; the driver did not accept it`);
-        }
-        const res = await herdr.dialogAccept(AGENT, ['enter']); // refused unless the last command on AGENT was this read
-        d.acceptOrigin = 'driver';
-        d.acceptSeq = res.entry.seq;
-        d.acceptAt = res.entry.startedAt;
-        d.inputBetweenReadAndAccept = herdr.commands.filter((c) => c.seq > r.seq && c.seq < res.entry.seq && INPUT_ROLES.has(c.role)).length;
+        // Every key is sent straight after a read of AGENT; selection moves are verified by
+        // reads; Enter only on the accepting option (lib/gate-common.mjs driverAcceptDialog).
+        await driverAcceptDialog({ herdr, target: AGENT, r, d, kind, dialogKinds: DIALOG_KINDS, plan: driverMayAccept(r.screen), read, stop, num, sleep, deadlineFor });
         return;
       }
       // Human accept: the driver sends nothing; it waits for the dialog to change.

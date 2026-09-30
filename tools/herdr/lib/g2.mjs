@@ -10,8 +10,8 @@
 //
 // Every Codex pane-text pattern below is UNVERIFIED against a live Codex TUI: no Codex
 // dialog or in-progress text is on record in this repository. They are best guesses to be
-// confirmed or corrected by the first operator run; an unrecognized dialog is never
-// accepted by the driver.
+// confirmed or corrected by the first operator run; no Codex dialog, recognized or not, is
+// ever accepted by the driver (#197 review).
 //
 // Credential hygiene: nothing here opens anything under the Codex home directory. The only
 // process data read is a pid's argv (/proc/<pid>/cmdline, `ps -o command=`, or the Win32
@@ -21,7 +21,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 
-import { committedFile, sha256, selectedOption, normalizeDialogText } from './g1.mjs';
+import { committedFile, sha256, selectedOption, normalizeDialogText, planDriverAccept } from './g1.mjs';
 import { diffSequences } from './compare-transcripts.mjs';
 
 // G2's launch: plain `codex`, no arguments and no config overrides (G2 criterion 1;
@@ -166,15 +166,11 @@ export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' }
   return { dialog, selected: dialog ? selectedOption(s) : null, busy };
 }
 
+// No Codex kind lists its options (no Codex dialog text is on record), so the driver never
+// accepts a Codex dialog: planDriverAccept refuses it and the run ends NOT RUN (#197 review).
+// Use accept=human for a run that may meet one.
 export function driverMayAcceptCodex(classification) {
-  const def = CODEX_DIALOG_KINDS[classification.dialog];
-  if (!def) return { ok: false, why: `unrecognized dialog (${classification.dialog ?? 'none'}); the driver never accepts a dialog it cannot name` };
-  if (!classification.selected) return { ok: false, why: 'no selected option found in the dialog text' };
-  if (!def.acceptOption.test(classification.selected.text)) {
-    const { number, text } = classification.selected;
-    return { ok: false, why: `the selected option ("${number == null ? '' : `${number}. `}${text}") is not the ${classification.dialog} accepting option` };
-  }
-  return { ok: true, why: null };
+  return planDriverAccept(classification, CODEX_DIALOG_KINDS);
 }
 export { normalizeDialogText };
 

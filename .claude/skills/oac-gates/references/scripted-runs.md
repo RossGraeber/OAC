@@ -15,8 +15,11 @@ replaces a supported interface, and it decides nothing.
 
 **Who runs it.** An agent runs `node tools/herdr/run.mjs` locally; that is the default for
 any live leg, and the point of herdr (operator decision, #187). The human attends only to
-sign in to the harnesses, grant elevation, and accept operator-consent dialogs (below). No
-live leg is "operator-typed only". Live runs are not in the default CI suite
+sign in to the harnesses and grant elevation. Since 2026-09-30 (#196) the driver accepts
+Claude Code's trust, MCP-approval and dev-channels dialogs itself in dev/test runs, G1
+included, and refuses every other dialog. A human accepts a dialog only in a run meant to
+meet a consent-step criterion (G1 criterion 5 under `accept=human`, G11; see
+"Operator-consent dialogs"). No live leg is "operator-typed only". Live runs are not in the default CI suite
 (`oac-testing` §2).
 
 ## Status at K5
@@ -72,7 +75,9 @@ doubles therefore produces a record, fixtures and `MANIFEST.json` entries that l
 real run's and pass every mechanical check. Likewise, `acceptOrigin: human` in the run
 manifest means only that the driver sent no keystroke to the dialog and the screen then
 changed. It does not prove that a human pressed a key. A test double that accepts its
-own dialog records the same thing. Until the driver records the executables it ran
+own dialog records the same thing. `acceptOrigin: driver`, by contrast, is observed: every
+key the driver sent is a `dialog-accept` command in the run's command log (#196). Until the
+driver records the executables it ran
 (issue #140), these facts rest on the operator attestation below.
 
 ## Timebox
@@ -156,52 +161,94 @@ scenario that fails after a timeout. A `NOT RUN` run makes every criterion
 
 ## Operator-consent dialogs
 
-**The rule: a driver-sent accept of an operator-consent dialog is never verdict-bearing
-for G1 criterion 5 or for the G11 confirmation. Full stop.** It is never scored as
-meeting the criterion, and it is never evidence that the confirmation was exercised. No
-equivalence record, harness version, or dialog-text match changes this.
+**Amended 2026-09-30 (#196).** Operator decision on #196: "Please revise. The point, again,
+is automation of these processes during development and test." It follows the #187 decision.
+Decision record: `docs/planning/decisions/K-196-driver-accepts-dialogs.md`. The rule below
+replaces the K5 rule "only a human accept counts". The K5 text is kept, marked superseded,
+at the end of this section.
 
-- **Driver-sent** means the run holds any herdr command with role `dialog-accept`, or ran
-  under an accept policy other than human (G1: `--param accept=driver`). For G1,
-  `g1-report.mjs` enforces the rule: criterion 5 is `not evaluable`, and `--score 5=…` is
-  refused.
-- **Only a human accept counts.** The dialog text is read verbatim (`--source visible`)
-  before any keystroke. Then the operator accepts at the keyboard while the driver sends
-  nothing (`accept=human`). The run manifest then records the accept origin as `human`,
-  but that value is inferred, not observed (see "Driver identity"). The human accept
-  counts only when the person who accepted it attests to it in the record ("Operator
-  attestation" below).
-- **Consequence for G1.** A scripted G1 run with a driver accept can be neither an
-  equivalence record nor verdict-bearing. Criterion 5 is `not evaluable`, and a gate does
-  not pass on a majority of its criteria. A scripted G1 run that is meant to count uses
-  `accept=human`, so it is never fully unattended.
-- **G11.** The G11 confirmation is the interactive confirmation in G11's documented Claude
-  Code launch. This file grants no permission to driver-accept it in any test, including
-  the Stage 4 and 5 opt-in tests that K8 prepares to reuse that launch. G11's own
-  acceptance says the confirmation is "not bypassed or automated away", and no recorded
-  operator decision says otherwise. Whether any such test may driver-accept it is left to
-  K8 and a recorded operator decision, if one is ever needed.
-- **Where the rule comes from.** It is taken from recorded operator decisions, not
-  assumed:
-  - G1 criterion 5, verbatim: "actually exercised during the spike — not bypassed, scripted
-    around, or skipped" (`references/G1-claude-wake.md`, from PLANNING-PROMPT.md §4 and
-    §7: "the plan must not weaken it").
-  - K4 acceptance, issue #127 (`docs/planning/backlog/06-tasks-K.json` K4): "a
-    driver-sent accept is not scored as meeting criterion 5".
-  - G11 acceptance (`docs/planning/backlog/05-tasks-GHIJ.json` G11): "The interactive
-    confirmation is presented as a feature, not bypassed or automated away".
-- **Changing the rule** takes a separately recorded operator decision: a decision record
-  under `docs/planning/decisions/` that names the dialog, the criterion, and the rule that
-  replaces this one. It lands together with the matching change to `g1-report.mjs`. None
-  exists at K5. Until one does, no agent, reviewer or scenario parameter relaxes this
-  rule.
-- **Other dialogs.** Folder trust, project MCP-server approval and tool permission
-  (`DIALOG_KINDS` in `tools/herdr/lib/g1.mjs`) are not consent steps that any gate
-  criterion names. Under `accept=driver` the driver may accept one of them, but only a
-  dialog it recognizes, and only when that dialog's accepting option is already
-  preselected. The accept is recorded with its origin and scores nothing. If a criterion
-  later names such a dialog, the rule above applies to it until an operator decision says
-  otherwise.
+**The rule.** In dev/test runs the driver accepts Claude Code's workspace-trust, project
+MCP-server-approval and `--dangerously-load-development-channels` dialogs itself, and
+**only those three**. `accept=driver` is the default in every scenario, `g1-claude-wake`
+included (second operator decision on #196, 2026-09-30: "G1 is fully driver-accepted").
+`accept=human` is still available.
+
+- **Read before any keystroke.** The driver reads the dialog's pane text verbatim
+  (`--source visible`) and keeps it in the pane capture before it sends any key.
+- **Recognized dialogs only, and the pane decides the keys.** The kind table
+  (`DIALOG_KINDS` in `tools/herdr/lib/g1.mjs`) records, for each dialog, the option texts
+  seen live, their order, the option Claude Code preselects, and the option the driver
+  selects. The driver accepts a dialog only when the pane shows exactly those options, in
+  that order, with exactly one selected, and the selection on the recorded preselection or
+  already on the accepting option. Anything else ends the run `NOT RUN`, and no key is sent:
+  an unrecognized dialog, an option that is not on record, or an unexpected selection.
+  Workspace-trust preselects "No, exit" and the MCP dialog preselects "Continue without
+  using this MCP server", so the driver moves the selection first. It sends one key at a
+  time, each straight after a read, and each move must be confirmed by a fresh read that
+  shows the recorded options with exactly one selection marker, on the expected option
+  (`selectionCheck` in `lib/g1.mjs`; a read with two markers never counts). It sends Enter
+  only after such a read shows the accepting option selected. Once the option list has
+  started, every non-empty line up to the footer must be a recorded option, whatever its
+  indentation. For MCP that option is "Use this MCP server", never "all future MCP
+  servers". Planning: `planDriverAccept` in `tools/herdr/lib/g1.mjs`. Execution:
+  `driverAcceptDialog` in `tools/herdr/lib/gate-common.mjs`. A move that does not land
+  ends the run `NOT RUN`, and nothing is re-sent.
+- **Every other dialog is refused (#197 review).** A kind with no option text on record is
+  never driver-accepted, whatever is preselected: Claude Code's tool-permission prompt ("Do
+  you want to proceed?"), and every Codex dialog (`CODEX_DIALOG_KINDS` lists no options).
+  The run ends `NOT RUN` with no key sent. A run that may meet one uses `accept=human`.
+  Tool approval is not in #196's scope. Driver-approving it would need its own recorded
+  decision and a security note (`oac-security-work`, permission relay).
+- **Recorded truthfully.** Every key is a `dialog-accept` command in the run manifest.
+  Each dialog record carries `acceptOrigin: driver`, `acceptKeys` (key, herdr command seq,
+  and the read that verified the move), and `acceptSeq` (the Enter). A driver accept is
+  never recorded or rendered as `human`. Every report lib (`g1-report` … `g5-report`,
+  `l3-report`) states it as the driver's.
+- **No harness config is written.** The driver never pre-trusts a folder or pre-approves a
+  server by editing `~/.claude.json`, settings or `.mcp.json` approvals (`oac-boundaries`
+  check 10). Claude Code records the accepted trust in its own state, as it would for a
+  human accept.
+
+**What a driver accept scores.** None of these three dialogs is named by a G2, G4 or G5
+criterion, so a driver accept costs those gates nothing (see "Verdict eligibility"). A
+criterion that is *about* a human consent step keeps its human accept and its human
+attestation:
+
+- **G1 criterion 5.** Verbatim: "actually exercised during the spike — not bypassed,
+  scripted around, or skipped" (`references/G1-claude-wake.md`, PLANNING-PROMPT.md §4, §7:
+  "the plan must not weaken it"). A driver-sent accept of the dev-channels dialog is never
+  scored as meeting it. `g1-report.mjs` enforces this: criterion 5 is `not evaluable` when
+  the run holds any `dialog-accept` command or ran under a policy other than `human`, and
+  `--score 5=…` is refused. The operator accepted the consequence (second decision on
+  #196): `g1-claude-wake` defaults to `accept=driver` for all three dialogs, so a default
+  G1 run, including every CI G1 run, has criterion 5 `not evaluable` and is never a G1
+  equivalence record. A G1 run meant to be one uses `--param accept=human`.
+- **G11.** The G11 confirmation ("not bypassed or automated away",
+  `docs/planning/backlog/05-tasks-GHIJ.json` G11) is a consent step by definition. This file
+  grants no permission to driver-accept it in any test. That stays K8's call and needs a
+  recorded operator decision.
+- **Other dialogs.** Tool-permission prompts and Codex dialogs are never driver-accepted
+  (above). If a criterion later names any dialog as a consent step, the human rule above
+  applies to it until an operator decision says otherwise.
+
+**The origin `human` is inferred.** Under `accept=human` the driver sends no key and waits
+for the screen to change. `acceptOrigin: human` therefore means only that the driver sent
+nothing and the dialog went away (see "Driver identity"). It counts as a human accept only
+when the person who accepted it attests to it ("Operator attestation").
+
+**Changing the rule** again takes a separately recorded operator decision: a decision
+record under `docs/planning/decisions/` that names the dialog, the criterion and the rule
+that replaces this one. It lands together with the matching change to the report libs.
+#196 and `K-196-driver-accepts-dialogs.md` are that record for this amendment. No agent,
+reviewer or scenario parameter relaxes G1 criterion 5 or G11 without such a record.
+
+*Superseded K5 text (kept for history; not in force since 2026-09-30):* "a driver-sent
+accept of an operator-consent dialog is never verdict-bearing for G1 criterion 5 or for the
+G11 confirmation … Only a human accept counts … Folder trust, project MCP-server approval
+and tool permission … Under `accept=driver` the driver may accept one of them, but only …
+when that dialog's accepting option is already preselected." The G1 criterion 5 and G11
+parts are still in force, as above. The preselected-only accept of Codex dialogs and
+tool-permission prompts was withdrawn in the #197 review: those are now refused.
 
 ## Operator attestation
 
@@ -215,9 +262,23 @@ after the run:
 
 - [x] **herdr:** the real herdr binary ran, not a test double. `herdr --version`: `<output>`; sha256 of the executable: `<64 hex>`
 - [x] **Harness:** the real, logged-in <harness> CLI ran, not a test double. `<harness> --version`: `<output>`
-- [x] **Consent dialog:** accepted by me, a human at the keyboard, during this run. (Or: `none — no criterion of G<n> names a consent step`.)
+- [x] **Consent dialog:** <one of the forms below>
 - **Attested by:** <operator>, <YYYY-MM-DD>
 ```
+
+The consent line states who accepted each dialog, exactly as the run manifest records it
+(amended 2026-09-30, #196). The report libs generate it that way:
+
+- a gate criterion names a consent step (G1 criterion 5), and a human accepted it:
+  `accepted by me, a human at the keyboard, during this run.`;
+- no criterion of G<n> names a consent step: `none — no criterion of G<n> names a consent
+  step. Dialogs on record: <each dialog, with "accepted by the DRIVER (herdr dialog-accept:
+  <keys and seqs>)" or "recorded as human">; each driver accept above was the driver's, not
+  mine.`;
+- the driver accepted the consent step itself (G1 `accept=driver`, G1's default): the line says so. The
+  record is then not an equivalence record (criterion 5 is `not evaluable`).
+
+An operator never ticks a line that calls a driver accept their own.
 
 - Take the sha256 from the executable that actually ran, for example `sha256sum "$(command
   -v herdr)"`. It gives a later reviewer something to compare. At K5 there is no
@@ -247,7 +308,8 @@ after the run:
     non-verdict-bearing does not undo the record's basis;
   - every pass criterion of G<n> is scored `equivalent`: none `not equivalent`, none
     `not evaluable`, and every operator score carries its note;
-  - consent-dialog criteria were met by a human accept (see above);
+  - a criterion that is a consent step (G1 criterion 5) was met by a human accept; other
+    dialogs may be driver-accepted (see "Driver-accepted dialogs" below);
   - its `-herdr` fixtures are committed with `driver` blocks;
   - it carries a complete, truthful operator attestation (see above).
 
@@ -271,6 +333,23 @@ after the run:
 
   The verdict is written from the evidence by that procedure. herdr decides nothing.
   `Driver:` names the run and the equivalence record it relies on.
+- **Driver-accepted dialogs (decided 2026-09-30, #196).** A driver accept of Claude Code's
+  workspace-trust, MCP-server-approval or dev-channels dialog does not by itself make a
+  run ineligible. It counts only when both of these hold:
+  1. the dialog matched the recorded expected text: its kind is recognized and its options
+     on screen are exactly the ones on record in `DIALOG_KINDS`. The driver refuses
+     anything else, and the run then ends `NOT RUN`;
+  2. the run manifest records the accept as the driver's: `acceptOrigin: driver`,
+     `acceptKeys` and the `dialog-accept` commands.
+
+  A criterion that is *about* a human consent step keeps its human accept and its human
+  attestation: G1 criterion 5, and the G11 confirmation. So an `accept=driver` G1 run
+  (G1's default since the operator's second #196 decision) is never an equivalence record
+  and never verdict-bearing for G1. No other dialog can be driver-accepted at all: the
+  driver refuses it and the run is `NOT RUN`. G2, G4 and G5 name no
+  consent step, so for them `accept=driver` and `accept=human` are equally eligible. Their
+  accept policy is still part of `scenario.params`, so a verdict-bearing run must use the
+  policy of its equivalence record.
 - **Reverts on any herdr pin move.** A move of the `herdr (test tooling)` row invalidates
   every equivalence record, and scripted runs of every gate become non-verdict-bearing
   again until a new equivalence record exists at the new pin. The mechanics are in
@@ -290,6 +369,8 @@ after the run:
 - [ ] Operator scores (G1 criteria 2 and 3) carry a note citing pane lines.
 - [ ] Criterion 5 or the G11 confirmation: human accept only. A driver-sent accept is
       recorded and left `not evaluable`.
+- [ ] Every other dialog accept is rendered as the manifest records it: `driver` with
+      its keys, or `human` (inferred). Never a driver accept written up as a human's.
 - [ ] Earlier `NOT RUN` or `FAIL` runs at the same pins are listed under Findings.
 - [ ] `driver.toolsHerdrDirty` is `false` before `g1-report.mjs --write` puts anything
       into the repository.

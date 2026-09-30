@@ -57,7 +57,7 @@ import { parseSections, committedFile } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 import { schemaBlockFor } from './g2-report.mjs';
 import {
-  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, reconstructionCallout,
+  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, reconstructionCallout, describeDialogs, noConsentCriterionLine,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -264,7 +264,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push(`- **Codex thread:** \`${g5.thread?.id ?? '?'}\` (found by the thread-marker preview, the project cwd and the loaded list); client runs: ${(g5.clientRuns ?? []).map((r) => r.mode).join(', ') || 'none'}; divergence: ${(g5.divergence ?? []).join('; ') || 'none'}`);
   out.push(`- **What herdr typed:** the thread marker, the Claude busy prompt and the fixed question (each checked to carry no spoofing body). Every spoofing body reached Claude Code only through \`g5-channel.mjs\` and Codex only through \`g5-codex.mjs\`.`);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
-  out.push(`- **Accept policy:** ${g5.acceptPolicy ?? '?'}; dialogs on record: ${(g5.dialogs ?? []).map((x) => `${x.agent} ${x.kind} (read #${x.readSeq}, accepted by ${x.acceptOrigin})`).join('; ') || 'none'} (no G5 criterion names a consent step)`);
+  out.push(`- **Accept policy:** ${g5.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g5.dialogs)} (no G5 criterion names a consent step)`);
   out.push(`- **herdr agent states seen** (scheduling only, never evidence): ${(g5.herdrStates ?? []).map((s) => `${s.agent} ${s.state} (#${s.seq})`).join(', ') || 'none'}`);
   out.push(fixtures ? `- **Fixtures:** ${Object.values(fixtures).map((f) => `\`${f}\``).join(', ')}` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
   out.push(`- **Codex transcript sanitizer** (lib/g2.mjs, as the G2 runs): ${g5.sanitizer ? `${g5.sanitizer.threadListEntriesRemoved} unrelated thread/list entr(ies) removed; host ${g5.sanitizer.serverNames}, installation id ${g5.sanitizer.installationIds}, plan ${g5.sanitizer.planFields}, credit ${g5.sanitizer.creditFields} field(s) replaced` : 'not run'}`);
@@ -307,7 +307,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: 'none — no criterion of G5 names a consent step.' }));
+  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G5', g5.dialogs) }));
   return out.join('\n');
 }
 

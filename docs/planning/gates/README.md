@@ -230,8 +230,12 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   G<n> equivalent to the human run on every criterion, at the current herdr pin. It is
   marked by the callout `> **Equivalence record** for G<n> at herdr <tag>` at its top,
   and it carries an `## Operator attestation` section. In that section the operator
-  attests to a real herdr (with the sha256 of its executable), a real harness, and a
-  human accept of any consent dialog. A verdict-bearing scripted `G<n>-result.md` carries
+  attests to a real herdr (with the sha256 of its executable), a real harness, and who
+  accepted each dialog. In an equivalence record, a consent step that a criterion names
+  (G1 criterion 5) needs a human accept. Since 2026-09-30 (#196) the driver accepts Claude
+  Code's three recorded dialogs by default (G1 included, where criterion 5 is then `not
+  evaluable`) and refuses every other dialog. Each driver accept is recorded and attested as
+  the driver's. A verdict-bearing scripted `G<n>-result.md` carries
   the same section. The definition is in `references/scripted-runs.md` "Operator
   attestation" and "Verdict eligibility". None exists yet.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change

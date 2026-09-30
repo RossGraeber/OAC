@@ -21,7 +21,10 @@
 #   - No expression inside a run: block. The dispatch input reaches the script only through
 #     env: (OAC_HERDR_SCENARIO), and tools/herdr/ci.mjs checks it against an allowlist.
 #   - Only tools/herdr/ci.mjs runs. It never re-runs the driver and passes it no options
-#     beyond the scenario name, so the dev-channels dialog is never driver-accepted.
+#     beyond the scenario name, so every scenario runs on its own defaults. Since #196
+#     g1-claude-wake defaults to the driver accept policy: the driver accepts the three recorded dialogs
+#     (trust, MCP approval, dev-channels), records each as driver, and G1 criterion 5 is then
+#     not evaluable (a CI G1 run is never a G1 equivalence record).
 #   - Only the redacted run manifest and captures are uploaded, and only after ci.mjs stage
 #     has found them clean. The job's work dir (scratch included) is deleted at the end.
 name: herdr-provider-optin
@@ -31,8 +34,8 @@ on:
     inputs:
       scenario:
         description: >-
-          Driver scenario (tools/herdr/scenarios/). g1-claude-wake needs the operator at the
-          runner to accept the dev-channels dialog by hand; it is never accepted by CI.
+          Driver scenario (tools/herdr/scenarios/). g1-claude-wake runs unattended: the driver
+          accepts the recorded dialogs (#196), so its criterion 5 is not evaluable.
         type: choice
         required: true
         default: smoke

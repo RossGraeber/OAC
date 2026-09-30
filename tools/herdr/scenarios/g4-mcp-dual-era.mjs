@@ -22,7 +22,7 @@
 //
 //   node tools/herdr/run.mjs --scenario g4-mcp-dual-era \
 //     --launch '["claude","--dangerously-load-development-channels","server:g4spike","server:g4modern"]' \
-//     --param accept=human --out <run dir>
+//     --out <run dir>
 //   node tools/herdr/lib/g4-report.mjs --run <run dir>            # draft comparison
 //
 // What it does, in the human run's order:
@@ -38,8 +38,11 @@
 //      channel), g4modern (G4_STDIO_MODERN=1, the negative case) and g4http (HTTP).
 //   1. Claude launches through `herdr agent start --kind claude -- <launch[1..]>` with
 //      MCP_SDK_GENERATION=v2 in its pane environment (the human run's setting; --param
-//      claudeEnv). Every dialog is read verbatim before any keystroke; accept=human (default)
-//      sends nothing. The dev-channels confirmation scores nothing in G4.
+//      claudeEnv). Every dialog is read verbatim before any keystroke; accept=driver (the
+//      default since #196) accepts Claude Code's workspace-trust, MCP-server and dev-channels
+//      dialogs by the verified key plan (lib/gate-common.mjs driverAcceptDialog) and records
+//      the accept as `driver`; accept=human sends nothing. The dev-channels confirmation
+//      scores nothing in G4.
 //   2. The wire must show, from ONE server process: the legacy stdio `initialize`, the HTTP
 //      surface listening, Claude's modern HTTP `server/discover`; and from the g4modern copy
 //      a modern-only `server/discover`. The wire clientInfo.version must equal the CLI version.
@@ -89,7 +92,7 @@ export default {
     launch: [...G4_LAUNCH],
     timeboxMs: 60 * 60 * 1000, // the 2026-09-26 re-run declared 60 minutes (G4-result.md "Timebox")
     params: {
-      accept: 'human',
+      accept: 'driver', // #196: the driver accepts recognized dialogs by default; accept=human remains
       httpPort: String(DEFAULT_PORTS.httpPort),
       modernHttpPort: String(DEFAULT_PORTS.modernHttpPort),
       codexLaunch: '',

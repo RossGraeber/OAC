@@ -28,11 +28,13 @@
 //   # agent: B0 (declares the 60-minute box; launches no harness)
 //   node tools/herdr/run.mjs --scenario l3-beacon --param phase=baseline \
 //     --param beaconBin=<abs path to beacon> --out <baseline dir>
-//   # agent: B1 record, B2-B4 (Claude's development-channels dialog is accepted by the human
-//   # at the keyboard: accept=human is the default and the only policy L3 uses)
+//   # agent: B1 record, B2-B4 (Claude Code's workspace-trust, project-MCP-server and
+//   # development-channels dialogs are accepted by the driver: accept=driver is the default
+//   # since #196, each dialog read verbatim first and its accept recorded as `driver`;
+//   # --param accept=human makes the driver send nothing and wait for the operator)
 //   node tools/herdr/run.mjs --scenario l3-beacon --param phase=probe \
 //     --param baselineRun=<baseline dir> --param beaconBin=<abs path to beacon> \
-//     --param accept=human --out <probe dir>
+//     --out <probe dir>
 //   # operator: stop the Codex app-server daemon the probe started or found running
 //   # (`codex app-server daemon stop`; it has Beacon's [otel] config loaded and would keep
 //   # exporting to Beacon), THEN the L1 §12 B7 teardown and restore of the B0 backups (outside
@@ -369,7 +371,7 @@ export default {
       beaconVersion: '',
       beaconLog: '',
       readSessionFile: 'true',
-      accept: 'human',
+      accept: 'driver', // #196; accept=human remains available
       replyPrompt: DEFAULT_REPLY_PROMPT,
       threadMarker: DEFAULT_THREAD_MARKER,
       beaconSettleMs: '20000',
@@ -404,7 +406,11 @@ export default {
     const cliMode = params.beaconCli;
     if (!['readonly', 'off'].includes(cliMode)) throw new DriverError('--param beaconCli must be readonly or off');
     const accept = params.accept;
-    if (accept !== 'human') throw new DriverError('--param accept must be human: L3 never lets the driver accept a dialog (the development-channels warning is an operator-consent step)');
+    // #196 (docs/planning/decisions/K-196-driver-accepts-dialogs.md): in dev/test runs the
+    // driver accepts Claude Code's workspace-trust, project-MCP-server and development-channels
+    // dialogs itself by default; each is read verbatim first and its accept recorded as `driver`.
+    // accept=human remains available (the driver then sends nothing to any dialog).
+    if (!['driver', 'human'].includes(accept)) throw new DriverError('--param accept must be driver or human');
 
     const l3 = {
       version: L3_RECORD_VERSION,
@@ -782,7 +788,7 @@ export default {
       await claude.settle('L3C-turn', num('turnTimeoutMs'));
       const afterB2 = await claude.read('after-L3C', { source: 'recent-unwrapped', lines: num('readLines') });
       const b2Log = await pollLog('claude-channel', 'B2');
-      l3.steps.B2 = { status: 'recorded', wire: { line: w.notification.line, t: w.notification.t }, afterReadSeq: afterB2.seq, dialogs: l3.dialogs.filter((d) => d.agent === 'claude').map((d) => ({ kind: d.kind, acceptOrigin: d.acceptOrigin })), log: b2Log };
+      l3.steps.B2 = { status: 'recorded', wire: { line: w.notification.line, t: w.notification.t }, afterReadSeq: afterB2.seq, dialogs: l3.dialogs.filter((d) => d.agent === 'claude').map((d) => ({ kind: d.kind, acceptOrigin: d.acceptOrigin, acceptKeys: (d.acceptKeys ?? []).map((k) => k.key) })), log: b2Log };
       l3.beacon.sync.B2 = await syncHits('claudeSync', 'B2');
 
       // 6. B3: Claude answers through the reply tool. The typed text carries no probe value.

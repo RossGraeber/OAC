@@ -131,32 +131,56 @@ const SELECT_MARK = /^[\s│|]*(?:[❯›>▶▸→*])\s*(\d+)\.\s*(.+?)\s*[│|
 // also start prompt and bullet lines, so they count only before a number.
 const SELECT_MARK_UNNUMBERED = /^[\s│|]*[❯›▶▸→]\s*(\S.*?)\s*[│|]*\s*$/;
 
+// Driver accepts (#196, docs/planning/decisions/K-196-driver-accepts-dialogs.md). A kind with
+// `options` lists its option texts EXACTLY as seen live, in screen order; `preselected` is the
+// index Claude Code selected on first read, `accept` the index the driver selects before Enter.
+// The driver accepts such a dialog only when the pane shows exactly those options, in that
+// order, with the selection on `preselected` or `accept`; it then moves the selection one key
+// at a time, re-reading the pane after each key, and presses Enter only when a read shows
+// `accept` selected (planDriverAccept here, driverAcceptDialog in gate-common.mjs). Anything
+// else is refused: the run ends NOT RUN, and no keystroke is guessed. A kind without `options`
+// (tool-permission; every Codex kind) is never driver-accepted (#197 review): NOT RUN, no key.
 export const DIALOG_KINDS = Object.freeze({
   'dev-channels': {
-    // Box C, verbatim (the one live-observed dialog).
+    // Box C, verbatim (the one live-observed dialog); the same text and preselection were seen
+    // again in the 2026-09-30 L3 probe runs (Claude Code v2.1.283, Windows).
     detect: /Loading development channels/i,
     acceptOption: /^I am using this for local development\b/i,
-    verified: 'G1-result.md Box C (criterion 5), Claude Code v2.1.283',
+    options: Object.freeze(['I am using this for local development', 'Exit']),
+    preselected: 0,
+    accept: 0,
+    verified: 'G1-result.md Box C (criterion 5), Claude Code v2.1.283; again in the 2026-09-30 L3 probe runs',
   },
   'workspace-trust': {
     detect: /trust the files in this folder|Do you trust this folder|trust this (?:folder|project)|Is this a project you (?:created|trust)/i,
-    acceptOption: /^Yes\b/i,
-    // Detect pattern and option text seen live (#156): "Is this a project you created or one
-    // you trust?", options "No, exit" (preselected) / "Yes, I trust this folder", unnumbered.
-    verified: 'herdr run 2026-09-29, Claude Code v2.1.283 on Windows (#156); "No, exit" is preselected, so the driver never accepts it',
+    acceptOption: /^Yes, I trust this folder$/i,
+    // Detect pattern and option text seen live (#156, and the 2026-09-30 L3 probe run 3):
+    // "Is this a project you created or one you trust?", options "❯ No, exit" (preselected) /
+    // "  Yes, I trust this folder", unnumbered, footer "Enter to confirm · Esc to cancel".
+    // The refusing option is preselected, so the driver moves down one before Enter.
+    options: Object.freeze(['No, exit', 'Yes, I trust this folder']),
+    preselected: 0,
+    accept: 1,
+    verified: 'herdr runs 2026-09-29 (#156) and 2026-09-30 (L3 probe run 3), Claude Code v2.1.283 on Windows; "No, exit" preselected',
   },
   'mcp-server-approval': {
     detect: /New MCP servers? found in (?:this project|\.mcp\.json)|MCP servers? (?:found|defined) in \.mcp\.json/i,
-    acceptOption: /^Use this(?: and all future)? MCP server/i,
-    // Seen live (#161): "New MCP server found in this project: g1spike", unnumbered options
-    // "Use this MCP server" / "Use this and all future MCP servers in this project" /
-    // "Continue without using this MCP server" (the last selected on first read).
-    verified: 'herdr run 2026-09-29, Claude Code v2.1.283 on Windows (#161)',
+    // The driver approves this one server only, never "all future MCP servers".
+    acceptOption: /^Use this MCP server$/i,
+    // Seen live (#161, and the 2026-09-30 L3 probe runs): "New MCP server found in this
+    // project: <name>", unnumbered options "Use this MCP server" / "Use this and all future MCP
+    // servers in this project" / "Continue without using this MCP server" (the last preselected).
+    options: Object.freeze(['Use this MCP server', 'Use this and all future MCP servers in this project', 'Continue without using this MCP server']),
+    preselected: 2,
+    accept: 0,
+    verified: 'herdr runs 2026-09-29 (#161) and 2026-09-30 (L3 probe runs), Claude Code v2.1.283 on Windows; "Continue without using this MCP server" preselected',
   },
   'tool-permission': {
     detect: /Do you want to (?:proceed|allow|make this edit)|Allow (?:this )?tool/i,
     acceptOption: /^Yes\b/i,
     verified: null, // UNVERIFIED: Box C's tool-permission prompts are not on record
+    // No `options`: recognized (so it is recorded and scheduled around) but NEVER accepted by
+    // the driver (#197 review; tool approval is outside #196).
   },
 });
 
@@ -178,9 +202,61 @@ export function selectedOption(text) {
   return null;
 }
 
-// -> { dialog: kind | 'unknown' | null, selected, busy }
+// The option lines of a kind's dialog, as the pane shows them: every line between the line
+// the kind's detect pattern matches and the footer whose text (marker, numbering and box
+// drawing removed) equals one of the kind's known option texts. -> [{ text, number, selected }]
+// in screen order, plus `marked`, the count of selection-marked lines in that region (an
+// option the driver does not know, marked as selected, makes marked exceed the matches).
+// null for a kind without `options`.
+const OPTION_LINE = /^\s*([❯›▶▸→>*])?\s*(?:(\d+)\.\s+)?(.*?)\s*$/;
+export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
+  const def = dialogKinds[kind];
+  if (!def?.options) return null;
+  const s = String(text ?? '');
+  const m = def.detect.exec(s);
+  if (!m) return null;
+  const rest = s.slice(s.lastIndexOf('\n', m.index) + 1);
+  const foot = /(?:Press )?Enter to (?:confirm|continue)|Esc to (?:cancel|exit)|\(y\/n\)/i.exec(rest);
+  // Numbered options run together on one line (Box C's transcription: "1. … 2. Exit") are
+  // split at the next number, as selectedOption reads them.
+  const region = (foot ? rest.slice(0, foot.index) : rest)
+    .split(/\r?\n/)
+    .map((l) => l.replace(BOX_CHARS, ' '))
+    .flatMap((l) => l.split(/\s{2,}(?=\d+\.\s)/));
+  const found = [];
+  const unknown = [];
+  let marked = 0;
+  const parsed = region.map((line) => {
+    const [, mark, num, body] = OPTION_LINE.exec(line);
+    // `>` and `*` count as selection markers only before a number (they also start prompt and
+    // bullet lines), as in selectedOption.
+    const selected = !!mark && (!/[>*]/.test(mark) || num !== undefined);
+    const col = line.length - line.replace(/^\s*(?:[❯›▶▸→>*]\s*)?/, '').length; // column of the option text
+    return { selected, num, body, col };
+  });
+  // Unnumbered options line up with the selected line's text; a line at that column (or any
+  // numbered line) that is not a known option is an option the driver does not know.
+  // After the first option-shaped line (a known option, or a marked line), every non-empty line
+  // up to the footer must be a known option, whatever its indentation (#197 review).
+  const optionCol = parsed.find((p) => p.selected)?.col ?? null;
+  let inOptions = false;
+  for (const p of parsed) {
+    if (p.selected) marked += 1;
+    if (!p.body) continue;
+    const known = def.options.includes(p.body);
+    if (known || p.selected) inOptions = true;
+    if (known) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected });
+    else if (inOptions || p.num !== undefined || (optionCol !== null && p.col === optionCol)) unknown.push(p.body);
+  }
+  found.marked = marked;
+  found.unknown = unknown;
+  return found;
+}
+
+// -> { dialog: kind | 'unknown' | null, selected, options, busy }
 //   busy: the pane shows Claude Code's in-progress indicator (default "esc to interrupt";
-//   UNVERIFIED wording, a scenario parameter).
+//   UNVERIFIED wording, a scenario parameter). options: dialogOptions() for a kind that lists
+//   its options, else null.
 export function classifyScreen(text, { busyIndicator = 'esc to interrupt' } = {}) {
   const s = String(text ?? '');
   let dialog = null;
@@ -192,21 +268,67 @@ export function classifyScreen(text, { busyIndicator = 'esc to interrupt' } = {}
   }
   if (!dialog && GENERIC_DIALOG.test(s)) dialog = 'unknown';
   const busy = busyIndicator ? s.toLowerCase().includes(busyIndicator.toLowerCase()) : false;
-  return { dialog, selected: dialog ? selectedOption(s) : null, busy };
+  return { dialog, selected: dialog ? selectedOption(s) : null, options: dialog ? dialogOptions(s, dialog) : null, busy };
 }
 
-// May the DRIVER accept this dialog? Only a recognized kind, and only when the option the
-// dialog already has selected is that kind's accepting option: the driver never moves a
-// selection it has not read.
-export function driverMayAccept(classification) {
-  const def = DIALOG_KINDS[classification.dialog];
-  if (!def) return { ok: false, why: `unrecognized dialog (${classification.dialog ?? 'none'}); the driver never accepts a dialog it cannot name` };
-  if (!classification.selected) return { ok: false, why: 'no selected option found in the dialog text' };
-  if (!def.acceptOption.test(classification.selected.text)) {
-    const { number, text } = classification.selected;
-    return { ok: false, why: `the selected option ("${number == null ? '' : `${number}. `}${text}") is not the ${classification.dialog} accepting option` };
+const optLabel = (o) => (o ? `"${o.number == null ? '' : `${o.number}. `}${o.text}"` : 'none found');
+
+// How may the DRIVER accept this dialog? -> { ok, why, moves: [{ key, expect }], keys }
+//   moves: the selection keys to send, one at a time, each followed by a read that must show
+//          `expect` selected; keys: every key in order, Enter last.
+// Only a recognized kind WITH `options` on record (see DIALOG_KINDS): the pane must show
+// exactly its known options, in order, one of them selected, and the selection must be on the
+// preselection on record or already on the accepting option. A kind without `options` is
+// refused. Never a guessed keystroke.
+export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
+  const kind = classification?.dialog;
+  const def = dialogKinds[kind];
+  const no = (why) => ({ ok: false, why, moves: [], keys: [] });
+  if (!def) return no(`unrecognized dialog (${kind ?? 'none'}); the driver never accepts a dialog it cannot name`);
+  // #197 review: a kind with no option text on record (Claude Code's tool-permission prompt,
+  // every Codex dialog) is never driver-accepted, whatever is preselected. The driver accepts
+  // only the three dialogs K-196 lists; anything else ends the run NOT RUN with no key sent.
+  if (!def.options) return no(`${kind}: no option text on record; the driver accepts only the dialogs listed in K-196 (use accept=human)`);
+  const sel = classification.selected;
+  if (!sel) return no('no selected option found in the dialog text');
+  const opts = classification.options ?? [];
+  const texts = opts.map((o) => o.text);
+  if (opts.unknown?.length || JSON.stringify(texts) !== JSON.stringify(def.options)) {
+    if (opts.unknown?.length) texts.push(...opts.unknown.map((u) => `?${u}`));
+    return no(`the ${kind} options on screen (${JSON.stringify(texts)}) are not the ones on record (${JSON.stringify(def.options)}); the driver does not guess keystrokes`);
   }
-  return { ok: true, why: null };
+  const selectedIdx = opts.map((o, i) => (o.selected ? i : -1)).filter((i) => i !== -1);
+  if (selectedIdx.length !== 1 || opts.marked !== 1) return no(`the ${kind} dialog does not show exactly one selected option on record (${opts.marked} marked)`);
+  const at = selectedIdx[0];
+  if (at !== def.accept && at !== def.preselected) {
+    return no(`the selected option (${optLabel(opts[at])}) is not the ${kind} accepting option, nor the preselection on record ("${def.options[def.preselected]}")`);
+  }
+  const step = def.accept > at ? 1 : -1;
+  const moves = [];
+  for (let i = at; i !== def.accept; i += step) moves.push({ key: step > 0 ? 'down' : 'up', expect: def.options[i + step] });
+  return { ok: true, why: null, moves, keys: [...moves.map((mv) => mv.key), 'enter'] };
+}
+
+// Does a read taken after a selection key show the move landed cleanly (#197 review)? The
+// read must show the kind's options exactly as on record, exactly ONE selection marker, and
+// that marker on `expect`. -> { state: 'ok' } | { state: 'wait', why } (not yet, or a read
+// that is not clean: the driver reads again until its bound, and never sends Enter on it) |
+// { state: 'stop', why } (the selection moved somewhere else).
+export function selectionCheck(screen, kind, expect, prev, dialogKinds = DIALOG_KINDS) {
+  const def = dialogKinds[kind];
+  const opts = screen?.options;
+  if (!def?.options || !opts) return { state: 'wait', why: 'no option list read' };
+  if (opts.unknown?.length || JSON.stringify(opts.map((o) => o.text)) !== JSON.stringify(def.options)) return { state: 'wait', why: `options on screen ${JSON.stringify(opts.map((o) => o.text))} are not the ones on record` };
+  if (opts.marked !== 1) return { state: 'wait', why: `${opts.marked} selection markers on screen, not exactly one` };
+  const now = opts.find((o) => o.selected)?.text ?? null;
+  if (now === expect) return { state: 'ok' };
+  if (now === prev) return { state: 'wait', why: `the selection is still ${JSON.stringify(prev)}` };
+  return { state: 'stop', why: `the selection is ${JSON.stringify(now)}, not ${JSON.stringify(expect)}` };
+}
+
+// May the DRIVER accept this dialog (possibly after moving the selection)? The plan's ok/why.
+export function driverMayAccept(classification) {
+  return planDriverAccept(classification, DIALOG_KINDS);
 }
 
 // Whitespace-, box-drawing- and selection-marker-insensitive comparison of captured dialog

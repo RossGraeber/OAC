@@ -25,9 +25,13 @@
 //     supplies it with --score/--note. Mid-turn timing comes from wire timestamps against
 //     timestamped pane reads (lib/g1.mjs midTurnWindow), never from herdr agent state.
 //   - Criterion 5: a DRIVER-SENT accept of the dev-channels dialog is never scored as
-//     meeting it -- `not evaluable`, whatever else holds, and no --score can override that
-//     (K4; K5 will state the rule from a recorded operator decision). A human accept is
+//     meeting it -- `not evaluable`, whatever else holds, and no --score can override that.
+//     The #196 operator decision lets the driver accept Claude Code's dialogs in dev/test runs
+//     by default, but keeps this: criterion 5 is about the consent step itself
+//     (docs/planning/decisions/K-196-driver-accepts-dialogs.md). A human accept is
 //     `equivalent` when the dialog text, read before any keystroke, matches Box C's.
+//   - The record names who accepted each dialog as the run manifest records it (driver, with
+//     its keys and herdr command seqs, or human), and its unticked attestation says so.
 //   - Any run outcome other than PASS makes every criterion `not evaluable`.
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -38,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 
 import { compareTranscripts, formatDiff, parseTranscript, selectSegment, transcriptFacts, isLegacyRevision } from './compare-transcripts.mjs';
 import { BOX_C_TRANSCRIPT, BOX_C_WAKE_ATTRIBUTES, FIXTURE_DIR, G1_CRITERIA, HERDR_RUNS_DIR, dialogMatchesBoxC, midTurnWindow, parseSections } from './g1.mjs';
+import { attestation, describeDialog, describeDialogs } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -187,7 +192,7 @@ export function evaluateG1({ manifest, transcriptText, paneText, baselineText, o
     );
     if (driverSent) {
       c5.score = SCORES.NE;
-      c5.reason = 'driver-sent accept: under K4 a driver-sent accept is never scored as meeting criterion 5 (K5 will state the rule from a recorded operator decision)';
+      c5.reason = 'driver-sent accept: a driver-sent accept is never scored as meeting criterion 5 (scripted-runs.md "Operator-consent dialogs"; kept by the #196 decision)';
     } else if (!sec || inputBefore.length) {
       c5.score = SCORES.NE;
       c5.reason = 'dialog text is not on record from before any keystroke';
@@ -238,7 +243,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push(`- **Claude Code version:** \`claude --version\` = \`${v.cliOutput ?? '?'}\` (post-run \`${g1.postRunVersion ?? 'not recorded'}\`); wire \`clientInfo.version\` = \`${v.wireClientInfo ?? '?'}\`; transport user-agent N/A (stdio); PINS.md \`${v.pinsRow ?? 'Claude Code (Channels)'}\` last observed \`${v.pinsLastObserved ?? '?'}\``);
   out.push(`- **Launch (verbatim):** \`${(manifest?.launch?.argv ?? []).join(' ')}\`; herdr-reported argv \`${JSON.stringify(manifest?.launch?.herdrReportedArgv ?? null)}\``);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
-  out.push(`- **Accept policy:** ${g1.acceptPolicy ?? '?'}; dialogs on record: ${(g1.dialogs ?? []).map((d) => `${d.kind} (read #${d.readSeq}, accepted by ${d.acceptOrigin})`).join('; ') || 'none'}`);
+  out.push(`- **Accept policy:** ${g1.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g1.dialogs)}`);
   out.push(`- **Channel server:** \`${g1.server?.committed ?? '?'}\` run from a scratch copy of the blob at HEAD \`${g1.server?.headCommit ?? '?'}\`; sha256 committed \`${g1.server?.committedSha256 ?? '?'}\`, copy \`${g1.server?.copySha256 ?? '?'}\`, match: ${g1.server?.match ?? '?'}; working tree matched HEAD: ${g1.server?.workingTreeMatchesHead ?? '?'}`);
   out.push(fixtures ? `- **Fixtures:** \`${fixtures.transcript}\`, \`${fixtures.pane}\`` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
   out.push(`- **Run manifest:** \`${runManifestName}\` (beside this file); harness config unchanged: ${manifest?.harnessConfig?.unchanged ?? '?'}; teardown clean: ${manifest?.teardown?.clean ?? '?'}`);
@@ -271,6 +276,17 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('- Operator prompts are scenario parameters; Box C\'s own prompt texts are not on record, so wording differs from Box C by construction.');
   out.push('- Pane-text patterns other than the dev-channels dialog (in-progress indicator, other dialogs) were written before any live run; confirm them against this run\'s pane capture.');
   out.push('');
+  // #196: the consent line says who accepted the dev-channels dialog as the record says it.
+  // Only a human accept can be attested as the operator's; a driver accept is stated as the
+  // driver's, which leaves criterion 5 not evaluable and the record not an equivalence record.
+  const dev = (g1.dialogs ?? []).find((d) => d.kind === 'dev-channels');
+  const devDriver = !dev || dev.acceptOrigin !== 'human' || g1.acceptPolicy !== 'human' || (manifest?.commands ?? []).some((c) => c.role === 'dialog-accept');
+  const consent = !dev
+    ? 'no dev-channels dialog on record, so none was accepted by me; this record is neither an equivalence record nor verdict-bearing.'
+    : devDriver
+      ? `the dev-channels dialog is not attested as a human accept: ${describeDialog(dev)}; accept policy ${g1.acceptPolicy ?? '?'}; dialog-accept commands in the run: ${(manifest?.commands ?? []).filter((c) => c.role === 'dialog-accept').map((c) => `#${c.seq}`).join(', ') || 'none'}. Criterion 5 is not evaluable, so this record is neither an equivalence record nor verdict-bearing.`
+      : `the dev-channels dialog (read #${dev.readSeq}) was accepted by me, a human at the keyboard, during this run.`;
+  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput ?? '?'}\`)`, consent }));
   return out.join('\n');
 }
 

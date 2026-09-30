@@ -84,6 +84,28 @@ export function writeTargets(targets, reportText) {
   for (const [to, from] of targets.slice(1)) copyFileSync(from, to);
 }
 
+// #196: who accepted each dialog, as the record says, never inferred beyond it. A driver
+// accept names its keys and herdr command seqs; a human accept says what it rests on (the
+// driver sent nothing and the screen changed), because nothing observes a human keystroke.
+export function describeDialog(d) {
+  const who = d.agent ? `${d.agent} ` : '';
+  let how;
+  if (d.acceptOrigin === 'driver') {
+    const keys = (d.acceptKeys ?? []).map((k) => `${k.key} #${k.seq}`).join(', ') || `enter #${d.acceptSeq ?? '?'}`;
+    how = `accepted by the DRIVER (herdr dialog-accept: ${keys})`;
+  } else if (d.acceptOrigin === 'human') {
+    how = 'accepted outside the driver (recorded as human: the driver sent no keystroke and the screen changed)';
+  } else how = `not accepted (${d.acceptOrigin ?? 'no accept recorded'})`;
+  return `${who}${d.kind} (read #${d.readSeq ?? '?'}; ${how})`;
+}
+
+export const describeDialogs = (dialogs) => (dialogs ?? []).map(describeDialog).join('; ') || 'none';
+
+// The attestation's consent line for a gate none of whose criteria names a consent step: it
+// says so, and lists the dialog accepts truthfully (driver or human) for the operator to check.
+export const noConsentCriterionLine = (gate, dialogs) =>
+  `none — no criterion of ${gate} names a consent step. Dialogs on record: ${describeDialogs(dialogs)}; each driver accept above was the driver's, not mine.`;
+
 // The attestation block, generated unticked (oac-gates references/scripted-runs.md).
 export function attestation({ herdrVersion, harnesses, consent }) {
   return [

@@ -16,9 +16,12 @@
 //
 // What `run` does not do, by design:
 //   - it passes no --param, --launch, --herdr-bin or --keep-scratch to the driver, so every
-//     scenario runs on its own defaults. In particular g1-claude-wake keeps accept=human:
-//     CI never accepts the dev-channels confirmation (oac-gates references/scripted-runs.md,
-//     "Operator-consent dialogs");
+//     scenario runs on its own defaults. Since the #196 operator decision g1-claude-wake
+//     defaults to accept=driver, so a CI G1 run is unattended: the driver accepts the three
+//     dialogs on record (trust, MCP approval, dev-channels), records each as `driver`, and
+//     refuses anything else (NOT RUN). G1 criterion 5 is then `not evaluable`, so a CI G1
+//     run is never a G1 equivalence record (oac-gates references/scripted-runs.md,
+//     "Operator-consent dialogs"). CI cannot switch to accept=human either;
 //   - it never re-runs the driver after a FAIL or NOT RUN (scripted-runs.md, "No automatic
 //     re-submission");
 //   - it never reads, copies or uploads anything from the harness's own home or config.

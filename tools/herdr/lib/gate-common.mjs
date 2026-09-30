@@ -6,13 +6,14 @@
 // The agent helper follows g1-claude-wake/g2-codex-inject exactly: pane text is read verbatim
 // and kept with the herdr command that read it; herdr agent state is recorded and only
 // schedules the next read; a dialog is on record before any keystroke reaches it, and the
-// driver accepts only a dialog it can name whose own preselected option is the accepting one.
+// driver accepts only a dialog it can name, by the verified key plan in driverAcceptDialog
+// (#196; a kind with no option list on record only when its accepting option is preselected).
 
 import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join } from 'node:path';
 
-import { committedFile, sha256, formatSection, normalizeDialogText, sameDialog, acceptHint } from './g1.mjs';
+import { committedFile, sha256, formatSection, normalizeDialogText, sameDialog, acceptHint, selectionCheck } from './g1.mjs';
 import { NotRunError } from './herdr.mjs';
 
 export class CriteriaDriftError extends Error {}
@@ -107,6 +108,72 @@ export function loopbackPortFree(port, timeoutMs = 3000) {
   });
 }
 
+// A selection key is followed by reads until the pane shows the expected option selected;
+// this bounds that wait. Nothing is ever re-sent when it expires.
+export const DIALOG_MOVE_TIMEOUT_MS = 10000;
+
+// The DRIVER accepts dialog `d` (first read as `r`) on agent `target` (#196). Every keystroke
+// comes straight after a read of that target (herdr.dialogAccept refuses otherwise). The plan
+// (planDriverAccept in g1.mjs) is made from the first read; each selection key is then
+// verified by fresh reads that must still show the same dialog with the expected option
+// selected, and Enter is sent only after a read shows the accepting option selected. After
+// Enter the driver waits (bounded) for the screen to leave the dialog, so it is never answered
+// twice (#160). Any deviation stops the run NOT RUN and nothing more is sent to the dialog.
+// The record says what the driver sent: acceptOrigin 'driver', acceptKeys (each key with its
+// herdr command seq and the read that verified it), acceptSeq (the Enter).
+export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKinds, plan, read, stop, num, sleep, deadlineFor, label = '' }) {
+  const who = `${label ? `${label} ` : ''}dialog ${d.index} (${kind})`;
+  d.acceptPlan = plan.ok ? plan.keys : null;
+  if (!plan.ok) {
+    d.acceptOrigin = 'none (driver refused)';
+    stop(`${who}: ${plan.why}; the driver did not accept it`);
+  }
+  d.acceptKeys = [];
+  let last = r;
+  let prev = r.screen.selected?.text ?? null;
+  for (const [i, mv] of plan.moves.entries()) {
+    const res = await herdr.dialogAccept(target, [mv.key]);
+    const k = { key: mv.key, seq: res.entry.seq, expect: mv.expect, verifiedSeq: null };
+    d.acceptKeys.push(k);
+    const deadline = Date.now() + DIALOG_MOVE_TIMEOUT_MS;
+    for (;;) {
+      await sleep(Math.min(250, num('pollMs')));
+      const p = await read(`dialog-${d.index}-select-${i + 1}`, { keep: 'on-change' });
+      if (!sameDialog(r.text, p, kind, dialogKinds)) stop(`${who}: the screen left the dialog after selection key "${mv.key}" (herdr command #${res.entry.seq}), before Enter; nothing more sent`);
+      // #197 review: exactly one marker, on the expected option, with the options on record.
+      const c = selectionCheck(p.screen, kind, mv.expect, prev, dialogKinds);
+      if (c.state === 'ok') {
+        k.verifiedSeq = p.seq;
+        last = p;
+        break;
+      }
+      if (c.state === 'stop') stop(`${who}: after "${mv.key}" ${c.why}; nothing more sent`);
+      if (Date.now() >= deadline) stop(`${who}: the selection did not move cleanly to ${JSON.stringify(mv.expect)} within ${DIALOG_MOVE_TIMEOUT_MS} ms of "${mv.key}" (last read: ${c.why}); Enter not sent, nothing re-sent`);
+    }
+    prev = mv.expect;
+  }
+  const res = await herdr.dialogAccept(target, ['enter']);
+  d.acceptKeys.push({ key: 'enter', seq: res.entry.seq, expect: null, verifiedSeq: null });
+  d.acceptOrigin = 'driver';
+  d.acceptSeq = res.entry.seq;
+  d.acceptAt = res.entry.startedAt;
+  d.lastReadBeforeAcceptSeq = last.seq;
+  d.selectionKeys = plan.moves.length;
+  // Input other than this dialog's own selection keys between its first read and the Enter.
+  const own = new Set(d.acceptKeys.map((x) => x.seq));
+  d.inputBetweenReadAndAccept = herdr.commands.filter((c) => c.seq > r.seq && c.seq < res.entry.seq && INPUT_ROLES.has(c.role) && !own.has(c.seq)).length;
+  const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
+  for (;;) {
+    await sleep(num('pollMs'));
+    const p = await read(`dialog-${d.index}-after-accept`, { keep: 'on-change' });
+    if (!sameDialog(r.text, p, kind, dialogKinds)) {
+      d.resolvedSeq = p.seq;
+      return;
+    }
+    if (Date.now() >= deadline) stop(`${who} was still on screen ${num('humanAcceptTimeoutMs')} ms after the driver's accept; nothing re-sent`);
+  }
+}
+
 // Two-pane agent helper. `g` is the scenario's record object (dialogs and herdrStates are
 // appended to it, each tagged with the agent); `stop` ends the run NOT RUN.
 export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMayAccept, accept, num, stop }) {
@@ -142,27 +209,9 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     const d = { agent: label, index: g.dialogs.length + 1, kind, context, patternVerified: dialogKinds[kind]?.verified ?? null, readSeq: r.seq, readAt: r.startedAt, selected: r.screen.selected, acceptOrigin: null, acceptSeq: null, resolvedSeq: null, inputBetweenReadAndAccept: null };
     g.dialogs.push(d);
     if (accept === 'driver') {
-      const may = driverMayAccept(r.screen);
-      if (!may.ok) {
-        d.acceptOrigin = 'none (driver refused)';
-        stop(`${label} dialog ${d.index} (${kind}): ${may.why}; the driver did not accept it`);
-      }
-      const res = await herdr.dialogAccept(name, ['enter']);
-      d.acceptOrigin = 'driver';
-      d.acceptSeq = res.entry.seq;
-      d.inputBetweenReadAndAccept = herdr.commands.filter((c) => c.seq > r.seq && c.seq < res.entry.seq && INPUT_ROLES.has(c.role)).length;
-      // Never a second keystroke into the same dialog: wait (bounded) for the screen to leave
-      // it before anything else reads it as a new one. A redraw of it is not leaving (#160).
-      const deadline = deadlineFor(num('humanAcceptTimeoutMs'));
-      for (;;) {
-        await sleep(num('pollMs'));
-        const p = await read(`dialog-${d.index}-after-accept`, { keep: 'on-change' });
-        if (!sameDialog(r.text, p, kind, dialogKinds)) {
-          d.resolvedSeq = p.seq;
-          return;
-        }
-        if (Date.now() >= deadline) stop(`${label} dialog ${d.index} (${kind}) was still on screen ${num('humanAcceptTimeoutMs')} ms after the driver's accept; nothing re-sent`);
-      }
+      // driverMayAccept is the kind table's planner (planDriverAccept for Claude, Codex).
+      await driverAcceptDialog({ herdr, target: name, r, d, kind, dialogKinds, plan: driverMayAccept(r.screen), read, stop, num, sleep, deadlineFor, label });
+      return;
     }
     const before = herdr.commands.length;
     console.error(

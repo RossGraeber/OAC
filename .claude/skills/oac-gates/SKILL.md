@@ -152,7 +152,10 @@ closes (including UNVERIFIED items), and the fixtures to capture.
 A gate re-run driven through herdr (Epic K, `tools/herdr/`) also loads
 `references/scripted-runs.md`: driver identity, the scripted-run timebox, timeout means
 `NOT RUN`, no automatic re-submission, herdr state never scores a criterion, verdict
-eligibility (equivalence records), and the operator-consent dialog rule. A scripted run is
+eligibility (equivalence records), and the dialog rule. Since 2026-09-30 (#196) the driver
+accepts Claude Code's trust, MCP-approval and dev-channels dialogs by default (G1 too),
+recorded as `driver`, and refuses every other dialog. A consent step a criterion names
+(G1 criterion 5, G11) is met only by a human accept (`accept=human`). A scripted run is
 non-verdict-bearing unless that file says it may carry a verdict.
 
 ## Exit criteria for a gate work item
