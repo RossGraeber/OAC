@@ -50,8 +50,20 @@ if (argv[0] === 'version') {
   console.log('Last event: present');
   console.log(`Beacon Managed: ${env.FAKE_BEACON_MANAGED || 'not connected'}`);
 } else {
-  // Poll path: re-emit this harness's events with collection_method=poll, as JSON lines.
+  // Poll path: re-emit this harness's events with collection_method=poll, as JSON lines. Like
+  // Beacon with no state file, older history comes FIRST: FAKE_BEACON_SYNC_HISTORY_BYTES of
+  // invented old events precede the log's own. FAKE_BEACON_SYNC_SLEEP_MS stalls before any output
+  // (a slow full-history sweep).
   const want = argv[1] === 'claude' ? 'claude_code' : 'codex';
+  if (env.FAKE_BEACON_SYNC_SLEEP_MS) await new Promise((r) => setTimeout(r, Number(env.FAKE_BEACON_SYNC_SLEEP_MS)));
+  const history = Number(env.FAKE_BEACON_SYNC_HISTORY_BYTES || 0);
+  if (history > 0) {
+    const line = `${JSON.stringify({ event: { action: 'prompt.submitted' }, harness: { name: want, collection_method: 'poll' }, session: { id: 'old-history' }, prompt: { text: 'an older session, long before the probe'.padEnd(400, '.') } })}\n`;
+    const chunk = line.repeat(Math.max(1, Math.floor((1 << 20) / line.length)));
+    for (let n = 0; n < history; n += chunk.length) {
+      if (!process.stdout.write(chunk)) await new Promise((r) => process.stdout.once('drain', r));
+    }
+  }
   for (const l of logLines()) {
     let e;
     try {

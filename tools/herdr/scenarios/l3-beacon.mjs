@@ -33,7 +33,10 @@
 //   node tools/herdr/run.mjs --scenario l3-beacon --param phase=probe \
 //     --param baselineRun=<baseline dir> --param beaconBin=<abs path to beacon> \
 //     --param accept=human --out <probe dir>
-//   # operator: L1 §12 B7 teardown and restore of the B0 backups (outside the driver)
+//   # operator: stop the Codex app-server daemon the probe started or found running
+//   # (`codex app-server daemon stop`; it has Beacon's [otel] config loaded and would keep
+//   # exporting to Beacon), THEN the L1 §12 B7 teardown and restore of the B0 backups (outside
+//   # the driver)
 //   # agent: B7 hash check (launches no harness, runs no Beacon command)
 //   node tools/herdr/run.mjs --scenario l3-beacon --param phase=verify \
 //     --param baselineRun=<baseline dir> --out <verify dir>
@@ -61,8 +64,22 @@
 //     same; claudesession/store.go and codexsession/store.go only os.Open their inputs;
 //   - no PersistentPreRun on the root or endpoint command (cli/beacon/cmd/root.go,
 //     cli/beacon/cmd/endpoint.go), so no hook runs before the subcommand.
-// UNVERIFIED: that `beacon version` and `beacon endpoint status --system` write nothing (the
-// operator decision allowlists them; their source was not audited here). The driver never
+// With no state file, `sync --print` re-emits EVERY session from the start, oldest first
+// (claudesession/store.go List sorts by mtime ascending), so the probe's session comes LAST. Its
+// stdout is therefore scanned line by line as it streams, with no size cap and nothing kept but
+// the lines holding a probe value; a sync that times out or fails is recorded NOT RUN for the
+// poll path only (beacon.sync.<step>) and the probe goes on.
+// `beacon version` writes nothing (cli/beacon/cmd/version.go L19-L25: one Fprintln; the version
+// check runs only with --check). `beacon endpoint status --system` writes nothing either
+// (source audit at v1.3.29, PR #195 review), but it is not side-effect free, and the record
+// says so (beacon.status.sideEffects): it runs `<name> --version` (2 s timeout) for each of about
+// 25 harness binaries it finds on PATH, including claude and codex (internal/harness/harness.go
+// detectExecutable/commandVersion, DiscoverAll); it reads harness config files (Beacon's reads,
+// no credential files); it makes loopback TCP/HTTP probes to ports 4317, 4318 and 13133
+// (endpoint/collector/collector.go); it makes an outbound HTTPS GET to Asymptote's ingest only
+// if the system install is enrolled (endpoint/asymptote/status.go; the `Beacon Managed: not
+// connected` finding tells the operator whether that could happen); and on Linux with systemd
+// it runs `systemctl is-enabled` / `is-active` queries. The driver never
 // installs, uninstalls, connects or configures Beacon, never runs a memory or hooks subcommand,
 // and never runs herdr's hook-writing command. OAC product code never calls Beacon (L1 §1).
 //
@@ -86,13 +103,14 @@
 
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeLastObserved, parseClaudeCliVersion, parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
-import { runBounded, descendants } from '../lib/proc.mjs';
+import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
@@ -111,8 +129,6 @@ const cap = (s, n) => (String(s ?? '').length > n ? `${String(s).slice(0, n)}…
 export const BEACON_VERSION = '1.3.29';
 export const L3_BOX_MS = 60 * 60 * 1000; // L1 §12 "Timebox: 60 minutes", one box across all phases
 export const PHASES = Object.freeze(['baseline', 'probe', 'verify']);
-// runBounded keeps at most this much of a child's stdout (lib/proc.mjs OUTPUT_CAP).
-const OUTPUT_CAP = 8 * 1024 * 1024;
 
 // The ONLY Beacon argv the driver may run (operator decision 2026-09-30 on #168).
 export const BEACON_ALLOWLIST = Object.freeze({
@@ -121,6 +137,87 @@ export const BEACON_ALLOWLIST = Object.freeze({
   claudeSync: Object.freeze(['endpoint', 'claude', 'sync', '--print']),
   codexSync: Object.freeze(['endpoint', 'codex', 'sync', '--print']),
 });
+// --param beaconBin must be the executable itself: never a script run under an interpreter.
+export const BEACON_BIN_NAME = /^beacon(?:\.exe)?$/i;
+export const STATUS_SIDE_EFFECTS = 'no writes; spawns `<harness> --version` (2 s timeout) for each of about 25 harness binaries found on PATH; reads harness config files (not credentials); loopback probes to 4317/4318/13133; an outbound HTTPS GET to Asymptote ingest only if the system install is enrolled; `systemctl is-enabled`/`is-active` on Linux with systemd (source audit, v1.3.29)';
+
+/**
+ * Run one command and scan its stdout line by line AS IT STREAMS: no size cap, and nothing is
+ * kept but the lines holding one of `needles` (in-process only; never recorded). Bounded by
+ * deadlineMs and abortSignal; no shell.
+ * @returns {Promise<{ exitCode, signal, timedOut, aborted, spawnError, lines, bytes, stderrBytes, kept: string[], startedAt, endedAt }>}
+ */
+export function streamScan(file, args, { deadlineMs, env, abortSignal, needles = [] }) {
+  if (!(deadlineMs > 0)) throw new Error('streamScan: an explicit deadlineMs > 0 is required');
+  const startedAt = new Date().toISOString();
+  return new Promise((done) => {
+    const res = { exitCode: null, signal: null, timedOut: false, aborted: false, spawnError: null, lines: 0, bytes: 0, stderrBytes: 0, kept: [], startedAt, endedAt: null };
+    let settled = false;
+    let child;
+    let rest = '';
+    let timer = null;
+    let hard = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(hard);
+      abortSignal?.removeEventListener('abort', onAbort);
+      if (rest) take(rest);
+      rest = '';
+      res.endedAt = new Date().toISOString();
+      done(res);
+    };
+    const take = (line) => {
+      if (!line.trim()) return;
+      res.lines += 1;
+      if (needles.some((n) => line.includes(n))) res.kept.push(line);
+    };
+    const kill = () => {
+      killTree(child?.pid);
+      hard = setTimeout(finish, 3000);
+    };
+    const onAbort = () => {
+      res.aborted = true;
+      kill();
+    };
+    try {
+      child = spawn(file, args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+    } catch (err) {
+      res.spawnError = err.code || String(err);
+      finish();
+      return;
+    }
+    timer = setTimeout(() => {
+      res.timedOut = true;
+      kill();
+    }, deadlineMs);
+    if (abortSignal) {
+      if (abortSignal.aborted) queueMicrotask(onAbort);
+      else abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d) => {
+      res.bytes += Buffer.byteLength(d);
+      const parts = (rest + d).split('\n');
+      rest = parts.pop();
+      for (const p of parts) take(p);
+    });
+    child.stderr.on('data', (d) => {
+      res.stderrBytes += d.length;
+    });
+    child.on('error', (err) => {
+      res.spawnError = err.code || String(err);
+      finish();
+    });
+    child.on('close', (code, sig) => {
+      res.exitCode = code;
+      res.signal = sig;
+      finish();
+    });
+  });
+}
+
 export function beaconArgv(key) {
   if (typeof key !== 'string' || !Object.hasOwn(BEACON_ALLOWLIST, key)) throw new DriverError(`beacon command ${JSON.stringify(key)} is not on the read-only allowlist (${Object.keys(BEACON_ALLOWLIST).join(', ')})`);
   return [...BEACON_ALLOWLIST[key]];
@@ -264,6 +361,7 @@ export default {
       threadMarker: DEFAULT_THREAD_MARKER,
       beaconSettleMs: '20000',
       beaconTimeoutMs: '120000',
+      beaconSyncTimeoutMs: '300000',
       startupTimeoutMs: '120000',
       humanAcceptTimeoutMs: '300000',
       handshakeTimeoutMs: '90000',
@@ -331,16 +429,22 @@ export default {
       /* no Beacon command in this phase */
     } else if (cliMode === 'readonly') {
       if (!params.beaconBin || !isAbsolute(params.beaconBin)) throw new DriverError('--param beaconBin=<absolute path to the beacon executable> is required with beaconCli=readonly (on Windows Beacon is not on PATH)');
+      if (!BEACON_BIN_NAME.test(basename(params.beaconBin))) throw new DriverError('--param beaconBin must name the beacon executable itself (basename `beacon` or `beacon.exe`)');
       if (!existsSync(params.beaconBin)) throw new DriverError('--param beaconBin does not exist');
       beaconBin = params.beaconBin;
     } else if (!params.beaconVersion || !params.beaconLog) {
       throw new DriverError('with beaconCli=off the operator supplies --param beaconVersion and --param beaconLog');
     }
-    const beacon = async (key, step) => {
-      const argv = beaconArgv(key);
+    // The only way a Beacon process is started: the executable itself, an allowlisted argv, no
+    // shell, no interpreter.
+    const beaconCommand = (key) => {
       if (!beaconBin) throw new DriverError('internal: no Beacon command may run with beaconCli=off');
+      return [beaconBin, beaconArgv(key)];
+    };
+    const beacon = async (key, step) => {
+      const [file, args] = beaconCommand(key);
+      const argv = args;
       aborted();
-      const [file, args] = /\.m?js$/i.test(beaconBin) ? [process.execPath, [beaconBin, ...argv]] : [beaconBin, argv];
       const r = await runBounded(file, args, { deadlineMs: Math.min(num('beaconTimeoutMs'), Math.max(1, remaining())), env: process.env, abortSignal });
       const rec = { key, argv: ['beacon', ...argv], step, startedAt: r.startedAt, endedAt: r.endedAt, exitCode: r.exitCode, timedOut: r.timedOut, spawnError: r.spawnError, stdoutBytes: Buffer.byteLength(r.stdout ?? ''), stderrBytes: Buffer.byteLength(r.stderr ?? '') };
       l3.beacon.calls.push(rec);
@@ -369,7 +473,7 @@ export default {
       }
       const { r } = await beacon('status', step);
       const s = parseBeaconStatus(r.stdout);
-      l3.beacon.status = { step, exitCode: r.exitCode, logPath: s.logPath, managed: s.managed, service: s.service, agentVersion: s.agentVersion };
+      l3.beacon.status = { step, exitCode: r.exitCode, logPath: s.logPath, managed: s.managed, service: s.service, agentVersion: s.agentVersion, sideEffects: STATUS_SIDE_EFFECTS };
       if (!beaconLog) beaconLog = defaultBeaconLog();
       l3.beacon.log = { path: beaconLog, source: params.beaconLog ? '--param beaconLog' : 'default (L1 §12 live observations)' };
       if (s.logPath && resolve(s.logPath) !== resolve(beaconLog)) finding(`\`beacon endpoint status --system\` reports a runtime log path other than the one read (${s.logPath} vs ${beaconLog}); pass --param beaconLog to read the reported one`);
@@ -561,14 +665,25 @@ export default {
       };
       const syncHits = async (key, step) => {
         if (cliMode !== 'readonly') return { step, status: 'NOT RUN', reason: 'beaconCli=off: the poll path is not read' };
-        const { r } = await beacon(key, step);
-        const out = String(r.stdout ?? '');
-        const s = scanRuntimeLog(out, markers);
-        const rec = { step, status: r.exitCode === 0 ? 'recorded' : 'exited non-zero', exitCode: r.exitCode, lines: out.split('\n').filter((l) => l.trim()).length, truncated: out.length >= OUTPUT_CAP, harness: key === 'claudeSync' ? 'claude' : 'codex', collection: 'poll (sync --print)', byMarker: s.byMarker, counts: hitCounts(s.hits, markers), bySession: s.bySession };
-        if (rec.truncated) finding(`\`beacon ${BEACON_ALLOWLIST[key].join(' ')}\` printed more than the driver keeps (8 MiB); its ${step} hit counts are a lower bound`);
-        return rec;
+        const [file, args] = beaconCommand(key);
+        aborted();
+        const harness = key === 'claudeSync' ? 'claude' : 'codex';
+        const r = await streamScan(file, args, { deadlineMs: Math.min(num('beaconSyncTimeoutMs'), Math.max(1, remaining())), env: process.env, abortSignal, needles: markers.flatMap((m) => [m.marker, m.token]) });
+        l3.beacon.calls.push({ key, argv: ['beacon', ...args], step, startedAt: r.startedAt, endedAt: r.endedAt, exitCode: r.exitCode, timedOut: r.timedOut, spawnError: r.spawnError, stdoutBytes: r.bytes, stderrBytes: r.stderrBytes, streamed: true });
+        aborted();
+        const base = { step, harness, collection: 'poll (sync --print)', exitCode: r.exitCode, lines: r.lines, bytes: r.bytes, streamed: true };
+        // Never stop() here: a failed poll read is NOT RUN for the poll path only (#195 review).
+        if (r.timedOut || r.spawnError || r.exitCode !== 0) {
+          const reason = r.timedOut ? `timed out after ${num('beaconSyncTimeoutMs')} ms (or the L3 box ran out)` : r.spawnError ? `could not start (${r.spawnError})` : `exited ${r.exitCode ?? r.signal}`;
+          finding(`\`beacon ${BEACON_ALLOWLIST[key].join(' ')}\` at ${step}: ${reason}; the ${step} poll path is recorded NOT RUN and the probe goes on`);
+          return { ...base, status: 'NOT RUN', reason };
+        }
+        const s = scanRuntimeLog(r.kept.join('\n'), markers);
+        return { ...base, status: 'recorded', truncated: false, byMarker: s.byMarker, counts: hitCounts(s.hits, markers), bySession: s.bySession };
       };
 
+      // herdr launch waits are bounded by the L3 box too (#195 review).
+      const startupBound = () => Math.max(1000, Math.min(num('startupTimeoutMs'), Math.max(1, remaining())));
       const agentArgs = { ctx: bctx, g: l3, accept, num, stop };
       claude = makeAgent({ ...agentArgs, name: 'l3claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept });
       codex = makeAgent({ ...agentArgs, name: 'l3codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex });
@@ -618,11 +733,12 @@ export default {
 
       // 5. B2: Claude channel delivery.
       boxCheck('before B2');
+      boxCheck('before the Claude launch');
       const ws = await herdr.workspaceCreate({ cwd: projectDir, label: 'oac-l3-claude' });
       ctx.record('workspace', ws);
       await herdr.paneProcessInfo(ws.paneId);
       await ctx.probeEnv(ws.paneId);
-      const started = await ctx.startAgent('l3claude', { paneId: ws.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
+      const started = await ctx.startAgent('l3claude', { paneId: ws.paneId, timeoutMs: startupBound(), allowErrorCodes: ['agent_not_ready'] });
       l3.claudeStart = { seq: herdr.commands.at(-1).seq, errorCode: started.errorCode, herdrReportedArgv: started.argv };
       await claude.settle('startup', num('startupTimeoutMs'));
       const hs = await claude.waitFor('the channel-server handshake', () => {
@@ -689,6 +805,11 @@ export default {
       if (ds.r.spawnError || ds.r.exitCode !== 0) throw new DriverError(`\`codex app-server daemon start\` failed (${ds.r.spawnError ?? `exit ${ds.r.exitCode}`})`);
       const alreadyRunning = runningBefore || startStatus === 'already running';
       l3.daemon.alreadyRunning = alreadyRunning;
+      // The driver never stops the daemon: it is left running with Beacon's [otel] config
+      // loaded, and the operator stops it (`codex app-server daemon stop`) before B7.
+      l3.daemon.leftRunning = true;
+      l3.daemon.operatorNote = 'the Codex app-server daemon is left running after the probe with the Beacon [otel] config loaded; run `codex app-server daemon stop` before the B7 teardown';
+      finding(l3.daemon.operatorNote);
       finding(alreadyRunning
         ? 'Codex app-server daemon state: ALREADY RUNNING before the probe. A daemon started before Beacon\'s [otel] write to config.toml may not export OTLP to Beacon, so B4\'s OTLP-path counts may read zero for that reason (the operator was to stop it before the probe)'
         : 'Codex app-server daemon state: not running before the probe; the driver started it (`codex app-server daemon start`), after Beacon\'s config was in place');
@@ -701,10 +822,11 @@ export default {
       l3.versions.codex.wire = preList.userAgentVersion;
       if (preList.userAgentVersion !== xpin) finding(`pin drift (a finding, not a stop): the Codex wire userAgent reports ${preList.userAgentVersion ?? 'nothing parseable'}, PINS.md last observed ${xpin}`);
 
+      boxCheck('before the Codex launch');
       const cws = await herdr.workspaceCreate({ cwd: codexProjectDir, label: 'oac-l3-codex' });
       ctx.record('codexWorkspace', cws);
       await herdr.paneProcessInfo(cws.paneId);
-      const cstart = await herdr.agentStart('l3codex', { launchArgv: [...G2_LAUNCH], paneId: cws.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
+      const cstart = await herdr.agentStart('l3codex', { launchArgv: [...G2_LAUNCH], paneId: cws.paneId, timeoutMs: startupBound(), allowErrorCodes: ['agent_not_ready'] });
       l3.codexStart = { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] };
       const info = await herdr.paneProcessInfo(cws.paneId);
       const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);

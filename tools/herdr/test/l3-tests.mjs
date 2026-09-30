@@ -31,7 +31,7 @@ import { presend } from '../gate-servers/g5-channel.mjs';
 import { frameCase, HEADER_FIELDS } from '../gate-servers/g5-codex.mjs';
 import l3Scenario, {
   BEACON_ALLOWLIST, BEACON_VERSION, L3_BOX_MS, beaconArgv, parseBeaconVersion, parseBeaconStatus, boxState, claudeProjectSlug, sessionEntryShapes, manifestSafePlaceholders,
-  defaultBeaconLog, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline, hitCounts,
+  defaultBeaconLog, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline, hitCounts, BEACON_BIN_NAME, STATUS_SIDE_EFFECTS, streamScan,
 } from '../scenarios/l3-beacon.mjs';
 import { assertNoSpoof } from '../lib/g5.mjs';
 import { CI_SCENARIOS } from '../ci.mjs';
@@ -390,7 +390,7 @@ function l3ReportUnit(check) {
   check('l3 report: B1 NOT RUN by the operator decision; B5 and B6 NOT RUN by default', lineFor(d, 'B1').includes('NOT RUN') && /operator decisions of 2026-09-30/.test(lineFor(d, 'B1')) && lineFor(d, 'B5').includes('NOT RUN') && lineFor(d, 'B6').includes('NOT RUN'));
   check('l3 report: B1 evidence names changed sections, attributed to the operator Beacon step', d.includes('`env.OTEL_LOG_USER_PROMPTS`') && d.includes('`[otel]`') && d.includes('attributed to: operator Beacon step'));
   check('l3 report: B3 names the tool-invocation capture', lineFor(d, 'B3').includes('mcp.tool_invoked'));
-  check('l3 report: poll path NOT RUN (no sync --print field in record v1)', d.includes('`beacon endpoint claude sync --print`): NOT RUN') && d.includes('`beacon endpoint codex sync --print`): NOT RUN'));
+  check('l3 report: poll path NOT RUN for a record without the sync --print field (pre-#195 record)', d.includes('`beacon endpoint claude sync --print`) at B2: NOT RUN (this record carries no poll-path result') && d.includes('`beacon endpoint codex sync --print`) at B4: NOT RUN') && d.includes('### Not recorded by the probe record') && /`sync --print` poll-path counts/.test(d));
   check('l3 report: header carries versions, pins, date, box and each phase\'s start and end', d.includes('- **Date:** 2026-09-30') && d.includes('`beacon version 1.3.29`') && d.includes('PINS.md last observed `2.1.284`') && d.includes(`ends ${at(60)}`) && d.includes(`\`${at(10)}\` to \`${at(30)}\``));
   check('l3 report: Driver lines as g1-report renders them, plus toolsHerdrDirty', d.includes('- **Driver (probe):** herdr (`herdr 0.9.1`, PINS.md `herdr (test tooling)` v0.9.1) via `tools/herdr/run.mjs`, scenario `tools/herdr/scenarios/l3-beacon.mjs`, driver commit') && d.includes('`driver.toolsHerdrDirty`: false'));
   check('l3 report: states herdr-driven, accept=human, not a gate result', /herdr-driven/.test(d) && d.includes('`accept=human`') && /not a gate result/.test(d) && /changes no verdict/.test(d));
@@ -655,7 +655,23 @@ const throwsLike = (fn, re) => {
 // Credential file names, built so this file never spells them (oac-boundaries check 10).
 const CREDENTIAL_NAMES = [['auth', 'json'].join('.'), ['.credentials', 'json'].join('.')];
 
-export function l3ScenarioUnit(check) {
+export async function l3ScenarioUnit(check) {
+  // --- streamScan: no cap, keeps needle lines only; a timeout is reported, never thrown ---
+  const needle = ['needle', 'l3b', 'unit'].join('-');
+  const emit = `const l='x'.repeat(200)+'\\n';const c=l.repeat(5000);let n=0;function w(){while(n<12){n++;if(!process.stdout.write(c)){process.stdout.once('drain',w);return;}}process.stdout.write('last ${needle} line\\n');}w();`;
+  const big = await streamScan(process.execPath, ['-e', emit], { deadlineMs: 30000, env: process.env, needles: [needle] });
+  check('l3b streamScan: 12 MB of output streamed past any cap, the needle line (last) kept, nothing else kept', big.exitCode === 0 && !big.timedOut && big.bytes > 12 * 1000 * 1000 && big.lines === 60001 && big.kept.length === 1 && big.kept[0].includes(needle), JSON.stringify({ ...big, kept: big.kept.length }));
+  const slow = await streamScan(process.execPath, ['-e', 'setTimeout(()=>{},60000)'], { deadlineMs: 500, env: process.env, needles: [needle] });
+  check('l3b streamScan: a hanging child is killed at its deadline and reported timedOut', slow.timedOut === true && slow.kept.length === 0);
+  check('l3b streamScan: refuses to run without a deadline', await (async () => {
+    try {
+      await streamScan(process.execPath, ['-v'], {});
+      return false;
+    } catch {
+      return true;
+    }
+  })());
+
   // --- the Beacon allowlist ---
   const allow = Object.values(BEACON_ALLOWLIST).map((a) => a.join(' ')).sort();
   check('l3b beacon: the allowlist is exactly the four read-only commands of the 2026-09-30 decision', JSON.stringify(allow) === JSON.stringify(['endpoint claude sync --print', 'endpoint codex sync --print', 'endpoint status --system', 'version']), allow.join(' | '));
@@ -667,7 +683,9 @@ export function l3ScenarioUnit(check) {
   const code = src.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
   check('l3b beacon: the scenario code names no install/uninstall/connect/memory/hooks/repair subcommand as an argument', !/['"`](?:install|uninstall|connect|memory|hooks|user-config|repair[\w-]*|login|token)['"`]/.test(code) && !/\bintegration\W+install\b/i.test(src));
   check('l3b beacon: \'endpoint\' appears as an argv element only in the allowlist (and the default log path)', (code.match(/['"`]endpoint['"`],\s*['"`](?:status|claude|codex)['"`]/g) ?? []).length === 3 && (code.match(/['"`]endpoint['"`]/g) ?? []).length === 4);
-  check('l3b beacon: the scenario never spawns beacon except through the allowlist runner', !/spawn(?:Sync)?\s*\(\s*['"`]beacon/.test(code) && (code.match(/runBounded\(file, args/g) ?? []).length === 1);
+  check('l3b beacon: the scenario starts Beacon only via beaconCommand (the executable itself plus an allowlisted argv), never under an interpreter', !/spawn(?:Sync)?\s*\(\s*['"`]beacon/.test(code) && !/(?:runBounded|streamScan|spawn)\(\s*(?:beaconBin|process\.execPath,\s*\[beaconBin)/.test(code) && (code.match(/= beaconCommand\(key\)/g) ?? []).length === 2 && !code.includes('.test(beaconBin)'));
+  check('l3b beacon: --param beaconBin must be named beacon or beacon.exe', ['beacon', 'beacon.exe', 'BEACON.EXE'].every((n) => BEACON_BIN_NAME.test(n)) && ['beacon.mjs', 'beacon.js', 'beacon.cmd', 'beacon.bat', 'node', 'fake-beacon.mjs', 'beacon.exe.mjs'].every((n) => !BEACON_BIN_NAME.test(n)));
+  check('l3b beacon: the status side effects are recorded as audited, not as UNVERIFIED', /loopback probes to 4317\/4318\/13133/.test(STATUS_SIDE_EFFECTS) && /--version/.test(STATUS_SIDE_EFFECTS) && !src.includes('UNVERIFIED: that `beacon version`'));
   check('l3b: the scenario header says LIVE STATUS: UNVERIFIED and carries the three phase commands', /LIVE STATUS: UNVERIFIED/.test(src) && ['phase=baseline', 'phase=probe', 'phase=verify'].every((p) => src.includes(`--param ${p}`)));
   check('l3b: l3-beacon is not a CI scenario', !CI_SCENARIOS.includes('l3-beacon') && JSON.stringify(CI_SCENARIOS) === JSON.stringify(['smoke', 'g1-claude-wake']));
   check('l3b: scenario defaults: the G5 launch, a 60-minute box, accept=human, readonly Beacon CLI', l3Scenario.name === 'l3-beacon' && JSON.stringify(l3Scenario.harnesses) === '["claude","codex"]' && l3Scenario.defaults.timeboxMs === L3_BOX_MS && L3_BOX_MS === 3600000 && l3Scenario.defaults.params.accept === 'human' && l3Scenario.defaults.params.beaconCli === 'readonly' && l3Scenario.defaults.launch.join(' ') === 'claude --dangerously-load-development-channels server:g5spike');
@@ -765,7 +783,7 @@ const gateServerHashes = () => Object.fromEntries(readdirSync(GATE_SERVERS).sort
 
 // One machine: a fake $HOME with synthetic harness config at Beacon's fixed paths, the harness
 // doubles and fake-beacon on PATH, and a fake Beacon runtime log.
-function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog = true } = {}) {
+function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog = true, syncHistoryBytes = 0 } = {}) {
   const b = h.makeBase();
   const home = join(b.base, 'home');
   mkdirSync(home);
@@ -798,6 +816,7 @@ function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog =
     FAKE_CODEX_SELF_ACCEPT_MS: '1000',
     FAKE_CLAUDE_SESSION_FILE: '1',
     FAKE_CODEX_LONG_MS: '4500',
+    ...(syncHistoryBytes ? { FAKE_BEACON_SYNC_HISTORY_BYTES: String(syncHistoryBytes) } : {}),
     ...(claudeCli ? { FAKE_CLAUDE_CLI_VERSION: claudeCli, FAKE_CLAUDE_VERSION: claudeCli } : {}),
     ...(harnessWritesLog ? { FAKE_BEACON_LOG: log } : {}),
   };
@@ -866,7 +885,7 @@ export async function l3Cases(check, h) {
 
   // --- happy path, all three phases, traced ---
   {
-    const w = l3World(h, { trace: true });
+    const w = l3World(h, { trace: true, syncHistoryBytes: 9 * 1024 * 1024 + 4096 });
     try {
       const base = w.drive('baseline');
       const bm = base.manifest;
@@ -889,10 +908,11 @@ export async function l3Cases(check, h) {
         check('l3 probe B2: the channel probe reached the (fake) Beacon log; the fake token appears verbatim; the dialog was accepted by the human (fake self-accept)', bm2['claude-channel'].lines >= 1 && bm2['claude-channel'].tokenVerbatimLines >= 1 && l3.steps.B2.dialogs.length >= 1 && l3.steps.B2.dialogs.every((d) => d.acceptOrigin === 'human'), JSON.stringify({ bm2, dialogs: l3.steps.B2.dialogs }));
         check('l3 probe B3: the reply tool was called with the probe marker (in-process check); B3 counted separately from B2', l3.steps.B3.replyToolCalls === 1 && l3.steps.B3.replyArgsCarryMarker === true && l3.steps.B3.log.delta.byMarker['claude-channel'].actions.includes('mcp.tool_invoked') && !l3.steps.B2.log.cumulative.byMarker['claude-channel'].actions.includes('mcp.tool_invoked'), JSON.stringify(l3.steps.B3.log.delta.byMarker['claude-channel']));
         check('l3 probe B4: turn/start and thread/queue/add both completed and both reached the (fake) log', l3.steps.B4.turnStart.status === 'completed' && l3.steps.B4.queueAdd.status === 'completed' && l3.steps.B4.turnStart.recordedByteIdentical && l3.scan.byMarker['codex-turn-start'].lines >= 1 && l3.scan.byMarker['codex-queue-add'].lines >= 1);
-        check('l3 probe: poll-path counts from sync --print for B2 and B4', l3.beacon.sync.B2.byMarker['claude-channel'].lines >= 1 && l3.beacon.sync.B2.byMarker['claude-channel'].collectionMethods.includes('poll') && l3.beacon.sync.B4.byMarker['codex-turn-start'].lines >= 1 && l3.beacon.sync.B4.truncated === false);
+        check('l3 probe: poll-path counts from sync --print for B2 and B4, streamed past 9 MB of older history printed first (the probe session last)', l3.beacon.sync.B2.status === 'recorded' && l3.beacon.sync.B2.streamed === true && l3.beacon.sync.B2.bytes > 9 * 1024 * 1024 && l3.beacon.sync.B2.lines > 20000 && l3.beacon.sync.B2.byMarker['claude-channel'].lines >= 1 && l3.beacon.sync.B2.byMarker['claude-channel'].collectionMethods.includes('poll') && l3.beacon.sync.B4.byMarker['codex-turn-start'].lines >= 1 && l3.beacon.sync.B4.bytes > 9 * 1024 * 1024 && l3.beacon.sync.B4.truncated === false, JSON.stringify({ ...l3.beacon.sync.B2, bySession: undefined, byMarker: undefined, counts: undefined }));
         check('l3 probe: whole-run scan with redacted excerpts in the manifest-safe placeholder form', l3.scan.hitCount >= 4 && l3.scan.excerpts.length >= 4 && l3.scan.excerpts.every((e) => /\{L3-(?:MARKER|FAKE-TOKEN) [a-z-]+\}/.test(e.text) && !/<L3-/.test(e.text)) && l3.scan.bySession.every((s) => s.sessionId !== 'before-the-probe'), JSON.stringify(l3.scan.excerpts.map((e) => e.text.slice(0, 60))));
         check('l3 probe: the session file described by entry type and flags only', l3.sessionFile.read === true && l3.sessionFile.dirsFound === 1 && l3.sessionFile.entries.some((e) => e.type === 'attachment' && e.isMeta === true && e.attachmentType === 'channel_message') && l3.sessionFile.entries.every((e) => !('content' in e)), JSON.stringify(l3.sessionFile));
-        check('l3 probe: B5 and B6 NOT RUN; the daemon state is a finding (not running before)', l3.steps.B5.status === 'NOT RUN' && l3.steps.B6.status === 'NOT RUN' && l3.daemon.alreadyRunning === false && pm.findings.some((f) => /daemon state: not running before/.test(f)));
+        check('l3 probe: B5 and B6 NOT RUN; the daemon state is a finding (not running before)', l3.steps.B5.status === 'NOT RUN' && l3.steps.B6.status === 'NOT RUN' && l3.daemon.alreadyRunning === false && pm.findings.some((f) => /daemon state: not running before/.test(f)) && l3.daemon.leftRunning === true && pm.findings.some((f) => /codex app-server daemon stop. before the B7/.test(f)));
+        check('l3 probe: the status side effects are recorded', /no writes/.test(l3.beacon.status.sideEffects) && /4317/.test(l3.beacon.status.sideEffects));
         check('l3 probe: no pin drift at the PINS.md versions', !pm.findings.some((f) => /pin drift/.test(f)) && l3.versions.pins.claude.differs === false && l3.versions.pins.codex.differs === false, JSON.stringify(pm.findings));
         check('l3 probe: captures written clean, none fixture-shaped', pm.captures.length === 4 && pm.captures.every((c) => c.written && /^l3-/.test(c.file) && !/-herdr\./.test(c.file)), JSON.stringify(pm.captures.map((c) => [c.file, c.written])));
         check('l3 probe (L3c contract): accept policy, per-action/per-path counts, poll-path counts, probe session ids recorded', l3.acceptPolicy === 'human' && l3.scan.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.scan.counts['claude-channel'].byAction['prompt.submitted'] >= 1 && l3.scan.counts['claude-channel'].tokenLines >= 1 && Object.keys(l3.scan.counts['codex-queue-add'].byPath).includes('prompt.text') && l3.beacon.sync.B4.counts['codex-queue-add'].markerLines >= 1 && l3.beacon.sync.B2.harness === 'claude' && l3.steps.B3.log.delta.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.probeSessions.claude.length === 1 && l3.probeSessions.codex[0] === l3.thread.id && l3.scan.bySession.filter((s) => s.markerIds.length).every((s) => [...l3.probeSessions.claude, ...l3.probeSessions.codex].includes(s.sessionId)), JSON.stringify({ counts: l3.scan.counts, probeSessions: l3.probeSessions }));
@@ -916,6 +936,19 @@ export async function l3Cases(check, h) {
       check('l3 leak: all six probe values recovered from the fake Beacon log (by hash)', markers.length === 3 && markers.every((m) => m.marker && m.token));
       const leaks = leaksIn([base, probe, ver], markers);
       check('l3 leak: no probe value in any run manifest, capture, driver stdout/stderr, typed prompt or herdr argv', markers.length === 3 && leaks.length === 0, leaks.join('; '));
+
+      // L3c on the scenario's own records (this lifecycle run's three manifests).
+      const reportRuns = { baseline: { manifest: base.manifest }, probe: { manifest: pm }, verify: { manifest: ver.manifest }, priors: [], notes: {} };
+      const dr = tryDraft(reportRuns, { markers: markers.every((m) => m.marker && m.token) ? markers : null });
+      const d = dr.text ?? '';
+      check('l3 report on scenario records: a draft is produced and passes the leak guard with the real probe values', !!dr.text && dr.err === null && findMarkerLeaks(d, markers.filter((m) => m.marker)).length === 0, dr.err?.message);
+      check('l3 report on scenario records: no spurious "versions differ between phases" finding (null daemon/wire in the baseline and null Beacon in verify are not compared)', !/differ between phases/.test(d));
+      const findingLines = d.split('### Findings')[1]?.split('###')[0].split('\n').filter((l) => l.startsWith('- ')).map((l) => l.replace(/^- (?:baseline|probe|verify) (?:run|record): /, '')) ?? [];
+      check('l3 report on scenario records: a finding written to both the manifest and the record is listed once', findingLines.length > 0 && new Set(findingLines).size === findingLines.length, findingLines.join(' | '));
+      check('l3 report on scenario records: poll-path counts rendered for B2, B3 and B4 (not NOT RUN)', /sync --print`\) at B2: \d+ event line\(s\) read, scanned as streamed/.test(d) && /sync --print`\) at B3: \d+ event line/.test(d) && /sync --print`\) at B4: \d+ event line/.test(d) && !/sync --print`\) at B\d: NOT RUN/.test(d));
+      check('l3 report on scenario records: per-action counts, the B2/B3 split, the reply-tool record, session-file shapes, excerpts, envSet all rendered; nothing listed as not recorded', /hit lines per action: `mcp\.tool_invoked` 1/.test(d) && /B2 log snapshot \(from the probe start, taken before B3\)/.test(d) && /B3 log snapshot \(lines added since the B2 snapshot\): claude-channel 1 line\(s\), per action `mcp\.tool_invoked` 1/.test(d) && /Reply tool on the channel-server wire: 1 call\(s\); its arguments carried the marker: yes/.test(d) && /Claude session file \(entry types and flags only/.test(d) && /type `attachment`, isMeta `true`, attachment type `channel_message`/.test(d) && /### Redacted excerpts/.test(d) && /\{L3-MARKER claude-channel\}/.test(d) && /Environment \(whether set only\): CLAUDE_CONFIG_DIR set, CODEX_HOME set/.test(d) && /nothing: the probe record carries every field/.test(d) && !/outside the probe session/.test(d), d.split('\n').filter((l) => /Not recorded|nothing:|outside|per action|B3 log|Reply tool/.test(l)).join(' || '));
+      const cli = spawnSync(process.execPath, [REPORT, '--baseline', base.out, '--probe', probe.out, '--verify', ver.out], { encoding: 'utf8', timeout: 30000 });
+      check('l3 report CLI on scenario run dirs: exit 0, draft printed, no probe value in its output', cli.status === 0 && /## 13\. Live results \(L3\)/.test(cli.stdout) && findMarkerLeaks(cli.stdout + cli.stderr, markers.filter((m) => m.marker)).length === 0, cli.stderr);
 
       // File-access trace.
       const trace = readFileSync(join(w.b.base, 'fs-trace.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -982,12 +1015,17 @@ export async function l3Cases(check, h) {
     try {
       const base = w.drive('baseline');
       spawnSync('codex', ['app-server', 'daemon', 'start'], { env: { ...process.env, ...w.b.env, ...w.env }, encoding: 'utf8', timeout: 20000 });
-      const p = w.drive('probe', ['--param', `baselineRun=${base.out}`, '--param', 'readSessionFile=false']);
+      // A slow full-history sync: each sync --print stalls 6 s before any output; the sync
+      // timeout is 1.5 s.
+      const p = w.drive('probe', ['--param', `baselineRun=${base.out}`, '--param', 'readSessionFile=false', '--param', 'beaconSyncTimeoutMs=1500'], { FAKE_BEACON_SYNC_SLEEP_MS: '6000' });
       const m = p.manifest;
       const l3 = m?.scenarioData?.l3;
       check('l3 pin drift: PASS, with a pin-drift finding per harness; PINS.md is not edited', p.status === 0 && m.outcome === 'PASS' && m.findings.some((f) => /pin drift.*`claude --version` reports v2\.1\.999/.test(f)) && m.findings.some((f) => /pin drift.*`codex --version` reports v0\.999\.0/.test(f)) && l3.versions.pins.claude.differs && l3.versions.pins.codex.differs, `${p.status} ${m?.outcomeReason} ${JSON.stringify(m?.findings)}`);
       check('l3 pre-existing daemon: recorded as a finding, not a stop', l3?.daemon?.alreadyRunning === true && m.findings.some((f) => /ALREADY RUNNING/.test(f)));
       check('l3 readSessionFile=false: the session file is not read', l3?.sessionFile?.read === false);
+      const dt = tryDraft({ baseline: { manifest: base.manifest }, probe: { manifest: m }, verify: null, priors: [], notes: {} }).text ?? '';
+      check('l3 report on a timed-out sync: each poll path rendered NOT RUN with its reason; B4 still evaluated', /sync --print`\) at B2: NOT RUN \(timed out/.test(dt) && /sync --print`\) at B4: NOT RUN \(timed out/.test(dt) && /- \*\*B4:\*\* (?:PASS|FINDING)/.test(dt), dt.split('\n').filter((l) => /Poll path|\*\*B4/.test(l)).join(' || '));
+      check('l3 sync timeout: each timed-out sync --print is NOT RUN for its poll path only; the probe still PASSes through B3 and B4', ['B2', 'B3', 'B4'].every((k) => l3?.beacon?.sync?.[k]?.status === 'NOT RUN' && /timed out/.test(l3.beacon.sync[k].reason)) && l3.steps.B4.queueAdd.status === 'completed' && l3.steps.B3.replyToolCalls === 1 && m.findings.filter((f) => /poll path is recorded NOT RUN/.test(f)).length === 3, JSON.stringify(l3?.beacon?.sync));
     } catch (err) {
       check('l3 pin drift: assertions ran', false, err.stack);
     } finally {

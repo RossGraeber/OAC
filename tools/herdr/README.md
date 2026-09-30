@@ -94,8 +94,17 @@ restore) happen outside the driver, between phases:
 ```bash
 node tools/herdr/run.mjs --scenario l3-beacon --param phase=baseline --param beaconBin=<abs path> --out <baseline dir>
 node tools/herdr/run.mjs --scenario l3-beacon --param phase=probe --param baselineRun=<baseline dir> --param beaconBin=<abs path> --param accept=human --out <probe dir>
+# operator: `codex app-server daemon stop` (the probe leaves the daemon running with Beacon's
+# [otel] config loaded), then the L1 §12 B7 teardown and restore
 node tools/herdr/run.mjs --scenario l3-beacon --param phase=verify --param baselineRun=<baseline dir> --out <verify dir>
+node tools/herdr/lib/l3-report.mjs --baseline <baseline dir> --probe <probe dir> --verify <verify dir>
 ```
+
+`sync --print` output is scanned as it streams, with no size cap (with no state file Beacon
+re-emits all history oldest first, so the probe session comes last); a sync that times out or
+fails is `NOT RUN` for its poll path only. `beacon endpoint status --system` writes nothing but
+has recorded side effects (`beacon.status.sideEffects`: `--version` probes of harness binaries on
+PATH, loopback probes, an outbound GET only if enrolled).
 
 The driver runs only a read-only Beacon allowlist (`beacon version`, `beacon endpoint status
 --system`, `beacon endpoint {claude,codex} sync --print`; `sync --print` is write-free, cited

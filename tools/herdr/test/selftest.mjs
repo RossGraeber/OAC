@@ -710,7 +710,7 @@ export async function runSelfTest() {
   await g4Unit(check);
   await g5Unit(check);
   l3Unit(check);
-  l3ScenarioUnit(check);
+  await l3ScenarioUnit(check);
   ciUnit(check);
   if (process.platform === 'win32') {
     console.log('lifecycle checks skipped: the fake herdr runs pane commands with sh (POSIX only)');
