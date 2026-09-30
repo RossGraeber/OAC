@@ -188,10 +188,12 @@ function b0(run) {
   else if (!BEACON_PIN_RE.test(String(beacon))) findings.push(`Beacon version differs from the L1 §2 pin ${BEACON_PIN}`);
   for (const [k, name] of [['claude', 'Claude Code'], ['codex', 'Codex']]) if (v.pins?.[k]?.differs) findings.push(`${name} differs from its PINS.md last-observed value (pin drift, recorded as a finding; L3 is not a gate)`);
   for (const f of r.config?.findings ?? []) findings.push(oneLine(f));
-  const set = (prefix) => (hashes.some((h) => String(h.label).startsWith(prefix)) ? 'set' : 'not set');
+  // config.envSet (L3b #195) is the scenario's own record; older records fall back to the labels.
+  const env = r.config?.envSet;
+  const set = (name, prefix) => (env && typeof env[name] === 'boolean' ? (env[name] ? 'set' : 'not set') : hashes.some((h) => String(h.label).startsWith(prefix)) ? 'set' : 'not set');
   const evidence = [
-    `Versions: Beacon ${val(beacon)}; \`claude --version\` ${val(v.claudeCli)}; Codex CLI ${val(v.codex?.cli)}, daemon ${val(v.codex?.daemon)}, wire ${val(v.codex?.wire)}`,
-    `Environment (whether set only): CLAUDE_CONFIG_DIR ${set('$CLAUDE_CONFIG_DIR/')}, CODEX_HOME ${set('$CODEX_HOME/')}`,
+    `Versions: Beacon ${val(beacon)}; \`claude --version\` ${val(v.claudeCli)}; Codex CLI ${val(v.codex?.cli)} (daemon and wire are read in the probe phase)`,
+    `Environment (whether set only${env ? '' : ', inferred from the hash labels'}): CLAUDE_CONFIG_DIR ${set('CLAUDE_CONFIG_DIR', '$CLAUDE_CONFIG_DIR/')}, CODEX_HOME ${set('CODEX_HOME', '$CODEX_HOME/')}`,
     'Config hashes (sha256, labels only):',
     ...hashes.map((h) => `  - ${label(h.label)}: ${!h.present ? 'absent' : h.sha256 ? tick(h.sha256) : `unreadable (${h.error ?? 'no hash'})`}`),
   ];
@@ -259,11 +261,16 @@ function scanFindings(scan) {
   return f;
 }
 
+// A { key: count } map, rendered value-free (keys ticked, counts as integers).
+const counts = (o) => (o && Object.keys(o).length ? Object.entries(o).map(([k, n]) => `${tick(k)} ${Number.isFinite(Number(n)) ? Number(n) : '?'}`).join(', ') : 'none');
+
 function markerLines(scan, id) {
   const b = scan.byMarker?.[id];
   // scanRuntimeLog() makes an entry for every marker it was given, so a missing entry means the
   // path was not scanned: NOT RUN, never a zero-hit result.
   if (!b) return { lines: [`  - ${id}: not in the scan summary (this delivery path was not scanned)`], token: false, zero: false, missing: true, b: null };
+  // L3b (#195) records per-action / per-path counts in scan.counts; older records do not.
+  const c = scan.counts?.[id];
   return {
     b,
     token: b.tokenVerbatimLines > 0,
@@ -271,22 +278,75 @@ function markerLines(scan, id) {
     lines: [
       `  - ${id}: ${b.lines} hit line(s)${b.lines === 0 ? ' (zero hits: a result, not NOT RUN)' : ''}; marker in ${b.markerLines}; fake token unredacted in ${b.tokenVerbatimLines}`,
       `    event.action ${list(b.actions)}; collection method ${list(b.collectionMethods)}; JSON path ${list(b.paths)}`,
-      '    per-action hit counts: not in the L3 record v1 scan summary (it lists the actions seen, not a count per action)',
+      c
+        ? `    hit lines per action: ${counts(c.byAction)}; per JSON path: ${counts(c.byPath)}; per collection method: ${counts(c.byCollectionMethod)}`
+        : '    per-action hit counts: not in this record (records from before L3b #195 list the actions seen, not a count per action)',
     ],
   };
 }
 
+// The poll path (`beacon endpoint <h> sync --print`) for one step, from record.beacon.sync.
+function pollLines(rec, stepId, h, ids) {
+  const s = rec.beacon?.sync?.[stepId];
+  const cmd = `\`beacon endpoint ${h} sync --print\``;
+  if (!s) return { lines: [`Poll path (${cmd}) at ${stepId}: NOT RUN (this record carries no poll-path result; records from before L3b #195 have no field for it)`], findings: [] };
+  if (s.status !== 'recorded') return { lines: [`Poll path (${cmd}) at ${stepId}: NOT RUN (${oneLine(s.reason ?? s.status ?? 'no reason recorded')})`], findings: [] };
+  const lines = [`Poll path (${cmd}) at ${stepId}: ${Number(s.lines ?? 0)} event line(s) read${s.streamed ? ', scanned as streamed (no size cap)' : ''}`];
+  const findings = [];
+  if (s.truncated) findings.push(`the ${stepId} poll-path output was truncated; its counts are a lower bound`);
+  for (const id of ids) {
+    const c = s.counts?.[id];
+    const b = s.byMarker?.[id];
+    if (!c && !b) {
+      lines.push(`  - ${id}: not in the poll-path summary`);
+      continue;
+    }
+    const tokenLines = c?.tokenLines ?? b.tokenVerbatimLines;
+    lines.push(`  - ${id}: ${c?.lines ?? b.lines} line(s)${(c?.lines ?? b.lines) === 0 ? ' (zero hits: a result)' : ''}; marker in ${c?.markerLines ?? b.markerLines}; fake token unredacted in ${tokenLines}${c ? `; per action ${counts(c.byAction)}` : ''}`);
+    if (tokenLines > 0) findings.push(`the ${id} fake token appears unredacted in the poll-path output (${cmd}, ${stepId})`);
+  }
+  return { lines, findings };
+}
+
+function sessionFileLines(rec) {
+  const sf = rec.sessionFile;
+  if (!sf) return ['Claude session file (entry types and flags): not in this record (records from before L3b #195 have no field for it)'];
+  if (!sf.read) return ['Claude session file (entry types and flags): not read (readSessionFile was not true)'];
+  const e = sf.entries ?? [];
+  return [
+    `Claude session file (entry types and flags only, no content; ${Number(sf.files ?? 0)} file(s) in ${Number(sf.dirsFound ?? 0)} probe-project dir(s)): ${e.length} entry(ies) hold the claude-channel probe value`,
+    ...e.map((x) => `  - ${x.parsed ? `type ${tick(x.type ?? 'null')}, isMeta ${tick(String(x.isMeta))}, attachment type ${tick(x.attachmentType ?? 'none')}, attachment keys ${list(x.attachmentKeys ?? [])}` : 'an unparsed line'}; marker ${x.markerPresent ? 'yes' : 'no'}, fake token ${x.tokenPresent ? 'yes' : 'no'}`),
+  ];
+}
+
+// B2 and B3 are split by the scenario's log snapshots (steps.B2.log, steps.B3.log).
+function snapshotLine(rec, stepId, which) {
+  const snap = rec.steps?.[stepId]?.log;
+  const c = snap?.[which]?.counts?.['claude-channel'];
+  if (!c) return null;
+  return `${stepId} log snapshot (${which === 'cumulative' ? 'from the probe start, taken before B3' : 'lines added since the B2 snapshot'}): claude-channel ${Number(c.lines)} line(s), per action ${counts(c.byAction)}`;
+}
+
 const HARNESS_OF = { 'claude-channel': /claude/i, 'codex-turn-start': /codex/i, 'codex-queue-add': /codex/i };
 
-function sessionFindings(scan, ids) {
+// probeSessions (L3b #195): the harness-side ids of the probe's own sessions. When a harness's
+// list is recorded, "outside the probe session" is exact against it (under the UNVERIFIED
+// equality of Beacon's session.id and the harness id); otherwise it is inferred from counts.
+function sessionFindings(scan, ids, probeSessions = null) {
   const groups = (scan.bySession ?? []).filter((g) => g.markerIds.some((m) => ids.includes(m)));
   const f = [];
+  // An empty list means unknown (e.g. no session file was found), never "no probe session".
+  const known = (h) => (Array.isArray(probeSessions?.[h]) && probeSessions[h].length ? probeSessions[h] : null);
   for (const g of groups) {
     if (g.sessionId === null || g.harness === null) f.push(`${g.lines} hit line(s) carry no harness or session id: outside any identifiable probe session`);
     const wrong = g.markerIds.filter((m) => ids.includes(m) && HARNESS_OF[m] && g.harness !== null && !HARNESS_OF[m].test(g.harness));
     if (wrong.length) f.push(`a ${wrong.join(', ')} hit is in a ${tick(g.harness)} session: outside the probe session for that path`);
+    const h = /claude/i.test(g.harness ?? '') ? 'claude' : /codex/i.test(g.harness ?? '') ? 'codex' : null;
+    const k = h ? known(h) : null;
+    if (k && g.sessionId !== null && !k.includes(g.sessionId)) f.push(`${g.lines} hit line(s) in ${h} session ${tick(g.sessionId)}, which is not a recorded probe session (${list(k)}): outside the probe session (Beacon session.id = harness id is UNVERIFIED)`);
   }
   for (const h of ['claude', 'codex']) {
+    if (known(h)) continue;
     const n = new Set(groups.filter((g) => g.harness && new RegExp(h, 'i').test(g.harness)).map((g) => g.sessionId)).size;
     if (n > 1) f.push(`hits in ${n} ${h} sessions; the probe used one, so at least ${n - 1} is outside the probe session`);
   }
@@ -298,45 +358,75 @@ function sessionLines(groups) {
   return groups.map((g) => `  - harness ${val(g.harness)}, session ${val(g.sessionId)}: ${g.lines} line(s), markers ${list(g.markerIds)}, actions ${list(g.actions)}, fake token unredacted: ${g.tokenVerbatim ? 'yes' : 'no'}`);
 }
 
-const POLL_NOT_RUN = (h) => `Poll path (\`beacon endpoint ${h} sync --print\`): NOT RUN (the L3 record v1 has no field for its counts)`;
-
 function b2b3b4(probe) {
-  const scan = probe.record.scan;
+  const rec = probe.record;
+  const scan = rec.scan;
   if (!scan) return ['B2', 'B3', 'B4'].map((id) => step(id, RESULTS.NOT_RUN, 'the probe run PASSed but its L3 record carries no runtime-log scan'));
   const common = scanFileLines(scan);
   const commonF = scanFindings(scan);
+  const ps = rec.probeSessions ?? null;
 
   const c = markerLines(scan, 'claude-channel');
-  const cs = sessionFindings(scan, ['claude-channel']);
-  const f2 = [...commonF, ...cs.findings];
+  const cs = sessionFindings(scan, ['claude-channel'], ps);
+  const p2 = pollLines(rec, 'B2', 'claude', ['claude-channel']);
+  const f2 = [...commonF, ...cs.findings, ...p2.findings];
   if (c.token) f2.push('the claude-channel fake token appears unredacted in Beacon\'s log');
   const notScanned = (ids) => `delivery path ${ids.join(', ')} not in the scan summary: not scanned`;
+  const snap2 = snapshotLine(rec, 'B2', 'cumulative');
   const s2 = step('B2', c.missing ? RESULTS.NOT_RUN : f2.length ? RESULTS.FINDING : RESULTS.PASS, c.missing ? notScanned(['claude-channel']) : `claude-channel: ${c.b.lines} hit line(s) in Beacon's log${c.zero ? ' (zero hits is a result)' : ''}`, [
-    'Local log (OTLP/hook path), per delivery path:',
+    'Local log (OTLP/hook path), per delivery path (whole probe):',
     ...common,
     ...c.lines,
-    POLL_NOT_RUN('claude'),
-    'Claude session file (entry type and flags): not in the L3 record v1',
+    ...(snap2 ? [snap2] : []),
+    ...p2.lines,
+    ...sessionFileLines(rec),
     'Hits by session:',
     ...sessionLines(cs.groups),
   ], f2);
 
-  const tool = (c.b?.actions ?? []).filter((a) => TOOL_INVOKED_ACTIONS.includes(a));
-  const f3 = [...commonF, ...cs.findings];
+  // B3: the reply-tool call is recorded from the channel server's wire (steps.B3), and B3's
+  // own log lines are the delta after the B2 snapshot (steps.B3.log.delta).
+  const b3 = rec.steps?.B3 ?? null;
+  const delta = b3?.log?.delta?.counts?.['claude-channel'] ?? null;
+  // Tool-invocation actions come from the WHOLE-RUN scan: the B3 delta snapshot can close on a
+  // late B2 line before the tool-invocation line lands (#195 re-review).
+  const wholeRun = scan.counts?.['claude-channel']?.byAction ? Object.keys(scan.counts['claude-channel'].byAction) : (c.b?.actions ?? []);
+  const tool = wholeRun.filter((a) => TOOL_INVOKED_ACTIONS.includes(a));
+  const toolInDelta = delta ? Object.keys(delta.byAction ?? {}).filter((a) => TOOL_INVOKED_ACTIONS.includes(a)) : null;
+  const p3 = pollLines(rec, 'B3', 'claude', ['claude-channel']);
+  const f3 = [...commonF, ...cs.findings, ...p3.findings];
   if (c.token) f3.push('the claude-channel fake token appears unredacted in Beacon\'s log (B2 and B3 share the marker)');
+  const calls = typeof b3?.replyToolCalls === 'number' ? b3.replyToolCalls : null;
   // L1 §11 item 1 point 2 is CONFIRMED from source (outbound MCP tool arguments reach
-  // runtime.jsonl); no tool-invocation capture contradicts it unless the reply was never made.
-  const NO_TOOL = 'no tool-invocation capture of the marker: contradicts L1 §11 item 1 point 2 unless the reply tool was not invoked; the L3 record v1 does not say whether it was';
-  if (!c.missing && !tool.length) f3.push(NO_TOOL);
-  const s3 = step('B3', c.missing ? RESULTS.NOT_RUN : f3.length ? RESULTS.FINDING : RESULTS.PASS, c.missing ? notScanned(['claude-channel']) : tool.length ? `tool-invocation capture seen for the claude-channel marker (${tool.join(', ')})` : `${NO_TOOL} (zero hits is a result, but not a PASS)`, [
-    `Tool-invocation actions among the claude-channel hits: ${list(tool)}`,
-    'B3 shares B2\'s marker; the L3 record v1 does not split its paths or token lines per action.',
+  // runtime.jsonl); no tool-invocation capture contradicts it only if the reply was made.
+  let summary3;
+  if (c.missing) summary3 = notScanned(['claude-channel']);
+  else if (calls === 0) {
+    f3.push('the reply tool was not invoked (0 reply-tool calls on the channel-server wire), so L1 §11 item 1 point 2 was not exercised live');
+    summary3 = 'the reply tool was not invoked; no outbound capture to check';
+  } else if (tool.length) summary3 = `tool-invocation capture seen for the claude-channel marker (${tool.join(', ')})`;
+  else if (calls !== null) {
+    const NO_TOOL = `the reply tool was invoked (${calls} call(s)) but no tool-invocation capture of the marker was logged: contradicts L1 §11 item 1 point 2`;
+    f3.push(NO_TOOL);
+    summary3 = NO_TOOL;
+  } else {
+    const NO_TOOL = 'no tool-invocation capture of the marker: contradicts L1 §11 item 1 point 2 unless the reply tool was not invoked; this record (from before L3b #195) does not say whether it was';
+    f3.push(NO_TOOL);
+    summary3 = `${NO_TOOL} (zero hits is a result, but not a PASS)`;
+  }
+  const snap3 = snapshotLine(rec, 'B3', 'delta');
+  const s3 = step('B3', c.missing ? RESULTS.NOT_RUN : f3.length ? RESULTS.FINDING : RESULTS.PASS, summary3, [
+    calls === null ? 'Reply tool on the channel-server wire: not in this record' : `Reply tool on the channel-server wire: ${calls} call(s); its arguments carried the marker: ${b3.replyArgsCarryMarker ? 'yes' : 'no'}; the fake token: ${b3.replyArgsCarryToken ? 'yes' : 'no'} (checked in-process; no value recorded)`,
+    `Tool-invocation actions among the claude-channel hits (whole probe run): ${list(tool)}${toolInDelta ? `; within the B3 snapshot: ${list(toolInDelta)}` : ''}`,
+    snap3 ?? 'B3 shares B2\'s marker, and this record (from before L3b #195) does not split B2 from B3.',
+    ...p3.lines,
   ], f3);
 
   const x = markerLines(scan, 'codex-turn-start');
   const q = markerLines(scan, 'codex-queue-add');
-  const xs = sessionFindings(scan, ['codex-turn-start', 'codex-queue-add']);
-  const f4 = [...commonF, ...xs.findings];
+  const xs = sessionFindings(scan, ['codex-turn-start', 'codex-queue-add'], ps);
+  const p4 = pollLines(rec, 'B4', 'codex', ['codex-turn-start', 'codex-queue-add']);
+  const f4 = [...commonF, ...xs.findings, ...p4.findings];
   if (x.token) f4.push('the codex-turn-start fake token appears unredacted in Beacon\'s log');
   if (q.token) f4.push('the codex-queue-add fake token appears unredacted in Beacon\'s log');
   const missing4 = [['codex-turn-start', x], ['codex-queue-add', q]].filter(([, m]) => m.missing).map(([id]) => id);
@@ -344,7 +434,7 @@ function b2b3b4(probe) {
     'Local log (OTLP path), per method:',
     ...x.lines,
     ...q.lines,
-    POLL_NOT_RUN('codex'),
+    ...p4.lines,
     'Hits by session:',
     ...sessionLines(xs.groups),
   ], f4);
@@ -367,9 +457,16 @@ export function parseNote(kv) {
   return { id: m[1], result: m[2], text: m[3].trim() };
 }
 
-function versionsSig(rec) {
-  const v = rec?.versions;
-  return v ? JSON.stringify([v.beacon ?? null, v.claudeCli ?? null, v.codex ?? null]) : null;
+// Versions that should agree across phases, compared only where recorded: the baseline has no
+// Codex daemon/wire version (read in the probe), and the verify phase runs no Beacon command.
+const VERSION_FIELDS = Object.freeze([['Beacon', (v) => v.beacon], ['`claude --version`', (v) => v.claudeCli], ['Codex CLI', (v) => v.codex?.cli]]);
+function versionDrift(recs) {
+  const out = [];
+  for (const [name, get] of VERSION_FIELDS) {
+    const seen = new Set(recs.map((r) => (r?.versions ? get(r.versions) : null)).filter((x) => x !== null && x !== undefined).map(String));
+    if (seen.size > 1) out.push(name);
+  }
+  return out;
 }
 
 /**
@@ -408,7 +505,8 @@ export function evaluateL3({ baseline, probe, verify = null, priors = [], notes 
   const recs = PHASES.map((p) => runs[p]?.record).filter(Boolean);
   const vrec = runs.probe?.record ?? runs.baseline?.record ?? runs.verify?.record ?? null;
   const findings = [...box.notes];
-  if (new Set(recs.map(versionsSig).filter(Boolean)).size > 1) findings.push('the recorded Beacon / Claude Code / Codex versions differ between phases');
+  const drift = versionDrift(recs);
+  if (drift.length) findings.push(`the recorded ${drift.join(', ')} version(s) differ between phases`);
   for (const [k, name] of [['claude', 'Claude Code'], ['codex', 'Codex']]) {
     const pin = vrec?.versions?.pins?.[k];
     if (pin?.differs) findings.push(`pin drift: ${name} installed version differs from PINS.md last-observed ${tick(pin.lastObserved ?? '?')} (recorded as a finding by the ${OPERATOR_DECISION}; PINS.md is not moved for L3)`);
@@ -416,15 +514,25 @@ export function evaluateL3({ baseline, probe, verify = null, priors = [], notes 
   for (const p of PHASES) {
     const r = runs[p];
     if (!r) continue;
-    for (const f of r.manifest.findings ?? []) findings.push(`${p} run: ${oneLine(f)}`);
-    for (const f of r.record?.findings ?? []) findings.push(`${p} record: ${oneLine(f)}`);
+    // The scenario writes each of its findings to both the manifest and the record: each is
+    // listed once.
+    const seen = new Set();
+    for (const [src, list0] of [['run', r.manifest.findings ?? []], ['record', r.record?.findings ?? []]]) {
+      for (const f of list0) {
+        const t = oneLine(f);
+        if (seen.has(t)) continue;
+        seen.add(t);
+        findings.push(`${p} ${src}: ${t}`);
+      }
+    }
   }
   const drivers = PHASES.filter((p) => runs[p]).map((p) => ({ phase: p, m: runs[p].manifest }));
   const irreproducible = drivers.filter(({ m }) => m.driver?.toolsHerdrDirty !== false || !m.driver?.commit).map(({ phase }) => phase);
   if (irreproducible.length) findings.push(`the ${irreproducible.join(', ')} run(s) cannot be reproduced: tools/herdr/ was not clean and committed (driver.toolsHerdrDirty not false, or no driver commit; scripted-runs.md "Driver identity")`);
   // As g1-report.mjs: any accept policy other than exactly `human` (absent included) counts as
   // not human, as does any dialog-accept command.
-  const driverAccepts = drivers.filter(({ m }) => (m.commands ?? []).some((c) => c.role === 'dialog-accept') || m.scenario?.params?.accept !== 'human').map(({ phase }) => phase);
+  // The record's own acceptPolicy (L3b #195) must say human too, when it is recorded.
+  const driverAccepts = drivers.filter(({ phase, m }) => (m.commands ?? []).some((c) => c.role === 'dialog-accept') || m.scenario?.params?.accept !== 'human' || (runs[phase]?.record?.acceptPolicy !== undefined && runs[phase].record.acceptPolicy !== 'human')).map(({ phase }) => phase);
   if (driverAccepts.length) findings.push(`accept policy not \`human\` (absent, another value, or a \`dialog-accept\` command) in the ${driverAccepts.join(', ')} run(s); such a run is never verdict-bearing for a consent dialog (scripted-runs.md "Operator-consent dialogs")`);
 
   // Earlier runs of the same scenario at the same pins that ended NOT RUN or FAIL.
@@ -499,9 +607,30 @@ export function renderL3Draft(ev) {
   for (const f of findings) out.push(`- ${f}`);
   if (ev.priorSkipped.length) out.push(`- (Not listed: ${ev.priorSkipped.join('; ')})`);
   out.push('');
-  out.push('### Not recorded by the L3 record v1');
+  // Redacted excerpts, as the scenario recorded them (redactedExcerpt(), manifest-safe
+  // placeholders). The report holds no log line and no probe value; the leak guard still runs.
+  const pr = runs.probe?.record;
+  const ex = Array.isArray(pr?.scan?.excerpts) ? pr.scan.excerpts : null;
+  if (ex && ex.length) {
+    out.push('### Redacted excerpts (from the probe record)');
+    out.push('');
+    for (const e of ex.slice(0, 40)) out.push(`- ${tick(e.markerId ?? '?')}, ${tick(e.eventAction ?? 'no event.action')}, ${tick(e.file ?? '?')} line ${Number.isInteger(e.line) ? e.line : '?'}: ${tick(e.text ?? '')}`);
+    if (ex.length > 40 || pr.scan.excerptsTruncated) out.push(`- (${ex.length > 40 ? `${ex.length - 40} more in the probe record` : 'more hits than excerpts'}; see the probe run manifest)`);
+    out.push('');
+  }
+  // What this probe record does not carry (records from before L3b #195 lack these fields).
+  const missing = [];
+  if (pr) {
+    if (!pr.beacon?.sync) missing.push('`sync --print` poll-path counts (B2, B3, B4)');
+    if (!pr.scan?.counts) missing.push('per-action hit counts');
+    if (!pr.probeSessions) missing.push('the probe session ids (hits outside them are inferred from harness and session count)');
+    if (!pr.sessionFile) missing.push('the Claude session file\'s entry types and flags (B2)');
+    if (!ex) missing.push('redacted excerpts');
+    if (typeof pr.steps?.B3?.replyToolCalls !== 'number') missing.push('whether the reply tool was invoked (B3)');
+  }
+  out.push('### Not recorded by the probe record');
   out.push('');
-  out.push('- `sync --print` poll-path counts (B2, B4); per-action hit counts; the probe session ids (hits outside them are inferred from harness and session count); the Claude session file\'s entry types and flags (B2); redacted excerpts (the report holds no log line and no probe value).');
+  out.push(!pr ? '- no probe record' : missing.length ? `- ${missing.join('; ')}.` : '- nothing: the probe record carries every field this draft uses.');
   out.push('');
   out.push('### Operator attestation');
   out.push('');

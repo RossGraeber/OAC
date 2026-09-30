@@ -33,6 +33,11 @@
 // L3a (#189) adds test/l3-tests.mjs: unit checks, on synthetic input, for lib/l3.mjs (probe
 // markers, the scratch case-table augmentation, the Beacon runtime.jsonl scanner, redacted
 // excerpts, harness-config section hashes, the marker-leak assertion). Unit only; no Beacon.
+//
+// L3b (#190) adds, in test/l3-tests.mjs, unit checks for scenarios/l3-beacon.mjs (its Beacon
+// allowlist, parsers, box, session-file shapes) and lifecycle cases that run its three phases
+// against the fake herdr, fake Claude Code, fake Codex and test/fake-beacon.mjs (a test double
+// of the Beacon CLI), with a file-access trace and a marker-leak check.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,7 +57,7 @@ import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.m
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 import { g4Unit, g4Cases } from './g4-tests.mjs';
 import { g5Unit, g5Cases } from './g5-tests.mjs';
-import { l3Unit } from './l3-tests.mjs';
+import { l3Unit, l3ScenarioUnit, l3Cases } from './l3-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -688,6 +693,8 @@ async function lifecycle() {
     }
   }
 
+  await l3Cases(check, { makeBase, driverEnv, invariants, RUN, FAKE });
+
   const leftover = readdirSync(tmpdir()).filter((n) => n.startsWith('oac-herdr-scratch-') && !scratchBefore.has(n));
   check('lifecycle: every run removed its scratch directory', leftover.length === 0, leftover.join(','));
 }
@@ -703,6 +710,7 @@ export async function runSelfTest() {
   await g4Unit(check);
   await g5Unit(check);
   l3Unit(check);
+  await l3ScenarioUnit(check);
   ciUnit(check);
   if (process.platform === 'win32') {
     console.log('lifecycle checks skipped: the fake herdr runs pane commands with sh (POSIX only)');
