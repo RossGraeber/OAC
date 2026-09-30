@@ -196,6 +196,28 @@ export function sessionEntryShapes(text, markers) {
   return { lines, entries };
 }
 
+// Per-delivery-path COUNTS from scanRuntimeLog() hits (L3c contract, #191): lines holding the
+// marker, lines holding the fake token verbatim, and line counts per event.action, per JSON
+// path, per collection method and per harness. Value-free (paths are already substituted).
+export function hitCounts(hits, markers) {
+  const out = {};
+  const bump = (o, k) => {
+    o[k] = (o[k] ?? 0) + 1;
+  };
+  for (const m of markers) {
+    const hs = hits.filter((h) => h.markerId === m.id);
+    const c = { lines: hs.length, markerLines: hs.filter((h) => h.markerPresent).length, tokenLines: hs.filter((h) => h.tokenVerbatim).length, byAction: {}, byPath: {}, byCollectionMethod: {}, byHarness: {} };
+    for (const h of hs) {
+      bump(c.byAction, h.eventAction ?? '<none>');
+      for (const p of new Set([...h.markerPaths, ...h.tokenPaths])) bump(c.byPath, p);
+      bump(c.byCollectionMethod, h.harness.collection_method ?? '<none>');
+      bump(c.byHarness, h.harness.name ?? '<none>');
+    }
+    out[m.id] = c;
+  }
+  return out;
+}
+
 // Excerpt placeholders read as a secret assignment to run.mjs's manifest redaction; the manifest
 // stores them in a form it leaves alone: {L3-MARKER <id>} / {L3-FAKE-TOKEN <id>}.
 export const manifestSafePlaceholders = (text) => String(text).replace(new RegExp(PLACEHOLDER_RE.source, 'g'), (p) => `{${p.slice(1, -1).replace(':', ' ')}}`);
@@ -284,6 +306,8 @@ export default {
       findings: [],
       steps: {},
       beacon: { cli: cliMode, bin: cliMode === 'readonly' ? params.beaconBin || null : null, calls: [], status: null, log: null, sync: {} },
+      acceptPolicy: accept,
+      probeSessions: null,
       dialogs: [],
       herdrStates: [],
       stoppedAt: null,
@@ -515,7 +539,7 @@ export default {
         const at = new Date().toISOString();
         if (!existsSync(beaconLog)) return { step, at, present: false, ...extra };
         const buf = readFileSync(beaconLog);
-        const pick = (s) => ({ byMarker: s.byMarker, bySession: s.bySession, warnings: s.warnings });
+        const pick = (s) => ({ byMarker: s.byMarker, counts: hitCounts(s.hits, markers), bySession: s.bySession, warnings: s.warnings });
         const cumulative = pick(scanRuntimeLog([{ label: logName, text: buf, fromByte: startOffset }], markers));
         const delta = pick(scanRuntimeLog([{ label: logName, text: buf, fromByte: prevEnd }], markers));
         const snap = { step, at, present: true, bytes: buf.length, fromByte: startOffset, deltaFromByte: prevEnd, cumulative, delta, ...extra };
@@ -540,7 +564,7 @@ export default {
         const { r } = await beacon(key, step);
         const out = String(r.stdout ?? '');
         const s = scanRuntimeLog(out, markers);
-        const rec = { step, status: r.exitCode === 0 ? 'recorded' : 'exited non-zero', exitCode: r.exitCode, lines: out.split('\n').filter((l) => l.trim()).length, truncated: out.length >= OUTPUT_CAP, byMarker: s.byMarker, bySession: s.bySession };
+        const rec = { step, status: r.exitCode === 0 ? 'recorded' : 'exited non-zero', exitCode: r.exitCode, lines: out.split('\n').filter((l) => l.trim()).length, truncated: out.length >= OUTPUT_CAP, harness: key === 'claudeSync' ? 'claude' : 'codex', collection: 'poll (sync --print)', byMarker: s.byMarker, counts: hitCounts(s.hits, markers), bySession: s.bySession };
         if (rec.truncated) finding(`\`beacon ${BEACON_ALLOWLIST[key].join(' ')}\` printed more than the driver keeps (8 MiB); its ${step} hit counts are a lower bound`);
         return rec;
       };
@@ -748,13 +772,13 @@ export default {
       }
       const scan = scanRuntimeLog(inputs, markers);
       const redactor = createRedactor();
-      const excerpts = scan.hits.slice(0, 24).map((h) => {
+      const excerpts = scan.hits.slice(0, 100).map((h) => {
         const buf = inputs.find((i) => i.label === h.file).text;
         const end = buf.indexOf(0x0a, h.byteOffset);
         const line = buf.subarray(h.byteOffset, end === -1 ? buf.length : end).toString('utf8');
         return { file: h.file, line: h.line, markerId: h.markerId, eventAction: h.eventAction, text: manifestSafePlaceholders(redactedExcerpt(line, h, markers, redactor)) };
       });
-      l3.scan = { files: scan.files, byMarker: scan.byMarker, bySession: scan.bySession, warnings: scan.warnings, hitCount: scan.hits.length, excerpts, excerptsNote: 'placeholders are written {L3-MARKER <id>} / {L3-FAKE-TOKEN <id>} (manifest-safe form of lib/l3.mjs PLACEHOLDER_RE)' };
+      l3.scan = { files: scan.files, byMarker: scan.byMarker, counts: hitCounts(scan.hits, markers), bySession: scan.bySession, warnings: scan.warnings, hitCount: scan.hits.length, excerpts, excerptsTruncated: scan.hits.length > excerpts.length, excerptsNote: 'one redactedExcerpt() per hit (first 100); placeholders are written {L3-MARKER <id>} / {L3-FAKE-TOKEN <id>} (manifest-safe form of lib/l3.mjs PLACEHOLDER_RE)' };
       for (const wng of scan.warnings) finding(`runtime log scan: ${wng}`);
       const probeSessions = new Set(scan.bySession.filter((s) => s.markerIds.length).map((s) => `${s.harness} ${s.sessionId}`));
       l3.scan.sessionsHoldingProbeValues = probeSessions.size;
@@ -770,6 +794,7 @@ export default {
           for (const n of readdirSync(d).filter((x) => x.endsWith('.jsonl'))) {
             const shapes = sessionEntryShapes(readFileSync(join(d, n), 'utf8'), markers);
             sf.files += 1;
+            (sf.sessionIds ??= []).push(n.replace(/\.jsonl$/, ''));
             sf.lines += shapes.lines;
             sf.entries.push(...shapes.entries);
           }
@@ -779,6 +804,17 @@ export default {
       } else {
         l3.sessionFile = { read: false, note: 'not read (--param readSessionFile is not true); the poll path (`sync --print`) is the B2 session-file evidence' };
       }
+
+      // The probe's own sessions per harness (L3c contract): the harness-side ids the driver
+      // knows, independent of Beacon: the Claude session file name(s) in the scratch probe
+      // project (null when readSessionFile is off) and the Codex TUI thread id. That Beacon's
+      // session.id equals these ids is UNVERIFIED; a hit whose session.id is none of them is
+      // "outside the probe sessions" only under that assumption.
+      l3.probeSessions = {
+        claude: l3.sessionFile.read ? [...(l3.sessionFile.sessionIds ?? [])].sort() : null,
+        codex: threadId ? [threadId] : [],
+        note: 'harness-side ids (Claude session file names, Codex thread id); their equality with Beacon session.id is UNVERIFIED',
+      };
 
       l3.steps.B5 = { status: 'NOT RUN', reason: 'B5 runs Beacon\'s own memory evaluation: a Beacon step only the operator may do (default taken on #168, 2026-09-30)' };
       l3.steps.B6 = { status: 'NOT RUN', reason: 'B6 needs Beacon\'s MCP registration and an approved memory: Beacon steps only the operator may do (default taken on #168, 2026-09-30)' };

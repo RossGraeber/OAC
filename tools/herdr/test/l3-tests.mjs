@@ -30,7 +30,7 @@ import { presend } from '../gate-servers/g5-channel.mjs';
 import { frameCase, HEADER_FIELDS } from '../gate-servers/g5-codex.mjs';
 import l3Scenario, {
   BEACON_ALLOWLIST, BEACON_VERSION, L3_BOX_MS, beaconArgv, parseBeaconVersion, parseBeaconStatus, boxState, claudeProjectSlug, sessionEntryShapes, manifestSafePlaceholders,
-  defaultBeaconLog, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline,
+  defaultBeaconLog, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline, hitCounts,
 } from '../scenarios/l3-beacon.mjs';
 import { assertNoSpoof } from '../lib/g5.mjs';
 import { CI_SCENARIOS } from '../ci.mjs';
@@ -335,6 +335,14 @@ export function l3ScenarioUnit(check) {
   const shapes = sessionEntryShapes(session, markers);
   check('l3b session file: only entries holding the probe values are described, by type/isMeta/attachment type and key names', shapes.lines === 4 && shapes.entries.length === 3 && shapes.entries[0].type === 'attachment' && shapes.entries[0].isMeta === true && shapes.entries[0].attachmentType === 'channel_message' && shapes.entries[0].attachmentKeys.join() === 'content,type' && shapes.entries[0].tokenPresent === true && shapes.entries[2].parsed === false, JSON.stringify(shapes.entries.map((e) => ({ ...e, attachmentKeys: e.attachmentKeys?.length }))));
   check('l3b session file: a probe value in a type or key never reaches the record', findMarkerLeaks(JSON.stringify(shapes), markers).length === 0 && shapes.entries[1].type === '<non-enum>' && shapes.entries[1].attachmentType === '<non-enum>' && shapes.entries[1].isMeta === null);
+  const xm = markers.find((m) => m.id === 'codex-turn-start');
+  const logText = [
+    JSON.stringify({ event: { action: 'prompt.submitted' }, harness: { name: 'claude_code', collection_method: 'hook' }, session: { id: 's1' }, prompt: { text: `a ${cm.marker} ${cm.token}` } }),
+    JSON.stringify({ event: { action: 'mcp.tool_invoked' }, harness: { name: 'claude_code', collection_method: 'hook' }, session: { id: 's1' }, tool: { arguments: { message: cm.marker } } }),
+    JSON.stringify({ event: { action: 'prompt.submitted' }, harness: { name: 'codex', collection_method: 'otlp' }, session: { id: 't1' }, prompt: { text: xm.marker } }),
+  ].join('\n');
+  const hc = hitCounts(scanRuntimeLog(logText, markers).hits, markers);
+  check('l3b counts: per path, lines / marker lines / token lines and counts per action, JSON path, collection method and harness; value-free', hc['claude-channel'].lines === 2 && hc['claude-channel'].tokenLines === 1 && hc['claude-channel'].byAction['mcp.tool_invoked'] === 1 && hc['claude-channel'].byAction['prompt.submitted'] === 1 && hc['claude-channel'].byPath['tool.arguments.message'] === 1 && hc['codex-turn-start'].byCollectionMethod.otlp === 1 && hc['codex-turn-start'].byHarness.codex === 1 && hc['codex-queue-add'].lines === 0 && findMarkerLeaks(JSON.stringify(hc), markers).length === 0, JSON.stringify(hc));
   check('l3b: the Claude project slug replaces every non-alphanumeric character', claudeProjectSlug('C:\\sources\\OAC') === 'C--sources-OAC' && claudeProjectSlug('/tmp/oac-herdr-scratch-x/l3-project') === '-tmp-oac-herdr-scratch-x-l3-project');
 
   // --- excerpts in the manifest ---
@@ -525,6 +533,7 @@ export async function l3Cases(check, h) {
         check('l3 probe: B5 and B6 NOT RUN; the daemon state is a finding (not running before)', l3.steps.B5.status === 'NOT RUN' && l3.steps.B6.status === 'NOT RUN' && l3.daemon.alreadyRunning === false && pm.findings.some((f) => /daemon state: not running before/.test(f)));
         check('l3 probe: no pin drift at the PINS.md versions', !pm.findings.some((f) => /pin drift/.test(f)) && l3.versions.pins.claude.differs === false && l3.versions.pins.codex.differs === false, JSON.stringify(pm.findings));
         check('l3 probe: captures written clean, none fixture-shaped', pm.captures.length === 4 && pm.captures.every((c) => c.written && /^l3-/.test(c.file) && !/-herdr\./.test(c.file)), JSON.stringify(pm.captures.map((c) => [c.file, c.written])));
+        check('l3 probe (L3c contract): accept policy, per-action/per-path counts, poll-path counts, probe session ids recorded', l3.acceptPolicy === 'human' && l3.scan.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.scan.counts['claude-channel'].byAction['prompt.submitted'] >= 1 && l3.scan.counts['claude-channel'].tokenLines >= 1 && Object.keys(l3.scan.counts['codex-queue-add'].byPath).includes('prompt.text') && l3.beacon.sync.B4.counts['codex-queue-add'].markerLines >= 1 && l3.beacon.sync.B2.harness === 'claude' && l3.steps.B3.log.delta.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.probeSessions.claude.length === 1 && l3.probeSessions.codex[0] === l3.thread.id && l3.scan.bySession.filter((s) => s.markerIds.length).every((s) => [...l3.probeSessions.claude, ...l3.probeSessions.codex].includes(s.sessionId)), JSON.stringify({ counts: l3.scan.counts, probeSessions: l3.probeSessions }));
         check('l3 probe: typed text was only the reply prompt and the thread marker', probe.prompts.map((p) => p.text).sort().join('|') === [DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER].sort().join('|'));
       }
 

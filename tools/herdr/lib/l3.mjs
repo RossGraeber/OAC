@@ -70,6 +70,27 @@ export const L3_RECORD_VERSION = 1;
  *                                               { files, byMarker, bySession } (no excerpts;
  *                                               L3c builds redacted excerpts itself).
  * @property {Array<string>} findings            Free-text findings, redacted, value-free.
+ *
+ * Added by L3b (scenarios/l3-beacon.mjs, #190) within version 1 (additive; nothing above changed):
+ * @property {'human'} acceptPolicy              The consent-dialog accept policy (always human).
+ * @property {object} steps                      { B0..B7: { status: 'recorded'|'NOT RUN', ... } } per phase.
+ * @property {object|null} scan.counts           Probe phase: hitCounts() per delivery path:
+ *                                               { lines, markerLines, tokenLines, byAction,
+ *                                               byPath, byCollectionMethod, byHarness }.
+ * @property {Array<object>} scan.excerpts       One redactedExcerpt() per hit (first 100):
+ *                                               { file, line, markerId, eventAction, text }, text
+ *                                               in the manifest-safe {L3-MARKER <id>} form.
+ * @property {object} steps.B2.log / B3.log / B4.log  Log snapshots: { cumulative, delta }, each
+ *                                               { byMarker, counts, bySession, warnings }.
+ * @property {object} beacon.sync                { B2, B3, B4 }: `sync --print` poll-path results,
+ *                                               { harness, exitCode, lines, truncated, byMarker,
+ *                                               counts, bySession }, or { status: 'NOT RUN' }.
+ * @property {object|null} probeSessions         { claude: string[]|null, codex: string[] }:
+ *                                               harness-side ids of the probe sessions.
+ * @property {object|null} sessionFile           { read, dirsFound, files, sessionIds, lines,
+ *                                               entries: [{ parsed, type, isMeta,
+ *                                               attachmentType, attachmentKeys, markerPresent,
+ *                                               tokenPresent }] } (types and flags only).
  */
 
 /**
