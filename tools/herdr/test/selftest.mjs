@@ -29,6 +29,10 @@
 // scenarios/g2-codex-inject.mjs against the fake herdr plus test/fake-codex.mjs (a test double
 // of the Codex CLI, daemon and TUI) with the REAL committed G2 client, and trace every file
 // the driver and the client open (test/fs-trace.mjs).
+//
+// L3a (#189) adds test/l3-tests.mjs: unit checks, on synthetic input, for lib/l3.mjs (probe
+// markers, the scratch case-table augmentation, the Beacon runtime.jsonl scanner, redacted
+// excerpts, harness-config section hashes, the marker-leak assertion). Unit only; no Beacon.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -48,6 +52,7 @@ import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.m
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 import { g4Unit, g4Cases } from './g4-tests.mjs';
 import { g5Unit, g5Cases } from './g5-tests.mjs';
+import { l3Unit } from './l3-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -697,6 +702,7 @@ export async function runSelfTest() {
   g2Unit(check);
   await g4Unit(check);
   await g5Unit(check);
+  l3Unit(check);
   ciUnit(check);
   if (process.platform === 'win32') {
     console.log('lifecycle checks skipped: the fake herdr runs pane commands with sh (POSIX only)');
