@@ -143,10 +143,33 @@ export function g2Unit(check) {
   check('g2 sanitize: with no identified thread, every thread/list entry is dropped (fail closed)', !sn.text.includes('"id":"mine"') && sn.report.threadListEntriesRemoved === 2);
 
   // --- pane classification and the argv proof ----------------------------------------------
-  const trust = 'Do you trust the files in this folder?\n\n› 1. Yes, continue\n  2. No, quit\n\nPress enter to continue';
+  // #199: Codex 0.159.2's trust dialog as captured live (the scratch path stands in for
+  // <SCRATCH>), without and with its optional Note block.
+  const TRUST_BODY = [
+    '  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings',
+    '  can run code automatically, even without a model request. Continue only if you trust these files. Your trust',
+    '  …',
+    '› 1. Trust and continue',
+    '  2. Back to Agent Command Center',
+    '',
+    '  enter continue · esc back',
+  ];
+  const trust = ['  C:\\tmp\\l3-codex-project', '', ...TRUST_BODY].join('\n');
+  const trustNote = ['  C:\\tmp\\l3-codex-project', '', '  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:', '  C:\\tmp\\l3-codex-project', '', ...TRUST_BODY].join('\n');
+  const plan = (t) => driverMayAcceptCodex(classifyCodexScreen(t));
+  const refused = (t) => {
+    const p = plan(t);
+    return !p.ok && p.keys.length === 0 && p.moves.length === 0;
+  };
   const tc = classifyCodexScreen(trust);
-  check('g2 pane #197: a trust dialog is recognized, option 1 selected, and the driver still REFUSES it (no Codex option text on record)', tc.dialog === 'workspace-trust' && tc.selected?.number === 1 && !driverMayAcceptCodex(tc).ok && /no option text on record/.test(driverMayAcceptCodex(tc).why) && driverMayAcceptCodex(tc).keys.length === 0, driverMayAcceptCodex(tc).why);
-  check('g2 pane: with "No" preselected the driver refuses', !driverMayAcceptCodex(classifyCodexScreen(trust.replace('› 1.', '  1.').replace('  2. No', '› 2. No'))).ok);
+  check('g2 pane #199: the recorded trust dialog is recognized, "1. Trust and continue" selected with `›`, and the driver accepts it with `enter` alone', tc.dialog === 'workspace-trust' && tc.selected?.number === 1 && plan(trust).ok && JSON.stringify(plan(trust).keys) === '["enter"]' && plan(trust).moves.length === 0 && tc.options.marked === 1 && tc.options[0].mark === '›', JSON.stringify(plan(trust)));
+  check('g2 pane #199: the optional Note block ("subdirectory of a Git project") is body text, not an option: accepted the same way', classifyCodexScreen(trustNote).options?.unknown.length === 0 && JSON.stringify(plan(trustNote).keys) === '["enter"]', JSON.stringify(plan(trustNote)));
+  check('g2 pane #199: a second `›` marker (double selection) is refused, no key', refused(trust.replace('  2. Back', '› 2. Back')) && /exactly one selected/.test(plan(trust.replace('  2. Back', '› 2. Back')).why));
+  check('g2 pane #199: an extra option (numbered, or unnumbered after the options) is refused, no key', refused(trust.replace('  2. Back to Agent Command Center', '  2. Back to Agent Command Center\n  3. Trust once')) && refused(trust.replace('  2. Back to Agent Command Center', '  2. Back to Agent Command Center\n      Trust for this session only')));
+  check('g2 pane #199: "Back" preselected (a different preselection) is refused, no key', refused(trust.replace('› 1.', '  1.').replace('  2. Back', '› 2. Back')) && /not the workspace-trust accepting option/.test(plan(trust.replace('› 1.', '  1.').replace('  2. Back', '› 2. Back')).why));
+  check('g2 pane #199: reordered options, swapped numbers, or a changed option text are refused, no key', refused(trust.replace('› 1. Trust and continue\n  2. Back to Agent Command Center', '  1. Back to Agent Command Center\n› 2. Trust and continue')) && refused(trust.replace('› 1. Trust', '› 2. Trust').replace('  2. Back', '  1. Back')) && refused(trust.replace('2. Back to Agent Command Center', '2. Quit')) && refused(trust.replace('1. Trust and continue', '1. Open restricted')));
+  check('g2 pane #199: a selection shown with another marker than `›` is refused, no key', refused(trust.replace('› 1.', '❯ 1.')) && /marker/.test(plan(trust.replace('› 1.', '❯ 1.')).why));
+  check('g2 pane #199: the old guessed trust text (not on record) is refused, no key', refused('Do you trust the files in this folder?\n\n› 1. Yes, continue\n  2. No, quit\n\nPress enter to continue'));
   const unk = classifyCodexScreen('Allow command?\n› 1. Yes\n  2. No\nPress enter to confirm');
   check('g2 pane: an approval or any unnamed prompt is "unknown" and never driver-accepted', unk.dialog === 'unknown' && !driverMayAcceptCodex(unk).ok);
   check('g2 pane: in-progress indicator is a parameter; an idle composer is no dialog', classifyCodexScreen('• Working (3s • esc to interrupt)').busy && classifyCodexScreen('› Ask Codex to do anything').dialog === null && !classifyCodexScreen('› Ask Codex').busy);
@@ -261,7 +284,7 @@ export function g2Cases(check) {
     check('g2 human: report scores C1, C2, C4 equivalent; C3 pending the operator', ev.rows.map((x) => x.score).join('|') === [SCORES.EQ, SCORES.EQ, SCORES.NE, SCORES.EQ].join('|') && /operator review/.test(ev.rows[2].reason), JSON.stringify(ev.rows.map((x) => [x.score, x.reason])));
     check('g2 human: an operator score for C3 applies once its preconditions hold', evalRun(r, parseOperatorScores([{ n: 3, score: 'equivalent', note: 'pane read shows both messages and answers' }])).rows[2].score === SCORES.EQ);
     const pane = parseSections(r.capture(names().pane));
-    check('g2 human: the pane capture holds the dialog read and the post-delivery reads, keyed to herdr commands', pane.some((s) => s.seq === d.readSeq && /trust the files/.test(s.text)) && pane.some((s) => s.seq === g2.inject.afterReadSeq) && pane.some((s) => s.seq === g2.busyQueue.afterReadSeq));
+    check('g2 human: the pane capture holds the dialog read and the post-delivery reads, keyed to herdr commands', pane.some((s) => s.seq === d.readSeq && /Trust this folder\?/.test(s.text)) && pane.some((s) => s.seq === g2.inject.afterReadSeq) && pane.some((s) => s.seq === g2.busyQueue.afterReadSeq));
 
     // Credential hygiene, from the trace rather than asserted: the driver and the client.
     const trace = read(join(r.base, 'fs-trace.jsonl')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -316,13 +339,30 @@ export function g2Cases(check) {
     check('g2 unknown: no Codex dialog shown (trusted project), so the driver sent no dialog key', g2.dialogs.length === 0 && !m.commands.some((x) => x.role === 'dialog-accept'));
   });
 
-  // #197 review: under the DEFAULT policy (accept=driver) the Codex trust dialog, whose option
-  // text is not on record, is refused: NOT RUN, no key sent. accept=human remains for such runs.
-  run('g2 default policy refuses the Codex trust dialog', { args: FAST, fakeCodex: {} }, (r) => {
+  // #199: under the DEFAULT policy (accept=driver) the Codex trust dialog on record (0.159.2)
+  // is accepted by the driver: read first, then `enter` alone, straight after a read.
+  const driverAccepted = (m, d) => d?.kind === 'workspace-trust' && d.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys?.map((k) => k.key)) === '["enter"]' && d.inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === d.acceptSeq - 1)?.argv.includes('read') && m.commands.filter((x) => x.role === 'dialog-accept').length === 1 && d.resolvedSeq > d.acceptSeq;
+  run('g2 default policy accepts the Codex trust dialog', { args: FAST, fakeCodex: {} }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
-    check('g2 #197 Codex trust: default policy driver; NOT RUN; no dialog-accept command; the dialog is on record as refused', r.status === 3 && g2.acceptPolicy === 'driver' && /no option text on record/.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept') && g2.dialogs[0]?.kind === 'workspace-trust' && g2.dialogs[0]?.acceptOrigin === 'none (driver refused)', `${r.status} ${m.outcomeReason}`);
+    check('g2 #199 Codex trust: default policy driver; PASS; one dialog-accept (`enter`) straight after a read; nothing re-sent', r.status === 0 && m.outcome === 'PASS' && g2.acceptPolicy === 'driver' && g2.dialogs.length === 1 && driverAccepted(m, g2.dialogs[0]) && g2.dialogs[0].patternVerified?.includes('0.159.2'), `${r.status} ${m.outcomeReason} ${JSON.stringify(g2.dialogs)}`);
+    check('g2 #199 Codex trust: the dialog read is kept verbatim in the pane capture', parseSections(r.capture(names().pane)).some((s) => s.seq === g2.dialogs[0]?.readSeq && /Trust this folder\?/.test(s.text) && /› 1\. Trust and continue/.test(s.text)));
   });
+
+  run('g2 driver accepts the Codex trust dialog with its Note block', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'trust-note' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    check('g2 #199 Codex trust + Note: PASS; the "subdirectory of a Git project" lines are body text; accepted with `enter`', r.status === 0 && m.outcome === 'PASS' && driverAccepted(m, g2.dialogs[0]), `${r.status} ${m.outcomeReason}`);
+  });
+
+  // Off-record shapes: refused, NOT RUN, no key sent to the dialog.
+  for (const [variant, why] of [['trust-double-marker', /exactly one selected/], ['trust-extra-option', /not the ones on record/], ['trust-back-preselected', /not the workspace-trust accepting option/]]) {
+    run(`g2 driver refuses the Codex ${variant} dialog`, { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: variant } }, (r) => {
+      const m = r.manifest;
+      const g2 = m.scenarioData.g2;
+      check(`g2 #199 Codex ${variant}: NOT RUN; no dialog-accept command; the dialog is on record as refused`, r.status === 3 && why.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept') && g2.dialogs[0]?.kind === 'workspace-trust' && g2.dialogs[0]?.acceptOrigin === 'none (driver refused)' && g2.injectionsSent.length === 0, `${r.status} ${m.outcomeReason}`);
+    });
+  }
 
   run('g2 CLI version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_CLI_VERSION: '0.158.0' } }, (r) => {
     const m = r.manifest;

@@ -139,7 +139,14 @@ const SELECT_MARK_UNNUMBERED = /^[\s│|]*[❯›▶▸→]\s*(\S.*?)\s*[│|]*\
 // at a time, re-reading the pane after each key, and presses Enter only when a read shows
 // `accept` selected (planDriverAccept here, driverAcceptDialog in gate-common.mjs). Anything
 // else is refused: the run ends NOT RUN, and no keystroke is guessed. A kind without `options`
-// (tool-permission; every Codex kind) is never driver-accepted (#197 review): NOT RUN, no key.
+// (tool-permission) is never driver-accepted (#197 review): NOT RUN, no key.
+// Optional per-kind fields (#199, Codex's trust dialog, lib/g2.mjs CODEX_DIALOG_KINDS):
+//   numbered  the options are numbered on record: each must carry its number (1, 2, …) in
+//             order, and body text above the first option is not an option whatever its
+//             indentation (a numbered extra option is still refused);
+//   marker    the one selection marker on record: a selection shown with any other marker is
+//             refused;
+//   footer    the kind's own footer pattern (default: DEFAULT_FOOTER).
 export const DIALOG_KINDS = Object.freeze({
   'dev-channels': {
     // Box C, verbatim (the one live-observed dialog); the same text and preselection were seen
@@ -209,6 +216,8 @@ export function selectedOption(text) {
 // option the driver does not know, marked as selected, makes marked exceed the matches).
 // null for a kind without `options`.
 const OPTION_LINE = /^\s*([❯›▶▸→>*])?\s*(?:(\d+)\.\s+)?(.*?)\s*$/;
+// Claude Code's footers ("Enter to confirm · Esc to cancel"); a kind may name its own (`footer`).
+const DEFAULT_FOOTER = /(?:Press )?Enter to (?:confirm|continue)[^\n]*|Esc to (?:cancel|exit)[^\n]*|\(y\/n\)[^\n]*/i;
 export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
   const def = dialogKinds[kind];
   if (!def?.options) return null;
@@ -216,7 +225,7 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
   const m = def.detect.exec(s);
   if (!m) return null;
   const rest = s.slice(s.lastIndexOf('\n', m.index) + 1);
-  const foot = /(?:Press )?Enter to (?:confirm|continue)|Esc to (?:cancel|exit)|\(y\/n\)/i.exec(rest);
+  const foot = (def.footer ?? DEFAULT_FOOTER).exec(rest);
   // Numbered options run together on one line (Box C's transcription: "1. … 2. Exit") are
   // split at the next number, as selectedOption reads them.
   const region = (foot ? rest.slice(0, foot.index) : rest)
@@ -232,20 +241,22 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
     // bullet lines), as in selectedOption.
     const selected = !!mark && (!/[>*]/.test(mark) || num !== undefined);
     const col = line.length - line.replace(/^\s*(?:[❯›▶▸→>*]\s*)?/, '').length; // column of the option text
-    return { selected, num, body, col };
+    return { selected, mark: selected ? mark : null, num, body, col };
   });
   // Unnumbered options line up with the selected line's text; a line at that column (or any
   // numbered line) that is not a known option is an option the driver does not know.
   // After the first option-shaped line (a known option, or a marked line), every non-empty line
   // up to the footer must be a known option, whatever its indentation (#197 review).
-  const optionCol = parsed.find((p) => p.selected)?.col ?? null;
+  // A numbered kind (#199) has body text at the options' column above them (Codex's wrapped
+  // "Trust this folder? …" paragraph); there, only a numbered line before the options is one.
+  const optionCol = def.numbered ? null : (parsed.find((p) => p.selected)?.col ?? null);
   let inOptions = false;
   for (const p of parsed) {
     if (p.selected) marked += 1;
     if (!p.body) continue;
     const known = def.options.includes(p.body);
     if (known || p.selected) inOptions = true;
-    if (known) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected });
+    if (known) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected, mark: p.mark });
     else if (inOptions || p.num !== undefined || (optionCol !== null && p.col === optionCol)) unknown.push(p.body);
   }
   found.marked = marked;
@@ -273,6 +284,21 @@ export function classifyScreen(text, { busyIndicator = 'esc to interrupt' } = {}
 
 const optLabel = (o) => (o ? `"${o.number == null ? '' : `${o.number}. `}${o.text}"` : 'none found');
 
+// The kind-specific form checks on an option list whose texts already match the record (#199):
+// numbering (a `numbered` kind: option i carries number i + 1) and the selection marker (a kind
+// with `marker`: the selected option shows exactly that marker). -> null, or why not.
+function formOffRecord(opts, def) {
+  if (def.numbered) {
+    const nums = opts.map((o) => o.number);
+    if (nums.some((n, i) => n !== i + 1)) return `the options are numbered ${JSON.stringify(nums)}, not ${JSON.stringify(opts.map((_, i) => i + 1))} as on record`;
+  }
+  if (def.marker) {
+    const bad = opts.find((o) => o.selected && o.mark !== def.marker);
+    if (bad) return `the selection marker is ${JSON.stringify(bad.mark)}, not the ${JSON.stringify(def.marker)} on record`;
+  }
+  return null;
+}
+
 // How may the DRIVER accept this dialog? -> { ok, why, moves: [{ key, expect }], keys }
 //   moves: the selection keys to send, one at a time, each followed by a read that must show
 //          `expect` selected; keys: every key in order, Enter last.
@@ -285,9 +311,10 @@ export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
   const def = dialogKinds[kind];
   const no = (why) => ({ ok: false, why, moves: [], keys: [] });
   if (!def) return no(`unrecognized dialog (${kind ?? 'none'}); the driver never accepts a dialog it cannot name`);
-  // #197 review: a kind with no option text on record (Claude Code's tool-permission prompt,
-  // every Codex dialog) is never driver-accepted, whatever is preselected. The driver accepts
-  // only the three dialogs K-196 lists; anything else ends the run NOT RUN with no key sent.
+  // #197 review: a kind with no option text on record (Claude Code's tool-permission prompt)
+  // is never driver-accepted, whatever is preselected. The driver accepts only the dialogs
+  // K-196 lists (three Claude Code ones and, since #199, Codex's workspace trust); anything
+  // else ends the run NOT RUN with no key sent.
   if (!def.options) return no(`${kind}: no option text on record; the driver accepts only the dialogs listed in K-196 (use accept=human)`);
   const sel = classification.selected;
   if (!sel) return no('no selected option found in the dialog text');
@@ -297,6 +324,8 @@ export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
     if (opts.unknown?.length) texts.push(...opts.unknown.map((u) => `?${u}`));
     return no(`the ${kind} options on screen (${JSON.stringify(texts)}) are not the ones on record (${JSON.stringify(def.options)}); the driver does not guess keystrokes`);
   }
+  const off = formOffRecord(opts, def);
+  if (off) return no(`the ${kind} dialog: ${off}; the driver does not guess keystrokes`);
   const selectedIdx = opts.map((o, i) => (o.selected ? i : -1)).filter((i) => i !== -1);
   if (selectedIdx.length !== 1 || opts.marked !== 1) return no(`the ${kind} dialog does not show exactly one selected option on record (${opts.marked} marked)`);
   const at = selectedIdx[0];
@@ -320,6 +349,8 @@ export function selectionCheck(screen, kind, expect, prev, dialogKinds = DIALOG_
   if (!def?.options || !opts) return { state: 'wait', why: 'no option list read' };
   if (opts.unknown?.length || JSON.stringify(opts.map((o) => o.text)) !== JSON.stringify(def.options)) return { state: 'wait', why: `options on screen ${JSON.stringify(opts.map((o) => o.text))} are not the ones on record` };
   if (opts.marked !== 1) return { state: 'wait', why: `${opts.marked} selection markers on screen, not exactly one` };
+  const off = formOffRecord(opts, def);
+  if (off) return { state: 'wait', why: off };
   const now = opts.find((o) => o.selected)?.text ?? null;
   if (now === expect) return { state: 'ok' };
   if (now === prev) return { state: 'wait', why: `the selection is still ${JSON.stringify(prev)}` };
@@ -352,7 +383,7 @@ export function dialogBody(text, kind, dialogKinds = DIALOG_KINDS) {
   const m = dialogKinds[kind]?.detect.exec(s);
   const start = m ? s.lastIndexOf('\n', m.index) + 1 : 0;
   const rest = s.slice(start);
-  const foot = /(?:Press )?Enter to (?:confirm|continue)[^\n]*|Esc to (?:cancel|exit)[^\n]*|\(y\/n\)[^\n]*/i.exec(rest);
+  const foot = (dialogKinds[kind]?.footer ?? DEFAULT_FOOTER).exec(rest);
   const body = foot ? rest.slice(0, foot.index + foot[0].length) : rest;
   return normalizeDialogText(body).replace(/\s+/g, '');
 }

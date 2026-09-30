@@ -6,6 +6,8 @@
   dialogs" (the K5 rule), and its "Operator attestation" and "Verdict eligibility" sections.
 - **Status:** decided by the operator; implemented in `tools/herdr/` (PR for #196). Live
   behavior is UNVERIFIED: the driver has only been tested against the test doubles.
+- **Amended:** 2026-09-30 (#199): the driver also accepts Codex's workspace-trust dialog,
+  now on record (§6).
 
 This is the separately recorded operator decision that `scripted-runs.md` "Changing the
 rule" requires.
@@ -19,6 +21,7 @@ automate implementation and testing tasks."
 1. **Dialogs.** In dev/test runs the herdr driver accepts three Claude Code dialogs itself,
    and only these three: workspace trust, project MCP-server approval, and the
    `--dangerously-load-development-channels` warning. Every other dialog is refused (§2).
+   Amended by #199 (§6): Codex's workspace-trust dialog is a fourth.
 2. **Default.** `accept=driver` is the default in every scenario: `g1-claude-wake`,
    `g2-codex-inject`, `g4-mcp-dual-era`, `g5-provenance` and `l3-beacon`. `accept=human`
    remains available everywhere.
@@ -41,6 +44,7 @@ automate implementation and testing tasks."
 | workspace-trust | "Is this a project you created or one you trust?" | "No, exit" (preselected), "Yes, I trust this folder" | `down`, `enter` |
 | mcp-server-approval | "New MCP server found in this project: …" | "Use this MCP server", "Use this and all future MCP servers in this project", "Continue without using this MCP server" (preselected) | `up`, `up`, `enter` |
 | dev-channels | "WARNING: Loading development channels" | "1. I am using this for local development" (preselected), "2. Exit" | `enter` |
+| Codex workspace-trust (#199, §6) | "Trust this folder? Codex can read, edit, and run files here, …" | "1. Trust and continue" (preselected, marker `›`), "2. Back to Agent Command Center" | `enter` |
 
 - **Source of the option texts.** Observed live: G1 Box C (dev-channels), herdr runs of
   2026-09-29 (#156 trust, #161 MCP), and the 2026-09-30 L3 probe runs (all three) on Claude
@@ -62,17 +66,16 @@ automate implementation and testing tasks."
 - **Everything else is refused (#197 review).** The driver never accepts a dialog kind
   with no option text on record, whatever is preselected. That covers Claude Code's
   tool-permission prompt ("Do you want to proceed?" before a tool call) and every Codex
-  dialog: no Codex dialog text is on record. The run ends `NOT RUN` with no key sent. There
-  is no opt-in.
+  dialog other than the trust dialog on record since #199 (§6). The run ends `NOT RUN` with
+  no key sent. There is no opt-in.
   - **Why.** The first draft of this PR kept the pre-#196 "accept when the accepting option
     is preselected" path for these kinds. With `accept=driver` now the default, that path
     would have let the driver approve any tool call mid-run. In G5 that includes one a
     spoofed body induced while Claude runs shell commands.
   - **Future change.** Tool approval is outside #196. Driver-approving it needs its own
     recorded decision and a security note (`oac-security-work`, permission relay).
-  - **For runs that may meet such a dialog.** Use `accept=human`. That includes a real Codex
-    trust dialog in a fresh scratch project, which is UNVERIFIED: no live Codex dialog text
-    is on record.
+  - **For runs that may meet such a dialog.** Use `accept=human`. (Superseded for Codex's
+    trust dialog by #199, §6: its text is now on record and the driver accepts it.)
 - **No harness config.** The driver writes no harness config: no `~/.claude.json` trust
   entry and no settings edit (`oac-boundaries` check 10). It never runs herdr's hook-writing
   command.
@@ -125,3 +128,73 @@ The 2026-09-30 L3 probe run 3 ended `NOT RUN`. The workspace-trust dialog, with
   (`g1-report` … `g5-report`, `l3-report`), the scenarios, `ci.mjs` and the opt-in workflow's
   comments. Self-tests: `tools/herdr/test/g1-tests.mjs`, `g2-tests.mjs` and `l3-tests.mjs`,
   with `fake-claude.mjs` option and tool-permission dialogs.
+
+## 6. Amendment 2026-09-30 (#199): Codex's workspace-trust dialog
+
+**Decision.** Operator, on #199 (2026-09-30): the driver accepts harness dialogs in dev/test
+runs. #197 refused every Codex dialog because none was on record, so the 2026-09-30 L3 probe
+run ended `NOT RUN` at Codex's trust dialog. That run captured the text, and the driver now
+accepts that dialog, under every rule of §2 unchanged.
+
+**Captured live.** 2026-09-30T17:28:35Z, Codex CLI / app-server 0.159.2, Windows, driver
+run `probe4` of `l3-beacon`, read seq 48, TUI attached to the app-server daemon; scratch
+path redacted to `<SCRATCH>`:
+
+```
+  <SCRATCH>\l3-codex-project
+
+  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:
+  <SCRATCH>\l3-codex-project
+
+  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings
+  can run code automatically, even without a model request. Continue only if you trust these files. Your trust
+  …
+› 1. Trust and continue
+  2. Back to Agent Command Center
+
+  enter continue · esc back
+```
+
+**Mechanics.** The entry is `CODEX_DIALOG_KINDS['workspace-trust']` in
+`tools/herdr/lib/g2.mjs`: options exactly "Trust and continue", "Back to Agent Command
+Center", numbered 1 and 2 in that order; preselection and accepting option both option 1;
+selection marker `›` (not Claude Code's `❯`); footer "enter continue · esc back". The driver
+sends `enter` alone, straight after the read that planned it. Everything in §2 holds: the
+pane is read verbatim first, there must be exactly one selection marker, and unknown, extra
+or reordered options, a different preselection, other numbering or another marker are
+refused (`NOT RUN`, no key). The Enter is bounded by the post-accept wait and never
+re-sent. The Note block sits above the question and is body text, accepted present or
+absent. Codex's other variants of this dialog are not on record and are refused: "Quit" or
+"Keep current directory" as option 2 (not attached to a daemon, or an existing task), and
+"Open restricted" as option 1.
+
+**Why "a subdirectory of a Git project" whose root is the directory itself.** No scenario
+runs `git init`. Every scratch project is a plain directory made by `ctx.dir()` under
+`os.tmpdir()` (`tools/herdr/run.mjs`), and `%TEMP%` on the capture machine is not inside a
+Git repository. The Note is a Windows path-spelling artefact in Codex, read from source at
+tag `rust-v0.159.2` (commit `8b9fa496bbf2c47aebd62e85a080b9a522a455b5`, read 2026-09-30):
+
+- `codex-rs/tui/src/onboarding/trust_directory.rs` shows the Note when
+  `self.cwd != self.trust_target`.
+- For a TUI attached to the daemon, `read_remote_project_trust` in
+  `codex-rs/tui/src/config_update.rs` sets `trust_target` from
+  `normalized_project_trust_keys` of the project root. The project root falls back to the
+  cwd when no root marker is found. `cwd` keeps its original spelling.
+- `normalized_project_trust_keys` in `codex-rs/config/src/loader/mod.rs` lowercases the
+  key on Windows (`to_ascii_lowercase`) and puts the canonical spelling first.
+
+So on Windows the trust target is a lowercased or canonical spelling of the cwd itself. It
+compares unequal to the cwd, and the Note shows the same directory as the "repository root".
+The redaction to `<SCRATCH>` hides the spelling difference. This is a source reading, not
+a runtime observation (UNVERIFIED at runtime). Either way the driver treats the Note as body
+text.
+
+**Evidence of need.** The 2026-09-30 L3 probe run `probe4` ended `NOT RUN` at this dialog:
+"no option text on record".
+
+**Where it lands.** `tools/herdr/lib/g2.mjs` (the entry), `tools/herdr/lib/g1.mjs`
+(`numbered`, `marker` and `footer` kind fields), `tools/herdr/test/fake-codex.mjs` (the
+dialog with and without the Note, and three refused variants), the G2 unit and lifecycle
+tests, and one driver-accepted Codex trust dialog in each of the G4, G5 and L3 lifecycles.
+Also `scripted-runs.md` (dated amendment), `tools/herdr/README.md` "Dialogs", and the G2
+scenario's header comment. Live acceptance is UNVERIFIED until a live run shows it.

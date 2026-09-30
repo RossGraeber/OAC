@@ -36,26 +36,34 @@ never replaces a supported interface and it decides nothing.
 
 Operator decision of 2026-09-30 (#196, `docs/planning/decisions/K-196-driver-accepts-dialogs.md`):
 in dev/test runs the driver accepts Claude Code's workspace-trust, project-MCP-server and
-`--dangerously-load-development-channels` dialogs itself, and **only those three**.
-`accept=driver` is the default in every scenario, `g1-claude-wake` included, and
-`accept=human` is still available. Each dialog is read verbatim before any key. It is
-accepted only if its options on screen are exactly the ones recorded in `lib/g1.mjs`
-`DIALOG_KINDS`. The selection is moved one key at a time. Each move is verified by a read
-that shows exactly one selection marker, on the expected option. Enter is pressed only on
-the accepting option:
+`--dangerously-load-development-channels` dialogs itself, and, since #199, Codex's
+workspace-trust dialog: **only those four**. `accept=driver` is the default in every
+scenario, `g1-claude-wake` included, and `accept=human` is still available. Each dialog is
+read verbatim before any key. It is accepted only if its options on screen are exactly the
+ones recorded in `lib/g1.mjs` `DIALOG_KINDS` (Claude Code) or `lib/g2.mjs`
+`CODEX_DIALOG_KINDS` (Codex). The selection is moved one key at a time. Each move is
+verified by a read that shows exactly one selection marker, on the expected option. Enter
+is pressed only on the accepting option:
 
-| Dialog | Preselected (seen live) | Driver keys |
-|---|---|---|
-| workspace-trust | "No, exit" | `down` (read shows "Yes, I trust this folder"), `enter` |
-| mcp-server-approval | "Continue without using this MCP server" | `up`, `up` (read shows "Use this MCP server"; never "all future"), `enter` |
-| dev-channels | "1. I am using this for local development" | `enter` |
+| Harness | Dialog | Preselected (seen live) | Driver keys | Recorded on |
+|---|---|---|---|---|
+| Claude Code | workspace-trust | "No, exit" | `down` (read shows "Yes, I trust this folder"), `enter` | v2.1.283, 2026-09-29/30 |
+| Claude Code | mcp-server-approval | "Continue without using this MCP server" | `up`, `up` (read shows "Use this MCP server"; never "all future"), `enter` | v2.1.283, 2026-09-29/30 |
+| Claude Code | dev-channels | "1. I am using this for local development" | `enter` | v2.1.283 (G1 Box C; 2026-09-30) |
+| Codex | workspace-trust | "› 1. Trust and continue" (options "1. Trust and continue", "2. Back to Agent Command Center"; marker `›`) | `enter` | 0.159.2, 2026-09-30 (#199) |
+
+Codex's trust dialog may carry a "Note: You’re in a subdirectory of a Git project. Trusting
+will apply to the repository root: …" block above its question. That block is body text,
+accepted present or absent, never an option. Its options must be numbered 1 and 2 in that
+order, and the selection must show Codex's `›` marker. Codex's other variants ("Quit" or
+"Keep current directory" as option 2, "Open restricted" as option 1) are not on record and
+are refused.
 
 Any other text, an extra option at any indentation, a second selection marker, or a move that
 does not land ends the run `NOT RUN`, with nothing guessed and nothing re-sent. **Every other
 dialog is refused**, whatever is preselected: Claude Code's tool-permission prompt ("Do you
-want to proceed?") and every Codex dialog, since no Codex dialog text is on record (#197
-review). The run ends `NOT RUN` with no key sent. Use `accept=human` for a run that may meet
-one. Each accept is recorded as `driver` with its keys, and every report says so.
+want to proceed?") and every other Codex dialog (#197 review). The run ends `NOT RUN` with
+no key sent. Use `accept=human` for a run that may meet one. Each accept is recorded as `driver` with its keys, and every report says so.
 `g1-claude-wake` defaults to `accept=driver` too, per the operator's second decision on #196.
 G1 criterion 5 is the dev-channels consent step itself, so on such a run it is `not
 evaluable` and the run is never a G1 equivalence record. CI's G1 run is one of these. Use

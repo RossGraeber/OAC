@@ -8,10 +8,10 @@
 // read verbatim and kept; the classification below only decides whether the driver may
 // continue (a dialog is up) and never stands in for evidence.
 //
-// Every Codex pane-text pattern below is UNVERIFIED against a live Codex TUI: no Codex
-// dialog or in-progress text is on record in this repository. They are best guesses to be
-// confirmed or corrected by the first operator run; no Codex dialog, recognized or not, is
-// ever accepted by the driver (#197 review).
+// One Codex dialog is on record: the workspace-trust dialog seen live on 0.159.2 (#199), which
+// the driver accepts under the #197 rules. Every other Codex pane-text pattern below (other
+// dialogs, the in-progress indicator) is UNVERIFIED against a live Codex TUI, a best guess;
+// no other Codex dialog, recognized or not, is ever accepted by the driver.
 //
 // Credential hygiene: nothing here opens anything under the Codex home directory. The only
 // process data read is a pid's argv (/proc/<pid>/cmdline, `ps -o command=`, or the Win32
@@ -21,7 +21,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 
-import { committedFile, sha256, selectedOption, normalizeDialogText, planDriverAccept } from './g1.mjs';
+import { committedFile, sha256, selectedOption, normalizeDialogText, planDriverAccept, dialogOptions } from './g1.mjs';
 import { diffSequences } from './compare-transcripts.mjs';
 
 // G2's launch: plain `codex`, no arguments and no config overrides (G2 criterion 1;
@@ -142,16 +142,43 @@ export function unverifiedNames(date) {
 
 // --- pane text: scheduling and safety only -----------------------------------------------
 
+// The kind table follows lib/g1.mjs DIALOG_KINDS (see the field notes there).
 export const CODEX_DIALOG_KINDS = Object.freeze({
   'workspace-trust': {
+    // Seen live (#199; 2026-09-30T17:28:35Z, driver run `probe4` of l3-beacon, read seq 48;
+    // Codex CLI / app-server 0.159.2, Windows, TUI attached to the app-server daemon):
+    //
+    //     <cwd>
+    //
+    //     Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:
+    //     <root>
+    //
+    //     Trust this folder? Codex can read, edit, and run files here, subject to your permission …
+    //     …
+    //   › 1. Trust and continue
+    //     2. Back to Agent Command Center
+    //
+    //     enter continue · esc back
+    //
+    // The Note block is optional body text above the detect line (Codex shows it when the trust
+    // target differs from the cwd; on Windows a case-normalized spelling of the cwd itself does,
+    // #199). The accepting option is preselected: the driver sends `enter` only. Any other
+    // second option (Codex's "Quit" or "Keep current directory", or "Open restricted" in place
+    // of option 1) is not on record and is refused.
     detect: /trust (?:the (?:files|contents) (?:in|of) )?this (?:folder|directory|project)|allow Codex to work in this folder/i,
-    acceptOption: /^Yes\b/i,
-    verified: null, // UNVERIFIED: no captured Codex dialog text on record
+    acceptOption: /^Trust and continue$/i,
+    options: Object.freeze(['Trust and continue', 'Back to Agent Command Center']),
+    numbered: true,
+    marker: '›',
+    footer: /\benter continue\b[^\n]*\besc back\b[^\n]*/i,
+    preselected: 0,
+    accept: 0,
+    verified: 'herdr L3 probe run probe4 2026-09-30 (#199), Codex CLI / app-server 0.159.2 on Windows; "1. Trust and continue" preselected',
   },
 });
-const GENERIC_DIALOG = /Press enter to (?:confirm|continue)|Enter to confirm|Esc to cancel|\(y\/n\)|Allow command\?|Approve\b.*\?/i;
+const GENERIC_DIALOG = /Press enter to (?:confirm|continue)|Enter to confirm|Esc to cancel|\(y\/n\)|Allow command\?|Approve\b.*\?|\benter continue\b.*\besc back\b/i;
 
-// -> { dialog: kind | 'unknown' | null, selected, busy }
+// -> { dialog: kind | 'unknown' | null, selected, options, busy }
 export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' } = {}) {
   const s = String(text ?? '');
   let dialog = null;
@@ -163,12 +190,12 @@ export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' }
   }
   if (!dialog && GENERIC_DIALOG.test(s)) dialog = 'unknown';
   const busy = busyIndicator ? s.toLowerCase().includes(busyIndicator.toLowerCase()) : false;
-  return { dialog, selected: dialog ? selectedOption(s) : null, busy };
+  return { dialog, selected: dialog ? selectedOption(s) : null, options: dialog ? dialogOptions(s, dialog, CODEX_DIALOG_KINDS) : null, busy };
 }
 
-// No Codex kind lists its options (no Codex dialog text is on record), so the driver never
-// accepts a Codex dialog: planDriverAccept refuses it and the run ends NOT RUN (#197 review).
-// Use accept=human for a run that may meet one.
+// The driver accepts only the Codex trust dialog on record (#199), under the same rules as
+// Claude Code's (planDriverAccept): exactly its options, numbered and in order, one `›`
+// selection, on option 1. Every other Codex dialog is refused: NOT RUN, no key sent.
 export function driverMayAcceptCodex(classification) {
   return planDriverAccept(classification, CODEX_DIALOG_KINDS);
 }

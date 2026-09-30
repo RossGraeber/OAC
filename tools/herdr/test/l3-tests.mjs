@@ -823,8 +823,9 @@ const gateServerHashes = () => Object.fromEntries(readdirSync(GATE_SERVERS).sort
 // accept: the scenario's accept policy for every phase. `driver` (the default since #196): the
 // fakes never accept their own dialogs, so the driver must. `human`: the fakes self-accept after
 // 1 s (standing in for the operator) and the driver sends nothing. claudeDialogs: fake-claude's
-// FAKE_CLAUDE_DIALOG (default: the dev-channels dialog alone).
-function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog = true, syncHistoryBytes = 0, accept = 'driver', claudeDialogs = null } = {}) {
+// FAKE_CLAUDE_DIALOG (default: the dev-channels dialog alone); codexDialog: fake-codex's
+// FAKE_CODEX_DIALOG (default: its trust dialog, #199).
+function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog = true, syncHistoryBytes = 0, accept = 'driver', claudeDialogs = null, codexDialog = null } = {}) {
   const b = h.makeBase();
   const home = join(b.base, 'home');
   mkdirSync(home);
@@ -853,9 +854,10 @@ function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog =
     ...codexEnv,
     HOME: home,
     FAKE_BEACON_CALLS: calls,
-    // Under accept=driver the fake Codex shows no trust dialog: the driver refuses every Codex
-    // dialog (no option text on record, #197 review), which would end the probe NOT RUN.
-    ...(accept === 'human' ? { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000', FAKE_CODEX_SELF_ACCEPT_MS: '1000' } : { FAKE_CODEX_DIALOG: 'none' }),
+    // The fake Codex shows its trust dialog (the text seen live on 0.159.2, #199): under
+    // accept=driver the driver accepts it (enter), under accept=human the fake self-accepts.
+    ...(accept === 'human' ? { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000', FAKE_CODEX_SELF_ACCEPT_MS: '1000' } : {}),
+    ...(codexDialog ? { FAKE_CODEX_DIALOG: codexDialog } : {}),
     ...(claudeDialogs ? { FAKE_CLAUDE_DIALOG: claudeDialogs } : {}),
     FAKE_CLAUDE_SESSION_FILE: '1',
     FAKE_CODEX_LONG_MS: '4500',
@@ -929,8 +931,9 @@ export async function l3Cases(check, h) {
   // --- happy path, all three phases, traced ---
   {
     // #196: Claude Code's three dialogs in the live order, each with its live preselection; the
-    // driver (the default policy) accepts them.
-    const w = l3World(h, { trace: true, syncHistoryBytes: 9 * 1024 * 1024 + 4096, claudeDialogs: 'workspace-trust,mcp-server-approval,dev-channels' });
+    // driver (the default policy) accepts them. #199: likewise Codex's trust dialog, here with
+    // its optional Note block, as in the live probe run.
+    const w = l3World(h, { trace: true, syncHistoryBytes: 9 * 1024 * 1024 + 4096, claudeDialogs: 'workspace-trust,mcp-server-approval,dev-channels', codexDialog: 'trust-note' });
     try {
       const base = w.drive('baseline');
       const bm = base.manifest;
@@ -951,6 +954,8 @@ export async function l3Cases(check, h) {
         check('l3 probe: only the staged case table was augmented; the committed one is unchanged', l3.staging.casesAugmentedSha256 !== l3.staging.casesStagedSha256 && l3.staging.committedCasesUnchanged === true && l3.staging.files.every((f) => /^tools\/herdr\/gate-servers\//.test(f.path)));
         const bm2 = l3.steps.B2.log.cumulative.byMarker;
         check('l3 probe B2: the channel probe reached the (fake) Beacon log; the fake token appears verbatim; trust, MCP and dev-channels dialogs accepted by the DRIVER (#196: down,enter / up,up,enter / enter)', bm2['claude-channel'].lines >= 1 && bm2['claude-channel'].tokenVerbatimLines >= 1 && l3.steps.B2.dialogs.map((d) => `${d.kind}:${d.acceptOrigin}:${d.acceptKeys.join(',')}`).join(' ') === 'workspace-trust:driver:down,enter mcp-server-approval:driver:up,up,enter dev-channels:driver:enter', JSON.stringify({ bm2, dialogs: l3.steps.B2.dialogs }));
+        const cx = l3.dialogs.filter((d) => d.agent === 'codex');
+        check('l3 probe #199: the Codex trust dialog (with its Note block) was read, then accepted by the DRIVER with `enter` alone, straight after a read', cx.length === 1 && cx[0].kind === 'workspace-trust' && cx[0].acceptOrigin === 'driver' && JSON.stringify(cx[0].acceptKeys?.map((k) => k.key)) === '["enter"]' && cx[0].inputBetweenReadAndAccept === 0 && pm.commands.find((x) => x.seq === cx[0].acceptSeq - 1)?.argv.includes('read'), JSON.stringify(l3.dialogs));
         check('l3 probe B3: the reply tool was called with the probe marker (in-process check); B3 counted separately from B2', l3.steps.B3.replyToolCalls === 1 && l3.steps.B3.replyArgsCarryMarker === true && l3.steps.B3.log.delta.byMarker['claude-channel'].actions.includes('mcp.tool_invoked') && !l3.steps.B2.log.cumulative.byMarker['claude-channel'].actions.includes('mcp.tool_invoked'), JSON.stringify(l3.steps.B3.log.delta.byMarker['claude-channel']));
         check('l3 probe B4: turn/start and thread/queue/add both completed and both reached the (fake) log', l3.steps.B4.turnStart.status === 'completed' && l3.steps.B4.queueAdd.status === 'completed' && l3.steps.B4.turnStart.recordedByteIdentical && l3.scan.byMarker['codex-turn-start'].lines >= 1 && l3.scan.byMarker['codex-queue-add'].lines >= 1);
         check('l3 probe: poll-path counts from sync --print for B2 and B4, streamed past 9 MB of older history printed first (the probe session last)', l3.beacon.sync.B2.status === 'recorded' && l3.beacon.sync.B2.streamed === true && l3.beacon.sync.B2.bytes > 9 * 1024 * 1024 && l3.beacon.sync.B2.lines > 15000 && l3.beacon.sync.B2.byMarker['claude-channel'].lines >= 1 && l3.beacon.sync.B2.byMarker['claude-channel'].collectionMethods.includes('poll') && l3.beacon.sync.B4.byMarker['codex-turn-start'].lines >= 1 && l3.beacon.sync.B4.bytes > 9 * 1024 * 1024 && l3.beacon.sync.B4.truncated === false, JSON.stringify({ ...l3.beacon.sync.B2, bySession: undefined, byMarker: undefined, counts: undefined }));
