@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inspect } from 'node:util';
 
 import {
@@ -866,11 +866,11 @@ function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog =
     ...(harnessWritesLog ? { FAKE_BEACON_LOG: log } : {}),
   };
   let n = 0;
-  const drive = (phase, args = [], extraEnv = {}) => {
+  const drive = (phase, args = [], extraEnv = {}, { nodeArgs = [], invariantOpts } = {}) => {
     const tag = `${phase}-${++n}`;
     const bp = { ...b, state: join(b.base, `herdr-state-${tag}`) };
     const out = join(b.base, `out-${tag}`);
-    const res = spawnSync(process.execPath, [h.RUN, '--scenario', 'l3-beacon', '--herdr-bin', h.FAKE, '--out', out, '--param', `phase=${phase}`, '--param', `beaconBin=${beaconBin}`, '--param', `beaconLog=${log}`, '--param', `accept=${accept}`, ...FAST, ...args], {
+    const res = spawnSync(process.execPath, [...nodeArgs, h.RUN, '--scenario', 'l3-beacon', '--herdr-bin', h.FAKE, '--out', out, '--param', `phase=${phase}`, '--param', `beaconBin=${beaconBin}`, '--param', `beaconLog=${log}`, '--param', `accept=${accept}`, ...FAST, ...args], {
       env: h.driverEnv(bp, 'fake-claude,fake-codex', { ...env, ...extraEnv }),
       encoding: 'utf8',
       timeout: 240000,
@@ -889,7 +889,7 @@ function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog =
       prompts: lines(join(bp.state, 'prompts.log')),
       outFiles: () => (existsSync(out) ? readdirSync(out).map((f) => ({ name: f, text: read(join(out, f)) })) : []),
     };
-    h.invariants(`l3 ${tag}`, bp, r);
+    h.invariants(`l3 ${tag}`, bp, r, invariantOpts);
     return r;
   };
   const beaconCalls = () => (existsSync(calls) ? readFileSync(calls, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
@@ -1020,6 +1020,40 @@ export async function l3Cases(check, h) {
     } catch (err) {
       check('l3 happy path: assertions ran', false, err.stack);
     } finally {
+      w.cleanup();
+    }
+  }
+
+  // --- #202: scratch removal fails persistently (the shared Codex daemon's handle on the
+  // thread's project directory, seen live on Windows; here test/fake-rm-eperm.mjs makes every
+  // removal attempt throw EPERM). The manifest is still written with the full L3 record, the
+  // outcome is the run's, and the leftover is recorded, redacted, with the daemon named. ---
+  if (h.FAKE_RM) {
+    const w = l3World(h);
+    let left = null;
+    try {
+      const base = w.drive('baseline');
+      const p = w.drive('probe', ['--param', `baselineRun=${base.out}`], { FAKE_RM_EPERM: 'always' }, { nodeArgs: ['--import', pathToFileURL(h.FAKE_RM).href], invariantOpts: { scratchLeft: true } });
+      left = /^scratch left behind \(delete by hand\): (.+)$/m.exec(p.stdout)?.[1]?.trim() ?? null;
+      const m = p.manifest;
+      const l3 = m?.scenarioData?.l3;
+      check('l3 scratch EPERM #202: the probe manifest is written and its outcome is the run\'s (PASS, exit 0)', p.status === 0 && m?.outcome === 'PASS', `${p.status} ${m?.outcome} ${m?.outcomeReason} ${p.stderr}`);
+      check('l3 scratch EPERM #202: the full L3 record survives (steps B1-B6, B4 both paths, thread, daemon, scan, markers, captures)', !!l3 && ['B1', 'B2', 'B3', 'B4', 'B5', 'B6'].every((k) => !!l3.steps?.[k]) && l3.steps.B4.turnStart?.status === 'completed' && l3.steps.B4.queueAdd?.status === 'completed' && !!l3.thread?.id && l3.daemon?.leftRunning === true && l3.markers.length === 3 && typeof l3.scan?.hitCount === 'number' && m.captures.length === 4 && m.captures.every((c) => c.written), JSON.stringify({ steps: Object.keys(l3?.steps ?? {}), captures: m?.captures?.map((c) => [c.file, c.written]) }));
+      check('l3 scratch EPERM #202: teardown.clean=false, teardown.leftover redacted, scratch not removed after the bounded attempts', m?.teardown?.clean === false && m.teardown.leftover === '<SCRATCH>' && m.scratch.removed === false && m.scratch.removal.errors.every((e) => e.code === 'EPERM') && !p.manifestText.includes('oac-herdr-scratch-'), JSON.stringify({ teardown: m?.teardown, scratch: m?.scratch }));
+      check('l3 scratch EPERM #202: the finding names the leftover and the daemon, released on `codex app-server daemon stop`', m?.scratch?.holders?.some((x) => /Codex app-server daemon/.test(x)) && m.findings.some((f) => /left behind at <SCRATCH>/.test(f) && /codex app-server daemon stop/.test(f)), JSON.stringify(m?.findings));
+      const pidFile = join(w.b.env.CODEX_HOME, 'app-server-control', 'fake-daemon.pid');
+      let daemonAlive = false;
+      try {
+        process.kill(Number(readFileSync(pidFile, 'utf8')), 0);
+        daemonAlive = true;
+      } catch {
+        /* no pid file, or gone */
+      }
+      check('l3 scratch EPERM #202: the driver left the (fake) daemon running; it never stops it', daemonAlive);
+    } catch (err) {
+      check('l3 scratch EPERM #202: assertions ran', false, err.stack);
+    } finally {
+      if (left && left.startsWith(tmpdir()) && basename(left).startsWith('oac-herdr-scratch-')) rmSync(left, { recursive: true, force: true });
       w.cleanup();
     }
   }

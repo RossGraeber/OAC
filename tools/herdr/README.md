@@ -25,12 +25,12 @@ never replaces a supported interface and it decides nothing.
 
 | Path | What |
 |---|---|
-| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. |
+| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). |
 | `ci.mjs`, `runner-hooks/` | The opt-in CI entry point and runner hooks (K6). |
 | `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). |
 | `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8), `l3-beacon` (L3b; the Beacon live leg, not a gate). |
 | `gate-servers/` | K8: the G4 and G5 gate servers, **reconstructed** (see below). |
-| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`) and the file-access tracer (`fs-trace.mjs`). |
+| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`, and `fake-rm-eperm.mjs`, which makes scratch removal throw EPERM, #202) and the file-access tracer (`fs-trace.mjs`). |
 
 ## Dialogs: the driver accepts them (dev/test runs, #196)
 

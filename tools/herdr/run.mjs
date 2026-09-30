@@ -29,9 +29,9 @@
 // Scope and boundaries: docs/planning/decisions/K1-herdr-evaluation.md,
 // scripts/check-herdr-containment.mjs (oac-boundaries checks 9 and 10).
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
@@ -44,6 +44,7 @@ import {
 import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './lib/redact.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
+import { removeScratch } from './lib/scratch.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
@@ -118,7 +119,22 @@ export function isInside(dir, root) {
 
 const iso = (ms) => new Date(ms).toISOString();
 
+// The driver phase an escaping error came from, for the console (#202): 'setup' (before the
+// scenario body starts), 'run', 'teardown' (session teardown, scratch removal, hashes),
+// 'record' (redaction and writing the manifest).
+export const PHASES = Object.freeze(['setup', 'run', 'teardown', 'record']);
+
 export async function runScenario(opts) {
+  const state = { phase: 'setup' };
+  try {
+    return await runScenarioInner(opts, state);
+  } catch (err) {
+    if (err && typeof err === 'object' && !err.phase) err.phase = state.phase;
+    throw err;
+  }
+}
+
+async function runScenarioInner(opts, state) {
   const scenario = await loadScenario(opts.scenario);
   const launch = opts.launch ?? scenario.defaults?.launch ?? [];
   const params = { ...(scenario.defaults?.params ?? {}), ...opts.params };
@@ -135,6 +151,7 @@ export async function runScenario(opts) {
   let herdrEnv;
   let manifest;
   let ctx;
+  let leftover = null;
   const commands = [];
   const captures = [];
   const extraLiterals = [...(opts.redactLiterals ?? [])];
@@ -188,7 +205,7 @@ export async function runScenario(opts) {
       timebox: { budgetMs: timeboxMs, start: iso(timeboxStart), end: null, elapsedMs: null, expired: null, teardownEnd: null },
       commands,
       teardown: null,
-      scratch: { location: 'os.tmpdir(), outside the repository', path: scratch, removed: null },
+      scratch: { location: 'os.tmpdir(), outside the repository', path: scratch, removed: null, holders: [] },
       captures: [],
       redaction: { runLiteralPlaceholders: [] },
       scenarioData: {},
@@ -254,6 +271,12 @@ export async function runScenario(opts) {
       finding(text) {
         manifest.findings.push(text);
       },
+      // A process outside the driver's control (e.g. the operator's shared Codex app-server
+      // daemon, which the driver never stops) may keep a handle under scratch past the run.
+      // Recorded; named in the finding if scratch removal then fails (#202).
+      noteScratchHolder(text) {
+        if (!manifest.scratch.holders.includes(text)) manifest.scratch.holders.push(text);
+      },
       async probeEnv(paneId, { timeoutMs = 20000 } = {}) {
         const nonce = randomBytes(4).toString('hex');
         const out = join(scratch, `env-probe-${nonce}.json`);
@@ -265,7 +288,9 @@ export async function runScenario(opts) {
       },
     };
   } catch (err) {
-    rmSync(scratch, { recursive: true, force: true });
+    // Never let a cleanup failure mask the setup error; a leftover is named on the console.
+    const rm = await removeScratch(scratch);
+    if (!rm.removed) console.error(`herdr driver: scratch directory left behind after a setup error (${rm.errors.at(-1)?.code ?? 'error'}): ${basename(scratch)} in the OS temp directory`);
     throw err;
   }
 
@@ -333,6 +358,7 @@ export async function runScenario(opts) {
     await scenario.run(ctx);
   };
 
+  state.phase = 'run';
   const bodyPromise = body();
   bodyPromise.catch(() => {});
   try {
@@ -355,6 +381,7 @@ export async function runScenario(opts) {
       manifest.outcomeReason = err instanceof DriverError ? err.message : `${err.name}: ${err.message}`;
     }
   } finally {
+    state.phase = 'teardown';
     clearTimeout(boxTimer);
     scenarioEnd = Date.now();
     // Same rule for a scenario that failed after a timeout: the run is NOT RUN.
@@ -411,8 +438,29 @@ export async function runScenario(opts) {
       }
     }
     manifest.redaction.runLiteralPlaceholders = [...new Set(extraLiterals.map((l) => l.placeholder))];
-    if (!opts.keepScratch) rmSync(scratch, { recursive: true, force: true });
-    manifest.scratch.removed = !opts.keepScratch;
+    // Scratch removal never aborts the run record (#202): it retries with a bounded backoff,
+    // and a failure that outlasts the retries is recorded (teardown.clean=false, the leftover
+    // path redacted like every other path, a finding) and does not change the outcome -- the
+    // run itself was unaffected, and the leftover is outside the repository, as with
+    // --keep-scratch. The raw path is printed on the console for the operator to delete.
+    if (opts.keepScratch) manifest.scratch.removed = false;
+    else {
+      const rm = await removeScratch(scratch);
+      manifest.scratch.removed = rm.removed;
+      manifest.scratch.removal = { attempts: rm.attempts, errors: rm.errors };
+      if (rm.errors.length && rm.removed) {
+        manifest.findings.push(`scratch removal succeeded on attempt ${rm.attempts} after ${rm.errors.map((e) => e.code ?? 'error').join(', ')}`);
+      }
+      if (!rm.removed) {
+        const last = rm.errors.at(-1);
+        manifest.teardown = { ...manifest.teardown, clean: false, leftover: scratch, leftoverError: last?.message ?? null };
+        const holders = manifest.scratch.holders.length ? ` Possible holder(s) the scenario declared: ${manifest.scratch.holders.join(' | ')}` : '';
+        manifest.findings.push(`scratch directory could not be removed after ${rm.attempts} attempts (${last?.code ?? 'error'}); left behind at ${scratch} -- unredacted captures may remain there; delete it by hand once released.${holders}`);
+        leftover = scratch;
+      }
+    }
+
+    state.phase = 'record';
 
     const redactor = createRedactor({ literals });
     for (const c of captures) {
@@ -444,7 +492,7 @@ export async function runScenario(opts) {
     writeFileSync(join(outDir, 'run-manifest.json'), `${JSON.stringify(written, null, 2)}\n`);
   }
 
-  return { outcome: manifest.outcome, reason: manifest.outcomeReason, exitCode: EXIT[manifest.outcome], outDir, manifestPath: join(outDir, 'run-manifest.json'), manifest };
+  return { outcome: manifest.outcome, reason: manifest.outcomeReason, exitCode: EXIT[manifest.outcome], outDir, manifestPath: join(outDir, 'run-manifest.json'), manifest, scratchLeftover: leftover };
 }
 
 async function main(argv) {
@@ -467,12 +515,13 @@ async function main(argv) {
   try {
     res = await runScenario(opts);
   } catch (err) {
-    console.error(err instanceof UsageError ? err.message : `driver error: ${err.message}`);
+    console.error(err instanceof UsageError ? err.message : `driver error (${err?.phase ?? 'unknown'} phase): ${err?.message ?? err}`);
     return err instanceof UsageError ? EXIT.USAGE : EXIT.FAIL;
   }
   console.log(`scenario: ${res.manifest.scenario.name}`);
   console.log(`outcome:  ${res.outcome}${res.reason ? ` -- ${res.reason}` : ''}`);
   console.log(`teardown: ${res.manifest.teardown?.clean ? 'clean' : 'NOT clean'}`);
+  if (res.scratchLeftover) console.log(`scratch left behind (delete by hand): ${res.scratchLeftover}`);
   console.log(`manifest: ${res.manifestPath}`);
   return res.exitCode;
 }
