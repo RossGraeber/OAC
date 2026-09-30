@@ -129,6 +129,8 @@ const cap = (s, n) => (String(s ?? '').length > n ? `${String(s).slice(0, n)}…
 export const BEACON_VERSION = '1.3.29';
 export const L3_BOX_MS = 60 * 60 * 1000; // L1 §12 "Timebox: 60 minutes", one box across all phases
 export const PHASES = Object.freeze(['baseline', 'probe', 'verify']);
+// The tool-invocation actions L1 §12 B3 names (as lib/l3-report.mjs TOOL_INVOKED_ACTIONS).
+export const TOOL_INVOKED_ACTIONS = Object.freeze(['mcp.tool_invoked', 'tool.invoked']);
 
 // The ONLY Beacon argv the driver may run (operator decision 2026-09-30 on #168).
 export const BEACON_ALLOWLIST = Object.freeze({
@@ -313,6 +315,17 @@ export function hitCounts(hits, markers) {
     out[m.id] = c;
   }
   return out;
+}
+
+// The probe's own session ids per harness. null (unknown), never [], when none was found: the
+// Claude slug rule is UNVERIFIED, and an empty list would make every Claude hit look "outside
+// the probe session".
+export function probeSessionIds(sessionFile, threadId) {
+  return {
+    claude: sessionFile?.read && sessionFile.sessionIds?.length ? [...sessionFile.sessionIds].sort() : null,
+    codex: threadId ? [threadId] : null,
+    note: 'harness-side ids (Claude session file names, Codex thread id); their equality with Beacon session.id is UNVERIFIED; null means unknown',
+  };
 }
 
 // Excerpt placeholders read as a secret assignment to run.mjs's manifest redaction; the manifest
@@ -650,15 +663,18 @@ export default {
         prevEnd = buf.lastIndexOf(0x0a) + 1;
         return snap;
       };
-      // Polls, bounded by beaconSettleMs, for a NEW hit on pathId since the last snapshot.
-      const pollLog = async (pathId, step) => {
+      // Polls, bounded by beaconSettleMs and the box, for a NEW hit on pathId since the last
+      // snapshot; with `actions`, for a new hit carrying one of those event.action values (B3
+      // waits for the tool invocation itself, so a late B2 line cannot end its wait early).
+      const pollLog = async (pathId, step, { actions = null } = {}) => {
         const t0 = Date.now();
         const deadline = t0 + Math.min(num('beaconSettleMs'), Math.max(0, remaining()));
         for (;;) {
           aborted();
           const buf = existsSync(beaconLog) ? readFileSync(beaconLog) : Buffer.alloc(0);
           const s = scanRuntimeLog([{ label: logName, text: buf, fromByte: prevEnd }], markers);
-          if (s.byMarker[pathId]?.lines > 0) return snapshot(step, { hitSeenAfterMs: Date.now() - t0 });
+          const hit = actions ? s.hits.some((h) => h.markerId === pathId && actions.includes(h.eventAction)) : s.byMarker[pathId]?.lines > 0;
+          if (hit) return snapshot(step, { hitSeenAfterMs: Date.now() - t0 });
           if (Date.now() >= deadline) return snapshot(step, { hitSeenAfterMs: null, waitedMs: Date.now() - t0 });
           await sleep(Math.min(num('pollMs'), Math.max(0, deadline - Date.now())));
         }
@@ -777,7 +793,7 @@ export default {
       const afterB3 = await claude.read('after-B3', { source: 'recent-unwrapped', lines: num('readLines') });
       const replies = serverFacts().replyCalls.slice(repliesBefore);
       const cm = markers.find((m) => m.id === 'claude-channel');
-      const b3Log = await pollLog('claude-channel', 'B3');
+      const b3Log = await pollLog('claude-channel', 'B3', { actions: TOOL_INVOKED_ACTIONS });
       l3.steps.B3 = {
         status: 'recorded',
         promptSeq: q.seq,
@@ -932,11 +948,7 @@ export default {
       // project (null when readSessionFile is off) and the Codex TUI thread id. That Beacon's
       // session.id equals these ids is UNVERIFIED; a hit whose session.id is none of them is
       // "outside the probe sessions" only under that assumption.
-      l3.probeSessions = {
-        claude: l3.sessionFile.read ? [...(l3.sessionFile.sessionIds ?? [])].sort() : null,
-        codex: threadId ? [threadId] : [],
-        note: 'harness-side ids (Claude session file names, Codex thread id); their equality with Beacon session.id is UNVERIFIED',
-      };
+      l3.probeSessions = probeSessionIds(l3.sessionFile, threadId);
 
       l3.steps.B5 = { status: 'NOT RUN', reason: 'B5 runs Beacon\'s own memory evaluation: a Beacon step only the operator may do (default taken on #168, 2026-09-30)' };
       l3.steps.B6 = { status: 'NOT RUN', reason: 'B6 needs Beacon\'s MCP registration and an approved memory: Beacon steps only the operator may do (default taken on #168, 2026-09-30)' };

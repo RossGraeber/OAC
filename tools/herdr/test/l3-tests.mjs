@@ -31,7 +31,7 @@ import { presend } from '../gate-servers/g5-channel.mjs';
 import { frameCase, HEADER_FIELDS } from '../gate-servers/g5-codex.mjs';
 import l3Scenario, {
   BEACON_ALLOWLIST, BEACON_VERSION, L3_BOX_MS, beaconArgv, parseBeaconVersion, parseBeaconStatus, boxState, claudeProjectSlug, sessionEntryShapes, manifestSafePlaceholders,
-  defaultBeaconLog, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline, hitCounts, BEACON_BIN_NAME, STATUS_SIDE_EFFECTS, streamScan,
+  defaultBeaconLog, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline, hitCounts, BEACON_BIN_NAME, STATUS_SIDE_EFFECTS, streamScan, probeSessionIds,
 } from '../scenarios/l3-beacon.mjs';
 import { assertNoSpoof } from '../lib/g5.mjs';
 import { CI_SCENARIOS } from '../ci.mjs';
@@ -656,6 +656,28 @@ const throwsLike = (fn, re) => {
 const CREDENTIAL_NAMES = [['auth', 'json'].join('.'), ['.credentials', 'json'].join('.')];
 
 export async function l3ScenarioUnit(check) {
+  // --- #195 re-review: probe sessions unknown vs empty; B3 tool action from the whole run ---
+  check('l3b probeSessionIds: no session file found (or not read) and no thread id record null (unknown), never an empty list', probeSessionIds({ read: true, sessionIds: [] }, null).claude === null && probeSessionIds({ read: true }, null).claude === null && probeSessionIds({ read: false }, 't').claude === null && probeSessionIds(null, null).codex === null && JSON.stringify(probeSessionIds({ read: true, sessionIds: ['b', 'a'] }, 't')) === JSON.stringify({ ...probeSessionIds({ read: true, sessionIds: ['b', 'a'] }, 't'), claude: ['a', 'b'], codex: ['t'] }));
+  {
+    const mk = makeProbeMarkers();
+    const fx = l3Fixtures(mk);
+    const withRecord = (extra) => {
+      const runs = l3Runs(mk, fx);
+      Object.assign(runs.probe.manifest.scenarioData.l3, extra);
+      return runs;
+    };
+    const counts = { 'claude-channel': { lines: 2, markerLines: 2, tokenLines: 0, byAction: { 'prompt.submitted': 1, 'mcp.tool_invoked': 1 }, byPath: {}, byCollectionMethod: {}, byHarness: {} } };
+    // The B3 delta closed on a late B2 line: it lacks the tool line; the whole-run scan has it.
+    const steps = { B3: { replyToolCalls: 1, replyArgsCarryMarker: true, log: { delta: { counts: { 'claude-channel': { lines: 1, byAction: { 'prompt.submitted': 1 } } } } } } };
+    const scan = { ...fx.scans.hits, counts };
+    const late = draftL3(withRecord({ scan, steps, probeSessions: { claude: ['s-claude-1'], codex: ['s-codex-1'] } }));
+    check('l3 report (#195 re-review): a B3 delta without the tool line, while the whole-run scan has it, gives no contradiction finding', !/contradicts L1 §11 item 1 point 2/.test(late) && /- \*\*B3:\*\* PASS/.test(late) && /within the B3 snapshot: none/.test(late), late.split('\n').filter((l) => /B3/.test(l)).join(' || '));
+    const empty = draftL3(withRecord({ scan, steps, probeSessions: { claude: [], codex: [] } }));
+    const unknown = draftL3(withRecord({ scan, steps, probeSessions: { claude: null, codex: null } }));
+    const other = draftL3(withRecord({ scan, steps, probeSessions: { claude: ['s-claude-other'], codex: ['s-codex-1'] } }));
+    check('l3 report (#195 re-review): an empty or null probe-session list is unknown, not "every hit outside"; a recorded list that misses the hit session still flags it', !/not a recorded probe session/.test(empty) && !/not a recorded probe session/.test(unknown) && /session `s-claude-1`, which is not a recorded probe session/.test(other));
+  }
+
   // --- streamScan: no cap, keeps needle lines only; a timeout is reported, never thrown ---
   const needle = ['needle', 'l3b', 'unit'].join('-');
   const emit = `const l='x'.repeat(200)+'\\n';const c=l.repeat(5000);let n=0;function w(){while(n<12){n++;if(!process.stdout.write(c)){process.stdout.once('drain',w);return;}}process.stdout.write('last ${needle} line\\n');}w();`;

@@ -335,7 +335,8 @@ const HARNESS_OF = { 'claude-channel': /claude/i, 'codex-turn-start': /codex/i, 
 function sessionFindings(scan, ids, probeSessions = null) {
   const groups = (scan.bySession ?? []).filter((g) => g.markerIds.some((m) => ids.includes(m)));
   const f = [];
-  const known = (h) => (Array.isArray(probeSessions?.[h]) ? probeSessions[h] : null);
+  // An empty list means unknown (e.g. no session file was found), never "no probe session".
+  const known = (h) => (Array.isArray(probeSessions?.[h]) && probeSessions[h].length ? probeSessions[h] : null);
   for (const g of groups) {
     if (g.sessionId === null || g.harness === null) f.push(`${g.lines} hit line(s) carry no harness or session id: outside any identifiable probe session`);
     const wrong = g.markerIds.filter((m) => ids.includes(m) && HARNESS_OF[m] && g.harness !== null && !HARNESS_OF[m].test(g.harness));
@@ -387,7 +388,11 @@ function b2b3b4(probe) {
   // own log lines are the delta after the B2 snapshot (steps.B3.log.delta).
   const b3 = rec.steps?.B3 ?? null;
   const delta = b3?.log?.delta?.counts?.['claude-channel'] ?? null;
-  const tool = delta ? Object.keys(delta.byAction ?? {}).filter((a) => TOOL_INVOKED_ACTIONS.includes(a)) : (c.b?.actions ?? []).filter((a) => TOOL_INVOKED_ACTIONS.includes(a));
+  // Tool-invocation actions come from the WHOLE-RUN scan: the B3 delta snapshot can close on a
+  // late B2 line before the tool-invocation line lands (#195 re-review).
+  const wholeRun = scan.counts?.['claude-channel']?.byAction ? Object.keys(scan.counts['claude-channel'].byAction) : (c.b?.actions ?? []);
+  const tool = wholeRun.filter((a) => TOOL_INVOKED_ACTIONS.includes(a));
+  const toolInDelta = delta ? Object.keys(delta.byAction ?? {}).filter((a) => TOOL_INVOKED_ACTIONS.includes(a)) : null;
   const p3 = pollLines(rec, 'B3', 'claude', ['claude-channel']);
   const f3 = [...commonF, ...cs.findings, ...p3.findings];
   if (c.token) f3.push('the claude-channel fake token appears unredacted in Beacon\'s log (B2 and B3 share the marker)');
@@ -412,7 +417,7 @@ function b2b3b4(probe) {
   const snap3 = snapshotLine(rec, 'B3', 'delta');
   const s3 = step('B3', c.missing ? RESULTS.NOT_RUN : f3.length ? RESULTS.FINDING : RESULTS.PASS, summary3, [
     calls === null ? 'Reply tool on the channel-server wire: not in this record' : `Reply tool on the channel-server wire: ${calls} call(s); its arguments carried the marker: ${b3.replyArgsCarryMarker ? 'yes' : 'no'}; the fake token: ${b3.replyArgsCarryToken ? 'yes' : 'no'} (checked in-process; no value recorded)`,
-    `Tool-invocation actions among the ${delta ? 'B3 (post-B2) ' : ''}claude-channel hits: ${list(tool)}`,
+    `Tool-invocation actions among the claude-channel hits (whole probe run): ${list(tool)}${toolInDelta ? `; within the B3 snapshot: ${list(toolInDelta)}` : ''}`,
     snap3 ?? 'B3 shares B2\'s marker, and this record (from before L3b #195) does not split B2 from B3.',
     ...p3.lines,
   ], f3);
