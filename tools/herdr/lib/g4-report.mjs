@@ -43,7 +43,7 @@ import {
 import { parseSections, committedFile } from './g1.mjs';
 import { isLegacyRevision } from './compare-transcripts.mjs';
 import {
-  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, reconstructionCallout,
+  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, reconstructionCallout, describeDialogs, noConsentCriterionLine,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -220,7 +220,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push(`- **Codex launch (per invocation):** \`${(g4.codexLaunch?.argv ?? []).join(' ')}\`; pane process argv ${g4.codexLaunch?.paneArgv?.proof?.found ? `pid ${g4.codexLaunch.paneArgv.proof.pid}, args ${JSON.stringify(g4.codexLaunch.paneArgv.proof.argsAfterCodex)}, matches the launch: ${g4.codexLaunch.paneArgv.matchesLaunch}` : 'not shown'}. **Method difference from the human run, by K8's acceptance:** the human run registered Codex's MCP connection in the operator's GLOBAL Codex config (G4-result.md, criterion 2); this run passes it per invocation, edits no Codex config and copies no Codex home. It cannot see the operator's own Codex config: a registration there pointing at this run's port would connect too, indistinguishably on the wire except as an extra session. This run saw ${codexSessions(evaluation.run ?? { httpInitialize: [] }, evaluation.re?.roles?.legacyPid).length} Codex HTTP session(s); criterion 4 requires exactly one before any Codex traffic is attributed to the per-invocation registration.`);
   out.push(`- **Server:** ${(g4.server ?? []).map((s) => `\`${s.path}\` working-tree sha256 \`${s.workingTreeSha256}\` (matches HEAD: ${s.workingTreeMatchesHead}), staged copy match: ${s.match}`).join('; ') || 'not staged'}; ports ${g4.ports?.httpPort}/${g4.ports?.modernHttpPort} free before the run: ${JSON.stringify(g4.ports?.freeBefore ?? null)}`);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
-  out.push(`- **Accept policy:** ${g4.acceptPolicy ?? '?'}; dialogs on record: ${(g4.dialogs ?? []).map((x) => `${x.agent} ${x.kind} (read #${x.readSeq}, accepted by ${x.acceptOrigin})`).join('; ') || 'none'} (no G4 criterion names a consent step; the dev-channels confirmation scores nothing here)`);
+  out.push(`- **Accept policy:** ${g4.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g4.dialogs)} (no G4 criterion names a consent step; the dev-channels confirmation scores nothing here)`);
   out.push(`- **herdr agent states seen** (scheduling only, never evidence): ${(g4.herdrStates ?? []).map((s) => `${s.agent} ${s.state} (#${s.seq})`).join(', ') || 'none'}`);
   out.push(fixtures ? `- **Fixtures:** ${Object.values(fixtures).map((f) => `\`${f}\``).join(', ')}` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
   out.push(`- **Fixture sanitizer:** the public extension identifier \`${OAC_EXT}\` replaced by \`${OAC_EXT_PLACEHOLDER}\` before run.mjs's redaction, so identity redaction cannot rewrite it: transcript ${g4.sanitizer?.extensionIdReplaced ?? 0}, Claude pane ${g4.sanitizer?.paneClaude ?? '?'}, Codex pane ${g4.sanitizer?.paneCodex ?? '?'} time(s). --write re-counts the placeholders in each redacted capture and refuses on a mismatch or a surviving identifier fragment (a pane line wrapped mid-identifier escapes the substitution)`);
@@ -257,7 +257,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('- Whether Codex honors a per-invocation `-c mcp_servers.<name>.url=...` override for an HTTP server was UNVERIFIED when this scenario was written. This run\'s wire answers it only if exactly one Codex session connected (criterion 4) and the operator confirmed with `codex mcp list` (read-only) that no other Codex entry points at this run\'s port.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: 'none — no criterion of G4 names a consent step.' }));
+  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G4', g4.dialogs) }));
   return out.join('\n');
 }
 

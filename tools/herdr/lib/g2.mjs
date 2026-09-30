@@ -21,7 +21,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 
-import { committedFile, sha256, selectedOption, normalizeDialogText } from './g1.mjs';
+import { committedFile, sha256, selectedOption, normalizeDialogText, planDriverAccept } from './g1.mjs';
 import { diffSequences } from './compare-transcripts.mjs';
 
 // G2's launch: plain `codex`, no arguments and no config overrides (G2 criterion 1;
@@ -166,15 +166,10 @@ export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' }
   return { dialog, selected: dialog ? selectedOption(s) : null, busy };
 }
 
+// No Codex kind lists its options (no Codex dialog text is on record), so the driver accepts
+// a Codex dialog only when its accepting option is already preselected (planDriverAccept).
 export function driverMayAcceptCodex(classification) {
-  const def = CODEX_DIALOG_KINDS[classification.dialog];
-  if (!def) return { ok: false, why: `unrecognized dialog (${classification.dialog ?? 'none'}); the driver never accepts a dialog it cannot name` };
-  if (!classification.selected) return { ok: false, why: 'no selected option found in the dialog text' };
-  if (!def.acceptOption.test(classification.selected.text)) {
-    const { number, text } = classification.selected;
-    return { ok: false, why: `the selected option ("${number == null ? '' : `${number}. `}${text}") is not the ${classification.dialog} accepting option` };
-  }
-  return { ok: true, why: null };
+  return planDriverAccept(classification, CODEX_DIALOG_KINDS);
 }
 export { normalizeDialogText };
 

@@ -25,7 +25,10 @@
 // keys.log (keys from `agent send-keys`), inbox.log (JSONL prompts from `agent prompt`).
 // Environment:
 //   FAKE_CLAUDE_VERSION         clientInfo.version on the wire (default 2.1.283)
-//   FAKE_CLAUDE_DIALOG          dev-channels (default) | unknown | wrong-selection | none
+//   FAKE_CLAUDE_DIALOG          dev-channels (default) | unknown | wrong-selection | none |
+//                               workspace-trust | mcp-server-approval | mcp-unknown-options,
+//                               or a comma-separated sequence of these (#196)
+//   FAKE_CLAUDE_IGNORE_KEYS     1 = up/down never move an option dialog's selection
 //   FAKE_CLAUDE_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                               operator pressing Enter outside the driver)
 //   FAKE_CLAUDE_STEP_MS         duration of each simulated tool call (default 1500)
@@ -113,21 +116,95 @@ const newKeys = () => {
   return fresh;
 };
 
-async function dialog() {
-  if (DIALOG === 'none') return;
-  const text = DIALOGS[DIALOG].join('\n');
-  setScreen(text);
-  hist(text);
+// #196: option-list dialogs whose selection moves with `up` / `down` and is confirmed with
+// `enter`, using the texts seen live on 2026-09-29/30 (lib/g1.mjs DIALOG_KINDS). `accepting`
+// lists the option indexes that let the session go on; Enter on any other exits the fake
+// (as "No, exit" / "Exit" do), so a wrong Enter shows up as a failed run.
+const PROJECT = process.cwd();
+const OPTION_DIALOGS = {
+  'workspace-trust': {
+    head: ['Accessing workspace:', '', ` ${PROJECT}`, '', ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source', ' project, or work from your team). If not, take a moment to review what\'s in this folder first.', '', ' Claude Code\'ll be able to read, edit, and execute files here.', '', ' Security guide', ''],
+    options: ['No, exit', 'Yes, I trust this folder'],
+    selected: 0,
+    accepting: [1],
+  },
+  'mcp-server-approval': {
+    head: [`  New MCP server found in this project: ${Object.keys(MCP)[0]}`, '', '  MCP servers may execute code or access system resources. All tool calls require approval.', '  Learn more in the MCP documentation.', ''],
+    options: ['Use this MCP server', 'Use this and all future MCP servers in this project', 'Continue without using this MCP server'],
+    selected: 2,
+    accepting: [0, 1],
+  },
+  // An MCP dialog whose option texts are not the ones on record: the driver must refuse it.
+  'mcp-unknown-options': {
+    head: [`  New MCP server found in this project: ${Object.keys(MCP)[0]}`, ''],
+    options: ['Use this MCP server', 'Use this MCP server for this session only', 'Continue without using this MCP server'],
+    selected: 2,
+    accepting: [0, 1],
+  },
+};
+const IGNORE_KEYS = env.FAKE_CLAUDE_IGNORE_KEYS === '1'; // selection never moves (a stuck TUI)
+
+async function optionDialog(kind) {
+  const def = OPTION_DIALOGS[kind];
+  let sel = def.selected;
+  const render = () => [...def.head, ...def.options.map((o, i) => `${i === sel ? '  ❯ ' : '    '}${o}`), '', '  Enter to confirm · Esc to cancel'].join('\n');
+  setScreen(render());
+  hist(render());
   setState('blocked');
   const selfAt = env.FAKE_CLAUDE_SELF_ACCEPT_MS ? Date.now() + Number(env.FAKE_CLAUDE_SELF_ACCEPT_MS) : Infinity;
   for (;;) {
-    if (newKeys().some((k) => k.trim() === 'enter') || Date.now() >= selfAt) break;
+    if (Date.now() >= selfAt) {
+      sel = def.accepting[0];
+      break;
+    }
+    let done = false;
+    for (const k of newKeys().map((x) => x.trim())) {
+      if (k === 'enter') {
+        done = true;
+        break;
+      }
+      if (IGNORE_KEYS) continue;
+      if (k === 'down') sel = Math.min(def.options.length - 1, sel + 1);
+      if (k === 'up') sel = Math.max(0, sel - 1);
+      setScreen(render());
+    }
+    if (done) break;
     await sleep(50);
   }
-  if (DIALOG === 'wrong-selection') process.exit(0); // "Exit" was selected
+  if (!def.accepting.includes(sel)) {
+    hist(`[${kind}: "${def.options[sel]}" confirmed; exiting]`);
+    process.exit(0);
+  }
+  hist(`[${kind}: "${def.options[sel]}" confirmed]`);
   setState('working');
   setScreen('Starting…');
-  hist('[dialog accepted]');
+  await sleep(200);
+}
+
+async function dialog() {
+  // FAKE_CLAUDE_DIALOG may list several dialogs, shown in turn (e.g.
+  // workspace-trust,mcp-server-approval,dev-channels, the order Claude Code showed live).
+  for (const kind of DIALOG.split(',').map((x) => x.trim())) {
+    if (kind === 'none') continue;
+    if (OPTION_DIALOGS[kind]) {
+      await optionDialog(kind);
+      continue;
+    }
+    const text = DIALOGS[kind].join('\n');
+    setScreen(text);
+    hist(text);
+    setState('blocked');
+    const selfAt = env.FAKE_CLAUDE_SELF_ACCEPT_MS ? Date.now() + Number(env.FAKE_CLAUDE_SELF_ACCEPT_MS) : Infinity;
+    for (;;) {
+      if (newKeys().some((k) => k.trim() === 'enter') || Date.now() >= selfAt) break;
+      await sleep(50);
+    }
+    if (kind === 'wrong-selection') process.exit(0); // "Exit" was selected
+    setState('working');
+    setScreen('Starting…');
+    hist('[dialog accepted]');
+    await sleep(200);
+  }
 }
 
 // --- MCP client over stdio (NDJSON), one per server ------------------------------------

@@ -42,6 +42,7 @@ import {
   DEFAULT_OPERATOR_PROMPT, compareByMode, formatModeDiff, g2Facts, identifyTuiThread, parseG2Transcript, readG2Criteria, G2_CRITERIA_SHA256, CriteriaDriftError,
 } from './g2.mjs';
 import { parseSections, committedFile, sha256 } from './g1.mjs';
+import { describeDialogs, noConsentCriterionLine } from './gate-report-common.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -243,7 +244,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push(`- **Launch:** \`${(manifest?.launch?.argv ?? []).join(' ')}\` (plain; herdr-reported argv \`${JSON.stringify(manifest?.launch?.herdrReportedArgv ?? null)}\`); pane process argv ${g2.paneArgv?.[0]?.proof?.found ? `pid ${g2.paneArgv[0].proof.pid}, arguments after \`${g2.paneArgv[0].proof.codexToken}\`: ${JSON.stringify(g2.paneArgv[0].proof.argsAfterCodex)}` : 'not shown'}`);
   out.push(`- **Daemon:** \`codex app-server daemon start\` exit ${g2.daemon?.start?.exitCode ?? '?'}; left running after the run (the operator's, as in the human run)`);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
-  out.push(`- **Accept policy:** ${g2.acceptPolicy ?? '?'}; dialogs on record: ${(g2.dialogs ?? []).map((x) => `${x.kind} (read #${x.readSeq}, accepted by ${x.acceptOrigin})`).join('; ') || 'none'} (no G2 criterion names a consent step)`);
+  out.push(`- **Accept policy:** ${g2.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g2.dialogs)} (no G2 criterion names a consent step)`);
   out.push(`- **herdr agent states seen** (scheduling only, never evidence): ${(g2.herdrStates ?? []).map((s) => `${s.state} (#${s.seq}, ${s.context})`).join(', ') || 'none'}`);
   out.push(`- **Client:** \`${g2.client?.committed ?? COMMITTED_CLIENT}\` run unmodified from a scratch copy of the blob at HEAD \`${g2.client?.headCommit ?? '?'}\`; sha256 committed \`${g2.client?.committedSha256 ?? '?'}\`, copy \`${g2.client?.copySha256 ?? '?'}\`, match: ${g2.client?.match ?? '?'}; working tree matched HEAD: ${g2.client?.workingTreeMatchesHead ?? '?'}; runs: ${(g2.clientRuns ?? []).map((r) => `${r.mode} (exit ${r.exitCode})`).join(', ') || 'none'}; divergence: ${(g2.divergence ?? []).join('; ') || 'none'}`);
   out.push(fixtures ? `- **Fixtures:** \`${fixtures.transcript}\`, \`${fixtures.pane}\`` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
@@ -287,7 +288,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('');
   out.push(`- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${manifest?.herdr?.observedVersionOutput ?? '?'}\`; sha256 of the executable: \`<64 hex>\``);
   out.push(`- [ ] **Harness:** the real, logged-in Codex CLI ran, not a test double. \`codex --version\`: \`${v.cliOutput ?? '?'}\``);
-  out.push('- [ ] **Consent dialog:** none — no criterion of G2 names a consent step.');
+  out.push(`- [ ] **Consent dialog:** ${noConsentCriterionLine('G2', g2.dialogs)}`);
   out.push('- **Attested by:** <operator>, <YYYY-MM-DD>');
   out.push('');
   return out.join('\n');

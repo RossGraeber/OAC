@@ -15,7 +15,7 @@
 // launch below is the default and may be omitted):
 //
 //   node tools/herdr/run.mjs --scenario g2-codex-inject --launch '["codex"]' \
-//     --param accept=human --out <run dir>
+//     --out <run dir>
 //   node tools/herdr/lib/g2-report.mjs --run <run dir>            # draft comparison
 //
 // What it does, in the human run's order:
@@ -38,10 +38,11 @@
 //   3. Launch through `herdr agent start --kind codex` with nothing after it. The pane's
 //      process argv is read from the OS (never its environment) and recorded as the proof
 //      of a plain launch; any argument after `codex` stops the run. Every dialog is read
-//      from the pane verbatim BEFORE any keystroke reaches it; accept=human (default) sends
-//      nothing and waits for the operator, accept=driver accepts only a dialog it
-//      recognizes whose own preselected option is the accepting one. No G2 criterion names
-//      a consent step.
+//      from the pane verbatim BEFORE any keystroke reaches it; accept=driver (the default
+//      since #196) accepts only a dialog it recognizes, and, as no Codex dialog's options are
+//      on record, only when its own preselected option is the accepting one (anything else
+//      ends the run NOT RUN); the accept is recorded as `driver`. accept=human sends nothing
+//      and waits for the operator. No G2 criterion names a consent step.
 //   4. The operator's own message to their TUI (`agent prompt`, as the operator typed it
 //      in the human run; it is never a delivered message). herdr's agent state after it is
 //      recorded and used only to schedule the next step; an `unknown` state is recorded,
@@ -80,6 +81,7 @@ import { parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, 
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
 import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
+import { driverAcceptDialog } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, processArgv, codexLaunchProof, parseG2Transcript,
@@ -101,7 +103,7 @@ export default {
     launch: [...G2_LAUNCH],
     timeboxMs: 45 * 60 * 1000, // the 0.157.1 re-run declared 45 minutes (G2-result.md "Timebox")
     params: {
-      accept: 'human',
+      accept: 'driver', // #196: the driver accepts recognized dialogs by default; accept=human remains
       operatorPrompt: DEFAULT_OPERATOR_PROMPT,
       injectText: '',
       startupTimeoutMs: '120000',
@@ -294,15 +296,7 @@ export default {
       const d = { index: g2.dialogs.length + 1, kind, context, patternVerified: CODEX_DIALOG_KINDS[kind]?.verified ?? null, readSeq: r.seq, readAt: r.startedAt, selected: r.screen.selected, acceptOrigin: null, acceptSeq: null, resolvedSeq: null, inputBetweenReadAndAccept: null };
       g2.dialogs.push(d);
       if (accept === 'driver') {
-        const may = driverMayAcceptCodex(r.screen);
-        if (!may.ok) {
-          d.acceptOrigin = 'none (driver refused)';
-          stop(`dialog ${d.index} (${kind}): ${may.why}; the driver did not accept it`);
-        }
-        const res = await herdr.dialogAccept(AGENT, ['enter']);
-        d.acceptOrigin = 'driver';
-        d.acceptSeq = res.entry.seq;
-        d.inputBetweenReadAndAccept = herdr.commands.filter((c) => c.seq > r.seq && c.seq < res.entry.seq && INPUT_ROLES.has(c.role)).length;
+        await driverAcceptDialog({ herdr, target: AGENT, r, d, kind, dialogKinds: CODEX_DIALOG_KINDS, plan: driverMayAcceptCodex(r.screen), read, stop, num, sleep, deadlineFor });
         return;
       }
       const before = herdr.commands.length;

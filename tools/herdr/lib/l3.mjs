@@ -72,7 +72,9 @@ export const L3_RECORD_VERSION = 1;
  * @property {Array<string>} findings            Free-text findings, redacted, value-free.
  *
  * Added by L3b (scenarios/l3-beacon.mjs, #190) within version 1 (additive; nothing above changed):
- * @property {'human'} acceptPolicy              The consent-dialog accept policy (always human).
+ * @property {'driver'|'human'} acceptPolicy     The dialog accept policy (#196: `driver` by
+ *                                               default; each dialog's own acceptOrigin says
+ *                                               who accepted it).
  * @property {object} steps                      { B0..B7: { status: 'recorded'|'NOT RUN', ... } } per phase.
  * @property {object|null} scan.counts           Probe phase: hitCounts() per delivery path:
  *                                               { lines, markerLines, tokenLines, byAction,

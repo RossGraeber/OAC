@@ -191,9 +191,16 @@ export function g1Unit(check) {
   ].join('\n');
   const trust = classifyScreen(TRUST);
   check('g1: the live folder-trust dialog is recognized, its unnumbered selection read ("No, exit")', trust.dialog === 'workspace-trust' && trust.selected?.number === null && trust.selected.text === 'No, exit', JSON.stringify(trust));
-  check('g1: the driver refuses it, naming the selected option', !driverMayAccept(trust).ok && /\("No, exit"\) is not the workspace-trust accepting option/.test(driverMayAccept(trust).why), driverMayAccept(trust).why);
+  // #196: the driver accepts it by moving the selection down to "Yes, I trust this folder"
+  // (verified by a read) before Enter; never Enter on the preselected "No, exit".
+  const trustPlan = driverMayAccept(trust);
+  check('g1 #196: with "No, exit" preselected the driver plans down (expect "Yes, I trust this folder"), then Enter', trustPlan.ok && JSON.stringify(trustPlan.keys) === '["down","enter"]' && trustPlan.moves[0].expect === 'Yes, I trust this folder', JSON.stringify(trustPlan));
   const trustYes = classifyScreen(TRUST.replace(' ❯ No, exit', '   No, exit').replace('   Yes, I trust', ' ❯ Yes, I trust'));
-  check('g1: with "Yes" preselected, the driver may accept it', trustYes.selected?.text === 'Yes, I trust this folder' && driverMayAccept(trustYes).ok);
+  check('g1: with "Yes" preselected, the driver may accept it with Enter alone', trustYes.selected?.text === 'Yes, I trust this folder' && JSON.stringify(driverMayAccept(trustYes).keys) === '["enter"]');
+  const trustOdd = classifyScreen(TRUST.replace('   Yes, I trust this folder', '   Yes, I trust this folder\n   Yes, and remember it'));
+  check('g1 #196: a trust dialog with an option not on record is refused (no guessed keystroke)', trustOdd.dialog === 'workspace-trust' && !driverMayAccept(trustOdd).ok && /not the ones on record|exactly one selected/.test(driverMayAccept(trustOdd).why), driverMayAccept(trustOdd).why);
+  const trustTwoMarks = classifyScreen(TRUST.replace('   Yes, I trust', ' ❯ Yes, I trust'));
+  check('g1 #196: two selection markers are refused', !driverMayAccept(trustTwoMarks).ok, driverMayAccept(trustTwoMarks).why);
   check('g1: a numbered selection wins over an unnumbered line; ">" and "*" never mark an unnumbered option', classifyScreen(`${dialog}\n › stray`).selected?.number === 1 && selectedOption('Enter to confirm\n> Yes\n* Yes') === null);
   // #160: the same trust dialog after an attach resized the pane (live run, seq 12 -> seq 33):
   // re-wrapped, and the shell lines above it scrolled off. Still the same dialog.
@@ -219,9 +226,16 @@ export function g1Unit(check) {
     '  ❯ Continue without using this MCP server', '', '  Enter to confirm · Esc to cancel',
   ].join('\n');
   const mcpCls = classifyScreen(MCP);
-  check('g1 #161: the live MCP-server dialog is recognized; "Continue without…" preselected, so the driver refuses it', mcpCls.dialog === 'mcp-server-approval' && mcpCls.selected?.text === 'Continue without using this MCP server' && !driverMayAccept(mcpCls).ok, JSON.stringify(mcpCls));
+  const mcpPlan = driverMayAccept(mcpCls);
+  check('g1 #196: the live MCP-server dialog is recognized; "Continue without…" preselected, so the driver plans up, up (to "Use this MCP server"), then Enter', mcpCls.dialog === 'mcp-server-approval' && mcpCls.selected?.text === 'Continue without using this MCP server' && mcpPlan.ok && JSON.stringify(mcpPlan.keys) === '["up","up","enter"]' && JSON.stringify(mcpPlan.moves.map((m) => m.expect)) === JSON.stringify(['Use this and all future MCP servers in this project', 'Use this MCP server']), JSON.stringify({ mcpCls, mcpPlan }));
   const mcpUse = classifyScreen(MCP.replace('  ❯ Continue', '    Continue').replace('    Use this MCP server', '  ❯ Use this MCP server'));
-  check('g1 #161: with "Use this MCP server" preselected, the driver may accept it', mcpUse.selected?.text === 'Use this MCP server' && driverMayAccept(mcpUse).ok);
+  check('g1 #161: with "Use this MCP server" preselected, the driver may accept it with Enter alone', mcpUse.selected?.text === 'Use this MCP server' && JSON.stringify(driverMayAccept(mcpUse).keys) === '["enter"]');
+  const mcpAll = classifyScreen(MCP.replace('  ❯ Continue', '    Continue').replace('    Use this and all', '  ❯ Use this and all'));
+  check('g1 #196: with "all future MCP servers" selected (not the preselection on record) the driver refuses', !driverMayAccept(mcpAll).ok && /nor the preselection on record/.test(driverMayAccept(mcpAll).why), driverMayAccept(mcpAll).why);
+  const mcpNew = classifyScreen(MCP.replace('    Use this and all future MCP servers in this project', '    Use this MCP server for this session only'));
+  check('g1 #196: an MCP dialog whose options differ from the ones on record is refused', mcpNew.dialog === 'mcp-server-approval' && !driverMayAccept(mcpNew).ok && /not the ones on record/.test(driverMayAccept(mcpNew).why), driverMayAccept(mcpNew).why);
+  const devPlan = driverMayAccept(cls);
+  check('g1 #196: the dev-channels dialog ("1. I am using this for local development" preselected) is accepted with Enter alone', JSON.stringify(devPlan.keys) === '["enter"]');
   // #162: the human-accept hint.
   const hint = (t) => { const c = classifyScreen(t); return acceptHint({ sessionName: 's1', agent: 'a1', kind: c.dialog, selected: c.selected }); };
   check('g1 #162: when the preselected option declines, the hint names it and never suggests pressing Enter or send-keys enter', /Preselected: "No, exit", which is NOT/.test(hint(TRUST)) && /Do not just press Enter/.test(hint(TRUST)) && !/send-keys/.test(hint(TRUST)) && !/send-keys/.test(hint(MCP)), hint(TRUST));
@@ -469,6 +483,38 @@ export function g1Cases(check) {
   run('g1 wrong preselection', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_DIALOG: 'wrong-selection' } }, (r) => {
     const m = r.manifest;
     check('g1 wrong preselection: NOT RUN, the driver does not press Enter on "Exit"', r.status === 3 && /is not the dev-channels accepting option/.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept'), m.outcomeReason);
+  });
+
+  // #196: the three dialogs Claude Code showed live, in the live order, each with its live
+  // preselection: "No, exit" (trust) and "Continue without using this MCP server" (MCP) are
+  // refusing options, so the driver must move the selection, verified by a read, before Enter.
+  run('g1 driver accepts trust, MCP and dev-channels', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_STEP_MS: '1000', FAKE_CLAUDE_DIALOG: 'workspace-trust,mcp-server-approval,dev-channels' } }, (r) => {
+    const m = r.manifest;
+    const g1 = m.scenarioData.g1;
+    check('g1 #196 three dialogs: PASS (the fake exits on any refusing option, so a wrong Enter fails the run)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+    const byKind = Object.fromEntries(g1.dialogs.map((d) => [d.kind, d]));
+    check('g1 #196 three dialogs: all three recorded in order, each accepted by the DRIVER (origin recorded as driver)', g1.dialogs.map((d) => d.kind).join() === 'workspace-trust,mcp-server-approval,dev-channels' && g1.dialogs.every((d) => d.acceptOrigin === 'driver'), JSON.stringify(g1.dialogs.map((d) => [d.kind, d.acceptOrigin])));
+    const keysOf = (d) => (d?.acceptKeys ?? []).map((k) => k.key).join(',');
+    check('g1 #196 three dialogs: keys trust down,enter; MCP up,up,enter; dev-channels enter', keysOf(byKind['workspace-trust']) === 'down,enter' && keysOf(byKind['mcp-server-approval']) === 'up,up,enter' && keysOf(byKind['dev-channels']) === 'enter', JSON.stringify(g1.dialogs.map(keysOf)));
+    const cmd = (seq) => m.commands.find((x) => x.seq === seq);
+    const allReadBefore = g1.dialogs.every((d) => d.acceptKeys.every((k) => cmd(k.seq)?.role === 'dialog-accept' && cmd(k.seq - 1)?.role === 'read'));
+    check('g1 #196 three dialogs: every dialog key is a dialog-accept command straight after a read of the pane', allReadBefore);
+    const verified = g1.dialogs.every((d) => d.acceptKeys.filter((k) => k.key !== 'enter').every((k) => k.verifiedSeq > k.seq));
+    check('g1 #196 three dialogs: every selection move was verified by a later read before Enter', verified && g1.dialogs.every((d) => d.inputBetweenReadAndAccept === 0));
+    check('g1 #196 three dialogs: dialog text read verbatim before the first key reached it', g1.dialogs.every((d) => d.readSeq < d.acceptKeys[0].seq));
+    const ev = evalRun(r);
+    check('g1 #196 three dialogs: C5 stays not evaluable (a driver-accepted dev-channels dialog is never scored as meeting criterion 5)', ev.rows[4].score === SCORES.NE && /driver/i.test(ev.rows[4].reason), JSON.stringify(ev.rows[4]));
+  });
+
+  run('g1 driver refuses MCP options not on record', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_DIALOG: 'mcp-unknown-options' } }, (r) => {
+    const m = r.manifest;
+    check('g1 #196 unknown MCP options: NOT RUN, no keystroke sent to the dialog', r.status === 3 && /not the ones on record/.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept'), m.outcomeReason);
+  });
+
+  run('g1 driver: selection does not move', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_DIALOG: 'workspace-trust', FAKE_CLAUDE_IGNORE_KEYS: '1' } }, (r) => {
+    const m = r.manifest;
+    const acc = m.commands.filter((x) => x.role === 'dialog-accept');
+    check('g1 #196 stuck selection: NOT RUN after one "down", never Enter on "No, exit", nothing re-sent', r.status === 3 && /did not move/.test(m.outcomeReason) && acc.length === 1 && acc[0].argv.at(-1) === 'down', `${m.outcomeReason} ${JSON.stringify(acc.map((a) => a.argv.at(-1)))}`);
   });
   return cases;
 }

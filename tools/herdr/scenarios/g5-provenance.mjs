@@ -21,7 +21,7 @@
 //
 //   node tools/herdr/run.mjs --scenario g5-provenance \
 //     --launch '["claude","--dangerously-load-development-channels","server:g5spike"]' \
-//     --param accept=human --out <run dir>
+//     --out <run dir>
 //   node tools/herdr/lib/g5-report.mjs --run <run dir>            # draft comparison
 //
 // What it does, in the human run's order:
@@ -30,7 +30,8 @@
 //      into scratch with their case table; a project .mcp.json registers g5spike.
 //   1. `codex app-server daemon start` and `daemon version` (all three fields at the pin), the
 //      client's `list` (wire userAgent at the pin), as in the G2 scenario.
-//   2. Claude launches (dialogs read verbatim before any keystroke; accept=human by default);
+//   2. Claude launches (dialogs read verbatim before any keystroke; accept=driver by default
+//      since #196, each accept recorded as `driver`; accept=human remains available);
 //      the legacy handshake is awaited on the wire; its clientInfo.version must equal the CLI.
 //   3. Plain `codex` launches in a second pane (argv proof from the OS); the operator's thread
 //      marker prompt; the TUI's thread is found on the wire (loaded + preview + cwd).
@@ -91,7 +92,7 @@ export default {
     launch: [...G5_LAUNCH],
     timeboxMs: 60 * 60 * 1000, // the 2026-09-27 run declared 60 minutes (G5-result.md "Timebox")
     params: {
-      accept: 'human',
+      accept: 'driver', // #196: the driver accepts recognized dialogs by default; accept=human remains
       includeX6: 'true',
       sleepCommand: SLEEP_DEFAULT,
       busyPrompt: '',
