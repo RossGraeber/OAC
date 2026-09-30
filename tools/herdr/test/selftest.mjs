@@ -367,21 +367,41 @@ async function unitScratch() {
   const waits = [];
   const wait = async (ms) => void waits.push(ms);
   let calls = 0;
-  const once = await removeScratch('/unit/oac-herdr-scratch-x', { remove: () => { if (++calls === 1) throw eperm(); }, wait });
+  // Scratch-shaped names under os.tmpdir(); the fake removers never touch the disk.
+  const once = await removeScratch(join(tmpdir(), 'oac-herdr-scratch-Unit01'), { remove: () => { if (++calls === 1) throw eperm(); }, wait });
   check('scratch #202: EPERM once is retried and the removal succeeds on attempt 2', once.removed === true && once.attempts === 2 && calls === 2 && once.errors.length === 1 && once.errors[0].code === 'EPERM' && JSON.stringify(waits) === JSON.stringify([SCRATCH_RETRY_DELAYS_MS[0]]), JSON.stringify({ once, waits }));
   waits.length = 0;
   calls = 0;
   let threw = false;
   let always;
   try {
-    always = await removeScratch('/unit/oac-herdr-scratch-y', { remove: () => { calls += 1; throw eperm(); }, wait });
+    always = await removeScratch(join(tmpdir(), 'oac-herdr-scratch-Unit02'), { remove: () => { calls += 1; throw eperm(); }, wait });
   } catch {
     threw = true;
   }
   check('scratch #202: persistent EPERM is bounded, returned not thrown', !threw && always?.removed === false && always.attempts === SCRATCH_RETRY_DELAYS_MS.length + 1 && calls === always.attempts && always.errors.every((e) => e.code === 'EPERM') && JSON.stringify(waits) === JSON.stringify(SCRATCH_RETRY_DELAYS_MS), JSON.stringify({ always, waits }));
   check('scratch #202: the total backoff is bounded (under 5 s)', SCRATCH_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) < 5000);
-  // The default remover, on a directory this test made under os.tmpdir().
-  const d = mkdtempSync(join(tmpdir(), 'oac-herdr-unit-rm-'));
+  // Refusals: the remover is never called for anything but a direct child of os.tmpdir()
+  // named oac-herdr-scratch-XXXXXX.
+  const T = tmpdir();
+  const refusedCases = [
+    ['outside os.tmpdir()', resolve(REPO, 'oac-herdr-scratch-Abc123')],
+    ['nested below os.tmpdir()', join(T, 'oac-herdr-selftest-x', 'oac-herdr-scratch-Abc123')],
+    ['wrong prefix', join(T, 'oac-herdr-runs-Abc123')],
+    ['wrong suffix length', join(T, 'oac-herdr-scratch-Abc1234')],
+    ['non-alphanumeric suffix', join(T, 'oac-herdr-scratch-Ab_12.')],
+    ['traversal out of os.tmpdir()', `${T}/../oac-herdr-scratch-Abc123`],
+    ['traversal that lands back in os.tmpdir()', `${T}/sub/../oac-herdr-scratch-Abc123`],
+    ['os.tmpdir() itself', T],
+    ['empty', ''],
+  ];
+  for (const [what, p] of refusedCases) {
+    let removerCalls = 0;
+    const res = await removeScratch(p, { remove: () => void (removerCalls += 1), wait });
+    check(`scratch #202: refused (EREFUSED, remover never called): ${what}`, res.removed === false && res.attempts === 0 && res.errors[0]?.code === 'EREFUSED' && removerCalls === 0, JSON.stringify(res));
+  }
+  // The default remover, on a real scratch-shaped directory this test made under os.tmpdir().
+  const d = mkdtempSync(join(tmpdir(), 'oac-herdr-scratch-'));
   mkdirSync(join(d, 'captures'));
   writeFileSync(join(d, 'captures', 'x.txt'), 'x');
   const real = await removeScratch(d);

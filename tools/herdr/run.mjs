@@ -31,7 +31,7 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
@@ -290,7 +290,7 @@ async function runScenarioInner(opts, state) {
   } catch (err) {
     // Never let a cleanup failure mask the setup error; a leftover is named on the console.
     const rm = await removeScratch(scratch);
-    if (!rm.removed) console.error(`herdr driver: scratch directory left behind after a setup error (${rm.errors.at(-1)?.code ?? 'error'}): ${scratch}`);
+    if (!rm.removed) console.error(`herdr driver: scratch directory left behind after a setup error (${rm.errors.at(-1)?.code ?? 'error'}): ${basename(scratch)} in the OS temp directory`);
     throw err;
   }
 
