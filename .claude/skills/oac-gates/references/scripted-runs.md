@@ -13,6 +13,12 @@ A scripted run is a gate re-run in which herdr plays the operator's hands and ey
 starts the harness, types what the operator would type, and reads the screen. It never
 replaces a supported interface, and it decides nothing.
 
+**Who runs it.** An agent runs `node tools/herdr/run.mjs` locally; that is the default for
+any live leg, and the point of herdr (operator decision, #187). The human attends only to
+sign in to the harnesses, grant elevation, and accept operator-consent dialogs (below). No
+live leg is "operator-typed only". Live runs are not in the default CI suite
+(`oac-testing` §2).
+
 ## Status at K5
 
 No scripted run of any gate has run live. K4 built the G1 scenario and tested it against
@@ -109,7 +115,8 @@ scenario that fails after a timeout. A `NOT RUN` run makes every criterion
   retrying" (K1 §5 item 3).
 - Nothing re-runs `run.mjs` on its own after a `NOT RUN` or `FAIL`: no scenario, no
   wrapper, and no CI job. A retry is a new run with its own run id, box and manifest. It
-  starts only when an operator decides to start it.
+  starts only as a deliberate new invocation by the agent or operator running the work
+  item, after reading the failed run, never from a loop.
 - If earlier runs of the same scenario, at the same pins, ended `NOT RUN` or `FAIL`, the
   record lists them under "Findings and UNVERIFIED": run id, outcome, reason. Take these
   from each run's own `run-manifest.json`. `g1-report.mjs` does not track earlier runs, so

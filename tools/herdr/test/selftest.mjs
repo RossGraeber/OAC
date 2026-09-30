@@ -5,7 +5,7 @@
 // double of the herdr CLI, not herdr -- so they prove the DRIVER's behavior (session
 // lifecycle, timeouts ending NOT RUN, teardown on every path, manifest content) with no
 // herdr installed. Nothing here proves anything about herdr itself; the live smoke run
-// against a real herdr is a separate, operator-run step.
+// against a real herdr is a separate live step (run locally, never in the default suite).
 //
 // POSIX only for the lifecycle half (the fake runs pane commands with `sh`).
 //

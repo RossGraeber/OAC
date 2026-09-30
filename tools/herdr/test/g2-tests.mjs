@@ -11,7 +11,7 @@
 // checks, from the trace, that neither the driver nor the client opened anything under the
 // Codex home beyond the two harness-config files run.mjs hashes, and what each of them
 // started. These prove the scenario's and the driver's own behavior. They prove nothing
-// about herdr or Codex: a live G2 run through herdr is UNVERIFIED until an operator runs it.
+// about herdr or Codex: a live G2 run through herdr is UNVERIFIED until it runs live.
 
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';

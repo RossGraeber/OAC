@@ -10,7 +10,7 @@
 // against test/fake-herdr.mjs and test/fake-claude.mjs, both TEST DOUBLES. These prove the
 // scenario's and the driver's own behavior (staging, ordering, the accept-origin rule,
 // version stops, captures, redaction, teardown). They prove nothing about herdr or Claude
-// Code: a live G1 run through herdr is UNVERIFIED until an operator runs it.
+// Code: a live G1 run through herdr is evidenced only by its own local run record.
 
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';

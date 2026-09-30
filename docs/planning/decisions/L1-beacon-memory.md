@@ -715,16 +715,51 @@ After L5 and L7 merged, the review round also updated stale U1-U4 wording in
 No pin value, gate verdict, skill, spec or ADR text changes. No Beacon code, binary,
 fixture or spike code is committed.
 
-## 12. Live-verification checklist (operator-run, NOT RUN)
+## 12. Live-verification checklist (herdr-driven, NOT RUN)
 
-Every step below is **UNVERIFIED — pending operator run**. Backlog task L3 ("Beacon live
-leg (operator-run)", `docs/planning/backlog/07-tasks-L.json`) executes it. That key reuses
+Every step below is **UNVERIFIED — pending a live run**. Backlog task L3 ("Beacon live
+leg (herdr-driven)", `docs/planning/backlog/07-tasks-L.json`) executes it. That key reuses
 #165's closed spec-touchpoint number (§4 Q1).
-**The live leg is operator-run only and must not run in CI.** It needs Beacon installed
-in Local mode on a real machine, logged-in Claude Code and Codex, and a person at the
-keyboard. No CI workflow, `tools/herdr/` scenario or test may drive it. OAC never calls,
-spawns or configures Beacon in any step (§1). The operator installs and connects Beacon
-only with Beacon's own documented commands.
+
+**Amended 2026-09-30 (operator decision, issue #187).** This section first said the leg
+was "operator-run only", needed "a person at the keyboard", and that no `tools/herdr/`
+scenario might drive it. That was wrong: herdr was added to automate exactly this kind of
+work. **The live leg is driven by a herdr scenario (`node tools/herdr/run.mjs`), run
+locally by an agent** on a real machine with Beacon installed and Claude Code and Codex
+logged in. The operator's role is reduced to what only a human may do: installing Beacon
+(elevation), signing in to the harnesses, and accepting operator-consent dialogs such as
+Claude Code's development-channels warning. A driver-sent accept of such a dialog is never
+verdict-bearing (`oac-gates` `references/scripted-runs.md` "Operator-consent dialogs").
+The leg is **not in the default CI suite**, which has no logged-in harness (`oac-testing`
+§2).
+
+OAC never calls, spawns or configures Beacon in any step (§1). The operator installs and
+connects Beacon only with Beacon's own documented commands. A test driver that launches
+the harnesses beside that operator-installed Beacon and reads Beacon's own local log and
+read-only CLI output is test tooling, not OAC product behaviour. The driver never reads
+harness credentials and never runs herdr's hook-writing command (`oac-boundaries`
+mechanical checks 9 and 10).
+
+**Live observations, Windows, Beacon `1.3.29` (2026-09-30).** Source: the MSI's own
+install script, `C:\Program Files\Beacon\scripts\install-endpoint.ps1`, and the resulting
+machine state. Observed on Windows only; not checked on Linux or macOS.
+
+- The Windows MSI runs a **system-mode** install itself:
+  `beacon endpoint install --system --harness claude,codex`, then
+  `beacon endpoint user-config repair-installed`. It shows no Local/Managed prompt, and it
+  installs Beacon's harness hooks as well as its telemetry settings. The collector runs as
+  the `BeaconCollector` service under LocalSystem.
+- The runtime log is `C:\ProgramData\Beacon\Endpoint\logs\runtime.jsonl`, not
+  `~/.beacon/endpoint/logs/runtime.jsonl`. Use `beacon endpoint status --system` to
+  confirm the path on the machine.
+- Beacon's own `.beacon.bak` backups can be overwritten by the MSI's second pass
+  (`user-config repair-installed`). Do not rely on them for B7; B0's own backups outside
+  the repo are the restore source.
+
+Consequences for the steps below on Windows: B1's "run `beacon endpoint install`, choose
+Local" does not apply as written, because the MSI has already installed; B1 instead
+records what the MSI changed against B0. Which of Beacon's modes that system install
+corresponds to is not recorded here. B2 and B4 grep the `C:\ProgramData` log path.
 
 **Timebox: 60 minutes**, declared before B0 and not extended. When it expires, write
 the results into `## 13. Live results (L3)` in this file as-is. A step not reached is
@@ -835,8 +870,8 @@ candidate's text contains the marker. Do not approve a candidate.
 **B6 — Concurrent memory reads (item 3, live confirmation only)**
 
 With one approved memory in a scratch repository, have the Claude and the Codex session
-call `get_memory_context` at the same time, three times, while the operator runs
-`beacon memory list` in a terminal (`docs/cli/memory.mdx@v1.3.29` L220-229).
+call `get_memory_context` at the same time, three times, while `beacon memory list` runs
+in a third pane or terminal (the driver's, or the operator's) (`docs/cli/memory.mdx@v1.3.29` L220-229).
 
 Evidence to record: any error text (for example `database is locked`), and whether all
 six calls returned. §11 item 3 is already CONFIRMED from source. A lock error here is a

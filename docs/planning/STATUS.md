@@ -4,6 +4,27 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-30 (**Issue #187: herdr drives live legs; the operator only
+accepts consent dialogs.** Operator decision, recorded in #187: "The ENTIRE POINT of
+adding herdr was to automate implementation and testing tasks." Guidance that made a
+live leg operator-run only, required a person at the keyboard, or forbade a
+`tools/herdr/` scenario from driving it was wrong and is corrected: a live leg is driven
+by a herdr scenario that an agent runs locally, and the operator's role is installing
+external services (elevation), harness sign-in, and accepting operator-consent dialogs.
+Unchanged: the consent-dialog rule (a driver-sent accept is never verdict-bearing,
+`oac-gates` `references/scripted-runs.md`), the exclusion from the default CI suite, and
+boundary checks 9-11. L1 §12 is retitled "herdr-driven" with a dated amendment and
+Windows live observations of the Beacon `1.3.29` MSI (system-mode install, runtime log
+under `C:\ProgramData\Beacon\Endpoint\logs\`); backlog L3 and issue #168 are retitled
+to match. Touched: `docs/planning/decisions/L1-beacon-memory.md`,
+`docs/planning/backlog/07-tasks-L.json`, `docs/planning/decisions/K1-herdr-evaluation.md`
+(dated note on §6), `docs/planning/PINS.md`, `docs/planning/v0.1/06-security.md`,
+`08-cli-and-deployment.md`, `09-test-strategy.md`, `11-risks.md`, `tools/herdr/README.md`
+and three `tools/herdr/test/` comments,
+`oac-testing`, `oac-gates` `references/scripted-runs.md`, and the owner lines under "Open
+UNVERIFIED items" below. Earlier dated entries are left as written. No gate verdict, pin
+value, spec or ADR text changes.)
+
 **Last updated:** 2026-09-29 (**L2/issue #167 (Epic L #165): Beacon desk research at pin
 `v1.3.29`.** `docs/planning/decisions/L1-beacon-memory.md` gains §11 (desk research) and
 §12 (operator-run live checklist, NOT RUN, never in CI). Of L1's four UNVERIFIED items,
@@ -1257,9 +1278,10 @@ without an UNVERIFIED label.
   - per-OS support on Linux, macOS and Windows, which is herdr's documentation claim
     only.
 
-  K1's go/no-go is therefore final for Windows and provisional overall. Owner: an
-  operator-run Linux live leg per
-  `docs/planning/decisions/K1-herdr-evaluation.md` §6. See also
+  K1's go/no-go is therefore final for Windows and provisional overall. Owner: the
+  Linux live leg per
+  `docs/planning/decisions/K1-herdr-evaluation.md` §6 (an agent may run its herdr
+  commands; the operator signs in and accepts consent dialogs, #187). See also
   `docs/planning/v0.1/11-risks.md` row 51 (`RISK-HERDR`).
 - **New, from K4 (issue #127, 2026-09-28):** the scripted G1 re-run through herdr is
   built but has **never run live**. `tools/herdr/scenarios/g1-claude-wake.mjs`, the
@@ -1270,7 +1292,8 @@ without an UNVERIFIED label.
   yet. The Claude Code pane-text patterns the scenario schedules on (the in-progress
   indicator, and every dialog except the dev-channels one recorded in Box C) are
   unconfirmed. The run is not verdict-bearing either way: G1's verdict is unchanged.
-  Owner: an operator run per the scenario's header comment.
+  Owner: a local herdr run per the scenario's header comment, started by an agent; the
+  operator signs in and accepts consent dialogs (#187).
 - **New, from K6 (issue #129, 2026-09-28):** the opt-in CI workflow
   `.github/workflows/herdr-provider-optin.yml` and its entry point `tools/herdr/ci.mjs`
   are built but have **never run on GitHub Actions**. No self-hosted runner with label
@@ -1296,7 +1319,8 @@ without an UNVERIFIED label.
   `-c mcp_servers.<name>.url=...` override for an HTTP MCP server (the G4 scenario's Codex
   registration), and every pane-text pattern. No `-herdr` fixture and no G4/G5
   `herdr-runs/` record exist. Neither verdict changes: G4 stays PASS, G5 stays FAIL.
-  Owner: an operator run per each scenario's header comment.
+  Owner: a local herdr run per each scenario's header comment, started by an agent; the
+  operator signs in and accepts consent dialogs (#187).
 - **New, from L1 (issue #166, 2026-09-29), narrowed by L2 (issue #167, 2026-09-29):**
   one Beacon (agent-beacon) fact stays UNVERIFIED at pin `v1.3.29`
   (`docs/planning/decisions/L1-beacon-memory.md` §6 U1, §11 item 1):
@@ -1308,7 +1332,9 @@ without an UNVERIFIED label.
     the open half is harness behaviour. OAC's outbound tool-call arguments are confirmed
     captured (L1 §11 item 1).
 
-  Owner: backlog L3, the operator-run live leg in L1 §12 (never in CI). See
+  Owner: backlog L3, the herdr-driven live leg in L1 §12, run locally by an agent; the
+  operator installs Beacon, signs in and accepts consent dialogs; not in the default CI
+  suite (#187). See
   `docs/planning/v0.1/11-risks.md` row 53 (`RISK-BEACON`). **Closed by L2** (L1 §11,
   citations there, `path@v1.3.29`, retrieved 2026-09-29): U2 memory ID and
   memory-tool result shape (CONFIRMED; row 54), U3 `memory.db` concurrency (CONFIRMED:

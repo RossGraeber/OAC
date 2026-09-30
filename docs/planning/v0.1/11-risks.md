@@ -570,12 +570,13 @@ list.
   (L1 §4 Q1). A drift costs only Epic L's docs (L5), threat rows (L4) and opt-in
   scenario (L10). If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
 - **Early-warning signal.** A new Beacon release tag appears; a cited Beacon doc
-  changes at a new tag; L3's operator-run live leg shows OAC-delivered input in Beacon's
+  changes at a new tag; L3's herdr-driven live leg shows OAC-delivered input in Beacon's
   `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.
 - **Response.** On a new tag, re-read L1 §6 and every L1 §10 citation at it before moving
   the PINS.md row (`oac-evidence` §7); L1 §11's source-level findings are re-read at the
-  new tag too. For U1 only, L3 runs the operator-run live leg (L1 §12, never in CI) and
-  records the Beacon version it ran on in L1 §13. L4's row 23 already carries capture as
+  new tag too. For U1 only, L3 runs the herdr-driven live leg (L1 §12; run locally by
+  an agent, not in the default CI suite, #187) and records the Beacon version it ran on
+  in L1 §13. L4's row 23 already carries capture as
   a residual; L1 §4 Q3's Local / Metadata-only recommendation limits forwarding but not
   local capture. If L3's B1-B4 steps find a config collision after all, record it as a
   finding against the Codex adapter's launch design, not a workaround
