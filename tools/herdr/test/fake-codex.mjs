@@ -44,6 +44,9 @@
 //   FAKE_CODEX_MCP_VERSION     the version in the MCP client's user-agent (K8)
 //   FAKE_CODEX_POST_CLI_VERSION `codex --version` once the daemon has answered
 //                              thread/turns/list (stands in for a mid-run update)
+//   FAKE_BEACON_LOG            L3b (#190): the daemon appends a Beacon-shaped event (runtime.jsonl)
+//                              for every turn's user input, whatever started it (TUI, turn/start,
+//                              thread/queue/add); the event shape is this file's invention
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -194,6 +197,8 @@ function daemon() {
     for (const c of ws()) notify(c, 'thread/status/changed', { threadId: t.id, status: { type: 'active', activeFlags: [] } });
     for (const c of subs()) notify(c, 'turn/started', { threadId: t.id, turn: turnObj(tn, false) });
     const user = { type: 'userMessage', id: randomUUID(), clientId, content: [{ type: 'text', text, text_elements: [] }] };
+    if (env.FAKE_BEACON_LOG) appendFileSync(env.FAKE_BEACON_LOG, `${JSON.stringify({ event: { action: 'prompt.submitted' }, harness: { name: 'codex', version: WIRE, collection_method: 'otlp' }, session: { id: t.id }, prompt: { text } })}
+`);
     tn.items.push(user);
     for (const c of subs()) notify(c, 'item/started', { item: user, threadId: t.id, turnId: tn.id });
     for (const c of subs()) notify(c, 'item/completed', { item: user, threadId: t.id, turnId: tn.id });

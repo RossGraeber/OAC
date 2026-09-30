@@ -27,10 +27,10 @@ never replaces a supported interface and it decides nothing.
 |---|---|
 | `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. |
 | `ci.mjs`, `runner-hooks/` | The opt-in CI entry point and runner hooks (K6). |
-| `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8). |
-| `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8). |
+| `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). |
+| `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8), `l3-beacon` (L3b; the Beacon live leg, not a gate). |
 | `gate-servers/` | K8: the G4 and G5 gate servers, **reconstructed** (see below). |
-| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`) and the file-access tracer (`fs-trace.mjs`). |
+| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`) and the file-access tracer (`fs-trace.mjs`). |
 
 ## Scripted gate re-runs
 
@@ -82,6 +82,30 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
   refuse to score if the reference was reworded or reordered. `--write` refuses anything but a
   `PASS` run with verified harness versions from a clean, committed `tools/herdr/`, never
   overwrites, and writes the operator attestation unticked.
+
+## L3 Beacon live leg
+
+`l3-beacon` (L3b, #190) runs `docs/planning/decisions/L1-beacon-memory.md` §12 against a
+machine where the operator has already installed Beacon. It is **not a gate** and records only;
+L3c (`lib/l3-report.mjs`, #191) drafts §13 from the runs. Three phases share one 60-minute L3
+box, declared by the baseline; the operator's own Beacon steps (install, and B7 teardown and
+restore) happen outside the driver, between phases:
+
+```bash
+node tools/herdr/run.mjs --scenario l3-beacon --param phase=baseline --param beaconBin=<abs path> --out <baseline dir>
+node tools/herdr/run.mjs --scenario l3-beacon --param phase=probe --param baselineRun=<baseline dir> --param beaconBin=<abs path> --param accept=human --out <probe dir>
+node tools/herdr/run.mjs --scenario l3-beacon --param phase=verify --param baselineRun=<baseline dir> --out <verify dir>
+```
+
+The driver runs only a read-only Beacon allowlist (`beacon version`, `beacon endpoint status
+--system`, `beacon endpoint {claude,codex} sync --print`; `sync --print` is write-free, cited
+from source in the scenario header), or none with `--param beaconCli=off`. The probe values are
+generated inside the scenario, redacted everywhere, and reach the harnesses only through a
+scratch copy of `gate-servers/` whose `g5-cases.json` alone is augmented. The driver hashes
+harness config and never writes it; it reads Beacon's runtime log read-only, and the probe
+project's own Claude session file for entry types and flags only. B1, B5 and B6 are recorded
+`NOT RUN` (operator decisions on #168). Not in CI (`ci.mjs` `CI_SCENARIOS` excludes it). LIVE
+STATUS: UNVERIFIED.
 
 ## gate-servers/: reconstructions, not the originals
 
@@ -252,6 +276,6 @@ node tools/herdr/run.mjs --self-test
 ```
 
 Unit checks in-process, then lifecycle runs of every scenario through `run.mjs` against
-`test/fake-herdr.mjs`, `test/fake-claude.mjs` and `test/fake-codex.mjs`. The doubles are this
-repository's inventions; the self-test proves the driver's and the scenarios' behavior, never
-herdr's, Claude Code's or Codex's.
+`test/fake-herdr.mjs`, `test/fake-claude.mjs`, `test/fake-codex.mjs` and (for `l3-beacon`)
+`test/fake-beacon.mjs`. The doubles are this repository's inventions; the self-test proves the
+driver's and the scenarios' behavior, never herdr's, Claude Code's, Codex's or Beacon's.

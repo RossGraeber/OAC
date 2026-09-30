@@ -770,6 +770,19 @@ Local" does not apply as written, because the MSI has already installed; B1 inst
 records what the MSI changed against B0. `status --system` reported `Beacon Managed: not
 connected` (observed 2026-09-30). B2 and B4 grep the `C:\ProgramData` log path.
 
+**Note 2026-09-30 (L3b, #190): the herdr scenario.** `tools/herdr/scenarios/l3-beacon.mjs`
+implements B0 (`--param phase=baseline`), B2-B4 (`phase=probe`, which also records B1 as
+`NOT RUN` by the operator decision on #168) and B7's hash check (`phase=verify`). One 60-minute
+box spans the three phases, declared by the baseline. The markers and fake tokens are
+generated inside the scenario, searched for by their full value (never the `L3-PROBE-` or
+`sk-l3fake-` prefix the greps below use), and recorded as hashes only. The "Probe content"
+scratch copy of `tools/herdr/gate-servers/` is the scenario's own scratch directory, and only
+that copy's `g5-cases.json` is augmented. The greps and `sync --print` counts below are done
+in-process, and `sync --print` is run only after confirming from source at `v1.3.29` that it
+writes nothing (citations in the scenario header). B5 and B6 are not automated. The steps
+below are unchanged and remain the specification; the scenario is UNVERIFIED until #192 runs
+it live.
+
 **Timebox: 60 minutes**, declared before B0 and not extended. When it expires, write
 the results into `## 13. Live results (L3)` in this file as-is. A step not reached is
 recorded `NOT RUN` with the reason, never guessed.

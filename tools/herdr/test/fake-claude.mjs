@@ -30,10 +30,19 @@
 //                               operator pressing Enter outside the driver)
 //   FAKE_CLAUDE_STEP_MS         duration of each simulated tool call (default 1500)
 //   FAKE_CLAUDE_DISCOVER        1 = send a server/discover probe before initialize (G1 mode)
+//   FAKE_BEACON_LOG             L3b (#190): append a Beacon-shaped event (runtime.jsonl) for each
+//                               rendered channel message and each reply-tool call; the event
+//                               shape is this file's invention, not Beacon's capture
+//   FAKE_CLAUDE_SESSION_FILE    1 = L3b: write an invented session JSONL under
+//                               <CLAUDE_CONFIG_DIR or $HOME/.claude>/projects/<cwd slug>/
+// L3b also adds, in multi mode: a prompt asking for the reply tool calls the channel server's
+// `reply` tool with the probe code found in the last channel message (test double behavior).
 
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 
 const [dir, buf, ...launchArgs] = process.argv.slice(2);
@@ -49,6 +58,21 @@ const setState = (s) => writeFileSync(join(dir, 'state'), s);
 const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
 const hist = (s) => appendFileSync(buf, `${s}\n`);
 const IDLE_SCREEN = '╭──────────────────────────────╮\n│ >                            │\n╰──────────────────────────────╯\n  ? for shortcuts';
+
+const SESSION_ID = randomUUID();
+// L3b: an invented Beacon runtime.jsonl event, and an invented session-file entry.
+const beaconEvent = (action, extra) => {
+  if (!env.FAKE_BEACON_LOG) return;
+  appendFileSync(env.FAKE_BEACON_LOG, `${JSON.stringify({ event: { action }, harness: { name: 'claude_code', version: VERSION, collection_method: 'hook' }, session: { id: SESSION_ID }, ...extra })}
+`);
+};
+const sessionEntry = (entry) => {
+  if (env.FAKE_CLAUDE_SESSION_FILE !== '1') return;
+  const d = join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects', process.cwd().replace(/[^A-Za-z0-9]/g, '-'));
+  mkdirSync(d, { recursive: true });
+  appendFileSync(join(d, `${SESSION_ID}.jsonl`), `${JSON.stringify({ sessionId: SESSION_ID, ...entry })}
+`);
+};
 
 const MCP = JSON.parse(readFileSync(join(process.cwd(), '.mcp.json'), 'utf8')).mcpServers;
 const MULTI = !MCP.g1spike;
@@ -148,6 +172,7 @@ async function g1Handshake() {
 
 // --- multi mode (K8) -----------------------------------------------------------------------
 const channelServers = new Set();
+const stdioClients = new Map();
 const notices = [];
 const http = new Map();
 async function httpPost(url, body, headers = {}) {
@@ -169,6 +194,7 @@ async function multiHandshake() {
     const c = stdioClient(name, cfg, (n) => {
       if (channelServers.has(name)) onChannel(name, n);
     });
+    stdioClients.set(name, c);
     const d = await c.request('server/discover', { _meta: modernMeta() }, 'server-discover-probe-1');
     if (d.error) {
       await c.request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo });
@@ -185,11 +211,15 @@ async function multiHandshake() {
 // --- turns ------------------------------------------------------------------------------
 let state = 'idle';
 let lastChannel = null;
+let lastContent = null;
 const queued = [];
 const esc = (v) => String(v).replace(/"/g, '&quot;');
 const render = (source, n) => {
   const meta = Object.entries(n.params.meta ?? {}).filter(([k]) => /^[A-Za-z0-9_]+$/.test(k));
   lastChannel = { source, ...Object.fromEntries(meta) };
+  lastContent = String(n.params.content ?? '');
+  beaconEvent('prompt.submitted', { prompt: { text: lastContent } });
+  sessionEntry({ type: 'attachment', isMeta: true, attachment: { type: 'channel_message', source, content: lastContent } });
   const content = MULTI ? String(n.params.content).replace(/<\/channel>/g, '<\\/channel>') : n.params.content;
   return `⏺ <channel source="${source}" ${meta.map(([k, v]) => `${k}="${MULTI ? esc(v) : v}"`).join(' ')}>${content}</channel>`;
 };
@@ -207,6 +237,7 @@ function onChannel(source, n) {
 
 async function turn(text) {
   hist(`> ${text}`);
+  sessionEntry({ type: 'user', message: { role: 'user', content: text } });
   state = 'working';
   setState('working');
   const busy = (what) => setScreen(`${what}\n\n✻ Working… (esc to interrupt)`);
@@ -222,6 +253,15 @@ async function turn(text) {
     busy('⏺ Thinking');
     await sleep(200);
     hist(`Attributes: ${Object.entries({ source: 'g1spike', ...lastChannel }).map(([k, v]) => `${k}="${v}"`).join(' ')}. No attribute name contains spaces or punctuation.`);
+  } else if (MULTI && /reply tool/i.test(text)) {
+    const source = lastChannel?.source;
+    busy(`⏺ ${source} - reply (MCP)`);
+    const code = /L3-PROBE-[0-9a-z]{26}/.exec(lastContent ?? '')?.[0] ?? 'no probe code found';
+    const args = { message: code, in_reply_to: lastChannel?.oac_message_id };
+    const res = source && stdioClients.has(source) ? await stdioClients.get(source).request('tools/call', { name: 'reply', arguments: args, _meta: { 'claudecode/toolUseId': `toolu_fake${Date.now()}`, progressToken: 1 } }) : null;
+    beaconEvent('mcp.tool_invoked', { tool: { name: 'reply', arguments: args } });
+    sessionEntry({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'reply', input: args }] } });
+    hist(`Reply sent: ${res?.result?.content?.[0]?.text ?? 'error'}`);
   } else if (/reply tool/i.test(text)) {
     busy('⏺ g1spike - reply (MCP)');
     const res = await g1.request('tools/call', { name: 'reply', arguments: { message: 'Hello!', in_reply_to: lastChannel?.oac_message_id }, _meta: { 'claudecode/toolUseId': `toolu_fake${Date.now()}`, progressToken: 1 } });
