@@ -115,7 +115,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
-import { G2_LAUNCH, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
+import { G2_LAUNCH, waitCodexReady, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
 import {
@@ -384,6 +384,7 @@ export default {
       cliTimeoutMs: '60000',
       clientTimeoutMs: '60000',
       wireTimeoutMs: '15000',
+      readyTimeoutMs: '120000', // #204: bound on the verified-ready wait before the thread marker
       attachTimeoutMs: '180000',
       listPollMs: '3000',
       turnTimeoutMs: '300000',
@@ -860,6 +861,26 @@ export default {
       if (proof.found && !proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(proof.argsAfterCodex)}; L3's Codex side is plain \`codex\` attached to the shared daemon`);
       if (!proof.found) finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on herdr\'s reported argv only');
       await codex.settle('codex-startup', num('startupTimeoutMs'));
+      // #204: the composer Codex 0.159.2 shows at startup is its startup draft, not a session.
+      // The thread marker is typed only once a new thread is loaded in the daemon and the pane
+      // shows the idle composer (lib/g2.mjs codexReadiness); a startup screen the driver may not
+      // answer (the hook review) ends the run NOT RUN naming it; nothing is typed or re-sent.
+      const preLoaded = clientFacts().wire.loadedLists.at(-1)?.data ?? [];
+      const ready = await waitCodexReady({
+        read: codex.read,
+        handleDialog: codex.handleDialog,
+        listLoaded: async () => {
+          await runClient('list', []);
+          const l = clientFacts().wire.loadedLists.at(-1);
+          return l && !l.error ? l.data : null;
+        },
+        preLoaded,
+        timeoutMs: num('readyTimeoutMs'),
+        pollMs: num('listPollMs'),
+        remainingMs: remaining,
+        stop,
+      });
+      l3.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       const tm = await codex.prompt(operator.threadMarker);
       await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));
       const mr = await codex.read('after-thread-marker');

@@ -150,7 +150,10 @@ const SELECT_MARK_UNNUMBERED = /^[\s│|]*[❯›▶▸→]\s*(\S.*?)\s*[│|]*\
 //             without it is refused, and a selection marker below it counts;
 //   body      the question paragraph between the detect line and the options, verbatim: the
 //             pane must show it whole or as a prefix ending in "…";
-//   note      an optional block above the question: if shown, it must be exactly this text.
+//   note      an optional block above the question: if shown, it must be exactly this text;
+//   refuse    the driver never answers this kind, and this is why (#204: Codex's startup
+//             hook review is the operator's consent decision). planDriverAccept refuses it
+//             with this text; under accept=human the driver waits for the operator as usual.
 export const DIALOG_KINDS = Object.freeze({
   'dev-channels': {
     // Box C, verbatim (the one live-observed dialog); the same text and preselection were seen
@@ -361,6 +364,7 @@ export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
   const def = dialogKinds[kind];
   const no = (why) => ({ ok: false, why, moves: [], keys: [] });
   if (!def) return no(`unrecognized dialog (${kind ?? 'none'}); the driver never accepts a dialog it cannot name`);
+  if (def.refuse) return no(def.refuse);
   // #197 review: a kind with no option text on record (Claude Code's tool-permission prompt)
   // is never driver-accepted, whatever is preselected. The driver accepts only the dialogs
   // K-196 lists (three Claude Code ones and, since #199, Codex's workspace trust); anything

@@ -87,7 +87,7 @@ import { driverAcceptDialog } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, processArgv, codexLaunchProof, parseG2Transcript,
-  g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS,
+  g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS, waitCodexReady,
 } from '../lib/g2.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -113,6 +113,7 @@ export default {
       cliTimeoutMs: '60000',
       clientTimeoutMs: '60000',
       wireTimeoutMs: '30000',
+      readyTimeoutMs: '120000', // #204: bound on the verified-ready wait before the operator's message
       attachTimeoutMs: '180000',
       listPollMs: '3000',
       turnTimeoutMs: '300000',
@@ -504,6 +505,24 @@ export default {
       if (!proof.found) ctx.finding(`the pane's process argv could not show a \`codex\` process (${g2.paneArgv[0].argv.map((a) => a.source).join('; ') || 'no processes'}); the plain-launch proof rests on the launch parameter and herdr's reported argv only`);
       else if (!proof.plain) throw new DriverError(`the pane's codex process (pid ${proof.pid}) runs with arguments ${JSON.stringify(proof.argsAfterCodex)}; G2 needs plain \`codex\` with no config overrides`);
       await settle('startup', num('startupTimeoutMs'));
+      // #204: the composer Codex 0.159.2 shows at startup is its startup draft, not a session;
+      // the operator's message is typed only once the session is verified ready
+      // (lib/g2.mjs codexReadiness: a new loaded thread on the wire + the idle composer).
+      const ready = await waitCodexReady({
+        read,
+        handleDialog,
+        listLoaded: async () => {
+          await runClient('list', []);
+          const l = facts().loadedLists.at(-1);
+          return l && !l.error ? l.data : null;
+        },
+        preLoaded: g2.preLaunch.loaded ?? [],
+        timeoutMs: num('readyTimeoutMs'),
+        pollMs: num('listPollMs'),
+        remainingMs: () => ctx.remainingMs(),
+        stop,
+      });
+      g2.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
 
       // --- 4. the operator's own message; find the TUI's thread on the wire ----------------
       const res = await herdr.agentPrompt(AGENT, operatorPrompt);

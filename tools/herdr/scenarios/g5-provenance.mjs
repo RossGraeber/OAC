@@ -69,7 +69,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
-import { G2_LAUNCH, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
+import { G2_LAUNCH, waitCodexReady, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, INPUT_ROLES } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, loadCases, assertNoSpoof, fixtureNames, unverifiedNames, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
 
@@ -103,6 +103,7 @@ export default {
       cliTimeoutMs: '60000',
       clientTimeoutMs: '60000',
       wireTimeoutMs: '15000',
+      readyTimeoutMs: '120000', // #204: bound on the verified-ready wait before the thread marker
       attachTimeoutMs: '180000',
       listPollMs: '3000',
       turnTimeoutMs: '300000',
@@ -317,6 +318,23 @@ export default {
       if (g5.codexPaneArgv.proof.found && !g5.codexPaneArgv.proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(g5.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);
       if (!g5.codexPaneArgv.proof.found) ctx.finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on the launch parameter and herdr\'s reported argv only');
       await codex.settle('codex-startup', num('startupTimeoutMs'));
+      // #204: wait for a verified-ready session (lib/g2.mjs codexReadiness) before the marker;
+      // the startup composer alone is Codex's startup draft, not a session.
+      const ready = await waitCodexReady({
+        read: codex.read,
+        handleDialog: codex.handleDialog,
+        listLoaded: async () => {
+          await runClient('list', []);
+          const l = clientFacts().wire.loadedLists.at(-1);
+          return l && !l.error ? l.data : null;
+        },
+        preLoaded: g5.preLaunchLoaded ?? [],
+        timeoutMs: num('readyTimeoutMs'),
+        pollMs: num('listPollMs'),
+        remainingMs: () => ctx.remainingMs(),
+        stop,
+      });
+      g5.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       const marker = await codex.prompt(operator.threadMarker);
       const markerFrom = lastLine();
       await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));

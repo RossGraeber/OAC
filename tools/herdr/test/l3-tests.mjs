@@ -809,7 +809,7 @@ const within = (p, root) => {
   const rel = relative(root, p);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 };
-const FAST = ['--param', 'settleMs=300', '--param', 'pollMs=200', '--param', 'listPollMs=400', '--param', 'wireTimeoutMs=10000', '--param', 'turnTimeoutMs=30000', '--param', 'startupTimeoutMs=20000', '--param', 'handshakeTimeoutMs=20000', '--param', 'attachTimeoutMs=15000', '--param', 'beaconSettleMs=2500', '--param', 'beaconTimeoutMs=20000'];
+const FAST = ['--param', 'settleMs=300', '--param', 'pollMs=200', '--param', 'listPollMs=400', '--param', 'wireTimeoutMs=10000', '--param', 'turnTimeoutMs=30000', '--param', 'startupTimeoutMs=20000', '--param', 'handshakeTimeoutMs=20000', '--param', 'attachTimeoutMs=15000', '--param', 'readyTimeoutMs=15000', '--param', 'beaconSettleMs=2500', '--param', 'beaconTimeoutMs=20000'];
 const SYNTHETIC = {
   'claude-settings': '{\n  "env": { "A": "1" },\n  "hooks": {}\n}\n',
   'claude-state': '{ "numStartups": 1 }\n',
@@ -1132,6 +1132,28 @@ export async function l3Cases(check, h) {
       check('l3 beaconCli=off: PASS, no Beacon command, version and log recorded as operator-supplied', off.status === 0 && w.beaconCalls().length === before && /operator-supplied/.test(o3.versions.beaconSource) && /operator-supplied/.test(o3.beacon.log.source), `${off.status} ${off.manifest?.outcomeReason}`);
     } catch (err) {
       check('l3 zero hits: assertions ran', false, err.stack);
+    } finally {
+      w.cleanup();
+    }
+  }
+
+  // --- #204: Codex's startup hook review blocks the session start; the thread marker waits ---
+  {
+    const w = l3World(h);
+    try {
+      const base = w.drive('baseline');
+      // The live #204 shape: the startup-draft composer (no session yet), then the hook review.
+      const p = w.drive('probe', ['--param', `baselineRun=${base.out}`, '--param', 'readSessionFile=false'], { FAKE_CODEX_STARTUP_MS: '1500', FAKE_CODEX_HOOKS_REVIEW: '1' });
+      const m = p.manifest;
+      const l3 = m?.scenarioData?.l3;
+      const d = (l3?.dialogs ?? []).find((x) => x.kind === 'hooks-review');
+      check('l3 #204 hook review: NOT RUN (exit 3) naming Codex\'s startup hook review; the thread marker never typed; no key sent to the review', p.status === 3 && /codex dialog \d+ \(hooks-review\): Codex's startup hook review is on screen/.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && !p.prompts.some((x) => x.target === 'l3codex') && !m.commands.some((x) => x.seq > d.readSeq && ['operator-input', 'dialog-accept'].includes(x.role)) && !l3.thread, `${p.status} ${m?.outcomeReason} ${JSON.stringify(d)}`);
+      const q = w.drive('probe', ['--param', `baselineRun=${base.out}`, '--param', 'readSessionFile=false'], { FAKE_CODEX_STARTUP_MS: '2500' });
+      const r3 = q.manifest?.scenarioData?.l3;
+      const tmSeq = q.manifest?.commands.find((x) => x.role === 'operator-input' && x.argv.includes('prompt') && x.argv.includes('l3codex'))?.seq;
+      check('l3 #204 startup draft: PASS; the thread marker typed once, after the ready read (new loaded thread + idle composer)', q.status === 0 && r3?.codexReady?.newThreads >= 1 && r3.codexReady.observations.some((o) => /startup draft/.test(o.why ?? '')) && tmSeq > r3.codexReady.readSeq && q.prompts.filter((x) => x.target === 'l3codex').length === 1 && !!r3.thread?.id, `${q.status} ${q.manifest?.outcomeReason} ${JSON.stringify(r3?.codexReady)}`);
+    } catch (err) {
+      check('l3 #204: assertions ran', false, err.stack);
     } finally {
       w.cleanup();
     }

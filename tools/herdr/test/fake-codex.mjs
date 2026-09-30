@@ -39,6 +39,12 @@
 //   FAKE_CODEX_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                              operator pressing Enter outside the driver)
 //   FAKE_CODEX_NO_ATTACH       1 = the TUI never connects to the daemon (embedded server)
+//   FAKE_CODEX_STARTUP_MS      #204: the startup draft lasts N ms (composer shown, no session,
+//                              no loaded thread; a prompt typed then is held) (default 0)
+//   FAKE_CODEX_STARTUP_HANG    1 = the startup draft never ends
+//   FAKE_CODEX_HOOKS_REVIEW    1 = the startup hook review (seen live on 0.159.2, #204) follows
+//                              the draft and holds the session start until answered (esc);
+//                              FAKE_CODEX_SELF_ACCEPT_MS also answers it (stands in for the operator)
 //   FAKE_CODEX_POST_STATE      the TUI's state file after a turn: idle (default) | unknown
 //   FAKE_CODEX_REJECT          comma list of app-server methods answered with an error
 //   FAKE_CODEX_TURN_MS         duration of an ordinary turn (default 400)
@@ -240,7 +246,9 @@ function daemon() {
       return notify(c, 'account/updated', { authMode: 'chatgpt', planType: 'plus' });
     }
     if (method === 'thread/loaded/list') return reply({ data: [...threads.values()].filter((t) => t.loaded).map((t) => t.id), nextCursor: null });
-    if (method === 'thread/list') return reply({ data: [...[...threads.values()].reverse().map(threadObj), saved], nextCursor: null });
+    // A thread started by the TUI (op threadStart) has no rollout until its first message, so
+    // thread/list omits it until then (the lazy rollout, oac-codex-appserver thread-lifecycle).
+    if (method === 'thread/list') return reply({ data: [...[...threads.values()].filter((t) => t.preview !== null).reverse().map(threadObj), saved], nextCursor: null });
     const t = threads.get(params.threadId);
     if (method === 'thread/resume') {
       if (!t) return error(-32600, 'no rollout found');
@@ -273,6 +281,14 @@ function daemon() {
       c.cwd = msg.cwd;
       return wsSend(c, { op: 'hello-ok' });
     }
+    // #204: the TUI's session start (Codex 0.159.2 issues thread/start in App::run, after the
+    // startup draft and any hook review): the thread is loaded from here on.
+    if (msg.op === 'threadStart' && !c.thread) {
+      const t = { id: randomUUID(), preview: null, cwd: c.cwd, status: 'idle', turns: [], queue: [], subscribers: new Set(), loaded: true, tui: c };
+      threads.set(t.id, t);
+      c.thread = t;
+      return;
+    }
     if (msg.op === 'userTurn') {
       let t = c.thread;
       if (!t) {
@@ -280,6 +296,7 @@ function daemon() {
         threads.set(t.id, t);
         c.thread = t;
       }
+      if (t.preview === null) t.preview = msg.text;
       if (t.status === 'idle') startTurn(t, msg.text, randomUUID(), null);
       else t.queue.push({ text: msg.text, clientId: randomUUID(), origin: null });
     }
@@ -532,15 +549,75 @@ async function tui(overrides = {}) {
     });
     sock.on('close', () => hist('[daemon connection closed]'));
   } else if (!mcp.size) hist('[no daemon: embedded app-server]');
-  setState('idle');
-  render(false);
 
   let promptsSeen = 0;
-  for (;;) {
+  const nextPrompt = () => {
     const f = join(dir, 'inbox.log');
     const lines = existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];
-    if (lines.length > promptsSeen) {
-      const text = JSON.parse(lines[promptsSeen++]).text;
+    return lines.length > promptsSeen ? JSON.parse(lines[promptsSeen++]).text : null;
+  };
+
+  // #204: Codex 0.159.2's startup draft (codex-rs/tui/src/startup_draft.rs@rust-v0.159.2): the
+  // same composer is on screen BEFORE the session exists. A prompt typed then is only confirmed
+  // locally ("Waiting for startup · esc cancel") and held; it is submitted when the session
+  // starts. FAKE_CODEX_STARTUP_MS: how long the draft lasts (default 0); FAKE_CODEX_STARTUP_HANG=1:
+  // it never ends; FAKE_CODEX_HOOKS_REVIEW=1: then the startup hook review (text seen live,
+  // lib/g2.mjs CODEX_DIALOG_KINDS 'hooks-review') holds the startup until answered: esc
+  // continues without trusting, enter opens the hooks browser (esc closes it).
+  let held = null;
+  setState('idle');
+  render(false);
+  const draftUntil = env.FAKE_CODEX_STARTUP_HANG === '1' ? Infinity : Date.now() + Number(env.FAKE_CODEX_STARTUP_MS || 0);
+  const draftScreen = () => setScreen([HEADER, '', '', `› ${held}`, '', '  Waiting for startup  · esc cancel'].join('\n'));
+  while (Date.now() < draftUntil) {
+    const p = held === null ? nextPrompt() : null;
+    if (p !== null) {
+      held = p;
+      hist(`[startup draft: "${p}" held; Waiting for startup]`);
+      draftScreen();
+    }
+    await sleep(50);
+  }
+  if (env.FAKE_CODEX_HOOKS_REVIEW === '1') {
+    const REVIEW = ['', '  Hooks need review', '  1 hook is new or changed.', '  Hooks can run outside the sandbox after you trust them.', '', '', '› 1. Review hooks', '  2. Trust all and continue', "  3. Continue without trusting (hooks won't run)", '', '  enter confirm · esc skip'].join('\n');
+    const BROWSER = [HEADER, '', '  Hooks', '  Lifecycle hooks from config and enabled plugins.', '', '  Event                 Installed   Active      Review      Description', '  SessionStart          1           0           1           When a session starts', '', '  t trust all · enter review · esc close'].join('\n');
+    setScreen(REVIEW);
+    hist(REVIEW);
+    setState('blocked');
+    newKeys();
+    const selfAt = env.FAKE_CODEX_SELF_ACCEPT_MS ? Date.now() + Number(env.FAKE_CODEX_SELF_ACCEPT_MS) : Infinity;
+    let browser = false;
+    for (let done = false; !done; ) {
+      if (Date.now() >= selfAt) break;
+      for (const k of newKeys().map((x) => x.trim())) {
+        if (k === 'esc') {
+          done = true;
+          break;
+        }
+        if (k === 'enter' && !browser) {
+          browser = true;
+          setScreen(BROWSER);
+          hist('[hooks browser opened]');
+          if (sock) sock.write(`${JSON.stringify({ op: 'threadStart' })}\n`);
+        }
+      }
+      // Anything typed while the review is up is not a chat message: it goes to the review.
+      if (nextPrompt() !== null) hist('[a prompt was typed into the hook review; it is not a chat message]');
+      if (!done) await sleep(50);
+    }
+    hist('[hook review: continued without trusting]');
+    setState('idle');
+  }
+  if (sock) sock.write(`${JSON.stringify({ op: 'threadStart' })}\n`);
+  render(false);
+  if (held !== null) {
+    hist(`[session started: held draft "${held}" submitted]`);
+    if (sock) sock.write(`${JSON.stringify({ op: 'userTurn', text: held })}\n`);
+  }
+
+  for (;;) {
+    const text = nextPrompt();
+    if (text !== null) {
       if (mcp.size) await mcpTurn(text);
       else if (sock) sock.write(`${JSON.stringify({ op: 'userTurn', text })}\n`);
       else {

@@ -70,6 +70,21 @@ does not land ends the run `NOT RUN`, with nothing guessed and nothing re-sent. 
 dialog is refused**, whatever is preselected: Claude Code's tool-permission prompt ("Do you
 want to proceed?") and every other Codex dialog (#197 review). The run ends `NOT RUN` with
 no key sent. Use `accept=human` for a run that may meet one. Each accept is recorded as `driver` with its keys, and every report says so.
+
+**Codex startup: verified-ready before the first message (#204).** Codex 0.159.2 shows its
+composer ("› Ask Codex to do anything") *before* its session exists: the startup draft. Text
+typed there is held ("Waiting for startup · esc cancel") until the app-server bootstrap, any
+startup hook review and `thread/start` have run. So `g2-codex-inject`, `g5-provenance` and
+`l3-beacon` type the operator's first Codex message only once a thread not loaded before the
+launch appears in the daemon's `thread/loaded/list` AND the pane shows the idle composer with no
+dialog, startup screen or "Waiting for startup" (`lib/g2.mjs` `codexReadiness` /
+`waitCodexReady`, bounded by `--param readyTimeoutMs`, default 120000, and the box). Otherwise
+the run ends `NOT RUN` naming the blocker; nothing is typed or re-sent. Codex's startup hook
+review ("Hooks need review", shown while any hook in the Codex hooks config is new or changed)
+and the hooks browser it opens are recognized kinds that the driver **never** answers: trusting
+a hook is the operator's decision. Review and trust the hooks in a Codex session of your own
+(`/hooks`) before the run, or run with `accept=human` and answer the review yourself.
+
 `g1-claude-wake` defaults to `accept=driver` too, per the operator's second decision on #196.
 G1 criterion 5 is the dev-channels consent step itself, so on such a run it is `not
 evaluable` and the run is never a G1 equivalence record. CI's G1 run is one of these. Use
