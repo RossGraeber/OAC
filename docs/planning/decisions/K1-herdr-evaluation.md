@@ -344,6 +344,13 @@ v0.9.1 documentation.
 
 ## 6. Live-verification checklist (operator-run, NOT RUN)
 
+> **Note, 2026-09-30 (operator decision, issue #187).** The heading and the text below
+> are kept as written for the Windows leg they describe. They are not a rule for later
+> live legs: herdr was added to automate implementation and testing, so the remaining
+> Linux leg's commands may be run by an agent, with the operator present only to sign in
+> to the harnesses and accept operator-consent dialogs. The consent-dialog rule
+> (`oac-gates` `references/scripted-runs.md`) is unchanged.
+
 Every step below is **UNVERIFIED — pending operator run**. Run it on each OS where Epic K
 will drive harnesses, at minimum Linux and Windows per Epic K success criterion 5. Run it
 on a machine where Claude Code and Codex are already logged in, with the operator at the
@@ -516,6 +523,10 @@ pgrep -fa herdr || echo "no herdr process"
 Evidence to record: both outputs, and that no `herdr` process remains.
 
 ## 7. Live results (to be filled by the operator run)
+
+> **Note, 2026-09-30 (#187).** The heading and the "pending operator run" cells are kept
+> as written. As with §6, the remaining legs may be run by an agent; the operator signs in
+> and accepts consent dialogs.
 
 | Item | Linux | macOS | Windows |
 |---|---|---|---|

@@ -567,7 +567,7 @@ A recommendation with rationale, not a requirement (L1 §4 Q3):
   Whether Beacon's capture records the content of an OAC-delivered message is L1 item U1
   (UNVERIFIED, narrowed by L2 in L1 §11 item 1: Beacon records whatever the harness
   reports as a prompt, and OAC's outbound tool-call arguments are confirmed captured;
-  whether the harness reports a delivered message awaits the operator-run live leg, L1
+  whether the harness reports a delivered message awaits the herdr-driven live leg, L1
   §12; see `docs/planning/STATUS.md` "Open UNVERIFIED items").
 - **Rationale.** Local mode keeps delivered peer messages on the machine; Metadata-only
   keeps their text off the hosted service when forwarding is on. Neither removes the local

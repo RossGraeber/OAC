@@ -40,7 +40,8 @@ writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
 `scripted-runs.md` "Verdict eligibility" says otherwise. **None has run live**: each is
 exercised only against the test doubles, so every harness-facing behavior is UNVERIFIED until
-an operator runs it (the commands are in each scenario's header comment).
+it runs live (the commands are in each scenario's header comment; an agent runs them,
+see "Operator setup" below).
 
 ```bash
 node tools/herdr/run.mjs --scenario g4-mcp-dual-era --param accept=human --out <run dir>
@@ -154,7 +155,7 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    pane shell (`lib/pane-shell.mjs`). What is verified today is Linux only, and only against
    test doubles: the self-test's lifecycle half needs POSIX `sh`, K1's live leg has not run,
    and herdr's own Windows and macOS support is its documentation's claim (K1). A Stage 4/5
-   test on macOS or Windows is UNVERIFIED until an operator runs it there.
+   test on macOS or Windows is UNVERIFIED until it runs live there.
 8. **Records.** A Stage 4/5 run records its run manifest and redacted captures as any
    scripted run does; whether and where its results are committed is decided by that stage's
    own task, not here.
@@ -174,7 +175,13 @@ not resolved silently):
 
 ## Operator setup (Windows, and Claude Code permissions)
 
-Live runs are operator-run. These are the settings a run needs; none is committed, because
+Live runs are driven by `run.mjs`, started locally by an agent (the repository's
+`.claude/settings.local.json` already allows `node tools/herdr/run.mjs`) or by the operator.
+Automating these runs is why herdr was added (operator decision, #187). The human attends
+only for what a driver must not do: signing in to the harnesses, granting elevation, and
+accepting operator-consent dialogs with `--param accept=human` (a driver-sent accept is
+never verdict-bearing, `scripted-runs.md` "Operator-consent dialogs"). Live runs stay out
+of the default CI suite. These are the settings a run needs; none is committed, because
 they are per-machine and belong to the operator.
 
 **1. herdr on PATH.** The Windows installer puts the binary under
@@ -192,10 +199,10 @@ strips an enclosing Claude Code session's variables (`CLAUDECODE`, `CLAUDE_CODE_
 started from a shell inside Claude Code doesn't run as that session's child or through its
 relay. It records their names and a finding (#163). No other `ANTHROPIC_*` variable is
 touched.
-For a run you intend to record, start the driver from a standalone terminal anyway. When a
-scenario waits for you to accept a dialog, it prints the session name and the command to
-attach (`herdr session attach <session>`). Never run herdr's command that writes hooks into
-harness config, and do not commit raw pane or env captures.
+An agent may therefore start the driver from its own shell; a standalone terminal works
+too. When a scenario waits for you to accept a dialog, it prints the session name and the
+command to attach (`herdr session attach <session>`). Never run herdr's command that
+writes hooks into harness config, and do not commit raw pane or env captures.
 
 **2a. Unattended G1 runs.** Every run otherwise starts Claude Code in a fresh scratch
 project, so its folder-trust dialog comes up every time, and that dialog preselects
