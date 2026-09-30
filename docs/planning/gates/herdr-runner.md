@@ -238,8 +238,12 @@ The job's outcome follows the driver's exit code: `PASS` 0; `FAIL` 1; `NOT RUN` 
 also fails the job. A red job is not a gate finding by itself. Read the run manifest.
 
 **`g1-claude-wake` needs the operator.** The scenario keeps its default `accept=human`,
-and CI cannot change it. The `--dangerously-load-development-channels` confirmation is
-never accepted by the driver (`scripted-runs.md` "Operator-consent dialogs"). When the
+and CI cannot change it. In CI the `--dangerously-load-development-channels` confirmation
+is never accepted by the driver. Since 2026-09-30 (#196) other dev/test runs driver-accept
+it by default, but G1 criterion 5 is that consent step itself, so G1 and CI keep the human
+accept (`scripted-runs.md` "Operator-consent dialogs"). The folder-trust and MCP-server
+dialogs also wait for you under `accept=human`. Move the selection to "Yes, I trust this
+folder" or "Use this MCP server" before Enter, or reuse a trusted project directory. When the
 dialog is on screen, the job log prints the herdr session name and a command:
 `herdr --session <name> agent send-keys g1claude enter`. Run it yourself as the runner
 user on the runner machine within `humanAcceptTimeoutMs` (5 minutes by default), or the

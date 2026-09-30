@@ -32,6 +32,41 @@ never replaces a supported interface and it decides nothing.
 | `gate-servers/` | K8: the G4 and G5 gate servers, **reconstructed** (see below). |
 | `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`) and the file-access tracer (`fs-trace.mjs`). |
 
+## Dialogs: the driver accepts them (dev/test runs, #196)
+
+Operator decision of 2026-09-30 (#196, `docs/planning/decisions/K-196-driver-accepts-dialogs.md`):
+in dev/test runs the driver accepts Claude Code's workspace-trust, project-MCP-server and
+`--dangerously-load-development-channels` dialogs itself. `accept=driver` is the default in
+`g2-codex-inject`, `g4-mcp-dual-era`, `g5-provenance` and `l3-beacon`, and `accept=human` is
+still available. Each dialog is read verbatim before any key. It is accepted only if its
+options on screen are exactly the ones recorded in `lib/g1.mjs` `DIALOG_KINDS`. The selection
+is moved one key at a time, each move verified by a read, and Enter is pressed only on the
+accepting option:
+
+| Dialog | Preselected (seen live) | Driver keys |
+|---|---|---|
+| workspace-trust | "No, exit" | `down` (read shows "Yes, I trust this folder"), `enter` |
+| mcp-server-approval | "Continue without using this MCP server" | `up`, `up` (read shows "Use this MCP server"; never "all future"), `enter` |
+| dev-channels | "1. I am using this for local development" | `enter` |
+
+Any other text, an extra option, or a move that does not land ends the run `NOT RUN`, with
+nothing guessed and nothing re-sent. Each accept is recorded as `driver` with its keys, and
+every report says so. `g1-claude-wake` keeps `accept=human` as its default: G1 criterion 5 is
+the dev-channels consent step itself, so a driver accept of it is never scored as meeting
+criterion 5. Rules and verdict eligibility: `scripted-runs.md` "Operator-consent dialogs".
+
+**Optional friction reducers (not required).**
+
+- **A reusable project directory.** `g1-claude-wake --param projectDir=<absolute path outside
+  the repo>` reuses one directory. Claude Code keeps the folder trust and the MCP approval
+  it recorded for it, so those dialogs do not come back.
+- **`enabledMcpjsonServers`.** An operator may pre-approve a project server in their own
+  Claude Code settings, for example `"enabledMcpjsonServers": ["g5spike"]` in the project's
+  `.claude/settings.local.json`. That is the operator's choice, made by hand.
+
+The driver itself never writes harness config to skip a dialog (`oac-boundaries` check 10):
+no `~/.claude.json` trust entry, no settings edit, and never herdr's hook-writing command.
+
 ## Scripted gate re-runs
 
 Each gate scenario replays the human-run gate spike through herdr and records the run; its
@@ -44,9 +79,9 @@ it runs live (the commands are in each scenario's header comment; an agent runs 
 see "Operator setup" below).
 
 ```bash
-node tools/herdr/run.mjs --scenario g4-mcp-dual-era --param accept=human --out <run dir>
+node tools/herdr/run.mjs --scenario g4-mcp-dual-era --out <run dir>   # accept=driver (default, #196)
 node tools/herdr/lib/g4-report.mjs --run <run dir>                 # draft; add --write to record
-node tools/herdr/run.mjs --scenario g5-provenance --param accept=human --out <run dir>
+node tools/herdr/run.mjs --scenario g5-provenance --out <run dir>
 node tools/herdr/lib/g5-report.mjs --run <run dir>
 ```
 
@@ -93,7 +128,7 @@ restore) happen outside the driver, between phases:
 
 ```bash
 node tools/herdr/run.mjs --scenario l3-beacon --param phase=baseline --param beaconBin=<abs path> --out <baseline dir>
-node tools/herdr/run.mjs --scenario l3-beacon --param phase=probe --param baselineRun=<baseline dir> --param beaconBin=<abs path> --param accept=human --out <probe dir>
+node tools/herdr/run.mjs --scenario l3-beacon --param phase=probe --param baselineRun=<baseline dir> --param beaconBin=<abs path> --out <probe dir>
 # operator: `codex app-server daemon stop` (the probe leaves the daemon running with Beacon's
 # [otel] config loaded), then the L1 §12 B7 teardown and restore
 node tools/herdr/run.mjs --scenario l3-beacon --param phase=verify --param baselineRun=<baseline dir> --out <verify dir>
@@ -172,11 +207,13 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    anything the protocol under test must carry comes from OAC's side (a channel
    notification, an app-server request), never typed by herdr. If a test only works because
    herdr injects it, that is a boundary-13 finding, not a script.
-5. **Consent dialogs.** The G11 confirmation is presented as a feature and is never
-   driver-accepted in any test: run with `--param accept=human` (the default in every
-   scenario here). `scripted-runs.md` "Operator-consent dialogs" states the rule; changing it
-   takes a recorded operator decision, and none exists. So a test whose launch shows that
-   confirmation is never fully unattended.
+5. **Consent dialogs.** Since #196 (2026-09-30) the driver accepts Claude Code's
+   workspace-trust, MCP-server and dev-channels dialogs in dev/test runs by default,
+   recorded as `driver`. The G11 confirmation is different: it is presented as a feature,
+   and G11's acceptance says it is "not bypassed or automated away". No recorded operator
+   decision lets a test driver-accept it. A test whose launch shows it runs with
+   `--param accept=human`, and so is never fully unattended, until K8 and a recorded
+   operator decision say otherwise (`scripted-runs.md` "Operator-consent dialogs").
 6. **Credentials.** The harnesses serve every model turn from their own sign-in. Nothing a
    test adds may read a harness's credential files or ask an OS credential store for
    anything, or edit a harness's config: pass configuration per invocation (as G4's Codex
@@ -204,16 +241,17 @@ not resolved silently):
   that in turn drives herdr, or a default build from compiling such a test. Whether check 9
   should grow a `tests/integration/` rule is open.
 - Point 5 means an unattended opt-in CI run of any test that shows the G11 confirmation is
-  impossible under the current rule.
+  impossible under the current rule (#196 did not change G11).
 
 ## Operator setup (Windows, and Claude Code permissions)
 
 Live runs are driven by `run.mjs`, started locally by an agent (the repository's
 `.claude/settings.local.json` already allows `node tools/herdr/run.mjs`) or by the operator.
 Automating these runs is why herdr was added (operator decision, #187). The human attends
-only for what a driver must not do: signing in to the harnesses, granting elevation, and
-accepting operator-consent dialogs with `--param accept=human` (a driver-sent accept is
-never verdict-bearing, `scripted-runs.md` "Operator-consent dialogs"). Live runs stay out
+only for what a driver must not do: signing in to the harnesses and granting elevation.
+Since #196 the driver accepts Claude Code's dialogs itself in dev/test runs (see "Dialogs"
+above). A human accepts only a consent step that a gate criterion is about: G1 criterion 5,
+under `g1-claude-wake`'s default `accept=human`, and the G11 confirmation. Live runs stay out
 of the default CI suite. These are the settings a run needs; none is committed, because
 they are per-machine and belong to the operator.
 
@@ -237,14 +275,15 @@ too. When a scenario waits for you to accept a dialog, it prints the session nam
 command to attach (`herdr session attach <session>`). Never run herdr's command that
 writes hooks into harness config, and do not commit raw pane or env captures.
 
-**2a. Unattended G1 runs.** Every run otherwise starts Claude Code in a fresh scratch
-project, so its folder-trust dialog comes up every time, and that dialog preselects
-"No, exit", which the driver never accepts (#156). Create a directory outside the repo and
-pass it on every run as `--param projectDir=<absolute path>`. Make the first such run with
-`--param accept=human` and accept the folder-trust and MCP-server dialogs yourself. Later
-runs with `--param accept=driver` then need nobody at the keyboard. A driver accept of the
-dev-channels dialog is still recorded and never scored as meeting G1 criterion 5
-(`scripted-runs.md` "Operator-consent dialogs").
+**2a. Unattended runs.** Every run starts Claude Code in a fresh scratch project unless told
+otherwise, so the folder-trust dialog, which preselects "No, exit", comes up every time.
+**Amended 2026-09-30 (#196):** under `accept=driver` the driver accepts it by moving to
+"Yes, I trust this folder", with the move verified by a read before Enter. Before #196 the
+driver refused it (#156), and a run whose dialog nobody accepted ended `NOT RUN`. That
+happened in L3 probe run 3 on 2026-09-30, after 300000 ms. `--param projectDir` (G1) remains
+an optional way to avoid the dialog. A `g1-claude-wake` run with `--param accept=driver` needs
+nobody at the keyboard, but its driver accept of the dev-channels dialog is never scored as
+meeting G1 criterion 5 (`scripted-runs.md` "Operator-consent dialogs").
 
 **2b. Line endings.** A Git for Windows checkout (`core.autocrlf=true`) is fine. The driver
 compares working-tree files with HEAD in git's normalized form, as `git status` does (#152).
@@ -274,7 +313,7 @@ logged-in harness. To let an agent run the herdr commands, add allow rules to
 Rules match the command prefix, so `herdr` must resolve on PATH (step 1) and be the first
 word of the command; env assignments and `cd ... &&` prefixes make a rule miss. Keep them
 narrow: do not allow `Bash(claude:*)` or `Bash(codex:*)`. The harness is started by herdr,
-and the operator still answers the harness's own consent dialogs. A rule does not
+and its dialogs are answered as "Dialogs" above says. A rule does not
 override a classifier denial in auto mode; if one is denied, run the step yourself or
 switch the session's permission mode.
 

@@ -350,6 +350,12 @@ v0.9.1 documentation.
 > Linux leg's commands may be run by an agent, with the operator present only to sign in
 > to the harnesses and accept operator-consent dialogs. The consent-dialog rule
 > (`oac-gates` `references/scripted-runs.md`) is unchanged.
+>
+> **Note, 2026-09-30 (operator decision, issue #196).** The driver now accepts Claude Code's
+> workspace-trust, MCP-server and dev-channels dialogs in dev/test runs by default, and
+> records each accept as `driver`. A human accepts only a consent step that a gate criterion
+> names (G1 criterion 5, G11). Rule: `scripted-runs.md` "Operator-consent dialogs", as
+> amended.
 
 Every step below is **UNVERIFIED — pending operator run**. Run it on each OS where Epic K
 will drive harnesses, at minimum Linux and Windows per Epic K success criterion 5. Run it
@@ -526,7 +532,8 @@ Evidence to record: both outputs, and that no `herdr` process remains.
 
 > **Note, 2026-09-30 (#187).** The heading and the "pending operator run" cells are kept
 > as written. As with §6, the remaining legs may be run by an agent; the operator signs in
-> and accepts consent dialogs.
+> and accepts consent dialogs. (Since 2026-09-30, #196, the driver accepts the harness
+> dialogs itself in dev/test runs; see the §6 note.)
 
 | Item | Linux | macOS | Windows |
 |---|---|---|---|

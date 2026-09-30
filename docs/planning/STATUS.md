@@ -4,6 +4,19 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-09-30 (**Issue #196: the herdr driver accepts harness dialogs in
+dev/test runs.** Operator decision, recorded in #196: "Please revise. The point, again, is
+automation of these processes during development and test." Recorded in
+`docs/planning/decisions/K-196-driver-accepts-dialogs.md`. The driver accepts Claude Code's
+workspace-trust, project-MCP-server and development-channels dialogs by default
+(`accept=driver` in G2, G4, G5 and L3; `accept=human` remains). It reads each dialog first,
+acts only on options that exactly match the ones on record, verifies every selection move
+by a read, and records every accept as `driver`. The #187 entry below, where it says the
+operator accepts consent dialogs, is superseded for dev/test runs. Unchanged: G1 criterion 5
+and the G11 confirmation still need a human accept, so `g1-claude-wake` and CI keep
+`accept=human`; the exclusion from the default CI suite; boundary checks 9-11. No gate
+verdict, pin value, spec or ADR text changes.)
+
 **Last updated:** 2026-09-30 (**Issue #187: herdr drives live legs; the operator only
 accepts consent dialogs.** Operator decision, recorded in #187: "The ENTIRE POINT of
 adding herdr was to automate implementation and testing tasks." Guidance that made a

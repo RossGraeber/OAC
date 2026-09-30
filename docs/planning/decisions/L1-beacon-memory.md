@@ -736,6 +736,17 @@ harness config files) are operator steps, outside the driver. The driver only re
 hashes those files (`oac-boundaries` mechanical check 10). The leg is **not in the
 default CI suite**, which has no logged-in harness (`oac-testing` §2).
 
+**Amended 2026-09-30 (operator decision, issue #196).** The consent-dialog part of the
+paragraph above is superseded. L3 is dev/test automation and not a gate, and no L3 step
+is a consent criterion. So `l3-beacon` accepts Claude Code's workspace-trust, project
+MCP-server and development-channels dialogs itself by default (`accept=driver`). It reads
+each dialog verbatim first and records the accept as `driver`. The §13 draft
+(`tools/herdr/lib/l3-report.mjs`) states it that way and never as a human accept.
+`accept=human` remains available. Evidence of need: probe run 3 of 2026-09-30 ended
+`NOT RUN` because nobody accepted the workspace-trust dialog within 300000 ms, and that
+dialog preselects "No, exit". Rule and record:
+`docs/planning/decisions/K-196-driver-accepts-dialogs.md`.
+
 OAC never calls, spawns or configures Beacon in any step (§1). The operator installs and
 connects Beacon only with Beacon's own documented commands. A test driver that launches
 the harnesses beside that operator-installed Beacon and reads Beacon's own local log and
