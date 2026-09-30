@@ -67,6 +67,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger, parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, codexPinMoveTrigger, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants } from '../lib/proc.mjs';
+import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
 import { G2_LAUNCH, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, INPUT_ROLES } from '../lib/gate-common.mjs';
@@ -267,6 +268,7 @@ export default {
       g5.mcpJson = { path: join(projectDir, '.mcp.json'), contents: mcp };
 
       // --- 1. daemon; pre-launch list; the Codex wire version ------------------------------------
+      ctx.noteScratchHolder?.(CODEX_DAEMON_SCRATCH_HOLDER);
       const ds = await codexCli(['app-server', 'daemon', 'start'], 'daemon start');
       g5.daemon.start = { ...ds.rec, stdout: cap(ds.r.stdout.trim(), 2000) };
       if (ds.r.spawnError || ds.r.exitCode !== 0) throw new DriverError(`\`codex app-server daemon start\` failed (${ds.r.spawnError ?? `exit ${ds.r.exitCode}`}); nothing launched`);

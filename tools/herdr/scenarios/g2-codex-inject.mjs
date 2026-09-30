@@ -81,6 +81,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, codexPinMoveTrigger, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
+import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
 import { driverAcceptDialog } from '../lib/gate-common.mjs';
 import {
@@ -457,6 +458,7 @@ export default {
       projectDirs = [...new Set([projectDir, realpathSync(projectDir)])];
 
       // --- 1. daemon ------------------------------------------------------------------------
+      ctx.noteScratchHolder?.(CODEX_DAEMON_SCRATCH_HOLDER);
       const ds = await codexCli(['app-server', 'daemon', 'start'], 'daemon start');
       g2.daemon.start = { ...ds.rec, stdout: cap(ds.r.stdout.trim(), 2000), stderr: cap(ds.r.stderr.trim(), 2000) };
       if (ds.r.spawnError || ds.r.exitCode !== 0) throw new DriverError(`\`codex app-server daemon start\` failed (${ds.r.spawnError ?? `exit ${ds.r.exitCode}`}); nothing launched`);

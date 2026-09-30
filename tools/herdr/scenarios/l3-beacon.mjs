@@ -113,6 +113,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeLastObserved, parseClaudeCliVersion, parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
+import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
@@ -816,6 +817,7 @@ export default {
       boxCheck('B4 daemon');
       const dvBefore = await codexCli(['app-server', 'daemon', 'version'], 'daemon version (before start)');
       const runningBefore = dvBefore.r.exitCode === 0 && !!parseCodexDaemonVersion(dvBefore.r.stdout);
+      ctx.noteScratchHolder?.(CODEX_DAEMON_SCRATCH_HOLDER);
       const ds = await codexCli(['app-server', 'daemon', 'start'], 'daemon start');
       let startStatus = null;
       try {

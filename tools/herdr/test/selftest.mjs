@@ -38,12 +38,18 @@
 // allowlist, parsers, box, session-file shapes) and lifecycle cases that run its three phases
 // against the fake herdr, fake Claude Code, fake Codex and test/fake-beacon.mjs (a test double
 // of the Beacon CLI), with a file-access trace and a marker-leak check.
+//
+// #202 adds unit checks for lib/scratch.mjs (bounded retry of scratch removal, never
+// throwing) and lifecycle cases that preload test/fake-rm-eperm.mjs so removing the scratch
+// directory throws EPERM once, or persistently: the manifest is still written, the outcome
+// reflects the run, and a persistent failure is recorded (teardown.clean=false, the leftover
+// path redacted, a finding). A setup error is named with its phase on the console.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 
 import { parseHerdrPin, readHerdrPin, versionMatches } from '../lib/pins.mjs';
@@ -52,6 +58,7 @@ import { createRedactor, reportIsClean, parseLiteralSpec } from '../lib/redact.m
 import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSessionName } from '../lib/herdr.mjs';
 import { harnessConfigFiles, herdrLaunchEnv } from '../lib/manifest.mjs';
 import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
+import { removeScratch, SCRATCH_RETRY_DELAYS_MS } from '../lib/scratch.mjs';
 import { g1Unit, g1Cases, installFakeClaudeCli } from './g1-tests.mjs';
 import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.mjs';
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
@@ -63,6 +70,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const RUN = join(HERE, '..', 'run.mjs');
 const FAKE = join(HERE, 'fake-herdr.mjs');
+const FAKE_RM = join(HERE, 'fake-rm-eperm.mjs');
 const BOX_C = join(REPO, 'docs', 'planning', 'gates', 'fixtures', 'g1-claude-wake', 'transcript-2026-09-28-2.1.283-boxC.jsonl');
 
 let passed = 0;
@@ -353,6 +361,34 @@ async function unitGuards() {
   check('proc: runBounded refuses to run without a deadline', threw);
 }
 
+// #202: scratch removal retries a transient failure with a bounded backoff and never throws.
+async function unitScratch() {
+  const eperm = () => Object.assign(new Error('EPERM, Permission denied'), { code: 'EPERM' });
+  const waits = [];
+  const wait = async (ms) => void waits.push(ms);
+  let calls = 0;
+  const once = await removeScratch('/unit/oac-herdr-scratch-x', { remove: () => { if (++calls === 1) throw eperm(); }, wait });
+  check('scratch #202: EPERM once is retried and the removal succeeds on attempt 2', once.removed === true && once.attempts === 2 && calls === 2 && once.errors.length === 1 && once.errors[0].code === 'EPERM' && JSON.stringify(waits) === JSON.stringify([SCRATCH_RETRY_DELAYS_MS[0]]), JSON.stringify({ once, waits }));
+  waits.length = 0;
+  calls = 0;
+  let threw = false;
+  let always;
+  try {
+    always = await removeScratch('/unit/oac-herdr-scratch-y', { remove: () => { calls += 1; throw eperm(); }, wait });
+  } catch {
+    threw = true;
+  }
+  check('scratch #202: persistent EPERM is bounded, returned not thrown', !threw && always?.removed === false && always.attempts === SCRATCH_RETRY_DELAYS_MS.length + 1 && calls === always.attempts && always.errors.every((e) => e.code === 'EPERM') && JSON.stringify(waits) === JSON.stringify(SCRATCH_RETRY_DELAYS_MS), JSON.stringify({ always, waits }));
+  check('scratch #202: the total backoff is bounded (under 5 s)', SCRATCH_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) < 5000);
+  // The default remover, on a directory this test made under os.tmpdir().
+  const d = mkdtempSync(join(tmpdir(), 'oac-herdr-unit-rm-'));
+  mkdirSync(join(d, 'captures'));
+  writeFileSync(join(d, 'captures', 'x.txt'), 'x');
+  const real = await removeScratch(d);
+  check('scratch #202: the default remover deletes a real tree on the first attempt', real.removed === true && real.attempts === 1 && !existsSync(d), JSON.stringify(real));
+  if (existsSync(d)) rmSync(d, { recursive: true, force: true });
+}
+
 // --- lifecycle (driver end to end against the fake herdr) --------------------------------
 
 function makeBase(stateUnder = []) {
@@ -411,7 +447,7 @@ function collect(b, res) {
   };
 }
 
-function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex }) {
+function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {} }) {
   const b = makeBase(stateUnder);
   // fakeClaude: env for test/fake-claude.mjs, plus a fake `claude` CLI on PATH.
   // fakeCodex: env for test/fake-codex.mjs, installed as `codex` on PATH (K7).
@@ -422,8 +458,8 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
     extra = { ...fakeClaude, ...fakeCodexEnv(b.base, fakeCodex) };
   } else if (fakeClaude) extra = { ...fakeClaude, PATH: `${installFakeClaudeCli(b.base)}:${process.env.PATH}` };
   else if (fakeCodex) extra = fakeCodexEnv(b.base, fakeCodex);
-  const res = spawnSync(process.execPath, [RUN, '--scenario', scenario, '--herdr-bin', herdrBin, '--out', join(b.base, 'out'), ...args], {
-    env: driverEnv(b, mode, extra),
+  const res = spawnSync(process.execPath, [...nodeArgs, RUN, '--scenario', scenario, '--herdr-bin', herdrBin, '--out', join(b.base, 'out'), ...args], {
+    env: driverEnv(b, mode, { ...extra, ...caseEnv }),
     encoding: 'utf8',
     timeout: 120000,
   });
@@ -431,7 +467,7 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
 }
 
 // Invariants every lifecycle run must hold, whatever its outcome.
-function invariants(name, b, r) {
+function invariants(name, b, r, { scratchLeft = false } = {}) {
   const m = r.manifest;
   check(`${name}: run-manifest.json written`, !!m, r.stdout + r.stderr);
   if (!m) return;
@@ -456,7 +492,7 @@ function invariants(name, b, r) {
   if (m.session.serverPid) {
     check(`${name}: session stopped and deleted`, r.calls.some((c) => c.argv[0] === 'session' && c.argv[1] === 'stop') && r.calls.some((c) => c.argv[0] === 'session' && c.argv[1] === 'delete') && !existsSync(join(b.state, 'sessions', m.session.name)));
   }
-  check(`${name}: scratch removed`, m.scratch.removed === true);
+  if (!scratchLeft) check(`${name}: scratch removed`, m.scratch.removed === true);
   check(`${name}: written manifest scans clean of residual hits`, m.manifestRedaction?.writtenClean === true);
 }
 
@@ -612,6 +648,32 @@ async function lifecycle() {
     const m = r.manifest;
     check('finding9: a pane descendant left running is found, killed, and fails the run', r.status === 1 && m.teardown.forcedKills.some((k) => /descendant/.test(k.what)) && m.teardown.leftoverProcesses.length === 0 && m.session.panePids.length >= 2, JSON.stringify(m.teardown));
   });
+  // #202: removing the scratch directory throws EPERM (test/fake-rm-eperm.mjs, preloaded into
+  // the driver process only).
+  const epermArgs = ['--import', pathToFileURL(FAKE_RM).href];
+  run('scratch EPERM once', { nodeArgs: epermArgs, env: { FAKE_RM_EPERM: 'once' } }, (r) => {
+    const m = r.manifest;
+    check('scratch EPERM once #202: retried, removed, run PASS, teardown clean', r.status === 0 && m.outcome === 'PASS' && m.scratch.removed === true && m.scratch.removal.attempts === 2 && m.scratch.removal.errors[0].code === 'EPERM' && m.teardown.clean === true, JSON.stringify({ status: r.status, outcome: m.outcome, scratch: m.scratch, teardown: m.teardown }));
+    check('scratch EPERM once #202: the retry is recorded as a finding', m.findings.some((f) => /scratch removal succeeded on attempt 2 after EPERM/.test(f)), JSON.stringify(m.findings));
+  });
+  cases.push({
+    name: 'scratch EPERM always',
+    opts: { nodeArgs: epermArgs, env: { FAKE_RM_EPERM: 'always' } },
+    invariantOpts: { scratchLeft: true },
+    assert: (r) => {
+      // Clean up first: the leftover's raw path is printed on the console (only there).
+      const left = /^scratch left behind \(delete by hand\): (.+)$/m.exec(r.stdout)?.[1]?.trim();
+      const safe = !!left && left.startsWith(tmpdir()) && /^oac-herdr-scratch-/.test(left.slice(tmpdir().length).replace(/^[\\/]+/, ''));
+      if (safe) rmSync(left, { recursive: true, force: true });
+      check('scratch EPERM always #202: console names the leftover scratch directory (under os.tmpdir())', safe, r.stdout);
+      const m = r.manifest;
+      check('scratch EPERM always #202: manifest written; outcome reflects the run (PASS, exit 0)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+      check('scratch EPERM always #202: bounded attempts, all EPERM, scratch not removed', m.scratch.removed === false && m.scratch.removal.attempts === SCRATCH_RETRY_DELAYS_MS.length + 1 && m.scratch.removal.errors.every((e) => e.code === 'EPERM'), JSON.stringify(m.scratch));
+      check('scratch EPERM always #202: teardown.clean=false with the leftover path redacted', m.teardown.clean === false && m.teardown.leftover === '<SCRATCH>' && /<SCRATCH>/.test(m.teardown.leftoverError ?? '') && !r.manifestText.includes('oac-herdr-scratch-'), JSON.stringify(m.teardown));
+      check('scratch EPERM always #202: a finding names the redacted leftover', m.findings.some((f) => /could not be removed after \d+ attempts \(EPERM\); left behind at <SCRATCH>/.test(f)), JSON.stringify(m.findings));
+      check('scratch EPERM always #202: console says teardown NOT clean', /^teardown: NOT clean$/m.test(r.stdout), r.stdout);
+    },
+  });
   run('timebox', { mode: 'never-match', args: ['--timebox-ms', '2500', '--param', 'waitMs=60000'] }, (r) => {
     const t = r.manifest.commands.find((c) => c.timedOut);
     check('timebox: wait clipped to the timebox, run NOT RUN', r.status === 3 && t?.bound.clippedToTimebox === true && t.bound.herdrTimeoutMs < 2500, JSON.stringify(t?.bound));
@@ -633,7 +695,7 @@ async function lifecycle() {
     }
     const { b, r } = run;
     try {
-      invariants(c.name, b, r);
+      invariants(c.name, b, r, c.invariantOpts);
       if (r.manifest) c.assert(r);
     } catch (err) {
       check(`${c.name}: assertions ran`, false, err.stack);
@@ -693,7 +755,20 @@ async function lifecycle() {
     }
   }
 
-  await l3Cases(check, { makeBase, driverEnv, invariants, RUN, FAKE });
+  await l3Cases(check, { makeBase, driverEnv, invariants, RUN, FAKE, FAKE_RM });
+
+  // #202: an error that escapes the driver is named with its phase on the console.
+  {
+    const b = makeBase();
+    try {
+      const outFile = join(b.base, 'out-is-a-file');
+      writeFileSync(outFile, 'x');
+      const res = spawnSync(process.execPath, [RUN, '--scenario', 'smoke', '--herdr-bin', FAKE, '--out', outFile], { env: driverEnv(b, ''), encoding: 'utf8', timeout: 60000 });
+      check('phase #202: a setup error prints "driver error (setup phase)" and exits 1', res.status === 1 && /^driver error \(setup phase\): /m.test(res.stderr), `${res.status} ${res.stderr}`);
+    } finally {
+      rmSync(b.base, { recursive: true, force: true });
+    }
+  }
 
   const leftover = readdirSync(tmpdir()).filter((n) => n.startsWith('oac-herdr-scratch-') && !scratchBefore.has(n));
   check('lifecycle: every run removed its scratch directory', leftover.length === 0, leftover.join(','));
@@ -705,6 +780,7 @@ export async function runSelfTest() {
   unitQuoting();
   unitRedaction();
   await unitGuards();
+  await unitScratch();
   g1Unit(check);
   g2Unit(check);
   await g4Unit(check);
