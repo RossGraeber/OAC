@@ -190,7 +190,7 @@ export function g2Unit(check) {
   const hb = classifyCodexScreen('  Hooks\n  Lifecycle hooks from config and enabled plugins.\n\n  SessionStart   1   0   1   When a session starts\n\n  t trust all · enter review · esc close');
   check('g2 pane #204: the hooks browser is recognized and refused, no key', hb.dialog === 'hooks-browser' && !driverMayAcceptCodex(hb).ok && driverMayAcceptCodex(hb).keys.length === 0);
   // #204: readiness = a new loaded thread on the wire AND the idle composer on the pane.
-  const COMPOSER = '  >_ OpenAI Codex (v0.159.2)\n\n› Ask Codex to do anything\n\n  ? for shortcuts';
+  const COMPOSER = '  >_ Codex (v0.159.2)\n\n› Ask Codex to do anything\n\n  ? for shortcuts';
   const rd = (text, loaded, preLoaded = ['old']) => codexReadiness({ text, screen: classifyCodexScreen(text), loaded, preLoaded });
   check('g2 ready #204: the startup-draft composer with no new loaded thread is not ready (named as the startup draft)', !rd(COMPOSER, ['old']).ready && /startup draft/.test(rd(COMPOSER, ['old']).why));
   check('g2 ready #204: the composer and a new loaded thread is ready', rd(COMPOSER, ['old', 'new']).ready && rd(COMPOSER, ['old', 'new']).newThreads.join() === 'new');
