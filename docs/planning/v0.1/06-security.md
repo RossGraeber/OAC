@@ -443,7 +443,7 @@ Per `oac-security-work` §1: **a mitigation with no proving test is not a mitiga
 G7, task G8, task G9, H2, L10). **No named test tier has passed**: every F/H test and
 every backlog task named is `NOT RUN`, not yet built, or blocked on a stage that is not
 open (`docs/planning/STATUS.md`, Pre-Stage 0; L10 waits on Stage 5). The gate results
-that do exist — gate G1 `PASS` (row 16), gate G2 `PASS` (row 17), gate G5 `FAIL`
+that do exist — gate G1 `PASS` (row 16), gate G2 `PASS` (rows 12, 17), gate G5 `FAIL`
 (rows 5, 16, 17, 21, 22) — are cited in their rows for what each actually confirmed, but
 a gate result is not a test tier and does not by itself close a row
 (`docs/planning/v0.1/09-test-strategy.md` §12).
@@ -509,7 +509,7 @@ Per `oac-evidence` §8, checked against this file:
   cite Beacon facts through L1 (pinned `v1.3.29`) rather than re-deriving them.
 - Gate verdicts (G1, G2, G4 `PASS`; G5 `FAIL`; G3 `NOT RUN` at gate level) are cited
   from `docs/planning/STATUS.md`, not restated from memory, at every point where a
-  claim's proof status matters (opening caveat, §10, §15).
+  claim's proof status matters (opening caveat, §10, §14, §15).
 
 ## 18. Boundary pass
 
