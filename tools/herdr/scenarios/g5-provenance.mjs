@@ -69,7 +69,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
-import { G2_LAUNCH, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
+import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, INPUT_ROLES } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, loadCases, assertNoSpoof, fixtureNames, unverifiedNames, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
 
@@ -103,6 +103,7 @@ export default {
       cliTimeoutMs: '60000',
       clientTimeoutMs: '60000',
       wireTimeoutMs: '15000',
+      readyTimeoutMs: '120000', // #204: bound on the verified-ready wait before the thread marker
       attachTimeoutMs: '180000',
       listPollMs: '3000',
       turnTimeoutMs: '300000',
@@ -279,7 +280,9 @@ export default {
       for (const k of CODEX_DAEMON_VERSION_FIELDS) trig(codexPinMoveTrigger({ observed: daemonV?.[k] ?? null, lastObserved: xpin.lastObserved, source: `\`codex app-server daemon version\` ${k}`, gate: 'G5' }));
       const pre = await runClient('list', []);
       const preFacts = clientFacts().wire;
-      g5.preLaunchLoaded = preFacts.loadedLists.at(-1)?.data ?? null;
+      g5.preLaunchLoaded = loadedSince(preFacts.loadedLists, pre.linesBefore);
+      // #205 review: the ready wait needs this baseline; without it nothing is launched.
+      if (g5.preLaunchLoaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; nothing launched');
       g5.versions.wire.codex = pre.userAgentVersion;
       g5.versions.wire.codexUserAgent = preFacts.connections.at(-1)?.userAgent ?? null;
       trig(codexPinMoveTrigger({ observed: pre.userAgentVersion, lastObserved: xpin.lastObserved, source: 'the wire initialize userAgent', gate: 'G5' }));
@@ -317,6 +320,27 @@ export default {
       if (g5.codexPaneArgv.proof.found && !g5.codexPaneArgv.proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(g5.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);
       if (!g5.codexPaneArgv.proof.found) ctx.finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on the launch parameter and herdr\'s reported argv only');
       await codex.settle('codex-startup', num('startupTimeoutMs'));
+      // #204: wait for a verified-ready session (lib/g2.mjs codexReadiness) before the marker;
+      // the startup composer alone is Codex's startup draft, not a session.
+      const ready = await waitCodexReady({
+        read: codex.read,
+        handleDialog: codex.handleDialog,
+        listLoaded: async () => {
+          const { linesBefore } = await runClient('list', []);
+          return loadedSince(clientFacts().wire.loadedLists, linesBefore); // read after the poll: its own answer only
+        },
+        preLoaded: g5.preLaunchLoaded,
+        timeoutMs: num('readyTimeoutMs'),
+        pollMs: num('listPollMs'),
+        remainingMs: () => ctx.remainingMs(),
+        stop,
+        onTimeout: (v) => {
+          const f = codexReadyTimeoutFinding(v);
+          if (f) ctx.finding(f);
+        },
+      });
+      g5.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
+      if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
       const marker = await codex.prompt(operator.threadMarker);
       const markerFrom = lastLine();
       await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));

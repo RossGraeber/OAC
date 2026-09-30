@@ -8,10 +8,12 @@
 // read verbatim and kept; the classification below only decides whether the driver may
 // continue (a dialog is up) and never stands in for evidence.
 //
-// One Codex dialog is on record: the workspace-trust dialog seen live on 0.159.2 (#199), which
-// the driver accepts under the #197 rules. Every other Codex pane-text pattern below (other
-// dialogs, the in-progress indicator) is UNVERIFIED against a live Codex TUI, a best guess;
-// no other Codex dialog, recognized or not, is ever accepted by the driver.
+// One Codex dialog is accepted by the driver: the workspace-trust dialog seen live on 0.159.2
+// (#199), under the #197 rules. Two more Codex startup screens are on record (#204, seen live
+// on 0.159.2) and are NEVER answered by the driver: the startup hook review and the hooks
+// browser it opens. The in-progress indicator ("esc to interrupt") was also seen live in the
+// #204 runs. Every other Codex pane-text pattern below is UNVERIFIED against a live Codex
+// TUI, a best guess; no other Codex dialog, recognized or not, is ever accepted by the driver.
 //
 // Credential hygiene: nothing here opens anything under the Codex home directory. The only
 // process data read is a pid's argv (/proc/<pid>/cmdline, `ps -o command=`, or the Win32
@@ -181,7 +183,139 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
     accept: 0,
     verified: 'herdr L3 probe run probe4 2026-09-30 (#199), Codex CLI / app-server 0.159.2 on Windows; "1. Trust and continue" preselected',
   },
+  'hooks-review': {
+    // Seen live (#204; 2026-09-30, scratch herdr runs of plain `codex` against the shared daemon,
+    // Codex CLI / app-server 0.159.2, Windows), one untrusted user hook in hooks.json:
+    //
+    //     Hooks need review
+    //     1 hook is new or changed.
+    //     Hooks can run outside the sandbox after you trust them.
+    //
+    //   › 1. Review hooks
+    //     2. Trust all and continue
+    //     3. Continue without trusting (hooks won't run)
+    //
+    //     enter confirm · esc skip
+    //
+    // Source: codex-rs/tui/src/startup_hooks_review.rs at tag rust-v0.159.2 (read 2026-09-30):
+    // shown when any hook's trust status is Untrusted or Modified (hooks_rpc.rs
+    // hook_needs_review), after the app-server bootstrap and BEFORE App::run, so no thread is
+    // started (no `thread/start`) until it is answered (codex-rs/tui/src/lib.rs). Trusting
+    // writes `hooks.state.<key>.trusted_hash` into the Codex config (hooks_rpc.rs
+    // write_hook_trusts). The driver never answers it: trusting a hook, or skipping it, is the
+    // operator's decision (hooks run outside the sandbox; an L3 probe needs Beacon's hook to run).
+    detect: /^[ \t]*Hooks need review[ \t]*\r?$/m,
+    acceptOption: /(?!)/, // no option is the driver's to pick
+    options: Object.freeze(['Review hooks', 'Trust all and continue', "Continue without trusting (hooks won't run)"]),
+    footer: /^[ \t]*enter confirm · esc skip[ \t]*\r?$/m,
+    refuse:
+      "Codex's startup hook review is on screen (a hook in the Codex hooks config is new or changed, so untrusted); Codex starts no session until it is answered (codex-rs/tui/src/startup_hooks_review.rs@rust-v0.159.2). The driver never answers it: review and trust the hook(s) yourself first (in a Codex session of your own: `/hooks`, or this screen), then re-run; or run with accept=human and answer it during the run",
+    verified: 'herdr scratch runs 2026-09-30 (#204), Codex CLI / app-server 0.159.2 on Windows; "1. Review hooks" preselected',
+  },
+  'hooks-browser': {
+    // Seen live (#204): what "1. Review hooks" (or Enter typed into the review) opens, with the
+    // chat composer behind it. While it is open the TUI holds any startup submission
+    // (startup_submission_has_protected_input: has_active_view, codex-rs/tui/src/chatwidget/
+    // startup_submission.rs@rust-v0.159.2). Its footer, verbatim:
+    //     t trust all · enter review · esc close
+    detect: /^[ \t]*t trust all · enter review · esc close[ \t]*\r?$/m,
+    acceptOption: /(?!)/,
+    options: null,
+    refuse: "Codex's hooks browser (`/hooks`) is open on the TUI and holds its input; trusting hooks is the operator's decision, so the driver does not close or answer it",
+    verified: 'herdr scratch run 2026-09-30 (#204), Codex CLI / app-server 0.159.2 on Windows',
+  },
 });
+
+// --- is the Codex TUI session ready for the operator's first message? (#204) --------------
+//
+// Codex 0.159.2 shows an editable composer ("› Ask Codex to do anything") BEFORE its session
+// exists: the startup draft (codex-rs/tui/src/startup_draft.rs@rust-v0.159.2, "Keep the first
+// composer editable and bottom-anchored while startup work continues"). Enter there only
+// confirms the draft locally and shows "Waiting for startup · esc cancel"
+// (startup_draft_input.rs); it is submitted once the session is configured and the gates in
+// chatwidget/startup_submission.rs restore_startup_input_when_ready clear. Startup order
+// (codex-rs/tui/src/lib.rs, app/startup.rs@rust-v0.159.2): draft composer -> app-server
+// bootstrap -> startup hook review (if any hook needs review) -> App::run, which issues
+// `thread/start` (spawn_startup_thread_start) -> SessionConfigured. So the composer on screen
+// proves nothing; the driver types the operator's first message only when BOTH:
+//   - wire: a thread not loaded before the launch is in the daemon's `thread/loaded/list`
+//     (App::run has run and started a thread; submissions typed from then on are queued until
+//     the session is configured: set_queue_submissions_until_session_configured), and
+//   - pane: the idle composer placeholder, no dialog or startup screen, no in-progress
+//     indicator and no "Waiting for startup" footer.
+// The new thread is not proven to be the TUI's (another client of the shared daemon could load
+// one); the marker's thread is still identified afterwards by preview + cwd (identifyTuiThread).
+// The `thread/loaded/list` answer recorded after transcript line `sinceLine` (one poll's own
+// lines): its data, or null when there is none or it is an error. Never an older entry.
+export function loadedSince(loadedLists, sinceLine) {
+  const l = (loadedLists ?? []).filter((x) => x.line > sinceLine).at(-1);
+  return l && !l.error && Array.isArray(l.data) ? l.data : null;
+}
+
+// Findings a scenario records after the ready wait / on its expiry.
+export const CODEX_NOT_ATTACHED_FINDING = 'the Codex TUI showed its composer but no thread new since the launch was loaded in the daemon before the ready wait ran out: the TUI may not have attached to the daemon (G2 criterion 1), or its session never started';
+export const multipleNewThreadsFinding = (n) => `${n} threads new since the launch were loaded in the daemon when the Codex TUI became ready; another client of the shared daemon may have loaded one. The TUI's thread is still identified by the thread marker's preview and the project directory`;
+export const codexReadyTimeoutFinding = (v) => (v?.composer && !v.newThreads?.length && !v.waitingForStartup ? CODEX_NOT_ATTACHED_FINDING : null);
+
+export const CODEX_COMPOSER_IDLE = /^[ \t]*› Ask Codex to do anything[ \t]*\r?$/m;
+export const CODEX_WAITING_FOR_STARTUP = /Waiting for startup/;
+
+// -> { ready, composer, waitingForStartup, newThreads, why }
+export function codexReadiness({ text, screen, loaded, preLoaded }) {
+  const s = String(text ?? '');
+  const composer = CODEX_COMPOSER_IDLE.test(s);
+  const waitingForStartup = CODEX_WAITING_FOR_STARTUP.test(s);
+  const pre = new Set(preLoaded ?? []);
+  const newThreads = Array.isArray(loaded) ? loaded.filter((id) => !pre.has(id)) : [];
+  let why = null;
+  if (screen?.dialog) why = `a ${screen.dialog} screen is up`;
+  else if (waitingForStartup) why = 'the TUI shows "Waiting for startup": a submission made during startup is held until the session is configured and its gates clear (codex-rs/tui/src/chatwidget/startup_submission.rs@rust-v0.159.2)';
+  else if (!Array.isArray(loaded)) why = 'the daemon\'s `thread/loaded/list` could not be read';
+  else if (composer && !newThreads.length) why = 'the TUI shows its composer but no thread new since the launch is loaded in the daemon (`thread/loaded/list`): either the session has not started (that composer is Codex\'s startup draft, before `thread/start`: codex-rs/tui/src/startup_draft.rs, app/startup.rs@rust-v0.159.2), or the TUI is not attached to this daemon (an embedded app-server; G2 criterion 1)';
+  else if (!composer && newThreads.length) why = 'a new thread is loaded in the daemon but the TUI does not show its idle composer (another view or overlay holds its input)';
+  else if (!composer) why = 'the TUI shows neither its composer nor a known startup screen, and no new thread is loaded in the daemon';
+  else if (screen?.busy) why = 'the TUI shows the in-progress indicator';
+  return { ready: !why, composer, waitingForStartup, newThreads, why };
+}
+
+// Poll the pane and the daemon until the TUI session is ready (codexReadiness), bounded by
+// timeoutMs and the run's box. Dialogs go through the scenario's own handleDialog (the trust
+// dialog is accepted, the hook review refused -> NOT RUN, or, under accept=human, waited for;
+// time spent there does not count against timeoutMs). On expiry, stop() ends the run NOT RUN
+// naming the last blocker; nothing is typed, so nothing is ever re-sent.
+//   read(label, opts) -> classified read; listLoaded() -> string[] | null;
+//   stop(reason) throws; returns { readSeq, newThreads, polls, waitedMs, observations }.
+//   preLoaded must be the pre-launch baseline read from the pre-launch list's own lines: an
+//   unreadable baseline (null) stops the run, because falling back to [] would count any thread
+//   already loaded (e.g. by Codex Desktop) as new, a false "ready" (#205 review).
+//   onTimeout(v) runs before the stop on expiry (e.g. to record a finding).
+export async function waitCodexReady({ read, handleDialog, listLoaded, preLoaded, timeoutMs, pollMs, remainingMs, stop, onTimeout = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() }) {
+  if (!Array.isArray(preLoaded)) stop('the daemon\'s pre-launch `thread/loaded/list` could not be read, so a thread new since the launch cannot be told apart; the Codex session\'s readiness cannot be verified and nothing is typed');
+  const t0 = now();
+  let deadline = t0 + Math.min(timeoutMs, Math.max(0, remainingMs()));
+  const observations = [];
+  let polls = 0;
+  for (;;) {
+    const r = await read('codex-ready-wait', { keep: 'on-change' });
+    if (r.screen.dialog) {
+      const h0 = now();
+      await handleDialog(r, 'codex-ready-wait');
+      deadline = Math.min(deadline + (now() - h0), now() + Math.max(0, remainingMs()));
+      continue;
+    }
+    const loaded = await listLoaded();
+    polls++;
+    const v = codexReadiness({ text: r.text, screen: r.screen, loaded, preLoaded });
+    const last = observations.at(-1);
+    if (!last || last.why !== v.why) observations.push({ atMs: now() - t0, readSeq: r.seq, why: v.why, newThreads: v.newThreads.length });
+    if (v.ready) return { readSeq: r.seq, newThreads: v.newThreads, polls, waitedMs: now() - t0, observations };
+    if (now() + pollMs >= deadline) {
+      onTimeout?.(v);
+      stop(`the Codex TUI session was not ready within ${timeoutMs} ms of its startup (or the box ran out), so the thread marker was not typed: ${v.why}; nothing typed, nothing re-sent`);
+    }
+    await sleep(pollMs);
+  }
+}
 const GENERIC_DIALOG = /Press enter to (?:confirm|continue)|Enter to confirm|Esc to cancel|\(y\/n\)|Allow command\?|Approve\b.*\?|\benter continue\b.*\besc back\b/i;
 
 // -> { dialog: kind | 'unknown' | null, selected, options, busy }

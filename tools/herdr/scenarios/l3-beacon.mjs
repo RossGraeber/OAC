@@ -115,7 +115,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
-import { G2_LAUNCH, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
+import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
 import {
@@ -384,6 +384,7 @@ export default {
       cliTimeoutMs: '60000',
       clientTimeoutMs: '60000',
       wireTimeoutMs: '15000',
+      readyTimeoutMs: '120000', // #204: bound on the verified-ready wait before the thread marker
       attachTimeoutMs: '180000',
       listPollMs: '3000',
       turnTimeoutMs: '300000',
@@ -843,6 +844,11 @@ export default {
       l3.versions.codex.daemon = daemonV;
       for (const k of CODEX_DAEMON_VERSION_FIELDS) if (daemonV?.[k] !== xpin) finding(`pin drift (a finding, not a stop): \`codex app-server daemon version\` ${k} reports ${daemonV?.[k] ?? 'nothing parseable'}, PINS.md "${CODEX_PIN_ROW}" last observed ${xpin}`);
       const preList = await runClient('list', []);
+      // #205 review: the ready wait's baseline, from the pre-launch list's own lines; without it
+      // nothing is launched (a [] fallback would count an already-loaded thread as new).
+      const preLoaded = loadedSince(clientFacts().wire.loadedLists, preList.linesBefore);
+      l3.codexPreLaunchLoaded = preLoaded === null ? null : preLoaded.length;
+      if (preLoaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; the Codex TUI was not launched');
       l3.versions.codex.wire = preList.userAgentVersion;
       if (preList.userAgentVersion !== xpin) finding(`pin drift (a finding, not a stop): the Codex wire userAgent reports ${preList.userAgentVersion ?? 'nothing parseable'}, PINS.md last observed ${xpin}`);
 
@@ -860,6 +866,41 @@ export default {
       if (proof.found && !proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(proof.argsAfterCodex)}; L3's Codex side is plain \`codex\` attached to the shared daemon`);
       if (!proof.found) finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on herdr\'s reported argv only');
       await codex.settle('codex-startup', num('startupTimeoutMs'));
+      // #204: the composer Codex 0.159.2 shows at startup is its startup draft, not a session.
+      // The thread marker is typed only once a new thread is loaded in the daemon and the pane
+      // shows the idle composer (lib/g2.mjs codexReadiness); a startup screen the driver may not
+      // answer (the hook review) ends the run NOT RUN naming it; nothing is typed or re-sent.
+      // #205 review: under accept=human the operator answered Codex's hook review; they may have
+      // chosen "Continue without trusting", in which case Beacon's SessionStart hook did not run
+      // in this session and B4's hook-path counts can be missing for that reason.
+      const hookReviewFinding = () => {
+        const hd = l3.dialogs.filter((d) => d.agent === 'codex' && ['hooks-review', 'hooks-browser'].includes(d.kind) && d.acceptOrigin === 'human');
+        if (hd.length) finding(`Codex's startup hook review was on screen and answered by the operator (${hd.map((d) => `${d.kind}, read #${d.readSeq}`).join('; ')}); the driver cannot see which option was chosen. If it was "Continue without trusting", Beacon's SessionStart hook did not run in this Codex session, so B4's hook-path (\`collection_method: hook\`) counts may be missing for that reason`);
+      };
+      let ready;
+      try {
+        ready = await waitCodexReady({
+          read: codex.read,
+          handleDialog: codex.handleDialog,
+          listLoaded: async () => {
+            const { linesBefore } = await runClient('list', []);
+            return loadedSince(clientFacts().wire.loadedLists, linesBefore); // read after the poll: its own answer only
+          },
+          preLoaded,
+          timeoutMs: num('readyTimeoutMs'),
+          pollMs: num('listPollMs'),
+          remainingMs: remaining,
+          stop,
+          onTimeout: (v) => {
+            const f = codexReadyTimeoutFinding(v);
+            if (f) finding(f);
+          },
+        });
+      } finally {
+        hookReviewFinding();
+      }
+      l3.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
+      if (ready.newThreads.length > 1) finding(multipleNewThreadsFinding(ready.newThreads.length));
       const tm = await codex.prompt(operator.threadMarker);
       await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));
       const mr = await codex.read('after-thread-marker');

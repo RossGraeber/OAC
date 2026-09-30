@@ -87,7 +87,7 @@ import { driverAcceptDialog } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, processArgv, codexLaunchProof, parseG2Transcript,
-  g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS,
+  g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
 } from '../lib/g2.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -113,6 +113,7 @@ export default {
       cliTimeoutMs: '60000',
       clientTimeoutMs: '60000',
       wireTimeoutMs: '30000',
+      readyTimeoutMs: '120000', // #204: bound on the verified-ready wait before the operator's message
       attachTimeoutMs: '180000',
       listPollMs: '3000',
       turnTimeoutMs: '300000',
@@ -478,7 +479,9 @@ export default {
       const pre = await runClient('list', []);
       const preConn = clientProblems(pre).connections[0];
       const preFacts = facts();
-      g2.preLaunch = { run: g2.clientRuns.length - 1, loaded: preFacts.loadedLists.filter((l) => l.line > pre.linesBefore).at(-1)?.data ?? null };
+      g2.preLaunch = { run: g2.clientRuns.length - 1, loaded: loadedSince(preFacts.loadedLists, pre.linesBefore) };
+      // #205 review: the ready wait needs this baseline; without it nothing is launched.
+      if (g2.preLaunch.loaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; nothing launched');
       g2.versions.wireUserAgent = preConn.userAgent;
       g2.versions.wire = preConn.userAgentVersion;
       const wireTrigger = codexPinMoveTrigger({ observed: preConn.userAgentVersion, lastObserved: pin.lastObserved, source: 'the wire initialize userAgent' });
@@ -504,6 +507,28 @@ export default {
       if (!proof.found) ctx.finding(`the pane's process argv could not show a \`codex\` process (${g2.paneArgv[0].argv.map((a) => a.source).join('; ') || 'no processes'}); the plain-launch proof rests on the launch parameter and herdr's reported argv only`);
       else if (!proof.plain) throw new DriverError(`the pane's codex process (pid ${proof.pid}) runs with arguments ${JSON.stringify(proof.argsAfterCodex)}; G2 needs plain \`codex\` with no config overrides`);
       await settle('startup', num('startupTimeoutMs'));
+      // #204: the composer Codex 0.159.2 shows at startup is its startup draft, not a session;
+      // the operator's message is typed only once the session is verified ready
+      // (lib/g2.mjs codexReadiness: a new loaded thread on the wire + the idle composer).
+      const ready = await waitCodexReady({
+        read,
+        handleDialog,
+        listLoaded: async () => {
+          const { linesBefore } = await runClient('list', []);
+          return loadedSince(facts().loadedLists, linesBefore); // read after the poll: its own answer only
+        },
+        preLoaded: g2.preLaunch.loaded,
+        timeoutMs: num('readyTimeoutMs'),
+        pollMs: num('listPollMs'),
+        remainingMs: () => ctx.remainingMs(),
+        stop,
+        onTimeout: (v) => {
+          const f = codexReadyTimeoutFinding(v);
+          if (f) ctx.finding(f);
+        },
+      });
+      g2.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
+      if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
 
       // --- 4. the operator's own message; find the TUI's thread on the wire ----------------
       const res = await herdr.agentPrompt(AGENT, operatorPrompt);

@@ -23,7 +23,7 @@ import { parseCodexLastObserved, parseCodexCliVersion, parseCodexUserAgentVersio
 import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
-  splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError,
+  splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
 } from '../lib/g2.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
 import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, writeRefusal, renderReport } from '../lib/g2-report.mjs';
@@ -182,6 +182,28 @@ export function g2Unit(check) {
   const unk = classifyCodexScreen('Allow command?\n› 1. Yes\n  2. No\nPress enter to confirm');
   check('g2 pane: an approval or any unnamed prompt is "unknown" and never driver-accepted', unk.dialog === 'unknown' && !driverMayAcceptCodex(unk).ok);
   check('g2 pane: in-progress indicator is a parameter; an idle composer is no dialog', classifyCodexScreen('• Working (3s • esc to interrupt)').busy && classifyCodexScreen('› Ask Codex to do anything').dialog === null && !classifyCodexScreen('› Ask Codex').busy);
+  // #204: the startup hook review and hooks browser (seen live on 0.159.2) are recognized and
+  // never driver-answered, whatever is selected; the reason names the review and /hooks.
+  const REVIEW = ['', '  Hooks need review', '  1 hook is new or changed.', '  Hooks can run outside the sandbox after you trust them.', '', '', '› 1. Review hooks', '  2. Trust all and continue', "  3. Continue without trusting (hooks won't run)", '', '  enter confirm · esc skip'].join('\n');
+  const rv = classifyCodexScreen(REVIEW);
+  check('g2 pane #204: the startup hook review is recognized ("1. Review hooks" selected) and refused, no key, with the operator\'s action in the reason', rv.dialog === 'hooks-review' && rv.selected?.number === 1 && refused(REVIEW) && refused(REVIEW.replace('› 1.', '  1.').replace('  3. Continue', '› 3. Continue')) && /startup hook review/.test(plan(REVIEW).why) && /\/hooks/.test(plan(REVIEW).why), JSON.stringify(plan(REVIEW)));
+  const hb = classifyCodexScreen('  Hooks\n  Lifecycle hooks from config and enabled plugins.\n\n  SessionStart   1   0   1   When a session starts\n\n  t trust all · enter review · esc close');
+  check('g2 pane #204: the hooks browser is recognized and refused, no key', hb.dialog === 'hooks-browser' && !driverMayAcceptCodex(hb).ok && driverMayAcceptCodex(hb).keys.length === 0);
+  // #204: readiness = a new loaded thread on the wire AND the idle composer on the pane.
+  const COMPOSER = '  >_ OpenAI Codex (v0.159.2)\n\n› Ask Codex to do anything\n\n  ? for shortcuts';
+  const rd = (text, loaded, preLoaded = ['old']) => codexReadiness({ text, screen: classifyCodexScreen(text), loaded, preLoaded });
+  check('g2 ready #204: the startup-draft composer with no new loaded thread is not ready (named as the startup draft)', !rd(COMPOSER, ['old']).ready && /startup draft/.test(rd(COMPOSER, ['old']).why));
+  check('g2 ready #204: the composer and a new loaded thread is ready', rd(COMPOSER, ['old', 'new']).ready && rd(COMPOSER, ['old', 'new']).newThreads.join() === 'new');
+  check('g2 ready #204: "Waiting for startup", a dialog, the in-progress indicator, an unreadable list, or no composer is not ready', !rd('› hi\n\n  Waiting for startup  · esc cancel', ['new']).ready && /Waiting for startup/.test(rd('› hi\n\n  Waiting for startup  · esc cancel', ['new']).why) && !rd(REVIEW, ['new']).ready && !rd(`${COMPOSER}\n• Working (1s • esc to interrupt)`, ['new']).ready && !rd(COMPOSER, null).ready && !rd('  Hooks', ['new']).ready);
+  // #205 review: a poll's answer is read from that poll's own lines, never an older entry; an
+  // unreadable pre-launch baseline stops before anything is read or typed.
+  const ll = [{ line: 3, data: ['desktop'], error: null }, { line: 9, data: [], error: { code: -1 } }];
+  check('g2 ready #205: loadedSince returns only the poll\'s own answer (null when missing or an error, never a stale entry)', loadedSince(ll, 2) === null && loadedSince(ll.slice(0, 1), 2)?.join() === 'desktop' && loadedSince(ll.slice(0, 1), 3) === null && loadedSince([ll[0], { line: 9, data: ['tui'], error: null }], 5)?.join() === 'tui');
+  let stopped = null;
+  let touched = false;
+  waitCodexReady({ read: async () => { touched = true; return { screen: {}, text: '' }; }, handleDialog: async () => {}, listLoaded: async () => { touched = true; return ['desktop']; }, preLoaded: null, timeoutMs: 1000, pollMs: 100, remainingMs: () => 10000, stop: (reason) => { stopped = reason; throw new Error(reason); } }).catch(() => {});
+  check('g2 ready #205: an unreadable pre-launch baseline stops the wait at once (no [] fallback that would count an already-loaded thread as new)', /pre-launch `thread\/loaded\/list` could not be read/.test(stopped ?? '') && !touched, stopped);
+  check('g2 ready #205: a composer with no new thread at expiry gives the criterion-1 finding; other blockers do not', /may not have attached to the daemon \(G2 criterion 1\)/.test(codexReadyTimeoutFinding(rd(COMPOSER, ['old'])) ?? '') && codexReadyTimeoutFinding(rd(REVIEW, ['old'])) === null && /2 threads new since the launch/.test(multipleNewThreadsFinding(2)));
   const npm = codexLaunchProof([{ pid: 7, argv: ['node', '/usr/lib/node_modules/@scope/codex/bin/codex.js'] }]);
   check('g2 argv: `node .../bin/codex.js` with nothing after it is a plain launch', npm.found && npm.plain && npm.pid === 7 && npm.codexToken === 'codex.js');
   const ov = codexLaunchProof([{ pid: 3, argv: ['bash'] }, { pid: 8, argv: ['/opt/codex/codex', '-c', 'model=x'] }]);
@@ -225,7 +247,7 @@ export function g2Unit(check) {
 // --- lifecycle cases (driver end to end against the fakes) --------------------------------
 
 const today = () => new Date().toISOString().slice(0, 10);
-const FAST = ['--param', 'settleMs=300', '--param', 'pollMs=200', '--param', 'listPollMs=500', '--param', 'wireTimeoutMs=10000', '--param', 'turnTimeoutMs=30000', '--param', 'startupTimeoutMs=20000', '--param', 'attachTimeoutMs=15000', '--param', 'busyQueueTimeoutMs=60000'];
+const FAST = ['--param', 'settleMs=300', '--param', 'pollMs=200', '--param', 'listPollMs=500', '--param', 'wireTimeoutMs=10000', '--param', 'turnTimeoutMs=30000', '--param', 'startupTimeoutMs=20000', '--param', 'attachTimeoutMs=15000', '--param', 'readyTimeoutMs=15000', '--param', 'busyQueueTimeoutMs=60000'];
 const TRACER = join(HERE, 'fs-trace.mjs');
 
 // A fake `codex` on PATH: a copy of test/fake-codex.mjs named `codex`, so a pane process's
@@ -279,7 +301,7 @@ export function g2Cases(check) {
     const pa = g2.paneArgv[0];
     check('g2 human: the pane process argv, read from /proc, is `node <base>/bin/codex` with no argument after codex', pa.proof.found && pa.proof.plain && pa.argv.some((a) => a.source.startsWith('/proc/') && a.argv?.length === 2 && basename(a.argv[1]) === 'codex'), JSON.stringify(pa));
     check('g2 human: `codex app-server daemon start` ran first, then daemon version; CLI, daemon and wire all verified', g2.daemon.start.exitCode === 0 && g2.versions.verified && g2.versions.daemon.appServerVersion === PIN && g2.versions.wire === PIN && g2.postRun.matches && daemonStarted(r));
-    check('g2 human: client staged from HEAD, sha256 matches the committed blob; ran unmodified in every mode', g2.client.match && g2.client.copySha256 === COMMITTED_CLIENT_SHA256 && g2.client.copy === '<SCRATCH>/g2-client/client.mjs' && g2.clientRuns.map((x) => x.mode).join() === 'list,list,turn,busyqueue,turns' && g2.clientRuns.every((x) => x.problems.length === 0 && x.exitCode === 0) && g2.divergence.length === 0, JSON.stringify(g2.clientRuns.map((x) => [x.mode, x.exitCode, x.problems])));
+    check('g2 human: client staged from HEAD, sha256 matches the committed blob; ran unmodified in every mode', g2.client.match && g2.client.copySha256 === COMMITTED_CLIENT_SHA256 && g2.client.copy === '<SCRATCH>/g2-client/client.mjs' && /^list(?:,list){2,},turn,busyqueue,turns$/.test(g2.clientRuns.map((x) => x.mode).join()) && g2.clientRuns.every((x) => x.problems.length === 0 && x.exitCode === 0) && g2.divergence.length === 0, JSON.stringify(g2.clientRuns.map((x) => [x.mode, x.exitCode, x.problems])));
     const d = g2.dialogs[0];
     check('g2 human: the trust dialog was read verbatim and accepted outside the driver (no keystroke sent)', d?.kind === 'workspace-trust' && d.acceptOrigin === 'human' && d.inputBetweenReadAndAccept === 0 && !m.commands.some((x) => x.role === 'dialog-accept' || x.argv.includes('send-keys')));
     check('g2 human: herdr typed exactly one prompt, the operator\'s own message; no delivered text ever went through herdr', r.prompts.length === 1 && r.prompts[0].text === DEFAULT_OPERATOR_PROMPT && m.commands.every((x) => !x.argv.some((a) => DELIVERED.test(a))));
@@ -404,10 +426,13 @@ export function g2Cases(check) {
     check('g2 override: FAIL before anything starts', r.status === 1 && /is not plain `codex`/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')) && !daemonStarted(r), r.manifest.outcomeReason);
   });
 
-  run('g2 TUI does not attach (embedded server)', { args: ['--param', 'accept=driver', ...FAST, '--param', 'attachTimeoutMs=3000'], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_NO_ATTACH: '1' } }, (r) => {
+  run('g2 TUI does not attach (embedded server)', { args: ['--param', 'accept=driver', ...FAST, '--param', 'attachTimeoutMs=3000', '--param', 'readyTimeoutMs=3000'], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_NO_ATTACH: '1' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
-    check('g2 no attach: NOT RUN, recorded as a criterion-1 finding, nothing delivered', r.status === 3 && /no loaded thread matched/.test(m.outcomeReason) && m.findings.some((f) => /may not have attached/.test(f)) && g2.injectionsSent.length === 0 && g2.thread === null, m.outcomeReason);
+    // #204: an unattached TUI never loads a thread in the daemon, so the ready wait stops first
+    // and the operator's message is never typed.
+    check('g2 no attach: NOT RUN at the ready wait (no new loaded thread), the reason naming both causes (startup draft or not attached), nothing typed, nothing delivered', r.status === 3 && /was not ready within 3000 ms/.test(m.outcomeReason) && /no thread new since the launch is loaded/.test(m.outcomeReason) && /startup draft/.test(m.outcomeReason) && /not attached to this daemon/.test(m.outcomeReason) && r.prompts.length === 0 && g2.injectionsSent.length === 0 && g2.thread === null, m.outcomeReason);
+    check('g2 no attach: recorded as a criterion-1 finding', m.findings.some((f) => /may not have attached/.test(f) && /G2 criterion 1/.test(f)), JSON.stringify(m.findings));
     check('g2 no attach: the transcript holds only list runs, and the thread/list entries were all dropped (no thread identified)', g2.clientRuns.every((x) => x.mode === 'list') && !/PRIVATE/.test(r.capture(names().transcript)));
   });
 
@@ -432,6 +457,42 @@ export function g2Cases(check) {
     const m = r.manifest;
     const d = m.scenarioData.g2.dialogs[0];
     check('g2 human timeout: NOT RUN, nothing sent to the dialog, nothing delivered', r.status === 3 && /not accepted by the operator/.test(m.outcomeReason) && !m.commands.some((x) => x.seq > d.readSeq && ['operator-input', 'dialog-accept'].includes(x.role)) && m.scenarioData.g2.injectionsSent.length === 0, m.outcomeReason);
+  });
+
+  // --- #204: Codex 0.159.2's startup draft and startup hook review ---------------------------
+  const promptSeq = (m) => m.commands.find((x) => x.role === 'operator-input' && x.argv.includes('prompt'))?.seq ?? null;
+  run('g2 #204 startup draft: the message waits for a verified-ready session', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_STARTUP_MS: '2500' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    const ready = g2.codexReady;
+    check('g2 #204 draft: PASS; the ready wait first saw the startup-draft composer (no new loaded thread), then a ready session', r.status === 0 && ready && ready.observations.some((o) => /startup draft/.test(o.why ?? '')) && ready.observations.at(-1).why === null && ready.newThreads === 1 && ready.waitedMs >= 1500, `${r.status} ${m.outcomeReason} ${JSON.stringify(ready)}`);
+    check('g2 #204 draft: the message was typed once, only after the ready read; nothing was held as "Waiting for startup"', r.prompts.length === 1 && promptSeq(m) > ready.readSeq && !/Waiting for startup/.test(r.capture(names().pane)), String(promptSeq(m)));
+  });
+
+  run('g2 #204 hook review: NOT RUN naming it; nothing typed, no key sent to it', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_STARTUP_MS: '500', FAKE_CODEX_HOOKS_REVIEW: '1' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    const d = g2.dialogs.find((x) => x.kind === 'hooks-review');
+    check('g2 #204 hook review: NOT RUN (exit 3); the reason names the startup hook review and the operator\'s action', r.status === 3 && /dialog \d+ \(hooks-review\): Codex's startup hook review is on screen/.test(m.outcomeReason) && /the driver did not accept it/.test(m.outcomeReason) && /\/hooks/.test(m.outcomeReason), m.outcomeReason);
+    check('g2 #204 hook review: read verbatim and refused; no key sent to it; the operator\'s message never typed; nothing delivered', d && d.acceptOrigin === 'none (driver refused)' && !m.commands.some((x) => x.seq > d.readSeq && ['operator-input', 'dialog-accept'].includes(x.role)) && r.prompts.length === 0 && g2.injectionsSent.length === 0, JSON.stringify(d));
+  });
+
+  run('g2 #204 hook review, accept=human: the operator answers it; the run goes on', { args: ['--param', 'accept=human', ...FAST], fakeCodex: { FAKE_CODEX_SELF_ACCEPT_MS: '1200', FAKE_CODEX_HOOKS_REVIEW: '1' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    const d = g2.dialogs.find((x) => x.kind === 'hooks-review');
+    check('g2 #204 hook review human: PASS; the review recorded as answered outside the driver, no key sent', r.status === 0 && d?.acceptOrigin === 'human' && !m.commands.some((x) => x.role === 'dialog-accept') && g2.codexReady?.newThreads === 1, `${r.status} ${m.outcomeReason} ${JSON.stringify(g2.dialogs)}`);
+  });
+
+  run('g2 #205 an already-loaded thread (another daemon client) is not "new": a hung startup stays NOT RUN', { args: ['--param', 'accept=driver', ...FAST, '--param', 'readyTimeoutMs=3000'], fakeCodex: { FAKE_CODEX_STARTUP_HANG: '1', FAKE_CODEX_PRELOADED: '1' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    check('g2 #205 preloaded: the baseline holds the other client\'s thread; NOT RUN at the ready wait, nothing typed', r.status === 3 && g2.preLaunch.loaded?.length === 1 && /was not ready within 3000 ms/.test(m.outcomeReason) && /no thread new since the launch/.test(m.outcomeReason) && r.prompts.length === 0, `${r.status} ${m.outcomeReason}`);
+  });
+
+  run('g2 #204 startup never completes: NOT RUN naming the startup draft; nothing typed', { args: ['--param', 'accept=driver', ...FAST, '--param', 'readyTimeoutMs=3000'], fakeCodex: { FAKE_CODEX_STARTUP_HANG: '1' } }, (r) => {
+    const m = r.manifest;
+    check('g2 #204 hang: NOT RUN (exit 3) at the ready wait, naming the startup draft; no prompt typed', r.status === 3 && /was not ready within 3000 ms/.test(m.outcomeReason) && /startup draft/.test(m.outcomeReason) && r.prompts.length === 0 && m.scenarioData.g2.injectionsSent.length === 0, m.outcomeReason);
   });
   return cases;
 }

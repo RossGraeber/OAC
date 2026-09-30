@@ -165,7 +165,7 @@ export async function g5Unit(check) {
 // --- lifecycle cases ------------------------------------------------------------------------------
 
 const today = () => new Date().toISOString().slice(0, 10);
-const FAST = ['--param', 'settleMs=300', '--param', 'pollMs=200', '--param', 'listPollMs=400', '--param', 'wireTimeoutMs=10000', '--param', 'turnTimeoutMs=30000', '--param', 'startupTimeoutMs=20000', '--param', 'handshakeTimeoutMs=20000', '--param', 'attachTimeoutMs=15000', '--param', 'midturnDelayMs=1500'];
+const FAST = ['--param', 'settleMs=300', '--param', 'pollMs=200', '--param', 'listPollMs=400', '--param', 'wireTimeoutMs=10000', '--param', 'turnTimeoutMs=30000', '--param', 'startupTimeoutMs=20000', '--param', 'handshakeTimeoutMs=20000', '--param', 'attachTimeoutMs=15000', '--param', 'readyTimeoutMs=15000', '--param', 'midturnDelayMs=1500'];
 const inside = (p, root) => {
   const rel = relative(root, p);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
