@@ -524,6 +524,10 @@ Evidence to record: both outputs, and that no `herdr` process remains.
 
 ## 7. Live results (to be filled by the operator run)
 
+> **Note, 2026-09-30 (#187).** The heading and the "pending operator run" cells are kept
+> as written. As with §6, the remaining legs may be run by an agent; the operator signs in
+> and accepts consent dialogs.
+
 | Item | Linux | macOS | Windows |
 |---|---|---|---|
 | 1 Named session, no attached terminal | UNVERIFIED — pending operator run | UNVERIFIED — pending operator run | CONFIRMED (Windows): `herdr --session k1eval server` ran headless, no client attached; `status server` running, `session list` shows it. |

@@ -200,9 +200,9 @@ started from a shell inside Claude Code doesn't run as that session's child or t
 relay. It records their names and a finding (#163). No other `ANTHROPIC_*` variable is
 touched.
 An agent may therefore start the driver from its own shell; a standalone terminal works
-too. When a scenario waits for you to accept a dialog, it prints the session name and the command to
-attach (`herdr session attach <session>`). Never run herdr's command that writes hooks into
-harness config, and do not commit raw pane or env captures.
+too. When a scenario waits for you to accept a dialog, it prints the session name and the
+command to attach (`herdr session attach <session>`). Never run herdr's command that
+writes hooks into harness config, and do not commit raw pane or env captures.
 
 **2a. Unattended G1 runs.** Every run otherwise starts Claude Code in a fresh scratch
 project, so its folder-trust dialog comes up every time, and that dialog preselects

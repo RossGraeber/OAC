@@ -131,7 +131,9 @@ Stage 1's exit). The original `v2.1.282` transcript's `MANIFEST.json` `supersede
 field now points to the Box C fixture; `pins_reference.claude_code_note` updated to
 match. Full evidence: `docs/planning/gates/G1-result.md`. `node
 scripts/check-fixture-manifest.mjs`, `node scripts/check-skills.mjs`, and `node
-scripts/sync-backlog.mjs --check` all re-run clean after this change.)
+scripts/sync-backlog.mjs --check` all re-run clean after this change. (Note 2026-09-30,
+#187: `sync-backlog.mjs` has no `--check` flag; its only no-write mode is `--dry-run`, and
+an unrecognised flag performs a real sync; see the #123 incident, 2026-09-30T04:44Z.))
 
 **Last updated:** 2026-09-28 (**superseded by the entry above (G1 PASS)** for G1's
 verdict specifically — this entry's own G1 narrative below predates the operator's

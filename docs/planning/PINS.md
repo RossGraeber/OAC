@@ -643,8 +643,8 @@ semver, and are recorded verbatim — never reformatted.
   stability, concurrent `memory.db` access, and Codex config interaction. L2 owns them.
   **L2 (issue #167, 2026-09-29, L1 §11):** the last three are closed from source at this
   tag (CONFIRMED, CONFIRMED, REFUTED); the first stays UNVERIFIED, narrowed to harness
-  behaviour, for the live leg (L1 §12; herdr-driven per #187, 2026-09-30). A move of this row also requires
-  L1 §11's source-level facts to be re-read at the new tag.
+  behaviour, for the live leg (L1 §12; herdr-driven per #187, 2026-09-30). A move of
+  this row also requires L1 §11's source-level facts to be re-read at the new tag.
 - **Gates affected: none.** No `G<n>-result.md` verdict depends on this row. A move of
   this row invalidates no gate verdict. It does require L1 §6's items and every L1 §10
   citation to be re-read at the new tag, and the L3 live leg to record the Beacon version
