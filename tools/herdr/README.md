@@ -252,8 +252,8 @@ not resolved silently):
 
 ## Operator setup (Windows, and Claude Code permissions)
 
-Live runs are driven by `run.mjs`, started locally by an agent (the repository's
-`.claude/settings.local.json` already allows `node tools/herdr/run.mjs`) or by the operator.
+Live runs are driven by `run.mjs`, started locally by an agent (once the operator has
+added the allow rules in step 4 below to their own `.claude/settings.local.json`) or by the operator.
 Automating these runs is why herdr was added (operator decision, #187). The human attends
 only for what a driver must not do: signing in to the harnesses and granting elevation.
 Since #196 the driver accepts Claude Code's dialogs itself in dev/test runs (see "Dialogs"
