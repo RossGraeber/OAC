@@ -34,6 +34,10 @@
 // reports no residual (home path, username, host, token shape, secret assignment). Any hit
 // aborts with exit 4 and prints no draft; the error names kinds and line numbers only.
 //
+// Refusal messages (stderr) carry only safe-shaped ids, never a manifest value, and pass the leak
+// guard too. Manifest free text is collapsed to one line, so it cannot forge a step line.
+// Timestamps count only when zone-qualified (`Z` or an offset).
+//
 // Exit codes: 0 draft printed; 2 usage error or refused input; 4 leak guard abort.
 //
 // Node built-ins only.
@@ -55,6 +59,8 @@ export const RESULTS = Object.freeze({ PASS: 'PASS', FINDING: 'FINDING', NOT_RUN
 export const L3_BOX_MS = 60 * 60 * 1000;
 // L1 §2: the Beacon version the leg runs against. A Beacon pin move updates this constant.
 export const BEACON_PIN = '1.3.29';
+// The pin as a whole version: `1.3.290` or `11.3.29` do not match.
+const BEACON_PIN_RE = new RegExp(`(?<![\\d.])${BEACON_PIN.replace(/\./g, '\\.')}(?![\\d.])`);
 // Which phase run carries each step (L3b #190: baseline = B0; probe = B1 record plus B2-B4;
 // verify = B7). B5 and B6 are operator steps outside the driver.
 export const STEP_PHASE = Object.freeze({ B0: 'baseline', B1: 'probe', B2: 'probe', B3: 'probe', B4: 'probe', B5: null, B6: null, B7: 'verify' });
@@ -67,14 +73,25 @@ const B56_NOT_RUN = `default taken in the ${OPERATOR_DECISION}: B5 and B6 are Be
 
 // --- helpers ---------------------------------------------------------------------------
 
-const tick = (s) => `\`${String(s).replace(/`/g, "'")}\``;
+// Manifest-sourced free text is collapsed to one line wherever it is rendered, so a newline in
+// an outcomeReason, finding, note or id cannot start a forged step line in the draft.
+export const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+const tick = (s) => `\`${oneLine(s).replace(/`/g, "'")}\``;
+// Values that may appear in a refusal message (stderr, which the draft's leak guard does not
+// cover): an id of a safe shape, else a placeholder. Never the value itself.
+export const safeId = (s) => (/^[A-Za-z0-9._:-]{1,80}$/.test(String(s ?? '')) ? String(s) : '<withheld>');
+const safeVersion = (v) => (Number.isInteger(v) ? String(v) : '<non-integer>');
+const safePhase = (p) => (PHASES.includes(p) ? p : '<unknown>');
 const val = (v) => {
   if (v === null || v === undefined) return 'not recorded';
   if (typeof v === 'object') return Object.entries(v).map(([k, x]) => `${k} ${tick(x ?? 'null')}`).join(', ') || 'not recorded';
   return tick(v);
 };
 const list = (a) => (a && a.length ? a.map(tick).join(', ') : 'none');
-const ms = (t) => (typeof t === 'string' ? Date.parse(t) : NaN);
+// Zone-qualified ISO times only (`Z` or `+hh:mm`): Date.parse reads an unzoned time as local
+// time, so such a time counts as not recorded.
+const ZONED_ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/;
+const ms = (t) => (typeof t === 'string' && ZONED_ISO.test(t) ? Date.parse(t) : NaN);
 const isoOrNull = (n) => (Number.isFinite(n) ? new Date(n).toISOString() : null);
 // Config labels the draft may carry: the `~` and `$VAR` labels lib/l3.mjs harnessConfigTargets()
 // produces. Anything else could carry a path, so it is withheld.
@@ -107,13 +124,13 @@ export function loadRun(dir) {
  */
 export function phaseRecord(manifest, phase) {
   const rec = manifest?.scenarioData?.l3;
-  const id = manifest?.runId ?? '?';
+  const id = safeId(manifest?.runId);
   if (rec === undefined || rec === null) {
     if (manifest?.outcome === 'PASS') throw new L3ReportError(`${phase} run ${id} ended PASS but carries no scenarioData.l3 record; refusing`);
     return null;
   }
-  if (rec.version !== L3_RECORD_VERSION) throw new L3ReportError(`${phase} run ${id}: unknown L3 record version ${JSON.stringify(rec.version ?? null)} (this report knows ${L3_RECORD_VERSION}); refusing`);
-  if (rec.phase !== phase) throw new L3ReportError(`run ${id} was given as --${phase} but its L3 record is phase ${JSON.stringify(rec.phase ?? null)}; refusing`);
+  if (rec.version !== L3_RECORD_VERSION) throw new L3ReportError(`${phase} run ${id}: unknown L3 record version ${safeVersion(rec.version)} (this report knows ${L3_RECORD_VERSION}); refusing`);
+  if (rec.phase !== phase) throw new L3ReportError(`run ${id} was given as --${phase} but its L3 record is phase ${safePhase(rec.phase)}; refusing`);
   return rec;
 }
 
@@ -126,27 +143,29 @@ function boxOf(baseline) {
   let source = 'baseline record `box.start`';
   if (!start) {
     start = baseline?.manifest?.timebox?.start ?? null;
-    source = 'baseline run manifest `timebox.start` (the baseline carries no L3 record)';
+    source = `baseline run manifest \`timebox.start\` (${rec ? 'the baseline record has no `box.start`' : 'the baseline carries no L3 record'})`;
   }
-  if (rec?.box && rec.box.budgetMs !== L3_BOX_MS) notes.push(`the baseline record declares box.budgetMs ${rec.box.budgetMs}; L1 §12 fixes the box at ${L3_BOX_MS} ms, which this report applies`);
+  if (rec?.box && rec.box.budgetMs !== L3_BOX_MS) notes.push(`the baseline record declares box.budgetMs ${tick(rec.box.budgetMs)}; L1 §12 fixes the box at ${L3_BOX_MS} ms, which this report applies`);
   if (rec?.box && rec.box.sourceRunId !== null && rec.box.sourceRunId !== undefined) notes.push('the baseline record continues another run\'s box (box.sourceRunId is set); the baseline phase should open the box');
   const s = ms(start);
-  return { start, source, budgetMs: L3_BOX_MS, end: isoOrNull(s + L3_BOX_MS), endMs: s + L3_BOX_MS, known: Number.isFinite(s), notes };
+  return { start: start === null ? null : oneLine(start), source, budgetMs: L3_BOX_MS, startMs: s, end: isoOrNull(s + L3_BOX_MS), endMs: s + L3_BOX_MS, known: Number.isFinite(s), notes };
 }
 
 // Why a phase's steps are NOT RUN, or null when they can be evaluated.
 function phaseBlock(phase, run, box, baseline) {
   if (!run) return `no ${phase} run was supplied (--${phase})`;
   const m = run.manifest;
-  if (m.outcome !== 'PASS') return `the ${phase} run ${m.runId ?? '?'} ended ${m.outcome ?? 'without an outcome'}${m.outcomeReason ? `: ${m.outcomeReason}` : ''}`;
-  if (!box.known) return 'the L3 box start is not recorded, so the box cannot be checked';
+  if (m.outcome !== 'PASS') return `the ${phase} run ${tick(m.runId ?? '?')} ended ${oneLine(m.outcome ?? 'without an outcome')}${m.outcomeReason ? `: ${oneLine(m.outcomeReason)}` : ''}`;
+  if (!box.known) return 'the L3 box start is not recorded as a zone-qualified ISO time, so the box cannot be checked';
+  const start = ms(m.timebox?.start);
   const end = ms(m.timebox?.end);
-  if (!Number.isFinite(end)) return `the ${phase} run's end is not recorded, so the L3 box cannot be checked`;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return `the ${phase} run's start or end is not recorded as a zone-qualified ISO time, so the L3 box cannot be checked`;
+  if (start < box.startMs) return `the ${phase} run started ${m.timebox.start}, before the L3 box was declared (${box.start})`;
   if (end > box.endMs) return `L3 box expired: the ${phase} run ended ${m.timebox.end}, after the box ended ${box.end}`;
   if (phase !== 'baseline') {
     const b = run.record?.box;
     if (!b || b.start !== box.start || b.sourceRunId !== (baseline?.manifest?.runId ?? null)) {
-      return `the ${phase} record does not continue the baseline's L3 box (box.start ${b?.start ?? 'missing'}, box.sourceRunId ${b?.sourceRunId ?? 'missing'})`;
+      return `the ${phase} record does not continue the baseline's L3 box (box.start ${tick(b?.start ?? 'missing')}, box.sourceRunId ${tick(b?.sourceRunId ?? 'missing')})`;
     }
   }
   return null;
@@ -161,9 +180,9 @@ function b0(run) {
   const findings = [];
   const beacon = v.beacon ?? null;
   if (!beacon) findings.push('`beacon version` output not recorded (beaconCli off and not supplied)');
-  else if (!String(beacon).includes(BEACON_PIN)) findings.push(`Beacon version differs from the L1 §2 pin ${BEACON_PIN}`);
+  else if (!BEACON_PIN_RE.test(String(beacon))) findings.push(`Beacon version differs from the L1 §2 pin ${BEACON_PIN}`);
   for (const [k, name] of [['claude', 'Claude Code'], ['codex', 'Codex']]) if (v.pins?.[k]?.differs) findings.push(`${name} differs from its PINS.md last-observed value (pin drift, recorded as a finding; L3 is not a gate)`);
-  for (const f of r.config?.findings ?? []) findings.push(f);
+  for (const f of r.config?.findings ?? []) findings.push(oneLine(f));
   const set = (prefix) => (hashes.some((h) => String(h.label).startsWith(prefix)) ? 'set' : 'not set');
   const evidence = [
     `Versions: Beacon ${val(beacon)}; \`claude --version\` ${val(v.claudeCli)}; Codex CLI ${val(v.codex?.cli)}, daemon ${val(v.codex?.daemon)}, wire ${val(v.codex?.wire)}`,
@@ -237,7 +256,9 @@ function scanFindings(scan) {
 
 function markerLines(scan, id) {
   const b = scan.byMarker?.[id];
-  if (!b) return { lines: [`  - ${id}: not in the scan summary`], token: false, zero: true, b: null };
+  // scanRuntimeLog() makes an entry for every marker it was given, so a missing entry means the
+  // path was not scanned: NOT RUN, never a zero-hit result.
+  if (!b) return { lines: [`  - ${id}: not in the scan summary (this delivery path was not scanned)`], token: false, zero: false, missing: true, b: null };
   return {
     b,
     token: b.tokenVerbatimLines > 0,
@@ -284,7 +305,8 @@ function b2b3b4(probe) {
   const cs = sessionFindings(scan, ['claude-channel']);
   const f2 = [...commonF, ...cs.findings];
   if (c.token) f2.push('the claude-channel fake token appears unredacted in Beacon\'s log');
-  const s2 = step('B2', f2.length ? RESULTS.FINDING : RESULTS.PASS, c.b ? `claude-channel: ${c.b.lines} hit line(s) in Beacon's log${c.zero ? ' (zero hits is a result)' : ''}` : 'claude-channel: no scan entry', [
+  const notScanned = (ids) => `delivery path ${ids.join(', ')} not in the scan summary: not scanned`;
+  const s2 = step('B2', c.missing ? RESULTS.NOT_RUN : f2.length ? RESULTS.FINDING : RESULTS.PASS, c.missing ? notScanned(['claude-channel']) : `claude-channel: ${c.b.lines} hit line(s) in Beacon's log${c.zero ? ' (zero hits is a result)' : ''}`, [
     'Local log (OTLP/hook path), per delivery path:',
     ...common,
     ...c.lines,
@@ -297,7 +319,11 @@ function b2b3b4(probe) {
   const tool = (c.b?.actions ?? []).filter((a) => TOOL_INVOKED_ACTIONS.includes(a));
   const f3 = [...commonF, ...cs.findings];
   if (c.token) f3.push('the claude-channel fake token appears unredacted in Beacon\'s log (B2 and B3 share the marker)');
-  const s3 = step('B3', f3.length ? RESULTS.FINDING : RESULTS.PASS, tool.length ? `tool-invocation capture seen for the claude-channel marker (${tool.join(', ')})` : 'no tool-invocation hit for the claude-channel marker (zero is a result)', [
+  // L1 §11 item 1 point 2 is CONFIRMED from source (outbound MCP tool arguments reach
+  // runtime.jsonl); no tool-invocation capture contradicts it unless the reply was never made.
+  const NO_TOOL = 'no tool-invocation capture of the marker: contradicts L1 §11 item 1 point 2 unless the reply tool was not invoked; the L3 record v1 does not say whether it was';
+  if (!c.missing && !tool.length) f3.push(NO_TOOL);
+  const s3 = step('B3', c.missing ? RESULTS.NOT_RUN : f3.length ? RESULTS.FINDING : RESULTS.PASS, c.missing ? notScanned(['claude-channel']) : tool.length ? `tool-invocation capture seen for the claude-channel marker (${tool.join(', ')})` : `${NO_TOOL} (zero hits is a result, but not a PASS)`, [
     `Tool-invocation actions among the claude-channel hits: ${list(tool)}`,
     'B3 shares B2\'s marker; the L3 record v1 does not split its paths or token lines per action.',
   ], f3);
@@ -308,7 +334,8 @@ function b2b3b4(probe) {
   const f4 = [...commonF, ...xs.findings];
   if (x.token) f4.push('the codex-turn-start fake token appears unredacted in Beacon\'s log');
   if (q.token) f4.push('the codex-queue-add fake token appears unredacted in Beacon\'s log');
-  const s4 = step('B4', f4.length ? RESULTS.FINDING : RESULTS.PASS, `turn/start: ${x.b?.lines ?? '?'} hit line(s); thread/queue/add: ${q.b?.lines ?? '?'} hit line(s)${x.zero && q.zero ? ' (zero hits is a result)' : ''}`, [
+  const missing4 = [['codex-turn-start', x], ['codex-queue-add', q]].filter(([, m]) => m.missing).map(([id]) => id);
+  const s4 = step('B4', missing4.length ? RESULTS.NOT_RUN : f4.length ? RESULTS.FINDING : RESULTS.PASS, missing4.length ? notScanned(missing4) : `turn/start: ${x.b.lines} hit line(s); thread/queue/add: ${q.b.lines} hit line(s)${x.zero && q.zero ? ' (zero hits is a result)' : ''}`, [
     'Local log (OTLP path), per method:',
     ...x.lines,
     ...q.lines,
@@ -357,10 +384,20 @@ export function evaluateL3({ baseline, probe, verify = null, priors = [], notes 
   else for (const id of ['B2', 'B3', 'B4']) steps.push(step(id, RESULTS.NOT_RUN, blocks.probe ?? `the baseline is not evaluable (${blocks.baseline})`));
   for (const id of ['B5', 'B6']) {
     const n = notes[id];
-    steps.push(n ? step(id, n.result, `operator note (not driver evidence): ${n.text}`) : step(id, RESULTS.NOT_RUN, B56_NOT_RUN));
+    steps.push(n ? step(id, n.result, `operator note (not driver evidence): ${oneLine(n.text)}`) : step(id, RESULTS.NOT_RUN, B56_NOT_RUN));
   }
   if (ok('verify') && ok('baseline')) steps.push(b7(runs.verify, runs.baseline));
-  else steps.push(step('B7', RESULTS.NOT_RUN, blocks.verify ?? `the baseline is not evaluable (${blocks.baseline})`));
+  else {
+    // Which harness config files were not restored is safety-relevant, so a verify run that
+    // ended PASS keeps its hash comparison as supporting evidence even when B7 is NOT RUN
+    // (e.g. after the box expired), as B1 does.
+    const evidence = [];
+    if (runs.verify?.manifest?.outcome === 'PASS' && runs.verify.record && runs.baseline?.record) {
+      const d = configDiff(runs.baseline.record.config?.hashes ?? [], runs.verify.record.config?.hashes ?? [], null);
+      evidence.push('Supporting evidence only, not a B7 result: baseline vs. verify, per file:', ...d.lines);
+    }
+    steps.push(step('B7', RESULTS.NOT_RUN, blocks.verify ?? `the baseline is not evaluable (${blocks.baseline})`, evidence));
+  }
 
   // Header facts.
   const recs = PHASES.map((p) => runs[p]?.record).filter(Boolean);
@@ -374,14 +411,16 @@ export function evaluateL3({ baseline, probe, verify = null, priors = [], notes 
   for (const p of PHASES) {
     const r = runs[p];
     if (!r) continue;
-    for (const f of r.manifest.findings ?? []) findings.push(`${p} run: ${f}`);
-    for (const f of r.record?.findings ?? []) findings.push(`${p} record: ${f}`);
+    for (const f of r.manifest.findings ?? []) findings.push(`${p} run: ${oneLine(f)}`);
+    for (const f of r.record?.findings ?? []) findings.push(`${p} record: ${oneLine(f)}`);
   }
   const drivers = PHASES.filter((p) => runs[p]).map((p) => ({ phase: p, m: runs[p].manifest }));
   const irreproducible = drivers.filter(({ m }) => m.driver?.toolsHerdrDirty !== false || !m.driver?.commit).map(({ phase }) => phase);
   if (irreproducible.length) findings.push(`the ${irreproducible.join(', ')} run(s) cannot be reproduced: tools/herdr/ was not clean and committed (driver.toolsHerdrDirty not false, or no driver commit; scripted-runs.md "Driver identity")`);
-  const driverAccepts = drivers.filter(({ m }) => (m.commands ?? []).some((c) => c.role === 'dialog-accept') || /^driver$/i.test(String(m.scenario?.params?.accept ?? ''))).map(({ phase }) => phase);
-  if (driverAccepts.length) findings.push(`driver-sent dialog accepts in the ${driverAccepts.join(', ')} run(s): not accept=human; never verdict-bearing (scripted-runs.md "Operator-consent dialogs")`);
+  // As g1-report.mjs: any accept policy other than exactly `human` (absent included) counts as
+  // not human, as does any dialog-accept command.
+  const driverAccepts = drivers.filter(({ m }) => (m.commands ?? []).some((c) => c.role === 'dialog-accept') || m.scenario?.params?.accept !== 'human').map(({ phase }) => phase);
+  if (driverAccepts.length) findings.push(`accept policy not \`human\` (absent, another value, or a \`dialog-accept\` command) in the ${driverAccepts.join(', ')} run(s); such a run is never verdict-bearing for a consent dialog (scripted-runs.md "Operator-consent dialogs")`);
 
   // Earlier runs of the same scenario at the same pins that ended NOT RUN or FAIL.
   const bm = runs.baseline?.manifest ?? {};
@@ -389,10 +428,10 @@ export function evaluateL3({ baseline, probe, verify = null, priors = [], notes 
   const priorRows = [];
   const priorSkipped = [];
   for (const { manifest: m } of priors) {
-    if ((m.scenario?.file ?? null) !== (bm.scenario?.file ?? null)) priorSkipped.push(`${m.runId ?? '?'} (a different scenario)`);
-    else if (!samePins(m)) priorSkipped.push(`${m.runId ?? '?'} (different harness or herdr versions)`);
-    else if (m.outcome === 'NOT RUN' || m.outcome === 'FAIL') priorRows.push(`earlier run ${tick(m.runId ?? '?')} ended ${m.outcome}${m.outcomeReason ? `: ${m.outcomeReason}` : ''} (No automatic re-submission: a retry is a new run the operator started)`);
-    else priorSkipped.push(`${m.runId ?? '?'} (outcome ${m.outcome ?? 'missing'})`);
+    if ((m.scenario?.file ?? null) !== (bm.scenario?.file ?? null)) priorSkipped.push(`${tick(m.runId ?? '?')} (a different scenario)`);
+    else if (!samePins(m)) priorSkipped.push(`${tick(m.runId ?? '?')} (different harness or herdr versions)`);
+    else if (m.outcome === 'NOT RUN' || m.outcome === 'FAIL') priorRows.push(`earlier run ${tick(m.runId ?? '?')} ended ${m.outcome}${m.outcomeReason ? `: ${oneLine(m.outcomeReason)}` : ''} (No automatic re-submission: a retry is a new run the operator started)`);
+    else priorSkipped.push(`${tick(m.runId ?? '?')} (outcome ${tick(m.outcome ?? 'missing')})`);
   }
   findings.push(...priorRows);
 
@@ -403,7 +442,7 @@ export function evaluateL3({ baseline, probe, verify = null, priors = [], notes 
 
 function driverLine(m) {
   const d = m.driver ?? {};
-  return `herdr (${tick(m.herdr?.observedVersionOutput ?? '?')}, PINS.md \`herdr (test tooling)\` ${m.herdr?.pinnedTag ?? '?'}) via \`tools/herdr/run.mjs\`, scenario ${tick(m.scenario?.file ?? '?')}, driver commit ${tick(d.commit ?? '?')}; \`driver.toolsHerdrDirty\`: ${JSON.stringify(d.toolsHerdrDirty ?? null)}`;
+  return `herdr (${tick(m.herdr?.observedVersionOutput ?? '?')}, PINS.md \`herdr (test tooling)\` ${oneLine(m.herdr?.pinnedTag ?? '?')}) via \`tools/herdr/run.mjs\`, scenario ${tick(m.scenario?.file ?? '?')}, driver commit ${tick(d.commit ?? '?')}; \`driver.toolsHerdrDirty\`: ${JSON.stringify(d.toolsHerdrDirty ?? null)}`;
 }
 
 export function renderL3Draft(ev) {
@@ -414,7 +453,7 @@ export function renderL3Draft(ev) {
   out.push('');
   out.push('> **Draft generated by `tools/herdr/lib/l3-report.mjs` (L3c, #191); reviewed and pasted by L3d (#192).** The runs');
   out.push('> were herdr-driven (`node tools/herdr/run.mjs`, the L3 scenario, one run per phase). Consent-dialog accepts were');
-  out.push(`> \`accept=human\`${driverAccepts.length ? ` EXCEPT in the ${driverAccepts.join(', ')} run(s), which hold driver-sent accepts (see Findings)` : ': no phase run holds a `dialog-accept` command'}. This is not a gate result and`);
+  out.push(`> \`accept=human\`${driverAccepts.length ? ` EXCEPT in the ${driverAccepts.join(', ')} run(s), whose accept policy is not \`human\` (see Findings)` : ': every phase run records accept policy `human` and holds no `dialog-accept` command'}. This is not a gate result and`);
   out.push('> changes no verdict (Beacon\'s PINS.md row: `Gates affected: none`). Step results are PASS / FINDING / NOT RUN; a phase');
   out.push('> run\'s own outcome is not a step result. The operator attestation below is unticked as generated.');
   if (irreproducible.length) {
@@ -431,7 +470,7 @@ export function renderL3Draft(ev) {
   for (const p of PHASES) {
     const r = runs[p];
     out.push(r
-      ? `- **Phase ${p}:** run ${tick(r.manifest.runId ?? '?')}, ${r.manifest.timebox?.start ?? '?'} to ${r.manifest.timebox?.end ?? '?'}; run outcome ${r.manifest.outcome ?? '?'}${r.manifest.outcomeReason ? ` (${r.manifest.outcomeReason})` : ''}`
+      ? `- **Phase ${p}:** run ${tick(r.manifest.runId ?? '?')}, ${tick(r.manifest.timebox?.start ?? '?')} to ${tick(r.manifest.timebox?.end ?? '?')}; run outcome ${tick(r.manifest.outcome ?? '?')}${r.manifest.outcomeReason ? ` (${oneLine(r.manifest.outcomeReason)})` : ''}`
       : `- **Phase ${p}:** no run supplied`);
   }
   out.push('');
@@ -469,7 +508,12 @@ export function renderL3Draft(ev) {
   out.push(`- [ ] **Beacon:** the real, operator-installed Beacon endpoint (\`beacon version\`: ${val(v.beacon)}) ran in Local mode, not a test double.`);
   out.push('- [ ] **Consent dialog:** Claude Code\'s development-channels dialog was accepted by me, a human at the keyboard, during this run.');
   out.push('- **Attested by:** <operator>, <YYYY-MM-DD>');
-  return out.join('\n');
+  // Backstop: every element is exactly one line (its leading indent kept), so no value that
+  // slipped past oneLine() at its source can start a line of its own.
+  return out.map((l) => {
+    const indent = /^ */.exec(l)[0];
+    return indent + oneLine(l.slice(indent.length));
+  }).join('\n');
 }
 
 // --- leak guard ------------------------------------------------------------------------
@@ -569,7 +613,15 @@ export function main(argv, { log = console.log, error = console.error } = {}) {
       return 4;
     }
     if (err instanceof L3ReportError) {
-      error(`l3-report: ${err.message}\nusage: node tools/herdr/lib/l3-report.mjs --baseline <run dir> --probe <run dir> [--verify <run dir>] [--prior <run dir> ...] [--note B5='<PASS|FINDING|NOT RUN>: <text>'] [--note B6=...]`);
+      // Refusal messages carry only safe ids by construction (safeId, safeVersion, safePhase);
+      // they also pass the leak guard, and a message that fails it is not printed.
+      let msg = oneLine(err.message);
+      try {
+        leakGuard(msg);
+      } catch {
+        msg = 'input refused; the refusal message was withheld because it failed the leak guard';
+      }
+      error(`l3-report: ${msg}\nusage: node tools/herdr/lib/l3-report.mjs --baseline <run dir> --probe <run dir> [--verify <run dir>] [--prior <run dir> ...] [--note B5='<PASS|FINDING|NOT RUN>: <text>'] [--note B6=...]`);
       return 2;
     }
     // Anything else: name the error type only, so no unchecked text reaches the terminal.

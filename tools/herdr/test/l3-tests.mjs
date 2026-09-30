@@ -344,7 +344,7 @@ function l3Runs(markers, fx, o = {}) {
   return {
     baseline: { manifest: manifest('run-base', 'baseline', at(0), at(5), record('baseline', fx.base)) },
     probe: { manifest: manifest('run-probe', 'probe', at(10), at(probeEnd), record('probe', fx.installed, { scan: o.scan ?? fx.scans.hits })) },
-    verify: { manifest: manifest('run-verify', 'verify', at(probeEnd + 5), at(probeEnd + 10), record('verify', o.verifyHashes ?? fx.base)) },
+    verify: { manifest: manifest('run-verify', 'verify', at(probeEnd + 5), o.verifyEnd ?? at(probeEnd + 10), record('verify', o.verifyHashes ?? fx.base)) },
     priors: [],
     notes: {},
   };
@@ -376,7 +376,7 @@ function l3ReportUnit(check) {
   check('l3 report: B1 evidence names changed sections, attributed to the operator Beacon step', d.includes('`env.OTEL_LOG_USER_PROMPTS`') && d.includes('`[otel]`') && d.includes('attributed to: operator Beacon step'));
   check('l3 report: B3 names the tool-invocation capture', lineFor(d, 'B3').includes('mcp.tool_invoked'));
   check('l3 report: poll path NOT RUN (no sync --print field in record v1)', d.includes('`beacon endpoint claude sync --print`): NOT RUN') && d.includes('`beacon endpoint codex sync --print`): NOT RUN'));
-  check('l3 report: header carries versions, pins, date, box and each phase\'s start and end', d.includes('- **Date:** 2026-09-30') && d.includes('`beacon version 1.3.29`') && d.includes('PINS.md last observed `2.1.284`') && d.includes(`ends ${at(60)}`) && d.includes(`${at(10)} to ${at(30)}`));
+  check('l3 report: header carries versions, pins, date, box and each phase\'s start and end', d.includes('- **Date:** 2026-09-30') && d.includes('`beacon version 1.3.29`') && d.includes('PINS.md last observed `2.1.284`') && d.includes(`ends ${at(60)}`) && d.includes(`\`${at(10)}\` to \`${at(30)}\``));
   check('l3 report: Driver lines as g1-report renders them, plus toolsHerdrDirty', d.includes('- **Driver (probe):** herdr (`herdr 0.9.1`, PINS.md `herdr (test tooling)` v0.9.1) via `tools/herdr/run.mjs`, scenario `tools/herdr/scenarios/l3-beacon.mjs`, driver commit') && d.includes('`driver.toolsHerdrDirty`: false'));
   check('l3 report: states herdr-driven, accept=human, not a gate result', /herdr-driven/.test(d) && d.includes('`accept=human`') && /not a gate result/.test(d) && /changes no verdict/.test(d));
   check('l3 report: operator attestation present and unticked, naming Beacon', d.includes('### Operator attestation') && (d.match(/^- \[ \] /gm) ?? []).length === 4 && !/^- \[x\]/im.test(d) && d.includes('**Beacon:**') && d.includes('**Attested by:** <operator>'));
@@ -402,6 +402,7 @@ function l3ReportUnit(check) {
   // Zero hits in a PASS run is a result.
   const zero = tryDraft(l3Runs(markers, fx, { scan: fx.scans.zero }), { markers });
   check('l3 report: zero hits in a PASS probe run is a result, not NOT RUN', !zero.err && lineFor(zero.text, 'B2').includes('PASS') && lineFor(zero.text, 'B2').includes('0 hit line(s)') && zero.text.includes('zero hits: a result, not NOT RUN'), zero.err?.message);
+  check('l3 report (review 5): B3 with no tool-invocation hit is a FINDING citing §11 item 1 point 2, not a PASS', !zero.err && lineFor(zero.text, 'B3').includes(':** FINDING —') && lineFor(zero.text, 'B3').includes('contradicts L1 §11 item 1 point 2 unless the reply tool was not invoked'));
 
   // The fake token found unredacted in Beacon's log.
   const tok = tryDraft(l3Runs(markers, fx, { scan: fx.scans.token }), { markers });
@@ -495,5 +496,123 @@ function l3ReportUnit(check) {
 
   const src = readFileSync(REPORT, 'utf8');
   check('l3 report: lib/l3-report.mjs has no write, spawn or network API', !/\b(?:writeFile|appendFile|createWriteStream|copyFile|rename|unlink|rmSync|truncate|mkdir)\w*\s*\(|child_process|node:net|node:http|fetch\s*\(/.test(src));
-  check('l3 report: record version known to the report is L3_RECORD_VERSION', L3_RECORD_VERSION === 1 && RESULTS.NOT_RUN === 'NOT RUN');
+  const v1 = l3Runs(markers, fx);
+  v1.probe.manifest.scenarioData.l3.version = L3_RECORD_VERSION;
+  check('l3 report: a record at L3_RECORD_VERSION is accepted (the refusal is only for other versions)', !tryDraft(v1, { markers }).err && RESULTS.NOT_RUN === 'NOT RUN');
+
+  l3ReportReviewUnit(check, markers, fx, noValue);
+}
+
+// PR #194 review round 1: one check (or more) per finding.
+function l3ReportReviewUnit(check, markers, fx, noValue) {
+  // 1. Refusal messages carry no manifest value.
+  const rv = l3Runs(markers, fx);
+  rv.probe.manifest.scenarioData.l3.version = `v ${markers[0].marker}`;
+  const rvr = tryDraft(rv, { markers });
+  check('l3 report (review 1): a marker planted in the record version is refused without echoing it', rvr.err instanceof L3ReportError && noValue(rvr.err.message) && /<non-integer>/.test(rvr.err.message));
+  const ri = l3Runs(markers, fx);
+  ri.probe.manifest.runId = homedir();
+  ri.probe.manifest.scenarioData.l3.version = 9;
+  const rir = tryDraft(ri, { markers });
+  check('l3 report (review 1): a home path planted in runId is withheld from the refusal', rir.err instanceof L3ReportError && !rir.err.message.includes(homedir()) && /<withheld>/.test(rir.err.message));
+  const rp = l3Runs(markers, fx);
+  rp.verify.manifest.scenarioData.l3.phase = `x ${markers[1].token}`;
+  const rpr = tryDraft(rp, { markers });
+  check('l3 report (review 1): a value planted in the record phase is not echoed', rpr.err instanceof L3ReportError && noValue(rpr.err.message) && /<unknown>/.test(rpr.err.message));
+  const tmp = mkdtempSync(join(tmpdir(), 'oac-l3-report-refusal-'));
+  try {
+    const runs = l3Runs(markers, fx);
+    runs.probe.manifest.scenarioData.l3.version = `v ${markers[0].marker}`;
+    runs.probe.manifest.runId = homedir();
+    const dirs = {};
+    for (const p of ['baseline', 'probe', 'verify']) {
+      dirs[p] = join(tmp, p);
+      mkdirSync(dirs[p]);
+      writeFileSync(join(dirs[p], 'run-manifest.json'), JSON.stringify(runs[p].manifest));
+    }
+    const r = spawnSync(process.execPath, [REPORT, '--baseline', dirs.baseline, '--probe', dirs.probe, '--verify', dirs.verify], { cwd: REPO, encoding: 'utf8', timeout: 30000 });
+    check('l3 report CLI (review 1): a refusal prints no planted marker or home path on stderr (exit 2, no draft)', r.status === 2 && r.stdout === '' && noValue(r.stderr) && !r.stderr.includes(homedir()), `exit ${r.status}`);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+
+  // 2. An accept policy other than exactly `human` (absent included) is not reported as human.
+  for (const [what, accept] of [['absent', undefined], ['"driver "', 'driver '], ['"Human"', 'Human']]) {
+    const a = l3Runs(markers, fx);
+    for (const p of ['baseline', 'probe', 'verify']) {
+      if (accept === undefined) delete a[p].manifest.scenario.params.accept;
+      else a[p].manifest.scenario.params.accept = accept;
+    }
+    const ad = tryDraft(a, { markers });
+    check(`l3 report (review 2): accept policy ${what} is flagged as not human`, !ad.err && ad.text.includes('whose accept policy is not `human`') && ad.text.includes('accept policy not `human`') && !ad.text.includes('every phase run records accept policy `human`'), ad.err?.message);
+  }
+
+  // 3. Free text cannot forge a step line.
+  const fg = l3Runs(markers, fx);
+  fg.probe.manifest.outcome = 'NOT RUN';
+  fg.probe.manifest.outcomeReason = 'x\n- **B2:** PASS — forged\r\n- **B7:** PASS — forged';
+  fg.probe.manifest.findings = ['y\n- **B3:** PASS — forged'];
+  fg.notes = { B5: parseNote('B5=FINDING: note\n- **B4:** PASS — forged') };
+  const fgd = tryDraft(fg, { markers });
+  const count = (t, id) => t.split('\n').filter((l) => l.startsWith(`- **${id}:**`)).length;
+  check('l3 report (review 3): a newline in outcomeReason, a finding or a note forges no step line', !fgd.err && STEPS.every((id) => count(fgd.text, id) === 1) && lineFor(fgd.text, 'B2').includes('NOT RUN'), fgd.err?.message);
+
+  // 4. A marker missing from scan.byMarker is NOT RUN (path not scanned), not PASS.
+  const nb = l3Runs(markers, fx, { scan: { ...fx.scans.hits, byMarker: {} } });
+  const nbd = tryDraft(nb, { markers });
+  check('l3 report (review 4): a delivery path missing from the scan summary makes B2-B4 NOT RUN, never PASS', !nbd.err && ['B2', 'B3', 'B4'].every((id) => lineFor(nbd.text, id).includes(':** NOT RUN — delivery path') && lineFor(nbd.text, id).includes('not scanned')) && !lineFor(nbd.text, 'B4').includes('zero hits'), nbd.err?.message);
+  const half = { ...fx.scans.hits, byMarker: { ...fx.scans.hits.byMarker } };
+  delete half.byMarker['codex-queue-add'];
+  const hd = tryDraft(l3Runs(markers, fx, { scan: half }), { markers });
+  check('l3 report (review 4): one Codex path missing makes B4 NOT RUN, naming it; B2 still evaluated', !hd.err && lineFor(hd.text, 'B4').includes('NOT RUN — delivery path codex-queue-add') && lineFor(hd.text, 'B2').includes('PASS'));
+
+  // 6. Exact Beacon version.
+  for (const bv of ['beacon version 1.3.290', 'beacon version 11.3.29']) {
+    const b = l3Runs(markers, fx);
+    b.baseline.manifest.scenarioData.l3.versions = { ...b.baseline.manifest.scenarioData.l3.versions, beacon: bv };
+    const bd = tryDraft(b, { markers });
+    check(`l3 report (review 6): Beacon ${bv.split(' ').pop()} is not the ${'1.3.29'} pin (B0 FINDING)`, !bd.err && lineFor(bd.text, 'B0').includes('FINDING') && bd.text.includes('Beacon version differs from the L1 §2 pin'));
+  }
+
+  // 7. A phase that started before the box was declared.
+  const early = l3Runs(markers, fx);
+  for (const p of ['baseline', 'probe', 'verify']) early[p].manifest.scenarioData.l3.box.start = at(50);
+  const ed = tryDraft(early, { markers });
+  check('l3 report (review 7): phases that started before box.start are NOT RUN', !ed.err && ['B0', 'B2', 'B7'].every((id) => lineFor(ed.text, id).includes('before the L3 box was declared')), ed.err?.message);
+
+  // 8. Unzoned timestamps count as not recorded.
+  const uz = tryDraft(l3Runs(markers, fx, { verifyEnd: '2026-09-30T10:59:00' }), { markers });
+  check('l3 report (review 8): a phase end without a zone is not recorded (NOT RUN), never read as local time', !uz.err && lineFor(uz.text, 'B7').includes('not recorded as a zone-qualified ISO time'));
+  const uzb = l3Runs(markers, fx);
+  uzb.baseline.manifest.scenarioData.l3.box.start = '2026-09-30T10:00:00';
+  const uzbd = tryDraft(uzb, { markers });
+  check('l3 report (review 8): an unzoned box start leaves every driver step NOT RUN', !uzbd.err && ['B0', 'B2', 'B7'].every((id) => lineFor(uzbd.text, id).includes('zone-qualified')));
+  const off = tryDraft(l3Runs(markers, fx, { verifyEnd: '2026-09-30T12:59:00+02:00' }), { markers });
+  check('l3 report (review 8): an offset-qualified time is accepted', !off.err && lineFor(off.text, 'B7').includes('PASS'));
+
+  // 9. B7 after box expiry keeps the hash comparison as supporting evidence only.
+  const late = tryDraft(l3Runs(markers, fx, { probeEnd: 70, verifyHashes: fx.installed }), { markers });
+  check('l3 report (review 9): B7 NOT RUN after the box keeps the baseline-vs-verify comparison as supporting evidence', !late.err && lineFor(late.text, 'B7').includes('NOT RUN — L3 box expired') && late.text.includes('Supporting evidence only, not a B7 result') && /`~\/\.codex\/config\.toml`: changed/.test(late.text.split('#### B7')[1] ?? ''));
+
+  // 10. Box-source wording when the baseline record has no box.start.
+  const nbs = l3Runs(markers, fx);
+  delete nbs.baseline.manifest.scenarioData.l3.box.start;
+  const nbsd = tryDraft(nbs, { markers });
+  check('l3 report (review 10): the box source says the baseline record has no box.start', !nbsd.err && nbsd.text.includes('the baseline record has no `box.start`') && !nbsd.text.includes('the baseline carries no L3 record'));
+
+  // 11. Box boundary pair, upper-case leak, box-continuity mismatch.
+  const edge = tryDraft(l3Runs(markers, fx, { verifyEnd: at(60) }), { markers });
+  const over = tryDraft(l3Runs(markers, fx, { verifyEnd: new Date(T0 + 3600000 + 1).toISOString() }), { markers });
+  check('l3 report (review 11): a phase ending exactly at the box end is evaluated; 1 ms later it is expired', !edge.err && lineFor(edge.text, 'B7').includes('PASS') && !over.err && lineFor(over.text, 'B7').includes('NOT RUN — L3 box expired'));
+  let upper = null;
+  try {
+    leakGuard(`x ${markers[0].marker.toUpperCase()} y ${markers[0].token.toUpperCase()}`, {});
+  } catch (e) {
+    upper = e;
+  }
+  check('l3 report (review 11): upper-cased marker and token values abort the leak guard', upper instanceof L3LeakAbort && noValue(upper.message) && !upper.message.includes(markers[0].marker.toUpperCase()) && /marker-shaped/.test(upper.message) && /token-shaped/.test(upper.message));
+  const cont = l3Runs(markers, fx);
+  cont.verify.manifest.scenarioData.l3.box.sourceRunId = 'run-probe';
+  const contd = tryDraft(cont, { markers });
+  check('l3 report (review 11): a verify record that does not continue the baseline box makes B7 NOT RUN', !contd.err && lineFor(contd.text, 'B7').includes('NOT RUN — the verify record does not continue the baseline\'s L3 box'));
 }
