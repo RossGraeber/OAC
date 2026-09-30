@@ -5,8 +5,8 @@
 // pane process's argv reads `node <temp>/bin/codex`, the shape of an npm-installed Codex),
 // and test/fake-herdr.mjs starts it for `agent start --kind codex` in `fake-codex` mode.
 //
-// It is not Codex and proves nothing about Codex. Its screen text, its dialog, its
-// in-progress indicator and its daemon are this file's inventions; its app-server frames
+// It is not Codex and proves nothing about Codex. Its screen text, its in-progress indicator
+// and its daemon are this file's inventions (its trust dialog copies the text seen live, #199); its app-server frames
 // imitate the shapes in the committed G2 fixtures (docs/planning/gates/fixtures/
 // g2-codex-inject/) closely enough to run the REAL quarantined G2 client against it,
 // unmodified: WebSocket over a Unix socket through `codex app-server proxy`.
@@ -33,7 +33,9 @@
 //   FAKE_CODEX_CLI_VERSION     `codex --version`
 //   FAKE_CODEX_DAEMON_VERSION  `codex app-server daemon version`
 //   FAKE_CODEX_WIRE_VERSION    the initialize result's userAgent
-//   FAKE_CODEX_DIALOG          trust (default) | unknown | none
+//   FAKE_CODEX_DIALOG          trust (default; the 0.159.2 trust dialog, #199) | trust-note (with
+//                              its optional Note block) | trust-double-marker |
+//                              trust-extra-option | trust-back-preselected | unknown | none
 //   FAKE_CODEX_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                              operator pressing Enter outside the driver)
 //   FAKE_CODEX_NO_ATTACH       1 = the TUI never connects to the daemon (embedded server)
@@ -386,12 +388,62 @@ async function tui(overrides = {}) {
     keysSeen = lines.length;
     return fresh;
   };
+  // #199: the workspace-trust dialog as seen live on Codex 0.159.2 (lib/g2.mjs
+  // CODEX_DIALOG_KINDS), with this process's cwd in place of the redacted scratch path. `trust`
+  // omits the optional Note block, `trust-note` shows it; the other trust-* variants are
+  // off-record shapes the driver must refuse. The selection moves with up/down; Enter on
+  // "Trust and continue" goes on, Enter on anything else leaves (as "Back" does), so a wrong
+  // Enter shows up as a failed run.
   const DIALOG = env.FAKE_CODEX_DIALOG || 'trust';
+  const CWD = process.cwd();
+  const NOTE = ['  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:', `  ${CWD}`, ''];
+  const trustDialog = ({ note = false, options = ['Trust and continue', 'Back to Agent Command Center'], selected = 0, marks = null } = {}) => ({
+    head: [`  ${CWD}`, '', ...(note ? NOTE : []), '  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings', '  can run code automatically, even without a model request. Continue only if you trust these files. Your trust', '  …'],
+    options,
+    selected,
+    marks,
+    foot: ['', '  enter continue · esc back'],
+  });
+  const OPTION_DIALOGS = {
+    trust: trustDialog(),
+    'trust-note': trustDialog({ note: true }),
+    'trust-double-marker': trustDialog({ marks: [0, 1] }),
+    'trust-extra-option': trustDialog({ options: ['Trust and continue', 'Back to Agent Command Center', 'Trust once'] }),
+    'trust-back-preselected': trustDialog({ selected: 1 }),
+  };
   const DIALOGS = {
-    trust: ['You are running Codex in a folder it has not seen before.', '', 'Do you trust the files in this folder?', '', '› 1. Yes, continue', '  2. No, quit', '', 'Press enter to continue'],
     unknown: ['Something new needs your attention', '› 1. Continue', '  2. Stop', 'Press enter to confirm'],
   };
-  if (DIALOG !== 'none') {
+  if (OPTION_DIALOGS[DIALOG]) {
+    const def = OPTION_DIALOGS[DIALOG];
+    let sel = def.selected;
+    const render = () => [...def.head, ...def.options.map((o, i) => `${(def.marks ?? [sel]).includes(i) ? '› ' : '  '}${i + 1}. ${o}`), ...def.foot].join('\n');
+    setScreen(render());
+    hist(render());
+    setState('blocked');
+    const selfAt = env.FAKE_CODEX_SELF_ACCEPT_MS ? Date.now() + Number(env.FAKE_CODEX_SELF_ACCEPT_MS) : Infinity;
+    for (let done = false; !done; ) {
+      if (Date.now() >= selfAt) {
+        sel = 0;
+        break;
+      }
+      for (const k of newKeys().map((x) => x.trim())) {
+        if (k === 'enter') {
+          done = true;
+          break;
+        }
+        if (k === 'down') sel = Math.min(def.options.length - 1, sel + 1);
+        if (k === 'up') sel = Math.max(0, sel - 1);
+        setScreen(render());
+      }
+      if (!done) await sleep(50);
+    }
+    if (def.options[sel] !== 'Trust and continue') {
+      hist(`[trust: "${def.options[sel]}" confirmed; leaving]`);
+      process.exit(0);
+    }
+    hist('[dialog accepted]');
+  } else if (DIALOG !== 'none') {
     const text = DIALOGS[DIALOG].join('\n');
     setScreen(text);
     hist(text);

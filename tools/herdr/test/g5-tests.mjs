@@ -243,9 +243,12 @@ export function g5Cases(check) {
     check('g5 pin move (daemon): NOT RUN naming G5, before any launch or delivery', r.status === 3 && /^PIN-MOVE TRIGGER: `codex app-server daemon version` cliVersion reports 0\.158\.0/.test(m.outcomeReason) && /re-running G5/.test(m.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')) && m.scenarioData.g5.injectionsSent.length === 0, m.outcomeReason);
   });
 
-  run('g5 client divergence at X4', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_REJECT: 'thread/queue/add' } }, (r) => {
+  // #199: the fake Codex shows its trust dialog (the 0.159.2 text); the driver accepts it.
+  run('g5 client divergence at X4', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_REJECT: 'thread/queue/add' } }, (r) => {
     const m = r.manifest;
     const g5 = m.scenarioData.g5;
+    const cx = g5.dialogs.filter((d) => d.agent === 'codex');
+    check('g5 driver #199: the Codex trust dialog was read, then accepted by the driver with `enter` alone, straight after a read', cx.length === 1 && cx[0].kind === 'workspace-trust' && cx[0].acceptOrigin === 'driver' && JSON.stringify(cx[0].acceptKeys?.map((k) => k.key)) === '["enter"]' && cx[0].inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === cx[0].acceptSeq - 1)?.argv.includes('read'), JSON.stringify(g5.dialogs));
     check('g5 divergence: FAIL, recorded as a divergence and a finding; nothing re-sent', r.status === 1 && /did not work unmodified/.test(m.outcomeReason) && g5.divergence.length === 1 && /thread\/queue\/add/.test(g5.divergence[0]) && m.findings.some((f) => /divergence/.test(f)), m.outcomeReason);
     const xf = g5CodexFacts(parseJsonl(r.capture(names().transcriptCodex)), { question: table.operatorQuestion });
     check('g5 divergence: X1-X3 delivered once each, thread/queue/add sent once, X5 and X6 never sent', xf.deliveries.map((d) => d.case).join() === 'X1,X2,X3,X4' && xf.queueAdds.length === 1);

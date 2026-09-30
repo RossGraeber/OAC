@@ -364,10 +364,14 @@ export function g4Cases(check) {
     check('g4 draft entries (built directly, whatever the checkout state): Codex-touching entries carry an applicable:false schema; the transcript\'s coverage names the Claude-modern and Codex-legacy calls', entries[0].schema.applicable === false && entries[2].schema.applicable === false && !('schema' in entries[1]) && !!entries[0].coverage['tools/call (Claude HTTP-modern)'] && !!entries[0].coverage['tools/call (Codex HTTP legacy)']);
   });
 
-  run('g4 driver accept', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37458, 37460)], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+  // #199: the fake Codex shows its trust dialog as seen live on 0.159.2; the driver accepts it
+  // (enter) as it does Claude Code's dev-channels dialog.
+  run('g4 driver accept', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37458, 37460)], fakeCodex: {} }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
-    check('g4 driver: PASS; each recognized dialog read, then accepted by the driver with no input in between', r.status === 0 && g4.dialogs.length === 1 && g4.dialogs[0].agent === 'claude' && g4.dialogs.every((d) => d.acceptOrigin === 'driver' && d.inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === d.acceptSeq - 1)?.argv.includes('read')), `${m.outcome} ${m.outcomeReason}`);
+    const cx = g4.dialogs.find((d) => d.agent === 'codex');
+    check('g4 driver #199: the Codex trust dialog was accepted by the driver with `enter` alone', cx?.kind === 'workspace-trust' && JSON.stringify(cx.acceptKeys?.map((k) => k.key)) === '["enter"]', JSON.stringify(g4.dialogs));
+    check('g4 driver: PASS; each recognized dialog read, then accepted by the driver with no input in between', r.status === 0 && g4.dialogs.length === 2 && g4.dialogs.map((d) => d.agent).sort().join() === 'claude,codex' && g4.dialogs.every((d) => d.acceptOrigin === 'driver' && d.inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === d.acceptSeq - 1)?.argv.includes('read')), `${m.outcome} ${m.outcomeReason}`);
     check('g4 driver: the report still scores nothing on the accept (no G4 criterion names it)', evalRun(r).rows.map((x) => x.score).join('|') === [SCORES.NE, SCORES.EQ, SCORES.EQ, SCORES.EQ, SCORES.NE].join('|'));
   });
 

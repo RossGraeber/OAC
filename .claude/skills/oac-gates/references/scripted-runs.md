@@ -173,6 +173,24 @@ MCP-server-approval and `--dangerously-load-development-channels` dialogs itself
 included (second operator decision on #196, 2026-09-30: "G1 is fully driver-accepted").
 `accept=human` is still available.
 
+**Amended 2026-09-30 (#199).** The driver also accepts Codex's workspace-trust dialog, as
+recorded live on Codex CLI / app-server 0.159.2 (Windows, TUI attached to the daemon):
+options "1. Trust and continue", "2. Back to Agent Command Center", marker `›`, option 1
+preselected, so the driver sends `enter` alone. The kind table is `CODEX_DIALOG_KINDS` in
+`tools/herdr/lib/g2.mjs`; every rule below applies to it unchanged. It also has these
+checks:
+
+- Its options must carry their numbers in order.
+- The selection must show the `›` marker.
+- The footer must be exactly "enter continue · esc back"; the sandbox footer, or none, is
+  refused.
+- The question paragraph must be the one recorded from Codex source, whole or truncated
+  with "…".
+- The optional "Note: You’re in a subdirectory of a Git project…" block above the question
+  must match the recorded text when it appears, and is never an option.
+
+Decision record: `K-196-driver-accepts-dialogs.md` §6.
+
 - **Read before any keystroke.** The driver reads the dialog's pane text verbatim
   (`--source visible`) and keeps it in the pane capture before it sends any key.
 - **Recognized dialogs only, and the pane decides the keys.** The kind table
@@ -195,7 +213,8 @@ included (second operator decision on #196, 2026-09-30: "G1 is fully driver-acce
   ends the run `NOT RUN`, and nothing is re-sent.
 - **Every other dialog is refused (#197 review).** A kind with no option text on record is
   never driver-accepted, whatever is preselected: Claude Code's tool-permission prompt ("Do
-  you want to proceed?"), and every Codex dialog (`CODEX_DIALOG_KINDS` lists no options).
+  you want to proceed?"), and every Codex dialog other than the trust dialog on record
+  (#199).
   The run ends `NOT RUN` with no key sent. A run that may meet one uses `accept=human`.
   Tool approval is not in #196's scope. Driver-approving it would need its own recorded
   decision and a security note (`oac-security-work`, permission relay).
@@ -227,8 +246,8 @@ attestation:
   `docs/planning/backlog/05-tasks-GHIJ.json` G11) is a consent step by definition. This file
   grants no permission to driver-accept it in any test. That stays K8's call and needs a
   recorded operator decision.
-- **Other dialogs.** Tool-permission prompts and Codex dialogs are never driver-accepted
-  (above). If a criterion later names any dialog as a consent step, the human rule above
+- **Other dialogs.** Tool-permission prompts and Codex dialogs other than its trust dialog
+  are never driver-accepted (above). No G2, G4 or G5 criterion names Codex's trust dialog. If a criterion later names any dialog as a consent step, the human rule above
   applies to it until an operator decision says otherwise.
 
 **The origin `human` is inferred.** Under `accept=human` the driver sends no key and waits
