@@ -325,7 +325,10 @@ export default {
       const ready = await waitCodexReady({
         read: codex.read,
         handleDialog: codex.handleDialog,
-        listLoaded: async () => loadedSince(clientFacts().wire.loadedLists, (await runClient('list', [])).linesBefore),
+        listLoaded: async () => {
+          const { linesBefore } = await runClient('list', []);
+          return loadedSince(clientFacts().wire.loadedLists, linesBefore); // read after the poll: its own answer only
+        },
         preLoaded: g5.preLaunchLoaded,
         timeoutMs: num('readyTimeoutMs'),
         pollMs: num('listPollMs'),
