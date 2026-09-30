@@ -158,15 +158,28 @@ path redacted to `<SCRATCH>`:
 **Mechanics.** The entry is `CODEX_DIALOG_KINDS['workspace-trust']` in
 `tools/herdr/lib/g2.mjs`: options exactly "Trust and continue", "Back to Agent Command
 Center", numbered 1 and 2 in that order; preselection and accepting option both option 1;
-selection marker `›` (not Claude Code's `❯`); footer "enter continue · esc back". The driver
-sends `enter` alone, straight after the read that planned it. Everything in §2 holds: the
-pane is read verbatim first, there must be exactly one selection marker, and unknown, extra
-or reordered options, a different preselection, other numbering or another marker are
-refused (`NOT RUN`, no key). The Enter is bounded by the post-accept wait and never
-re-sent. The Note block sits above the question and is body text, accepted present or
-absent. Codex's other variants of this dialog are not on record and are refused: "Quit" or
-"Keep current directory" as option 2 (not attached to a daemon, or an existing task), and
-"Open restricted" as option 1.
+selection marker `›` (not Claude Code's `❯`). The driver sends `enter` alone, straight after
+the read that planned it. Everything in §2 holds: the pane is read verbatim first, there must
+be exactly one selection marker, and unknown, extra or reordered options, a different
+preselection, other numbering or another marker are refused (`NOT RUN`, no key). The Enter is
+bounded by the post-accept wait and never re-sent.
+
+Tightened on the PR #201 review:
+
+- **Footer.** The footer must be exactly the line "enter continue · esc back". A pane
+  without it is refused. So is Codex's other footer, "enter continue and create sandbox ·
+  esc back", where Enter also creates the Windows sandbox.
+- **Question paragraph.** It is recorded verbatim from `trust_directory.rs` at
+  `rust-v0.159.2`: "Trust this folder? … Your trust decision will be saved." The lines
+  between it and option 1 must be that paragraph, either whole or as a prefix ending in
+  "…" (the capture shows it truncated). Detection is anchored at a line start, so the phrase
+  quoted elsewhere does not start a dialog.
+- **Note block.** It sits above the question and may be present or absent. When present, it
+  must be exactly the recorded text.
+- **Below the footer.** A selection-marked line there counts as a second marker.
+
+Codex's other variants of this dialog are not on record and are refused: "Quit" as option 2
+(TUI not attached to a daemon), and "Open restricted" or "Open existing task" as option 1.
 
 **Why "a subdirectory of a Git project" whose root is the directory itself.** No scenario
 runs `git init`. Every scratch project is a plain directory made by `ctx.dir()` under
@@ -193,7 +206,7 @@ text.
 "no option text on record".
 
 **Where it lands.** `tools/herdr/lib/g2.mjs` (the entry), `tools/herdr/lib/g1.mjs`
-(`numbered`, `marker` and `footer` kind fields), `tools/herdr/test/fake-codex.mjs` (the
+(`numbered`, `marker`, `footer`, `body` and `note` kind fields), `tools/herdr/test/fake-codex.mjs` (the
 dialog with and without the Note, and three refused variants), the G2 unit and lifecycle
 tests, and one driver-accepted Codex trust dialog in each of the G4, G5 and L3 lifecycles.
 Also `scripted-runs.md` (dated amendment), `tools/herdr/README.md` "Dialogs", and the G2

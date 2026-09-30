@@ -177,10 +177,19 @@ included (second operator decision on #196, 2026-09-30: "G1 is fully driver-acce
 recorded live on Codex CLI / app-server 0.159.2 (Windows, TUI attached to the daemon):
 options "1. Trust and continue", "2. Back to Agent Command Center", marker `›`, option 1
 preselected, so the driver sends `enter` alone. The kind table is `CODEX_DIALOG_KINDS` in
-`tools/herdr/lib/g2.mjs`; every rule below applies to it unchanged. Its options must also
-carry their numbers in order, and the selection must show the `›` marker. The optional
-"Note: You’re in a subdirectory of a Git project…" block above the question is body text,
-never an option. Decision record: `K-196-driver-accepts-dialogs.md` §6.
+`tools/herdr/lib/g2.mjs`; every rule below applies to it unchanged. It also has these
+checks:
+
+- Its options must carry their numbers in order.
+- The selection must show the `›` marker.
+- The footer must be exactly "enter continue · esc back"; the sandbox footer, or none, is
+  refused.
+- The question paragraph must be the one recorded from Codex source, whole or truncated
+  with "…".
+- The optional "Note: You’re in a subdirectory of a Git project…" block above the question
+  must match the recorded text when it appears, and is never an option.
+
+Decision record: `K-196-driver-accepts-dialogs.md` §6.
 
 - **Read before any keystroke.** The driver reads the dialog's pane text verbatim
   (`--source visible`) and keeps it in the pane capture before it sends any key.

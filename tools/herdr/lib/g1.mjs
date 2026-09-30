@@ -146,7 +146,11 @@ const SELECT_MARK_UNNUMBERED = /^[\s│|]*[❯›▶▸→]\s*(\S.*?)\s*[│|]*\
 //             indentation (a numbered extra option is still refused);
 //   marker    the one selection marker on record: a selection shown with any other marker is
 //             refused;
-//   footer    the kind's own footer pattern (default: DEFAULT_FOOTER).
+//   footer    the kind's own footer pattern (default: DEFAULT_FOOTER); when set, a read
+//             without it is refused, and a selection marker below it counts;
+//   body      the question paragraph between the detect line and the options, verbatim: the
+//             pane must show it whole or as a prefix ending in "…";
+//   note      an optional block above the question: if shown, it must be exactly this text.
 export const DIALOG_KINDS = Object.freeze({
   'dev-channels': {
     // Box C, verbatim (the one live-observed dialog); the same text and preselection were seen
@@ -226,6 +230,14 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
   if (!m) return null;
   const rest = s.slice(s.lastIndexOf('\n', m.index) + 1);
   const foot = (def.footer ?? DEFAULT_FOOTER).exec(rest);
+  // A kind that records its own footer must show exactly it (#201 review): a different footer
+  // (Codex's "enter continue and create sandbox · esc back") or none at all is off record.
+  if (def.footer && !foot) {
+    const r = [];
+    r.marked = 0;
+    r.unknown = ['(recorded footer not on screen)'];
+    return r;
+  }
   // Numbered options run together on one line (Box C's transcription: "1. … 2. Exit") are
   // split at the next number, as selectedOption reads them.
   const region = (foot ? rest.slice(0, foot.index) : rest)
@@ -251,6 +263,7 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
   // "Trust this folder? …" paragraph); there, only a numbered line before the options is one.
   const optionCol = def.numbered ? null : (parsed.find((p) => p.selected)?.col ?? null);
   let inOptions = false;
+  const bodyLines = [];
   for (const p of parsed) {
     if (p.selected) marked += 1;
     if (!p.body) continue;
@@ -258,10 +271,47 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
     if (known || p.selected) inOptions = true;
     if (known) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected, mark: p.mark });
     else if (inOptions || p.num !== undefined || (optionCol !== null && p.col === optionCol)) unknown.push(p.body);
+    else bodyLines.push(p.body);
+  }
+  // A kind that records its question paragraph (`body`, #201 review): the text between the
+  // detect line and the first option must be that paragraph, whole, or a prefix of it ending
+  // in "…" (Codex truncates it to fit). Anything else there is off record.
+  if (def.body && !bodyMatches(bodyLines, def.body)) unknown.push('(question text off record)');
+  // A kind that records an optional block above its question (`note`): if the block is on
+  // screen, it must be exactly the recorded text.
+  if (def.note) {
+    const above = s.slice(0, s.lastIndexOf('\n', m.index) + 1).split(/\r?\n/);
+    const at = above.findIndex((l) => /^\s*Note:/.test(l));
+    if (at !== -1) {
+      // The block may wrap; its lines are read until they add up to the recorded text's
+      // length (the repository-root path follows it directly and is not checked).
+      let got = '';
+      for (const l of above.slice(at)) {
+        if (!l.trim() || got.length >= def.note.length) break;
+        got = `${got} ${l.trim()}`.replace(/\s+/g, ' ').trim();
+      }
+      if (got !== def.note) unknown.push('(note text off record)');
+    }
+  }
+  // Below a recorded footer: another selection-marked line (a second dialog, a stray picker)
+  // counts as a second marker (#201 review).
+  if (def.footer && foot) {
+    for (const line of rest.slice(foot.index + foot[0].length).split(/\r?\n/)) {
+      const [, mark, num] = OPTION_LINE.exec(line.replace(BOX_CHARS, ' '));
+      if (mark && (!/[>*]/.test(mark) || num !== undefined)) marked += 1;
+    }
   }
   found.marked = marked;
   found.unknown = unknown;
   return found;
+}
+
+function bodyMatches(lines, recorded) {
+  let t = lines.join(' ').replace(/\s+/g, ' ').trim();
+  if (t === recorded) return true;
+  if (!t.endsWith('…')) return false;
+  t = t.slice(0, -1).trimEnd();
+  return t.length > 0 && recorded.startsWith(t);
 }
 
 // -> { dialog: kind | 'unknown' | null, selected, options, busy }

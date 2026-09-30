@@ -162,15 +162,21 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
     //
     // The Note block is optional body text above the detect line (Codex shows it when the trust
     // target differs from the cwd; on Windows a case-normalized spelling of the cwd itself does,
-    // #199). The accepting option is preselected: the driver sends `enter` only. Any other
-    // second option (Codex's "Quit" or "Keep current directory", or "Open restricted" in place
-    // of option 1) is not on record and is refused.
-    detect: /trust (?:the (?:files|contents) (?:in|of) )?this (?:folder|directory|project)|allow Codex to work in this folder/i,
+    // #199). The accepting option is preselected: the driver sends `enter` only. Codex's other
+    // variants are not on record and are refused: "Quit" as option 2, "Open restricted" /
+    // "Open existing task" as option 1, a different paragraph, or the footer "enter continue
+    // and create sandbox · esc back" (Enter there also creates the Windows sandbox).
+    // `body` and `note` are verbatim from codex-rs/tui/src/onboarding/trust_directory.rs at tag
+    // rust-v0.159.2 (commit 8b9fa496bbf2c47aebd62e85a080b9a522a455b5, read 2026-09-30), and
+    // match the capture; the capture shows the paragraph truncated with "…".
+    detect: /^[ \t]*Trust this folder\?/m,
     acceptOption: /^Trust and continue$/i,
     options: Object.freeze(['Trust and continue', 'Back to Agent Command Center']),
     numbered: true,
     marker: '›',
-    footer: /\benter continue\b[^\n]*\besc back\b[^\n]*/i,
+    footer: /^[ \t]*enter continue · esc back[ \t]*\r?$/m,
+    body: 'Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings can run code automatically, even without a model request. Continue only if you trust these files. Your trust decision will be saved.',
+    note: 'Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:',
     preselected: 0,
     accept: 0,
     verified: 'herdr L3 probe run probe4 2026-09-30 (#199), Codex CLI / app-server 0.159.2 on Windows; "1. Trust and continue" preselected',

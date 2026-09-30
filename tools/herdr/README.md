@@ -53,11 +53,17 @@ is pressed only on the accepting option:
 | Codex | workspace-trust | "› 1. Trust and continue" (options "1. Trust and continue", "2. Back to Agent Command Center"; marker `›`) | `enter` | 0.159.2, 2026-09-30 (#199) |
 
 Codex's trust dialog may carry a "Note: You’re in a subdirectory of a Git project. Trusting
-will apply to the repository root: …" block above its question. That block is body text,
-accepted present or absent, never an option. Its options must be numbered 1 and 2 in that
-order, and the selection must show Codex's `›` marker. Codex's other variants ("Quit" or
-"Keep current directory" as option 2, "Open restricted" as option 1) are not on record and
-are refused.
+will apply to the repository root: …" block above its question. The block may be present or
+absent; when present it must be exactly the recorded text, and it is never an option.
+
+- The question paragraph must be the recorded one, whole or truncated with "…".
+- The options must be numbered 1 and 2 in that order, and the selection must show Codex's
+  `›` marker.
+- The footer must be exactly "enter continue · esc back". The sandbox footer "enter continue
+  and create sandbox · esc back", or no footer at all, is refused.
+
+Codex's other variants ("Quit" as option 2; "Open restricted" or "Open existing task" as
+option 1) are not on record and are refused.
 
 Any other text, an extra option at any indentation, a second selection marker, or a move that
 does not land ends the run `NOT RUN`, with nothing guessed and nothing re-sent. **Every other
