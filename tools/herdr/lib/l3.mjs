@@ -98,8 +98,9 @@ const INSPECT = Symbol.for('nodejs.util.inspect.custom');
 
 /**
  * One marker and one fake token per delivery path, from the OS CSPRNG (26 lowercase
- * Crockford Base32 characters from 16 random bytes, as the G5 delimiter). The returned
- * objects serialize to { id, markerSha256, tokenSha256 } only.
+ * Crockford Base32 characters from 16 random bytes, as the G5 delimiter). `marker` and
+ * `token` are NON-enumerable properties, so entries walks, spread and Object.assign see
+ * { id, markerSha256, tokenSha256 } only; JSON and util.inspect are overridden to match.
  * @param {{ rand?: (n: number) => Buffer }} [opts]
  * @returns {Array<{ id: string, marker: string, token: string, markerSha256: string, tokenSha256: string }>}
  */
@@ -114,7 +115,11 @@ export function makeProbeMarkers({ rand = randomBytes } = {}) {
   return DELIVERY_PATHS.map((id) => {
     const marker = draw(MARKER_PREFIX);
     const token = draw(TOKEN_PREFIX);
-    const m = { id, marker, token, markerSha256: sha256(marker), tokenSha256: sha256(token) };
+    // Only id and hashes are enumerable: the values are unreachable by Object.entries /
+    // Object.keys walks (redactValue, the run-manifest writer), spread and Object.assign.
+    const m = { id, markerSha256: sha256(marker), tokenSha256: sha256(token) };
+    Object.defineProperty(m, 'marker', { value: marker, enumerable: false });
+    Object.defineProperty(m, 'token', { value: token, enumerable: false });
     const safe = () => ({ id, markerSha256: m.markerSha256, tokenSha256: m.tokenSha256 });
     Object.defineProperty(m, 'toJSON', { value: safe, enumerable: false });
     Object.defineProperty(m, INSPECT, { value: () => `L3ProbeMarker ${JSON.stringify(safe())}`, enumerable: false });
@@ -260,17 +265,21 @@ function pick(obj, fields) {
  * @param {Array} markers makeProbeMarkers() output.
  * @param {{ fromByte?: number }} [opts] Default start offset for inputs that carry none. A
  *        line is scanned only if it STARTS at or after its file's fromByte.
- * @returns {{ files, hits, byMarker, bySession }} Value-free: ids, paths (probe values in a
+ * @returns {{ files, hits, byMarker, bySession, warnings }} Value-free: ids, paths (probe values in a
  *        path are substituted), `event.action`, harness/session identifiers, byte offsets.
  */
 export function scanRuntimeLog(input, markers, { fromByte = 0 } = {}) {
   const inputs = Array.isArray(input) ? input : [{ label: 'runtime.jsonl', text: input }];
   const files = [];
   const hits = [];
+  const warnings = [];
   for (const f of inputs) {
     const buf = Buffer.isBuffer(f.text) ? f.text : Buffer.from(String(f.text ?? ''), 'utf8');
     const start = f.fromByte ?? fromByte;
-    const info = { label: f.label, bytes: buf.length, fromByte: start, linesScanned: 0, linesSkipped: 0, unparsedLines: 0, hitLines: 0 };
+    // A start past the end means the log was rotated or truncated since the offset was
+    // taken: every line would be skipped and "no hits" would read as a clean negative.
+    const info = { label: f.label, bytes: buf.length, fromByte: start, startBeyondEnd: start > buf.length, linesScanned: 0, linesSkipped: 0, unparsedLines: 0, hitLines: 0 };
+    if (info.startBeyondEnd) warnings.push(`${f.label}: fromByte ${start} is past the end of the file (${buf.length} bytes); it was rotated or truncated, so no line was scanned; scan its rotated sibling`);
     splitLines(buf).forEach(({ offset, bytes }, idx) => {
       if (offset < start) {
         info.linesSkipped += 1;
@@ -339,7 +348,7 @@ export function scanRuntimeLog(input, markers, { fromByte = 0 } = {}) {
   }
   const bySession = [...groups.values()].map((g) => ({ harness: g.harness, sessionId: g.sessionId, lines: g.lines.size, markerIds: [...g.markerIds].sort(), tokenVerbatim: g.tokenVerbatim, actions: [...g.actions].sort() }));
 
-  return { files, hits, byMarker, bySession };
+  return { files, hits, byMarker, bySession, warnings };
 }
 
 // --- redacted excerpts -----------------------------------------------------------------
@@ -349,8 +358,9 @@ export const EXCERPT_CHARS = 160;
 // The id placeholders an excerpt carries. To the redactor's scan, `<L3-FAKE-TOKEN:<id>>` reads
 // as a secret assignment (NAME-TOKEN:value), so a leak scan of an excerpt (here, in tests and
 // in L3c's leak guard) runs on neutralizePlaceholders(text).
-export const PLACEHOLDER_RE = /<L3-(?:MARKER|FAKE-TOKEN):[a-z-]+>/g;
-export const neutralizePlaceholders = (text) => String(text).replace(PLACEHOLDER_RE, 'ZQL3PQZ');
+// Not global, so .test() is stateless; callers that replace or iterate build a /g copy.
+export const PLACEHOLDER_RE = /<L3-(?:MARKER|FAKE-TOKEN):[a-z-]+>/;
+export const neutralizePlaceholders = (text) => String(text).replace(new RegExp(PLACEHOLDER_RE.source, 'g'), 'ZQL3PQZ');
 
 /**
  * At most EXCERPT_CHARS characters around a hit. Markers become <L3-MARKER:<id>>, fake tokens
@@ -380,7 +390,7 @@ export function redactedExcerpt(line, hit, markers, redactor) {
   markers.forEach((m, i) => {
     red = red.split(sentinel('M', i)).join(`<L3-MARKER:${m.id}>`).split(sentinel('T', i)).join(`<L3-FAKE-TOKEN:${m.id}>`);
   });
-  const PH = PLACEHOLDER_RE;
+  const PH = new RegExp(PLACEHOLDER_RE.source, 'g');
   const spans = [...red.matchAll(PH)].map((x) => [x.index, x.index + x[0].length]);
   const want = hit?.markerId;
   let at = want ? red.indexOf(`<L3-MARKER:${want}>`) : -1;
@@ -430,7 +440,8 @@ export function assertNoMarkerLeak(text, markers, where = 'output') {
 
 /**
  * The four files L1 §12 B0 names, at Beacon's FIXED $HOME paths: Beacon ignores
- * CLAUDE_CONFIG_DIR and CODEX_HOME (L1 §11 item 4; harness.go@v1.3.29 L364, L404). When
+ * CLAUDE_CONFIG_DIR and CODEX_HOME (L1 §11 item 4;
+ * cli/beacon/internal/endpoint/harness/harness.go@v1.3.29 L364, L404). When
  * either variable is set, the env-dir equivalents are added too, with a finding (the
  * variable's NAME only). Read-and-hash only: these paths go to hashConfig() and nowhere
  * else; never hand one to a write (oac-boundaries mechanical check 10).
@@ -497,20 +508,42 @@ function canonical(v) {
 const hashValue = (v) => sha256(canonical(v));
 
 // Beacon's own header test at the tag: trimmed line starts with `[` and ends with `]`
-// (harness.go@v1.3.29 L471-485, per L1 §11 item 4).
+// (cli/beacon/internal/endpoint/harness/harness.go@v1.3.29 L471-485, per L1 §11 item 4).
 const beaconSeesHeader = (line) => {
   const t = line.trim();
   return t.startsWith('[') && t.endsWith(']');
 };
 // A TOML table / array-of-tables header, with or without a trailing comment.
 const TOML_HEADER = /^\s*(\[\[?[^\]]*\]\]?)\s*(#.*)?$/;
-const isOtel = (h) => /^\[\[?\s*otel\s*(?:\]|\.)/.test(h);
+// Beacon's otel test on a recognized (trimmed) header: `header == "[otel]" ||
+// strings.HasPrefix(header, "[otel.")`
+// (cli/beacon/internal/endpoint/harness/harness.go@v1.3.29 L501-503).
+const isOtel = (h) => h === '[otel]' || h.startsWith('[otel.');
+
+// A config.toml header as a section key. Bare dotted headers (`[otel]`, `[mcp_servers.oac]`,
+// `[[x.y]]`) are kept verbatim. Any other header, e.g. Codex's `[projects.'<absolute path>']`,
+// would carry a home path and username into the key, which run-manifest redaction then
+// rewrites, so a baseline read back from a manifest would show spurious added/removed
+// sections. Those are keyed by their leading bare segments plus a hash of the rest:
+// `[projects.<sha256:0123456789abcdef>]`.
+export function sectionKey(header) {
+  const compact = header.replace(/\s+/g, '');
+  if (/^\[\[?[A-Za-z0-9_.-]+\]\]?$/.test(compact)) return compact;
+  const h = header.trim();
+  const open = h.startsWith('[[') ? '[[' : '[';
+  const close = open === '[[' && h.endsWith(']]') ? ']]' : ']';
+  const inner = h.slice(open.length, h.length - close.length);
+  const lead = /^\s*(?:[A-Za-z0-9_-]+\s*\.\s*)*/.exec(inner)[0];
+  const rest = inner.slice(lead.length);
+  return `${open}${lead.replace(/\s+/g, '')}<sha256:${sha256(rest.trim()).slice(0, 16)}>${close}`;
+}
 
 /**
  * Per-section hashes, no values.
- *   codex-config (config.toml): one hash per table header, keyed by the header text
- *     (`[otel]`, `[mcp_servers.oac]`; repeated headers get `#2`, ...); lines before the first
- *     header are `<root>`. Trailing comments are not part of the key.
+ *   codex-config (config.toml): one hash per table header, keyed by sectionKey(): bare
+ *     dotted header text verbatim (`[otel]`, `[mcp_servers.oac]`), any other header as its
+ *     leading bare segments plus a hash of the rest; repeated keys get `#2`, ...; lines
+ *     before the first header are `<root>`. Trailing comments are not part of the key.
  *   claude-settings (settings.json): `key:<k>` per top-level key, plus `env.<name>` and
  *     `hooks.<event>` per key inside `env` and `hooks`. Canonical JSON, so formatting-only
  *     re-encoding does not change a section.
@@ -537,7 +570,7 @@ export function sectionHashes(kind, text) {
       const m = TOML_HEADER.exec(line);
       if (m) {
         flush();
-        name = m[1].replace(/\s+/g, '');
+        name = sectionKey(m[1]);
         lines = [];
       } else lines.push(line);
     }

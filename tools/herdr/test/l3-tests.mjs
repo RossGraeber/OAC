@@ -16,7 +16,7 @@ import { inspect } from 'node:util';
 import {
   L3_RECORD_VERSION, DELIVERY_PATHS, MARKER_SHAPE, TOKEN_SHAPE, makeProbeMarkers, markerRecords, augmentCaseTable, scanRuntimeLog, redactedExcerpt,
   harnessConfigTargets, hashConfig, sectionHashes, trailingCommentHeaders, compareSections, assertNoMarkerLeak, findMarkerLeaks, MarkerLeakError, sha256,
-  L3_CLAUDE_CASE, L3_CODEX_CASE, EXCERPT_CHARS, neutralizePlaceholders,
+  L3_CLAUDE_CASE, L3_CODEX_CASE, EXCERPT_CHARS, neutralizePlaceholders, PLACEHOLDER_RE, sectionKey,
 } from '../lib/l3.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { presend } from '../gate-servers/g5-channel.mjs';
@@ -41,6 +41,12 @@ export function l3Unit(check) {
   check('l3: recorded hashes are sha256 of the values', markers.every((m) => m.markerSha256 === sha256(m.marker) && m.tokenSha256 === sha256(m.token)));
   const serialized = [JSON.stringify(markers), inspect(markers), JSON.stringify(markerRecords(markers)), String(markers[0])].join('\n');
   check('l3: JSON and inspect of the marker objects carry ids and hashes only', findMarkerLeaks(serialized, markers).length === 0 && serialized.includes(markers[0].markerSha256), `leaks=${findMarkerLeaks(serialized, markers).length}`);
+  // Review #193 finding 1: the run-manifest writer (run.mjs) walks values with
+  // redactValue() (Object.entries, no toJSON); spread and Object.assign bypass toJSON too.
+  const viaManifest = JSON.stringify(createRedactor().redactValue({ l3: { markers } }).value);
+  check('l3: redactValue({ l3: { markers } }) (the manifest write path) carries no probe value', findMarkerLeaks(viaManifest, markers).length === 0 && viaManifest.includes(markers[0].markerSha256), `leaks=${findMarkerLeaks(viaManifest, markers).length}`);
+  const bypasses = [JSON.stringify({ ...markers[0] }), JSON.stringify(Object.assign({}, markers[1])), JSON.stringify(Object.entries(markers[2])), JSON.stringify(Object.keys(markers[0]))].join('\n');
+  check('l3: spread, Object.assign, entries and keys reach no probe value', findMarkerLeaks(bypasses, markers).length === 0 && !Object.keys(markers[0]).includes('marker') && !Object.keys(markers[0]).includes('token'), `leaks=${findMarkerLeaks(bypasses, markers).length}`);
   const repeating = () => Buffer.alloc(16, 7);
   let dupThrows = false;
   try {
@@ -131,6 +137,10 @@ export function l3Unit(check) {
   check('l3 scan: the scan result carries no probe value', findMarkerLeaks(JSON.stringify(scan), markers).length === 0);
   const single = scanRuntimeLog(text, markers, { fromByte });
   check('l3 scan: a single string input with opts.fromByte', single.hits.length === 4 && single.files[0].label === 'runtime.jsonl');
+  check('l3 scan: fromByte within the file raises no warning', scan.warnings.length === 0 && scan.files.every((x) => x.startBeyondEnd === false));
+  const past = scanRuntimeLog([{ label: 'runtime.jsonl', text: rotated, fromByte: Buffer.byteLength(rotated) + 10000 }, { label: 'runtime-1.jsonl', text: rotated }], markers);
+  check('l3 scan: fromByte past the end (rotated or truncated log) is flagged, not a silent clean negative', past.files[0].startBeyondEnd === true && past.files[0].linesScanned === 0 && past.warnings.length === 1 && past.warnings[0].startsWith('runtime.jsonl:') && past.files[1].startBeyondEnd === false && past.hits.length === 1);
+  check('l3 scan: fromByte exactly at the end is not flagged', scanRuntimeLog(rotated, markers, { fromByte: Buffer.byteLength(rotated) }).warnings.length === 0);
   const keyed = scanRuntimeLog(JSON.stringify({ event: { action: 'x' }, raw: { [mc.marker]: 1 } }), markers);
   check('l3 scan: a probe value used as a key is reported with the value substituted', keyed.hits[0]?.markerPaths[0] === 'raw.<L3-MARKER:claude-channel><key>');
 
@@ -139,6 +149,7 @@ export function l3Unit(check) {
   const exLine = JSON.stringify({ endpoint: { hostname: 'buildbox-7' }, user: { name: 'alice' }, session: { working_directory: '/home/alice/proj' }, prompt: { text: `other sk-${'Z'.repeat(24)} from alice ${mc.marker} key ${mc.token}` } });
   const ex = redactedExcerpt(exLine, h1, markers, synthetic);
   check('l3 excerpt: at most ~160 characters', ex.length <= EXCERPT_CHARS + 40, String(ex.length));
+  check('l3 excerpt: exported PLACEHOLDER_RE is not global (stateless .test)', !PLACEHOLDER_RE.global && PLACEHOLDER_RE.test(ex) && PLACEHOLDER_RE.test(ex) && neutralizePlaceholders(`${ex} ${ex}`).match(/<L3-/g) === null);
   check('l3 excerpt: marker and token become id placeholders', ex.includes('<L3-MARKER:claude-channel>') && ex.includes('<L3-FAKE-TOKEN:claude-channel>'));
   check('l3 excerpt: no probe value, home path, username or host; scans clean (synthetic identity)', findMarkerLeaks(ex, markers).length === 0 && !/alice|buildbox/.test(ex) && clean(synthetic, ex) && ex.includes('<SECRET>'));
   const here = createRedactor();
@@ -204,6 +215,22 @@ export function l3Unit(check) {
   const tc2 = trailingCommentHeaders(['[otel.exporter]', 'x = 1', '[m] #c'].join('\n'));
   const tc3 = trailingCommentHeaders(['[a] # c', '[otel]', '[b]', '[c] # c', 'arr = [1] # not a header'].join('\n'));
   check('l3 trailing comment: [otel.*] counts; a recognized header in between clears it; values are not headers', tc2.anyAfterOtel && !tc3.anyAfterOtel && tc3.headers.length === 2);
+  const tc4 = trailingCommentHeaders(['[[otel]]', '[a] # c', '[otelx]', '[b] # c'].join('\n'));
+  check('l3 trailing comment: only Beacon\'s own otel test counts ([otel] or [otel.*]; not [[otel]] or [otelx])', tc4.headers.length === 2 && !tc4.anyAfterOtel);
+
+  // Review #193 finding 2: a non-bare header (Codex's [projects.'<abs path>']) must not put a
+  // home path into a section key, and a baseline read back through manifest redaction must
+  // compare unchanged against a fresh hash.
+  const proj = join(homedir(), 'src', 'x');
+  const projToml = ['[otel]', 'a = 1', `[projects.'${proj}']`, 'trust_level = "trusted"', `[projects."${join(homedir(), 'src', 'y')}"]`, 'trust_level = "trusted"', '[ mcp_servers . oac ]', 'command = "oac"', ''].join('\n');
+  const psec = sectionHashes('codex-config', projToml).sections;
+  const pkeys = Object.keys(psec);
+  check('l3 sections: bare dotted headers kept verbatim, path headers keyed by leading segments plus a hash', pkeys.includes('[otel]') && pkeys.includes('[mcp_servers.oac]') && pkeys.filter((k) => /^\[projects\.<sha256:[0-9a-f]{16}>\]$/.test(k)).length === 2, pkeys.filter((k) => !k.includes(homedir())).join(' '));
+  check('l3 sections: no section key carries the home path or username', !pkeys.some((k) => k.includes(homedir()) || k.toLowerCase().includes(homedir().split(/[\\/]/).pop().toLowerCase())));
+  check('l3 sections: sectionKey is stable and distinguishes paths', sectionKey(`[projects.'${proj}']`) === sectionKey(`[ projects . '${proj}' ]`) && sectionKey(`[projects.'${proj}']`) !== sectionKey(`[projects.'${proj}2']`) && sectionKey('[[a.b]]') === '[[a.b]]');
+  const redSections = createRedactor().redactValue({ sections: psec }).value.sections;
+  const roundTrip = compareSections([{ label: 'c', kind: 'codex-config', present: true, sha256: 'x', sections: redSections }], [{ label: 'c', kind: 'codex-config', present: true, sha256: 'x', sections: psec }]).files[0];
+  check('l3 sections: baseline through manifest redaction round-trips with no spurious section change', roundTrip.status === 'unchanged' && !roundTrip.sections.changed.length && !roundTrip.sections.added.length && !roundTrip.sections.removed.length, JSON.stringify(roundTrip.sections).replaceAll(homedir(), '~'));
 
   const dir = mkdtempSync(join(tmpdir(), 'oac-l3-unit-'));
   try {
