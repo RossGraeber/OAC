@@ -7,7 +7,7 @@
 // probe value appears in this file.
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,7 @@ import {
   L3_CLAUDE_CASE, L3_CODEX_CASE, EXCERPT_CHARS, neutralizePlaceholders, PLACEHOLDER_RE, sectionKey,
 } from '../lib/l3.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
+import { draftL3, leakGuard, parseNote, L3LeakAbort, L3ReportError, STEPS, RESULTS } from '../lib/l3-report.mjs';
 import { presend } from '../gate-servers/g5-channel.mjs';
 import { frameCase, HEADER_FIELDS } from '../gate-servers/g5-codex.mjs';
 
@@ -260,4 +261,239 @@ export function l3Unit(check) {
   const src = readFileSync(LIB, 'utf8');
   check('l3: lib/l3.mjs has no write, spawn or network API', !/\b(?:writeFile|appendFile|createWriteStream|copyFile|rename|unlink|rmSync|truncate|mkdir)\w*\s*\(|child_process|node:net|node:http|fetch\s*\(/.test(src));
   check('l3: record version is 1', L3_RECORD_VERSION === 1);
+
+  l3ReportUnit(check);
+}
+
+// --- L3c (#191): lib/l3-report.mjs, on synthetic phase run manifests (L3a record schema) ------
+
+const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'l3-report.mjs');
+const T0 = Date.parse('2026-09-30T10:00:00.000Z');
+const at = (min) => new Date(T0 + min * 60000).toISOString();
+// Canaries: raw log text and config content that must never reach the draft.
+const LOG_CANARY = 'lighthouse-canary-text';
+const CONFIG_CANARY = 'config-canary-value';
+
+function l3Fixtures(markers) {
+  const [mc, mx, mq] = markers;
+  const settings0 = JSON.stringify({ env: { A: CONFIG_CANARY }, model: 'm' });
+  const settings1 = JSON.stringify({ env: { A: CONFIG_CANARY, OTEL_LOG_USER_PROMPTS: '1' }, model: 'm' }, null, 2);
+  const toml0 = ['[otel]', 'log_user_prompt = false', '', '[mcp_servers.oac]', `command = "${CONFIG_CANARY}"`, ''].join('\n');
+  const toml1 = toml0.replace('log_user_prompt = false', 'log_user_prompt = true');
+  const hashesOf = (settings, toml) => [
+    { label: '~/.claude/settings.json', kind: 'claude-settings', present: true, sha256: sha256(settings), ...sectionHashes('claude-settings', settings) },
+    { label: '~/.claude.json', kind: 'claude-state', present: false, sha256: null, sections: null },
+    { label: '~/.codex/config.toml', kind: 'codex-config', present: true, sha256: sha256(toml), ...sectionHashes('codex-config', toml), trailingComment: trailingCommentHeaders(toml) },
+    { label: '~/.codex/hooks.json', kind: 'codex-hooks', present: false, sha256: null, sections: null },
+  ];
+  const line = (action, harness, session, text) => JSON.stringify({ event: { action }, harness: { name: harness, collection_method: 'otlp' }, session: { id: session }, prompt: { text } });
+  const summary = (lines) => {
+    const s = scanRuntimeLog([{ label: 'runtime.jsonl', text: `${lines.join('\n')}\n` }], markers);
+    return { files: s.files, byMarker: s.byMarker, bySession: s.bySession };
+  };
+  const hitLines = [
+    line('prompt.submitted', 'claude-code', 's-claude-1', `${LOG_CANARY} ${mc.marker}`),
+    line('mcp.tool_invoked', 'claude-code', 's-claude-1', `reply ${mc.marker}`),
+    line('prompt.submitted', 'codex', 's-codex-1', `${LOG_CANARY} ${mx.marker}`),
+    line('prompt.submitted', 'codex', 's-codex-1', `${LOG_CANARY} ${mq.marker}`),
+  ];
+  return {
+    base: hashesOf(settings0, toml0),
+    installed: hashesOf(settings1, toml1),
+    scans: {
+      hits: summary(hitLines),
+      zero: summary([line('prompt.submitted', 'claude-code', 's-claude-1', `${LOG_CANARY} nothing`)]),
+      token: summary([line('prompt.submitted', 'claude-code', 's-claude-1', `${mc.marker} ${mc.token}`), ...hitLines.slice(2)]),
+      outside: summary([...hitLines, line('prompt.submitted', 'claude-code', 's-claude-9', `${mx.marker}`)]),
+    },
+  };
+}
+
+function l3Runs(markers, fx, o = {}) {
+  const pins = { claude: { lastObserved: '2.1.284', differs: !!o.drift }, codex: { lastObserved: '0.158.0', differs: false } };
+  const versions = { beacon: 'beacon version 1.3.29', claudeCli: '2.1.284 (Claude Code)', codex: { cli: 'codex-cli 0.158.0', daemon: { cliVersion: '0.158.0' }, wire: '0.158.0' }, pins };
+  const record = (phase, hashes, extra = {}) => ({
+    version: 1,
+    phase,
+    box: { start: at(0), budgetMs: 3600000, sourceRunId: phase === 'baseline' ? null : 'run-base' },
+    versions,
+    config: { hashes, compare: null, findings: [] },
+    markers: phase === 'probe' ? markerRecords(markers) : [],
+    scan: null,
+    findings: [],
+    ...extra,
+  });
+  const manifest = (runId, phase, start, end, rec, extra = {}) => ({
+    schemaVersion: 1,
+    runId,
+    outcome: 'PASS',
+    outcomeReason: null,
+    scenario: { name: 'l3-beacon', file: 'tools/herdr/scenarios/l3-beacon.mjs', params: { phase, accept: 'human' } },
+    driver: { entry: 'tools/herdr/run.mjs', commit: 'a'.repeat(40), toolsHerdrDirty: !!o.dirty, node: process.version },
+    // Fields the report never prints, carrying this machine's home path.
+    herdr: { pinnedTag: 'v0.9.1', observedVersionOutput: 'herdr 0.9.1', config: { path: join(homedir(), 'herdr-run', 'config.toml') } },
+    scratch: { path: join(homedir(), 'scratch') },
+    harnessVersions: { claude: '2.1.284 (Claude Code)', codex: 'codex-cli 0.158.0' },
+    timebox: { budgetMs: 3600000, start, end, expired: false },
+    commands: [],
+    scenarioData: rec ? { l3: rec } : {},
+    findings: [],
+    ...extra,
+  });
+  const probeEnd = o.probeEnd ?? 30;
+  return {
+    baseline: { manifest: manifest('run-base', 'baseline', at(0), at(5), record('baseline', fx.base)) },
+    probe: { manifest: manifest('run-probe', 'probe', at(10), at(probeEnd), record('probe', fx.installed, { scan: o.scan ?? fx.scans.hits })) },
+    verify: { manifest: manifest('run-verify', 'verify', at(probeEnd + 5), at(probeEnd + 10), record('verify', o.verifyHashes ?? fx.base)) },
+    priors: [],
+    notes: {},
+  };
+}
+
+const lineFor = (draft, id) => draft.split('\n').find((l) => l.startsWith(`- **${id}:**`)) ?? '';
+const tryDraft = (runs, opts) => {
+  try {
+    return { text: draftL3(runs, opts), err: null };
+  } catch (err) {
+    return { text: null, err };
+  }
+};
+
+function l3ReportUnit(check) {
+  const markers = makeProbeMarkers();
+  const fx = l3Fixtures(markers);
+  const values = markers.flatMap((m) => [m.marker, m.token]);
+  const noValue = (s) => !values.some((v) => String(s ?? '').includes(v));
+  const userName = homedir().split(/[\\/]/).pop();
+
+  // All steps that can pass do; B1, B5, B6 are NOT RUN by the operator decisions.
+  const all = tryDraft(l3Runs(markers, fx), { markers });
+  const d = all.text ?? '';
+  check('l3 report: all-PASS runs draft without error', !all.err, all.err?.message);
+  check('l3 report: one line per step B0-B7, in order', STEPS.every((id) => lineFor(d, id)) && d.indexOf('- **B0:**') < d.indexOf('- **B7:**'));
+  check('l3 report: B0, B2, B3, B4, B7 PASS', ['B0', 'B2', 'B3', 'B4', 'B7'].every((id) => lineFor(d, id).includes(':** PASS —')), ['B0', 'B2', 'B3', 'B4', 'B7'].map((id) => lineFor(d, id).slice(0, 40)).join(' | '));
+  check('l3 report: B1 NOT RUN by the operator decision; B5 and B6 NOT RUN by default', lineFor(d, 'B1').includes('NOT RUN') && /operator decisions of 2026-09-30/.test(lineFor(d, 'B1')) && lineFor(d, 'B5').includes('NOT RUN') && lineFor(d, 'B6').includes('NOT RUN'));
+  check('l3 report: B1 evidence names changed sections, attributed to the operator Beacon step', d.includes('`env.OTEL_LOG_USER_PROMPTS`') && d.includes('`[otel]`') && d.includes('attributed to: operator Beacon step'));
+  check('l3 report: B3 names the tool-invocation capture', lineFor(d, 'B3').includes('mcp.tool_invoked'));
+  check('l3 report: poll path NOT RUN (no sync --print field in record v1)', d.includes('`beacon endpoint claude sync --print`): NOT RUN') && d.includes('`beacon endpoint codex sync --print`): NOT RUN'));
+  check('l3 report: header carries versions, pins, date, box and each phase\'s start and end', d.includes('- **Date:** 2026-09-30') && d.includes('`beacon version 1.3.29`') && d.includes('PINS.md last observed `2.1.284`') && d.includes(`ends ${at(60)}`) && d.includes(`${at(10)} to ${at(30)}`));
+  check('l3 report: Driver lines as g1-report renders them, plus toolsHerdrDirty', d.includes('- **Driver (probe):** herdr (`herdr 0.9.1`, PINS.md `herdr (test tooling)` v0.9.1) via `tools/herdr/run.mjs`, scenario `tools/herdr/scenarios/l3-beacon.mjs`, driver commit') && d.includes('`driver.toolsHerdrDirty`: false'));
+  check('l3 report: states herdr-driven, accept=human, not a gate result', /herdr-driven/.test(d) && d.includes('`accept=human`') && /not a gate result/.test(d) && /changes no verdict/.test(d));
+  check('l3 report: operator attestation present and unticked, naming Beacon', d.includes('### Operator attestation') && (d.match(/^- \[ \] /gm) ?? []).length === 4 && !/^- \[x\]/im.test(d) && d.includes('**Beacon:**') && d.includes('**Attested by:** <operator>'));
+  check('l3 report: no probe value, raw log text, config content, home path or username in the draft', noValue(d) && !d.includes(LOG_CANARY) && !d.includes(CONFIG_CANARY) && !d.includes(homedir()) && !(userName.length >= 4 && d.toLowerCase().includes(userName.toLowerCase())));
+  check('l3 report: the draft scans clean (redactor, placeholders neutralized)', clean(createRedactor(), d));
+
+  // Pin drift is a finding, not a stop.
+  const drift = tryDraft(l3Runs(markers, fx, { drift: true }), { markers });
+  check('l3 report: pin drift makes B0 a FINDING and is listed under Findings; the leg continues', !drift.err && lineFor(drift.text, 'B0').includes('FINDING') && /pin drift: Claude Code/.test(drift.text) && lineFor(drift.text, 'B2').includes('PASS'));
+
+  // Probe NOT RUN: its steps are NOT RUN with the manifest's reason.
+  const nr = l3Runs(markers, fx);
+  nr.probe.manifest.outcome = 'NOT RUN';
+  nr.probe.manifest.outcomeReason = 'command #7 (agent-wait) timed out';
+  const nrd = tryDraft(nr, { markers });
+  check('l3 report: probe NOT RUN makes B2-B4 NOT RUN with the outcome reason', !nrd.err && ['B2', 'B3', 'B4'].every((id) => lineFor(nrd.text, id).includes('NOT RUN') && lineFor(nrd.text, id).includes('command #7 (agent-wait) timed out')), nrd.err?.message);
+  check('l3 report: B0 and B7 still evaluated when only the probe is NOT RUN', !nrd.err && lineFor(nrd.text, 'B0').includes('PASS') && lineFor(nrd.text, 'B7').includes('PASS'));
+
+  // L3 box across phases: the probe ends 70 minutes after the box started.
+  const late = tryDraft(l3Runs(markers, fx, { probeEnd: 70 }), { markers });
+  check('l3 report: box expired between phases -> later steps NOT RUN (L3 box expired)', !late.err && ['B2', 'B3', 'B4', 'B7'].every((id) => lineFor(late.text, id).includes('NOT RUN — L3 box expired')) && lineFor(late.text, 'B0').includes('PASS'), late.err?.message);
+
+  // Zero hits in a PASS run is a result.
+  const zero = tryDraft(l3Runs(markers, fx, { scan: fx.scans.zero }), { markers });
+  check('l3 report: zero hits in a PASS probe run is a result, not NOT RUN', !zero.err && lineFor(zero.text, 'B2').includes('PASS') && lineFor(zero.text, 'B2').includes('0 hit line(s)') && zero.text.includes('zero hits: a result, not NOT RUN'), zero.err?.message);
+
+  // The fake token found unredacted in Beacon's log.
+  const tok = tryDraft(l3Runs(markers, fx, { scan: fx.scans.token }), { markers });
+  check('l3 report: an unredacted fake token in the log makes a FINDING line', !tok.err && lineFor(tok.text, 'B2').includes('FINDING') && tok.text.includes('Finding: the claude-channel fake token appears unredacted') && noValue(tok.text), tok.err?.message);
+
+  // A hit outside the probe sessions.
+  const out = tryDraft(l3Runs(markers, fx, { scan: fx.scans.outside }), { markers });
+  check('l3 report: a hit outside the probe sessions is flagged as a finding', !out.err && lineFor(out.text, 'B4').includes('FINDING') && /outside the probe session/.test(out.text), out.err?.message);
+
+  // B7: a file that could not be restored.
+  const unrestored = tryDraft(l3Runs(markers, fx, { verifyHashes: fx.installed }), { markers });
+  check('l3 report: B7 names the files that could not be restored', !unrestored.err && lineFor(unrestored.text, 'B7').includes('FINDING') && unrestored.text.includes('`~/.codex/config.toml` could not be restored'));
+
+  // Leak guard: a planted marker in a manifest field aborts, and names no value.
+  for (const [what, value] of [['marker', markers[1].marker], ['fake token', markers[2].token], ['home path', join(homedir(), 'leak')]]) {
+    const p = l3Runs(markers, fx);
+    p.probe.manifest.findings = [`planted ${value} here`];
+    const r = tryDraft(p, { markers });
+    check(`l3 report: a planted ${what} in a manifest field aborts with no draft`, r.text === null && r.err instanceof L3LeakAbort && noValue(r.err.message) && !r.err.message.includes(homedir()), r.err?.message?.slice(0, 200));
+  }
+  const noMarkers = l3Runs(markers, fx);
+  noMarkers.probe.manifest.outcomeReason = `x ${markers[0].marker}`;
+  noMarkers.probe.manifest.outcome = 'FAIL';
+  const nm = tryDraft(noMarkers, {});
+  check('l3 report: without the values in-process, the shape check alone aborts and names the recorded id', nm.err instanceof L3LeakAbort && /recorded claude-channel marker/.test(nm.err.message) && noValue(nm.err.message));
+  let partialAbort = false;
+  try {
+    leakGuard(`cut ${markers[0].marker.slice(0, 20)}`, {});
+  } catch (e) {
+    partialAbort = e instanceof L3LeakAbort && noValue(e.message);
+  }
+  check('l3 report: a partial probe value aborts too', partialAbort);
+
+  // A dirty tools/herdr/.
+  const dirty = tryDraft(l3Runs(markers, fx, { dirty: true }), { markers });
+  check('l3 report: a dirty tools/herdr/ gives the not-reproducible wording', !dirty.err && dirty.text.includes('**These runs cannot be reproduced:**') && dirty.text.includes('`driver.toolsHerdrDirty`: true'));
+
+  // Unknown record version, and a record of the wrong phase: refused.
+  const v2 = l3Runs(markers, fx);
+  v2.probe.manifest.scenarioData.l3.version = 2;
+  const v2r = tryDraft(v2, { markers });
+  check('l3 report: an unknown record version is refused', v2r.err instanceof L3ReportError && /unknown L3 record version 2/.test(v2r.err.message));
+  const wrong = l3Runs(markers, fx);
+  wrong.verify = wrong.probe;
+  check('l3 report: a record of the wrong phase is refused', tryDraft(wrong, { markers }).err instanceof L3ReportError);
+
+  // Operator note for B5; earlier NOT RUN run at the same pins.
+  const noted = l3Runs(markers, fx);
+  noted.notes = { B5: parseNote('B5=FINDING: evaluator not run, operator out of time') };
+  const prior = l3Runs(markers, fx).probe.manifest;
+  prior.runId = 'run-prior-1';
+  prior.outcome = 'NOT RUN';
+  prior.outcomeReason = 'timebox expired';
+  noted.priors = [{ manifest: prior }];
+  const nd = tryDraft(noted, { markers });
+  check('l3 report: an operator note replaces the B5 default', !nd.err && lineFor(nd.text, 'B5').includes('FINDING — operator note (not driver evidence): evaluator not run'));
+  check('l3 report: an earlier NOT RUN run at the same pins is listed under Findings', !nd.err && nd.text.includes('earlier run `run-prior-1` ended NOT RUN: timebox expired'));
+  let badNote = false;
+  try {
+    parseNote('B2=PASS: x');
+  } catch (e) {
+    badNote = e instanceof L3ReportError;
+  }
+  check('l3 report: notes are taken for B5 and B6 only, with a result', badNote);
+
+  // CLI: prints only, writes nothing under the repository; --write does not exist.
+  const tmp = mkdtempSync(join(tmpdir(), 'oac-l3-report-'));
+  const git = () => spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: REPO, encoding: 'utf8', timeout: 20000 }).stdout;
+  try {
+    const runs = l3Runs(markers, fx);
+    const dirs = {};
+    for (const p of ['baseline', 'probe', 'verify']) {
+      dirs[p] = join(tmp, p);
+      mkdirSync(dirs[p]);
+      writeFileSync(join(dirs[p], 'run-manifest.json'), JSON.stringify(runs[p].manifest, null, 2));
+    }
+    const before = git();
+    const cli = (extra = []) => spawnSync(process.execPath, [REPORT, '--baseline', dirs.baseline, '--probe', dirs.probe, '--verify', dirs.verify, ...extra], { cwd: REPO, encoding: 'utf8', timeout: 30000 });
+    const ok = cli();
+    check('l3 report CLI: exit 0, prints the §13 draft to stdout', ok.status === 0 && ok.stdout.startsWith('## 13. Live results (L3)') && noValue(ok.stdout), `exit ${ok.status} ${ok.stderr.slice(0, 200)}`);
+    const w = cli(['--write']);
+    check('l3 report CLI: there is no --write mode (exit 2, nothing printed)', w.status === 2 && w.stdout === '' && /no --write mode/.test(w.stderr));
+    const planted = { ...runs.probe.manifest, findings: [`planted ${markers[0].token}`] };
+    writeFileSync(join(dirs.probe, 'run-manifest.json'), JSON.stringify(planted));
+    const leak = cli();
+    check('l3 report CLI: a planted value aborts with exit 4, no draft, no value on stderr', leak.status === 4 && leak.stdout === '' && noValue(leak.stderr) && /leak guard/.test(leak.stderr), `exit ${leak.status}`);
+    check('l3 report CLI: the repository tree is unchanged after the runs', git() === before);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+
+  const src = readFileSync(REPORT, 'utf8');
+  check('l3 report: lib/l3-report.mjs has no write, spawn or network API', !/\b(?:writeFile|appendFile|createWriteStream|copyFile|rename|unlink|rmSync|truncate|mkdir)\w*\s*\(|child_process|node:net|node:http|fetch\s*\(/.test(src));
+  check('l3 report: record version known to the report is L3_RECORD_VERSION', L3_RECORD_VERSION === 1 && RESULTS.NOT_RUN === 'NOT RUN');
 }
