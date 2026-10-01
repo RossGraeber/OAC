@@ -18,7 +18,9 @@
 //   FAKE_BEACON_CALLS     call log (required)
 //   FAKE_BEACON_LOG       the fake runtime.jsonl the harness doubles append to
 //   FAKE_BEACON_VERSION   default 1.3.29
-//   FAKE_BEACON_MANAGED   the Managed line's value (default "not connected")
+//   FAKE_BEACON_MANAGED   the Managed line's value (default: the real v1.3.29 Local-mode value,
+//                         "not connected (run `beacon endpoint connect`)",
+//                         cli/beacon/cmd/endpoint_connect.go@v1.3.29 L291; #209)
 
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
@@ -48,7 +50,7 @@ if (argv[0] === 'version') {
   console.log('Collector: grpc=true http=true');
   console.log('Service: loaded=true running=true');
   console.log('Last event: present');
-  console.log(`Beacon Managed: ${env.FAKE_BEACON_MANAGED || 'not connected'}`);
+  console.log(`Beacon Managed: ${env.FAKE_BEACON_MANAGED || 'not connected (run `beacon endpoint connect`)'}`);
 } else {
   // Poll path: re-emit this harness's events with collection_method=poll, as JSON lines. Like
   // Beacon with no state file, older history comes FIRST: FAKE_BEACON_SYNC_HISTORY_BYTES of
