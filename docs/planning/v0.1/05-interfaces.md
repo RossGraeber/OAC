@@ -809,9 +809,11 @@ Per `oac-evidence` §8, checked against this file:
   `docs/planning/PLANNING-PROMPT.md` §3.x subsection unchanged (§16's ACP facts, cited
   §3.5, retrieved 2026-09-15).
 - Surface labels at first mention: Claude Code Channels = **research preview**
-  (`v2.1.274`) — cited via §15's binding annex to `docs/planning/decisions/
-  C6-trust-rendering.md`, which itself carries the label; Codex app-server =
-  **experimental (per-method gating)** (`@openai/codex@0.154.0`) — same citation path;
+  (version floating per `docs/planning/PINS.md`) — cited via §15's binding annex to
+  `docs/planning/decisions/C6-trust-rendering.md`, which itself carries the label; Codex
+  app-server = **experimental (per-method gating)** (version floating per
+  `docs/planning/PINS.md`) — same citation path (note, 2026-10-01, issue #186: these
+  two previously gave the then-fixed pins `v2.1.274` and `@openai/codex@0.154.0`);
   MCP `2026-07-28` and SEP-2133 = **supported** — cited via §5, §11 to
   `docs/planning/decisions/C3-spec-packaging.md`; Zenoh `1.10.1` = **supported** — cited
   via §15 to `docs/planning/decisions/C7-zenoh-transport.md`; ACP = **supported /

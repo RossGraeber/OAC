@@ -870,7 +870,10 @@ tracked item rather than glossed over as closed.
 - **Every version number traceable to `docs/planning/PINS.md`.** Rust `1.98.1`, `rmcp`
   `3.4.0`, `zenoh` `1.10.1`, `keyring` `4.2.0`, `age` `0.12.1`, `ed25519-dalek` `3.0.0`,
   `serde_jcs` `0.2.0`, Claude Code `v2.1.274`, `@openai/codex@0.154.0` — every one of
-  these appears in `PINS.md`'s pin table (some, `ed25519-dalek`/`serde_jcs`, added by
+  these appeared in `PINS.md`'s pin table when this pass was run (note, 2026-10-01, issue
+  #186: the Claude Code and Codex rows have since gone floating, 2026-09-27 and
+  2026-09-26; `PINS.md` now records a last-observed version for each and keeps these two
+  values only in its history) (some, `ed25519-dalek`/`serde_jcs`, added by
   decision 5's own source document, C5 §18, and carried into `PINS.md` in the same
   change).
 - **Every provider surface labelled.** Claude Channels = **research preview**; Codex
