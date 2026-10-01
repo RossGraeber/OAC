@@ -316,6 +316,9 @@ narrowed to the harness side, and goes to §12's operator-run live leg (herdr-dr
 2026-09-30, #187; see §12). The text below is
 L1's original wording, kept for traceability.
 
+**L3 update (issue #192, 2026-10-01):** U1 is CONFIRMED live for both harnesses (§13,
+§11 item 1). No L1 item remains UNVERIFIED.
+
 - **U1.** Whether Beacon's Claude Code capture (hooks/OTLP) records the content of an OAC
   channel notification delivered into the session, or only the harness-visible
   tool/prompt events (UNVERIFIED — no first-party statement found at `v1.3.29`).
@@ -497,7 +500,31 @@ carries each §6 item from Beacon's own source and docs **at the pinned tag**.
   first-party Beacon source at the tag. REFUTED means the hypothesis in the question (for
   item 4, a collision) is false at the tag. UNVERIFIED means it stays open, narrowed.
 
-### Item 1 — Does Beacon's capture record OAC-delivered input? → UNVERIFIED (narrowed; Beacon side confirmed, harness side open)
+### Item 1 — Does Beacon's capture record OAC-delivered input? → CONFIRMED live by L3 (2026-10-01, §13); L2's desk verdict was UNVERIFIED (narrowed; Beacon side confirmed, harness side open)
+
+**L3 update (issue #192, 2026-10-01): CONFIRMED live for both harnesses** (§13 B2-B4;
+Beacon `1.3.29`, Claude Code `2.1.285`, Codex `0.159.3`, Windows). The text below is L2's
+desk record, kept as written.
+
+- **Claude Code.** A `notifications/claude/channel` delivery is recorded as
+  `prompt.submitted`, with the text in `prompt.text`, `gen_ai.input.messages` and
+  `raw.attributes.prompt` (collection methods `hook` and `otlp`).
+- **Not on the poll path.** Claude Code writes the delivery to its session file as a
+  `user` entry with `isMeta` `true`, which the poll mapper skips, so
+  `beacon endpoint claude sync` records nothing for it.
+- **Reply tool.** The reply-tool call is recorded as `tool.invoked` and
+  `mcp.tool_invoked`, with the arguments at `gen_ai.tool.call.arguments.message`.
+- **Codex.** Input sent with `turn/start` and with `thread/queue/add` is recorded as
+  `prompt.submitted` from harness `codex_desktop`, via OTLP and on the
+  `beacon endpoint codex sync` poll path.
+- **Redaction.** A fake secret-shaped token in the message body was stored **unredacted**
+  on every path that captured it.
+- **Answers to "What stays open" below.** Claude Code reports a channel delivery through
+  `UserPromptSubmit` and `claude_code.user_prompt`, and as a meta `user` entry. The
+  hook/OTLP split is inferred: it comes from the per-method counts and field paths, since
+  the record does not pair a method with each line. Codex logs
+  `codex.user_prompt` for both methods and writes a `user` message that the poll mapper
+  reads.
 
 **Beacon has no channel-specific handling at all.** A search of the whole tag tree for
 `notifications/claude/channel`, `claude/channel` and `<channel` (Go, TypeScript, JSON,
@@ -718,6 +745,12 @@ fixture or spike code is committed.
 
 ## 12. Live-verification checklist (herdr-driven, NOT RUN)
 
+**Note 2026-10-01 (L3d, #192): this checklist has run.** The herdr-driven leg ran on
+Windows against Beacon `1.3.29`, Claude Code `2.1.285` and Codex `0.159.3`. Its results are
+in §13: B0 and B2-B4 recorded, B1, B5 and B6 NOT RUN by operator decision, B7 hash-checked
+with Beacon kept installed. The heading and the text below are kept as written, as the
+specification the run followed.
+
 Every step below is **UNVERIFIED — pending a live run**. Backlog task L3 ("Beacon live
 leg (herdr-driven)", `docs/planning/backlog/07-tasks-L.json`) executes it. That key reuses
 #165's closed spec-touchpoint number (§4 Q1).
@@ -925,3 +958,227 @@ NOT RUN) with the recorded evidence, the Beacon, Claude Code and Codex versions,
 date. In the same change, update item 1's verdict in §11 (and item 4's, if B1-B4 found
 a collision), `docs/planning/STATUS.md` "Open UNVERIFIED items", and
 `docs/planning/v0.1/11-risks.md` rows 53 and 56.
+
+## 13. Live results (L3)
+
+**Issue:** #192 (L3d), parent #168 (backlog `L3`, Epic L #165). Drafted by
+`tools/herdr/lib/l3-report.mjs` (L3c, #191; leak guard passed, print-only) from the three
+verdict-bearing phase runs below, then reviewed and edited by hand. Excerpts were re-read
+after editing: no credential, home path, username or account ID; the fake probe token and
+the marker appear only as the report's placeholders, never as values. No raw
+`runtime.jsonl` line, session file or harness config file is committed, and there is no
+fixture file. This is not a gate result and changes no verdict (PINS.md Beacon row:
+`Gates affected: none`). Step results are PASS / FINDING / NOT RUN. A phase run's own
+outcome (`PASS` below) only means the scenario ran to the end; it is not a step result.
+
+- **Date:** 2026-10-01. Machine: Windows 11 (`win32`, `10.0.26300`, x64).
+- **Beacon:** `1.3.29` (`beacon version`, read-only allowlist), Windows MSI, system-mode
+  install (§12 2026-09-30 observations), **Local** mode: no `beacon endpoint connect`, no
+  `beacon mcp connect`, no hosted sign-in. Self-updates off (§2). Matches the §2 pin.
+- **Claude Code:** `claude --version` `2.1.285`. PINS.md last observed `2.1.283`: pin
+  drift, recorded as a finding (operator decision 4 on #168, 2026-09-30; PINS.md not
+  moved). Channel handshake: `initialize` requested and negotiated `2025-11-25`, channel
+  capability present, permission capability absent.
+- **Codex:** CLI `0.159.3`; app-server daemon `running`, `cliVersion` / `appServerVersion`
+  / `managedCodexVersion` `0.159.3`; wire `userAgent` `0.159.3`. PINS.md last observed
+  `0.157.1`: pin drift, recorded as a finding (same decision).
+- **Driver:** herdr `herdr 0.9.1` (PINS.md `herdr (test tooling)` `v0.9.1`) via
+  `node tools/herdr/run.mjs`, scenario `tools/herdr/scenarios/l3-beacon.mjs`, driver commit
+  `2c6f6af607158ed6c0bddc9f63b4615fa89a9233`, `driver.toolsHerdrDirty` false, Node
+  `v25.2.1`. Run by an agent from inside a Claude Code session; the driver removed 27
+  inherited session variables before launching the harnesses (#163).
+- **Dialog accepts:** `accept=driver` in all three phases (operator decision #196,
+  `docs/planning/decisions/K-196-driver-accepts-dialogs.md`). Four dialogs, each read
+  verbatim first and accepted by the **driver**, none by a human: Claude workspace-trust
+  (read #11; `down` #12, `enter` #14), Claude project MCP-server approval (read #17; `up`
+  #18, `up` #20, `enter` #22), Claude development-channels (read #25; `enter` #26), Codex
+  workspace-trust (read #47; `enter` #48). Codex's startup hook review (Beacon's
+  `SessionStart` hook, #204) did not appear: the operator had trusted that hook before
+  B0.
+- **L3 box:** declared by the baseline run at 2026-10-01T19:52:44.821Z; 60 minutes, never
+  extended; would end 20:52:44.821Z. The last phase ended 19:54:50.886Z; **not expired**.
+- **Phase runs** (each outcome `PASS`):
+  - baseline (B0): `20261001T195242Z-72d47c`, 19:52:42.783Z to 19:52:48.655Z
+  - probe (B1 record, B2-B4): `20261001T195249Z-5982fd`, 19:52:49.346Z to 19:54:24.284Z
+  - verify (B7 hash check): `20261001T195449Z-c25113`, 19:54:49.979Z to 19:54:50.886Z
+
+### Results, one line per step
+
+- **B0:** FINDING — preflight done, four config files hashed; the findings are pin drift
+  (Claude Code, Codex) and the false-positive "Beacon Managed" check (#209).
+- **B1:** NOT RUN — operator decision 2 on #168 (2026-09-30): Beacon was installed before
+  any B0, and it is not uninstalled and re-installed. Evidence is the §12 2026-09-30 MSI
+  observations plus the weaker `.beacon.bak` evidence (the driver does not read it).
+  Supporting only: all four files unchanged from B0 to probe start; zero trailing-comment
+  table headers in `config.toml`.
+- **B2:** FINDING — Claude Code channel delivery **is captured**: `prompt.submitted` in
+  Beacon's local log (hook and OTLP), with the fake token **unredacted**. Poll path: 0 hits.
+- **B3:** FINDING — the reply-tool call is captured as `tool.invoked` and
+  `mcp.tool_invoked` with the marker in its arguments (§11 item 1 point 2 confirmed live).
+- **B4:** FINDING — Codex input sent with `turn/start` **and** with `thread/queue/add` is
+  captured: `prompt.submitted` via OTLP and on the poll path, fake token **unredacted** on
+  both.
+- **B5:** NOT RUN — default in the operator decisions on #168 (2026-09-30): evaluating
+  traces is an operator-only Beacon step, not automated.
+- **B6:** NOT RUN — same decision: it needs Beacon's MCP server registered in both
+  harnesses and an approved memory, operator-only Beacon steps.
+- **B7:** FINDING — Beacon kept installed by operator decision, so no uninstall or
+  restore. Two files differ from B0, both written by the harnesses when the driver
+  accepted their folder-trust dialogs, not by Beacon or OAC tooling (details below).
+
+### Evidence
+
+**B0.** Hashes (sha256 of the file; labels only, paths not recorded):
+
+- `~/.claude/settings.json`: `70754e478f634d201457029e2c51d0dac3947d326002b31e098c371051fb9af3`
+- `~/.claude.json`: `7f8c6083bab0a8e1471e797f669d6198b36d48b2007d1827261c9c5afeabcfcb`
+- `~/.codex/config.toml`: `5376ce47a582c1ad7fff2ed03bf75ad90f36347510f430497abb3b4698b22588`
+- `~/.codex/hooks.json`: `190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93`
+
+`CLAUDE_CONFIG_DIR` and `CODEX_HOME` not set, so the harnesses read the files Beacon
+writes (§11 item 4). `config.toml` has no table header with a trailing comment, so §11
+item 4's edge case cannot arise on this machine.
+
+**B2 (Claude, inbound).** The probe case was triggered at 19:53:10.839Z. Beacon's log
+(`runtime.jsonl`, 108 lines scanned from the probe start) holds **6** lines with the
+claude-channel marker, all in one `claude_code` session:
+
+- At the B2 snapshot, before B3: **2** lines, both `prompt.submitted`. The marker sits in
+  `prompt.text`, `gen_ai.input.messages[0].parts[0].content` and `raw.attributes.prompt`.
+  The fake token is **unredacted** in both lines.
+- Across all 6 hits the collection methods are `hook` (3) and `otlp` (3). The record does
+  not pair a method with each line.
+- Poll path (`beacon endpoint claude sync --print`, 40714 event lines): **0** hits at B2.
+  This is a result. Claude Code's session file holds the delivery as a `queue-operation`
+  entry and a `user` entry with `isMeta` `true` (entry types and flags only; no
+  attachment). Beacon's poll mapper skips `isMeta` entries (§11 item 1), which explains
+  the zero.
+
+Redacted excerpt, one of the two `prompt.submitted` lines (Beacon log line 2872; a
+delimiter nonce cut off): `oac_message_id=\"l3-c\" oac_reply_to=\"\">\nL3 probe
+{L3-MARKER claude-channel}. Test credential {L3-FAKE-TOKEN claude-channel}.`
+
+**B3 (Claude, outbound).** The session answered through the channel server's reply tool
+once, with the marker in its arguments; the fake token was not in them (checked
+in-process). The B3 snapshot adds 2 lines, `tool.invoked` and `mcp.tool_invoked`, with the
+marker at `gen_ai.tool.call.arguments.message`. Later lines add `mcp.tool_invoked`
+(`raw.attributes.tool_input`) and `session.activity` (the reply text, at
+`gen_ai.output.messages[0].parts[0].content`). Poll path at B3: 3 lines
+(`mcp.tool_invoked`, `tool.completed`, `agent.message`), token not present. Redacted
+excerpt (line 2917): `"tool":{"call":{"arguments":{"in_reply_to":"l3-c","message":"{L3-MARKER
+claude-channel}"},"id":"<redacted>"},"name":"repl`.
+
+**B4 (Codex).** The Codex TUI was attached to the shared daemon, and the driver's
+app-server client delivered both cases to the thread the TUI loaded. `turn/start` (case
+`L3X`, 19:54:00.870Z) and `thread/queue/add` while a turn ran (case `X4`, 19:54:05.078Z):
+both turns `completed`, each input recorded byte-identical in the thread. The Codex launch
+and both inputs worked with Beacon's `[otel]` table and `SessionStart` hook in place, so no
+item 4 collision was seen live for Codex.
+
+- OTLP path (Beacon log): 1 `prompt.submitted` line per method, harness `codex_desktop`
+  (Beacon's label for app-server telemetry), collection method `otlp`. Paths: `prompt.text`,
+  `gen_ai.input.messages[0].parts[0].content`, `raw.attributes.prompt`. Fake token
+  **unredacted** in both.
+- Poll path (`beacon endpoint codex sync --print`, 2299 event lines): 1 `prompt.submitted`
+  line per method, fake token **unredacted** in both.
+- Redacted excerpt (line 2951): `oac_reply_to: \n--- oac-body <nonce> ---\nL3 probe
+  {L3-MARKER codex-turn-start}. Test credential {L3-FAKE-TOKEN codex-turn-start}.`
+
+**B7.** Baseline vs. verify:
+
+- `~/.claude/settings.json`: unchanged.
+- `~/.codex/hooks.json`: unchanged.
+- `~/.codex/config.toml`: changed. One table added, `[projects.<sha256:4bcfac99a97dd3bd>]`
+  (the label hashes the scratch project path), and no table changed or removed. This is
+  Codex's own trust entry, written when the driver accepted its folder-trust dialog (#206).
+  It is not a Beacon write and it is outside §11 item 4's table. The `[otel]` table was not
+  touched.
+- `~/.claude.json`: changed (hash only; the record has no section diff for this file).
+  Attributed to Claude Code recording the workspace-trust accept for the scratch project
+  in its own state file. That is an inference from the timing; the content was not read.
+  Beacon writes this file only through `beacon mcp connect`, which was not run.
+- Restore: none needed beyond optional pruning of the scratch trust entries (#206). The
+  operator keeps the B0 backups.
+
+### Findings
+
+1. **U1 answered: capture is confirmed in both harnesses** (B2-B4). OAC-delivered input
+   reaches Beacon's local `runtime.jsonl` **verbatim**, and the secret-shaped fake token
+   was **not redacted** on any path that captured it: Claude hook/OTLP, Codex OTLP and the
+   Codex poll path. Beacon's own redaction (§11 item 1, `SECURITY.md@v1.3.29` L52-57) did
+   not catch a token of this shape. This feeds `docs/planning/v0.1/06-security.md` §14
+   row 23.
+2. **Claude Code's poll path misses channel deliveries.** The session file marks the
+   delivery `isMeta` `true`, which `beacon endpoint claude sync` skips. Capture of Claude
+   inbound therefore depends on Beacon's hooks and OTLP settings being installed.
+3. **MSI install** performs a system-mode install itself (§12 2026-09-30 observations;
+   re-confirmed, no new data).
+4. **Beacon's Codex `SessionStart` hook blocks unattended Codex until trusted.** Codex
+   shows a startup hook review for an untrusted hook in `~/.codex/hooks.json`, and no
+   `thread/start` happens until someone answers it. The driver never answers that screen
+   (#204, fixed in #205 by a ready check that ends the run `NOT RUN` naming the blocker).
+   The operator trusted the hook before this box.
+5. **The Codex daemon holds a handle on a loaded thread's cwd on Windows.** Scratch cleanup
+   failed with `EPERM` (#202). Since #203 the run manifest survives the failure. In this
+   probe the scratch directory was again left behind, possibly with unredacted captures.
+   The operator deletes it by hand once the daemon releases it.
+6. **Harness trust entries.** Accepting folder-trust dialogs makes Claude Code
+   (`~/.claude.json`) and Codex (`~/.codex/config.toml` `[projects.…]`) record trust
+   entries, one per scratch project (#206). That accounts for both B7 differences.
+7. **`codex app-server daemon start` cannot be launched from Claude Code's shell on
+   Windows.** The first probe failed on it (exit 1, below); a job object around that shell
+   is the likely cause. The daemon was started outside it (WMI process creation) and was
+   already running at this probe. The probe recorded `alreadyRunning`, which the scenario
+   flags because a daemon started before Beacon's `[otel]` write may not export OTLP. Here
+   the OTLP counts are non-zero, so that caveat did not bite: the daemon had Beacon's
+   `[otel]` config loaded.
+8. **A stale operator MCP server blocked Codex startup.** An unreachable `mcp_servers.g4`
+   entry was in the operator's `config.toml`. The operator removed it during the
+   2026-09-30 attempts. #205 later found the hook review, not MCP servers, to be the
+   blocker in those runs.
+9. **Pin drift:** Claude Code `2.1.283` → `2.1.285`, Codex `0.157.1` → `0.159.3`. Recorded
+   by operator decision 4 on #168; PINS.md not moved; L3 is not a gate.
+10. **False positive: "Beacon Managed".** The scenario flags "hosted forwarding may be on"
+    because Beacon `1.3.29` prints `Beacon Managed: not connected (run \`beacon endpoint
+    connect\`)` and the parser expects exactly `not connected`. The machine was in Local
+    mode. Follow-up: #209.
+11. **Manifest redaction** withheld `$.scenario.params.baselineRun` in the probe and verify
+    manifests: the value is a local scratch path.
+
+### Prior attempts (never evidence)
+
+All were on Windows with herdr `0.9.1` and Claude Code `2.1.285`, unless noted. Each was
+in its own box, and none is a step result.
+
+- **Manual attempt**, 2026-09-30 05:50Z (Claude Code `2.1.284`, recorded on #168): B0
+  done, B1 the MSI finding (§12), paused at B2. The operator moved to a herdr-driven run.
+- `20260930T114931Z-1ee506` (Codex `0.158.0`, `accept=human`): **FAIL** —
+  `codex app-server daemon start` failed (exit 1) from the agent's shell (finding 7).
+- `20260930T155917Z-d42593`: **NOT RUN** — it pointed at the first baseline, whose box
+  had expired. The probe does not start.
+- `20260930T155948Z-efd7ec` (`accept=human`): **NOT RUN** — Claude workspace-trust was
+  not accepted within 300000 ms. That run led to #196.
+- `20260930T172713Z-e73e65` (Codex `0.159.2`, `accept=driver`): **NOT RUN** — Codex
+  workspace-trust had no option text on record; the driver refused it. Added to K-196 by
+  #199.
+- `20260930T184103Z-8a617f` and `20260930T200753Z-a4d484` (Codex `0.159.2`): **NOT RUN** —
+  no loaded thread within 180000 ms, because of the hook review (finding 4, #204).
+- Two probe runs at about 19:04Z and 19:09Z on 2026-09-30 aborted on scratch-cleanup
+  `EPERM` before writing a manifest (finding 5, #202). Nothing is recorded from them.
+
+### Operator attestation
+
+Generated unticked. Only the operator who ran this machine ticks these lines, each only if
+true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation",
+adapted to name Beacon).
+
+- [ ] **herdr:** the real herdr binary ran, not a test double. `herdr --version`:
+  `herdr 0.9.1`; sha256 of the executable: `<64 hex>`
+- [ ] **Harness:** the real, logged-in Claude Code CLI (`claude --version`: `2.1.285`) and
+  Codex CLI (`codex --version`: `0.159.3`) ran, not test doubles.
+- [ ] **Beacon:** the real, operator-installed Beacon endpoint (`beacon version`:
+  `1.3.29`) ran in Local mode, not a test double.
+- [ ] **Consent dialog:** accepted by the DRIVER (`accept=driver`, #196), not by me:
+  Claude workspace-trust, Claude MCP-server approval, Claude development-channels and Codex
+  workspace-trust (sequence numbers above).
+- **Attested by:** <operator>, <YYYY-MM-DD>

@@ -4,6 +4,23 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-01 (**L3d/issue #192 (Epic L #165, closes #168): Beacon live leg
+run, herdr-driven, on Windows.** `docs/planning/decisions/L1-beacon-memory.md` gains §13
+"Live results (L3)". The box was declared 2026-10-01T19:52:44Z and did not expire. Versions:
+Beacon `1.3.29` (MSI system mode, Local), Claude Code `2.1.285`, Codex `0.159.3`. All four
+harness dialogs were accepted by the driver (#196). **U1 is CONFIRMED**: Beacon captures
+OAC-delivered input in both harnesses. A Claude channel delivery becomes `prompt.submitted`
+via hook and OTLP, though not on the poll path. Codex `turn/start` and `thread/queue/add`
+input becomes `prompt.submitted` via OTLP and poll. A fake secret-shaped token was stored
+unredacted on every capturing path. U1 is removed from "Open UNVERIFIED items" below, so no
+L1 item stays open. B1, B5 and B6 NOT RUN by operator decision. B7: Beacon kept installed;
+the only config differences are the harnesses' own folder-trust entries (#206). Pin drift
+from PINS.md (`2.1.283`, `0.157.1`) is recorded as a finding; PINS.md is not moved.
+`11-risks.md` rows 53 and 56 and `RISK-BEACON` updated, and `06-security.md` §14 row 23's
+residual now states the confirmed capture. Follow-up #209: the scenario's "Beacon
+Managed" check is a false positive. No gate verdict, pin value, skill, spec or ADR text
+changes.)
+
 **Last updated:** 2026-09-30 (**Issue #196: the herdr driver accepts harness dialogs in
 dev/test runs.** Operator decision, recorded in #196: "Please revise. The point, again, is
 automation of these processes during development and test." Recorded in
@@ -832,7 +849,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
 | `serde_jcs` | `0.2.0`; RFC 8785 JCS canonicalization; MIT OR Apache-2.0 | PINS.md — `serde_jcs` |
 | herdr (test tooling) | `v0.9.1` (2026-09-16), fixed; Apache-2.0; dev/test tooling only, never shipped; gates affected: none; live behavior verified on Windows 2026-09-28, Linux and macOS UNVERIFIED (K1 go on Windows, provisional overall) | PINS.md — herdr (test tooling) |
-| Beacon (external memory service) | `v1.3.29` (tagger date 2026-09-28), fixed; MIT; external service each harness connects to natively, never shipped or called by OAC; gates affected: none; one fact UNVERIFIED (L1 §6, narrowed by L2 in L1 §11) | PINS.md — Beacon (external memory service) |
+| Beacon (external memory service) | `v1.3.29` (tagger date 2026-09-28), fixed; MIT; external service each harness connects to natively, never shipped or called by OAC; gates affected: none; no fact UNVERIFIED (L1 §6: three closed by L2 in L1 §11, U1 confirmed live by L3 in L1 §13, 2026-10-01) | PINS.md — Beacon (external memory service) |
 
 ## Decisions landed
 
@@ -1340,25 +1357,6 @@ without an UNVERIFIED label.
   `herdr-runs/` record exist. Neither verdict changes: G4 stays PASS, G5 stays FAIL.
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
   operator signs in and accepts consent dialogs (#187).
-- **New, from L1 (issue #166, 2026-09-29), narrowed by L2 (issue #167, 2026-09-29):**
-  one Beacon (agent-beacon) fact stays UNVERIFIED at pin `v1.3.29`
-  (`docs/planning/decisions/L1-beacon-memory.md` §6 U1, §11 item 1):
-  - U1: whether Claude Code reports a `notifications/claude/channel` delivery through
-    `UserPromptSubmit`, its `claude_code.user_prompt` OTLP event, or a non-meta `user`
-    session-file entry (any of which Beacon records verbatim as `prompt.submitted`), and
-    whether Codex logs `codex.user_prompt` or writes a `user` rollout message for input
-    sent with `thread/queue/add` / `turn/start`. Beacon's side is confirmed from source;
-    the open half is harness behaviour. OAC's outbound tool-call arguments are confirmed
-    captured (L1 §11 item 1).
-
-  Owner: backlog L3, the herdr-driven live leg in L1 §12, run locally by an agent; the
-  operator installs Beacon, signs in and accepts consent dialogs; not in the default CI
-  suite (#187). See
-  `docs/planning/v0.1/11-risks.md` row 53 (`RISK-BEACON`). **Closed by L2** (L1 §11,
-  citations there, `path@v1.3.29`, retrieved 2026-09-29): U2 memory ID and
-  memory-tool result shape (CONFIRMED; row 54), U3 `memory.db` concurrency (CONFIRMED:
-  SQLite WAL with a 5 s busy timeout, from source; row 55), U4 config collision with
-  OAC's launch paths (REFUTED: no shared key; row 56).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
   subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`,
   `thread/resume`, and `thread/fork` are source-confirmed to
@@ -1368,6 +1366,20 @@ without an UNVERIFIED label.
   listener" call near either handler; not directly source-confirmed the way the three
   auto-attach sites are. See `oac-codex-appserver/references/thread-lifecycle.md` and
   `docs/planning/v0.1/11-risks.md` row 50.
+
+**Closed in L2 and L3 (Beacon, from L1, issue #166)** (removed from this list): none of
+L1's four Beacon (agent-beacon) facts at pin `v1.3.29` is still UNVERIFIED
+(`docs/planning/decisions/L1-beacon-memory.md` §6). **Closed by L2** (L1 §11, citations there, `path@v1.3.29`, retrieved 2026-09-29):
+U2 memory ID and memory-tool result shape (CONFIRMED; row 54), U3 `memory.db`
+concurrency (CONFIRMED: SQLite WAL with a 5 s busy timeout, from source; row 55), U4
+config collision with OAC's launch paths (REFUTED: no shared key; row 56). **Closed by
+L3** (issue #192, 2026-10-01, L1 §13 B2-B4, live on Windows with Beacon `1.3.29`, Claude
+Code `2.1.285`, Codex `0.159.3`): U1, whether Beacon captures OAC-delivered input, is
+CONFIRMED in both harnesses. A `notifications/claude/channel` delivery becomes
+`prompt.submitted` via hook and OTLP (not via `beacon endpoint claude sync`: the session
+entry is `isMeta`). Codex `turn/start` and `thread/queue/add` input becomes
+`prompt.submitted` via OTLP and the poll path. A fake secret-shaped token was stored
+unredacted (row 53, `RISK-BEACON`).
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the
