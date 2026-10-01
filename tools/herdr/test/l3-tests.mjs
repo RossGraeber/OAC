@@ -31,7 +31,7 @@ import { presend } from '../gate-servers/g5-channel.mjs';
 import { frameCase, HEADER_FIELDS } from '../gate-servers/g5-codex.mjs';
 import l3Scenario, {
   BEACON_ALLOWLIST, BEACON_VERSION, L3_BOX_MS, beaconArgv, parseBeaconVersion, parseBeaconStatus, boxState, claudeProjectSlug, sessionEntryShapes, manifestSafePlaceholders,
-  defaultBeaconLog, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline, hitCounts, BEACON_BIN_NAME, STATUS_SIDE_EFFECTS, streamScan, probeSessionIds,
+  defaultBeaconLog, beaconManagedIsLocal, DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER, loadBaseline, hitCounts, BEACON_BIN_NAME, STATUS_SIDE_EFFECTS, streamScan, probeSessionIds,
 } from '../scenarios/l3-beacon.mjs';
 import { assertNoSpoof } from '../lib/g5.mjs';
 import { CI_SCENARIOS } from '../ci.mjs';
@@ -732,6 +732,11 @@ export async function l3ScenarioUnit(check) {
   check('l3b parse: beacon version', parseBeaconVersion('beacon version 1.3.29\n') === BEACON_VERSION && parseBeaconVersion('beacon version v1.3.29 (commit abc)') === '1.3.29' && parseBeaconVersion('beacon version 1.3.290') === '1.3.290' && parseBeaconVersion('1.3.29') === null && parseBeaconVersion('') === null);
   const st = parseBeaconStatus('Beacon Endpoint Agent 1.3.29\nConfig: x\nRuntime log: C:\\ProgramData\\Beacon\\Endpoint\\logs\\runtime.jsonl\nService: loaded=true running=false (Access is denied)\nBeacon Managed: not connected\n');
   check('l3b parse: endpoint status log path, Managed and Service lines', st.logPath === 'C:\\ProgramData\\Beacon\\Endpoint\\logs\\runtime.jsonl' && st.managed === 'not connected' && /running=false/.test(st.service) && st.agentVersion === '1.3.29' && parseBeaconStatus('').logPath === null);
+  // #209: the real v1.3.29 Local-mode line (endpoint_connect.go@v1.3.29 L291), CRLF as on Windows.
+  const real = parseBeaconStatus('Beacon Endpoint Agent 1.3.29\r\nLast event: present\r\nBeacon Managed: not connected (run `beacon endpoint connect`)\r\nInventory heartbeat: x\r\n');
+  check('l3b parse #209: the real 1.3.29 Managed line is parsed whole and is Local mode', real.managed === 'not connected (run `beacon endpoint connect`)' && beaconManagedIsLocal(real.managed), JSON.stringify(real.managed));
+  check('l3b parse #209: bare "not connected" and the other Enabled=false hints (status.go L59-L102) are Local mode', ['not connected', 'not connected (disconnected; credentials for device d1 kept, run `beacon endpoint connect` to reuse them)', 'not connected (connect incomplete: this device was approved but connect did not finish; run `beacon endpoint connect` again)'].every(beaconManagedIsLocal));
+  check('l3b parse #209: connected, a missing line and unrecognised wording are NOT Local mode (fail safe; no prefix match)', [null, undefined, '', 'connected to Acme as device d1; forwarder loaded=true running=true; credential valid', 'connected', 'not connected yet', 'not connected; forwarding', 'not connected (x) and forwarding', 'Not Connected', 'disconnected'].every((v) => !beaconManagedIsLocal(v)) && parseBeaconStatus('Beacon Endpoint Agent 1.3.29\n').managed === null);
   check('l3b: default Beacon log per L1 §12 (Windows system path, else the per-user one)', defaultBeaconLog('win32') === 'C:\\ProgramData\\Beacon\\Endpoint\\logs\\runtime.jsonl' && defaultBeaconLog('linux', '/home/u') === join('/home/u', '.beacon', 'endpoint', 'logs', 'runtime.jsonl'));
 
   // --- the box ---
@@ -940,7 +945,7 @@ export async function l3Cases(check, h) {
       const b3 = bm?.scenarioData?.l3;
       check('l3 baseline: PASS; the box declared; Beacon 1.3.29 read through the allowlist; no harness launched', base.status === 0 && bm.outcome === 'PASS' && !!b3.box.start && b3.box.budgetMs === L3_BOX_MS && b3.versions.beacon === '1.3.29' && agentStarts(base) === 0, `${base.status} ${bm?.outcomeReason}`);
       check('l3 baseline: the four fixed-$HOME files and the env-dir equivalents hashed; env names recorded, never values; trailing-comment check recorded', b3.config.hashes.filter((x) => x.present).length >= 6 && b3.config.envSet.CLAUDE_CONFIG_DIR === true && b3.config.envSet.CODEX_HOME === true && bm.findings.some((f) => /CLAUDE_CONFIG_DIR is set/.test(f)) && Array.isArray(b3.config.trailingComment) && !base.manifestText.includes('exporter = '), JSON.stringify(b3.config.hashes.map((x) => [x.label, x.present])));
-      check('l3 baseline: status --system recorded (log path, Managed not connected)', b3.beacon.status.managed === 'not connected' && !!b3.beacon.status.logPath);
+      check('l3 baseline: status --system recorded (log path, the real 1.3.29 Managed line); no "hosted forwarding" finding (#209)', b3.beacon.status.managed === 'not connected (run `beacon endpoint connect`)' && !!b3.beacon.status.logPath && !bm.findings.some((f) => /Beacon Managed/.test(f)), JSON.stringify([b3.beacon.status.managed, bm.findings]));
 
       // The operator's Beacon step between B0 and the probe: [otel] rewritten in config.toml.
       w.writeConfig('codex-config', 'model = "m"\n\n[otel]\nexporter = { otlp-http = { endpoint = "http://127.0.0.1:4318" } }\n');
@@ -1112,6 +1117,20 @@ export async function l3Cases(check, h) {
       check('l3 sync timeout: each timed-out sync --print is NOT RUN for its poll path only; the probe still PASSes through B3 and B4', ['B2', 'B3', 'B4'].every((k) => l3?.beacon?.sync?.[k]?.status === 'NOT RUN' && /timed out/.test(l3.beacon.sync[k].reason)) && l3.steps.B4.queueAdd.status === 'completed' && l3.steps.B3.replyToolCalls === 1 && m.findings.filter((f) => /poll path is recorded NOT RUN/.test(f)).length === 3, JSON.stringify(l3?.beacon?.sync));
     } catch (err) {
       check('l3 pin drift: assertions ran', false, err.stack);
+    } finally {
+      w.cleanup();
+    }
+  }
+
+  // --- #209: a connected Managed line is still a finding (end to end through the fake Beacon) ---
+  {
+    const w = l3World(h);
+    try {
+      const base = w.drive('baseline', [], { FAKE_BEACON_MANAGED: 'connected to Acme as device d1; forwarder loaded=true running=true; credential valid' });
+      const bm = base.manifest;
+      check('l3 baseline #209: a "connected" Managed line is a "hosted forwarding may be on" finding; the baseline still PASSes', base.status === 0 && bm?.outcome === 'PASS' && /^connected to Acme/.test(bm.scenarioData.l3.beacon.status.managed) && bm.findings.some((f) => /Beacon Managed: connected to Acme/.test(f) && /hosted forwarding may be on/.test(f)), `${base.status} ${JSON.stringify(bm?.findings)}`);
+    } catch (err) {
+      check('l3 baseline #209: assertions ran', false, err.stack);
     } finally {
       w.cleanup();
     }

@@ -239,13 +239,30 @@ export function parseBeaconVersion(stdout) {
 }
 
 // `beacon endpoint status` text (cli/beacon/cmd/endpoint_install.go@v1.3.29 L206-L245): only the
-// lines L3 needs. The Managed line is managedIngestStatusLine()'s; its wording is taken from the
-// 2026-09-30 live observation (L1 §12), not from source.
+// lines L3 needs. The Managed line is printed at endpoint_install.go@v1.3.29 L242 by
+// managedIngestStatusLine() (cli/beacon/cmd/endpoint_connect.go@v1.3.29 L286-L315, read
+// 2026-10-01).
 export function parseBeaconStatus(stdout) {
   const s = String(stdout ?? '');
   const line = (re) => re.exec(s)?.[1]?.trim() ?? null;
   return { agentVersion: line(/^Beacon Endpoint Agent\s+(.+)$/m), logPath: line(/^Runtime log:\s*(.+)$/m), managed: line(/^Beacon Managed:\s*(.+)$/m), service: line(/^Service:\s*(.+)$/m) };
 }
+
+// Is the parsed `Beacon Managed:` value Local mode (no hosted forwarding)? #209. At v1.3.29
+// managedIngestStatusLine() (cli/beacon/cmd/endpoint_connect.go@v1.3.29) prints, when
+// ManagedIngest.Enabled is false, exactly one of:
+//   L289  "Beacon Managed: not connected (" + status.Message + ")"
+//   L291  "Beacon Managed: not connected (run `beacon endpoint connect`)"   <- the live line,
+//                                                                              2026-10-01
+// and, when Enabled is true, "Beacon Managed: connected ..." (L294 onward). Every Message set
+// alongside Enabled=false (cli/beacon/internal/endpoint/asymptote/status.go@v1.3.29 L59-L102:
+// enrollment read error, connect incomplete, disconnected with credentials kept) is still
+// "not connected". So: `not connected`, optionally followed by one parenthesised hint, is Local.
+// Anything else -- `connected ...`, a missing line (null), or any wording not in that source --
+// is not recognised and stays a finding (fail safe). Not a prefix match: "not connected yet" or
+// "not connected; x" is unrecognised.
+export const BEACON_MANAGED_LOCAL = /^not connected(?: \(.*\))?$/;
+export const beaconManagedIsLocal = (value) => typeof value === 'string' && BEACON_MANAGED_LOCAL.test(value);
 
 // The one L3 box, declared by the baseline phase.
 export function boxState(start, now = Date.now(), budgetMs = L3_BOX_MS) {
@@ -498,7 +515,7 @@ export default {
       if (!beaconLog) beaconLog = defaultBeaconLog();
       l3.beacon.log = { path: beaconLog, source: params.beaconLog ? '--param beaconLog' : 'default (L1 §12 live observations)' };
       if (s.logPath && resolve(s.logPath) !== resolve(beaconLog)) finding(`\`beacon endpoint status --system\` reports a runtime log path other than the one read (${s.logPath} vs ${beaconLog}); pass --param beaconLog to read the reported one`);
-      if (s.managed !== 'not connected') finding(`\`beacon endpoint status --system\` reports "Beacon Managed: ${s.managed ?? '(line not found)'}", not "not connected"; hosted forwarding may be on (L1 §4 Q3: stay in Local mode)`);
+      if (!beaconManagedIsLocal(s.managed)) finding(`\`beacon endpoint status --system\` reports "Beacon Managed: ${s.managed ?? '(line not found)'}", not "not connected" (optionally with a parenthesised hint); hosted forwarding may be on (L1 §4 Q3: stay in Local mode)`);
     };
 
     // --- versions and pins (drift is a finding, never a stop: L3 is not a gate) -----------------
