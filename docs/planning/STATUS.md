@@ -4,6 +4,14 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-01 (**Issue #211: PINS.md Beacon row catches up with L3.**
+`docs/planning/PINS.md`'s `Beacon (external memory service)` row and record now say no
+fact is UNVERIFIED: all four L1 items are closed (U2-U4 by L2 at `v1.3.29`, L1 §11; U1
+confirmed live by L3 on 2026-10-01, L1 §13), matching the Pins cell below. Dated note only:
+no version, fixed/floating status or `Gates affected` change, so the pin-move checklist
+does not apply and PINS.md's own `**Last updated:**` is not bumped. No gate verdict,
+UNVERIFIED item, skill, spec or ADR text changes.)
+
 **Last updated:** 2026-10-01 (**L3d/issue #192 (Epic L #165, closes #168): Beacon live leg
 run, herdr-driven, on Windows.** `docs/planning/decisions/L1-beacon-memory.md` gains §13
 "Live results (L3)". The box was declared 2026-10-01T19:52:44Z and did not expire. Versions:

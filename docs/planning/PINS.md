@@ -93,7 +93,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
 | herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior verified on Windows 2026-09-28 (K1 go on Windows), Linux and macOS UNVERIFIED, overall go provisional, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
-| Beacon (external memory service) | supported | `v1.3.29` (tag object `72fd6643b5cd5c6ff6741f6016b3577654f61915` → commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`); fixed, not floating; external service each harness connects to natively, never called, launched, configured or shipped by OAC; one fact UNVERIFIED (three closed by L2), see "Beacon (external memory service)" below | 2026-09-28 (tagger date) | https://github.com/Asymptote-Labs/agent-beacon/tree/v1.3.29 | 2026-09-29 | none |
+| Beacon (external memory service) | supported | `v1.3.29` (tag object `72fd6643b5cd5c6ff6741f6016b3577654f61915` → commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`); fixed, not floating; external service each harness connects to natively, never called, launched, configured or shipped by OAC; no fact UNVERIFIED (all four L1 items closed: three by L2, U1 confirmed live by L3, 2026-10-01, L1 §13), see "Beacon (external memory service)" below | 2026-09-28 (tagger date) | https://github.com/Asymptote-Labs/agent-beacon/tree/v1.3.29 | 2026-09-29 | none |
 
 ## Pin records
 
@@ -638,13 +638,18 @@ semver, and are recorded verbatim — never reformatted.
   https://github.com/Asymptote-Labs/agent-beacon/blob/v1.3.29/LICENSE, retrieved
   2026-09-29. It is recorded as an external service, not shipped, in
   `docs/planning/v0.1/07-repository-and-dependencies.md` §5.
-- **Four facts were UNVERIFIED at this pin; one remains after L2** (L1 §6,
+- **Four facts were UNVERIFIED at this pin; none remains after L3** (L1 §6,
   `docs/planning/STATUS.md` "Open UNVERIFIED items"): capture of OAC-delivered input, memory ID and result schema
   stability, concurrent `memory.db` access, and Codex config interaction. L2 owns them.
   **L2 (issue #167, 2026-09-29, L1 §11):** the last three are closed from source at this
   tag (CONFIRMED, CONFIRMED, REFUTED); the first stays UNVERIFIED, narrowed to harness
-  behaviour, for the live leg (L1 §12; herdr-driven per #187, 2026-09-30). A move of
-  this row also requires L1 §11's source-level facts to be re-read at the new tag.
+  behaviour, for the live leg (L1 §12; herdr-driven per #187, 2026-09-30).
+  **L3 (issue #192, 2026-10-01, L1 §13 B2-B4):** the first, U1, is CONFIRMED live on
+  Windows with Beacon `1.3.29` (this pin), Claude Code `2.1.285` and Codex `0.159.3`, so
+  all four items are closed. (Note added 2026-10-01, issue #211; it changes no version,
+  fixed/floating status or `Gates affected` cell, and invalidates no gate verdict.) A
+  move of this row also requires L1 §11's source-level facts to be re-read at the new
+  tag.
 - **Gates affected: none.** No `G<n>-result.md` verdict depends on this row. A move of
   this row invalidates no gate verdict. It does require L1 §6's items and every L1 §10
   citation to be re-read at the new tag, and the L3 live leg to record the Beacon version
