@@ -113,22 +113,30 @@ dialog is accepted, by the driver or by you, the harness records that trust in y
 config. Each run uses a fresh `oac-herdr-scratch-XXXXXX` directory, so each run adds one
 new entry per project directory. The driver never writes, edits or prunes these entries.
 
-- **Codex** adds a `[projects.'<tmpdir>\oac-herdr-scratch-XXXXXX\<scenario>-project']` table
-  with `trust_level = "trusted"` to `~/.codex/config.toml`. The TUI sends `config/batchWrite`
-  to the app-server, which writes only the user config (`codex-rs/tui/src/config_update.rs`
-  L76-84, L173-178; `codex-rs/app-server/src/config_manager_service.rs` L218-238;
-  identical at `rust-v0.159.2` and `rust-v0.159.3`, retrieved 2026-10-01). L3 saw exactly one
-  such table added (`docs/planning/decisions/L1-beacon-memory.md` §13 B7).
+- **Codex** adds a `[projects.'<tmpdir>\oac-herdr-scratch-XXXXXX\<name>']` table with
+  `trust_level = "trusted"` to `~/.codex/config.toml` (or `$CODEX_HOME/config.toml` when
+  `CODEX_HOME` is set). `<name>` is `g2-project`, `g4-codex-project`, `g5-codex-project` or
+  `l3-codex-project`. On Windows the key is canonicalized and lowercased
+  (`codex-rs/config/src/loader/mod.rs` L1367-1399), so compare it with your temp directory
+  case-insensitively. The TUI sends `config/batchWrite` to the app-server, which writes only
+  the user config (`codex-rs/tui/src/config_update.rs` L76-84, L173-178;
+  `codex-rs/app-server/src/config_manager_service.rs` L218-238; identical at
+  `rust-v0.159.2` and `rust-v0.159.3`, retrieved 2026-10-01). L3 saw exactly one such table
+  added (`docs/planning/decisions/L1-beacon-memory.md` §13 B7).
 - **Claude Code** changed `~/.claude.json` during the same L3 run. That is attributed to its
   trust record by timing only (§13 B7). The entry's shape is UNVERIFIED, so there is no
   pruning guidance for it. G1's `--param projectDir` avoids new entries for G1.
-- **Pruning the Codex tables (optional, by hand).** Delete a `[projects.'…']` table only if
-  its path has an `oac-herdr-scratch-` plus six-character component directly under your temp
-  directory and that directory no longer exists. Trust is keyed by path, and the scratch names
-  are random and never reused, so such an entry can never apply again. Keep it if the
-  directory is still there (a teardown leftover, #202). Run `codex app-server daemon stop` and
-  close Codex sessions first, back up the file, and remove the header line with its
-  `trust_level` line. Leave every other table alone.
+- **Pruning the Codex tables (optional, by hand).** Delete a projects table only if its path
+  has an `oac-herdr-scratch-` plus six-character component directly under your temp
+  directory (case-insensitively on Windows) and that directory no longer exists. The header
+  may read `[projects.'…']` or `[projects."…"]` (with doubled backslashes). Trust is keyed by
+  path and the scratch names are random, so reuse is unlikely; if a path does recur, deleting
+  the entry costs only a fresh dialog. Keep it if the directory is still there (a teardown
+  leftover, #202). Run `codex app-server daemon stop` and close Codex sessions first, and
+  back up the file. Then delete the whole table, from its header through the line before the
+  next `[` header (or the end of the file), and only if it contains nothing else you need:
+  deleting the header alone would leave its other keys under the table above. Leave every
+  other table alone.
 - **L3 B7.** B0 backups predate the run, so they hold none of these entries. B7's hash check
   shows `config.toml` (and `.claude.json`) changed even though Beacon did not write them.
   Restoring a B0 backup removes the entries, but it also reverts any other change made to

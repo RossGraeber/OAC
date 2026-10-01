@@ -242,24 +242,32 @@ accepted the dialog under `accept=human`.
   `codex-rs/tui/src/onboarding/onboarding_screen.rs` L770-815). The app-server accepts writes
   to the user config only: "Only writes to the user config are allowed"
   (`apply_edits`, `codex-rs/app-server/src/config_manager_service.rs` L218-238). So the entry
-  lands in `~/.codex/config.toml` as a `[projects.'<path>']` table with one `trust_level`
-  line. The key is the git root of the project directory when it is inside a git repository,
-  otherwise the directory itself, so for a scratch project it is
-  `<tmpdir>/oac-herdr-scratch-XXXXXX/<scenario>-project`. All three files are identical at
-  tags `rust-v0.159.2` and `rust-v0.159.3`, retrieved 2026-10-01. Observed live: L3 §13 B7
+  lands in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml` when `CODEX_HOME` is set) as
+  a `[projects.'<path>']` table with one `trust_level` line. The key is the git root of the
+  project directory when it is inside a git repository, otherwise the directory itself
+  (`codex-rs/tui/src/onboarding/onboarding_screen.rs` L194-200). For a scratch project it is
+  `<tmpdir>/oac-herdr-scratch-XXXXXX/<name>`, where `<name>` is `g2-project`,
+  `g4-codex-project`, `g5-codex-project` or `l3-codex-project` (`tools/herdr/scenarios/`). On
+  Windows Codex writes the key canonicalized and lowercased (`project_trust_key`,
+  `codex-rs/config/src/loader/mod.rs` L1367-1399), so compare it with the temp directory
+  case-insensitively. All four files are identical at tags `rust-v0.159.2` and
+  `rust-v0.159.3`, retrieved 2026-10-01. Observed live: L3 §13 B7
   (`docs/planning/decisions/L1-beacon-memory.md`), one table added, nothing else changed.
 - **Claude Code (inference only).** L3 §13 B7 saw `~/.claude.json` change across the run and
   attributes it, from timing alone, to Claude Code recording the trust accept. The content
   was not read, so the entry's shape is UNVERIFIED, and the orchestrating Claude Code
   session may also have written the file. No pruning guidance is given for it.
-- **Pruning (operator, by hand, optional).** A Codex `[projects.'…']` table is safe to
-  delete when its path has an `oac-herdr-scratch-` plus six-character component directly
-  under the OS temp directory, and that directory no longer exists. Trust is keyed by path,
-  and mkdtemp names are random and never reused, so the entry can never match a directory
-  again. Deleting it costs nothing beyond a fresh dialog should that path ever reappear.
-  Keep the entry if the directory still exists (a teardown leftover, `teardown.clean=false`,
-  #202). Stop Codex sessions and the daemon first (`codex app-server daemon stop`), back up
-  the file, and delete the header and its `trust_level` line together. Touch no other table.
+- **Pruning (operator, by hand, optional).** A Codex projects table is safe to delete when
+  its path has an `oac-herdr-scratch-` plus six-character component directly under the OS
+  temp directory (compared case-insensitively on Windows), and that directory no longer
+  exists. The header may read `[projects.'…']` or `[projects."…"]` (with doubled
+  backslashes). Trust is keyed by path and mkdtemp names are random, so reuse is unlikely; if
+  a path does recur, deleting the entry costs only a fresh dialog. Keep the entry if the
+  directory still exists (a teardown leftover, `teardown.clean=false`, #202). Stop Codex
+  sessions and the daemon first (`codex app-server daemon stop`) and back up the file. Then
+  delete the whole table, from its header through the line before the next `[` header (or
+  the end of the file), and only if it contains nothing else you need. Deleting the header
+  alone would leave any remaining keys under the table above it. Touch no other table.
 - **B7 interaction (L3).** B0 backups are taken before the run, so they never contain entries
   added during it. A B7 hash comparison therefore shows `config.toml` (and, by inference,
   `.claude.json`) differing from B0 even when Beacon wrote nothing. Restoring a B0 backup
