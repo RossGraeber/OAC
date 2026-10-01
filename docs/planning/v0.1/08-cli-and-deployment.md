@@ -336,10 +336,16 @@ One label per surface named in this file. Shim boundaries are cited, not restate
 
 | Surface | Label | Pin | Shim boundary |
 |---|---|---|---|
-| Claude Code Channels | research preview | `v2.1.274` (`docs/planning/PINS.md`) | `adapters/claude/` (UNVERIFIED — module name not yet fixed in `DESIGN.md`; register entry C11, `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)) |
-| Codex app-server / daemon-attach | experimental (per-method gating) | `@openai/codex@0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (`docs/planning/PINS.md`) | `adapters/codex/` (UNVERIFIED — same C11, `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)) |
+| Claude Code Channels | research preview | floating — last observed per `docs/planning/PINS.md` | `adapters/claude/` (UNVERIFIED — module name not yet fixed in `DESIGN.md`; register entry C11, `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)) |
+| Codex app-server / daemon-attach | experimental (per-method gating) | floating — last observed per `docs/planning/PINS.md` | `adapters/codex/` (UNVERIFIED — same C11, `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)) |
 | `keyring` | supported | `4.2.0` (`docs/planning/PINS.md`) | not applicable — general-purpose crate, not a provider surface |
 | `interprocess` | supported | `2.4.4`, candidate (`docs/planning/PINS.md`) | not applicable — general-purpose crate, not a provider surface |
+
+Note, 2026-10-01, issue #186: the Claude Code Channels and Codex Pin cells previously
+read `v2.1.274` and `@openai/codex@0.154.0` @ commit
+`6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, the fixed pins this file was written
+against. Those `docs/planning/PINS.md` rows went floating (Claude Code 2026-09-27, Codex
+2026-09-26); see each row's "Floating-version policy" for the last observed version.
 
 ---
 

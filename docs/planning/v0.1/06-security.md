@@ -361,8 +361,9 @@ for this surface — the fixed pin `v2.1.274` this decision was made against (C6
 each later last-observed version in `docs/planning/PINS.md` (row floating since
 2026-09-27) — satisfies the `>= v2.1.234` floor for `claude/channel/permission`, so
 permission relay is *available* on the versions OAC runs against. (Note, 2026-10-01,
-issue #186: previously worded as "the pinned version (`v2.1.274`)".) This document's off-by-default posture is a decision
-made in spite of availability, not a limitation imposed by it (C6 §7).
+issue #186: previously worded as "the pinned version (`v2.1.274`)".) This document's
+off-by-default posture is a decision made in spite of availability, not a limitation
+imposed by it (C6 §7).
 
 **Enabling it requires its own decision record.** If a deployment turns relay on, "any
 allowlisted sender for that session becomes able to approve tool use" — H2's own

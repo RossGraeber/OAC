@@ -367,11 +367,16 @@ rationale cites). "Existing" in the Validation criterion, as amended, means a li
 interactive session **launched OAC-enabled**:
 
 - Claude: `claude --dangerously-load-development-channels server:oac` (`docs/planning/
-  v0.1/08-cli-and-deployment.md` §7 — surface label **research preview**, pinned
-  `v2.1.274`).
+  v0.1/08-cli-and-deployment.md` §7 — surface label **research preview**, version
+  floating per `docs/planning/PINS.md`).
 - Codex: attached via the shared local app-server daemon, or, on the documented
   fallback, `codex --remote` (`docs/planning/v0.1/08-cli-and-deployment.md` §9-§10 —
-  surface label **experimental (per-method gating)**, pinned `@openai/codex@0.154.0`).
+  surface label **experimental (per-method gating)**, version floating per
+  `docs/planning/PINS.md`).
+
+(Note, 2026-10-01, issue #186: these two bullets previously read "pinned `v2.1.274`" and
+"pinned `@openai/codex@0.154.0`"; those `docs/planning/PINS.md` rows went floating
+2026-09-27 and 2026-09-26.)
 
 H1's own acceptance wording, quoted: "A live Claude Code session, launched OAC-enabled,
 sends to a live Codex session and the Codex model answers without any receiver-side
@@ -630,11 +635,16 @@ scope limit, not as a duplicate ledger.
 Per `oac-evidence` §8, checked against this file:
 
 - Every provider surface named carries its label at first mention: Claude Code Channels
-  = **research preview** (`v2.1.274`, §9); Codex app-server = **experimental
-  (per-method gating)** (`@openai/codex@0.154.0`, §9) — both cited via
+  = **research preview** (version floating per `docs/planning/PINS.md`, §9); Codex
+  app-server = **experimental (per-method gating)** (version floating per
+  `docs/planning/PINS.md`, §9) — both cited via
   `docs/planning/v0.1/08-cli-and-deployment.md`, which itself carries the label.
-- Every version reference is pinned from `docs/planning/PINS.md`, cited by pointer
-  (§4, §9), never restated as "current" or "latest."
+- Every version reference is taken from `docs/planning/PINS.md`, cited by pointer
+  (§4, §9), never restated as "current" or "latest." The Claude Code and Codex rows
+  there are floating (a last-observed version, not a fixed pin); every other version
+  is a fixed pin. (Note, 2026-10-01, issue #186: this pass previously listed the
+  then-fixed pins `v2.1.274` and `@openai/codex@0.154.0` and said every version was
+  "pinned from" `PINS.md`.)
 - **Existing UNVERIFIED items this file leans on, carried with their original reason, not
   restated as settled:** the Codex daemon-attach-default question (§9, via
   `docs/planning/v0.1/08-cli-and-deployment.md` §10, which itself carries the reason);
