@@ -1161,12 +1161,15 @@ item 4 collision was seen live for Codex.
 10. **False positive: "Beacon Managed".** The scenario flags "hosted forwarding may be on"
     because Beacon `1.3.29` prints `Beacon Managed: not connected (run \`beacon endpoint
     connect\`)` and the parser expects exactly `not connected`. The machine was in Local
-    mode. Follow-up: #209. Fixed 2026-10-01 (#209): the scenario now accepts `not
-    connected`, optionally followed by one parenthesised hint, as Local mode. That is the
-    shape `managedIngestStatusLine()` prints whenever hosted forwarding is not enabled
-    (`cli/beacon/cmd/endpoint_connect.go@v1.3.29` L286-L292). `connected ...`, a missing
-    line, or any other wording is still a finding. The runs above predate the fix; their
-    record is unchanged.
+    mode. Follow-up: #209. Fixed 2026-10-01 (#209): the scenario now accepts only an exact
+    allowlist as Local mode: bare `not connected`, the live line's hint
+    (`cli/beacon/cmd/endpoint_connect.go@v1.3.29` L291), and the two "connect incomplete"
+    messages that leave no forwarder running
+    (`cli/beacon/internal/endpoint/asymptote/status.go@v1.3.29` L64, L71). Everything else
+    is still a finding, because forwarding may be on: an enrollment-read error (L62, e.g.
+    `Access is denied` unelevated), "re-connect incomplete" (L78), "disconnected;
+    credentials ... kept" (L101), `connected ...`, a missing line, or any other wording. The
+    runs above predate the fix; their record is unchanged.
 11. **Manifest redaction** withheld `$.scenario.params.baselineRun` in the probe and verify
     manifests: the value is a local scratch path.
 

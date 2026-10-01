@@ -254,15 +254,27 @@ export function parseBeaconStatus(stdout) {
 //   L289  "Beacon Managed: not connected (" + status.Message + ")"
 //   L291  "Beacon Managed: not connected (run `beacon endpoint connect`)"   <- the live line,
 //                                                                              2026-10-01
-// and, when Enabled is true, "Beacon Managed: connected ..." (L294 onward). Every Message set
-// alongside Enabled=false (cli/beacon/internal/endpoint/asymptote/status.go@v1.3.29 L59-L102:
-// enrollment read error, connect incomplete, disconnected with credentials kept) is still
-// "not connected". So: `not connected`, optionally followed by one parenthesised hint, is Local.
-// Anything else -- `connected ...`, a missing line (null), or any wording not in that source --
-// is not recognised and stays a finding (fail safe). Not a prefix match: "not connected yet" or
-// "not connected; x" is unrecognised.
-export const BEACON_MANAGED_LOCAL = /^not connected(?: \(.*\))?$/;
-export const beaconManagedIsLocal = (value) => typeof value === 'string' && BEACON_MANAGED_LOCAL.test(value);
+// and, when Enabled is true, "Beacon Managed: connected ..." (L294 onward). Enabled=false does
+// NOT always mean forwarding is off (PR #215 review), so "not connected (<anything>)" is not
+// accepted. The L289 Message comes from Status() (cli/beacon/internal/endpoint/asymptote/
+// status.go@v1.3.29); only these exact values are Local mode (BEACON_MANAGED_LOCAL_VALUES):
+//   - bare `not connected`: the L1 §12 2026-09-30 record's shape
+//   - L291 hint: not enrolled, no connect pending (status.go L57-L60 with ErrNotEnrolled)
+//   - L64 message: not enrolled, a connect never finished
+//   - L71 message: enrolled, first connect incomplete, "the partial forwarder was stopped"
+// Never accepted (each stays a finding): the L62 err.Error() text (the enrollment record exists
+// but could not be read, e.g. Access is denied unelevated or invalid JSON, so forwarding may be
+// on); L73 (pending state unreadable); L78 "re-connect incomplete" (the previous connection's
+// forwarder may still run); L101 "disconnected; credentials for device <id> kept" (the device
+// id's shape is not pinned here); `connected ...`; a missing line (null); any other wording.
+// Exact string match, never a prefix or pattern match (fail safe).
+export const BEACON_MANAGED_LOCAL_VALUES = Object.freeze([
+  'not connected',
+  'not connected (run `beacon endpoint connect`)', // endpoint_connect.go@v1.3.29 L291; live 2026-10-01
+  'not connected (connect incomplete: this device was approved but connect did not finish; run `beacon endpoint connect` again)', // status.go@v1.3.29 L64
+  'not connected (connect incomplete: this device was approved but connect did not finish; the partial forwarder was stopped; run `beacon endpoint connect` again)', // status.go@v1.3.29 L71
+]);
+export const beaconManagedIsLocal = (value) => typeof value === 'string' && BEACON_MANAGED_LOCAL_VALUES.includes(value);
 
 // The one L3 box, declared by the baseline phase.
 export function boxState(start, now = Date.now(), budgetMs = L3_BOX_MS) {
@@ -515,7 +527,7 @@ export default {
       if (!beaconLog) beaconLog = defaultBeaconLog();
       l3.beacon.log = { path: beaconLog, source: params.beaconLog ? '--param beaconLog' : 'default (L1 §12 live observations)' };
       if (s.logPath && resolve(s.logPath) !== resolve(beaconLog)) finding(`\`beacon endpoint status --system\` reports a runtime log path other than the one read (${s.logPath} vs ${beaconLog}); pass --param beaconLog to read the reported one`);
-      if (!beaconManagedIsLocal(s.managed)) finding(`\`beacon endpoint status --system\` reports "Beacon Managed: ${s.managed ?? '(line not found)'}", not "not connected" (optionally with a parenthesised hint); hosted forwarding may be on (L1 §4 Q3: stay in Local mode)`);
+      if (!beaconManagedIsLocal(s.managed)) finding(`\`beacon endpoint status --system\` reports "Beacon Managed: ${s.managed ?? '(line not found)'}", not a recognised Local-mode value (BEACON_MANAGED_LOCAL_VALUES); hosted forwarding may be on (L1 §4 Q3: stay in Local mode)`);
     };
 
     // --- versions and pins (drift is a finding, never a stop: L3 is not a gate) -----------------
