@@ -242,7 +242,11 @@ From C5 §7-§9:
 
 ## 8. Provenance rendering per provider — Claude
 
-**Surface label: research preview**, pinned `v2.1.274` (C4 §16, C6 §15).
+**Surface label: research preview**; version **floating** — see `docs/planning/PINS.md`,
+Claude Code (Channels) row and its "Floating-version policy", for the last observed
+version (C4 §16, C6 §15). (Note, 2026-10-01, issue #186: this line previously read
+"pinned `v2.1.274`", the fixed pin C4/C6 were written against; that row went floating
+2026-09-27.)
 
 A channel is an MCP server declaring `capabilities.experimental["claude/channel"] = {}`
 and sending `notifications/claude/channel` with `content` (string) and `meta`
@@ -271,7 +275,10 @@ daemon state only, and a memory reference stays inside `content` (§2; §14 rows
 ## 9. Provenance rendering per provider — Codex
 
 **Surface label: experimental, per-method gating via `capabilities.experimentalApi`**,
-pinned `@openai/codex@0.154.0` (C4 §16, C6 §15).
+version **floating** — see `docs/planning/PINS.md`, Codex CLI / app-server row and its
+"Floating-version policy", for the last observed version (C4 §16, C6 §15). (Note,
+2026-10-01, issue #186: this line previously read "pinned `@openai/codex@0.154.0`", the
+fixed pin C4/C6 were written against; that row went floating 2026-09-26.)
 
 Codex has no side-channel metadata field — provenance rides inside the one
 `{type:"text",text}` item's `text` string, in three parts: a machine-generated header
@@ -349,10 +356,14 @@ v0.1.** Three justification strands, from C6 §7:
   relay would add a second, silent grant (tool-approval authority for any allowlisted
   sender) behind the same single confirmation.
 
-**A chosen default, not an availability accident.** The pinned version (`v2.1.274`)
-satisfies the `>= v2.1.234` floor for `claude/channel/permission` — permission relay is
-*available* at the pinned version. This document's off-by-default posture is a decision
-made in spite of availability, not a limitation imposed by it (C6 §7).
+**A chosen default, not an availability accident.** Every Claude Code version recorded
+for this surface — the fixed pin `v2.1.274` this decision was made against (C6 §7) and
+each later last-observed version in `docs/planning/PINS.md` (row floating since
+2026-09-27) — satisfies the `>= v2.1.234` floor for `claude/channel/permission`, so
+permission relay is *available* on the versions OAC runs against. (Note, 2026-10-01,
+issue #186: previously worded as "the pinned version (`v2.1.274`)".) This document's
+off-by-default posture is a decision made in spite of availability, not a limitation
+imposed by it (C6 §7).
 
 **Enabling it requires its own decision record.** If a deployment turns relay on, "any
 allowlisted sender for that session becomes able to approve tool use" — H2's own
@@ -489,8 +500,11 @@ Every reference below is a repo-relative path; no prior context is assumed.
 Per `oac-evidence` §8, checked against this file:
 
 - Every provider surface is labelled once at first mention, with its pin: Claude Code
-  Channels = **research preview** (`v2.1.274`, §8); Codex app-server = **experimental
-  (per-method gating via `capabilities.experimentalApi`)** (`@openai/codex@0.154.0`, §9).
+  Channels = **research preview** (version floating per `docs/planning/PINS.md`, §8);
+  Codex app-server = **experimental (per-method gating via
+  `capabilities.experimentalApi`)** (version floating per `docs/planning/PINS.md`, §9).
+  (Note, 2026-10-01, issue #186: previously listed the then-fixed pins `v2.1.274` and
+  `@openai/codex@0.154.0`.)
 - Method names, capability keys, and flags are quoted verbatim wherever used:
   `notifications/claude/channel` (§8); `claude/channel/permission` (§11); `turn/start`,
   `thread/queue/add`, `turn/steer` (§9, §14 row 12); `--dangerously-load-development-

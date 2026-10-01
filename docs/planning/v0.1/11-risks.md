@@ -297,7 +297,9 @@ list.
 ### RISK-FLOOR — `>= v2.1.232` floor unverifiable
 
 - **Risk.** The "research preview on Claude Code v2.1.232+" floor is not
-  confirmable against `channels.md` at the pinned version (`v2.1.274`).
+  confirmable against `channels.md` at the version B1 checked (`v2.1.274`; see
+  `docs/planning/PINS.md`, "Claude Code Channels" — the B1 record kept as history,
+  "Floor 1").
 - **What it invalidates.** `docs/planning/PINS.md` floor 1's stated minimum-
   version claim; it does not invalidate G1 itself, since G1's pin reliance is on
   the pinned version actually installed, not on the floor text
@@ -305,9 +307,14 @@ list.
 - **Early-warning signal.** A re-fetch of `channels.md` at the next Claude Code
   pin move still omits `2.1.232` (per `REVERIFICATION-B2.md` §3.1 box 7).
 - **Response.** Re-verify per `.claude/skills/oac-evidence/SKILL.md` §7 on every
-  Claude Code pin move. Until confirmed, `docs/planning/PINS.md` keeps the
-  actually-pinned version (`v2.1.274`) as the operative floor rather than the
-  unconfirmed `2.1.232` text.
+  Claude Code pin move. Until confirmed, the unconfirmed `2.1.232` text is not
+  treated as the operative floor; the B1 record in `docs/planning/PINS.md` used the
+  then-pinned `v2.1.274` for that role. Which version serves as the operative floor
+  now that the row floats is open — issue #216.
+- (Note, 2026-10-01, issue #186: this entry previously said "at the pinned version
+  (`v2.1.274`)" and that `PINS.md` "keeps the actually-pinned version (`v2.1.274`) as
+  the operative floor"; the Claude Code (Channels) row went floating 2026-09-27, so
+  there is no fixed pin to hold that role.)
 
 ### RISK-MCP-EXPERIMENTAL — `experimental` capability existence at `2026-07-28`
 
