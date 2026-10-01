@@ -14,7 +14,8 @@ via hook and OTLP, though not on the poll path. Codex `turn/start` and `thread/q
 input becomes `prompt.submitted` via OTLP and poll. A fake secret-shaped token was stored
 unredacted on every capturing path. U1 is removed from "Open UNVERIFIED items" below, so no
 L1 item stays open. B1, B5 and B6 NOT RUN by operator decision. B7: Beacon kept installed;
-the only config differences are the harnesses' own folder-trust entries (#206). Pin drift
+the only config differences are Codex's own folder-trust entry in `config.toml` and a
+`~/.claude.json` change attributed, by inference, to Claude Code's own trust write (#206). Pin drift
 from PINS.md (`2.1.283`, `0.157.1`) is recorded as a finding; PINS.md is not moved.
 `11-risks.md` rows 53 and 56 and `RISK-BEACON` updated, and `06-security.md` §14 row 23's
 residual now states the confirmed capture. Follow-up #209: the scenario's "Beacon

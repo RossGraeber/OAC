@@ -515,16 +515,19 @@ desk record, kept as written.
 - **Reply tool.** The reply-tool call is recorded as `tool.invoked` and
   `mcp.tool_invoked`, with the arguments at `gen_ai.tool.call.arguments.message`.
 - **Codex.** Input sent with `turn/start` and with `thread/queue/add` is recorded as
-  `prompt.submitted` from harness `codex_desktop`, via OTLP and on the
-  `beacon endpoint codex sync` poll path.
+  `prompt.submitted` via OTLP (harness `codex_desktop`) and on the
+  `beacon endpoint codex sync` poll path (harness `codex_cli`).
 - **Redaction.** A fake secret-shaped token in the message body was stored **unredacted**
   on every path that captured it.
-- **Answers to "What stays open" below.** Claude Code reports a channel delivery through
-  `UserPromptSubmit` and `claude_code.user_prompt`, and as a meta `user` entry. The
-  hook/OTLP split is inferred: it comes from the per-method counts and field paths, since
-  the record does not pair a method with each line. Codex logs
-  `codex.user_prompt` for both methods and writes a `user` message that the poll mapper
-  reads.
+- **Answers to "What stays open" below.** Claude Code reports a channel delivery to both
+  Beacon's hook and its OTLP receiver: at the B2 snapshot there is one `prompt.submitted`
+  line per method. It also writes the delivery as a meta `user` entry.
+  - The harness event names are inferred, not recorded: that the hook line comes from
+    `UserPromptSubmit` and the OTLP line from `claude_code.user_prompt` follows from
+    Beacon's source mapping (points 1 and 3 below). The record names collection methods,
+    not harness events.
+  - By the same mapping, Codex's OTLP line implies `codex.user_prompt` and its poll line
+    a `user` rollout message.
 
 **Beacon has no channel-specific handling at all.** A search of the whole tag tree for
 `notifications/claude/channel`, `claude/channel` and `<channel` (Go, TypeScript, JSON,
@@ -994,7 +997,7 @@ outcome (`PASS` below) only means the scenario ran to the end; it is not a step 
   #18, `up` #20, `enter` #22), Claude development-channels (read #25; `enter` #26), Codex
   workspace-trust (read #47; `enter` #48). Codex's startup hook review (Beacon's
   `SessionStart` hook, #204) did not appear: the operator had trusted that hook before
-  B0.
+  B0 (operator statement; not in the run record).
 - **L3 box:** declared by the baseline run at 2026-10-01T19:52:44.821Z; 60 minutes, never
   extended; would end 20:52:44.821Z. The last phase ended 19:54:50.886Z; **not expired**.
 - **Phase runs** (each outcome `PASS`):
@@ -1023,8 +1026,11 @@ outcome (`PASS` below) only means the scenario ran to the end; it is not a step 
 - **B6:** NOT RUN — same decision: it needs Beacon's MCP server registered in both
   harnesses and an approved memory, operator-only Beacon steps.
 - **B7:** FINDING — Beacon kept installed by operator decision, so no uninstall or
-  restore. Two files differ from B0, both written by the harnesses when the driver
-  accepted their folder-trust dialogs, not by Beacon or OAC tooling (details below).
+  restore. Two files differ from B0:
+  - `config.toml`: Codex's own folder-trust entry (section diff);
+  - `~/.claude.json`: attributed by inference only to Claude Code's trust write.
+
+  Details below.
 
 ### Evidence
 
@@ -1044,10 +1050,12 @@ item 4's edge case cannot arise on this machine.
 claude-channel marker, all in one `claude_code` session:
 
 - At the B2 snapshot, before B3: **2** lines, both `prompt.submitted`. The marker sits in
-  `prompt.text`, `gen_ai.input.messages[0].parts[0].content` and `raw.attributes.prompt`.
+  `prompt.text` and `gen_ai.input.messages[0].parts[0].content` (both lines) and
+  `raw.attributes.prompt` (one line).
   The fake token is **unredacted** in both lines.
 - Across all 6 hits the collection methods are `hook` (3) and `otlp` (3). The record does
-  not pair a method with each line.
+  not pair a method with each line, except at the B2 snapshot, where the two
+  `prompt.submitted` lines are `hook` 1 and `otlp` 1.
 - Poll path (`beacon endpoint claude sync --print`, 40714 event lines): **0** hits at B2.
   This is a result. Claude Code's session file holds the delivery as a `queue-operation`
   entry and a `user` entry with `isMeta` `true` (entry types and flags only; no
@@ -1076,11 +1084,11 @@ and both inputs worked with Beacon's `[otel]` table and `SessionStart` hook in p
 item 4 collision was seen live for Codex.
 
 - OTLP path (Beacon log): 1 `prompt.submitted` line per method, harness `codex_desktop`
-  (Beacon's label for app-server telemetry), collection method `otlp`. Paths: `prompt.text`,
+  (inferred: Beacon's label for app-server OTLP), collection method `otlp`. Paths: `prompt.text`,
   `gen_ai.input.messages[0].parts[0].content`, `raw.attributes.prompt`. Fake token
   **unredacted** in both.
 - Poll path (`beacon endpoint codex sync --print`, 2299 event lines): 1 `prompt.submitted`
-  line per method, fake token **unredacted** in both.
+  line per method, harness `codex_cli`, fake token **unredacted** in both.
 - Redacted excerpt (line 2951): `oac_reply_to: \n--- oac-body <nonce> ---\nL3 probe
   {L3-MARKER codex-turn-start}. Test credential {L3-FAKE-TOKEN codex-turn-start}.`
 
@@ -1095,8 +1103,13 @@ item 4 collision was seen live for Codex.
   touched.
 - `~/.claude.json`: changed (hash only; the record has no section diff for this file).
   Attributed to Claude Code recording the workspace-trust accept for the scratch project
-  in its own state file. That is an inference from the timing; the content was not read.
-  Beacon writes this file only through `beacon mcp connect`, which was not run.
+  in its own state file. That is an inference from the timing only:
+  - the content was not read;
+  - the hash is known only at probe start (unchanged) and at verify (changed);
+  - the top-level key set is unchanged.
+
+  An alternative cause is that the orchestrating Claude Code session, which ran as the
+  same user throughout, also writes this file. Beacon writes this file only through `beacon mcp connect`, which was not run.
 - Restore: none needed beyond optional pruning of the scratch trust entries (#206). The
   operator keeps the B0 backups.
 
@@ -1117,24 +1130,31 @@ item 4 collision was seen live for Codex.
    shows a startup hook review for an untrusted hook in `~/.codex/hooks.json`, and no
    `thread/start` happens until someone answers it. The driver never answers that screen
    (#204, fixed in #205 by a ready check that ends the run `NOT RUN` naming the blocker).
-   The operator trusted the hook before this box.
+   The operator trusted the hook before this box (operator statement; not in the run
+   record).
 5. **The Codex daemon holds a handle on a loaded thread's cwd on Windows.** Scratch cleanup
    failed with `EPERM` (#202). Since #203 the run manifest survives the failure. In this
    probe the scratch directory was again left behind, possibly with unredacted captures.
    The operator deletes it by hand once the daemon releases it.
 6. **Harness trust entries.** Accepting folder-trust dialogs makes Claude Code
    (`~/.claude.json`) and Codex (`~/.codex/config.toml` `[projects.…]`) record trust
-   entries, one per scratch project (#206). That accounts for both B7 differences.
+   entries, one per scratch project (#206). That accounts for the `config.toml` difference
+   (section diff: one `[projects.…]` table added). The `~/.claude.json` difference is
+   attributed to the same trust write by inference only (§13 B7):
+   - its content was not read;
+   - its top-level key set is unchanged;
+   - the orchestrating Claude Code session, which writes the same file, was running
+     throughout.
 7. **`codex app-server daemon start` cannot be launched from Claude Code's shell on
    Windows.** The first probe failed on it (exit 1, below); a job object around that shell
-   is the likely cause. The daemon was started outside it (WMI process creation) and was
-   already running at this probe. The probe recorded `alreadyRunning`, which the scenario
+   is the likely cause. The daemon was started outside it (WMI process creation;
+   orchestrator statement, not in the run record) and was already running at this probe. The probe recorded `alreadyRunning`, which the scenario
    flags because a daemon started before Beacon's `[otel]` write may not export OTLP. Here
-   the OTLP counts are non-zero, so that caveat did not bite: the daemon had Beacon's
-   `[otel]` config loaded.
+   the OTLP counts are non-zero, so that caveat did not bite, which implies the daemon had
+   Beacon's `[otel]` config loaded.
 8. **A stale operator MCP server blocked Codex startup.** An unreachable `mcp_servers.g4`
    entry was in the operator's `config.toml`. The operator removed it during the
-   2026-09-30 attempts. #205 later found the hook review, not MCP servers, to be the
+   2026-09-30 attempts (operator statement; not in the run record). #205 later found the hook review, not MCP servers, to be the
    blocker in those runs.
 9. **Pin drift:** Claude Code `2.1.283` → `2.1.285`, Codex `0.157.1` → `0.159.3`. Recorded
    by operator decision 4 on #168; PINS.md not moved; L3 is not a gate.
@@ -1147,8 +1167,8 @@ item 4 collision was seen live for Codex.
 
 ### Prior attempts (never evidence)
 
-All were on Windows with herdr `0.9.1` and Claude Code `2.1.285`, unless noted. Each was
-in its own box, and none is a step result.
+All were on Windows with herdr `0.9.1` and Claude Code `2.1.285`, unless noted. None ran in
+this L3 box, and none is a step result.
 
 - **Manual attempt**, 2026-09-30 05:50Z (Claude Code `2.1.284`, recorded on #168): B0
   done, B1 the MSI finding (§12), paused at B2. The operator moved to a herdr-driven run.
