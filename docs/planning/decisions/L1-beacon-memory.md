@@ -1162,14 +1162,20 @@ item 4 collision was seen live for Codex.
     because Beacon `1.3.29` prints `Beacon Managed: not connected (run \`beacon endpoint
     connect\`)` and the parser expects exactly `not connected`. The machine was in Local
     mode. Follow-up: #209. Fixed 2026-10-01 (#209): the scenario now accepts only an exact
-    allowlist as Local mode: bare `not connected`, the live line's hint
-    (`cli/beacon/cmd/endpoint_connect.go@v1.3.29` L291), and the two "connect incomplete"
-    messages that leave no forwarder running
-    (`cli/beacon/internal/endpoint/asymptote/status.go@v1.3.29` L64, L71). Everything else
-    is still a finding, because forwarding may be on: an enrollment-read error (L62, e.g.
-    `Access is denied` unelevated), "re-connect incomplete" (L78), "disconnected;
-    credentials ... kept" (L101), `connected ...`, a missing line, or any other wording. The
-    runs above predate the fix; their record is unchanged.
+    allowlist as Local mode: bare `not connected` and the live line's hint
+    (`cli/beacon/cmd/endpoint_connect.go@v1.3.29` L291). Everything else is still a
+    finding, because forwarding may be on. That includes the
+    `cli/beacon/internal/endpoint/asymptote/status.go@v1.3.29` messages:
+    - an enrollment-read error (L62, e.g. `Access is denied` unelevated);
+    - "connect incomplete" (L64, L71). A first connect starts the forwarder
+      (`connect.go@v1.3.29` L261-L267) before it records the enrollment (L290, L302), and
+      only an error return stops it, so a forwarder may still run. Either message also
+      means `beacon endpoint connect` was run, contrary to §4 Q3;
+    - "re-connect incomplete" (L78);
+    - "disconnected; credentials ... kept" (L101).
+
+    So are `connected ...`, a missing line, and any other wording. The runs above predate
+    the fix; their record is unchanged.
 11. **Manifest redaction** withheld `$.scenario.params.baselineRun` in the probe and verify
     manifests: the value is a local scratch path.
 

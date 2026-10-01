@@ -260,19 +260,24 @@ export function parseBeaconStatus(stdout) {
 // status.go@v1.3.29); only these exact values are Local mode (BEACON_MANAGED_LOCAL_VALUES):
 //   - bare `not connected`: the L1 §12 2026-09-30 record's shape
 //   - L291 hint: not enrolled, no connect pending (status.go L57-L60 with ErrNotEnrolled)
-//   - L64 message: not enrolled, a connect never finished
-//   - L71 message: enrolled, first connect incomplete, "the partial forwarder was stopped"
-// Never accepted (each stays a finding): the L62 err.Error() text (the enrollment record exists
-// but could not be read, e.g. Access is denied unelevated or invalid JSON, so forwarding may be
-// on); L73 (pending state unreadable); L78 "re-connect incomplete" (the previous connection's
-// forwarder may still run); L101 "disconnected; credentials for device <id> kept" (the device
-// id's shape is not pinned here); `connected ...`; a missing line (null); any other wording.
+// Never accepted (each stays a finding):
+//   - L62 err.Error() text: the enrollment record exists but could not be read (e.g. Access is
+//     denied unelevated, or invalid JSON), so forwarding may be on;
+//   - L64 and L71 "connect incomplete": a first connect (cli/beacon/internal/endpoint/asymptote/
+//     connect.go@v1.3.29) writes the unit and starts the forwarder (L261-L267) before
+//     SaveEnrollment (L290) and clearConnectPending (L302); only the deferred cleanup (L108-L119)
+//     stops it, and only on an error return, so a Ctrl-C (L199-L200) or a failed unload leaves
+//     the L64 status while a forwarder with a valid key runs; likewise L71 between L290 and
+//     L302 (its "partial forwarder was stopped" is a fixed string nothing checks). Either also
+//     means `beacon endpoint connect` was run, contrary to L1 §4 Q3;
+//   - L73 (pending state unreadable); L78 "re-connect incomplete" (the previous connection's
+//     forwarder may still run); L101 "disconnected; credentials for device <id> kept" (the
+//     device id's shape is not pinned here);
+//   - `connected ...`; a missing line (null); any other wording.
 // Exact string match, never a prefix or pattern match (fail safe).
 export const BEACON_MANAGED_LOCAL_VALUES = Object.freeze([
   'not connected',
   'not connected (run `beacon endpoint connect`)', // endpoint_connect.go@v1.3.29 L291; live 2026-10-01
-  'not connected (connect incomplete: this device was approved but connect did not finish; run `beacon endpoint connect` again)', // status.go@v1.3.29 L64
-  'not connected (connect incomplete: this device was approved but connect did not finish; the partial forwarder was stopped; run `beacon endpoint connect` again)', // status.go@v1.3.29 L71
 ]);
 export const beaconManagedIsLocal = (value) => typeof value === 'string' && BEACON_MANAGED_LOCAL_VALUES.includes(value);
 
