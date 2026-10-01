@@ -228,6 +228,47 @@ Decision record: `K-196-driver-accepts-dialogs.md` §6.
   check 10). Claude Code records the accepted trust in its own state, as it would for a
   human accept.
 
+**Side effect: trust entries accumulate in operator config (#206).** Each accepted trust
+dialog makes the harness itself, not the driver, record trust for the scratch project in the
+operator's own config. Every run uses a fresh `oac-herdr-scratch-XXXXXX` directory, so one
+new entry lands per run (more if a scenario has several project directories). The driver
+never writes, edits or prunes these entries (check 10). That includes runs where the operator
+accepted the dialog under `accept=human`.
+
+- **Codex (source-confirmed).** Accepting "1. Trust and continue" sends `config/batchWrite`
+  to the app-server. The edit is `projects."<key>".trust_level = "trusted"`, with
+  `file_path: None` (`trusted_project_edit` / `write_trusted_project`,
+  `codex-rs/tui/src/config_update.rs` L76-84, L173-178; called from
+  `codex-rs/tui/src/onboarding/onboarding_screen.rs` L770-815). The app-server accepts writes
+  to the user config only: "Only writes to the user config are allowed"
+  (`apply_edits`, `codex-rs/app-server/src/config_manager_service.rs` L218-238). So the entry
+  lands in `~/.codex/config.toml` as a `[projects.'<path>']` table with one `trust_level`
+  line. The key is the git root of the project directory when it is inside a git repository,
+  otherwise the directory itself, so for a scratch project it is
+  `<tmpdir>/oac-herdr-scratch-XXXXXX/<scenario>-project`. All three files are identical at
+  tags `rust-v0.159.2` and `rust-v0.159.3`, retrieved 2026-10-01. Observed live: L3 §13 B7
+  (`docs/planning/decisions/L1-beacon-memory.md`), one table added, nothing else changed.
+- **Claude Code (inference only).** L3 §13 B7 saw `~/.claude.json` change across the run and
+  attributes it, from timing alone, to Claude Code recording the trust accept. The content
+  was not read, so the entry's shape is UNVERIFIED, and the orchestrating Claude Code
+  session may also have written the file. No pruning guidance is given for it.
+- **Pruning (operator, by hand, optional).** A Codex `[projects.'…']` table is safe to
+  delete when its path has an `oac-herdr-scratch-` plus six-character component directly
+  under the OS temp directory, and that directory no longer exists. Trust is keyed by path,
+  and mkdtemp names are random and never reused, so the entry can never match a directory
+  again. Deleting it costs nothing beyond a fresh dialog should that path ever reappear.
+  Keep the entry if the directory still exists (a teardown leftover, `teardown.clean=false`,
+  #202). Stop Codex sessions and the daemon first (`codex app-server daemon stop`), back up
+  the file, and delete the header and its `trust_level` line together. Touch no other table.
+- **B7 interaction (L3).** B0 backups are taken before the run, so they never contain entries
+  added during it. A B7 hash comparison therefore shows `config.toml` (and, by inference,
+  `.claude.json`) differing from B0 even when Beacon wrote nothing. Restoring a B0 backup
+  drops these entries too, but it also reverts anything else written to that file since
+  B0. That matters most for `.claude.json`, which Claude Code updates often.
+- **Proposal, not implemented.** A reusable Codex project directory, like G1's
+  `--param projectDir`, trusted once by the operator, would stop the accumulation. It needs an
+  operator decision first, including how it fits the scratch-containment rules.
+
 **What a driver accept scores.** None of these three dialogs is named by a G2, G4 or G5
 criterion, so a driver accept costs those gates nothing (see "Verdict eligibility"). A
 criterion that is *about* a human consent step keeps its human accept and its human

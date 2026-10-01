@@ -108,6 +108,37 @@ eligibility: `scripted-runs.md` "Operator-consent dialogs".
 The driver itself never writes harness config to skip a dialog (`oac-boundaries` check 10):
 no `~/.claude.json` trust entry, no settings edit, and never herdr's hook-writing command.
 
+**Known side effect: trust entries pile up in your harness config (#206).** When a trust
+dialog is accepted, by the driver or by you, the harness records that trust in your own
+config. Each run uses a fresh `oac-herdr-scratch-XXXXXX` directory, so each run adds one
+new entry per project directory. The driver never writes, edits or prunes these entries.
+
+- **Codex** adds a `[projects.'<tmpdir>\oac-herdr-scratch-XXXXXX\<scenario>-project']` table
+  with `trust_level = "trusted"` to `~/.codex/config.toml`. The TUI sends `config/batchWrite`
+  to the app-server, which writes only the user config (`codex-rs/tui/src/config_update.rs`
+  L76-84, L173-178; `codex-rs/app-server/src/config_manager_service.rs` L218-238;
+  identical at `rust-v0.159.2` and `rust-v0.159.3`, retrieved 2026-10-01). L3 saw exactly one
+  such table added (`docs/planning/decisions/L1-beacon-memory.md` §13 B7).
+- **Claude Code** changed `~/.claude.json` during the same L3 run. That is attributed to its
+  trust record by timing only (§13 B7). The entry's shape is UNVERIFIED, so there is no
+  pruning guidance for it. G1's `--param projectDir` avoids new entries for G1.
+- **Pruning the Codex tables (optional, by hand).** Delete a `[projects.'…']` table only if
+  its path has an `oac-herdr-scratch-` plus six-character component directly under your temp
+  directory and that directory no longer exists. Trust is keyed by path, and the scratch names
+  are random and never reused, so such an entry can never apply again. Keep it if the
+  directory is still there (a teardown leftover, #202). Run `codex app-server daemon stop` and
+  close Codex sessions first, back up the file, and remove the header line with its
+  `trust_level` line. Leave every other table alone.
+- **L3 B7.** B0 backups predate the run, so they hold none of these entries. B7's hash check
+  shows `config.toml` (and `.claude.json`) changed even though Beacon did not write them.
+  Restoring a B0 backup removes the entries, but it also reverts any other change made to
+  that file since B0.
+- **Proposal only.** A reusable Codex project directory, like G1's `projectDir`, would stop
+  the accumulation. It is not implemented and needs an operator decision.
+
+Rules: `.claude/skills/oac-gates/references/scripted-runs.md` "Side effect: trust entries
+accumulate in operator config".
+
 ## Scripted gate re-runs
 
 Each gate scenario replays the human-run gate spike through herdr and records the run; its
@@ -325,9 +356,11 @@ driver refused it (#156), and a run whose dialog nobody accepted ended `NOT RUN`
 happened in L3 probe run 3 on 2026-09-30, after 300000 ms. `--param projectDir` (G1) remains
 an optional way to avoid the dialog. A `g1-claude-wake` run on its default (`accept=driver`)
 needs nobody at the keyboard, but its driver accept of the dev-channels dialog is never scored
-as meeting G1 criterion 5 (`scripted-runs.md` "Operator-consent dialogs"). A Codex dialog
-(G2, G4, G5, L3) is never driver-accepted: if real Codex shows one in the scratch project,
-the run ends `NOT RUN`, and it needs `accept=human`.
+as meeting G1 criterion 5 (`scripted-runs.md` "Operator-consent dialogs"). Since #199 the
+driver also accepts Codex's workspace-trust dialog (G2, G4, G5, L3), which adds a trust entry to
+your `~/.codex/config.toml` each run (#206, above). Any other Codex dialog is never
+driver-accepted: if real Codex shows one in the scratch project, the run ends `NOT RUN`, and
+it needs `accept=human`.
 
 **2b. Line endings.** A Git for Windows checkout (`core.autocrlf=true`) is fine. The driver
 compares working-tree files with HEAD in git's normalized form, as `git status` does (#152).
