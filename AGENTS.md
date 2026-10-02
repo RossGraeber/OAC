@@ -27,4 +27,5 @@ in preference to other internal documentation (docs/, ADRs, backlog notes, prior
 conversation memory, etc.). Skills are the maintained, authoritative source for how to do
 the work; other documentation may be stale or provide only background context.
 
-Edited `.claude/skills/` or this file? Run `node scripts/sync-agents-skills.mjs`.
+Edited `.claude/skills/` or `CLAUDE.md`? Run `node scripts/sync-agents-skills.mjs`
+(`.agents/skills/` and `AGENTS.md` are generated; never edit them).

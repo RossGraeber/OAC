@@ -19,7 +19,9 @@
 // --check fails on: a source file missing from the copy, a copy file whose content
 // differs, and a stray copy file with no source. Exits non-zero on any drift.
 // Both modes refuse (exit 1, nothing written or deleted) on any symlink or junction in
-// the source or the copy, and on a source file that is not valid UTF-8 or holds a NUL.
+// the source or the copy, on CLAUDE.md or AGENTS.md not being a regular file, and on a
+// source file that is not valid UTF-8 or holds a NUL. Sync unlinks a copy file before
+// rewriting it, so a hard link in the copy never carries a write outside the tree.
 
 import {
   readFileSync,
@@ -27,7 +29,7 @@ import {
   readdirSync,
   lstatSync,
   symlinkSync,
-  existsSync,
+  linkSync,
   mkdirSync,
   rmSync,
   mkdtempSync,
@@ -114,8 +116,13 @@ function plan(root) {
     const dst = join(root, pair.dst);
     if (lstatOrNull(src) === null) throw new SyncError(`source missing: ${pair.src}`);
     if (pair.kind === 'file') {
+      if (!lstatSync(src).isFile()) throw new SyncError(`not a regular file: ${pair.src}`);
+      const dstStat = lstatOrNull(dst);
+      if (dstStat !== null && !dstStat.isFile()) {
+        throw new SyncError(`not a regular file: ${pair.dst}`);
+      }
       expected.set(pair.dst, readText(root, src));
-      if (lstatOrNull(dst) !== null) present.push(pair.dst);
+      if (dstStat !== null) present.push(pair.dst);
     } else {
       for (const file of walk(root, src)) {
         expected.set(`${pair.dst}/${posixRel(src, file)}`, readText(root, file));
@@ -130,9 +137,10 @@ function check(root) {
   const { expected, present } = plan(root);
   const drift = [];
   for (const [path, content] of expected) {
-    const full = join(root, path);
-    if (!existsSync(full)) drift.push(`missing   ${path}`);
-    else if (toLf(readFileSync(full, 'utf8')) !== content) drift.push(`differs   ${path}`);
+    const st = lstatOrNull(join(root, path));
+    if (st === null) drift.push(`missing   ${path}`);
+    else if (!st.isFile()) drift.push(`not-file  ${path}`);
+    else if (toLf(readFileSync(join(root, path), 'utf8')) !== content) drift.push(`differs   ${path}`);
   }
   for (const path of present) {
     if (!expected.has(path)) drift.push(`stray     ${path}`);
@@ -152,7 +160,12 @@ function sync(root) {
   }
   for (const [path, content] of expected) {
     const full = join(root, path);
-    if (existsSync(full) && toLf(readFileSync(full, 'utf8')) === content) continue;
+    const st = lstatOrNull(full);
+    if (st !== null && st.isFile() && toLf(readFileSync(full, 'utf8')) === content) continue;
+    // Unlink first, never write in place: an existing copy file may be a hard link to a
+    // file outside the tree, and writing through it would change that file. plan() has
+    // already refused symlinks, so this removes only entries inside the copy.
+    rmSync(full, { recursive: true, force: true });
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, content);
     written++;
@@ -210,6 +223,26 @@ function selfTest() {
       rmSync(join(root, 'AGENTS.md'));
       link('outside/keep.md', 'AGENTS.md', false);
     }, 'refuse'],
+    ['hard-linked copy file is replaced, not written through', ({ root }) => {
+      rmSync(join(root, '.agents/skills/a/SKILL.md'));
+      linkSync(join(root, 'outside/keep.md'), join(root, '.agents/skills/a/SKILL.md'));
+    }, 'drift'],
+    ['hard-linked AGENTS.md is replaced, not written through', ({ root }) => {
+      rmSync(join(root, 'AGENTS.md'));
+      linkSync(join(root, 'outside/keep.md'), join(root, 'AGENTS.md'));
+    }, 'drift'],
+    ['directory at a copy file path fails and re-sync repairs it', ({ root, put }) => {
+      rmSync(join(root, '.agents/skills/a/SKILL.md'));
+      put('.agents/skills/a/SKILL.md/x.md', 'x\n');
+    }, 'drift'],
+    ['CLAUDE.md as a directory is refused', ({ root, put }) => {
+      rmSync(join(root, 'CLAUDE.md'));
+      put('CLAUDE.md/x.md', 'x\n');
+    }, 'refuse'],
+    ['AGENTS.md as a directory is refused', ({ root, put }) => {
+      rmSync(join(root, 'AGENTS.md'));
+      put('AGENTS.md/x.md', 'x\n');
+    }, 'refuse'],
     ['non-UTF-8 source is refused', ({ root }) => {
       writeFileSync(join(root, '.claude/skills/a/bad.md'), Buffer.from([0x61, 0xff, 0xfe, 0x0a]));
     }, 'refuse'],
@@ -248,8 +281,6 @@ function selfTest() {
       let ok;
       if (expect === 'refuse') {
         ok = throwsSyncError(() => check(ctx.root)) && throwsSyncError(() => sync(ctx.root));
-        ok = ok && readdirSync(join(ctx.root, 'outside')).length === 1 &&
-          readFileSync(join(ctx.root, 'outside/keep.md'), 'utf8') === 'outside the tree\n';
       } else {
         const failed = check(ctx.root).length > 0;
         ok = failed === (expect === 'drift');
@@ -258,6 +289,9 @@ function selfTest() {
           ok = check(ctx.root).length === 0; // re-sync must repair every planted drift
         }
       }
+      // Every case: nothing outside the tree may change (links, hard links included).
+      ok = ok && readdirSync(join(ctx.root, 'outside')).length === 1 &&
+        readFileSync(join(ctx.root, 'outside/keep.md'), 'utf8') === 'outside the tree\n';
       results.push([name, ok]);
     } finally {
       rmSync(ctx.root, { recursive: true, force: true });
