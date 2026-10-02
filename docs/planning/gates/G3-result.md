@@ -239,8 +239,10 @@
     `t_open_ms` 510.3 and 510.2, discovery 1153.9 and 1058.3 ms). In every other macOS
     rendezvous run the joiners opened in under 6 ms. Two of nine rendezvous runs on one
     platform makes the ~1 s joiner cold start a recurring cost, not a one-off.
-  - On macOS the multicast discovery floor is about 3-4 ms and `zenoh.open` takes under
-    10 ms. The macOS VM's numbers are not comparable to physical hardware.
+  - On macOS the multicast discovery floor is about 3-4 ms. `zenoh.open` takes under
+    10 ms in every multicast run and for every rendezvous listener and most joiners; the
+    exceptions are the three joiners above, whose `zenoh.open` took 510-515 ms. The macOS
+    VM's numbers are not comparable to physical hardware.
 - **UNVERIFIED items:**
   - **Confirmed:** loopback discovery works on Zenoh 1.10.1 with explicit `127.0.0.1`
     listeners on Windows and Linux (WSL2), and (2026-10-02) on macOS 26.6.2 in a hosted
