@@ -21,7 +21,7 @@
 // Outcome and exit code: PASS 0, FAIL 1, usage error 2, NOT RUN 3. A timeout, an expired
 // timebox, an operator abort, or a herdr version other than the PINS.md pin is NOT RUN --
 // never a failure and never a fabricated pass. The pin is read from PINS.md as committed at
-// HEAD; an uncommitted edit to PINS.md is NOT RUN too, never applied (#139).
+// HEAD; an uncommitted edit to its herdr row is NOT RUN too, never applied (#139).
 //
 // Test tooling only. Node built-ins only; no package.json. herdr is an external process,
 // never linked. The driver never reads harness credentials, never writes harness config
@@ -322,13 +322,15 @@ async function runScenarioInner(opts, state) {
   let serverStarted = false;
   let scenarioEnd = null;
   const body = async () => {
-    // The pin comes from PINS.md as committed at HEAD, never the working tree; an
-    // uncommitted PINS.md edit refuses the run (#139).
+    // The pin comes from PINS.md as committed at HEAD, never the working tree. An uncommitted
+    // edit to the herdr row refuses the run; any other uncommitted PINS.md edit is a finding
+    // only (#139; harness versions are never gated, #216).
     let pin;
     try {
       const committed = readCommittedHerdrPin(REPO_ROOT);
       pin = committed.pin;
       manifest.herdr.pinsSource = committed.source;
+      if (committed.finding) manifest.findings.push(committed.finding);
     } catch (err) {
       if (err.source) manifest.herdr.pinsSource = err.source;
       throw new NotRunError(`cannot read the herdr pin: ${err.message}. Refusing to run.`);

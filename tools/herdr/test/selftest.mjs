@@ -47,8 +47,11 @@
 //
 // #139 adds unit checks for reading the herdr pin from PINS.md as committed at HEAD (a
 // throwaway git repository) and for the per-pane dialog-accept read guard (a stub herdr), and
-// lifecycle cases: an uncommitted PINS.md edit in a temporary clone ends NOT RUN without being
-// applied, and pane-level input between an agent-level read and an accept is refused.
+// lifecycle cases: an uncommitted herdr-row edit in a temporary clone ends NOT RUN without
+// being applied, an uncommitted harness-row edit is a finding only, and pane-level input
+// between an agent-level read and an accept is refused.
+// Commit or revert any edit to PINS.md's herdr row before running --self-test: every
+// lifecycle run reads the herdr pin from this checkout and refuses such an edit (#139).
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -121,45 +124,47 @@ function unitPins() {
   check('pins: duplicate row throws', throws(table(['| herdr (test tooling) | s | `v1.2.3` | none |', '| herdr (test tooling) | s | `v1.2.4` | none |'])));
   check('pins: unparseable tag throws', throws(table(['| herdr (test tooling) | s | **floating** | none |'])));
 
-  // #139: the driver reads the herdr pin from PINS.md as committed at HEAD, and refuses an
-  // uncommitted edit rather than applying it. A throwaway git repository, never this one.
+  // #139: the driver reads the herdr pin from PINS.md as committed at HEAD. An uncommitted
+  // edit to the herdr row is refused, never applied; any other uncommitted edit (a harness
+  // row, #216) is a finding only. A throwaway git repository, never this one.
   const dir = mkdtempSync(join(tmpdir(), 'oac-pins-head-'));
   try {
     const git = (...a) => spawnSync('git', ['-c', 'user.name=oac-selftest', '-c', 'user.email=selftest@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...a], { cwd: dir, encoding: 'utf8' });
     const pinsFile = join(dir, 'docs', 'planning', 'PINS.md');
+    const HARNESS = '| Claude Code (Channels) | s | **floating** — minimum `v2.1.282`; last tested `v2.1.285` | G1 |';
+    const write = (herdrRow, harnessRow = HARNESS) => writeFileSync(pinsFile, `${table([herdrRow, harnessRow].filter(Boolean))}\n`);
+    const attempt = () => {
+      try {
+        return { got: readCommittedHerdrPin(dir), err: null };
+      } catch (e) {
+        return { got: null, err: e };
+      }
+    };
+    const refused = (a) => a.got === null && /uncommitted change to the "herdr \(test tooling\)" row/.test(a.err?.message ?? '') && a.err.source?.workingTreeMatchesHead === false;
     mkdirSync(dirname(pinsFile), { recursive: true });
-    writeFileSync(pinsFile, `${table(['| herdr (test tooling) | supported | `v1.2.3` | none |'])}\n`);
+    write('| herdr (test tooling) | supported | `v1.2.3` | none |');
     const ok = git('init', '-q').status === 0 && git('add', '--', 'docs/planning/PINS.md').status === 0 && git('commit', '-q', '-m', 'pins').status === 0;
     check('pins #139: test repository set up', ok);
     const clean = readCommittedHerdrPin(dir);
-    check('pins #139: a clean PINS.md is read from HEAD, with its source recorded', clean.pin.tag === 'v1.2.3' && clean.source.workingTreeMatchesHead === true && /^[0-9a-f]{40}$/.test(clean.source.headCommit) && clean.source.path === 'docs/planning/PINS.md', JSON.stringify(clean.source));
-    writeFileSync(pinsFile, `${table(['| herdr (test tooling) | supported | `v9.9.9` | none |'])}\n`);
-    let err = null;
-    let got = null;
-    try {
-      got = readCommittedHerdrPin(dir);
-    } catch (e) {
-      err = e;
-    }
-    check('pins #139: an uncommitted PINS.md edit is refused, never applied', got === null && /uncommitted changes/.test(err?.message ?? '') && err.source?.workingTreeMatchesHead === false && !/9\.9\.9/.test(err.message), err?.message ?? JSON.stringify(got));
+    check('pins #139: a clean PINS.md is read from HEAD, with its source recorded, no finding', clean.pin.tag === 'v1.2.3' && clean.finding === null && clean.source.workingTreeMatchesHead === true && /^[0-9a-f]{40}$/.test(clean.source.headCommit) && clean.source.path === 'docs/planning/PINS.md', JSON.stringify(clean.source));
+    write('| herdr (test tooling) | supported | `v1.2.3` | none |', '| Claude Code (Channels) | s | **floating** — minimum `v2.1.282`; last tested `v2.1.299` | G1 |');
+    let a = attempt();
+    check('pins #139: an uncommitted harness-row edit is not a stop (#216): pin from HEAD plus a finding', a.got?.pin.tag === 'v1.2.3' && a.got.source.workingTreeMatchesHead === false && /uncommitted changes outside the herdr pin/.test(a.got.finding ?? ''), a.err?.message ?? JSON.stringify(a.got));
+    write('| herdr (test tooling) | supported | `v9.9.9` | none |');
+    a = attempt();
+    check('pins #139: an uncommitted herdr tag change is refused, never applied', refused(a) && /working tree v9\.9\.9, HEAD v1\.2\.3/.test(a.err.message), a.err?.message ?? JSON.stringify(a.got));
+    write(null);
+    check('pins #139: an uncommitted removal of the herdr row is refused', refused(attempt()));
+    write('| herdr (test tooling) | supported | **floating** | none |');
+    check('pins #139: an uncommitted unparseable herdr row is refused', refused(attempt()));
+    write('| herdr (test tooling) | supported | `v9.9.9` | none |');
     git('add', '--', 'docs/planning/PINS.md');
-    err = null;
-    try {
-      readCommittedHerdrPin(dir);
-    } catch (e) {
-      err = e;
-    }
-    check('pins #139: a staged but uncommitted PINS.md edit is refused too', /uncommitted changes/.test(err?.message ?? ''), err?.message);
+    check('pins #139: a staged but uncommitted herdr tag change is refused too', refused(attempt()));
     git('commit', '-q', '-m', 'pin move');
     check('pins #139: once committed, the edit is the pin', readCommittedHerdrPin(dir).pin.tag === 'v9.9.9');
     rmSync(pinsFile);
-    err = null;
-    try {
-      readCommittedHerdrPin(dir);
-    } catch (e) {
-      err = e;
-    }
-    check('pins #139: a deleted working-tree PINS.md is refused', /uncommitted changes/.test(err?.message ?? ''), err?.message);
+    a = attempt();
+    check('pins #139: a deleted working-tree PINS.md is refused', refused(a) && /missing/.test(a.err.message), a.err?.message);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -418,6 +423,21 @@ async function unitGuards() {
     await g.agentRead('agentA');
     await g.exec('operator-input', ['pane', 'send-text', 'w1:p1', 'untargeted']);
     check('guard #139: input with no recorded target resets every guard', !(await accepts()));
+    // #139 review: only a screen read (agent read, pane read) arms the guard; other read-role
+    // commands on the pane after input leave it disarmed.
+    await g.agentRead('agentA');
+    await g.agentSendKeys('agentA', ['down']);
+    await g.paneProcessInfo('w1:p1');
+    check('guard #139: input then `pane process-info` does not re-arm the guard (accept refused)', !(await accepts()));
+    await g.agentSendKeys('agentA', ['down']);
+    await g.agentGet('agentA');
+    check('guard #139: input then `agent get` does not re-arm the guard (accept refused)', !(await accepts()));
+    await g.agentSendKeys('agentA', ['down']);
+    await g.agentExplain('agentA');
+    check('guard #139: input then `agent explain` does not re-arm the guard (accept refused)', !(await accepts()));
+    await g.agentRead('agentA');
+    await g.agentGet('agentA');
+    check('guard #139: a non-screen read after a screen read also resets the guard (accept refused)', !(await accepts()));
     check('guard #139: the agent name and its pane share one guard key', g.guardKey('agentA') === 'w1:p1' && g.guardKey('w1:p1') === 'w1:p1' && g.guardKey('unknown') === 'unknown');
     check('guard: ROLES are the manifest vocabulary', ['operator-input', 'dialog-accept', 'wait', 'read'].every((r) => ROLES.includes(r)));
   } finally {
@@ -710,13 +730,24 @@ async function lifecycle() {
   // herdr pin to v0.9.0 (uncommitted) and the fake herdr prints 0.9.0: on a working-tree read
   // that would pass the version check; read from HEAD the run is refused before herdr starts.
   let dirtyPins = null;
-  run('uncommitted PINS.md edit', { mode: 'version=0.9.0', prepare: () => (dirtyPins = cloneWithPins((t) => t.replace(/^(\| herdr \(test tooling\) \|[^|]*\| )`v\d+\.\d+\.\d+`/m, '$1`v0.9.0`'), { commit: false })) }, (r) => {
+  run('uncommitted PINS.md herdr-row edit', { mode: 'version=0.9.0', prepare: () => (dirtyPins = cloneWithPins((t) => t.replace(/^(\| herdr \(test tooling\) \|[^|]*\| )`v\d+\.\d+\.\d+`/m, '$1`v0.9.0`'), { commit: false })) }, (r) => {
     try {
       const m = r.manifest;
-      check('#139 uncommitted PINS.md edit: NOT RUN (exit 3), refused, the edit not applied', r.status === 3 && m.outcome === 'NOT RUN' && /uncommitted changes/.test(m.outcomeReason) && /Refusing to run/.test(m.outcomeReason) && m.herdr.pinnedTag === null, `${r.status} ${m?.outcome} ${m?.outcomeReason}`);
-      check('#139 uncommitted PINS.md edit: pins source recorded (working tree differs from HEAD), herdr never called, no server', m.herdr.pinsSource?.workingTreeMatchesHead === false && /^[0-9a-f]{40}$/.test(m.herdr.pinsSource.headCommit) && r.calls.length === 0 && m.session.serverPid === null, JSON.stringify({ src: m.herdr.pinsSource, calls: r.calls.length }));
+      check('#139 uncommitted PINS.md herdr-row edit: NOT RUN (exit 3), refused, the edit not applied', r.status === 3 && m.outcome === 'NOT RUN' && /uncommitted change to the "herdr \(test tooling\)" row/.test(m.outcomeReason) && /Refusing to run/.test(m.outcomeReason) && m.herdr.pinnedTag === null, `${r.status} ${m?.outcome} ${m?.outcomeReason}`);
+      check('#139 uncommitted PINS.md herdr-row edit: pins source recorded (working tree differs from HEAD), herdr never called, no server', m.herdr.pinsSource?.workingTreeMatchesHead === false && /^[0-9a-f]{40}$/.test(m.herdr.pinsSource.headCommit) && r.calls.length === 0 && m.session.serverPid === null, JSON.stringify({ src: m.herdr.pinsSource, calls: r.calls.length }));
     } finally {
       if (dirtyPins) rmSync(dirtyPins, { recursive: true, force: true });
+    }
+  });
+  // #139 review: an uncommitted edit to a harness row only (harness versions are never gated,
+  // #216) does not stop the run: the herdr pin comes from HEAD and the edit is a finding.
+  let harnessPins = null;
+  run('uncommitted PINS.md harness-row edit', { prepare: () => (harnessPins = cloneWithPins((t) => t.replace(/^(\| Claude Code \(Channels\) \| [^|]*\| )/m, '$1(uncommitted test edit) '), { commit: false })) }, (r) => {
+    try {
+      const m = r.manifest;
+      check('#139 uncommitted PINS.md harness-row edit: the run proceeds (PASS), herdr pin read from HEAD, with a finding', r.status === 0 && m.outcome === 'PASS' && /^v\d/.test(m.herdr.pinnedTag ?? '') && m.herdr.pinsSource?.workingTreeMatchesHead === false && m.findings.some((f) => /uncommitted changes outside the herdr pin/.test(f)), `${r.status} ${m?.outcome} ${m?.outcomeReason} ${JSON.stringify(m?.findings)}`);
+    } finally {
+      if (harnessPins) rmSync(harnessPins, { recursive: true, force: true });
     }
   });
   run('scenario throws', { scenario: join(HERE, 'scenarios', 'throws.mjs') }, (r) => {
