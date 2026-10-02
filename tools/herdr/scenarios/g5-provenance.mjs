@@ -397,9 +397,9 @@ export default {
           const out = { codexStart: { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] } };
           const info = await herdr.paneProcessInfo(cws.paneId);
           const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-          const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p) ?? []), ...(descendants(info.shell_pid) ?? [])])];
-          const records = tree.slice(0, 32).map((pid) => processArgv(pid));
-          out.codexPaneArgv = { argv: records, proof: codexLaunchProof(records) };
+          const procTable = processTable(); // one table per arm (#136 review)
+          const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
+          out.codexPaneArgv = paneArgv(tree, procTable); // #232: minimized; plain `codex` asserts no argument
           if (out.codexPaneArgv.proof.found && !out.codexPaneArgv.proof.plain) throw new DriverError(`the arm ${arm} Codex pane's process runs with arguments ${JSON.stringify(out.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);
           if (!out.codexPaneArgv.proof.found) ctx.finding(`the arm ${arm} Codex pane's process argv could not show a \`codex\` process; the plain launch rests on the launch parameter and herdr's reported argv only`);
           await agent.settle('codex-startup', num('startupTimeoutMs'));
