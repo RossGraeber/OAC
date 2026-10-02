@@ -11,7 +11,9 @@ framing as follows: peer-controlled header values are validated and the envelope
 refused on a mismatch (closes X5); every body line is quoted with `| ` after line-break
 normalization (X2, X3); and on `turn/start` only, an experimental
 `additionalContext` `application` anchor is added (Option C, recommended; A is the
-fallback). It also defines the G5 Codex herdr re-run acceptance. Desk work only: Codex
+fallback). It also defines the acceptance for re-running G5's Codex leg. It offers three
+routes for the verdict: E1, a herdr exception; E2, evidence only; E3, a human-operated run
+(recommended). Desk work only: Codex
 source was read at `rust-v0.159.3`. Two runtime UNVERIFIED items are recorded in the
 record's §13: (1) the source shows `turn/start` steers an already-active turn (an adjacent
 finding, out of C13's scope); (2) whether the live model consistently weighs a
