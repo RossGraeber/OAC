@@ -30,6 +30,8 @@ import {
 import { CriteriaDriftError, parseCriteriaSection } from '../lib/gate-common.mjs';
 import { SCORES, ReportError, evaluateG4, parseG4OperatorScores, wireEvidence, writeRefusal, fixtureWithheld, renderReport, draftManifestEntries, versionMatchesLastTested } from '../lib/g4-report.mjs';
 import { createRedactor } from '../lib/redact.mjs';
+import { paneArgv, splitCommandLine } from '../lib/g2.mjs';
+import { processTable, spawnLongRunning } from '../lib/proc.mjs';
 import { parseClaudeVersions, parseCodexVersions } from '../lib/pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -207,6 +209,39 @@ export function killAndWait(child, timeoutMs = 5000) {
   });
 }
 
+// #243 (Windows only): a REAL child process (node, running a script named codex.js) started
+// through the driver's own spawn path (lib/proc.mjs spawnLongRunning: Node's Windows argument
+// quoting) with the default G4 launch's overrides, and a second with hard-to-quote arguments.
+// Each one's Win32_Process.CommandLine, read back through processTable(), must split to
+// exactly the argv it was given, and the default launch must give matchesExpected === true.
+async function windowsLaunchRoundTrip(check) {
+  if (process.platform !== 'win32') {
+    console.log('  skip  g4 codex launch #243: the real-process argv round trip runs on Windows only');
+    return;
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'oac-g4-argv-'));
+  const kids = [];
+  try {
+    const script = join(dir, 'codex.js');
+    writeFileSync(script, 'setTimeout(() => {}, 60000);\n');
+    const overrides = defaultCodexLaunch(17448).slice(1);
+    const hard = ['features.x=a "b" c', 'C:\\dir with space\\', 'a\\\\"b', '', 'tab\there', '\\\\server\\share\\x', 'end\\'];
+    for (const args of [overrides, hard]) kids.push({ args, ...spawnLongRunning(process.execPath, [script, ...args], { env: process.env, cwd: dir }) });
+    const table = processTable();
+    const split = kids.map((k) => {
+      const r = table?.get(k.child.pid);
+      return typeof r?.commandLine === 'string' ? splitCommandLine(r.commandLine) : null;
+    });
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    check('g4 codex launch #243 (Windows): a real child\'s Win32 command line, read through processTable(), splits back to exactly the argv it was spawned with (the default G4 launch, and hard-to-quote arguments)', kids.every((k, i) => same(split[i], [process.execPath, script, ...k.args])), JSON.stringify(split));
+    const pa = paneArgv([kids[0].child.pid], table, { allow: overrides, expectArgsAfterCodex: overrides });
+    check('g4 codex launch #243 (Windows): the default G4 launch\'s real process gives matchesExpected === true, its overrides kept verbatim', pa.proof.found && pa.proof.codexToken === 'codex.js' && pa.proof.matchesExpected === true && same(pa.proof.argsAfterCodex, overrides), JSON.stringify(pa.proof));
+  } finally {
+    await Promise.all(kids.map((k) => killAndWait(k.child)));
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 export async function g4Unit(check) {
   // --- criteria --------------------------------------------------------------------------------
   const { criteria: crit, reference } = readG4Criteria(REPO);
@@ -218,6 +253,7 @@ export async function g4Unit(check) {
   // --- the Codex launch: per invocation only ------------------------------------------------------
   const ok = validateCodexLaunch(defaultCodexLaunch(17448));
   check('g4 codex launch: the default is a per-invocation MCP-server url override, nothing else', ok.ok && ok.overrides.length === 1 && ok.overrides[0].key === 'mcp_servers.g4http.url' && JSON.stringify(defaultCodexLaunch(17448)) === '["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:17448/mcp\\""]');
+  await windowsLaunchRoundTrip(check);
   check('g4 codex launch: a feature flag beside the url is allowed (the row-41 opt-in, as a method change)', validateCodexLaunch(['codex', '-c', 'mcp_servers.g4.url="http://x/mcp"', '--config', 'features.mcp_2026_07_28=true']).ok);
   const bad = [
     [['codex', '--profile', 'p', '-c', 'mcp_servers.g4.url="u"'], /not a per-invocation/],

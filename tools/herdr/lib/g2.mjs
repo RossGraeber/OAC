@@ -393,21 +393,101 @@ export function minimizeArgv(tokens, { allow = [], executable = true } = {}) {
 // process-table snapshot, minimized, and the `codex` launch proof computed on the FULL argv
 // in memory, its argsAfterCodex minimized the same way. expectArgsAfterCodex (G4): the exact
 // arguments the launch must carry; `matchesExpected` compares them on the full argv.
-export function paneArgv(pids, table, { allow = [], expectArgsAfterCodex = null, limit = 32 } = {}) {
+// platform: whose command-line rules split a `commandLine` (the OS the table was read on).
+export function paneArgv(pids, table, { allow = [], expectArgsAfterCodex = null, limit = 32, platform = process.platform } = {}) {
   const full = pids.slice(0, limit).map((pid) => processArgv(pid, table));
-  const p = codexLaunchProof(full);
+  const p = codexLaunchProof(full, { platform });
   const proof = { ...p, argsAfterCodex: minimizeArgv(p.argsAfterCodex, { allow, executable: false }) };
   if (expectArgsAfterCodex) proof.matchesExpected = p.found ? JSON.stringify(p.argsAfterCodex) === JSON.stringify(expectArgsAfterCodex) : null;
-  const argv = full.map((r) => ({ pid: r.pid, argv: minimizeArgv(r.argv ?? (r.commandLine != null ? splitCommandLine(r.commandLine) : null), { allow }), source: r.source, minimized: true }));
+  const argv = full.map((r) => ({ pid: r.pid, argv: minimizeArgv(r.argv ?? (r.commandLine != null ? splitCommandLine(r.commandLine, { platform }) : null), { allow }), source: r.source, minimized: true }));
   return { argv, proof };
 }
 
-// Split a command line the way the OS printed it (quotes stripped); good enough to find the
-// `codex` token and what follows it. The verbatim string is kept beside it.
-export function splitCommandLine(s) {
+// Split a command line the way the OS printed it into the argv the process received. On
+// Windows (Win32_Process.CommandLine) that is the Microsoft C runtime's rule set
+// (splitWindowsCommandLine, #243). Elsewhere (macOS `ps`, which prints the arguments joined
+// by spaces with no quoting) a quoted run is kept together and quotes are stripped; good
+// enough to find the `codex` token. null for a non-string or one carrying a NUL.
+export function splitCommandLine(s, { platform = process.platform } = {}) {
+  if (platform === 'win32') return splitWindowsCommandLine(s);
+  if (typeof s !== 'string' || s.includes('\0')) return null;
   const out = [];
   const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  for (const m of String(s ?? '').matchAll(re)) out.push(m[1] ?? m[2] ?? m[3]);
+  for (const m of s.matchAll(re)) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
+
+// #243: the argv a Microsoft C runtime program (node.exe, codex.exe) builds from its command
+// line, per Microsoft's "Parsing C command-line arguments"
+// (https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments,
+// ms.date 2021-12-09, retrieved 2026-10-02):
+// - arguments are delimited by spaces or tabs;
+// - argv[0], the program name, is special: double-quoted parts keep spaces and tabs, the
+//   quotes are dropped, and none of the rules below apply (no backslash escaping);
+// - a double-quoted string is one argument and may be embedded in an argument; inside a
+//   quoted string a pair of double quotes is one literal double quote (and the string goes
+//   on); a command line that ends inside a quoted string ends the last argument there;
+// - backslashes are literal unless they immediately precede a double quote: 2n backslashes
+//   then a quote give n backslashes and the quote is a delimiter; 2n+1 backslashes then a
+//   quote give n backslashes and a literal quote.
+// Fail closed: a non-string, or one carrying a NUL (no real command line does), gives null, so
+// no launch proof can be computed from it; an empty one gives [].
+export function splitWindowsCommandLine(s) {
+  if (typeof s !== 'string' || s.includes('\0')) return null;
+  if (s === '') return [];
+  const out = [];
+  const n = s.length;
+  const blank = (c) => c === ' ' || c === '\t';
+  let i = 0;
+  // argv[0]: quotes toggle, are dropped; whitespace outside quotes ends it.
+  let arg0 = '';
+  let inQuote = false;
+  for (; i < n; i += 1) {
+    const c = s[i];
+    if (c === '"') inQuote = !inQuote;
+    else if (!inQuote && blank(c)) break;
+    else arg0 += c;
+  }
+  out.push(arg0);
+  for (;;) {
+    while (i < n && blank(s[i])) i += 1;
+    if (i >= n) break;
+    let arg = '';
+    inQuote = false;
+    for (; i < n; i += 1) {
+      const c = s[i];
+      if (c === '\\') {
+        let k = i;
+        while (k < n && s[k] === '\\') k += 1;
+        const count = k - i;
+        if (k < n && s[k] === '"') {
+          arg += '\\'.repeat(count >> 1);
+          if (count % 2 === 1) {
+            arg += '"';
+            i = k; // the escaped quote is consumed
+          } else {
+            i = k - 1; // the quote is handled as a delimiter next round
+          }
+        } else {
+          arg += '\\'.repeat(count);
+          i = k - 1;
+        }
+        continue;
+      }
+      if (c === '"') {
+        if (inQuote && s[i + 1] === '"') {
+          arg += '"'; // "" inside a quoted string: one literal quote, still quoted
+          i += 1;
+        } else {
+          inQuote = !inQuote;
+        }
+        continue;
+      }
+      if (!inQuote && blank(c)) break;
+      arg += c;
+    }
+    out.push(arg);
+  }
   return out;
 }
 
@@ -416,9 +496,9 @@ const CODEX_TOKEN = /^codex(?:\.js|\.exe|\.cmd|\.ps1)?$/i;
 // Given argv records (herdr's foreground processes first, then their descendants), find the
 // first process running `codex` and what came after the `codex` token. `plain` is true only
 // when that process has no argument after it.
-export function codexLaunchProof(records) {
+export function codexLaunchProof(records, { platform = process.platform } = {}) {
   for (const r of records) {
-    const tokens = r.argv ?? (r.commandLine ? splitCommandLine(r.commandLine) : null);
+    const tokens = r.argv ?? (r.commandLine ? splitCommandLine(r.commandLine, { platform }) : null);
     if (!tokens) continue;
     const i = tokens.findIndex((t) => CODEX_TOKEN.test(basename(String(t).replace(/\\/g, '/'))));
     if (i === -1) continue;
