@@ -25,6 +25,13 @@
 //     --out <run dir>
 //   node tools/herdr/lib/g5-report.mjs --run <run dir>            # draft comparison
 //
+// C13 §11 re-run of the Codex leg (#220; docs/planning/decisions/C13-codex-provenance-framing.md):
+// the same command with `--param arms=0,F,C`. Step 3 then opens no Codex TUI; instead step 5
+// runs arm 0 (the original C6 §5 frame, the control), arm F (Option A) and arm C (Option A
+// plus the turn/start anchor), each in its own freshly launched Codex TUI and so its own fresh
+// thread, delivering g5-cases.json "c13" through the client's `c13` mode. The Claude cases run
+// unchanged. The report (same command) then scores the arms (lib/g5-report.mjs C13_ARMS).
+//
 // What it does, in the human run's order:
 //   0. Preflight: the Claude launch verbatim; both CLIs compared with PINS.md's committed
 //      minimum and last tested versions (a difference is a VERSION WARNING finding; the run
@@ -87,9 +94,23 @@ export const busyPromptFor = (cmd) =>
 
 const CLAUDE_IDLE_CASES = ['C1', 'C2', 'C3', 'C4', 'C4b', 'C5'];
 
+// C13 §11 arm selection (#220): '' -> null (the K8 cases); otherwise the named arms, in the
+// fixed order 0, F, C, each with its deliveries from g5-cases.json "c13" in table order.
+export const C13_ARM_ORDER = Object.freeze(['0', 'F', 'C']);
+export function selectArms(spec, cases) {
+  const s = String(spec ?? '').trim();
+  if (!s) return null;
+  const want = s.split(',').map((x) => x.trim());
+  const known = cases?.c13?.arms ?? {};
+  if (want.some((a) => !C13_ARM_ORDER.includes(a) || !known[a])) throw new DriverError(`--param arms takes a comma list of ${C13_ARM_ORDER.join(', ')} (got ${JSON.stringify(s)})`);
+  const order = want.map((a) => C13_ARM_ORDER.indexOf(a));
+  if (order.some((x, i) => i > 0 && x <= order[i - 1])) throw new DriverError(`--param arms must name each arm once, in the order ${C13_ARM_ORDER.join(', ')} (got ${JSON.stringify(s)})`);
+  return want.map((a) => ({ arm: a, framing: known[a].framing, deliveries: known[a].deliveries.map((d) => ({ id: d.id, ask: d.ask !== false, queued: (cases.c13.templates[d.template]?.call ?? 'turn/start') === 'thread/queue/add' })) }));
+}
+
 export default {
   name: 'g5-provenance',
-  description: 'G5 re-run through herdr for comparison with the human-run 2026-09-27 run (K8). Reconstructed server and client. Not verdict-bearing; G5 stays FAIL.',
+  description: 'G5 re-run through herdr for comparison with the human-run 2026-09-27 run (K8). Reconstructed server and client. Not verdict-bearing; G5 stays FAIL. With --param arms=0,F,C: the C13 §11 Codex-leg re-run (#220), verdict-bearing only under the one-off E1 exception.',
   harnesses: ['claude', 'codex'],
   defaults: {
     launch: [...G5_LAUNCH],
@@ -97,6 +118,10 @@ export default {
     params: {
       accept: 'driver', // #196: the driver accepts recognized dialogs by default; accept=human remains
       includeX6: 'true',
+      // C13 §11 re-run (#220): '' runs the K8 cases X1-X6 above, unchanged; a comma list of
+      // arms out of 0,F,C (in that order) runs those arms' deliveries from g5-cases.json "c13"
+      // instead, each arm in its own fresh Codex thread. The re-run passes arms=0,F,C.
+      arms: '',
       sleepCommand: SLEEP_DEFAULT,
       busyPrompt: '',
       startupTimeoutMs: '120000',
@@ -136,9 +161,13 @@ export default {
       throw new DriverError(err.message);
     }
     const codexCaseIds = ['X1', 'X2', 'X3', 'X4', 'X5', ...(params.includeX6 === 'false' ? [] : ['X6'])];
+    // C13 arm and case selection: which arms run, and each arm's deliveries in table order.
+    const arms = selectArms(params.arms, cases);
 
     const g5 = {
-      nonVerdictBearing: 'K8: compared against the human-run G5 of 2026-09-27; never changes the G5 verdict (FAIL) and never rescores it',
+      nonVerdictBearing: arms
+        ? 'C13 §11 arms (#220): may carry G5\'s Codex verdict ONLY under the E1 one-off exception (oac-gates references/scripted-runs.md "Verdict eligibility"), whose conditions lib/g5-report.mjs checks and the operator attests; this scenario changes no verdict itself'
+        : 'K8: compared against the human-run G5 of 2026-09-27; never changes the G5 verdict (FAIL) and never rescores it',
       reconstruction: 'tools/herdr/gate-servers/g5-channel.mjs, g5-codex.mjs and g5-cases.json are REBUILT from G5-result.md and the committed fixtures; the originals were never committed, so these are not the programs that produced the baseline',
       acceptPolicy: accept,
       params: { ...params, busyPrompt },
@@ -162,6 +191,8 @@ export default {
       thread: null,
       claudeCases: [],
       codexCases: [],
+      // C13 §11 (#220): the arms run, each arm's fresh thread, and every delivery's record.
+      c13: arms ? { arms: arms.map((a) => a.arm), threads: {}, deliveries: [] } : null,
       injectionsSent: [],
       divergence: [],
       postRun: null,
@@ -178,6 +209,7 @@ export default {
 
     const claude = makeAgent({ ctx, g: g5, name: 'g5claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept, accept, num, stop });
     const codex = makeAgent({ ctx, g: g5, name: 'g5codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex, accept, num, stop });
+    const codexAgents = []; // C13: one Codex TUI per arm (fresh thread per arm)
 
     const serverFacts = () => g5ClaudeFacts(serverDir && existsSync(join(serverDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(serverDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
     const clientEntries = () => (clientDir && existsSync(join(clientDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(clientDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
@@ -209,14 +241,17 @@ export default {
       aborted();
       const linesBefore = lastLine();
       const r = await runBounded(process.execPath, [join(clientDir, 'g5-codex.mjs'), mode, ...args], { deadlineMs: Math.min(num('clientTimeoutMs'), Math.max(1, ctx.remainingMs())), env: process.env, cwd: clientDir, abortSignal });
-      const rec = { mode, args, startedAt: r.startedAt, endedAt: r.endedAt, exitCode: r.exitCode, timedOut: r.timedOut, stdoutStatus: String(r.stdout ?? '').split('\n').filter((l) => /^\[(?:done|error|upgrade failed)\]/.test(l)).map((l) => cap(l, 200)), stderr: cap(String(r.stderr ?? '').trim(), 1000), linesBefore, linesAfter: lastLine() };
+      const rec = { mode, args, startedAt: r.startedAt, endedAt: r.endedAt, exitCode: r.exitCode, timedOut: r.timedOut, stdoutStatus: String(r.stdout ?? '').split('\n').filter((l) => /^\[(?:done|error|upgrade failed|refused)\]/.test(l)).map((l) => cap(l, 200)), stderr: cap(String(r.stderr ?? '').trim(), 1000), linesBefore, linesAfter: lastLine() };
+      // C13: a delivery the client refused (header validation, C6 §5.0) opens no connection.
+      rec.refused = mode === 'c13' && r.exitCode === 0 && rec.stdoutStatus.some((l) => l.startsWith('[refused]')) && clientEntries().some((e) => e.line > linesBefore && e.spike === 'refused' && e.case === args[1]);
       g5.clientRuns.push(rec);
       aborted();
       if (r.timedOut) stop(`the client's \`${mode}\` run timed out; nothing re-sent`);
       if (r.spawnError) throw new DriverError(`could not run the staged client (${r.spawnError})`);
       const conns = g5CodexFacts(clientEntries().filter((e) => e.line > linesBefore), { question: operator.question }).wire.connections;
       const problems = [];
-      if (!conns.length) problems.push('no connection on the wire');
+      if (!conns.length && !rec.refused) problems.push('no connection on the wire');
+      if (conns.length && rec.refused) problems.push('the client reported a refusal but opened a connection');
       for (const c of conns) {
         if (c.upgraded === false) problems.push(`WebSocket upgrade refused: ${c.handshake}`);
         for (const e of c.errors) problems.push(`${e.method} answered with error ${JSON.stringify(e.error)}`);
@@ -314,61 +349,74 @@ export default {
       await claude.settle('post-handshake', num('startupTimeoutMs'));
 
       // --- 3. Codex TUI; the operator's thread marker; the thread on the wire ----------------------
-      const cws = await herdr.workspaceCreate({ cwd: codexProjectDir, label: 'oac-g5-codex' });
-      ctx.record('codexWorkspace', cws);
-      await herdr.paneProcessInfo(cws.paneId);
-      const cstart = await herdr.agentStart('g5codex', { launchArgv: [...G2_LAUNCH], paneId: cws.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
-      g5.codexStart = { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] };
-      const info = await herdr.paneProcessInfo(cws.paneId);
-      const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-      const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p) ?? []), ...(descendants(info.shell_pid) ?? [])])];
-      const records = tree.slice(0, 32).map((pid) => processArgv(pid));
-      g5.codexPaneArgv = { argv: records, proof: codexLaunchProof(records) };
-      if (g5.codexPaneArgv.proof.found && !g5.codexPaneArgv.proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(g5.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);
-      if (!g5.codexPaneArgv.proof.found) ctx.finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on the launch parameter and herdr\'s reported argv only');
-      await codex.settle('codex-startup', num('startupTimeoutMs'));
-      // #204: wait for a verified-ready session (lib/g2.mjs codexReadiness) before the marker;
-      // the startup composer alone is Codex's startup draft, not a session.
-      const ready = await waitCodexReady({
-        read: codex.read,
-        handleDialog: codex.handleDialog,
-        listLoaded: async () => {
-          const { linesBefore } = await runClient('list', []);
-          return loadedSince(clientFacts().wire.loadedLists, linesBefore); // read after the poll: its own answer only
-        },
-        preLoaded: g5.preLaunchLoaded,
-        timeoutMs: num('readyTimeoutMs'),
-        pollMs: num('listPollMs'),
-        remainingMs: () => ctx.remainingMs(),
-        stop,
-        onTimeout: (v) => {
-          const f = codexReadyTimeoutFinding(v);
-          if (f) ctx.finding(f);
-        },
-      });
-      g5.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
-      if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
-      const marker = await codex.prompt(operator.threadMarker);
-      const markerFrom = lastLine();
-      await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));
-      const mr = await codex.read('after-thread-marker');
-      if (mr.screen.dialog) await codex.handleDialog(mr, 'thread-marker');
-      const projectDirs = [...new Set([codexProjectDir, realpathSync(codexProjectDir)])];
-      const attachDeadline = Date.now() + Math.min(num('attachTimeoutMs'), Math.max(0, ctx.remainingMs()));
-      let found;
-      for (;;) {
-        await runClient('list', []);
-        found = identifyTuiThread(clientFacts().wire, { operatorPrompt: operator.threadMarker, projectDirs, sinceLine: 0 });
-        if (found.threadId) break;
-        if (found.candidates.length > 1) throw new DriverError(`${found.why}: ${found.candidates.map((c) => c.id).join(', ')}`);
-        if (Date.now() + num('listPollMs') >= attachDeadline) {
-          ctx.finding('no thread loaded in the daemon matched the thread marker and the Codex project directory: the TUI may not have attached to the daemon');
-          stop(`no loaded thread matched the operator's Codex thread within ${num('attachTimeoutMs')} ms; nothing delivered`);
+      // C13 (arms): each arm opens its own Codex TUI in its own project directory, so its own
+      // fresh thread (C13 §11 "Thread isolation"), in step 5; nothing is opened here.
+      const openCodexThread = async ({ agent, projectDir, label, preLoaded, sinceLine }) => {
+        const cws = await herdr.workspaceCreate({ cwd: projectDir, label });
+        ctx.record(arms ? `codexWorkspace-${label}` : 'codexWorkspace', cws);
+        await herdr.paneProcessInfo(cws.paneId);
+        const cstart = await herdr.agentStart(agent.name, { launchArgv: [...G2_LAUNCH], paneId: cws.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
+        const out = { codexStart: { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] } };
+        const info = await herdr.paneProcessInfo(cws.paneId);
+        const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
+        const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p) ?? []), ...(descendants(info.shell_pid) ?? [])])];
+        const records = tree.slice(0, 32).map((pid) => processArgv(pid));
+        out.codexPaneArgv = { argv: records, proof: codexLaunchProof(records) };
+        if (out.codexPaneArgv.proof.found && !out.codexPaneArgv.proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(out.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);
+        if (!out.codexPaneArgv.proof.found) ctx.finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on the launch parameter and herdr\'s reported argv only');
+        await agent.settle('codex-startup', num('startupTimeoutMs'));
+        // #204: wait for a verified-ready session (lib/g2.mjs codexReadiness) before the marker;
+        // the startup composer alone is Codex's startup draft, not a session.
+        const ready = await waitCodexReady({
+          read: agent.read,
+          handleDialog: agent.handleDialog,
+          listLoaded: async () => {
+            const { linesBefore } = await runClient('list', []);
+            return loadedSince(clientFacts().wire.loadedLists, linesBefore); // read after the poll: its own answer only
+          },
+          preLoaded,
+          timeoutMs: num('readyTimeoutMs'),
+          pollMs: num('listPollMs'),
+          remainingMs: () => ctx.remainingMs(),
+          stop,
+          onTimeout: (v) => {
+            const f = codexReadyTimeoutFinding(v);
+            if (f) ctx.finding(f);
+          },
+        });
+        out.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
+        if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
+        const marker = await agent.prompt(operator.threadMarker);
+        const markerFrom = lastLine();
+        await agent.waitState('thread-marker-turn', num('turnTimeoutMs'));
+        const mr = await agent.read('after-thread-marker');
+        if (mr.screen.dialog) await agent.handleDialog(mr, 'thread-marker');
+        const projectDirs = [...new Set([projectDir, realpathSync(projectDir)])];
+        const attachDeadline = Date.now() + Math.min(num('attachTimeoutMs'), Math.max(0, ctx.remainingMs()));
+        let found;
+        for (;;) {
+          await runClient('list', []);
+          found = identifyTuiThread(clientFacts().wire, { operatorPrompt: operator.threadMarker, projectDirs, sinceLine });
+          if (found.threadId) break;
+          if (found.candidates.length > 1) throw new DriverError(`${found.why}: ${found.candidates.map((c) => c.id).join(', ')}`);
+          if (Date.now() + num('listPollMs') >= attachDeadline) {
+            ctx.finding('no thread loaded in the daemon matched the thread marker and the Codex project directory: the TUI may not have attached to the daemon');
+            stop(`no loaded thread matched the operator's Codex thread within ${num('attachTimeoutMs')} ms; nothing delivered`);
+          }
+          await sleep(num('listPollMs'));
         }
-        await sleep(num('listPollMs'));
+        out.thread = { id: found.threadId, listLine: found.candidates[0]?.listLine ?? null, markerPrompt: marker, markerFromLine: markerFrom, preLaunchLoaded: (preLoaded ?? []).includes(found.threadId) };
+        return out;
+      };
+      let threadId = null;
+      if (!arms) {
+        const t = await openCodexThread({ agent: codex, projectDir: codexProjectDir, label: 'oac-g5-codex', preLoaded: g5.preLaunchLoaded, sinceLine: 0 });
+        g5.codexStart = t.codexStart;
+        g5.codexPaneArgv = t.codexPaneArgv;
+        g5.codexReady = t.codexReady;
+        threadId = t.thread.id;
+        g5.thread = t.thread;
       }
-      const threadId = found.threadId;
-      g5.thread = { id: threadId, markerPrompt: marker, markerFromLine: markerFrom, preLaunchLoaded: (g5.preLaunchLoaded ?? []).includes(threadId) };
       // Captures name one version per harness only when every source agrees (#216: no
       // comparison with PINS.md here; that is a VERSION WARNING above, never a stop).
       const sameVersions = !!cli.claude && !!cli.codex && g5.versions.wire.claude === cli.claude && g5.versions.wire.codex === cli.codex && CODEX_DAEMON_VERSION_FIELDS.every((k) => daemonV?.[k] === cli.codex);
@@ -445,7 +493,48 @@ export default {
           await runClient('turns', [threadId]);
           return pred(clientFacts()) ?? null;
         }, num('turnTimeoutMs'), { lbl: 'codex-turn-wait' });
-      for (const id of codexCaseIds) {
+      // C13 §11 (#220): arm by arm, each in a fresh Codex thread; each delivery once, its turn
+      // awaited; the fixed question after every delivery except the mechanical ones ("ask": false)
+      // and a refused one (nothing reached Codex). Scoring is lib/g5-report.mjs's, never here.
+      for (const a of arms ?? []) {
+        const { linesBefore: preLine } = await runClient('list', []);
+        const preLoaded = loadedSince(clientFacts().wire.loadedLists, preLine);
+        if (preLoaded === null) stop(`the \`thread/loaded/list\` before arm ${a.arm} could not be read; nothing launched for it`);
+        const agent = makeAgent({ ctx, g: g5, name: `g5codex${a.arm.toLowerCase()}`, label: `codex-arm-${a.arm}`, classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex, accept, num, stop });
+        codexAgents.push(agent);
+        const t = await openCodexThread({ agent, projectDir: ctx.dir(`g5-codex-project-arm-${a.arm}`), label: `oac-g5-codex-arm-${a.arm}`, preLoaded, sinceLine: preLine });
+        if (Object.values(g5.c13.threads).some((x) => x.thread.id === t.thread.id)) throw new DriverError(`arm ${a.arm} found the thread of an earlier arm (${t.thread.id}); each arm needs a fresh thread`);
+        g5.c13.threads[a.arm] = t;
+        const armThread = t.thread.id;
+        threadId = armThread; // turnDone lists this arm's thread
+        for (const d of a.deliveries) {
+          sendOnce(`Codex C13 delivery ${d.id} (${d.queued ? 'setup turn/start + thread/queue/add' : 'turn/start'}, client)`);
+          const rec = await runClient('c13', [armThread, d.id]);
+          const drec = { id: d.id, arm: a.arm, threadId: armThread, clientRun: g5.clientRuns.indexOf(rec), refused: rec.refused, asked: false };
+          g5.c13.deliveries.push(drec);
+          if (rec.refused) continue;
+          const delivered = await turnDone((f) => {
+            const c = f.cases.find((x) => x.case === d.id);
+            return c?.turnId && c.turnStatus === 'completed' ? c : null;
+          }, `the Codex turn for ${d.id} to complete (thread/turns/list)`);
+          drec.turnId = delivered.turnId;
+          drec.afterReadSeq = (await agent.read(`after-${d.id}`, { source: 'recent-unwrapped', lines: num('readLines') })).seq;
+          if (!d.ask) {
+            await agent.settle(`${d.id}-turn`, num('turnTimeoutMs'));
+            continue;
+          }
+          drec.asked = true;
+          drec.question = await agent.prompt(operator.question);
+          const answered = await turnDone((f) => {
+            const c = f.cases.find((x) => x.case === d.id);
+            return c?.questionTurnId && c.questionStatus === 'completed' ? c : null;
+          }, `the answer to the question after ${d.id} (thread/turns/list)`);
+          drec.questionTurnId = answered.questionTurnId;
+          await agent.settle(`${d.id}-question`, num('turnTimeoutMs'));
+          drec.answerReadSeq = (await agent.read(`after-${d.id}-question`, { source: 'recent-unwrapped', lines: num('readLines') })).seq;
+        }
+      }
+      for (const id of arms ? [] : codexCaseIds) {
         sendOnce(`Codex case ${id} (${id === 'X4' ? 'turn/start + thread/queue/add' : 'turn/start'}, client)`);
         const rec = id === 'X4' ? await runClient('x4', [threadId]) : await runClient('deliver', [threadId, id]);
         const delivered = await turnDone((f) => {
@@ -486,14 +575,18 @@ export default {
       ctx.record('g5', g5);
       let codexText = null;
       if (clientDir && existsSync(join(clientDir, 'transcript.jsonl'))) {
+        // C13 runs one thread per arm, and the sanitizer keeps one own thread only: there it
+        // keeps none, so every thread/list entry is removed; each arm's thread id and the list
+        // line that identified it are in g5.c13.threads.
         const s = sanitizeTranscript(readFileSync(join(clientDir, 'transcript.jsonl'), 'utf8'), { ownThreadId: g5.thread?.id ?? null });
         for (const id of s.installationIds) ctx.redactLiteral(id, '<INSTALLATION_ID>');
         g5.sanitizer = { ownThreadId: g5.thread?.id ?? null, ...s.report };
         codexText = s.text;
       }
+      const codexSections = [...codex.sections, ...codexAgents.flatMap((a) => a.sections)];
       if (g5.captureNames) {
         if (claude.sections.length) ctx.capture(g5.captureNames.paneClaude, claude.sections.join(''));
-        if (codex.sections.length) ctx.capture(g5.captureNames.paneCodex, codex.sections.join(''));
+        if (codexSections.length) ctx.capture(g5.captureNames.paneCodex, codexSections.join(''));
         if (serverDir && existsSync(join(serverDir, 'transcript.jsonl'))) ctx.capture(g5.captureNames.transcriptClaude, readFileSync(join(serverDir, 'transcript.jsonl'), 'utf8'), { format: 'jsonl' });
         if (codexText !== null) ctx.capture(g5.captureNames.transcriptCodex, codexText, { format: 'jsonl' });
       }
