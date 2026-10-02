@@ -247,7 +247,8 @@ export function g2Unit(check) {
   check('g2 argv #243: a value with embedded escaped quotes and spaces stays one argument', same(W('p "features.x=a \\"b\\" c"'), ['p', 'features.x=a "b" c']));
   const wrongEsc = paneArgv([5], new Map([[5, { pid: 5, ppid: 1, argv: null, commandLine: g4cl.replace('url=\\"', 'url="') }]]), { allow: g4ov, expectArgsAfterCodex: g4ov, platform: 'win32' });
   check('g2 argv #243 fail-closed: a non-string or a NUL-carrying command line gives null (no proof); a differently escaped launch does not match', W(null) === null && W(42) === null && W('codex\0 -c x') === null && same(W(''), []) && splitCommandLine(null) === null && !codexLaunchProof([{ pid: 1, argv: null, commandLine: 'codex.exe\0 -c x' }], { platform: 'win32' }).found && wrongEsc.proof.found && wrongEsc.proof.matchesExpected === false, JSON.stringify(wrongEsc.proof));
-  check('g2 argv: no codex process -> not found (never assumed plain)',!codexLaunchProof([{ pid: 1, argv: ['bash', '-l'] }, { pid: 2, argv: null, commandLine: null }]).found);
+  check('g2 argv #243: the non-Windows (macOS `ps`) branch is pinned on every OS: quoted runs kept together, quotes stripped, no backslash rules', same(splitCommandLine('"a b" \'c d\' e', { platform: 'darwin' }), ['a b', 'c d', 'e']) && same(splitCommandLine('a\\"b c', { platform: 'darwin' }), ['a\\"b', 'c']));
+  check('g2 argv: no codex process -> not found (never assumed plain)', !codexLaunchProof([{ pid: 1, argv: ['bash', '-l'] }, { pid: 2, argv: null, commandLine: null }]).found);
 
   // --- #232: minimized pane argv, read from one process-table snapshot ----------------------
   // A random secret of no known shape, planted in pane descendants' argv (Linux argv and a
