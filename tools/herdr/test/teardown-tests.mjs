@@ -10,7 +10,9 @@
 // The lifecycle half (POSIX only, in selftest.mjs) covers the real thing against
 // test/fake-herdr.mjs: a scenario that never calls paneProcessInfo, with a forced server kill.
 
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { HerdrSession } from '../lib/herdr.mjs';
 import { parseWin32ProcessJson, parsePsTable, treeFrom, carriesSession, protectedReason, processesForSession, descendants, commandTokens, splitWindowsCommandLine, UNSPLITTABLE_REASON } from '../lib/proc.mjs';
@@ -200,5 +202,41 @@ export async function teardownUnit(check) {
     s.panes.add('w1:p1');
     const t = await s.teardown();
     check('#136: when the stop took every pane process down, nothing is killed and teardown is clean', f.kills.length === 0 && t.forcedKills.length === 0 && t.leftoverProcesses.length === 0 && t.clean === true, JSON.stringify(t));
+  }
+
+  // #239: the scratch directory (herdr's working directory) removed under the run. Before the
+  // fix every teardown herdr call failed to spawn (ENOENT), the first one threw out of
+  // teardown, and the server and every pane process were left running.
+  {
+    const gone = mkdtempSync(join(tmpdir(), 'oac-herdr-unit239-'));
+    rmSync(gone, { recursive: true, force: true });
+    const f = fakeOps([linuxTable(), linuxTable()]);
+    const s = new HerdrSession({ herdrCmd: STUB, sessionName: SESSION, env: process.env, cwd: gone, timebox: { remainingMs: () => 60000 }, commands: [], procOps: f.ops });
+    s.panes.add('w1:p1');
+    const t = await s.teardown();
+    const killed = [...f.kills].sort((a, b) => a - b);
+    check('#239 scratch gone: teardown\'s herdr calls run in os.tmpdir(), recorded on the teardown and on each command', /gone at teardown/.test(t.cwdFallback ?? '') && s.commands.length === 3 && s.commands.every((c) => !c.spawnError && /os\.tmpdir\(\)/.test(c.cwdFallback ?? '')), JSON.stringify({ t, commands: s.commands }));
+    check('#239 scratch gone: the pane is still queried, the session stopped and deleted, and the same pane processes killed', t.panes.queried.length === 1 && t.sessionStop === 'ok' && t.sessionDelete === 'ok' && JSON.stringify(killed) === JSON.stringify([101, 102, 103, 107]), JSON.stringify({ t, killed }));
+  }
+  {
+    // herdr cannot be started at all during teardown: nothing throws; the server is still
+    // force-killed, and the unstarted calls are recorded.
+    const f = fakeOps([linuxTable(), linuxTable()]);
+    let exit;
+    const exited = new Promise((res) => (exit = res));
+    const ops = { ...f.ops, killServer: (pid, sig) => (f.serverKills.push([pid, sig]), exit({ code: null, signal: sig })) };
+    const missing = join(tmpdir(), 'oac-herdr-unit239-no-such-herdr', 'herdr');
+    const s = new HerdrSession({ herdrCmd: [missing], sessionName: SESSION, env: process.env, cwd: tmpdir(), timebox: { remainingMs: () => 60000 }, commands: [], procOps: ops });
+    s.panes.add('w1:p1');
+    s.server = { child: { pid: 4242 }, exited, exitInfo: null };
+    let t = null;
+    let threw = null;
+    try {
+      t = await s.teardown();
+    } catch (err) {
+      threw = err;
+    }
+    check('#239 herdr not startable at teardown: teardown returns (no throw) and records each unstarted call', !threw && /herdr not started/.test(t?.sessionStop ?? '') && /herdr not started/.test(t?.sessionDelete ?? '') && /herdr not started/.test(t?.panes.notQueried[0]?.why ?? '') && s.commands.every((c) => c.spawnError), threw ? threw.stack : JSON.stringify(t));
+    check('#239 herdr not startable at teardown: the herdr server is still force-killed; teardown not clean', !!t && f.serverKills.length === 1 && f.serverKills[0][0] === 4242 && t.forcedKills.some((k) => k.what === 'herdr server') && t.serverExited === true && t.clean === false, JSON.stringify({ t, serverKills: f.serverKills }));
   }
 }
