@@ -4,6 +4,21 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-02 (**Issue #220: C13 now has an owner and a PROPOSED
+decision.** New record `docs/planning/decisions/C13-codex-provenance-framing.md`, status
+**PROPOSED — awaiting operator approval on #220**. It proposes amending C6 §5's Codex
+framing as follows: peer-controlled header values are validated and the envelope is
+refused on a mismatch (closes X5); every body line is quoted with `| ` after line-break
+normalization (X2, X3); and on `turn/start` only, an experimental
+`additionalContext` `application` anchor is added (Option C, recommended; A is the
+fallback). It also defines the G5 Codex herdr re-run acceptance. Desk work only: Codex
+source was read at `rust-v0.159.3`. Two runtime UNVERIFIED items are recorded in the
+record's §13: (1) the source shows `turn/start` steers an already-active turn (an adjacent
+finding, out of C13's scope); (2) whether the live model consistently weighs a
+developer-role anchor over conflicting user text. They join "Open UNVERIFIED items" on
+approval. **C6 §5 is unchanged, C13 is not resolved, and G5 stays `FAIL`.** No gate
+verdict, pin, skill, spec or ADR text changes.)
+
 **Last updated:** 2026-10-01 (**Issue #211: PINS.md Beacon row catches up with L3.**
 `docs/planning/PINS.md`'s `Beacon (external memory service)` row and record now say no
 fact is UNVERIFIED: all four L1 items are closed (U2-U4 by L2 at `v1.3.29`, L1 §11; U1
@@ -1028,6 +1043,11 @@ states or that are inferred/stale). Closed when the named resolution lands.
   owner. See `docs/planning/gates/G5-result.md`,
   `docs/planning/v0.1/03-decisions-and-amendments.md` §4,
   `docs/planning/ADR-001-AMENDMENTS.md` "New register entries".
+  **Dated note, 2026-10-02 (#220):** C13 now has an owner, issue #220 (operator decision
+  of 2026-10-02: an agent drafts the decision and the operator approves it). The PROPOSED
+  decision is `docs/planning/decisions/C13-codex-provenance-framing.md`. Until the
+  operator approves it on #220, C13 stays open, and the register rows in
+  `03-decisions-and-amendments.md` §4 and `ADR-001-AMENDMENTS.md` are unchanged.
 
 ## Open UNVERIFIED items
 
