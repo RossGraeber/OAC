@@ -84,24 +84,27 @@ const ALLOWED_OVERRIDE = /^(?:mcp_servers\.[A-Za-z0-9_-]{1,64}\.(?:url|enabled|s
 // and the minimized paneArgv's allow list). Codex reads a `-c` value as TOML. Per key:
 // - `mcp_servers.<name>.url`: a TOML basic string holding a loopback http(s) URL: scheme http
 //   or https; host exactly 127.0.0.1, [::1] or localhost; an optional port 1-65535; an
-//   optional path. No userinfo (`user:pass@` is where a credential would sit), no query and
-//   no fragment (where a token or API key would sit; the G4 server answers on a bare `/mcp`),
-//   no escapes, quotes or whitespace. Loopback only: the scripted run talks to its own
-//   staged server on this machine, never to a remote MCP server.
+//   optional path of unreserved characters and `/` only (`[A-Za-z0-9._~/-]`; #249: no `%`
+//   escape and no `;`, `=`, `@` or other sub-delimiter, so neither an encoded `%3Ftoken=` nor
+//   a `key=value`-shaped segment is accepted and recorded). No userinfo (`user:pass@` is where
+//   a credential would sit), no query and no fragment (where a token or API key would sit; the
+//   G4 server answers on a bare `/mcp`), no escapes, quotes or whitespace. Loopback only: the
+//   scripted run talks to its own staged server on this machine, never to a remote MCP server.
 // - `mcp_servers.<name>.enabled` and `features.<name>`: a TOML boolean, `true` or `false`.
 // - `mcp_servers.<name>.startup_timeout_sec` / `tool_timeout_sec`: a non-negative TOML
-//   number (digits, an optional fraction).
+//   number (digits, an optional fraction). No leading zero on the integer part (#249: TOML
+//   rejects `007`; `0`, `0.5` and `30` pass).
 // Anything else is refused. A refusal reason names the argument's position and the rule it
 // broke, never the argument's text: a refused value is never echoed into a record or the
 // console.
-const LOOPBACK_URL = /^"(https?):\/\/(127\.0\.0\.1|\[::1\]|localhost)(?::(\d{1,5}))?((?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]*)*)"$/i;
+const LOOPBACK_URL = /^"(https?):\/\/(127\.0\.0\.1|\[::1\]|localhost)(?::(\d{1,5}))?((?:\/[A-Za-z0-9._~-]*)*)"$/i;
 const BOOLEAN = /^(?:true|false)$/;
-const NUMBER = /^\d{1,9}(?:\.\d{1,9})?$/;
+const NUMBER = /^(?:0|[1-9]\d{0,8})(?:\.\d{1,9})?$/;
 export function overrideValueProblem(key, value) {
   const v = String(value);
   if (/\.url$/.test(key)) {
     const m = LOOPBACK_URL.exec(v);
-    if (!m) return 'is not a double-quoted loopback http(s) URL (host 127.0.0.1, [::1] or localhost; no user:password@, no query, no fragment)';
+    if (!m) return 'is not a double-quoted loopback http(s) URL (host 127.0.0.1, [::1] or localhost; a path of [A-Za-z0-9._~/-] only; no user:password@, no query, no fragment)';
     if (m[3] !== undefined && !(Number(m[3]) >= 1 && Number(m[3]) <= 65535)) return 'is a loopback URL with a port outside 1-65535';
     let u;
     try {
@@ -114,7 +117,7 @@ export function overrideValueProblem(key, value) {
     return null;
   }
   if (/\.enabled$/.test(key) || /^features\./.test(key)) return BOOLEAN.test(v) ? null : 'is not a TOML boolean (true or false)';
-  if (/_timeout_sec$/.test(key)) return NUMBER.test(v) ? null : 'is not a non-negative TOML number';
+  if (/_timeout_sec$/.test(key)) return NUMBER.test(v) ? null : 'is not a non-negative TOML number (no leading zero)';
   return 'has no value rule';
 }
 

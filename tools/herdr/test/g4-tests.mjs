@@ -242,6 +242,35 @@ async function windowsLaunchRoundTrip(check) {
   }
 }
 
+// #249 (PR #248 review 2): the refusal-before-run path is wired end to end, on every platform
+// (the lifecycle cases that also cover it are POSIX only). run.mjs is started for real with a
+// refused codexLaunch, a herdr that does not exist and a private os.tmpdir() (TMPDIR, TEMP and
+// TMP all pointed at one fresh directory). Removing the validateParams hook from the G4
+// scenario, or the call to it from run.mjs, lets the run go on to create its scratch directory
+// and fail on the missing herdr: this check then fails.
+async function validateParamsWired(check, SECRET) {
+  const sc = (await import('../scenarios/g4-mcp-dual-era.mjs')).default;
+  const bad = ['codex', '-c', `mcp_servers.g4http.url="http://op:${SECRET}@127.0.0.1:37548/mcp"`];
+  const direct = typeof sc.validateParams === 'function' ? sc.validateParams({ params: { codexLaunch: JSON.stringify(bad) }, launch: sc.defaults?.launch ?? [] }) : null;
+  check('g4 validateParams #249: the G4 scenario exports a validateParams that refuses a bad codexLaunch without quoting it', /^codexLaunch refused: /.test(direct ?? '') && !direct.includes(SECRET), String(direct));
+  const priv = mkdtempSync(join(tmpdir(), 'oac-herdr-g4vp-'));
+  try {
+    const tmp = join(priv, 'tmp');
+    mkdirSync(tmp);
+    const out = join(priv, 'out');
+    const res = spawnSync(process.execPath, [join(REPO, 'tools', 'herdr', 'run.mjs'), '--scenario', 'g4-mcp-dual-era', '--herdr-bin', join(priv, 'no-such-herdr.mjs'), '--out', out, '--param', `codexLaunch=${JSON.stringify(bad)}`], {
+      env: { ...process.env, TMPDIR: tmp, TEMP: tmp, TMP: tmp },
+      encoding: 'utf8',
+      timeout: 60000,
+      windowsHide: true,
+    });
+    const scratch = readdirSync(tmp).filter((n) => n.startsWith('oac-herdr-scratch-'));
+    check('g4 validateParams #249: run.mjs refuses a bad codexLaunch before anything is created (exit 2; no output dir, no manifest, no oac-herdr-scratch-* dir; the value on no output)', res.status === 2 && /g4-mcp-dual-era: codexLaunch refused: .*refused before anything was created, nothing recorded/.test(res.stderr) && !existsSync(out) && scratch.length === 0 && !`${res.stdout}${res.stderr}`.includes(SECRET), JSON.stringify({ status: res.status, stderr: res.stderr.slice(0, 400), scratch, out: existsSync(out) }));
+  } finally {
+    rmSync(priv, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
 export async function g4Unit(check) {
   // --- criteria --------------------------------------------------------------------------------
   const { criteria: crit, reference } = readG4Criteria(REPO);
@@ -261,6 +290,8 @@ export async function g4Unit(check) {
     url('"http://127.0.0.1:17458/mcp"'), url('"http://[::1]:17458/mcp"'), url('"http://localhost:17458/mcp"'), url('"https://127.0.0.1/mcp"'),
     url('"http://LOCALHOST:1/"'), url('"http://127.0.0.1:65535"'), url('"http://127.0.0.1:17458/a/b-c_d.e~f"'),
     [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.enabled=true', '-c', 'mcp_servers.g4.startup_timeout_sec=30', '-c', 'mcp_servers.g4.tool_timeout_sec=12.5', '-c', 'features.x=false'],
+    // #249: zero and a zero-led fraction are TOML numbers.
+    [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.startup_timeout_sec=0', '-c', 'mcp_servers.g4.tool_timeout_sec=0.5'],
   ];
   check('g4 codex launch #244: loopback URLs (127.0.0.1, [::1], localhost; http or https; any port and path) and boolean/number scalars are accepted', goodValues.every((a) => validateCodexLaunch(a).ok), JSON.stringify(goodValues.filter((a) => !validateCodexLaunch(a).ok)));
   const SECRET = 'S3CRETvalue42';
@@ -284,11 +315,34 @@ export async function g4Unit(check) {
     ['string for a feature flag', [...url('"http://127.0.0.1:17458/mcp"'), '-c', `features.x=${SECRET}`]],
     ['string for a timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', `mcp_servers.g4.tool_timeout_sec="${SECRET}"`]],
     ['negative timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.tool_timeout_sec=-1']],
+    // #249: the path is [A-Za-z0-9._~/-] only; an encoded query or a key=value-shaped segment is refused.
+    ['percent-encoded query in the path', url(`"http://127.0.0.1:17458/mcp%3Ftoken=${SECRET}"`)],
+    ['token-shaped path segment', url(`"http://127.0.0.1:17458/mcp;token=${SECRET}"`)],
+    ['at sign in the path', url(`"http://127.0.0.1:17458/mcp/@${SECRET}"`)],
+    ['sub-delimiters in the path', url(`"http://127.0.0.1:17458/mcp/$${SECRET}!*'(),+:"`)],
+    // #249: TOML rejects a leading zero.
+    ['leading-zero timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.tool_timeout_sec=007']],
+    ['leading-zero fractional timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.startup_timeout_sec=00.5']],
   ];
   const refusals = badValues.map(([what, a]) => [what, validateCodexLaunch(a)]);
   check('g4 codex launch #244: a userinfo URL, a non-loopback URL, a query, a fragment, another scheme and a non-boolean/non-number scalar are all refused', refusals.every(([, v]) => !v.ok), JSON.stringify(refusals.filter(([, v]) => v.ok).map(([w]) => w)));
   check('g4 codex launch #244: a refusal records nothing of the launch (no overrides, the reason names a position, never the text)', refusals.every(([, v]) => v.overrides.length === 0 && !v.why.includes(SECRET) && !/example\.net|10\.0\.0\.5|ws:|70000/.test(v.why) && /argument \d+/.test(v.why)), JSON.stringify(refusals.map(([w, v]) => [w, v.why])));
   check('g4 codex launch #244: an unknown key is refused without echoing it either', ((v) => !v.ok && v.overrides.length === 0 && !v.why.includes(SECRET))(validateCodexLaunch(['codex', '-c', `${SECRET}=1`, ...url('"http://127.0.0.1:1/mcp"').slice(1)])));
+  // #249 (PR #248 review 1): the two refusals before a key is even parsed -- an argument that is
+  // not `-c`/`--config`, and a `-c` with no key=value after it -- name the rule and position
+  // only. A mutation that echoed the argument would put SECRET in `why`.
+  const early = [
+    ['a bare argument in place of -c', ['codex', SECRET, ...url('"http://127.0.0.1:1/mcp"').slice(1)], /argument 1 is not a per-invocation/],
+    ['a flag in place of -c', ['codex', `--${SECRET}`, ...url('"http://127.0.0.1:1/mcp"').slice(1)], /argument 1 is not a per-invocation/],
+    ['a flag=value in place of -c', ['codex', ...url('"http://127.0.0.1:1/mcp"').slice(1), `--token=${SECRET}`], /argument 3 is not a per-invocation/],
+    ['-c followed by no key=value', ['codex', '-c', SECRET, ...url('"http://127.0.0.1:1/mcp"').slice(1)], /at argument 1 needs a key=value/],
+    ['--config followed by an empty key', ['codex', '--config', `=${SECRET}`], /at argument 1 needs a key=value/],
+    ['-c as the last argument', ['codex', ...url('"http://127.0.0.1:1/mcp"').slice(1), '-c'], /at argument 3 needs a key=value/],
+  ];
+  const earlyRefusals = early.map(([what, a, re]) => [what, validateCodexLaunch(a), re]);
+  check('g4 codex launch #249: "not a -c override" and bare `-c` refusals name the rule and position, never the argument text', earlyRefusals.every(([, v, re]) => !v.ok && v.overrides.length === 0 && re.test(v.why) && !v.why.includes(SECRET)), JSON.stringify(earlyRefusals.map(([w, v]) => [w, v.why])));
+  check('g4 codexLaunch param #249: the same refusals through the param never quote the value', early.every(([, a]) => ((p) => /^codexLaunch refused: /.test(p ?? '') && !p.includes(SECRET))(codexLaunchParamProblem({ codexLaunch: JSON.stringify(a) }))));
+  await validateParamsWired(check, SECRET);
   check('g4 codexLaunch param #244: refused before the run, the reason never quoting the value; no param or a valid one passes', codexLaunchParamProblem({}) === null && codexLaunchParamProblem({ codexLaunch: JSON.stringify(defaultCodexLaunch(17458)) }) === null && /^codexLaunch refused: /.test(codexLaunchParamProblem({ codexLaunch: JSON.stringify(badValues[0][1]) }) ?? '') && !codexLaunchParamProblem({ codexLaunch: JSON.stringify(badValues[0][1]) }).includes(SECRET) && codexLaunchParamProblem({ codexLaunch: `not json ${SECRET}` }) === 'codexLaunch must be a JSON argv');
   const bad = [
     [['codex', '--profile', 'p', '-c', 'mcp_servers.g4.url="u"'], /not a per-invocation/],

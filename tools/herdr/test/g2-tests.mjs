@@ -31,6 +31,7 @@ import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
 import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport } from '../lib/g2-report.mjs';
 import { cloneWithPins } from './g1-tests.mjs';
+import { parseWin32ProcessJson, parsePsTable } from '../lib/proc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -248,6 +249,15 @@ export function g2Unit(check) {
   const wrongEsc = paneArgv([5], new Map([[5, { pid: 5, ppid: 1, argv: null, commandLine: g4cl.replace('url=\\"', 'url="') }]]), { allow: g4ov, expectArgsAfterCodex: g4ov, platform: 'win32' });
   check('g2 argv #243 fail-closed: a non-string or a NUL-carrying command line gives null (no proof); a differently escaped launch does not match', W(null) === null && W(42) === null && W('codex\0 -c x') === null && same(W(''), []) && splitCommandLine(null) === null && !codexLaunchProof([{ pid: 1, argv: null, commandLine: 'codex.exe\0 -c x' }], { platform: 'win32' }).found && wrongEsc.proof.found && wrongEsc.proof.matchesExpected === false, JSON.stringify(wrongEsc.proof));
   check('g2 argv #243: the non-Windows (macOS `ps`) branch is pinned on every OS: quoted runs kept together, quotes stripped, no backslash rules', same(splitCommandLine('"a b" \'c d\' e', { platform: 'darwin' }), ['a b', 'c d', 'e']) && same(splitCommandLine('a\\"b c', { platform: 'darwin' }), ['a\\"b', 'c']));
+  // #249 (PR #248 review 5): each row is split under the platform it was read on (row.platform,
+  // set by lib/proc.mjs's parsers), not the host's: the `platform` option is a fallback only.
+  // Here the fallback is deliberately the OTHER platform, so a host-platform split would fail.
+  const winTable = parseWin32ProcessJson(JSON.stringify([{ p: 5, pp: 1, c: '2026-10-02T10:00:02.0000000Z', cl: g4cl }]));
+  const winRowP = paneArgv([5], winTable, { allow: g4ov, expectArgsAfterCodex: g4ov, platform: 'darwin' });
+  const macOv = ['-c', 'features.x=a b'];
+  const macTable = parsePsTable("    6     1 Wed Oct  2 10:00:02 2026 /opt/codex -c 'features.x=a b'\n");
+  const macRowP = paneArgv([6], macTable, { allow: macOv, expectArgsAfterCodex: macOv, platform: 'win32' });
+  check('g2 argv #249: paneArgv and the launch proof split each row under its stored platform (a Win32_Process row by the C runtime rules, a ps row by the POSIX-ish rules), whatever the fallback says', processArgv(5, winTable).platform === 'win32' && processArgv(6, macTable).platform === 'darwin' && /Win32_Process/.test(processArgv(5, winTable).source) && /ps command/.test(processArgv(6, macTable).source) && winRowP.proof.matchesExpected === true && same(winRowP.argv[0].argv, ['node.exe', 'codex.js', ...g4ov]) && macRowP.proof.matchesExpected === true && same(macRowP.argv[0].argv, ['codex', ...macOv]), JSON.stringify({ winRowP, macRowP }));
   check('g2 argv: no codex process -> not found (never assumed plain)', !codexLaunchProof([{ pid: 1, argv: ['bash', '-l'] }, { pid: 2, argv: null, commandLine: null }]).found);
 
   // --- #232: minimized pane argv, read from one process-table snapshot ----------------------

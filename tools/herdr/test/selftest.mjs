@@ -584,11 +584,18 @@ function collect(b, res) {
   };
 }
 
-function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {}, prepare }) {
+function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {}, prepare, privateTmp = false }) {
   // prepare(): optional; returns another repository root whose run.mjs is driven instead
   // (e.g. a temporary clone with a malformed PINS.md committed, #216 review).
   const runFile = prepare ? join(prepare(), 'tools', 'herdr', 'run.mjs') : RUN;
   const b = makeBase(stateUnder);
+  // privateTmp (#249): the driver's os.tmpdir() is <base>/tmp, so what it creates there (its
+  // oac-herdr-scratch-* directory) is this case's alone to inspect.
+  if (privateTmp) {
+    b.tmp = join(b.base, 'tmp');
+    mkdirSync(b.tmp);
+    caseEnv = { ...caseEnv, TMPDIR: b.tmp, TEMP: b.tmp, TMP: b.tmp };
+  }
   // fakeClaude: env for test/fake-claude.mjs, plus a fake `claude` CLI on PATH.
   // fakeCodex: env for test/fake-codex.mjs, installed as `codex` on PATH (K7).
   // Both (K8): one bin directory holding both fakes.
@@ -614,9 +621,12 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
 function invariants(name, b, r, { scratchLeft = false, noManifest = false } = {}) {
   const m = r.manifest;
   // #244: a run refused before anything was created (a scenario's validateParams) writes
-  // nothing: no output directory, no manifest, no herdr call.
+  // nothing: no output directory, no manifest, no herdr call, and (#249) no scratch directory:
+  // the case runs with a private os.tmpdir() (runDriver privateTmp), which must hold no
+  // oac-herdr-scratch-* entry afterwards.
   if (noManifest) {
-    check(`${name}: refused before anything was created: no output directory, no manifest, no herdr call`, !m && !existsSync(r.outDir) && r.calls.length === 0, r.stdout + r.stderr);
+    const scratch = b.tmp && existsSync(b.tmp) ? readdirSync(b.tmp).filter((n) => n.startsWith('oac-herdr-scratch-')) : null;
+    check(`${name}: refused before anything was created: no output directory, no manifest, no herdr call, no oac-herdr-scratch-* directory`, !m && !existsSync(r.outDir) && r.calls.length === 0 && Array.isArray(scratch) && scratch.length === 0, `${r.stdout}${r.stderr} scratch=${JSON.stringify(scratch)}`);
     return;
   }
   check(`${name}: run-manifest.json written`, !!m, r.stdout + r.stderr);
@@ -851,6 +861,7 @@ async function lifecycle() {
     const m = r.manifest;
     check('#239 scratch removed mid-run: the run FAILs on the unstartable herdr call', r.status === 1 && /could not start herdr \(ENOENT\)/.test(m.outcomeReason ?? ''), `${r.status} ${m.outcomeReason}`);
     check('#239 scratch removed mid-run: teardown ran its herdr calls in os.tmpdir(), queried the pane, stopped and deleted the session', /gone at teardown/.test(m.teardown.cwdFallback ?? '') && m.teardown.panes?.queried.length === 1 && m.teardown.sessionStop === 'ok' && m.teardown.sessionDelete === 'ok', JSON.stringify(m.teardown));
+    check('#249 scratch removed mid-run: the cwd fallback is a run-manifest finding naming HERDR_CONFIG_PATH and real herdr\'s handling as UNVERIFIED', m.findings.some((f) => /^teardown cwd fallback \(#239\)/.test(f) && /HERDR_CONFIG_PATH/.test(f) && /UNVERIFIED/.test(f)), JSON.stringify(m.findings));
     check('#239 scratch removed mid-run: the pane shell and the stuck fake Claude were both accounted for', m.session.panePids.length >= 2 && m.teardown.leftoverProcesses.length === 0, JSON.stringify({ panePids: m.session.panePids, teardown: m.teardown }));
   });
   run('#136 pane never queried, server force-killed', { scenario: T('no-process-info.mjs'), mode: 'server-ignores-stop,leak-pane' }, (r) => {
@@ -908,7 +919,7 @@ async function lifecycle() {
     const undo = c.setup ? await c.setup() : null;
     let run;
     try {
-      run = runDriver(c.opts);
+      run = runDriver(c.invariantOpts?.noManifest ? { ...c.opts, privateTmp: true } : c.opts);
     } finally {
       await undo?.();
     }

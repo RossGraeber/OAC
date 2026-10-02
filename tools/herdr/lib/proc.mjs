@@ -393,11 +393,14 @@ export function splitWindowsCommandLine(s) {
 // platform the row was read on (row.platform, set by the parsers above; the host's otherwise),
 // so teardown and the launch proof (lib/g2.mjs paneArgv) split a command line by one rule set.
 // [] when the row has no argv and no command line (nothing to match). null when the command
-// line cannot be split (a non-string or a NUL): the caller treats that process as
-// unverifiable, never as "no match, safe to kill".
+// line cannot be split (a non-string or a NUL), and (#249) when a Windows row's command line
+// could not be read at all: Win32_Process.CommandLine is null for a process the query may not
+// read (another user's, a protected or system process), and an unread command line cannot be
+// shown not to be the app-server. The caller treats a null as unverifiable, never as "no
+// match, safe to kill" (commandLineProblem names which).
 export function commandTokens(proc) {
   if (Array.isArray(proc?.argv)) return proc.argv;
-  if (proc?.commandLine == null) return [];
+  if (proc?.commandLine == null) return proc?.platform === 'win32' ? null : [];
   return splitCommandLine(proc.commandLine, { platform: proc.platform ?? process.platform });
 }
 
@@ -412,12 +415,20 @@ export function carriesSession(proc, name) {
 // Processes teardown must never kill, whoever started them: the Codex app-server (the
 // operator's long-lived shared daemon, #202/#203; a pane's `codex` could also have started
 // one). Matched on the argv token `app-server`; left running and recorded instead. Fail-safe
-// (#244): a command line that cannot be split cannot be shown NOT to be the daemon, so it is
-// protected as well (teardown reports such a pid as unverified before it gets here).
+// (#244): a command line that cannot be split, or (#249) a Windows one that could not be read,
+// cannot be shown NOT to be the daemon, so it is protected as well (teardown reports such a
+// pid as unverified before it gets here).
 export const UNSPLITTABLE_REASON = 'command line could not be split, so it cannot be shown not to be the Codex app-server';
+export const UNREADABLE_REASON = 'command line could not be read, so it cannot be shown not to be the Codex app-server';
+// Why a row's command line gives no tokens (UNREADABLE_REASON or UNSPLITTABLE_REASON), or null
+// when it gives tokens (possibly none).
+export function commandLineProblem(proc) {
+  if (commandTokens(proc) !== null) return null;
+  return proc?.commandLine == null ? UNREADABLE_REASON : UNSPLITTABLE_REASON;
+}
 export function protectedReason(proc) {
   const argv = commandTokens(proc);
-  if (!argv) return UNSPLITTABLE_REASON;
+  if (!argv) return commandLineProblem(proc);
   return argv.includes('app-server') ? 'Codex app-server (the shared daemon is never stopped by the driver)' : null;
 }
 
