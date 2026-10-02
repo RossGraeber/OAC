@@ -285,10 +285,68 @@ export function sanitizeG4Transcript(text) {
 
 // After redaction: does a capture still hold exactly the placeholders the sanitizer put in, and
 // no fragment of the identifier (a pane line wrapped mid-identifier escapes the sanitizer)?
+//
+// #148: a wrapped copy is never replaced by the sanitizer, so redaction may then rewrite the
+// unbroken side of the wrap (username `github` with the break inside `oac-session-channels`, or
+// `session` with the break inside `io.github.`), leaving neither anchor intact in the raw text.
+// So the fragment check also runs on a glued copy of the capture, and there it also accepts any
+// redaction placeholder (`<USER>`, `<HOST>`, `<USER_HOME>`, `<WITHHELD: ...>`) standing in for
+// any run of the identifier's characters. The glued copy drops ANSI CSI sequences, Unicode
+// format characters (ZWSP, soft hyphen, ...), every line break (LF, CR, NEL, U+2028/9) together
+// with whatever non-identifier decoration sits either side of it (a TUI continuation prefix such
+// as `▌ `, `⎿ `, `│ `, `• `, an SGR reset), and any remaining whitespace or box-drawing border, so
+// it does not depend on knowing which glyphs a harness wraps with. Fail closed: a redacted
+// near-copy is a fragment, never a pass.
 const EXT_FRAGMENT = /oac-session-channels|io\.github\./i;
+const ANSI_CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+const FORMAT_CHARS = /\p{Cf}/gu;
+// Not part of the identifier or of a placeholder. NUL (the placeholder separator below) is
+// excluded too, so stripping around a break never joins across a sanitizer placeholder.
+const NOT_ID = String.raw`[^a-z0-9./<>_:#\u0000-]*`;
+const WRAP = new RegExp(String.raw`${NOT_ID}[\n\r\u0085  ]${NOT_ID}`, 'giu');
+const PANE_GLUE = /[\s─-╿]+/gu;
+const REDACTION_TOKEN = /^<[A-Z][A-Z_]*(?::[^<>\n]*)?>/;
+const TOKEN_MAX = 120;
+// Fewest identifier characters that must appear literally around the placeholders for a
+// near-copy to count, so a bare `<USER>` elsewhere in a pane is never taken for the identifier
+// (`io.<USER>` and `<USER>/oac-` already carry this many).
+const MIN_LITERAL = 3;
+const MEMO_LIMIT = 1 << 20;
+function redactedNearCopy(s) {
+  const id = OAC_EXT.toLowerCase();
+  const n = id.length;
+  // ASCII-only fold: full Unicode lowercasing can lengthen the string ('İ' becomes 2 UTF-16
+  // units) and misalign t with s. The identifier is ASCII, so nothing else needs folding.
+  const t = s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  const tokenAt = (tp) => (s[tp] === '<' ? REDACTION_TOKEN.exec(s.slice(tp, tp + TOKEN_MAX))?.[0].length ?? 0 : 0);
+  // go(tp, ip, lit, after): does the text from tp match id[ip..], each placeholder standing for
+  // one or more identifier characters, with at least MIN_LITERAL literal characters overall?
+  // `after`: a placeholder just ended at tp and may also cover id[ip] (skip ahead one at a time).
+  // Each state costs O(1); the memo is only a cache with a numeric key, cleared when it grows.
+  const memo = new Map();
+  const go = (tp, ip, lit, after) => {
+    if (ip === n) return lit >= MIN_LITERAL;
+    const key = (((tp * (n + 1) + ip) * (MIN_LITERAL + 1) + lit) * 2) + (after ? 1 : 0);
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+    if (memo.size >= MEMO_LIMIT) memo.clear();
+    let ok = (after && go(tp, ip + 1, lit, true))
+      || (tp < t.length && t[tp] === id[ip] && go(tp + 1, ip + 1, Math.min(lit + 1, MIN_LITERAL), false));
+    if (!ok) { const len = tokenAt(tp); ok = len > 0 && go(tp + len, ip + 1, lit, true); }
+    memo.set(key, ok);
+    return ok;
+  };
+  // A near-copy begins with the identifier's first character or a placeholder standing for its head.
+  for (let tp = 0; tp < t.length; tp++) if ((t[tp] === id[0] || tokenAt(tp)) && go(tp, 0, 0, false)) return true;
+  return false;
+}
 export function placeholderIntegrity(text, expected) {
   const s = String(text ?? '');
-  const found = s.split(OAC_EXT_PLACEHOLDER).length - 1;
-  const fragment = EXT_FRAGMENT.test(s.split(OAC_EXT_PLACEHOLDER).join(''));
+  const parts = s.split(OAC_EXT_PLACEHOLDER);
+  const found = parts.length - 1;
+  // A NUL keeps the text either side of a placeholder from joining into a false near-copy.
+  const rest = parts.join('\u0000');
+  const glued = rest.replace(ANSI_CSI, '').replace(FORMAT_CHARS, '').replace(WRAP, '').replace(PANE_GLUE, '');
+  const fragment = EXT_FRAGMENT.test(rest) || EXT_FRAGMENT.test(glued) || redactedNearCopy(glued);
   return { expected, found, fragment, ok: found === expected && !fragment };
 }
