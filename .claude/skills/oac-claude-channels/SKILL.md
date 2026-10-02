@@ -148,8 +148,11 @@ the Agent SDK can drive or receive channels.
 
 ## Pin
 
-**Floating** (operator decision, 2026-09-27). Last observed `v2.1.283`. Everything below
-was verified on `v2.1.274` only (STATUS.md open item).
+**Floating** (operator decision, 2026-09-27); warn on version, never gate (#216,
+2026-10-01). Minimum `v2.1.282` (the first version the project worked with), last tested
+`v2.1.285` (PINS.md "Version policy"). A different version, or one below the minimum, is a
+warning: never a stop, never `NOT RUN`, never a CI block, never by itself a reason to
+invalidate a verdict. Everything below was verified on `v2.1.274` only (STATUS.md open item).
 
 **Re-verified pin (B2):** Claude Code `v2.1.274` (Channels research preview),
 published 2026-09-17T00:12:02Z UTC. Both floors satisfied: channels-exist
@@ -171,10 +174,9 @@ this pin; see `docs/planning/REVERIFICATION-B2.md` §3.1 boxes 1-2. Source:
 `docs/planning/REVERIFICATION-B2.md` §3.1, retrieved 2026-09-16.
 
 Current gate verdicts for this surface (G1, G4, G5) are not restated here — see
-`docs/planning/STATUS.md`'s Gate verdicts table and `docs/planning/PINS.md`'s Claude Code
-Channels "Floating-version policy" for which verdicts are current at the last-observed
-version.
+`docs/planning/STATUS.md`'s Gate verdicts table. Each verdict records the version it ran
+on; a newer Claude Code version does not invalidate it (#216).
 
 Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
-re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. Re-verification on each
-observed version follows PINS.md "Floating-version policy" and `oac-evidence` §7.
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. Re-checking facts on a new
+version (`oac-evidence` §7) is a finding to follow up, never a gate on a run (#216).

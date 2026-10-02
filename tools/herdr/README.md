@@ -195,8 +195,10 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
 - Both report generators read the gate's pass criteria from the `oac-gates` reference **as
   committed at HEAD**, bound by a sha256 pin (`G4_CRITERIA_SHA256`, `G5_CRITERIA_SHA256`), and
   refuse to score if the reference was reworded or reordered. `--write` refuses anything but a
-  `PASS` run with verified harness versions from a clean, committed `tools/herdr/`, never
-  overwrites, and writes the operator attestation unticked.
+  `PASS` run whose harness sources each reported one version, from a clean, committed
+  `tools/herdr/`, never overwrites, and writes the operator attestation unticked. A version
+  other than PINS.md's last tested one is not refused (#216): it is a `VERSION WARNING` finding
+  and the fixture entry says `version_matches_pin: false`.
 
 ## L3 Beacon live leg
 
@@ -278,8 +280,10 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    `tools/herdr/`. The scenario module itself may live under `tests/integration/` and be
    passed to `--scenario` by path.
 3. **Opt-in and pinned.** Reached only by an explicit, separately invoked target, never the
-   default `test` run; each test names its exact Claude Code, Codex, transport and herdr pins
-   from `docs/planning/PINS.md` (`09-test-strategy.md` §4). A herdr timeout or an expired box
+   default `test` run; each test names its exact transport and herdr pins from
+   `docs/planning/PINS.md` (`09-test-strategy.md` §4), and records the Claude Code and Codex
+   versions it ran on. Those float: a version other than PINS.md's last tested one, or below its
+   minimum, is a `VERSION WARNING` finding, never a stop and never a CI failure (#216). A herdr timeout or an expired box
    is `NOT RUN`, never a failure and never a pass, and nothing re-runs automatically.
 4. **Evidence is the wire and verbatim pane text.** An OAC adapter's own transcript (as the
    gate servers' transcripts here) plus `agent read` output. herdr's agent state only

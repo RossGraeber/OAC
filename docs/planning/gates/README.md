@@ -67,7 +67,8 @@ Every `-herdr` fixture entry also carries a **`driver` block**: `herdr_version` 
 verbatim `herdr --version` output), `driver_commit` (the full commit the driver ran
 from) and `run_manifest` (the git-tracked `herdr-runs/*.run-manifest.json`, with its
 `.md` record tracked beside it). The same script requires the block on every `-herdr`
-entry, requires `version_matches_pin: true`, and checks the block against that run
+entry, requires a boolean `version_matches_pin` (since #216, 2026-10-01, `false` prints a
+`VERSION WARNING` and does not fail the check; it was `true`-only before), and checks the block against that run
 manifest. The run manifest must show outcome `PASS`, a clean `tools/herdr/`
 (`driver.toolsHerdrDirty: false`), the same driver commit and the same herdr version, and
 it must list the fixture's file name among its written captures. The script rejects a
@@ -152,7 +153,18 @@ a. **The rule.** Changing the **`Pinned version`** cell, the **`Release date`** 
    the gate. Invalidation is immediate and independent of whether the spike would still
    pass if re-run.
 
-   **Floating rows** (currently Codex CLI / app-server and Claude Code (Channels); see
+   **The harness rows are exempt (operator decision on #216, 2026-10-01).** The Codex CLI
+   / app-server and Claude Code (Channels) rows float. Each records a **minimum version**
+   (the first version the project worked with) and a **last tested version** (see each
+   row's "Version policy" in PINS.md). Changing either one invalidates **no** gate
+   verdict, and no `> INVALIDATED` callout or `NOT RUN` revert follows. A harness version
+   other than the last tested one, or below the minimum, is a warning. It never stops a
+   run, never makes it `NOT RUN`, never blocks CI and never by itself invalidates a gate
+   verdict. A gate result records the version it actually ran on, and a later reader
+   compares that version with PINS.md. This covers the CLIs and their wire and daemon
+   versions. The rest of §a and §b-§c applies to every other row.
+
+   *Superseded 2026-10-01 (#216), kept as history:* **Floating rows** (currently Codex CLI / app-server and Claude Code (Channels); see
    each row's "Floating-version policy" in PINS.md) follow a stricter rule. A gate verdict
    that relies on the row is current only if the version the gate recorded equals
    **both** the row's last-observed
@@ -216,9 +228,13 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
 
 - **Record.** Each scripted run that is written lands as
   `herdr-runs/G<n>-<YYYY-MM-DD>.md`, with its run manifest beside it (see "Naming
-  convention"). Only a run with outcome `PASS` and verified harness versions is written
-  (G1: `g1-report.mjs --write` refuses anything else). The record's own header says it is
-  not verdict-bearing.
+  convention"). Only a run with outcome `PASS` is written, and only when each harness's
+  sources (CLI, wire and, for Codex, the daemon) reported one and the same version, so
+  that the fixture can name it (`g1-report.mjs --write` and the other generators refuse
+  anything else). Since #216 that version need not be PINS.md's last tested one. A
+  difference is a `VERSION WARNING` finding and makes the fixture entry
+  `version_matches_pin: false`, but it never refuses the write. The record's own header
+  says it is not verdict-bearing.
 - **Fixtures.** The record's captures are committed as `-herdr` fixtures, each with a
   `MANIFEST.json` entry carrying the `driver` block (see "Fixture manifest").
 - **Pointer only.** The gate's `G<n>-result.md` gains a pointer to the record, not a
@@ -249,10 +265,12 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
      changes.
 
   From that commit on, scripted runs of every gate are non-verdict-bearing until a new
-  equivalence record exists at the new pin. A move of a harness row (Claude Code, Codex)
+  equivalence record exists at the new pin. A harness version change (Claude Code, Codex)
+  invalidates neither a gate verdict nor an equivalence record (§a, #216, 2026-10-01).
+  *Superseded text, kept as history:* "A move of a harness row (Claude Code, Codex)
   follows §a-§c for gate verdicts, including a verdict written from a scripted run. It
   does not invalidate an equivalence record, because re-running a gate after a harness
-  pin moves is what the record exists for.
+  pin moves is what the record exists for."
 - **Opt-in CI (K6).** `herdr-runner.md` in this directory covers the operator-owned
   self-hosted runners that `.github/workflows/herdr-provider-optin.yml` runs on: their
   prerequisites, the upload gate, the threat table, and the first-dispatch record. A CI
@@ -270,18 +288,19 @@ explicitly unnamed) shim boundary in `docs/planning/PINS.md`; this section only 
 which are likeliest to force a re-run.
 
 - **Claude Code Channels — `research preview`** is **floating** by operator decision
-  (2026-09-27), mirroring the Codex row. The last observed version is `v2.1.283`
-  (`docs/planning/PINS.md`, Claude Code Channels, "Floating-version policy"). Channels
-  floor `v2.1.232`, permission-relay floor `v2.1.234` still hold at this version. Affects
-  **G1**, **G4** (legacy-MCP negotiation), and **G5**. Expect the most frequent
-  invalidation here alongside Codex: Claude Code ships releases at high cadence and the
-  channel surface is preview.
+  (2026-09-27), mirroring the Codex row. Since #216 (2026-10-01) it records minimum
+  `v2.1.282` and last tested `v2.1.285` (`docs/planning/PINS.md`, Claude Code Channels,
+  "Version policy"). Channels floor `v2.1.232` and permission-relay floor `v2.1.234` hold
+  at both. Relied on by **G1**, **G4** (legacy-MCP negotiation) and **G5**. Claude Code
+  ships releases at high cadence and the channel surface is preview, so expect frequent
+  version warnings here. A version change no longer invalidates a verdict (§a).
 - **Codex CLI / app-server — `experimental` (per-method gating)** is **floating** by
-  operator decision (2026-09-26). The last observed version is `@openai/codex@0.157.1`,
-  commit `36650394c5b38c2990ccf2a3457165ca3e9d9726` (`docs/planning/PINS.md`, Codex CLI
-  and app-server, "Floating-version policy"). An auto-updater moves it with every release.
-  Affects **G2**, **G5** and **G4** (Codex leg). This surface is the likeliest to force
-  re-runs, because every release does.
+  operator decision (2026-09-26). Since #216 it records minimum `@openai/codex@0.154.0`
+  and last tested `@openai/codex@0.159.3`, commit
+  `01fc69f4026735edfdf6789820549727a4867b11` (`docs/planning/PINS.md`, Codex CLI and
+  app-server, "Version policy"). An auto-updater moves it with every release. Relied on
+  by **G2**, **G5** and **G4** (Codex leg). Expect a version warning on most runs. A
+  version change no longer invalidates a verdict (§a).
 - Contrast: Zenoh, MCP revisions, and the Rust toolchain are `supported` and move on
   slower, announced cadences.
 - Both preview surfaces still have `shim boundary: UNNAMED — see DESIGN.md`

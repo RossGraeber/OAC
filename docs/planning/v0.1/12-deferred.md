@@ -166,8 +166,10 @@ this file is the single place a reader checks for "is X deferred."
 
 - **Permission relay off by default.** `capabilities.experimental
   ['claude/channel/permission']` is not declared in v0.1, a chosen default
-  (not an availability accident — the pinned Claude Code version satisfies the
-  capability's version floor). Decided in
+  (not an availability accident — every recorded Claude Code version, from the
+  minimum `v2.1.282` on, satisfies the capability's version floor; see
+  `docs/planning/v0.1/06-security.md` §11. Note, 2026-10-01, #216: previously "the pinned
+  Claude Code version"). Decided in
   `docs/planning/v0.1/03-decisions-and-amendments.md` Decision 9, resolving
   conflict C10; full three-strand justification in
   `docs/planning/v0.1/06-security.md` §11. Reconsider only via its own explicit

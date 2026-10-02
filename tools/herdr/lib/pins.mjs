@@ -139,7 +139,7 @@ export function claudeVersionWarning({ observed, lastTested, minimum, source, ga
 // --- Codex CLI / app-server ---------------------------------------------------------------
 //
 // The cell names the npm package and the release commit: "**floating** — minimum
-// `@openai/codex@0.154.0`; last tested `@openai/codex@0.159.3` (commit `<40 hex>`; ...)".
+// `@<scope>/codex@0.154.0`; last tested `@<scope>/codex@0.159.3` (commit `<40 hex>`; ...)".
 // Codex reports its version from three places: the CLI (`codex --version`, e.g. `codex-cli
 // 0.157.1`), the daemon (`codex app-server daemon version`: cliVersion / appServerVersion /
 // managedCodexVersion) and the wire (the `initialize` result's `userAgent`, e.g.

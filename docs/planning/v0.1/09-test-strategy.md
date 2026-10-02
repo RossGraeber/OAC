@@ -160,6 +160,12 @@ current. This is the same obligation §a-§e of that policy already state for ga
 this file does not invent a second invalidation mechanism, it applies the existing one to
 opt-in test results.
 
+*Dated note, 2026-10-01 (#216, operator decision):* the Claude Code and Codex rows are exempt. Their versions float: PINS.md
+records a minimum and a last tested version, and a different version is a warning that
+never stops a run, never fails CI and never by itself invalidates a gate or an opt-in
+result (`docs/planning/gates/README.md` §a). An opt-in result records the harness version
+it ran on. The rule above still applies to every other row (MCP, `rmcp`, Zenoh, Rust).
+
 **Dated note, 2026-09-28 (K5, issue #128): herdr-driven runs are
 provider-integration tier, opt-in by construction, never default.** Epic K (#123) adds a test-side driver,
 `tools/herdr/run.mjs`, that drives real Claude Code and Codex CLI sessions through herdr
@@ -388,7 +394,9 @@ pass.
 acceptance box: "Runs on Windows, macOS, and Linux on the pinned provider versions." Per
 §4's opt-in mechanics, each platform run is pinned against the same
 `docs/planning/PINS.md` Claude Code, Codex, and Zenoh rows — a pin move on any of the
-three invalidates every recorded platform result for this test, not just one.
+three invalidates every recorded platform result for this test, not just one. *Dated note, 2026-10-01 (#216, operator decision):* for
+Claude Code and Codex, read "pinned" as "recorded": a harness version change warns and
+invalidates nothing; only a Zenoh pin move invalidates.
 
 ---
 
@@ -540,6 +548,11 @@ Code; G2/G5 for Codex) and requires the same-commit edits that policy's §b list
 file adopts the identical trigger for fixture freshness: a pin move against the surface a
 fixture was captured from requires re-capturing that fixture against the new pinned
 version before it is trusted again, in the same change that re-runs the affected gate(s).
+*Dated note, 2026-10-01 (#216, operator decision):* a Claude Code or Codex version change no longer invalidates a gate, so it no
+longer forces a re-capture either. Each fixture records the version it was captured on
+(`MANIFEST.json` `observed_version`); one not captured on PINS.md's last tested version
+carries `version_matches_pin: false`, which is a warning. Re-capture when a newer
+version changes the behaviour a fixture documents.
 
 **The Stage 3 runtime fixture path under `tests/` is deliberately not fixed here.**
 `docs/planning/DESIGN.md`'s "Suggested repository shape" sketches
@@ -701,7 +714,8 @@ Checked against issue #30's four acceptance boxes:
       versions** — §4 (separate flag/target, never a default-tier waiver; every opt-in
       test names its exact pinned version from `docs/planning/PINS.md`; a pin move
       invalidates the recorded result the same way it invalidates a gate, per
-      `docs/planning/gates/README.md`).
+      `docs/planning/gates/README.md`; since #216, 2026-10-01, harness versions are
+      recorded and warn, never invalidate).
 - [x] **Fixture capture and refresh process defined** — §13 (Stage 1 capture via D6,
       per-gate location per `docs/planning/gates/README.md`, pinned-version-plus-date
       requirement, no-credentials rule, Codex-schema-reference rule, the
