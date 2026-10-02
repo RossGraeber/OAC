@@ -317,7 +317,10 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    scenario asserts (none for plain `codex`, the validated `-c` overrides for G4), every other
    argument as `<arg len=N>` (length only, no hash: a hash of a short secret can be brute-forced),
    with the manifest's fail-closed redaction scan still on top, and quoting follows the
-   pane shell (`lib/pane-shell.mjs`). What is verified today is Linux only, and only against
+   pane shell (`lib/pane-shell.mjs`). A Windows command line is split by the Microsoft C
+   runtime's argv rules (#243, `lib/g2.mjs` `splitWindowsCommandLine`); the self-test's
+   Windows unit half round-trips the default G4 launch through a real child process.
+   What is verified today is Linux only, and only against
    test doubles: the self-test's lifecycle half needs POSIX `sh`, K1's live leg has not run,
    and herdr's own Windows and macOS support is its documentation's claim (K1). A Stage 4/5
    test on macOS or Windows is UNVERIFIED until it runs live there.
