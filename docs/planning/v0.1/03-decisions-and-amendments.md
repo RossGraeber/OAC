@@ -233,6 +233,10 @@ resume behaviour differs per harness by evidence, not assumption — Claude resu
 new OAC session id unless a fresh registration is observed (docs silent on `--resume`
 survival, §6), Codex resumes MAY re-bind the same OAC id because `thread.id` is
 documented to survive restart (§7); the display URI resolves conflict C8 (§8, §3 below).
+(Dated note, 2026-10-02, #236: the hook-stdin `session_id` stays the authoritative
+Claude source; `oac mcp-shim` also reads the documented `CLAUDE_CODE_SESSION_ID` as a
+cross-check only, and a mismatch fails closed. C4 §3 "Revision, 2026-10-02"; resolves
+drift D5.)
 
 **Rejected alternatives, one line each** (C4 §14): harness-native id used directly as the
 OAC wire address (hostage to a preview/experimental surface's own id scheme); id derived

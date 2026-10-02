@@ -3,7 +3,10 @@
 **Issue:** #17 (Epic C, backlog key `C4`). **Depends on:** #12. **Source:**
 PLANNING-PROMPT.md §5.4, §5.7, §7, §3.1, §3.2; conflict C8.
 
-**Status:** Decided.
+**Status:** Decided. **Revised 2026-10-02 (#236, operator decision, resolves drift D5):**
+§3 now names the hook-stdin `session_id` the **authoritative** source and adds
+`CLAUDE_CODE_SESSION_ID` as a cross-check (§3 "Revision, 2026-10-02"); §13 gains one
+threat row. Earlier text is kept and marked, not deleted.
 
 **Standalone-ledger note.** This file lives at `docs/planning/decisions/` because
 `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) does not exist yet.
@@ -113,11 +116,14 @@ it — over the C2 local IPC mechanism (Windows named pipe / Unix `AF_UNIX` sock
 The path is: **hook stdin -> hook handler -> `oac mcp-shim` or a dedicated hook-invoked
 `oac` subcommand -> daemon, over C2's local IPC -> registration record.** OAC never
 reads Claude's session files, rollout state, or any other on-disk artifact to learn
-`session_id` — the hook's own stdin/HTTP body is the only supported surface, consistent
+`session_id` — the hook's own stdin/HTTP body is the authoritative surface, consistent
 with `[ADR-001 Boundary]` "MUST NOT depend on UI/terminal scraping or undocumented
-private RPCs for supported integrations."
+private RPCs for supported integrations." (Superseded text, before 2026-10-02 #236: "the
+only supported surface". The documented `CLAUDE_CODE_SESSION_ID` variable is a second
+supported surface; it is read only as a cross-check, per the revision below.)
 
-*Dated note, 2026-10-02 (#122): open conflict, not resolved here.* The §3.1 re-check at
+*Dated note, 2026-10-02 (#122): open conflict, not resolved here. (Resolved 2026-10-02,
+#236 — see "Revision, 2026-10-02" below.)* The §3.1 re-check at
 Claude Code `2.1.285` found a documented `CLAUDE_CODE_SESSION_ID` environment variable.
 It is "Set automatically to the current session ID in Bash and PowerShell tool
 subprocesses, hook command subprocesses, and stdio MCP server subprocesses". An MCP
@@ -128,6 +134,91 @@ ID, "it may receive the initial startup ID instead"
 no longer holds. The hook path this section decides on is still documented and still
 stands. Whether `oac mcp-shim` should also read the variable is open in
 `docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)", for a C4 revision.
+
+**Revision, 2026-10-02 (#236, operator decision): the hook `session_id` stays
+authoritative; `CLAUDE_CODE_SESSION_ID` is a cross-check.** This resolves drift D5
+(`docs/planning/REVERIFICATION-B2.md` Drift register) and the STATUS.md open conflict
+above. It changes C4 only. ADR-001, DESIGN.md and PLANNING-PROMPT.md §5 are untouched,
+so no `ADR-001-A*` amendment is proposed.
+
+*Evidence, re-fetched for this revision.* `CLAUDE_CODE_SESSION_ID` (surface label:
+**supported**, a documented environment variable) is, verbatim: "Set automatically to
+the current session ID in Bash and PowerShell tool subprocesses, hook command
+subprocesses, and stdio MCP server subprocesses. For Bash, PowerShell, and hooks this
+matches the `session_id` field in the hook JSON input and is updated on `/clear`. An MCP
+server subprocess retains the ID it was spawned with. On `--resume <session-id>` it
+receives the resumed ID, matching hooks and Bash. On `--continue` or `--resume` without
+an explicit ID it may receive the initial startup ID instead." Source:
+https://code.claude.com/docs/en/env-vars.md L365, retrieved 2026-10-02 (unchanged from
+the #122 retrieval at Claude Code `2.1.285`). The changelog dates it in three steps:
+`2.1.132` "Added `CLAUDE_CODE_SESSION_ID` environment variable to the Bash tool
+subprocess environment, matching the `session_id` passed to hooks"; `2.1.154` "Stdio MCP
+server subprocesses now receive `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE=1` in their
+environment"; `2.1.163` "stdio MCP servers now receive the same `CLAUDE_CODE_SESSION_ID`
+as hooks/Bash on `--resume`". Source: `anthropics/claude-code` `CHANGELOG.md` @
+`52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02. All three versions sit
+below the minimum version `v2.1.282` (`docs/planning/PINS.md`).
+
+*Terms.* **H** is the `session_id` from the hook's stdin JSON, reaching the daemon by the
+capture path above. **E** is the value of `CLAUDE_CODE_SESSION_ID` in `oac mcp-shim`'s
+own process environment. The shim reads E once, at startup, and sends it to the daemon
+in its C2 IPC connection hello. The shim reads nothing else to learn a session id. The
+daemon makes every comparison below and stays the only writer of registration records
+(§5). **Bind** means the daemon writes a registration record for H (§5) and attaches
+that shim's channel connection to it, so messages addressed to that OAC session id are
+delivered through that shim. Values are compared as exact byte strings.
+
+*The rule.* H is authoritative. E never overrides H, never stands in for H, and is never
+silently preferred. Four cases:
+
+1. **H and E both present and equal.** Bind, exactly as the hook path above. The
+   record's `harness_native_id` is H. E confirms the shim-to-session pairing and adds no
+   other authority.
+2. **H and E both present and different.** **Fail closed.** The daemon binds neither
+   value: it writes no registration record for H with that shim connection, never
+   registers E, and does not pick one. If that shim connection is already bound (an
+   earlier hook delivered an H equal to E, and a later hook delivers a different H), the
+   daemon withdraws that binding and deregisters the record, as at end of session (§5).
+   The daemon records a finding: a local log entry naming H, E and the shim connection.
+   The session is not OAC-reachable through that shim. It is not discoverable, has no
+   presence, and gets no delivery, until a fresh launch produces case 1. The same holds
+   when more than one shim connection presents the same E for one H: the daemon binds
+   none of them and records a finding. An `oac` hook handler MAY also compare its own
+   environment's `CLAUDE_CODE_SESSION_ID` with its stdin `session_id`. The docs say the
+   two match for hooks, so a mismatch there is case 2 for that hook event.
+3. **Only E present** (no hook payload received yet for this shim, or hooks are not
+   installed). E is a **non-authoritative hint**. It MAY be used for (a) log and trace
+   correlation, shown as "unconfirmed" in any `oac` diagnostic output, and (b) a lookup
+   key that pairs the shim connection with a hook payload that arrives later; the outcome
+   of that pairing is still decided only by case 1 or case 2. E MUST NOT create a
+   registration record, mint or select an OAC session id, make the session appear in
+   discovery, presence or `list_sessions`, serve as an allowlist or ACL subject, enter
+   pairing, route or deliver a message, appear in provenance (a Claude `meta` attribute)
+   or on the wire, or authorize anything. If no hook payload ever arrives, the shim stays
+   unbound, as it would without E.
+4. **Only H present** (E absent from the shim's environment). Unchanged: the hook path
+   above applies as before. Absence of E is logged as a diagnostic, not treated as a
+   finding, and does not fail closed.
+
+*Correlation constraint.* Which `oac` entry point receives the hook payload stays a
+Stage 3/4 detail (next paragraph). This revision adds one constraint: however a hook
+payload is matched to a shim connection, E alone never decides the match. Case 1's
+equality with H is required, and a duplicate or mismatching E fails closed (case 2).
+
+*Continue/resume caveat and its consequence.* An MCP server "retains the ID it was
+spawned with", and on `--continue` or `--resume` without an explicit ID "it may receive
+the initial startup ID instead" (env-vars.md L365, above). In those launches, and after
+`/clear` (which updates the id for hooks but not for an already-running MCP server), H
+and E can differ through no attack at all. Case 2 still applies: OAC fails closed, so a
+session continued that way, or cleared, is not OAC-reachable until it is relaunched with
+a fresh start or `--resume <session-id>`. `--resume <session-id>` gives the MCP server
+"the resumed ID, matching hooks and Bash", so it reaches case 1, and per §6 it is still
+registered under a **new** OAC session id. This matches §6's conservative rule and
+`[ADR-001-A2 Amendment]`'s "launched OAC-enabled" definition. It narrows which launches
+are OAC-enabled; it does not reach into a session OAC did not launch (`oac-boundaries`
+boundary 7). Runtime equality of H and E on a fresh start is documented, not yet
+observed. The Claude adapter's contract tests (Epic F) and F11 (§13) exercise the four
+cases.
 
 **Which specific `oac` entry point receives the hook payload (a dedicated `oac hook`
 subcommand versus routing it through the already-running `oac mcp-shim` for that
@@ -612,6 +703,7 @@ Per `oac-security-work` §1's template, C4-owned threats only — the envelope-l
 | Cross-project disclosure (session in one working directory discoverable by an unauthorized peer in another) | Two OAC sessions exist under different working directories on the same or different devices | `working_directory` field scopes the registration record (§5); discovery queries are filtered by it before a grant, not after | H2 (fourth acceptance item, verbatim: cross-project leakage) | H2 `NOT RUN`; the query/grant logic itself is C6/F6's implementation, not built yet |
 | Device-key exfiltration from the fallback file | Attacker gains filesystem read access to the `age`-encrypted fallback file (§11) | File is `age`-encrypted (scrypt-derived key from a CSPRNG-generated passphrase never itself stored alongside the file, §11); directory/file permissions restrict OS-level read access as a second layer | F5 (authorization engine and pairing store — the key-material handling this decision feeds); F11 security suite | Filesystem permissions and the `age` encryption together are defense in depth, not defense against a fully compromised host with the passphrase's own secrets-manager access — that residual risk is inherent to any local secret store and is not eliminated by this design, only reduced versus a plaintext file |
 | Stale-registration replay after resume | A held-open registration record (§5) is presented after the harness session it named has actually ended or been superseded (§6, §7) | Session lifetime is tied to the IPC connection's life (`docs/planning/decisions/ C2-process-model.md` §5 — EOF deregisters); Claude resumes default to a **new** registration (§6) rather than reusing a stale one; Codex re-binds only through the daemon's own authoritative client observation (§7) | F4 (replay defence and duplicate suppression); H2 | F4/H2 `NOT RUN`; the Codex cross-process silent-append hazard (§7, issue #21743) remains a named gap the proving tests above do not close — it is invisible to OAC by construction (§7), not mitigated by a test |
+| Session binding via a spoofed `CLAUDE_CODE_SESSION_ID` (added 2026-10-02, #236) | A process that can start `oac mcp-shim` outside Claude Code, or set its environment, sets the variable to another session's id and reaches the daemon's IPC endpoint | The variable is a hint only and binds nothing alone; binding needs a byte-equal hook-stdin `session_id`; a mismatch, or two shims presenting the same value, fails closed with a finding (§3 "Revision, 2026-10-02", cases 2-3); C2 local IPC peer authentication admits only same-UID peers | F11 security suite; G9 (local IPC peer auth) | F11/G9 `NOT RUN`. A same-UID process that can also forge a hook payload is inside the local trust boundary already (C2 §4), and OAC cannot tell it apart: the cross-check detects accidental divergence, not a same-UID adversary. Whether Claude Code overwrites an inherited value in the processes it spawns is documented ("Set automatically"), not observed |
 
 Every row above names its proving test per `oac-security-work` §1's rule; none is marked
 mitigated without one. Because every named test's verdict is currently `NOT RUN`
@@ -684,6 +776,7 @@ Per `oac-evidence` §4, one label per surface touched by this document:
 | Surface | Label | Note |
 |---|---|---|
 | Claude Code Channels (hook `session_id` capture) | research preview | pinned `v2.1.274`, per §3 |
+| `CLAUDE_CODE_SESSION_ID` environment variable (cross-check only) | supported | documented at `env-vars.md` L365, retrieved 2026-10-02; §3 "Revision, 2026-10-02" (#236) |
 | Codex app-server (`thread.id` capture, daemon-attach) | experimental (per-method gating via `capabilities.experimentalApi`) | pinned `@openai/codex@0.154.0` / commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, per §4 |
 | `keyring` | supported | already labelled in C1 §13 |
 | `age` | supported | actively maintained reference implementation of a published format; not a preview/experimental provider surface |
@@ -718,7 +811,10 @@ not attach" text, re-confirmed still open at issue #21743 in
 as "Carried to 11-risks.md" item 3, which is the separate, differently-owned question of
 whether implicit Codex daemon attach executes by default at runtime) are both existing
 entries this document relies on and does not resolve. The `CLAUDE_SESSION_ID` absence
-(§3) is confirmed closed, not reopened.
+(§3) is confirmed closed, not reopened. (Dated note, 2026-10-02, #236: the §3 revision
+adds no UNVERIFIED item. `CLAUDE_CODE_SESSION_ID` and its caveats are first-party
+documented; that H and E match at runtime is documented, not yet observed, and is left
+to the tests §13 names.)
 
 ## 17. Acceptance boxes, ticked against lines in this file
 
@@ -761,6 +857,22 @@ entries this document relies on and does not resolve. The `CLAUDE_SESSION_ID` ab
   into C1 directly, per the task instruction "Add the chosen crate as new rows to the
   C1 §12 dependency-inventory shape so Stage 6 inherits it" — Stage 6's license
   inventory (`oac-release`) sweeps both C1 §12 and this document's §11 table.
+
+**Revision #236 (2026-10-02), a later change to this file:**
+
+- This file: status line; §3 (authoritative-source wording, superseded text kept, and
+  the "Revision, 2026-10-02" block); §13 gains the spoofed-variable row; §16 gains the
+  `CLAUDE_CODE_SESSION_ID` label row and a dated note.
+- `docs/planning/STATUS.md`: the D5 open conflict moves to resolved; `**Last updated:**`
+  entry added.
+- `docs/planning/REVERIFICATION-B2.md`: D5 marked resolved in the Drift register and its
+  D5 bullet.
+- `docs/planning/v0.1/06-security.md` §1 and §14 (row 24), with the row count in §15,
+  §19, `docs/planning/v0.1/09-test-strategy.md` §12 and `docs/planning/v0.1/10-stages.md`
+  §9; `docs/planning/v0.1/11-risks.md` RISK-CLAUDE-PREVIEW's D5 note.
+- `.claude/skills/oac-claude-channels/SKILL.md` §8.
+- `docs/planning/v0.1/01-capability-matrix.md` (session-identity row) and
+  `docs/planning/v0.1/03-decisions-and-amendments.md` (C4 entry): dated notes.
 
 ## Where this folds in
 

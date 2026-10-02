@@ -69,6 +69,14 @@ storage detail are C4's, cited here, not re-derived: C4 §2 (opaque id construct
 per harness), §10-§11 (key storage: `keyring` `4.2.0` plus `age` `0.12.1` encrypted-file
 fallback).
 
+**Claude session-id sources (dated note, 2026-10-02, #236).** The hook-stdin
+`session_id` is the authoritative source. `oac mcp-shim` also reads the documented
+`CLAUDE_CODE_SESSION_ID` variable, as a cross-check only. Equal values bind. Different
+values fail closed: nothing is bound, and a finding is recorded. The variable alone is a
+hint for log correlation and pairing lookup, and grants nothing: no registration,
+discovery, routing, provenance or authorization. Full rule and the continue/resume
+caveat: C4 §3 "Revision, 2026-10-02". Threat: §14 row 24.
+
 ## 2. Model-generated text never establishes identity
 
 An alias or a sender claim appearing in a message's **content** is content, never
@@ -440,7 +448,8 @@ Merged from C4 §13, C5 §13, and C6 §12, deduplicated, with the DESIGN "Securi
 and every PLANNING-PROMPT.md §7 addition covered. Each row cites the decision section it
 derives from. Rows 21-23 (L4, issue #169) derive from
 `docs/planning/decisions/L1-beacon-memory.md` and use neutral wording ("an external
-memory service, e.g. Beacon per L1") so a later normative text can carry them.
+memory service, e.g. Beacon per L1") so a later normative text can carry them. Row 24
+(issue #236, 2026-10-02) derives from C4 §3's revision and C4 §13.
 
 | # | Attack | Precondition | Mitigation | Proving test | Residual risk |
 |---|---|---|---|---|---|
@@ -467,11 +476,12 @@ memory service, e.g. Beacon per L1") so a later normative text can carry them.
 | 21 | Prompt injection via a memory reference or resolved memory | A sender writes a memory reference (an identifier an external memory service issues, e.g. Beacon per L1) into `content[].text`, or the receiving harness resolves that reference through its own memory service and gets adversarial text back | Doctrine plus rendering, as row 5: the reference is a sender claim rendered inside the untrusted body; resolved memory is untrusted text to the receiving harness too; OAC never fetches, resolves, validates, or renders memory, so envelope authentication never extends to it (§2, §3(e), §8-§10; L1 §1 points 2-4, §4 Q1) | L10 (Stage 5 opt-in scenario: a memory ID travels Claude to Codex and is resolved by the receiver's own memory service; asserts the ID and body appear only inside the untrusted body); gate G5; F11 | L10 `NOT RUN` (blocked until Stage 5 opens); gate G5 **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`); F11 `NOT RUN`. Once the receiving harness resolves the reference in its own turn, the returned text never crosses an OAC boundary: whether the model obeys it is the harness's and the memory service's concern, not a control OAC holds — the same doctrine limit as row 5 |
 | 22 | False authority via a cited memory ID | A validly-paired, allowlisted peer sends an instruction that cites a memory ID ("approved in memory X") so the receiver treats the citation as authorization or as a provenance fact | The memory ID is never placed in the provenance block — never a Claude `meta` attribute, never a Codex header-block field; provenance is machine-set from daemon state (§8-§10); no authorization decision takes a memory citation as input, and delivery authorization never extends to an action the content requests (§2, §5; `oac-security-work` §3) | L10 (asserts the memory ID is absent from Claude `meta` and the Codex header block); gate G5; F11 | L10/F11 `NOT RUN`; gate G5 **FAIL** on Codex (criteria 2/3 f, 2026-09-27) means a body block shaped like a header can still mislead the model (row 17, C13), so a memory ID wrapped in such a block inherits row 17's residual until C13 is resolved; a model may still find a cited ID persuasive — row 5's doctrine limit |
 | 23 | Capture of an OAC-delivered message by an external memory/telemetry service | The operator runs an external memory or telemetry service (e.g. Beacon per L1) that instruments the receiving harness session and records session history, possibly including the text of a message OAC delivered | None OAC can enforce: capture happens inside the harness session, outside OAC's process and control, and OAC never configures or inspects the service (L1 §1 point 1, §4 Q2). OAC's docs recommend Local mode (no forwarding), or Metadata-only if the operator enables hosted forwarding (L1 §4 Q3) — a recommendation, not a control | **None — open risk**, not a closed mitigation (§15); carried as `RISK-BEACON` in `docs/planning/v0.1/11-risks.md`. L2 (desk research) and L3 (herdr-driven live leg, L1 §12) observe whether capture happens (L1 §6 U1); they characterise the risk, they prove no mitigation | **Capture is confirmed: inbound in both harnesses, outbound in Claude Code** (L3 live leg, issue #192, 2026-10-01, L1 §13; Beacon `1.3.29` Local, Claude Code `2.1.285`, Codex `0.159.3`; Codex outbound was not exercised; earlier, L2 had confirmed Claude outbound from source, L1 §11 item 1). A Claude Code channel delivery and Codex `turn/start` / `thread/queue/add` input are recorded verbatim as `prompt.submitted`, and OAC tool-call arguments from a Claude Code session as `tool.invoked` / `mcp.tool_invoked`. A fake secret-shaped token in the message body was stored **unredacted** on every capturing path. The service's redaction did not strip it, so a secret in an OAC message must be assumed to land on local disk. The message is captured. Where it is: (a) **cross-project disclosure** — the service scopes recall per resolved repository, not per `working_directory` (§13; L1 §4 Q4); (b) **secret leakage via local `runtime.jsonl`** — Metadata-only is a mode of Beacon's hosted forwarding only ("Beacon Managed" at pin `v1.3.29`, "Beacon Cloud" at branch head, L1 §2 D1) and does not change local capture: `runtime.jsonl` still holds redacted, sanitized, truncated content, rotated at 10 MiB with five archives, so any secret the service's own redaction misses stays on local disk — that redaction is the service's, not OAC's (L1 §4 Q3); (c) **opt-in forwarding** — the hosted option is preselected at setup, and SIEM or file-based shippers read the same local JSONL, uncovered by Metadata-only (L1 §4 Q3) |
+| 24 | Session binding via a spoofed `CLAUDE_CODE_SESSION_ID` | A process that can start `oac mcp-shim` outside Claude Code, or set its environment, sets the variable to another session's id and reaches the daemon's IPC endpoint | The variable binds nothing alone; binding needs a byte-equal hook-stdin `session_id`; a mismatch, or two shims presenting the same value, fails closed with a finding; local IPC admits only same-UID peers (C4 §3 "Revision, 2026-10-02", C4 §13; §1, §12 above) | F11; G9 | F11/G9 `NOT RUN`. A same-UID process that can also forge a hook payload is already inside the local trust boundary (row 13); the cross-check detects accidental divergence, not a same-UID adversary |
 
 ## 15. Unproven-mitigation disposition
 
 Per `oac-security-work` §1: **a mitigation with no proving test is not a mitigation.**
-§14 has twenty-three rows. Rows 1-22 each name a real proving test — a named test tier
+§14 has twenty-four rows (row 24 added by #236). Rows 1-22 and 24 each name a real proving test — a named test tier
 (F4, F5, F8, F11), a gate (gate G1-gate G5), or a backlog task (task G2, task G4, task
 G7, task G8, task G9, H2, L10). **No named test tier has passed**: every F/H test and
 every backlog task named is `NOT RUN`, not yet built, or blocked on a stage that is not
@@ -485,7 +495,7 @@ sits outside OAC's control (capture inside the harness session by a service OAC 
 configures); it is recorded as an explicit **open risk** under `RISK-BEACON` in
 `docs/planning/v0.1/11-risks.md`, not as a mitigation, and its "Proving test" cell says
 so rather than being left blank. No row's "proving test" cell is blank or "TBD"; none
-was invented to fill the column. Rows 1-22 therefore describe **designed**
+was invented to fill the column. Rows 1-22 and 24 therefore describe **designed**
 mitigations, not **proven** ones, and are carried as open items in
 `docs/planning/v0.1/11-risks.md` rather than presented as closed mitigations; row 23
 describes no mitigation at all and is carried there as an open risk.
@@ -588,7 +598,8 @@ Per `oac-boundaries`' pre-commit self-check, confirmed for this file:
 Checked against issue #27's four acceptance boxes, section numbers named:
 
 - [x] **Threat table rows: attack, precondition, mitigation, which test proves it,
-      residual risk** — §14 (twenty-three rows: 1-20 from A7, 21-23 added by L4;
+      residual risk** — §14 (twenty-four rows: 1-20 from A7, 21-23 added by L4, 24
+      added by #236;
       all five columns, rows 1-20 merged from C4 §13 / C5 §13 / C6 §12, rows 21-23
       from L1; no blank proving-test cell), §15 (the unproven-mitigation disposition
       rule applied to every row).
@@ -636,3 +647,9 @@ Checked against issue #27's four acceptance boxes, section numbers named:
 - `docs/planning/v0.1/11-risks.md` `RISK-BEACON`: the capture-side residual (row 23).
 - `docs/planning/STATUS.md`: a `**Last updated:**` entry. No pin moved, no gate verdict
   changed, no new UNVERIFIED item added, no ADR-001 amendment (L1 §4 Q5).
+
+**#236 (2026-10-02, C4 revision, drift D5), a later change to this file:** §1 gains the
+Claude session-id sources note; §14 gains row 24; §15 and §19 are updated for it. The
+row count is updated in `docs/planning/v0.1/09-test-strategy.md` §12 and
+`docs/planning/v0.1/10-stages.md` §9. No gate verdict or pin changed, no UNVERIFIED item
+added, no ADR-001 amendment.

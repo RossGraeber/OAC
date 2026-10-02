@@ -4,6 +4,28 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-02 (**Issue #236: C4 revised, drift D5 resolved.** Operator
+decision (2026-10-02): the hook-stdin `session_id` stays authoritative, and `oac
+mcp-shim` also reads `CLAUDE_CODE_SESSION_ID` as a cross-check. In this change:
+
+- **C4 §3** (`docs/planning/decisions/C4-session-identity.md`, "Revision, 2026-10-02")
+  defines four cases. Both present and equal: bind. Both present and different: fail
+  closed, bind neither, record a finding. Only the variable present: a non-authoritative
+  hint for log correlation and as a lookup key, unlocking nothing. Only the hook present:
+  unchanged. Evidence re-fetched 2026-10-02: `env-vars.md` L365 and changelog `2.1.132`,
+  `2.1.154`, `2.1.163`. Consequence of the documented continue/resume caveat: a session
+  started with `--continue`, bare `--resume`, or later `/clear`ed, can fail closed and
+  then needs a relaunch. C4 §13 gains a spoofed-variable threat row.
+- **Ledger.** The D5 entry in "Open conflicts (oac-evidence §6)" is marked RESOLVED.
+  `REVERIFICATION-B2.md` marks D5 resolved in its Drift register. `06-security.md` gains
+  §14 row 24, with the row count updated in its §15/§19, `09-test-strategy.md` §12 and
+  `10-stages.md` §9. `11-risks.md` RISK-CLAUDE-PREVIEW gets a dated note. The
+  `oac-claude-channels` skill §8 is updated. `01-capability-matrix.md` and
+  `03-decisions-and-amendments.md` (C4 entry) get dated notes.
+
+No gate verdict, pin or UNVERIFIED item changes. C4 is a decision record, not ADR-001
+text, so no `ADR-001-A*` amendment is issued.)
+
 **Last updated:** 2026-10-02 (**Issue #122: stale G2, pin and hostname sweep; §3.1
 re-checked at Claude Code `2.1.285`.** Operator decision on #122 (2026-10-02): the §3.1
 facts get one B2-style desk re-check at the last tested version, `2.1.285`. Newer versions
@@ -1141,7 +1163,11 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 
 ## Open conflicts (oac-evidence §6)
 
-- **C4 §3 "only supported surface" vs. the documented `CLAUDE_CODE_SESSION_ID` (#122,
+- **RESOLVED 2026-10-02 (#236).** Operator decision: the hook-stdin `session_id` stays
+  authoritative and `oac mcp-shim` reads `CLAUDE_CODE_SESSION_ID` as a cross-check only;
+  a mismatch fails closed. Rule: `docs/planning/decisions/C4-session-identity.md` §3
+  "Revision, 2026-10-02". The original entry follows, unchanged.
+  **C4 §3 "only supported surface" vs. the documented `CLAUDE_CODE_SESSION_ID` (#122,
   2026-10-02; drift D5).** `docs/planning/decisions/C4-session-identity.md` §3 says that
   for learning a Claude `session_id`, "the hook's own stdin/HTTP body is the only
   supported surface". The evidence is `CLAUDE_CODE_SESSION_ID`, "Set automatically to the
@@ -1661,7 +1687,9 @@ this list; citations in REVERIFICATION-B2.md "§3.1 re-check at Claude Code `2.1
   `CLAUDE_SESSION_ID` variable" still holds. But a documented `CLAUDE_CODE_SESSION_ID`
   exists (`https://code.claude.com/docs/en/env-vars.md`, retrieved 2026-10-02), so
   "`session_id` is the supported path" is no longer the only supported path (drift D5).
-  It is tracked as a conflict in "Open conflicts (oac-evidence §6)" above.
+  It is tracked as a conflict in "Open conflicts (oac-evidence §6)" above. (Resolved
+  2026-10-02, #236: the hook payload stays authoritative and the variable is a
+  cross-check, C4 §3 "Revision, 2026-10-02".)
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the

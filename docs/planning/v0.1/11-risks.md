@@ -268,7 +268,9 @@ list.
   changes a gate verdict:
   - D4: `--channels` takes `plugin:` entries only. OAC already uses the development flag.
   - D5: a documented `CLAUDE_CODE_SESSION_ID` reaches stdio MCP servers. This is an open
-    conflict with C4 §3 in `docs/planning/STATUS.md`.
+    conflict with C4 §3 in `docs/planning/STATUS.md`. (Resolved 2026-10-02, #236: C4 §3
+    keeps the hook `session_id` authoritative and reads the variable as a cross-check;
+    a mismatch fails closed. Threat: `06-security.md` §14 row 24.)
   - D6: the `2.1.232` floor is unsupported.
 
   The `--resume` and multi-channel docs are still silent, so rows 1-2 stay open.)

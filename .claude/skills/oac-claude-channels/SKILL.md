@@ -115,14 +115,15 @@ Source: PLANNING-PROMPT.md §3.1, §7.
 
 ## 8. Session identity
 
-Hooks receive `session_id` in their input (for example `SessionStart`) — a
-supported way for an external process to learn which live session it is
-talking to, and the one C4 §3 decided on. There is no `CLAUDE_SESSION_ID`
+Hooks receive `session_id` in their input (for example `SessionStart`). It is
+the **authoritative** session id (C4 §3). There is no `CLAUDE_SESSION_ID`
 variable, but **`CLAUDE_CODE_SESSION_ID` is documented**: it is set in hook,
 Bash/PowerShell tool and stdio MCP server subprocesses. An MCP server keeps the
-ID it was spawned with, and on `--continue` it may get the startup ID
-(`env-vars.md`, 2026-10-02, drift D5). Using it is an open C4 conflict
-(STATUS.md "Open conflicts"); do not switch to it without a C4 revision.
+ID it was spawned with, and on `--continue` or bare `--resume` it may get the
+startup ID (`env-vars.md`, 2026-10-02, drift D5). Per C4 §3 "Revision,
+2026-10-02" (#236), `oac mcp-shim` reads it as a **cross-check only**: equal to
+the hook id → bind; different → fail closed, bind neither, record a finding;
+variable alone → log/lookup hint that unlocks nothing. Never prefer it.
 
 Claude Code's own cross-session messaging (`ListAgents`/`SendMessage`) is a
 **separate feature** and is **not integrated with Channels**. Do not conflate
@@ -170,7 +171,7 @@ operator decided on #122. Later versions are version warnings only. It covers 23
 - UNVERIFIED: whether channels survive `--resume`/`--continue`, and whether one server
   can present more than one logical channel. The docs are still silent on both.
 - D4: `--channels` takes `plugin:` entries only (§6).
-- D5: `CLAUDE_CODE_SESSION_ID` (§8).
+- D5: `CLAUDE_CODE_SESSION_ID` (§8); resolved by the C4 revision (#236).
 - D6: the `v2.1.232` floor is unsupported (§9).
 
 Permission-relay floor `>= v2.1.234` holds. Channel servers must not negotiate
