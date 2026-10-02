@@ -16,12 +16,17 @@
 //   --redact-literal V=<P>   also redact run-specific value V as placeholder <P> (repeatable;
 //                            e.g. an installation id); only <P> is recorded
 //   --herdr-bin <path>       herdr executable (default: `herdr` on PATH; a .mjs path runs
-//                            under node -- used by the self-test's fake herdr)
+//                            under node -- used by the self-test's fake herdr, and recorded
+//                            as herdr.executable.testDouble: true)
 //
 // Outcome and exit code: PASS 0, FAIL 1, usage error 2, NOT RUN 3. A timeout, an expired
 // timebox, an operator abort, or a herdr version other than the PINS.md pin is NOT RUN --
 // never a failure and never a fabricated pass. The pin is read from PINS.md as committed at
 // HEAD; an uncommitted edit to its herdr row is NOT RUN too, never applied (#139).
+//
+// The manifest records which executables ran (#140): herdr.executable and
+// harnessExecutables (basename, sha256, format; never a directory), and each written
+// capture's sha256.
 //
 // Test tooling only. Node built-ins only; no package.json. herdr is an external process,
 // never linked. The driver never reads harness credentials, never writes harness config
@@ -40,7 +45,7 @@ import { readCommittedHerdrPin, versionMatches, PIN_ROW } from './lib/pins.mjs';
 import { HerdrSession, NotRunError, DriverError, makeSessionName } from './lib/herdr.mjs';
 import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
-  harnessVersions, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV,
+  probeHarnesses, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV, resolveHerdr, herdrIdentity, sha256Text,
 } from './lib/manifest.mjs';
 import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './lib/redact.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
@@ -149,6 +154,7 @@ async function runScenarioInner(opts, state) {
   let outDir;
   let herdr;
   let herdrEnv;
+  let herdrResolved;
   let manifest;
   let ctx;
   let leftover = null;
@@ -169,8 +175,13 @@ async function runScenarioInner(opts, state) {
     writeFileSync(configPath, HERDR_RUN_CONFIG);
     const launchEnv = herdrLaunchEnv(process.env, configPath);
     herdrEnv = launchEnv.env;
+    // The herdr executable is resolved once, here, and spawned by that absolute path, so the
+    // hash the manifest records is of the file that ran (#140). Unresolvable: spawned as given,
+    // which then fails as NOT RUN.
+    const herdrCmd = herdrCommand(opts.herdrBin);
+    herdrResolved = resolveHerdr(herdrCmd, { env: herdrEnv });
     herdr = new HerdrSession({
-      herdrCmd: herdrCommand(opts.herdrBin),
+      herdrCmd: herdrResolved.path && !herdrResolved.runUnderNode ? [herdrResolved.path] : herdrCmd,
       sessionName,
       env: herdrEnv,
       cwd: scratch,
@@ -190,6 +201,7 @@ async function runScenarioInner(opts, state) {
       driver: driverInfo(REPO_ROOT),
       herdr: {
         pinRow: PIN_ROW,
+        executable: null,
         pinnedTag: null,
         pinsSource: null,
         expectedVersionOutput: null,
@@ -199,6 +211,7 @@ async function runScenarioInner(opts, state) {
         agentManifests: null,
       },
       harnessVersions: {},
+      harnessExecutables: {},
       os: osInfo(),
       session: { name: sessionName, serverPid: null, panePids: [] },
       env: { serverLaunch: launchEnv.delta, pane: null },
@@ -322,6 +335,8 @@ async function runScenarioInner(opts, state) {
   let serverStarted = false;
   let scenarioEnd = null;
   const body = async () => {
+    // Which herdr executable runs (#140): recorded first, whatever the run's outcome.
+    manifest.herdr.executable = await herdrIdentity(herdrResolved, { env: herdrEnv });
     // The pin comes from PINS.md as committed at HEAD, never the working tree. An uncommitted
     // edit to the herdr row refuses the run; any other uncommitted PINS.md edit is a finding
     // only (#139; harness versions are never gated, #216).
@@ -350,7 +365,14 @@ async function runScenarioInner(opts, state) {
     }
 
     const harnesses = scenario.harnesses ?? [];
-    manifest.harnessVersions = harnesses.length ? await harnessVersions(harnesses) : { note: 'N/A: this scenario launches no harness' };
+    if (harnesses.length) {
+      const probe = await probeHarnesses(harnesses);
+      manifest.harnessVersions = probe.versions;
+      manifest.harnessExecutables = probe.executables;
+    } else {
+      manifest.harnessVersions = { note: 'N/A: this scenario launches no harness' };
+      manifest.harnessExecutables = { note: 'N/A: this scenario launches no harness' };
+    }
 
     if (abort.signal.aborted) throw new NotRunError(herdr.abortReason());
     serverStarted = true;
@@ -475,7 +497,8 @@ async function runScenarioInner(opts, state) {
       const { text, report } = c.format === 'jsonl' ? redactor.redactJsonl(c.text) : redactor.redactText(c.text);
       const ok = reportIsClean(report);
       if (ok) writeFileSync(join(outDir, c.name), text);
-      manifest.captures.push({ file: c.name, format: c.format, written: ok, redaction: report });
+      // sha256 of the bytes written (#140): binds a committed fixture to this capture.
+      manifest.captures.push({ file: c.name, format: c.format, written: ok, sha256: ok ? sha256Text(text) : null, redaction: report });
       if (!ok) downgrade(`capture ${c.name} still carried residual hits or hazard protocol frames after redaction and was withheld (${summarize(report)})`);
     }
     // The manifest is always written, but never with a residual hit in it: a value that

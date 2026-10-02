@@ -49,16 +49,17 @@ Every scripted run names what drove it, in three places that must agree:
   `herdr.pinnedTag`, `herdr.expectedVersionOutput`, `herdr.observedVersionOutput`,
   `herdr.config` (the run's own herdr config, with `version_check` and `manifest_check`
   off), `herdr.agentManifests`; `scenario.file` and `scenario.params`; `launch.argv` and
-  `launch.herdrReportedArgv`.
+  `launch.herdrReportedArgv`. Since #140 (`schemaVersion` 2) also `herdr.executable` and
+  `harnessExecutables` (see "Executables and capture hashes") and `captures[].sha256`.
 - **Record and gate result:** the `Driver:` line, as `g1-report.mjs` renders it: the
   `herdr --version` output, the PINS.md `herdr (test tooling)` tag, `tools/herdr/run.mjs`,
   the scenario file, and the driver commit.
 - **Fixture manifest:** the `driver` block (`herdr_version`, `driver_commit`,
   `run_manifest`) on every `-herdr` entry. `node scripts/check-fixture-manifest.mjs`
   checks the block against the git-tracked run manifest: outcome, clean `tools/herdr/`,
-  commit, herdr version, and that the fixture is one of the run's written captures. It
-  does not bind the fixture's bytes to the run, because the run manifest records no
-  capture hash yet (K3-level follow-up, issue #140).
+  commit, herdr version, that the fixture is one of the run's written captures, and (for
+  a `schemaVersion` 2 run) that the herdr was a hashed native binary, not the test double,
+  and that the fixture's committed bytes hash to the capture's `sha256`.
 
 The driver refuses to start unless `herdr --version` equals the PINS.md pin. A run whose
 `driver.toolsHerdrDirty` is not `false` (`true`, or `null` when git could not answer), or
@@ -67,18 +68,31 @@ listed as a finding in a later record. Its captures are never committed as fixtu
 checker refuses the entries, and `g1-report.mjs --write` does not check this, so do not
 `--write` such a run. It is never an equivalence record and never verdict-bearing.
 
-**What the record cannot show.** The run manifest does not record which herdr executable
-or which harness executable ran. `--herdr-bin` accepts any path, including the test double
-`tools/herdr/test/fake-herdr.mjs`, and the recorded argv still starts with `herdr`. A
-fake Claude Code on `PATH` also answers `claude --version`. A run against the test
-doubles therefore produces a record, fixtures and `MANIFEST.json` entries that look like a
-real run's and pass every mechanical check. Likewise, `acceptOrigin: human` in the run
-manifest means only that the driver sent no keystroke to the dialog and the screen then
-changed. It does not prove that a human pressed a key. A test double that accepts its
-own dialog records the same thing. `acceptOrigin: driver`, by contrast, is observed: every
-key the driver sent is a `dialog-accept` command in the run's command log (#196). Until the
-driver records the executables it ran
-(issue #140), these facts rest on the operator attestation below.
+**Executables and capture hashes (#140).** The driver resolves herdr once (on `PATH`, or
+`--herdr-bin`) and spawns that absolute path, so `herdr.executable` is the file that ran:
+`basename`, `realBasename` (after symlinks), `sha256`, `bytes`, `format` (`elf`, `pe`,
+`mach-o`, `script` or `unknown`, by magic bytes), `runUnderNode` and `testDouble` (true for
+a `.mjs` `--herdr-bin` run under node, i.e. `tools/herdr/test/fake-herdr.mjs`). Each harness
+the scenario declares is resolved on the driver's `PATH`, `<harness> --version` is run on
+that resolved file, and `harnessExecutables.<harness>` records the same fields for it.
+Directories are never recorded, only basenames, so no home path or user name enters the
+manifest. On Windows that is the PATHEXT match (`claude.exe`, an npm `.cmd` shim, ...); for
+a Codex standalone install it is the managed binary its launcher directory links to, under
+`$CODEX_HOME/packages/`. Under a harness config directory only a file named for the
+command itself is ever read; anything else there is recorded unhashed (ADR-001 boundary
+3). Each written capture records the `sha256` of its redacted bytes.
+
+**What the record cannot show.** The harness that a pane starts is looked up by the pane
+shell, whose startup files may change `PATH`, so `harnessExecutables` is what answered
+`--version`, not proof of what the pane ran. The record does not judge a harness real: a
+fake Claude Code on `PATH` is recorded with its own hash and answers `--version` too.
+`acceptOrigin: human` in the run manifest means only that the driver sent no keystroke to
+the dialog and the screen then changed. It does not prove that a human pressed a key. A
+test double that accepts its own dialog records the same thing. `acceptOrigin: driver`, by
+contrast, is observed: every key the driver sent is a `dialog-accept` command in the run's
+command log (#196). These facts rest on the operator attestation below. A `schemaVersion` 1
+run manifest (before #140, e.g. `G1-2026-09-29`) records no executables or capture hashes
+at all.
 
 ## Timebox
 
@@ -343,8 +357,10 @@ tool-permission prompts was withdrawn in the #197 review: those are now refused.
 
 ## Operator attestation
 
-Nothing mechanical separates a real run from a test-double run (see "Driver identity").
-So every equivalence record, and every `G<n>-result.md` whose `Driver:` names herdr,
+Since #140 the herdr half is mechanical: the run manifest records whether herdr was the
+test double and the hash of what ran. A real, logged-in harness and a human accept are
+not (see "Driver identity"). So every equivalence record, and every `G<n>-result.md` whose
+`Driver:` names herdr,
 carries this section. The operator who ran the machine and accepted the dialog writes it
 after the run:
 
@@ -371,16 +387,20 @@ The consent line states who accepted each dialog, exactly as the run manifest re
 
 An operator never ticks a line that calls a driver accept their own.
 
-- Take the sha256 from the executable that actually ran, for example `sha256sum "$(command
-  -v herdr)"`. It gives a later reviewer something to compare. At K5 there is no
-  published hash to check it against.
+- The herdr sha256 is the run manifest's `herdr.executable.sha256`. The report libs fill
+  it in when the manifest records a hashed native herdr that was not the test double; for a
+  test-double run they leave `<64 hex>` and say so, and the line is never ticked. For a
+  `schemaVersion` 1 run, take it by hand from the executable that ran, for example
+  `sha256sum "$(command -v herdr)"`. There is no published herdr hash to check it against;
+  `node scripts/check-fixture-manifest.mjs` checks an equivalence record's attested hash
+  against its run manifest's.
 - An unticked box, or a line the operator cannot truthfully write, means the record is
   not an equivalence record and the run is not verdict-bearing.
 - `node scripts/check-fixture-manifest.mjs` fails a tracked `herdr-runs/*.md` that carries
   the equivalence callout, and a tracked `G<n>-result.md` whose `- **Driver:**` line
   starts with `herdr`, unless this section is present with all four lines. That check
-  proves the attestation is complete, not that it is true. Its truth rests on the operator
-  who signed it.
+  proves the attestation is complete, and (#140) that an equivalence record's herdr hash is
+  the recorded one, not that the rest is true. That rests on the operator who signed it.
 
 ## Verdict eligibility
 

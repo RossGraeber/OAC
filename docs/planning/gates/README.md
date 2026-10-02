@@ -75,11 +75,18 @@ it must list the fixture's file name among its written captures. The script reje
 `driver` block on an entry without the suffix, and any `unverified-*` capture that also
 carries the `-herdr` suffix.
 
-It does **not** bind a fixture's bytes to the run: the run manifest records no capture
-hash yet. It also cannot tell a real herdr or harness from a test double; that rests on
-the operator attestation (`oac-gates` `references/scripted-runs.md`). The script checks
-that an attestation is present and complete wherever one is required. Both gaps are
-follow-ups for K3's driver (issue #140).
+Since #140 (run manifest `schemaVersion` 2) the driver records the herdr executable it
+spawned and the sha256 of every capture it wrote, and the script uses both. It refuses a
+`-herdr` fixture whose run used the node-run test-double herdr or a herdr that is not a
+hashed native binary, and one whose committed bytes (the git index blob) do not hash to
+the capture's recorded `sha256`. For an equivalence record it also requires the attested
+herdr sha256 to equal the one the run manifest recorded. A `schemaVersion` 1 run manifest
+predates #140: its fixtures print a WARN line and rest on the operator attestation, as
+`G1-2026-09-29` does. The script still cannot tell a real, logged-in harness from a test
+double (the manifest records `harnessExecutables`, it does not judge them), nor who
+pressed a key; those rest on the operator attestation (`oac-gates`
+`references/scripted-runs.md`). The script checks that an attestation is present and
+complete wherever one is required.
 `node scripts/check-fixture-manifest.mjs --self-test` plants one violation per rule.
 
 ## Gate-result template
@@ -127,8 +134,9 @@ Added field (K5, issue #128):
   `herdr --version` output, the PINS.md `herdr (test tooling)` tag,
   `tools/herdr/run.mjs`, the scenario file, and the driver commit. A verdict-bearing
   scripted run also names the equivalence record it relies on, and carries an
-  `## Operator attestation` section (the run manifest cannot tell a real herdr or harness
-  from a test double). Every `herdr-runs/`
+  `## Operator attestation` section (the run manifest records which herdr and harness
+  executables ran, by hash, but cannot tell a real, logged-in harness from a test double).
+  Every `herdr-runs/`
   record carries the same line. The rules behind it are `oac-gates`
   `references/scripted-runs.md` "Driver identity". Every result on record when K5
   landed (G1-G5) was run without herdr and predates this field. The field is added at
@@ -249,8 +257,9 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   G<n> equivalent to the human run on every criterion, at the current herdr pin. It is
   marked by the callout `> **Equivalence record** for G<n> at herdr <tag>` at its top,
   and it carries an `## Operator attestation` section. In that section the operator
-  attests to a real herdr (with the sha256 of its executable), a real harness, and who
-  accepted each dialog. In an equivalence record, a consent step that a criterion names
+  attests to a real herdr (with the sha256 of its executable, which since #140 must equal
+  the run manifest's `herdr.executable.sha256`), a real harness, and who accepted each
+  dialog. In an equivalence record, a consent step that a criterion names
   (G1 criterion 5) needs a human accept. Since 2026-09-30 (#196) the driver accepts Claude
   Code's three recorded dialogs by default (G1 included, where criterion 5 is then `not
   evaluable`) and refuses every other dialog. Each driver accept is recorded and attested as
