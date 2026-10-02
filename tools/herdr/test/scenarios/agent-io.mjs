@@ -1,5 +1,6 @@
 // Self-test scenario: agent read / send-keys / prompt paths against the fake herdr.
 // --param op=read|send-keys|prompt-retry|dialog-no-read|dialog-after-read|dialog-after-failed-read
+//            |dialog-after-pane-input|dialog-after-pane-read (#139)
 import { DriverError, NotRunError } from '../../lib/herdr.mjs';
 
 export default {
@@ -25,7 +26,17 @@ export default {
       }
       await herdr.dialogAccept('selftest');
     }
-    else if (params.op === 'dialog-after-read') {
+    else if (params.op === 'dialog-after-pane-input') {
+      // #139: input sent to the agent's pane by pane id between the agent-level read and the
+      // accept must reset the read guard.
+      await herdr.agentRead('selftest', { deadlineMs });
+      await herdr.paneRun(ws.paneId, 'echo typed-between-read-and-accept');
+      await herdr.dialogAccept('selftest');
+    } else if (params.op === 'dialog-after-pane-read') {
+      // #139: a read of the agent's pane by pane id covers the agent.
+      ctx.capture('dialog.txt', await herdr.paneRead(ws.paneId));
+      await herdr.dialogAccept('selftest');
+    } else if (params.op === 'dialog-after-read') {
       ctx.capture('dialog.txt', await herdr.agentRead('selftest', { deadlineMs }));
       await herdr.dialogAccept('selftest');
     } else if (params.op === 'prompt-retry') {

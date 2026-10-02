@@ -20,7 +20,8 @@
 //
 // Outcome and exit code: PASS 0, FAIL 1, usage error 2, NOT RUN 3. A timeout, an expired
 // timebox, an operator abort, or a herdr version other than the PINS.md pin is NOT RUN --
-// never a failure and never a fabricated pass.
+// never a failure and never a fabricated pass. The pin is read from PINS.md as committed at
+// HEAD; an uncommitted edit to its herdr row is NOT RUN too, never applied (#139).
 //
 // Test tooling only. Node built-ins only; no package.json. herdr is an external process,
 // never linked. The driver never reads harness credentials, never writes harness config
@@ -35,7 +36,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
-import { readHerdrPin, versionMatches, PIN_ROW } from './lib/pins.mjs';
+import { readCommittedHerdrPin, versionMatches, PIN_ROW } from './lib/pins.mjs';
 import { HerdrSession, NotRunError, DriverError, makeSessionName } from './lib/herdr.mjs';
 import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
@@ -48,7 +49,6 @@ import { removeScratch } from './lib/scratch.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
-const PINS_PATH = join(REPO_ROOT, 'docs', 'planning', 'PINS.md');
 const PROBE_PATH = join(HERE, 'lib', 'env-probe.mjs');
 
 export const EXIT = Object.freeze({ PASS: 0, FAIL: 1, USAGE: 2, 'NOT RUN': 3 });
@@ -191,6 +191,7 @@ async function runScenarioInner(opts, state) {
       herdr: {
         pinRow: PIN_ROW,
         pinnedTag: null,
+        pinsSource: null,
         expectedVersionOutput: null,
         observedVersionOutput: null,
         serverStatus: null,
@@ -321,11 +322,18 @@ async function runScenarioInner(opts, state) {
   let serverStarted = false;
   let scenarioEnd = null;
   const body = async () => {
+    // The pin comes from PINS.md as committed at HEAD, never the working tree. An uncommitted
+    // edit to the herdr row refuses the run; any other uncommitted PINS.md edit is a finding
+    // only (#139; harness versions are never gated, #216).
     let pin;
     try {
-      pin = readHerdrPin(PINS_PATH);
+      const committed = readCommittedHerdrPin(REPO_ROOT);
+      pin = committed.pin;
+      manifest.herdr.pinsSource = committed.source;
+      if (committed.finding) manifest.findings.push(committed.finding);
     } catch (err) {
-      throw new NotRunError(`cannot read the herdr pin: ${err.message}`);
+      if (err.source) manifest.herdr.pinsSource = err.source;
+      throw new NotRunError(`cannot read the herdr pin: ${err.message}. Refusing to run.`);
     }
     manifest.herdr.pinnedTag = pin.tag;
     manifest.herdr.expectedVersionOutput = pin.expectedVersionOutput;

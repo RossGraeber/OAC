@@ -9,6 +9,9 @@
 // is refused.
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { committedFile } from './committed-file.mjs';
 
 export const PIN_ROW = 'herdr (test tooling)';
 
@@ -40,6 +43,53 @@ export function parseHerdrPin(pinsText) {
 
 export function readHerdrPin(pinsPath) {
   return parseHerdrPin(readFileSync(pinsPath, 'utf8'));
+}
+
+export const PINS_REL_PATH = 'docs/planning/PINS.md';
+
+// The herdr pin as COMMITTED at HEAD (#139): the driver never accepts a herdr version on the
+// strength of an uncommitted PINS.md edit. Throws (run.mjs ends the run NOT RUN) when git
+// cannot read PINS.md at HEAD, when HEAD's herdr row does not parse, or when the working tree
+// has an uncommitted change to the herdr pin itself: its herdr row missing, unparseable, or
+// carrying a different tag from HEAD's. Any other uncommitted PINS.md change (a harness row,
+// prose) does not stop the run (harness versions are never gated, #216): the pin is read from
+// HEAD and `finding` says so. The working tree is compared with HEAD in git's normalized
+// form, as `git status` does (#152).
+// -> { pin, source: { path, headCommit, committedSha256, workingTreeMatchesHead }, finding: string | null }.
+export function readCommittedHerdrPin(repoRoot) {
+  const f = committedFile(repoRoot, PINS_REL_PATH);
+  const source = { path: PINS_REL_PATH, headCommit: f.headCommit, committedSha256: f.committedSha256, workingTreeMatchesHead: f.workingTreeMatchesHead };
+  const refuse = (why) => {
+    const err = new Error(`${PINS_REL_PATH} has an uncommitted change to the "${PIN_ROW}" row (${why}; HEAD ${f.headCommit}); the herdr pin is read only from the committed file, so commit or revert that edit first`);
+    err.source = source;
+    return err;
+  };
+  let pin;
+  try {
+    pin = parseHerdrPin(f.bytes.toString('utf8'));
+  } catch (err) {
+    err.source = source;
+    throw err;
+  }
+  if (f.workingTreeMatchesHead) return { pin, source, finding: null };
+  let onDisk;
+  try {
+    onDisk = readFileSync(join(repoRoot, PINS_REL_PATH), 'utf8');
+  } catch {
+    throw refuse('the working-tree file is missing');
+  }
+  let disk;
+  try {
+    disk = parseHerdrPin(onDisk);
+  } catch (err) {
+    throw refuse(`the working-tree row does not parse: ${err.message}`);
+  }
+  if (disk.tag !== pin.tag) throw refuse(`working tree ${disk.tag}, HEAD ${pin.tag}`);
+  return {
+    pin,
+    source,
+    finding: `${PINS_REL_PATH} has uncommitted changes outside the herdr pin (its "${PIN_ROW}" tag ${pin.tag} matches HEAD ${f.headCommit}); the herdr pin was read from HEAD and the run continued (#139)`,
+  };
 }
 
 // Exact comparison of `herdr --version` stdout (surrounding whitespace ignored).

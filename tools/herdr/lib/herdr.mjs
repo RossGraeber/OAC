@@ -18,6 +18,8 @@ export const ROLES = Object.freeze(['operator-input', 'dialog-accept', 'wait', '
 // `herdr agent start --timeout` maximum at v0.9.1 (`herdr agent start --help`).
 export const AGENT_START_MAX_TIMEOUT_MS = 300000;
 const INPUT_ROLES = new Set(['operator-input', 'dialog-accept']);
+// The read-guard state a screen read (agent read, pane read) leaves on its pane (#139).
+const SCREEN_READ = 'screen-read';
 
 // A timeout, a refused precondition (wrong herdr version), an expired timebox, or an
 // operator abort: the run did not happen as specified. Never a pass, never a failure.
@@ -99,7 +101,13 @@ export class HerdrSession {
     this.graceMs = graceMs;
     this.defaultDeadlineMs = defaultDeadlineMs;
     this.inputHalted = null; // reason string once a timeout has occurred
+    // The dialog-accept read guard (#139): the last successful role per PANE. An agent name
+    // and the pane id it was started in are one guard key (agentStart records the mapping), so
+    // a command sent to the pane directly resets the guard for the agent too, and a screen read
+    // of either covers both. Any other target is its own key. Only `agent read` and `pane read`
+    // arm the guard; input with no recorded target resets every guard.
     this.lastRoleByTarget = new Map();
+    this.paneOfAgent = new Map(); // agent name -> pane id
     this.panePids = new Map(); // pid -> start time (null where the platform gives none)
     this.server = null;
     // Any abort (timebox expiry, operator signal, end of run) halts input for good, whether
@@ -114,7 +122,7 @@ export class HerdrSession {
   // --- the one choke point -------------------------------------------------------------
 
   async exec(role, args, opts = {}) {
-    const { herdrTimeoutMs = null, deadlineMs = null, target = null, allowErrorCodes = [], session = true, teardown = false, json = false } = opts;
+    const { herdrTimeoutMs = null, deadlineMs = null, target = null, allowErrorCodes = [], session = true, teardown = false, json = false, screenRead = false } = opts;
     if (!ROLES.includes(role)) throw new DriverError(`unknown herdr command role "${role}"`);
     const input = isInputCommand(args);
     if (input && !INPUT_ROLES.has(role)) {
@@ -191,8 +199,11 @@ export class HerdrSession {
     };
     this.commands.push(entry);
     // A target's last role is updated only by a command that succeeded: a failed read must
-    // not unlock dialogAccept.
-    if (target) this.lastRoleByTarget.delete(target);
+    // not unlock dialogAccept. Keyed per pane (#139). Input with no target could have reached
+    // any pane, so it resets every guard.
+    const guardKey = target ? this.guardKey(target) : null;
+    if (guardKey) this.lastRoleByTarget.delete(guardKey);
+    else if (input || INPUT_ROLES.has(role)) this.lastRoleByTarget.clear();
 
     if (res.spawnError) throw new DriverError(`could not start herdr (${res.spawnError})`);
     if (aborted) {
@@ -215,8 +226,16 @@ export class HerdrSession {
         if (!teardown) throw new DriverError(`herdr ${argv.slice(0, 2).join(' ')} did not print JSON`);
       }
     }
-    if (target && res.exitCode === 0) this.lastRoleByTarget.set(target, role);
+    // Only a read of the screen (agent read, pane read: screenRead) arms the guard; any other
+    // successful command, a read-role one included (process-info, agent get/explain), resets it.
+    if (guardKey && res.exitCode === 0) this.lastRoleByTarget.set(guardKey, role === 'read' && screenRead ? SCREEN_READ : role);
     return { ...res, errorCode, entry, json: parsed };
+  }
+
+  // The read-guard key for a target: the pane an agent name was started in, else the target
+  // itself (a pane id, or an agent this session did not start).
+  guardKey(target) {
+    return this.paneOfAgent.get(target) ?? target;
   }
 
   abortReason() {
@@ -379,7 +398,7 @@ export class HerdrSession {
   async paneRead(paneId, { source = 'recent-unwrapped', lines, deadlineMs } = {}) {
     const args = ['pane', 'read', paneId, '--source', source];
     if (lines) args.push('--lines', String(lines));
-    const r = await this.exec('read', args, { target: paneId, deadlineMs });
+    const r = await this.exec('read', args, { target: paneId, deadlineMs, screenRead: true });
     return r.stdout;
   }
 
@@ -396,6 +415,8 @@ export class HerdrSession {
     const args = ['agent', 'start', name, '--kind', kind, '--pane', paneId];
     if (rest.length) args.push('--', ...rest);
     const herdrTimeoutMs = timeoutMs == null ? timeoutMs : Math.min(timeoutMs, AGENT_START_MAX_TIMEOUT_MS);
+    // From here on the agent name and its pane share one read guard (#139).
+    if (paneId) this.paneOfAgent.set(name, paneId);
     const r = await this.exec('operator-input', args, { target: name, herdrTimeoutMs, json: true, allowErrorCodes });
     return { argv: r.json?.result?.argv ?? null, errorCode: r.errorCode, agent: r.json?.result?.agent ?? null, herdrTimeoutMs };
   }
@@ -404,7 +425,7 @@ export class HerdrSession {
   async agentRead(target, { source = 'visible', lines, deadlineMs = 10000 } = {}) {
     const args = ['agent', 'read', target, '--source', source];
     if (lines) args.push('--lines', String(lines));
-    const r = await this.exec('read', args, { target, deadlineMs });
+    const r = await this.exec('read', args, { target, deadlineMs, screenRead: true });
     return r.stdout;
   }
 
@@ -414,9 +435,11 @@ export class HerdrSession {
   }
 
   // Accepting a dialog is only allowed straight after reading that target, so the dialog
-  // text is on record before any keystroke reaches it (K1 §5 item 4).
+  // text is on record before any keystroke reaches it (K1 §5 item 4). "Straight after" is
+  // per pane (#139): a command sent to the agent's pane by pane id after the read also
+  // resets the guard.
   dialogAccept(target, keys = ['enter'], opts = {}) {
-    if (this.lastRoleByTarget.get(target) !== 'read') {
+    if (this.lastRoleByTarget.get(this.guardKey(target)) !== SCREEN_READ) {
       throw new DriverError(`dialog-accept on "${target}" refused: the last command on it was not a read`);
     }
     return this.agentSendKeys(target, keys, { ...opts, role: 'dialog-accept' });

@@ -105,6 +105,9 @@ The run ends `NOT RUN`, never `FAIL` and never a pass, when:
 - the operator aborts (a signal);
 - `herdr --version` differs from the pin, or the pin cannot be read (herdr is test tooling
   with a fixed pin; #216 does not cover it);
+- PINS.md has an uncommitted edit to its `herdr (test tooling)` row: the row is missing,
+  unparseable, or its tag differs from HEAD's. The driver reads the pin only as committed
+  at HEAD (#139). Any other uncommitted PINS.md edit is a finding only;
 - a scenario preflight stops the run, for example a harness CLI that cannot be run at all.
 
 **A harness version never stops a run (operator decision on #216, 2026-10-01).** Claude
@@ -220,7 +223,7 @@ Decision record: `K-196-driver-accepts-dialogs.md` §6.
   an unrecognized dialog, an option that is not on record, or an unexpected selection.
   Workspace-trust preselects "No, exit" and the MCP dialog preselects "Continue without
   using this MCP server", so the driver moves the selection first. It sends one key at a
-  time, each straight after a read, and each move must be confirmed by a fresh read that
+  time, each straight after a read of that pane, and each move must be confirmed by a fresh read that
   shows the recorded options with exactly one selection marker, on the expected option
   (`selectionCheck` in `lib/g1.mjs`; a read with two markers never counts). It sends Enter
   only after such a read shows the accepting option selected. Once the option list has
@@ -228,7 +231,9 @@ Decision record: `K-196-driver-accepts-dialogs.md` §6.
   indentation. For MCP that option is "Use this MCP server", never "all future MCP
   servers". Planning: `planDriverAccept` in `tools/herdr/lib/g1.mjs`. Execution:
   `driverAcceptDialog` in `tools/herdr/lib/gate-common.mjs`. A move that does not land
-  ends the run `NOT RUN`, and nothing is re-sent.
+  ends the run `NOT RUN`, and nothing is re-sent. The read guard (`dialogAccept`,
+  `lib/herdr.mjs`) is per pane (#139): an agent name and its pane share one guard, only
+  `agent read` and `pane read` count as reads, and input with no target resets every guard.
 - **Every other dialog is refused (#197 review).** A kind with no option text on record is
   never driver-accepted, whatever is preselected: Claude Code's tool-permission prompt ("Do
   you want to proceed?"), and every Codex dialog other than the trust dialog on record

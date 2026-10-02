@@ -592,8 +592,9 @@ export function g1Cases(check) {
 
 // A temporary clone of this repository with the working tree's tools/herdr/ copied over it
 // and `mutate(PINS.md text)` committed, so a scenario reads a malformed PINS.md row from HEAD
-// (#216 review). Test setup only: everything happens in a fresh temp directory.
-export function cloneWithPins(mutate) {
+// (#216 review). With { commit: false } the mutation is left as an uncommitted working-tree
+// edit instead (#139). Test setup only: everything happens in a fresh temp directory.
+export function cloneWithPins(mutate, { commit = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'oac-pins-'));
   const git = (args) => {
     const r = spawnSync('git', ['-c', 'user.name=oac-selftest', '-c', 'user.email=selftest@invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8', timeout: 60000 });
@@ -603,6 +604,7 @@ export function cloneWithPins(mutate) {
   cpSync(join(REPO, 'tools', 'herdr'), join(dir, 'tools', 'herdr'), { recursive: true });
   const pins = join(dir, 'docs', 'planning', 'PINS.md');
   writeFileSync(pins, mutate(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')));
+  if (!commit) return dir;
   git(['add', '--', 'docs/planning/PINS.md']);
   git(['commit', '-q', '-m', 'test: malformed PINS.md row', '--', 'docs/planning/PINS.md']);
   return dir;
