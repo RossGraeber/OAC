@@ -73,6 +73,7 @@ import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 import { g4Unit, g4Cases } from './g4-tests.mjs';
 import { g5Unit, g5Cases } from './g5-tests.mjs';
 import { l3Unit, l3ScenarioUnit, l3Cases } from './l3-tests.mjs';
+import { teardownUnit } from './teardown-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -817,6 +818,23 @@ async function lifecycle() {
     const m = r.manifest;
     check('finding9: a pane descendant left running is found, killed, and fails the run', r.status === 1 && m.teardown.forcedKills.some((k) => /descendant/.test(k.what)) && m.teardown.leftoverProcesses.length === 0 && m.session.panePids.length >= 2, JSON.stringify(m.teardown));
   });
+  // #136: the scenario never calls paneProcessInfo; the driver knows the pane only from
+  // workspaceCreate. The invariants (run() checks them) include "no pane process left running".
+  run('#136 pane never queried, leaked', { scenario: T('no-process-info.mjs'), mode: 'leak-pane' }, (r) => {
+    const m = r.manifest;
+    const shellPid = (m.session.panePids ?? [])[0];
+    check('#136 never-queried pane: teardown queried it itself', m.teardown.panes?.created === 1 && m.teardown.panes.queried.length === 1 && m.commands.filter((c) => c.argv.includes('process-info')).length === 1 && !('paneProcessInfo' in m.scenarioData), JSON.stringify(m.teardown.panes));
+    check('#136 never-queried pane: its leaked process is found, killed, recorded; FAIL', r.status === 1 && m.teardown.forcedKills.some((k) => k.pid === shellPid && /pane process/.test(k.what)) && m.teardown.leftoverProcesses.length === 0 && m.teardown.clean === false, JSON.stringify(m.teardown));
+  });
+  run('#136 pane never queried, server force-killed', { scenario: T('no-process-info.mjs'), mode: 'server-ignores-stop,leak-pane' }, (r) => {
+    const m = r.manifest;
+    check('#136 forced server kill: the herdr server was force-killed', m.teardown.forcedKills.some((k) => k.what === 'herdr server'), JSON.stringify(m.teardown));
+    check('#136 forced server kill: the never-queried pane\'s process is still detected and killed, not unaccounted for', m.session.panePids.length >= 1 && m.session.panePids.every((p) => m.teardown.forcedKills.some((k) => k.pid === p && /pane process/.test(k.what))) && m.teardown.leftoverProcesses.length === 0 && r.status === 1, JSON.stringify(m.teardown));
+  });
+  run('#136 pane never queried, clean stop', { scenario: T('no-process-info.mjs') }, (r) => {
+    const m = r.manifest;
+    check('#136 clean stop: the pane was tracked, herdr took it down, nothing killed, PASS', r.status === 0 && m.teardown.clean === true && m.teardown.forcedKills.length === 0 && m.session.panePids.length >= 1, JSON.stringify(m.teardown));
+  });
   // #202: removing the scratch directory throws EPERM (test/fake-rm-eperm.mjs, preloaded into
   // the driver process only).
   const epermArgs = ['--import', pathToFileURL(FAKE_RM).href];
@@ -949,6 +967,7 @@ export async function runSelfTest() {
   unitQuoting();
   unitRedaction();
   await unitGuards();
+  await teardownUnit(check);
   await unitScratch();
   g1Unit(check);
   g2Unit(check);

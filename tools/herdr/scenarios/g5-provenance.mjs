@@ -68,7 +68,7 @@ import { fileURLToPath } from 'node:url';
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
-import { runBounded, descendants } from '../lib/proc.mjs';
+import { runBounded, descendants, processTable } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
@@ -321,7 +321,9 @@ export default {
       g5.codexStart = { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] };
       const info = await herdr.paneProcessInfo(cws.paneId);
       const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-      const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p) ?? []), ...(descendants(info.shell_pid) ?? [])])];
+      // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
+      const procTable = processTable();
+      const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
       const records = tree.slice(0, 32).map((pid) => processArgv(pid));
       g5.codexPaneArgv = { argv: records, proof: codexLaunchProof(records) };
       if (g5.codexPaneArgv.proof.found && !g5.codexPaneArgv.proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(g5.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);

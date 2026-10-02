@@ -75,7 +75,7 @@ import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVers
 import { harnessVersions } from '../lib/manifest.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof } from '../lib/g2.mjs';
-import { descendants } from '../lib/proc.mjs';
+import { descendants, processTable } from '../lib/proc.mjs';
 import { makeAgent, stopper, stageGateFiles, loopbackPortFree } from '../lib/gate-common.mjs';
 import {
   G4_LAUNCH, G4_SERVER_FILES, PINS_PATH, DEFAULT_PORTS, DEFAULT_PROMPTS, g4McpJson, defaultCodexLaunch, validateCodexLaunch, validatePaneEnv, assertNotInjected,
@@ -321,7 +321,9 @@ export default {
       g4.codexLaunch.herdrReportedArgv = cstart.argv;
       const info = await herdr.paneProcessInfo(cws.paneId);
       const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-      const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p) ?? []), ...(descendants(info.shell_pid) ?? [])])];
+      // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
+      const procTable = processTable();
+      const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
       const argvRecords = tree.slice(0, 32).map((pid) => processArgv(pid));
       const proof = codexLaunchProof(argvRecords);
       g4.codexLaunch.paneArgv = { argv: argvRecords, proof, matchesLaunch: proof.found ? JSON.stringify(proof.argsAfterCodex) === JSON.stringify(codexLaunch.slice(1)) : null };
