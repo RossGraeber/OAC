@@ -844,6 +844,15 @@ async function lifecycle() {
     check('#136 never-queried pane: teardown queried it itself', m.teardown.panes?.created === 1 && m.teardown.panes.queried.length === 1 && m.commands.filter((c) => c.argv.includes('process-info')).length === 1 && !('paneProcessInfo' in m.scenarioData), JSON.stringify(m.teardown.panes));
     check('#136 never-queried pane: its leaked process is found, killed, recorded; FAIL', r.status === 1 && m.teardown.forcedKills.some((k) => k.pid === shellPid && /pane process/.test(k.what)) && m.teardown.leftoverProcesses.length === 0 && m.teardown.clean === false, JSON.stringify(m.teardown));
   });
+  // #239: scratch (herdr's working directory) removed under the run, with a fake Claude stuck
+  // in a dialog that ignores keys. The invariants (no pane process left running, session
+  // stopped and deleted, no --session process) are the point; before the fix all three failed.
+  run('#239 scratch removed mid-run', { scenario: T('scratch-vanishes.mjs'), mode: 'fake-claude', fakeClaude: { FAKE_CLAUDE_DIALOG: 'workspace-trust', FAKE_CLAUDE_IGNORE_KEYS: '1' } }, (r) => {
+    const m = r.manifest;
+    check('#239 scratch removed mid-run: the run FAILs on the unstartable herdr call', r.status === 1 && /could not start herdr \(ENOENT\)/.test(m.outcomeReason ?? ''), `${r.status} ${m.outcomeReason}`);
+    check('#239 scratch removed mid-run: teardown ran its herdr calls in os.tmpdir(), queried the pane, stopped and deleted the session', /gone at teardown/.test(m.teardown.cwdFallback ?? '') && m.teardown.panes?.queried.length === 1 && m.teardown.sessionStop === 'ok' && m.teardown.sessionDelete === 'ok', JSON.stringify(m.teardown));
+    check('#239 scratch removed mid-run: the pane shell and the stuck fake Claude were both accounted for', m.session.panePids.length >= 2 && m.teardown.leftoverProcesses.length === 0, JSON.stringify({ panePids: m.session.panePids, teardown: m.teardown }));
+  });
   run('#136 pane never queried, server force-killed', { scenario: T('no-process-info.mjs'), mode: 'server-ignores-stop,leak-pane' }, (r) => {
     const m = r.manifest;
     check('#136 forced server kill: the herdr server was force-killed', m.teardown.forcedKills.some((k) => k.what === 'herdr server'), JSON.stringify(m.teardown));
