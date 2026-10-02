@@ -509,9 +509,10 @@ list.
   loopback fix to PR #2671, the §3.4 multi-fact row) and ACP protocol version
   `1`. The full list is `docs/planning/REVERIFICATION-B2.md` "S0
   classification note (2026-10-02, #228)" and the grouped `docs/planning/STATUS.md`
-  "Open UNVERIFIED items" entry from the Gate S0 check. Three of the rows
-  (`codex mcp-server` dates, no SEP, ACP schema v2) are also tracked by their
-  own entries, RISK-CODEX-MCP-DATES, RISK-SEP and RISK-ACP.
+  "Open UNVERIFIED items" entry from the Gate S0 check. Two of the rows
+  (`codex mcp-server` dates, no SEP) are also tracked by their own entries,
+  RISK-CODEX-MCP-DATES and RISK-SEP. ACP protocol version `1` is tracked only
+  here; RISK-ACP covers the separate schema v2 alpha item.
 - **What it invalidates.** Nothing load-bearing in v0.1. None of these facts is
   a G1-G5 pass criterion. The behaviours v0.1 depends on are evidenced
   separately: loopback discovery by G3 at Zenoh `1.10.1`, and `thread/queue/add`'s
