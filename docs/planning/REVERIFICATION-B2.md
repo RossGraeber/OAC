@@ -579,3 +579,42 @@ to their owning gate/task rather than guessed at here:
 - MCP dual-era server behaviour (one process serving both `2026-07-28` and `2025-11-25`) —
   D2 / G4. §3.3's documentation-level facts are re-verified above; the dual-era
   implementation itself is not exercised by B2.
+
+## S0 classification note (2026-10-02, #228)
+
+Gate S0 criterion 2 (`docs/planning/v0.1/10-stages.md` §4) accepts three outcomes for a §3
+fact: holds, drifted, or `UNVERIFIED` with a reason. Some rows above carry a fourth
+label, "Carried unchanged" or "PARTIAL". Under `oac-evidence` §5, a fact that "has not been
+re-checked against the currently pinned version" is `UNVERIFIED`. These rows are therefore
+classified as follows. Their verdict cells above are left as written, as history.
+
+Each row below is `UNVERIFIED — carried from PLANNING-PROMPT.md §3.x, not re-checked
+against the pin in B2`, unless the row says otherwise:
+
+- §3.2 `thread/queue/add`; `codex queue --thread <id> --message <text>` (PARTIAL). The
+  method name and its required params are now confirmed against the schema at `0.157.1`
+  (fact 4 of the `0.157.1` table above, HOLDS). The `--thread`/`--message` flag spelling
+  stays UNVERIFIED.
+- §3.2 UUIDv7 thread ids surviving restarts.
+- §3.2 `CODEX_HOME/sessions/` rollouts are not a supported surface.
+- §3.2 `codex mcp-server` deprecation and deletion dates. This was already in the
+  `STATUS.md` ledger; absence of the subcommand HOLDS (fact 7 of the `0.157.1` table).
+- §3.2 hooks / `notify` (`agent-turn-complete`) cannot originate a turn.
+- §3.2 Unix-socket peer validation semantics (PARTIAL; the WebSocket auth flags HOLD).
+- §3.3 no SEP or working-group item for agent-to-agent messaging. Already in the ledger.
+- §3.4 Zenoh dual EPL-2.0 / Apache-2.0 licensing; the stable API being `zenoh` +
+  `zenoh-ext` only; the binding matrix (`zenoh-ts` needs `zenohd`).
+- §3.4 the loopback fix attributed to PR #2671. The loopback discovery behavior itself
+  is confirmed at `1.10.1` by G3 PASS (`docs/planning/gates/G3-result.md`); the PR
+  attribution stays carried.
+- §3.4 the multi-fact row: Windows scouting bind, `#iface=` platform scope, dynamic
+  listen ports, liveliness history, storage/plugins in `zenohd`, `zenoh-ext` `unstable`,
+  TLS/mTLS and QUIC certificates, ACL subjects, `zid` unauthenticated, no
+  application-layer message signing. The `#iface=` sub-fact already has its own ledger
+  entry.
+- §3.5 ACP protocol version `1` (the literal `protocolVersion` field was not observed on
+  the fetched page; `PINS.md` "ACP" already labels it UNVERIFIED).
+
+All of these are listed in `docs/planning/STATUS.md` "Open UNVERIFIED items" under one
+grouped entry dated 2026-10-02 (#228), which satisfies S0 criterion 3. No verdict above is
+upgraded, and no fact is closed by this note.

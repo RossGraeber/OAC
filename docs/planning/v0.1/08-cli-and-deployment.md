@@ -49,7 +49,7 @@ This is quoted here only to record it as **pre-rename** — it is `DESIGN.md`'s 
 still-unrenamed text (register entry C12,
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4), not a spelling this file or any
 other reuses. Per ADR-001-A1, the resolved binary name is **`oac`**, and the resolved
-command forms are `oac start` / `oac status` / `oac sessions` / `oac doctor` (§5 below).
+command forms are `oac start` / `oac status` / `oac sessions` / `oac doctor` (§5 below). *(Dated note, 2026-10-02, #228: `DESIGN.md` lines 21-24 now read `oac start` / `status` / `sessions` / `doctor`, and C12 is closed. The block above is the pre-rename form, kept as history.)*
 
 **`oac` binary-name collision check.** Already performed and recorded, not re-run here:
 `docs/planning/v0.1/03-decisions-and-amendments.md` §2 (ADR-001-A1), "CLI name-conflict

@@ -210,6 +210,20 @@ this file is the single place a reader checks for "is X deferred."
   deferred unless needed for v0.1 validation."). No Cursor adapter code exists
   or is planned for v0.1; only the signature-level proof that one could be
   added without changing the `Transport` contract.
+- **K6 opt-in CI on self-hosted runners (added 2026-10-02, #228).** **Not in
+  v0.1.** The operator decided on #129 (2026-10-02) to defer K6 past v0.1.
+  Reason: live harness legs run locally through herdr, driven by an agent while
+  the operator signs in and accepts consent dialogs (#187), so a self-hosted
+  runner adds no evidence v0.1 needs. Running provider harnesses on a runner
+  attached to this public repository would also require installing the pre-job
+  hook (`docs/planning/gates/herdr-runner.md` §1). The workflow
+  `.github/workflows/herdr-provider-optin.yml`, its entry point
+  `tools/herdr/ci.mjs` and the runner hooks under `tools/herdr/runner-hooks/`
+  stay in the repository, built and unrun. Their open items stay in
+  `docs/planning/STATUS.md` "Open UNVERIFIED items" (the K6 entry). Reconsider
+  when an unattended, scheduled provider run becomes a release requirement
+  (Stage 6), or when local herdr runs stop being practical. #129 is to be closed
+  as not planned when #228 merges.
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 
@@ -230,3 +244,5 @@ this file is the single place a reader checks for "is X deferred."
   breakdown present (§3) — permission relay, manual key rotation, transitive
   license sweep, C7 presence/discovery gap 1, C7 presence/discovery gap 2, ACP
   forward-compat-only, Cursor design-proof-only, counted as separate items.
+  *(Dated note, 2026-10-02, #228: §3 now has an eighth item, the K6 deferral.
+  It was added after this self-check and is not one of the original seven.)*

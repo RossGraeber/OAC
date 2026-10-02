@@ -1,4 +1,4 @@
-# Session Channels — Software Design
+# Open Agent Channel (OAC) — Software Design
 
 ## Purpose
 An open-source communication layer for secure, event-driven, full-duplex messaging between **existing provider harness sessions**. It is not an agent framework or model API router.
@@ -18,19 +18,19 @@ Model inference/routing, agent planning, shared context management, replacement 
 ### CLI / supervisor
 Starts configuration, device identity, adapters, transport, diagnostics, and clean shutdown.
 ```text
-sessionchannels start
-sessionchannels status
-sessionchannels sessions
-sessionchannels doctor
+oac start
+oac status
+oac sessions
+oac doctor
 ```
 
 ### Core
 Neutral types should include `SessionIdentity`, `SessionDescriptor`, `SessionCapabilities`, `ChannelMessage`, `DeliveryReceipt`, `PresenceRecord`, `SecurityPrincipal`, and authorization decisions.
 
-### MCP Session Channels extension
-Defines extension/version negotiation, session addressing, capabilities, message envelope, active-delivery semantics, replies/correlation, presence/discovery, acknowledgements/errors, identity/security, and unsupported-capability behavior.
+### OAC Session Channels specification, packaged as an MCP extension
+Defines extension/version negotiation, session addressing, capabilities, message envelope, active-delivery semantics, replies/correlation, presence/discovery, acknowledgements/errors, identity/security, and unsupported-capability behavior. The MCP extension packaging covers capability negotiation, the tool surface, and `_meta` provenance only; MCP is not the delivery mechanism (ADR-001-A3).
 
-Normative concept: **a harness advertising active inbound Session Channels support accepts an authorized external channel message as input to the addressed live session without application-level polling.**
+Normative concept: **a harness advertising active inbound OAC Session Channels support accepts an authorized external channel message as input to the addressed live session without application-level polling.**
 
 The specification MUST NOT mention Zenoh keys, MQTT topics, NATS subjects, or provider-specific method names.
 
@@ -173,3 +173,10 @@ Protocol serialization/validation; adapter contract tests with fake endpoints; t
 - Language choice based on SDK quality, single-binary packaging, and cross-platform support.
 - Identity key storage using OS keychains/credential stores.
 - Whether v0.1 needs persistence or only live delivery.
+
+## Naming note (2026-10-02, #228)
+ADR-001-A1 is applied to this file, with ADR-001-A3's wording for the specification section. This closes conflict-register entry C12 (`docs/planning/ADR-001-AMENDMENTS.md`). Each edit replaced text on the same line, so citations of this file by line number still resolve. The pre-rename text is quoted here for history only:
+- Line 1, title: `# Session Channels — Software Design`.
+- Lines 21-24, CLI block: `sessionchannels start` / `status` / `sessions` / `doctor`. The resolved command forms are in `docs/planning/v0.1/08-cli-and-deployment.md` §5.
+- Line 30, heading: `### MCP Session Channels extension`. Earlier citations of "DESIGN.md §MCP Session Channels extension" refer to the section now headed "OAC Session Channels specification, packaged as an MCP extension". The sentence on MCP packaging at the end of line 31 was added with this rename; it restates ADR-001-A3.
+- Line 33: "a harness advertising active inbound Session Channels support ...".
