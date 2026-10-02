@@ -20,7 +20,7 @@ the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; chec
 so are check 9's two workflow targets (K6: `boundary-lint.yml` and
 `herdr-provider-optin.yml`, 0 hits), while check 9's seven other targets (the five product
 paths, manifests outside `tools/herdr/`, and `tests/integration/`) are still **pending**, so
-the script's last line reads `Result: PENDING`; its `--self-test` has 96 cases (one, a
+the script's last line reads `Result: PENDING`; its `--self-test` has 103 cases (one, a
 non-UTF-8 file name, is skipped on file systems that reject it, e.g. Windows). Check 11 (added 2026-09-29)
 is **pending**: none of its product paths or root Cargo manifests has a tracked file yet.
 
@@ -76,11 +76,16 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 #    tools/herdr. tests/integration/ (#146, the tools/herdr/README.md reuse contract) is
 #    opt-in provider-integration tier and MAY name and spawn herdr -- deliberately not
 #    under the herdr-token ban -- but stays a leaf: no product-path entry climbs to it
-#    (`../tests/integration`) or symlinks into it, no root manifest names it and no nested
-#    manifest climbs to it (fail-closed: a future opt-in root target needs a deliberate,
-#    self-tested exception here), and nothing under it imports or compiles in driver code
-#    (JS import/require, Python import, Rust #[path]/include!) or symlinks into
-#    tools/herdr/. A crate's own tests/integration.rs is not the top-level directory.
+#    (`../tests/integration`) or symlinks into it. Manifests fail closed on anything that
+#    could pull it into a default build: a root manifest naming tests/integration, a
+#    tests/* or tests/** glob, or a bare `tests` member; a nested manifest climbing to
+#    any of those; a manifest under tests/ (outside tests/integration/) naming
+#    `integration` or a quoted glob. A future opt-in root target needs a deliberate,
+#    self-tested exception here. Nothing under it imports or compiles in driver code (JS
+#    import/require, also via `new URL(...)`; Python import; Rust #[path]/include!) or
+#    symlinks into tools/herdr/; its own manifests may run the driver from a script
+#    entry (`node ../../tools/herdr/run.mjs ...`), any other tools/herdr reference there
+#    fails. A crate's own tests/integration.rs is not the top-level directory.
 #    Workflows (K6): no workflow other than
 #    .github/workflows/herdr-provider-optin.yml names tools/herdr or any label a
 #    self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm,
@@ -108,7 +113,8 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 #    matched by its path, a file by its blob, a symlink by its stored target and then by
 #    where it lands after following tracked symlinks segment by segment, as realpath does
 #    (chains and symlinked directories, each expanded before a following `..`; the landed
-#    file's blob, or every tracked entry under a landed directory, cycle-safe), a
+#    file's blob, or every tracked entry under a landed directory, each directory entered once per
+#    top-level entry, so cycles and fan-out stay bounded), a
 #    submodule by its path and .gitmodules url. A tracked symlink landing outside the repository fails. Hits print path, line,
 #    and rule label only -- never matched text, a line, or a link target.
 #    --self-test plants one violation per rule in a temporary git tree, asserts each exits

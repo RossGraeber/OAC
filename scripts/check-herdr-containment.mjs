@@ -10,8 +10,9 @@
 //          entry under adapters/, core/, cli/, transports/, or spec/; and no workspace or
 //          package manifest outside tools/herdr/ that references tools/herdr.
 //          tests/integration/ (#146) may name and spawn herdr, but nothing under a product
-//          path, and no manifest outside it, references it, and it never imports, compiles
-//          in, or symlinks to driver code. Workflows
+//          path, and no manifest outside it, references it (manifests also fail on a
+//          tests/* glob or a bare tests member), and it never imports, compiles in, or
+//          symlinks to driver code. Workflows
 //          (K6 #129): no GitHub Actions workflow other than
 //          .github/workflows/herdr-provider-optin.yml references tools/herdr or a label a
 //          self-hosted runner carries; and that opt-in workflow's triggers are exactly
@@ -67,13 +68,25 @@ const INTEGRATION_PATH = 'tests/integration';
 // A reference that climbs out of its own directory to tests/integration (`../../tests/
 // integration`); a crate's own `tests/integration.rs` or `tests/integration/` is not one.
 const INTEGRATION_CLIMB_REF = /(?:\.\.[\\/]+)+tests[\\/]+integration(?![\w.-])/i;
-// From a root-level manifest, any path naming tests/integration.
-const INTEGRATION_ROOT_REF = /tests[\\/]+integration(?![\w.-])/i;
-// Driver code imported or compiled into a test: JS import/require, Python import, Rust
-// #[path]/include!/include_str!/include_bytes!. Passing tools/herdr/run.mjs to a spawned
-// process is the contract, not an import, and is allowed.
+// Manifests fail closed on anything that could pull tests/integration/ into a default build:
+// tests/integration itself, a tests/* or tests/** glob, or a bare `tests` member. From a
+// root manifest any such path; from a nested one a path climbing to it; from a manifest
+// under tests/ (but outside tests/integration/) any `integration` name or quoted glob.
+const IT_TAIL = String.raw`tests(?:[\\/]+(?:integration(?![\w.-])|\*)|(?![\w.\\/-]))`;
+const INTEGRATION_ROOT_MANIFEST = new RegExp(String.raw`(?<![\w.-])${IT_TAIL}`, 'i');
+const INTEGRATION_CLIMB_MANIFEST = new RegExp(String.raw`(?:\.\.[\\/]+)+${IT_TAIL}`, 'i');
+const INTEGRATION_UNDER_TESTS = /(?<![\w.-])integration(?![\w.-])|["'][^"'\n]*\*/i;
+// A manifest under tests/integration/ may run the driver by path from a script entry
+// (`node ../../tools/herdr/run.mjs ...`); any other tools/herdr reference (a file:/path
+// dependency, a workspace member) still fails.
+const DRIVER_SPAWN = /\bnode\s+(?:[^\s'"]*[\\/])?tools[\\/]+herdr[\\/]+run\.mjs(?![\w.-])/gi;
+const integrationManifestDriverRef = (text) =>
+  text.split(/\r?\n/).flatMap((l, i) => (HERDR_PATH_REF.test(l.replace(DRIVER_SPAWN, '')) ? [i + 1] : []));
+// Driver code imported or compiled into a test: JS import/require (also through
+// `new URL(...)`), Python import, Rust #[path]/include!/include_str!/include_bytes!.
+// Passing tools/herdr/run.mjs to a spawned process is the contract, not an import.
 const DRIVER_IMPORT = new RegExp(
-  String.raw`\b(?:import|from|require)\b\s*\(?\s*['"\x60][^'"\x60]*tools[\\/]+herdr` +
+  String.raw`\b(?:import|from|require)\b\s*\(?\s*(?:new\s+URL\s*\(\s*)?['"\x60][^'"\x60]*tools[\\/]+herdr` +
     String.raw`|^\s*(?:from|import)\s+tools\.herdr\b` +
     String.raw`|#\s*\[\s*path\s*=\s*"[^"]*tools[\\/]+herdr|\binclude(?:_str|_bytes)?!\s*\([^;]*tools[\\/]+herdr`,
   'i',
@@ -546,6 +559,8 @@ function resolveLink(root, linkPath, byPath, blobs) {
     const target = (blobs.get(e.sha)?.toString('utf8') ?? '').trim().split('\\').join('/');
     done.pop();
     if (posix.isAbsolute(target) || /^[A-Za-z]:\//.test(target)) {
+      // Compared case-sensitively, even on Windows: `c:/repo/x` against root `C:/repo` is
+      // reported outside the repository. That fails closed, so it is left as is.
       if (target !== rootPosix && !target.startsWith(`${rootPosix}/`)) return { outside: true };
       done.length = 0;
       pending = [...target.slice(rootPosix.length).split('/'), ...pending];
@@ -594,8 +609,8 @@ function readGitmodules(ctx) {
   return map;
 }
 
-// `seen` holds the directories already entered through a directory symlink on this chain,
-// so a link cycle terminates.
+// `seen` holds the directories already entered through a directory symlink during this
+// top-level entry's walk, so a link cycle or fan-out terminates quickly.
 function scanEntry(ctx, entry, allRules, hits, { matchPath, seen = new Set() }) {
   const rel = entry.path;
   // linkOnly rules judge only where a symlink lands, never a path, blob, or target text.
@@ -629,13 +644,16 @@ function scanEntry(ctx, entry, allRules, hits, { matchPath, seen = new Set() }) 
     // A directory (#135): scan every tracked entry under it as if it sat under the link --
     // path, blob, and, for a nested link, where that lands. Printed paths are the paths
     // seen through the link, never the link target.
+    // One visited set for the whole walk from a top-level entry (not per chain): each
+    // directory is entered once, so N mutually linked directories cost O(N^2), not O(N!).
+    // A second route to a directory changes only the printed prefix, which no rule needs.
     if (seen.has(landed.rel)) return;
+    seen.add(landed.rel);
     const prefix = landed.rel === '' ? '' : `${landed.rel}/`;
     const inside = ctx.entries.filter((e) => e.path.startsWith(prefix));
     ctx.preload(inside.filter((e) => e.mode !== '160000').map((e) => e.sha));
-    const nextSeen = new Set(seen).add(landed.rel);
     for (const e of inside) {
-      scanEntry(ctx, { ...e, path: `${rel}/${e.path.slice(prefix.length)}` }, allRules, hits, { matchPath, seen: nextSeen });
+      scanEntry(ctx, { ...e, path: `${rel}/${e.path.slice(prefix.length)}` }, allRules, hits, { matchPath, seen });
     }
     return;
   }
@@ -703,12 +721,19 @@ function runChecks(root) {
 
   // Check 9b: manifests outside tools/herdr/ referencing tools/herdr; manifests outside
   // tests/integration/ referencing it (a default build must not compile those tests in).
-  const manifestRules = (e) => [
-    { label: `manifest references ${DRIVER_PATH}`, re: HERDR_PATH_REF },
-    ...(e.path.startsWith(`${INTEGRATION_PATH}/`)
-      ? []
-      : [{ label: `manifest outside ${INTEGRATION_PATH}/ references it`, re: e.path.includes('/') ? INTEGRATION_CLIMB_REF : INTEGRATION_ROOT_REF }]),
-  ];
+  const manifestRules = (e) => {
+    const driverLabel = `manifest references ${DRIVER_PATH}`;
+    if (e.path.startsWith(`${INTEGRATION_PATH}/`)) return [{ label: driverLabel, scan: integrationManifestDriverRef }];
+    const itRe = e.path.startsWith('tests/')
+      ? INTEGRATION_UNDER_TESTS
+      : e.path.includes('/')
+        ? INTEGRATION_CLIMB_MANIFEST
+        : INTEGRATION_ROOT_MANIFEST;
+    return [
+      { label: driverLabel, re: HERDR_PATH_REF },
+      { label: `manifest outside ${INTEGRATION_PATH}/ references it (or a tests/ glob)`, re: itRe },
+    ];
+  };
   scanTarget(
     '9',
     `manifests outside ${DRIVER_PATH}/`,
@@ -785,7 +810,7 @@ function report(root, results) {
 // `links` / `gitlinks` plant tracked symlinks / submodules straight into the git index (no
 // OS symlink support needed); `afterAdd` rewrites work-tree files after staging (the index
 // is what counts); `rawFiles` writes byte-exact (e.g. non-UTF-8) file names; `mustNotPrint`
-// lists strings that must never appear in the script's output.
+// lists strings that must never appear in the script's output; `timeoutMs` bounds the run.
 const OPTIN_CLEAN = [
   'name: herdr-provider-optin',
   'on:',
@@ -863,6 +888,8 @@ const CLEAN_BASE = {
     "const manifest = JSON.parse(readFileSync(join(runDir, 'run-manifest.json'), 'utf8'));",
     '',
   ].join('\n'),
+  // ...and its own manifest may run the driver by path from a script entry.
+  'tests/integration/package.json': '{ "private": true, "scripts": { "g4": "node ../../tools/herdr/run.mjs --scenario scenarios/g4.mjs" } }\n',
   // herdr is allowed outside product paths (docs, scripts, the driver itself).
   'docs/planning/herdr-notes.md': 'herdr is test tooling; HERDR_SESSION is set by the driver.\n',
   // Workflows: a default one that runs this lint, and a clean opt-in one. Expressions in
@@ -921,6 +948,15 @@ const SELF_TEST_CASES = [
   violation('9 symlink cycle through a directory link terminates', 'scripts/loop/x.rs', 'use herdr;\n', {
     links: { 'adapters/claude/loop': '../../scripts/loop', 'scripts/loop/back': '../../adapters/claude' },
   }),
+  // 30 mutually linked directories: each is entered once, so this finishes well inside the
+  // bound (a per-chain visited set took >120 s at 10).
+  violation('9 directory-link fan-out (30 mutually linked dirs) is bounded', 'scripts/d0/x.rs', 'use herdr;\n', {
+    timeoutMs: 10000,
+    links: Object.fromEntries([
+      ['core/fan', '../scripts/d0'],
+      ...Array.from({ length: 30 }, (_, i) => Array.from({ length: 30 }, (_, j) => [`scripts/d${i}/l${j}`, `../d${j}`]).filter((_, j) => j !== i)).flat(),
+    ]),
+  }),
   violation('9 submodule named herdr', null, null, { gitlinks: ['adapters/herdr'] }),
   violation(
     '9 submodule whose url names herdr',
@@ -947,8 +983,17 @@ const SELF_TEST_CASES = [
   }),
   violation('9 root workspace compiles tests/integration in', 'Cargo.toml', '[workspace]\nmembers = ["core", "cli", "tests/integration"]\n'),
   violation('9 nested manifest depends on tests/integration', 'tools/other/package.json', '{ "devDependencies": { "it": "file:../../tests/integration" } }\n'),
+  violation('9 root workspace globs tests/*', 'Cargo.toml', '[workspace]\nmembers = ["core", "cli", "tests/*"]\n'),
+  violation('9 root workspace names a bare tests member', 'Cargo.toml', '[workspace]\nmembers = ["core", "cli", "tests"]\n'),
+  violation('9 manifest under tests/ reaches integration/', 'tests/Cargo.toml',
+    '[package]\nname = "oac-tests"\n\n[[test]]\nname = "g4"\npath = "integration/g4.rs"\n'),
+  violation('9 root package.json workspaces glob tests/**', 'package.json', '{ "workspaces": ["tests/**"] }\n'),
+  violation('9 integration-test manifest depends on driver code', 'tests/integration/package.json',
+    '{ "scripts": { "g4": "node ../../tools/herdr/run.mjs --scenario g4.mjs" }, "dependencies": { "drv": "file:../../tools/herdr" } }\n'),
   violation('9 integration test imports driver code (JS)', 'tests/integration/g4-claude.mjs', "import { drive } from '../../tools/herdr/lib/drive.mjs';\n"),
   violation('9 integration test requires driver code (JS)', 'tests/integration/g4-claude.mjs', "const lib = require('../../tools/herdr/lib/util.mjs');\n"),
+  violation('9 integration test imports driver code via new URL (JS)', 'tests/integration/g4-claude.mjs',
+    "const lib = await import(new URL('../../tools/herdr/lib/util.mjs', import.meta.url));\n"),
   violation('9 integration test compiles in driver code (Rust)', 'tests/integration/src/lib.rs',
     'include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/herdr/lib/x.rs"));\n'),
   violation('9 integration test symlink lands in tools/herdr', null, null, {
@@ -1092,10 +1137,14 @@ function writeTree(dir, files) {
 
 function plantIndexEntries(dir, tc) {
   const git = (args, input) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', input }).trim();
+  // One blob per distinct target, then every link in a single update-index call.
+  const shaOf = new Map();
+  const info = [];
   for (const [rel, target] of Object.entries(tc.links ?? {})) {
-    const sha = git(['hash-object', '-w', '--stdin'], target);
-    git(['update-index', '--add', '--cacheinfo', `120000,${sha},${rel}`]);
+    if (!shaOf.has(target)) shaOf.set(target, git(['hash-object', '-w', '--stdin'], target));
+    info.push(`120000 ${shaOf.get(target)}\t${rel}\n`);
   }
+  if (info.length) git(['update-index', '--add', '--index-info'], info.join(''));
   for (const rel of tc.gitlinks ?? []) {
     git(['update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},${rel}`]);
   }
@@ -1131,7 +1180,8 @@ function runSelfTest() {
       execFileSync('git', ['add', '-A'], { cwd: dir });
       plantIndexEntries(dir, tc);
       if (tc.afterAdd) writeTree(dir, tc.afterAdd);
-      const run = spawnSync(process.execPath, [scriptPath, '--root', dir], { encoding: 'utf8' });
+      // timeoutMs: a case that must finish in bounded time fails (status null) instead of hanging.
+      const run = spawnSync(process.execPath, [scriptPath, '--root', dir], { encoding: 'utf8', timeout: tc.timeoutMs });
       const output = run.stdout + run.stderr;
       const resultLine = (run.stdout.match(/^Result: (\w+)/m) ?? [])[1];
       const hitLines = (run.stdout.match(/^ {13}FAIL {2}/gm) ?? []).length;
