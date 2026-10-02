@@ -28,7 +28,7 @@ Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283`, invalida
 PASS; re-run and **PASSED again** 2026-09-28 on `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all criteria x)
-(`docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level; per
+(`docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per
 `docs/planning/STATUS.md` "Current stage," the project is still at **Pre-Stage 0** — no
 E8/F8-F12/H1-H5 test exists yet. This file is the **design** these tasks build against,
 not a report of tests that pass; a gate result is not one of the test tiers this file

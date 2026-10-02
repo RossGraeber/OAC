@@ -17,11 +17,12 @@ Status as last verified against this repo (2026-09-28): checks 1, 2, 4, 5, 6, 7 
 **pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
 the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; check 10 is
 **clean** on real content (`tools/herdr/`, K3's driver: every tracked entry, 0 hits), and
-so are check 9's two workflow targets (K6: `boundary-lint.yml` and
-`herdr-provider-optin.yml`, 0 hits), while check 9's seven other targets (the five product
-paths, manifests outside `tools/herdr/`, and `tests/integration/`) are still **pending**, so
-the script's last line reads `Result: PENDING`; its `--self-test` has 103 cases (one, a
-non-UTF-8 file name, is skipped on file systems that reject it, e.g. Windows). Check 11 (added 2026-09-29)
+so are check 9's three workflow targets (K6: `boundary-lint.yml` and
+`herdr-provider-optin.yml`; since 2026-10-02, #219, also `g3-macos-hosted.yml`; 0 hits),
+while check 9's seven other targets (the five product paths, manifests outside
+`tools/herdr/`, and `tests/integration/`) are still **pending**, so the script's last line
+reads `Result: PENDING`; its `--self-test` has 103 cases (one, a non-UTF-8 file name, is
+skipped on file systems that reject it, e.g. Windows). Check 11 (added 2026-09-29)
 is **pending**: none of its product paths or root Cargo manifests has a tracked file yet.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
