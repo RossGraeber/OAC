@@ -50,7 +50,7 @@ import { fileURLToPath } from 'node:url';
 
 import { L3_RECORD_VERSION, MARKER_SHAPE, TOKEN_SHAPE, sha256, compareSections, neutralizePlaceholders, assertNoMarkerLeak } from './l3.mjs';
 import { createRedactor } from './redact.mjs';
-import { describeDialogs } from './gate-report-common.mjs';
+import { describeDialogs, herdrExecutableHash } from './gate-report-common.mjs';
 
 export class L3ReportError extends Error {}
 export class L3LeakAbort extends Error {}
@@ -660,7 +660,7 @@ export function renderL3Draft(ev) {
   out.push('Generated unticked. Only the operator who ran this machine ticks these lines, each only if true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation", adapted to name Beacon).');
   out.push('');
   const herdrV = drivers[0]?.m?.herdr?.observedVersionOutput;
-  out.push(`- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: ${tick(herdrV ?? '?')}; sha256 of the executable: \`<64 hex>\``);
+  out.push(`- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: ${tick(herdrV ?? '?')}; sha256 of the executable: ${herdrExecutableHash(drivers[0]?.m)}`);
   out.push(`- [ ] **Harness:** the real, logged-in Claude Code CLI (\`claude --version\`: ${val(v.claudeCli)}) and Codex CLI (\`codex --version\`: ${val(v.codex?.cli)}) ran, not test doubles.`);
   out.push(`- [ ] **Beacon:** the real, operator-installed Beacon endpoint (\`beacon version\`: ${val(v.beacon)}) ran in Local mode, not a test double.`);
   // #196: the consent line states the probe run's accept origin as recorded; only a human accept

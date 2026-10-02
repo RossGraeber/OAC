@@ -4,6 +4,49 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-02 (**Issue #236: C4 revised, drift D5 resolved.** Operator
+decision (2026-10-02, refined the same day after the PR #238 review, option (c)): the
+hook-stdin `session_id` stays authoritative, and `oac mcp-shim` also reads
+`CLAUDE_CODE_SESSION_ID` as a cross-check. In this change:
+
+- **C4 §3** (`docs/planning/decisions/C4-session-identity.md`, "Revision, 2026-10-02")
+  makes the rule depend on the `SessionStart` `source`:
+  - Equal values bind.
+  - A mismatch fails closed, with a finding, only when `source` is `startup` (or missing
+    or unknown).
+  - For `resume`, `clear`, `fork` and `compact` the variable is stale by design. That
+    covers `/clear`, `--continue`, bare `--resume`, in-session `/resume`,
+    `--fork-session`, `/fork`, `/branch` and moving a conversation to the background.
+    The daemon binds the hook id as a new OAC id per §6 and logs a diagnostic.
+  - A newcomer whose hook id is already bound to another live shim is refused, and
+    existing bindings are never withdrawn. Duplicates are keyed on the hook id, never on
+    the variable.
+  - A launch-time hook payload that arrives before its shim is held for a bounded window
+    (an implementation parameter), then dropped with a diagnostic. A payload that cannot
+    be paired with certainty fails closed.
+  - A missing or unknown `source` failing closed is a conservative default from the
+    review, outside the operator's literal rule. `11-risks.md` RISK-CLAUDE-PREVIEW
+    carries an early-warning signal for it.
+  - The variable alone is a hint that unlocks nothing and is never the sole pairing
+    key. Pairing must rest on daemon-observed OS process identity.
+
+  Evidence re-fetched 2026-10-02: `env-vars.md` L365, `hooks.md` "SessionStart", and
+  changelog `2.1.132`, `2.1.154`, `2.1.163`. C4 §6 gets a matching dated note, and C4
+  §13 gains a spoofed-variable threat row with its pairing-race and DoS residuals.
+- **Ledger.** The D5 entry in "Open conflicts (oac-evidence §6)" is marked RESOLVED.
+  `REVERIFICATION-B2.md` marks D5 resolved in its Drift register. `06-security.md` gains
+  §1 and §17 notes and §14 row 24, with the row count updated in its §15/§19,
+  `09-test-strategy.md` §12 and `10-stages.md` §9. `11-risks.md` RISK-CLAUDE-PREVIEW
+  gets a dated note. The `oac-claude-channels` skill §8 is updated.
+  `01-capability-matrix.md` and `03-decisions-and-amendments.md` (C4 entry) get dated
+  notes.
+- **One new UNVERIFIED item:** the hook-to-shim pairing mechanism (OS peer PID and
+  process ancestry), added to "Open UNVERIFIED items" below and to RISK-LOCAL-IPC
+  (`11-risks.md` traceability row 58).
+
+No gate verdict or pin changes. C4 is a decision record, not ADR-001 text, so no
+`ADR-001-A*` amendment is issued.)
+
 **Last updated:** 2026-10-02 (**Issue #122: stale G2, pin and hostname sweep; §3.1
 re-checked at Claude Code `2.1.285`.** Operator decision on #122 (2026-10-02): the §3.1
 facts get one B2-style desk re-check at the last tested version, `2.1.285`. Newer versions
@@ -1141,7 +1184,11 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 
 ## Open conflicts (oac-evidence §6)
 
-- **C4 §3 "only supported surface" vs. the documented `CLAUDE_CODE_SESSION_ID` (#122,
+- **RESOLVED 2026-10-02 (#236).** Operator decision: the hook-stdin `session_id` stays
+  authoritative and `oac mcp-shim` reads `CLAUDE_CODE_SESSION_ID` as a cross-check only;
+  a mismatch fails closed only at `SessionStart` `source` `startup`. Rule: `docs/planning/decisions/C4-session-identity.md` §3
+  "Revision, 2026-10-02". The original entry follows, unchanged.
+  **C4 §3 "only supported surface" vs. the documented `CLAUDE_CODE_SESSION_ID` (#122,
   2026-10-02; drift D5).** `docs/planning/decisions/C4-session-identity.md` §3 says that
   for learning a Claude `session_id`, "the hook's own stdin/HTTP body is the only
   supported surface". The evidence is `CLAUDE_CODE_SESSION_ID`, "Set automatically to the
@@ -1251,6 +1298,24 @@ states or that are inferred/stale). Closed when the named resolution lands.
 Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 (`docs/planning/REVERIFICATION-B2.md`). Until closed, no plan or skill may rely on them
 without an UNVERIFIED label.
+
+- **New, from the C4 revision (#236, 2026-10-02):** the hook-to-shim pairing mechanism
+  that `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement" needs is
+  not established. That requirement is OS-reported peer PID plus process ancestry on the
+  C2 peer-auth path (`GetNamedPipeClientProcessId` on Windows; `SO_PEERCRED` on Linux).
+  Open questions:
+  - whether a Claude Code hook command subprocess and its stdio MCP server subprocess
+    share an OS-observable common Claude Code ancestor on every supported OS (a hook may
+    run under an intermediate shell, an MCP server under a launcher);
+  - which call yields the peer PID on macOS (`getpeereid()` reports only UID/GID);
+  - which call yields a parent PID from a peer PID on each OS.
+
+  Until it is established, the daemon does not bind a hook payload it cannot pair, so
+  this costs availability, not authority. One residual depends on the same mechanism: a
+  transition payload that is dropped or unpairable cannot be attributed to a shim, so
+  the shim's old binding can survive. C4 §3 requires Stage 3/4 to close this, and
+  whether the mechanism allows it is UNVERIFIED. Owner: Epic F Claude adapter work and G9. Risk
+  entry: RISK-LOCAL-IPC in `docs/planning/v0.1/11-risks.md` (traceability row 58).
 
 - **New, from the Gate S0 check (#228, 2026-10-02):** B2 rows that carried a §3 fact
   without re-checking it against the pin ("Carried unchanged" or "PARTIAL") are now
@@ -1661,7 +1726,9 @@ this list; citations in REVERIFICATION-B2.md "§3.1 re-check at Claude Code `2.1
   `CLAUDE_SESSION_ID` variable" still holds. But a documented `CLAUDE_CODE_SESSION_ID`
   exists (`https://code.claude.com/docs/en/env-vars.md`, retrieved 2026-10-02), so
   "`session_id` is the supported path" is no longer the only supported path (drift D5).
-  It is tracked as a conflict in "Open conflicts (oac-evidence §6)" above.
+  It is tracked as a conflict in "Open conflicts (oac-evidence §6)" above. (Resolved
+  2026-10-02, #236: the hook payload stays authoritative and the variable is a
+  cross-check, C4 §3 "Revision, 2026-10-02".)
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the

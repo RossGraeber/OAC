@@ -673,7 +673,7 @@ harness's provider credentials"), not a test failure to be triaged.
   minimum, is a `VERSION WARNING` that never gates; each run records the version it ran
   on. *(Dated note, 2026-10-02, #228: this bullet said "at their pinned versions" before
   #216.)*
-- `docs/planning/v0.1/06-security.md` §14's twenty-three-row threat table exists as the
+- `docs/planning/v0.1/06-security.md` §14's twenty-four-row threat table (row 24 added by #236) exists as the
   checklist H2, H3, and H5 verify against.
 
 **Prerequisite decisions.** All twelve (`docs/planning/v0.1/03-decisions-and-amendments.md`
@@ -717,7 +717,7 @@ clean shutdown on all three platforms (H4).
    test, and that test's current result is recorded. The mapping is
    `docs/planning/v0.1/09-test-strategy.md` §11's table, updated from `not-yet-written` to
    a real result — this file does not duplicate that table, it requires it be completed.
-2. Every one of the threat-table mitigations (rows 1-22 of twenty-three) maps to a
+2. Every one of the threat-table mitigations (rows 1-22 and 24 of twenty-four) maps to a
    proving test whose result is recorded (`docs/planning/v0.1/09-test-strategy.md`
    §12); row 23 is an open risk outside OAC's control with no proving test, and records
    the L2/L3 capture finding instead (`docs/planning/v0.1/06-security.md` §15).
