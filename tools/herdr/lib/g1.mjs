@@ -560,8 +560,8 @@ export function fixtureNames(date, version) {
   return { transcript: `transcript-${date}-${version}-herdr.jsonl`, pane: `pane-${date}-${version}-herdr.txt` };
 }
 
-// Capture names for a run whose Claude Code version is not (yet) verified against PINS.md
-// on both the CLI and the wire: deliberately not fixture-shaped, and never publishable.
+// Capture names for a run whose CLI and wire have not (yet) reported one and the same Claude
+// Code version: deliberately not fixture-shaped, and never publishable.
 export function unverifiedNames(date) {
   return { transcript: `unverified-transcript-${date}-herdr.jsonl`, pane: `unverified-pane-${date}-herdr.txt` };
 }

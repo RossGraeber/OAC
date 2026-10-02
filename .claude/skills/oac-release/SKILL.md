@@ -75,9 +75,11 @@ gap to report, not a name to guess.
 This is not advisory at release time:
 
 - [ ] Diff the pins a release ships against `docs/planning/STATUS.md` "Pins" as they stood
-      at the last gate run. If any row of STATUS.md Pins moved (Claude Code, MCP, Codex CLI,
-      Zenoh, ACP, or Rust toolchain), every gate that pin affects (G1-G5; see `oac-gates` for
-      which pin feeds which gate) must be re-run before this release ships.
+      at the last gate run. If a fixed pin moved (MCP, Zenoh, ACP, or Rust toolchain), every
+      gate that pin affects (G1-G5; see `oac-gates` for which pin feeds which gate) must be
+      re-run before this release ships. **Claude Code and Codex are exempt (#216,
+      2026-10-01):** their versions float, so a newer version warns and never by itself
+      makes a verdict stale; record the last tested versions in the release notes.
 - [ ] Re-run those gates using `oac-gates`' gate-result template and timebox policy — do not
       hand-wave a re-verification.
 - [ ] Update `docs/planning/STATUS.md`'s Gate verdicts table **and** its Pins table in the
@@ -136,7 +138,7 @@ verified without the evidence `oac-evidence` requires.
 
 - [ ] Confirm `docs/planning/STATUS.md` shows Stage 5 closed and no `Blocked` note applies
       to Stage 6.
-- [ ] Re-run any gate whose pin moved since its last verdict (§3); update `STATUS.md` Gate
+- [ ] Re-run any gate whose fixed pin moved since its last verdict (§3); update `STATUS.md` Gate
       verdicts and Pins tables in the same change.
 - [ ] Run the packaging checklist (§1) on Windows, macOS, and Linux artifacts.
 - [ ] Complete the license inventory (§2); regenerate `NOTICE`; confirm the unapproved-

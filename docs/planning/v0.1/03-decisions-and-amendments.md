@@ -875,7 +875,9 @@ tracked item rather than glossed over as closed.
   and carried into `PINS.md` in the same change. Note, 2026-10-01, issue #186: the
   Claude Code and Codex rows have since gone floating (2026-09-27 and 2026-09-26);
   `PINS.md` now records a last-observed version for each and keeps these two values
-  only in its history.
+  only in its history. Dated note, 2026-10-01, #216: the row now records minimum and last tested versions instead
+  (Claude Code `v2.1.282`/`v2.1.285`, Codex `0.154.0`/`0.159.3`); a version change warns, never
+  gates.
 - **Every provider surface labelled.** Claude Channels = **research preview**; Codex
   app-server = **experimental** (per-method gating via `capabilities.experimentalApi`);
   MCP `2026-07-28` = current/**supported**, `2025-11-25` = legacy/**supported**; Zenoh =

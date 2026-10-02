@@ -37,9 +37,11 @@ import { assertNoSpoof } from '../lib/g5.mjs';
 import { CI_SCENARIOS } from '../ci.mjs';
 import { installFakeClaudeCli } from './g1-tests.mjs';
 import { fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.mjs';
+import { parseClaudeVersions } from '../lib/pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
+// The fake Claude reports PINS.md's last tested version unless a case sets another (#216).
 const CASES = join(REPO, 'tools', 'herdr', 'gate-servers', 'g5-cases.json');
 const LIB = join(REPO, 'tools', 'herdr', 'lib', 'l3.mjs');
 
@@ -400,7 +402,7 @@ function l3ReportUnit(check) {
 
   // Pin drift is a finding, not a stop.
   const drift = tryDraft(l3Runs(markers, fx, { drift: true }), { markers });
-  check('l3 report: pin drift makes B0 a FINDING and is listed under Findings; the leg continues', !drift.err && lineFor(drift.text, 'B0').includes('FINDING') && /pin drift: Claude Code/.test(drift.text) && lineFor(drift.text, 'B2').includes('PASS'));
+  check('l3 report: pin drift makes B0 a FINDING and is listed under Findings; the leg continues', !drift.err && lineFor(drift.text, 'B0').includes('FINDING') && /VERSION WARNING: Claude Code installed version differs from PINS.md/.test(drift.text) && lineFor(drift.text, 'B2').includes('PASS'));
 
   // Probe NOT RUN: its steps are NOT RUN with the manifest's reason.
   const nr = l3Runs(markers, fx);
@@ -831,7 +833,7 @@ const gateServerHashes = () => Object.fromEntries(readdirSync(GATE_SERVERS).sort
 // 1 s (standing in for the operator) and the driver sends nothing. claudeDialogs: fake-claude's
 // FAKE_CLAUDE_DIALOG (default: the dev-channels dialog alone); codexDialog: fake-codex's
 // FAKE_CODEX_DIALOG (default: its trust dialog, #199).
-function l3World(h, { claudeCli, codexVersion, trace = false, harnessWritesLog = true, syncHistoryBytes = 0, accept = 'driver', claudeDialogs = null, codexDialog = null } = {}) {
+function l3World(h, { claudeCli = parseClaudeVersions(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')).lastTested, codexVersion, trace = false, harnessWritesLog = true, syncHistoryBytes = 0, accept = 'driver', claudeDialogs = null, codexDialog = null } = {}) {
   const b = h.makeBase();
   const home = join(b.base, 'home');
   mkdirSync(home);
@@ -969,7 +971,7 @@ export async function l3Cases(check, h) {
         check('l3 probe: the session file described by entry type and flags only', l3.sessionFile.read === true && l3.sessionFile.dirsFound === 1 && l3.sessionFile.entries.some((e) => e.type === 'attachment' && e.isMeta === true && e.attachmentType === 'channel_message') && l3.sessionFile.entries.every((e) => !('content' in e)), JSON.stringify(l3.sessionFile));
         check('l3 probe: B5 and B6 NOT RUN; the daemon state is a finding (not running before)', l3.steps.B5.status === 'NOT RUN' && l3.steps.B6.status === 'NOT RUN' && l3.daemon.alreadyRunning === false && pm.findings.some((f) => /daemon state: not running before/.test(f)) && l3.daemon.leftRunning === true && pm.findings.some((f) => /codex app-server daemon stop. before the B7/.test(f)));
         check('l3 probe: the status side effects are recorded', /no writes/.test(l3.beacon.status.sideEffects) && /4317/.test(l3.beacon.status.sideEffects));
-        check('l3 probe: no pin drift at the PINS.md versions', !pm.findings.some((f) => /pin drift/.test(f)) && l3.versions.pins.claude.differs === false && l3.versions.pins.codex.differs === false, JSON.stringify(pm.findings));
+        check('l3 probe: no VERSION WARNING at the PINS.md last tested versions', !pm.findings.some((f) => /VERSION WARNING|pin drift/.test(f)) && l3.versions.pins.claude.differs === false && l3.versions.pins.codex.differs === false, JSON.stringify(pm.findings));
         check('l3 probe: captures written clean, none fixture-shaped', pm.captures.length === 4 && pm.captures.every((c) => c.written && /^l3-/.test(c.file) && !/-herdr\./.test(c.file)), JSON.stringify(pm.captures.map((c) => [c.file, c.written])));
         check('l3 probe (L3c contract): accept policy, per-action/per-path counts, poll-path counts, probe session ids recorded', l3.acceptPolicy === 'driver' && l3.scan.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.scan.counts['claude-channel'].byAction['prompt.submitted'] >= 1 && l3.scan.counts['claude-channel'].tokenLines >= 1 && Object.keys(l3.scan.counts['codex-queue-add'].byPath).includes('prompt.text') && l3.beacon.sync.B4.counts['codex-queue-add'].markerLines >= 1 && l3.beacon.sync.B2.harness === 'claude' && l3.steps.B3.log.delta.counts['claude-channel'].byAction['mcp.tool_invoked'] === 1 && l3.probeSessions.claude.length === 1 && l3.probeSessions.codex[0] === l3.thread.id && l3.scan.bySession.filter((s) => s.markerIds.length).every((s) => [...l3.probeSessions.claude, ...l3.probeSessions.codex].includes(s.sessionId)), JSON.stringify({ counts: l3.scan.counts, probeSessions: l3.probeSessions }));
         check('l3 probe: typed text was only the reply prompt and the thread marker', probe.prompts.map((p) => p.text).sort().join('|') === [DEFAULT_REPLY_PROMPT, DEFAULT_THREAD_MARKER].sort().join('|'));
@@ -1099,7 +1101,7 @@ export async function l3Cases(check, h) {
     }
   }
 
-  // --- harness versions off PINS.md and a pre-existing daemon: findings, not stops ---
+  // --- harness versions off PINS.md (#216: VERSION WARNING) and a pre-existing daemon: findings, not stops ---
   {
     const w = l3World(h, { claudeCli: '2.1.999', codexVersion: '0.999.0' });
     try {
@@ -1110,7 +1112,7 @@ export async function l3Cases(check, h) {
       const p = w.drive('probe', ['--param', `baselineRun=${base.out}`, '--param', 'readSessionFile=false', '--param', 'beaconSyncTimeoutMs=1500'], { FAKE_BEACON_SYNC_SLEEP_MS: '6000' });
       const m = p.manifest;
       const l3 = m?.scenarioData?.l3;
-      check('l3 pin drift: PASS, with a pin-drift finding per harness; PINS.md is not edited', p.status === 0 && m.outcome === 'PASS' && m.findings.some((f) => /pin drift.*`claude --version` reports v2\.1\.999/.test(f)) && m.findings.some((f) => /pin drift.*`codex --version` reports v0\.999\.0/.test(f)) && l3.versions.pins.claude.differs && l3.versions.pins.codex.differs, `${p.status} ${m?.outcomeReason} ${JSON.stringify(m?.findings)}`);
+      check('l3 version drift (#216): PASS, with a VERSION WARNING per harness (CLI, daemon fields, wire); PINS.md is not edited', p.status === 0 && m.outcome === 'PASS' && m.findings.some((f) => /^VERSION WARNING \(L3\): `claude --version` reports v2\.1\.999/.test(f)) && m.findings.some((f) => /^VERSION WARNING \(L3\): `codex --version` reports 0\.999\.0/.test(f)) && m.findings.some((f) => /^VERSION WARNING \(L3\): `codex app-server daemon version` cliVersion reports 0\.999\.0/.test(f)) && m.findings.some((f) => /^VERSION WARNING \(L3\): the Codex wire initialize userAgent reports 0\.999\.0/.test(f)) && l3.versions.pins.claude.differs && l3.versions.pins.codex.differs && /^\d+\.\d+\.\d+$/.test(l3.versions.pins.claude.minimum ?? ''), `${p.status} ${m?.outcomeReason} ${JSON.stringify(m?.findings)}`);
       check('l3 pre-existing daemon: recorded as a finding, not a stop', l3?.daemon?.alreadyRunning === true && m.findings.some((f) => /ALREADY RUNNING/.test(f)));
       check('l3 readSessionFile=false: the session file is not read', l3?.sessionFile?.read === false);
       const dt = tryDraft({ baseline: { manifest: base.manifest }, probe: { manifest: m }, verify: null, priors: [], notes: {} }).text ?? '';

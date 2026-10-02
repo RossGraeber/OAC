@@ -18,9 +18,12 @@ is no fifth state, and there is no plain PASS when only the fallback path succee
 An agent that is unsure runs the spike further within the timebox, or records `NOT RUN` with
 the specific blocker — it does not write "probably passes" into the result and move on.
 
-Gates are re-run whenever a pinned provider version changes (PLANNING-PROMPT.md §4, Epic D
-body). A pin move invalidates the prior verdict: the `docs/planning/STATUS.md` row for that
-gate reverts to `NOT RUN` until the gate is re-run against the new pin.
+A move of a fixed pin (MCP revision, `rmcp`, Zenoh, Rust toolchain) invalidates the gates
+its row names: the `docs/planning/STATUS.md` row reverts to `NOT RUN` until re-run.
+**Harness versions are not pins (#216, 2026-10-01).** Claude Code and Codex (CLI, wire,
+daemon) float: PINS.md records a minimum and a last tested version. A different version, or
+one below the minimum, is a warning: it never stops a run, never makes it `NOT RUN`, never
+blocks CI and never by itself invalidates a verdict. Record the version the gate ran on.
 
 ## Gate-result template
 
@@ -38,8 +41,8 @@ assembled from the five `G<n>-result.md` files when Epic A writes the output pac
 ### G<n> <name>
 
 - **Gate id:** G<n>
-- **Pinned version(s):** <exact versions the spike ran against, e.g. Claude Code v2.1.232,
-  Codex 0.154.0, Zenoh 1.10.1 — never "latest">
+- **Pinned version(s):** <exact versions the spike ran against, e.g. Claude Code v2.1.285,
+  Codex 0.159.3, Zenoh 1.10.1 — never "latest">
 - **Date:** <YYYY-MM-DD the spike ran>
 - **Timebox:** <box set> / <elapsed; expired or not>
 - **Command transcript summary:** <what was run and observed, condensed; full transcript, if
@@ -70,7 +73,7 @@ not extend it mid-spike.
 - The gate verdict becomes the honest one given what was confirmed: `FAIL` if a go/no-go
   criterion is unmet on every path attempted, `PASS (FALLBACK TAKEN)` if only the fallback
   path was confirmed within the box, `NOT RUN` if the spike could not even be executed
-  (blocked on an external dependency, missing pin, etc.), never a plain `PASS` on an
+  (blocked on an external dependency, etc.; never a harness version), never a plain `PASS` on an
   incomplete run.
 - **An expired timebox is a result, not a licence to keep going or to guess.** Extending
   "just a little more" or writing a passing verdict because the remaining criteria "should"
@@ -190,7 +193,7 @@ recurring mistakes that cost G2 and G4 three review rounds each.
   criteria this skill's references are built from.
 - `docs/planning/STATUS.md` — current gate verdicts (today: all `NOT RUN`) and pins.
 - `docs/planning/gates/README.md` — the evidence-store naming convention, the extended
-  gate-result template, and the pin-move re-run/invalidation policy.
+  gate-result template, and the pin-move re-run/invalidation policy (harness rows exempt).
 - `oac-boundaries`, `oac-evidence` — guardrail content, not restated here.
 - `references/writeup-pitfalls.md` — review-round pitfalls for gate write-ups, one entry
   per recurring mistake.

@@ -103,10 +103,28 @@ The run ends `NOT RUN`, never `FAIL` and never a pass, when:
   `agent_prompt_stalled`);
 - the timebox expires;
 - the operator aborts (a signal);
-- `herdr --version` differs from the pin, or the pin cannot be read;
-- a scenario preflight stops the run. Example: G1's Claude Code version differs from the
-  PINS.md last-observed version. That is a pin-move trigger, and nothing in PINS.md is
-  edited.
+- `herdr --version` differs from the pin, or the pin cannot be read (herdr is test tooling
+  with a fixed pin; #216 does not cover it);
+- a scenario preflight stops the run, for example a harness CLI that cannot be run at all.
+
+**A harness version never stops a run (operator decision on #216, 2026-10-01).** Claude
+Code and Codex versions float. PINS.md records a minimum and a last tested version for
+each. When the CLI, the wire or the Codex daemon reports another version, or one below the
+minimum, the scenario records a `VERSION WARNING` finding (`claudeVersionWarning` /
+`codexVersionWarning`, `tools/herdr/lib/pins.mjs`) and goes on. The warning never makes the
+run `NOT RUN`, never fails a CI job and never by itself invalidates a verdict. The run does
+not edit PINS.md: after a live run, the operator records the version there as last
+tested. Captures are named after a version only when every source of one harness reports
+the same version, so that a fixture names one version. Otherwise they stay `unverified-*`
+and the run still goes on. A PINS.md harness row that cannot be read (malformed or
+missing) is a `VERSION WARNING` too (`pinsReadWarning`), never a stop.
+
+**Mixed versions within a run (operator decision on #216, 2026-10-01).** When a harness's
+CLI, wire or daemon disagree, or a version changes mid-run, the report generators'
+`--write` still writes the `herdr-runs/` record and its run manifest, with a
+`VERSION WARNING` finding. The captures stay `unverified-*`, and no fixture and no
+`MANIFEST.json` draft entry is produced, because a fixture names one version. *Superseded text, kept as history:* "Example: G1's Claude Code
+version differs from the PINS.md last-observed version. That is a pin-move trigger."
 
 A scenario that catches a timeout and returns normally is still `NOT RUN`. So is a
 scenario that fails after a timeout. A `NOT RUN` run makes every criterion
@@ -370,10 +388,14 @@ An operator never ticks a line that calls a driver accept their own.
   - run outcome `PASS`;
   - `herdr.observedVersionOutput` equals the current PINS.md `herdr (test tooling)` pin;
   - `driver.toolsHerdrDirty` is `false`;
-  - it ran on the same harness version(s) as the human run it compares against, which
-    was the verdict-bearing run of G<n> when the record was made, verified on both the
-    CLI and the wire (G1: `versionsVerified`). A later pin move that makes that human run
-    non-verdict-bearing does not undo the record's basis;
+  - it records the harness version(s) it ran on, each verified as one version across the
+    CLI and the wire (G1: `versionsVerified`). The human run it compares against is the
+    verdict-bearing run of G<n> when the record was made. Since #216 a harness version
+    other than that run's, or other than PINS.md's last tested one, is listed under
+    "Findings" as a `VERSION WARNING`. It does not by itself disqualify the record:
+    equivalence across harness versions is allowed, and the difference is a finding
+    (operator decision on #216, 2026-10-01). Every report lib states this in its
+    Findings. (Until 2026-10-01 the same harness version as the human run was required.);
   - every pass criterion of G<n> is scored `equivalent`: none `not equivalent`, none
     `not evaluable`, and every operator score carries its note;
   - a criterion that is a consent step (G1 criterion 5) was met by a human accept; other
@@ -440,6 +462,9 @@ An operator never ticks a line that calls a driver accept their own.
 - [ ] Every other dialog accept is rendered as the manifest records it: `driver` with
       its keys, or `human` (inferred). Never a driver accept written up as a human's.
 - [ ] Earlier `NOT RUN` or `FAIL` runs at the same pins are listed under Findings.
+- [ ] Any `VERSION WARNING` (harness version not PINS.md's last tested one, or below its
+      minimum) is listed under Findings, and is never the reason for a `NOT RUN` (#216).
+      After a live run, PINS.md's last tested version is updated in a separate change.
 - [ ] `driver.toolsHerdrDirty` is `false` before `g1-report.mjs --write` puts anything
       into the repository.
 - [ ] `g1-report.mjs --write` output reviewed. The `manifest-entries.draft.json` entries
