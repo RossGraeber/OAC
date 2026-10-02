@@ -285,10 +285,52 @@ export function sanitizeG4Transcript(text) {
 
 // After redaction: does a capture still hold exactly the placeholders the sanitizer put in, and
 // no fragment of the identifier (a pane line wrapped mid-identifier escapes the sanitizer)?
+//
+// #148: a wrapped copy is never replaced by the sanitizer, so redaction may then rewrite the
+// unbroken side of the wrap (username `github` with the break inside `oac-session-channels`, or
+// `session` with the break inside `io.github.`), leaving neither anchor intact in the raw text.
+// So the fragment check also runs on the capture with line breaks (CRLF included), other
+// whitespace and box-drawing pane borders removed, and there it also accepts any redaction
+// placeholder (`<USER>`, `<HOST>`, `<USER_HOME>`, `<WITHHELD: ...>`) standing in for any run of
+// the identifier's characters. Fail closed: a redacted near-copy is a fragment, never a pass.
 const EXT_FRAGMENT = /oac-session-channels|io\.github\./i;
+const PANE_GLUE = /[\s─-╿]+/gu;
+const REDACTION_TOKEN = /^<[A-Z][A-Z_]*(?::[^<>\n]*)?>/;
+// Fewest identifier characters that must appear literally around the placeholders for a
+// near-copy to count, so a bare `<USER>` elsewhere in a pane is never taken for the identifier
+// (`io.<USER>` and `<USER>/oac-` already carry this many).
+const MIN_LITERAL = 3;
+function redactedNearCopy(s) {
+  const id = OAC_EXT.toLowerCase();
+  const t = s.toLowerCase();
+  const tokenAt = (tp) => (s[tp] === '<' ? REDACTION_TOKEN.exec(s.slice(tp, tp + 120))?.[0].length ?? 0 : 0);
+  // Does the text from tp match id[ip..], each placeholder standing for one or more identifier
+  // characters, with at least MIN_LITERAL literal characters overall?
+  const memo = new Map();
+  const go = (tp, ip, lit) => {
+    if (ip === id.length) return lit >= MIN_LITERAL;
+    const key = `${tp},${ip},${Math.min(lit, MIN_LITERAL)}`;
+    if (memo.has(key)) return memo.get(key);
+    let ok = tp < t.length && t[tp] === id[ip] && go(tp + 1, ip + 1, lit + 1);
+    const len = ok ? 0 : tokenAt(tp);
+    for (let k = ip + 1; len && !ok && k <= id.length; k++) ok = go(tp + len, k, lit);
+    memo.set(key, ok);
+    return ok;
+  };
+  for (let tp = 0; tp < t.length; tp++) {
+    // A near-copy can begin with a placeholder standing for the identifier's head.
+    if (tokenAt(tp)) { for (let k = 0; k < id.length; k++) if (go(tp, k, 0)) return true; }
+    else if (t[tp] === id[0] && go(tp, 0, 0)) return true;
+  }
+  return false;
+}
 export function placeholderIntegrity(text, expected) {
   const s = String(text ?? '');
-  const found = s.split(OAC_EXT_PLACEHOLDER).length - 1;
-  const fragment = EXT_FRAGMENT.test(s.split(OAC_EXT_PLACEHOLDER).join(''));
+  const parts = s.split(OAC_EXT_PLACEHOLDER);
+  const found = parts.length - 1;
+  // A NUL keeps the text either side of a placeholder from joining into a false near-copy.
+  const rest = parts.join('\u0000');
+  const glued = rest.replace(PANE_GLUE, '');
+  const fragment = EXT_FRAGMENT.test(rest) || EXT_FRAGMENT.test(glued) || redactedNearCopy(glued);
   return { expected, found, fragment, ok: found === expected && !fragment };
 }
