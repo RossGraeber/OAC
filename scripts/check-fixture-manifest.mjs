@@ -203,7 +203,8 @@ function identityProblems(run, entry, root, name, warn) {
     if (!HEX64.test(cap.sha256 ?? '')) out.push(`the run manifest records no sha256 for capture ${name}`);
     else {
       const bytes = committedBytes(root, entry.path);
-      if (bytes && sha256(bytes) !== cap.sha256) out.push(`the committed bytes of ${name} differ from the run manifest's capture sha256; this file is not that run's capture`);
+      if (!bytes) out.push(`cannot read the committed bytes of ${name} to check them against the run manifest's capture sha256`);
+      else if (sha256(bytes) !== cap.sha256) out.push(`the committed bytes of ${name} differ from the run manifest's capture sha256; this file is not that run's capture`);
     }
   }
   return out;

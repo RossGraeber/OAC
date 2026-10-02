@@ -68,19 +68,27 @@ listed as a finding in a later record. Its captures are never committed as fixtu
 checker refuses the entries, and `g1-report.mjs --write` does not check this, so do not
 `--write` such a run. It is never an equivalence record and never verdict-bearing.
 
-**Executables and capture hashes (#140).** The driver resolves herdr once (on `PATH`, or
-`--herdr-bin`) and spawns that absolute path, so `herdr.executable` is the file that ran:
+**Executables and capture hashes (#140).** The driver resolves herdr once (on `PATH`,
+absolute entries only, or `--herdr-bin`) and spawns only that absolute path; a herdr it
+cannot resolve is `NOT RUN` before anything is spawned, never spawned by bare name.
+`herdr.executable` is the file resolved and hashed at run start, re-hashed at teardown
+(`unchangedAfterRun`; a change is a finding):
 `basename`, `realBasename` (after symlinks), `sha256`, `bytes`, `format` (`elf`, `pe`,
 `mach-o`, `script` or `unknown`, by magic bytes), `runUnderNode` and `testDouble` (true for
 a `.mjs` `--herdr-bin` run under node, i.e. `tools/herdr/test/fake-herdr.mjs`). Each harness
 the scenario declares is resolved on the driver's `PATH`, `<harness> --version` is run on
-that resolved file, and `harnessExecutables.<harness>` records the same fields for it.
+that resolved file (on Windows a `.exe` directly, anything else through
+`%SystemRoot%\System32\cmd.exe /d /v:off` by full path), and `harnessExecutables.<harness>`
+records the same fields for it.
 Directories are never recorded, only basenames, so no home path or user name enters the
 manifest. On Windows that is the PATHEXT match (`claude.exe`, an npm `.cmd` shim, ...); for
 a Codex standalone install it is the managed binary its launcher directory links to, under
 `$CODEX_HOME/packages/`. Under a harness config directory only a file named for the
 command itself is ever read; anything else there is recorded unhashed (ADR-001 boundary
-3). Each written capture records the `sha256` of its redacted bytes.
+3). The config directory is compared as spelled and never touched, so if it (or `$HOME`) is
+reached through a symlink or junction, a `PATH` link landing on a non-command file in its
+real location is hashed, not refused (known limit; only a sha256 is recorded). Each
+written capture records the `sha256` of its redacted bytes.
 
 **What the record cannot show.** The harness that a pane starts is looked up by the pane
 shell, whose startup files may change `PATH`, so `harnessExecutables` is what answered
@@ -92,7 +100,9 @@ test double that accepts its own dialog records the same thing. `acceptOrigin: d
 contrast, is observed: every key the driver sent is a `dialog-accept` command in the run's
 command log (#196). These facts rest on the operator attestation below. A `schemaVersion` 1
 run manifest (before #140, e.g. `G1-2026-09-29`) records no executables or capture hashes
-at all.
+at all, and the checker only WARNs on it. A hand edit to `schemaVersion: 1` would downgrade
+every #140 refusal to that WARN; refusing a v1 manifest whose `driver.commit` postdates
+#140 is an optional tightening, not done (any run manifest is forgeable by hand).
 
 ## Timebox
 

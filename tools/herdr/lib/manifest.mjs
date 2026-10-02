@@ -207,6 +207,12 @@ export async function herdrIdentity(resolved, { env = process.env } = {}) {
   return { ...id, runUnderNode: resolved.runUnderNode, testDouble };
 }
 
+// %SystemRoot%\System32\cmd.exe from the env (case-insensitive key), or null.
+export function windowsCmd(env = process.env) {
+  const root = Object.entries(env).find(([k]) => k.toUpperCase() === 'SYSTEMROOT')?.[1];
+  return root && win32.isAbsolute(root) ? win32.join(root, 'System32', 'cmd.exe') : null;
+}
+
 // One harness `--version` probe: resolve the name on PATH, run `--version` on the resolved
 // file (win32: a .exe/.com directly, anything else through cmd.exe with a quoted path), and
 // hash that same file. Bounded; a missing binary is recorded as N/A, never guessed.
@@ -218,7 +224,13 @@ async function probeHarness(h, { env, deadlineMs }) {
   let verbatim = false;
   if (process.platform !== 'win32' || /\.(?:exe|com)$/i.test(path)) [file, args] = [path, ['--version']];
   else if (/["%]/.test(path)) return { version: 'N/A (not runnable: path not safe to pass to cmd.exe)', path };
-  else [file, args, verbatim] = ['cmd.exe', ['/d', '/s', '/c', `""${path}" --version"`], true];
+  else {
+    // cmd.exe by full path (a bare name would be searched in the cwd first); /d no AutoRun,
+    // /v:off no delayed expansion (a `!` in the path stays literal).
+    const comspec = windowsCmd(env);
+    if (!comspec) return { version: 'N/A (not runnable: SystemRoot is not set, so cmd.exe cannot be located)', path };
+    [file, args, verbatim] = [comspec, ['/d', '/v:off', '/s', '/c', `""${path}" --version"`], true];
+  }
   const r = await runBounded(file, args, { deadlineMs, env, windowsVerbatimArguments: verbatim });
   const version = r.spawnError || r.exitCode !== 0 ? `N/A (${r.spawnError ? `not runnable: ${r.spawnError}` : r.timedOut ? 'timed out' : `exit ${r.exitCode}`})` : r.stdout.trim().split('\n')[0];
   return { version, path };

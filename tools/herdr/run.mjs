@@ -175,13 +175,15 @@ async function runScenarioInner(opts, state) {
     writeFileSync(configPath, HERDR_RUN_CONFIG);
     const launchEnv = herdrLaunchEnv(process.env, configPath);
     herdrEnv = launchEnv.env;
-    // The herdr executable is resolved once, here, and spawned by that absolute path, so the
-    // hash the manifest records is of the file that ran (#140). Unresolvable: spawned as given,
-    // which then fails as NOT RUN.
+    // The herdr executable is resolved once, here, and spawned only by that absolute path
+    // (#140): the manifest hashes the file resolved at run start, and re-hashes it at teardown.
+    // A bare name is never spawned (a spawn's own PATH search could find a file the resolver
+    // skipped, e.g. via a relative PATH entry or, on win32, the cwd): an unresolved herdr is
+    // NOT RUN before anything is spawned (body()).
     const herdrCmd = herdrCommand(opts.herdrBin);
     herdrResolved = resolveHerdr(herdrCmd, { env: herdrEnv });
     herdr = new HerdrSession({
-      herdrCmd: herdrResolved.path && !herdrResolved.runUnderNode ? [herdrResolved.path] : herdrCmd,
+      herdrCmd: herdrResolved.runUnderNode ? herdrCmd : [herdrResolved.path ?? '<unresolved herdr; never spawned>'],
       sessionName,
       env: herdrEnv,
       cwd: scratch,
@@ -337,6 +339,7 @@ async function runScenarioInner(opts, state) {
   const body = async () => {
     // Which herdr executable runs (#140): recorded first, whatever the run's outcome.
     manifest.herdr.executable = await herdrIdentity(herdrResolved, { env: herdrEnv });
+    if (!herdrResolved.path) throw new NotRunError('herdr executable not resolved (on PATH, absolute entries only, or --herdr-bin); nothing spawned');
     // The pin comes from PINS.md as committed at HEAD, never the working tree. An uncommitted
     // edit to the herdr row refuses the run; any other uncommitted PINS.md edit is a finding
     // only (#139; harness versions are never gated, #216).
@@ -436,6 +439,14 @@ async function runScenarioInner(opts, state) {
       manifest.teardown = { clean: true, note: 'no herdr session was started' };
     }
     manifest.session.panePids = [...herdr.panePids.keys()];
+    // #140: the herdr file hashed at run start must still hash the same after the run; a
+    // change (the file replaced mid-run) is a finding and the recorded hash is not the one
+    // that necessarily ran.
+    if (manifest.herdr.executable?.sha256) {
+      const after = await herdrIdentity(herdrResolved, { env: herdrEnv });
+      manifest.herdr.executable.unchangedAfterRun = after.sha256 === manifest.herdr.executable.sha256;
+      if (!manifest.herdr.executable.unchangedAfterRun) manifest.findings.push('the herdr executable changed during the run (its sha256 at teardown differs from run start); herdr.executable.sha256 is not necessarily the file that ran');
+    }
     Object.assign(manifest.timebox, {
       end: iso(scenarioEnd),
       elapsedMs: scenarioEnd - timeboxStart,
