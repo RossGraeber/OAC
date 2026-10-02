@@ -28,7 +28,7 @@ oac doctor
 Neutral types should include `SessionIdentity`, `SessionDescriptor`, `SessionCapabilities`, `ChannelMessage`, `DeliveryReceipt`, `PresenceRecord`, `SecurityPrincipal`, and authorization decisions.
 
 ### OAC Session Channels specification, packaged as an MCP extension
-Defines extension/version negotiation, session addressing, capabilities, message envelope, active-delivery semantics, replies/correlation, presence/discovery, acknowledgements/errors, identity/security, and unsupported-capability behavior. The MCP extension packaging covers capability negotiation, the tool surface, and provenance metadata only; MCP is not the delivery mechanism (ADR-001-A3).
+Defines extension/version negotiation, session addressing, capabilities, message envelope, active-delivery semantics, replies/correlation, presence/discovery, acknowledgements/errors, identity/security, and unsupported-capability behavior. The MCP extension packaging covers capability negotiation, the tool surface, and `_meta` provenance only; MCP is not the delivery mechanism (ADR-001-A3).
 
 Normative concept: **a harness advertising active inbound OAC Session Channels support accepts an authorized external channel message as input to the addressed live session without application-level polling.**
 

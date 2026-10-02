@@ -61,7 +61,7 @@ Stage 0's own epic rather than being a stage of their own.
 | 1 | Provider and transport spikes | D | M2 | **G1-G5** (`02-gating-findings.md` §3-§7), published by D7 | G1 no; G2 yes; G3 yes; G4 yes; G5 no |
 | 2 | Normative spec v0.1 | E | M3 | **Gate S2** — interface freeze (E7) plus conformance fixture set (E8) | N/A (internal gate) |
 | 3 | Core and fakes | F | M4 | **Gate S3** — CI default tier green with no live provider, no API key, no network beyond loopback (F12) | N/A (internal gate) |
-| 4 | Adapters and Zenoh transport | G | M5 | **Gate S4** — contract suites pass unchanged on real modules; provider integration passes on pinned versions behind opt-in | N/A (internal gate) |
+| 4 | Adapters and Zenoh transport | G | M5 | **Gate S4** — contract suites pass unchanged on real modules; provider integration passes behind opt-in, each test recording the version it ran on (harness versions float, #216) | N/A (internal gate) |
 | 5 | End-to-end and threat verification | H | M6 | **Gate S5** — every DESIGN acceptance criterion 1-10 and every `06-security.md` §14 mitigation maps to a passing test or is declared a gap (H5) | N/A (internal gate) |
 | 6 | Release hygiene | I | M7 | **Gate S6** — release checklist complete, gates re-run against shipped pins | N/A (internal gate) |
 
@@ -243,7 +243,8 @@ against the evidence as it stands on that date. Each criterion:
 3. **Every UNVERIFIED item is in the STATUS ledger — holds after #228.** The rows
    classified under criterion 2, and the ACP literal-`protocolVersion` item from
    `docs/planning/PINS.md`, are added to `docs/planning/STATUS.md` "Open UNVERIFIED
-   items" as one grouped entry dated 2026-10-02. The other UNVERIFIED items in `PINS.md`
+   items" as one grouped entry dated 2026-10-02, mirrored in
+   `docs/planning/v0.1/11-risks.md` as RISK-B2-CARRIED (`oac-evidence` §5). The other UNVERIFIED items in `PINS.md`
    and `REVERIFICATION-B2.md` were already listed there. This criterion is satisfied by
    listing, not closing.
 4. **Every conflict-register entry is resolved or has a named owner — holds after
@@ -253,8 +254,10 @@ against the evidence as it stands on that date. Each criterion:
    `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open. C11 is
    `ASSIGNED`; its module name is owned by the Epic F/G adapter implementation (#6, #7,
    both open; `docs/planning/decisions/C4-session-identity.md` §16). C5 is `ASSIGNED`.
-   The tasks it named before (D4, C2, C3) are closed, so #228 names #65 and #70 as its
-   live owners, with a dated note on both register rows.
+   The tasks it named before (D4, C2, C3) are closed, so #228 names live owners, with a
+   dated note on both register rows. #46 (E6, the MCP extension binding document, whose
+   acceptance describes legacy- and current-era behaviour citing G4) owns the resolution,
+   and #65 (G4) owns the legacy-era runtime leg against real Claude Code.
 5. **The re-run/invalidation policy exists and is mechanical — holds.** It is
    `docs/planning/gates/README.md` "Re-run/invalidation policy", together with the
    `docs/planning/PINS.md` "Pin-move checklist". A pin move invalidates the gates in that
@@ -618,17 +621,25 @@ no `zenohd`), decision 2 (process model, for the daemon and IPC work in G9), dec
 
 - Real `transports/zenoh/`, `adapters/claude/`, `adapters/codex/`, and `cli/` modules
   passing the frozen contracts.
-- Provider integration tests passing against the exact pinned versions, behind an explicit
-  opt-in target, each naming its pin string rather than "latest"
-  (`docs/planning/v0.1/09-test-strategy.md` §4).
+- Provider integration tests passing behind an explicit opt-in target, each recording the
+  exact version string it ran against, never "latest". Fixed rows run at their pins; the
+  floating Claude Code and Codex rows run on the installed version, and a version other
+  than the last tested one, or below the minimum, is a `VERSION WARNING` that never gates
+  (#216; `docs/planning/PINS.md` "Version policy"; `docs/planning/v0.1/09-test-strategy.md`
+  §4). *(Dated note, 2026-10-02, #228: this bullet said "against the exact pinned
+  versions … each naming its pin string rather than "latest"" before #216.)*
 - The per-harness launch documentation and scripts (G11).
 
 **Gate S4 — acceptance criteria.**
 
 1. The contract suites pass on the real modules **without modification** — a suite edited
    to make a real module pass is a contract change, therefore a Stage 2 freeze violation.
-2. Provider integration tests pass on the pinned versions, and each names the exact pin
-   string it ran against.
+2. Provider integration tests pass, and each records the exact version string it ran
+   against: the pin for a fixed row; for the floating Claude Code and Codex rows, the
+   installed version, with a `VERSION WARNING` (never a failure) when it differs from the
+   last tested version or is below the minimum (#216). *(Dated note, 2026-10-02, #228: this
+   criterion said "pass on the pinned versions, and each names the exact pin string it ran
+   against" before #216.)*
 3. The Zenoh-containment lint passes: no Zenoh type, `zid`, key expression, or liveliness
    term appears outside `transports/zenoh/`. The lint's recorded scope gap — no
    `snake_case`-embedded `zid`/`zenoh` match, and no coverage of `adapters/` or `cli/` —
@@ -656,8 +667,12 @@ harness's provider credentials"), not a test failure to be triaged.
 **Entry criteria.**
 
 - Gate S4 met (§8).
-- Real Claude Code and real Codex, at their pinned versions, are installable on each of
-  Windows, macOS, and Linux — the validation criterion is executed on all three.
+- Real Claude Code and real Codex are installable on each of Windows, macOS, and Linux —
+  the validation criterion is executed on all three. Their versions float (#216): the
+  installed version is used, and a version other than the last tested one, or below the
+  minimum, is a `VERSION WARNING` that never gates; each run records the version it ran
+  on. *(Dated note, 2026-10-02, #228: this bullet said "at their pinned versions" before
+  #216.)*
 - `docs/planning/v0.1/06-security.md` §14's twenty-three-row threat table exists as the
   checklist H2, H3, and H5 verify against.
 

@@ -495,6 +495,38 @@ list.
   (`REVERIFICATION-B2.md` §3.3); rename the extension identifier only if a
   conflict is actually found.
 
+### RISK-B2-CARRIED — §3 facts carried, not re-checked against the pin (#228)
+
+*(Added 2026-10-02, #228, for Gate S0 criterion 3.)*
+
+- **Risk.** Thirteen B2 rows carried a `docs/planning/PLANNING-PROMPT.md` §3
+  fact as "Carried unchanged" or "PARTIAL", without re-checking it against the
+  pin. Under `oac-evidence` §5 they are UNVERIFIED. They cover Codex background
+  facts (the `codex queue` flag spelling, UUIDv7 thread ids surviving restarts,
+  the unsupported rollout surface, hooks/`notify` being unable to originate a
+  turn, Unix-socket peer-validation semantics), Zenoh background facts
+  (licensing, the stable API, the binding matrix, the attribution of the
+  loopback fix to PR #2671, the §3.4 multi-fact row) and ACP protocol version
+  `1`. The full list is `docs/planning/REVERIFICATION-B2.md` "S0
+  classification note (2026-10-02, #228)" and the grouped `docs/planning/STATUS.md`
+  "Open UNVERIFIED items" entry from the Gate S0 check. Three of the rows
+  (`codex mcp-server` dates, no SEP, ACP schema v2) are also tracked by their
+  own entries, RISK-CODEX-MCP-DATES, RISK-SEP and RISK-ACP.
+- **What it invalidates.** Nothing load-bearing in v0.1. None of these facts is
+  a G1-G5 pass criterion. The behaviours v0.1 depends on are evidenced
+  separately: loopback discovery by G3 at Zenoh `1.10.1`, and `thread/queue/add`'s
+  method and params at Codex `0.157.1` (REVERIFICATION-B2.md, `0.157.1` table
+  fact 4). ACP is not a v0.1 dependency. A wrong fact here would misstate
+  background in the package, not break a gate.
+- **Early-warning signal.** A Stage 3 or Stage 4 task comes to rely on one of
+  these facts, for example the Codex adapter depending on thread-id stability
+  across restarts, or the license inventory (#79) needing Zenoh's license. A
+  first-party source contradicting one of them is another signal.
+- **Response.** Re-check the fact against the current pin with a first-party
+  citation before any task relies on it (`oac-evidence` §5 promotion
+  procedure). Then close or narrow it in STATUS.md and in the B2 note in the same
+  change. This entry gates nothing.
+
 ### RISK-BIN-SIZE — Zenoh binary size estimate unmeasured
 
 - **Risk.** The 5-15 MB Zenoh binary size figure is a derived estimate, not a
@@ -677,7 +709,8 @@ listed in STATUS.md's "Open UNVERIFIED items" as one L1 entry. L2 (issue #167,
 row 53 with live evidence (L1 §13), so no row 53-56 entry stays listed in STATUS.md.
 Like rows 32 and 40, rows 53-56 are closed and cite their own closing evidence. Row 53
 also keeps `RISK-BEACON` in its closing cell, because the capture it confirmed is still
-an open risk.
+an open risk. Row 57 was added 2026-10-02 (#228): the grouped Gate S0 entry for the
+B2 rows classified UNVERIFIED, under `RISK-B2-CARRIED`.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -737,6 +770,7 @@ an open risk.
 | 54 | The exact shape and stability of Beacon's memory item ID and of `get_memory` / `get_memory_context` results across releases (from L1, issue #166, L1 §6 U2) | **CLOSED** — CONFIRMED by L2 (issue #167, 2026-09-29, L1 §11 item 2): ID is `memory_` + 32 hex chars, a truncated SHA-256 over project ID, candidate ID, kind and title (`cli/beacon/internal/learning/store.go@v1.3.29` L694-701); `get_memory` returns `LearningMemoryV1` with `schema_version` `beacon.learning.v1` (`pkg/asymptoteobserve/learning.go@v1.3.29` L3, L108-122); `search_memory` / `get_memory_context` summaries carry no version field (`cli/beacon/internal/mcpserver/server.go@v1.3.29` L80-99). Retrieved 2026-09-29. Not an OAC dependency (L1 §4 Q1). RISK-BEACON stays open for row 53 and the fast-moving pin |
 | 55 | Whether one Beacon `memory.db` can be read by several harness sessions concurrently without a documented locking model (from L1, issue #166, L1 §6 U3) | **CLOSED** — CONFIRMED by L2 (issue #167, 2026-09-29, L1 §11 item 3): SQLite via `modernc.org/sqlite` `v1.59.0`, `PRAGMA journal_mode=WAL` and `busy_timeout=5000` on every per-call connection, single-statement upserts (`cli/beacon/internal/learning/store.go@v1.3.29` L14, L65-92, L569-595); MCP memory tools are read-only. No Beacon doc states the model, so it is re-read on every pin move. Retrieved 2026-09-29 |
 | 56 | Whether Beacon's Codex integration (`beacon endpoint install` writes OTLP exporter tables to `~/.codex/config.toml`; hooks to `~/.codex/hooks.json`; `beacon mcp connect` edits one `beacon-managed` entry) conflicts with OAC's Codex adapter launch (from L1, issue #166, L1 §6 U4) | **CLOSED** — REFUTED by L2 (issue #167, 2026-09-29, L1 §11 item 4): Beacon replaces only `[otel]` / `[otel.*]` in `config.toml` and copies every other recognised table through (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L464-503); edge case: its line merge recognises a header only when the trimmed line starts with `[` and ends with `]` (L471-485), so a header with a trailing comment (e.g. `[mcp_servers.oac] # x`) directly after an `[otel]` section is dropped with its keys — not OAC's planned path, which registers `oac` with `codex mcp add` rather than by hand (not source-checked against Codex; L1 §12 B1 checks it), writes only `env` keys and its own hooks in Claude `settings.json` (same file L359-397; `cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205), and names its servers `beacon` / `beacon-managed`; no write touches a server named `oac` or the `--dangerously-load-development-channels` launch. Side effect recorded: user-level `log_user_prompt = true` also applies to OAC-launched Codex (feeds row 53). Retrieved 2026-09-29. **L3 live check (issue #192, 2026-10-01, L1 §13):** no collision seen. With Beacon `1.3.29` installed, the Claude development-channel launch connected its server, and Codex `0.159.3` took `turn/start` and `thread/queue/add` input on a daemon-loaded thread. The operator's `config.toml` had no trailing-comment headers. B1 itself was NOT RUN (operator decision on #168). The only B0-to-B7 config differences were Codex's own folder-trust entry in `config.toml` (`[projects.…]`, section diff) and a `~/.claude.json` change attributed, by inference, to Claude Code's own trust write (#206; content not read, and the orchestrating Claude Code session also writes that file); neither is a Beacon write |
+| 57 | B2 rows carried from §3 without a re-check against the pin ("Carried unchanged" or "PARTIAL"), classified UNVERIFIED for Gate S0 (#228, 2026-10-02; `docs/planning/REVERIFICATION-B2.md` "S0 classification note"). Listed in STATUS.md as one grouped entry | RISK-B2-CARRIED |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

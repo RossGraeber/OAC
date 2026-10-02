@@ -13,7 +13,8 @@ stage; C12 closed; K6 deferred past v0.1.** In this change:
   - B2's "Carried unchanged" and "PARTIAL" rows are classified UNVERIFIED and listed in
     the ledger below (`REVERIFICATION-B2.md` "S0 classification note");
   - C12 is closed by renaming `DESIGN.md`;
-  - C5's open legs get live owners, #65 and #70.
+  - C5 gets live owners: #46 (E6, MCP binding, legacy and current era) for the
+    resolution, and #65 (G4) for the legacy-era runtime leg.
 - **"Current stage"** now reads Stage 1, entered, with exit D7 #40. It said "Pre-Stage 0",
   which had been stale since Epic A closed on 2026-09-17.
 - **C12 (`RESOLVED-HERE`, applied by #228).** `DESIGN.md` is renamed in place, each edit
@@ -1156,10 +1157,11 @@ states or that are inferred/stale). Closed when the named resolution lands.
   support". The pre-rename text is in `DESIGN.md`'s closing "Naming note". Both register
   rows now read `RESOLVED-HERE — applied 2026-10-02 (#228)`.
 - C5 (dated note, 2026-10-02, #228): the register row stays `ASSIGNED`. The tasks it named
-  (D4 #37, C2 #14, C3 #16) are closed, so the open legs get live owners: #65 for the first
-  `rmcp`-based legacy-era channel run against real Claude Code, and #70 for the daemon and
-  MCP shims carrying the dual-era surface. Codex's default client era stays under RISK-G4
-  (`docs/planning/v0.1/11-risks.md` row 41).
+  (D4 #37, C2 #14, C3 #16) are closed, so it gets live owners: #46 (E6, the MCP extension
+  binding document, whose acceptance requires legacy- and current-era behaviour described
+  with the G4 result cited) for the resolution, and #65 (G4) for the first `rmcp`-based
+  legacy-era channel run against real Claude Code. Codex's default client era stays under
+  RISK-G4 (`docs/planning/v0.1/11-risks.md` row 41).
 - C13 (new, from G5, issue #38/D5, 2026-09-27): `docs/planning/decisions/
   C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name
   the forged id as the sender in part (1) of its answer against a forged block using a
@@ -1216,7 +1218,8 @@ without an UNVERIFIED label.
     (`PINS.md` "ACP").
 
   None of these is a G1-G5 pass criterion, and ACP is not a v0.1 dependency. They stay
-  open until re-checked against a pin. This entry gates nothing.
+  open until re-checked against a pin. This entry gates nothing. Risk entry:
+  RISK-B2-CARRIED in `docs/planning/v0.1/11-risks.md` (`oac-evidence` §5).
 
 - **New, from C13 (issue #220, 2026-10-02):** at `openai/codex` `rust-v0.159.3`, a
   `turn/start` sent while a turn is active steers that turn (`start_or_steer_turn` →
