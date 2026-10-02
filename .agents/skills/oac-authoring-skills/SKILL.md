@@ -122,6 +122,10 @@ description: Trigger-rich one-or-two-line summary naming what it holds and when 
 - Tables for routing/matrix data, numbered lists for procedures, `- [ ]` for
   checklists. Plain prose, decisions not options, no emoji, no "this document
   describes...".
+- **Every** edit under `.claude/skills/` or to `CLAUDE.md`: run
+  `node scripts/sync-agents-skills.mjs` to regenerate the Codex copy
+  (`.agents/skills/`, `AGENTS.md`) and commit it. Never hand-edit the copy;
+  CI runs `--check` and fails on drift.
 
 ## 7. Surface skills: the pin section
 
@@ -164,9 +168,6 @@ Stage 0 closes:
       by a label.
 - [ ] Run `node scripts/check-skills.mjs` (or wait for CI once wired) before
       calling it done.
-- [ ] After any edit under `.claude/skills/` or to `CLAUDE.md`, run
-      `node scripts/sync-agents-skills.mjs` to regenerate the Codex copy
-      (`.agents/skills/`, `AGENTS.md`); never hand-edit it. CI runs `--check`.
 
 ## 9. Checklist: reviewing an existing skill
 

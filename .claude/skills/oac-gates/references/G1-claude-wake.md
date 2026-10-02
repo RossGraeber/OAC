@@ -77,10 +77,11 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
   - `meta` keys must be identifier-safe (letters, digits, underscore) or are silently dropped
     — verify this by including a non-identifier-safe key and confirming it does not appear as
     an attribute.
-  - Loading is `--channels plugin:<name>@<marketplace>` or `--channels server:<name>`, at
-    session start only. (Dated note, 2026-10-02, #122: `--channels` takes `plugin:`
-    entries only; a bare server loads with `--dangerously-load-development-channels
-    server:<name>` — drift D4, `docs/planning/REVERIFICATION-B2.md`.)
+  - Loading is `--channels plugin:<name>@<marketplace>` (allowlisted plugin-packaged
+    channel) or `--dangerously-load-development-channels server:<name>` (bare server), at
+    session start only. (Dated note, 2026-10-02, #122: this line previously also gave
+    `--channels server:<name>`, which is wrong — `--channels` takes `plugin:` entries
+    only; drift D4, `docs/planning/REVERIFICATION-B2.md`.)
 - UNVERIFIED items this gate is positioned to close (record whichever you actually test; if
   untested, they remain open per STATUS.md):
   - Channel behavior across `--resume`.

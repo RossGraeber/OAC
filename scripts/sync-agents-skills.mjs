@@ -18,12 +18,15 @@
 //
 // --check fails on: a source file missing from the copy, a copy file whose content
 // differs, and a stray copy file with no source. Exits non-zero on any drift.
+// Both modes refuse (exit 1, nothing written or deleted) on any symlink or junction in
+// the source or the copy, and on a source file that is not valid UTF-8 or holds a NUL.
 
 import {
   readFileSync,
   writeFileSync,
   readdirSync,
-  statSync,
+  lstatSync,
+  symlinkSync,
   existsSync,
   mkdirSync,
   rmSync,
@@ -44,15 +47,59 @@ const PAIRS = [
 const toLf = (text) => text.replace(/\r\n/g, '\n');
 const posixRel = (from, to) => relative(from, to).split(sep).join('/');
 
-function walk(dir) {
-  if (!existsSync(dir)) return [];
+class SyncError extends Error {}
+
+// lstat that never follows a link: null when the path does not exist.
+function lstatOrNull(path) {
+  try {
+    return lstatSync(path);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+// Refuse any symlink (or junction) on the way to, or at, a source or copy path: following
+// one would read, write or delete outside the tree, or loop forever.
+function assertNoLink(root, rel) {
+  let cur = root;
+  for (const part of rel.split('/')) {
+    cur = join(cur, part);
+    const st = lstatOrNull(cur);
+    if (st === null) return;
+    if (st.isSymbolicLink()) throw new SyncError(`symlink not allowed: ${posixRel(root, cur)}`);
+  }
+}
+
+function walk(root, dir) {
   const out = [];
+  const st = lstatOrNull(dir);
+  if (st === null) return out;
+  if (st.isSymbolicLink()) throw new SyncError(`symlink not allowed: ${posixRel(root, dir)}`);
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...walk(full));
-    else out.push(full);
+    const est = lstatSync(full);
+    if (est.isSymbolicLink()) throw new SyncError(`symlink not allowed: ${posixRel(root, full)}`);
+    if (est.isDirectory()) out.push(...walk(root, full));
+    else if (est.isFile()) out.push(full);
+    else throw new SyncError(`not a regular file: ${posixRel(root, full)}`);
   }
   return out.sort();
+}
+
+const utf8 = new TextDecoder('utf-8', { fatal: true });
+
+// Read a text file strictly: invalid UTF-8 or a NUL byte (binary) is refused, never mangled.
+function readText(root, path) {
+  const bytes = readFileSync(path);
+  let text;
+  try {
+    text = utf8.decode(bytes);
+  } catch {
+    throw new SyncError(`not valid UTF-8: ${posixRel(root, path)}`);
+  }
+  if (text.includes('\0')) throw new SyncError(`binary (NUL byte): ${posixRel(root, path)}`);
+  return toLf(text);
 }
 
 // Returns the expected copy as a Map of repo-relative copy path -> content, plus the
@@ -61,18 +108,19 @@ function plan(root) {
   const expected = new Map();
   const present = [];
   for (const pair of PAIRS) {
+    assertNoLink(root, pair.src);
+    assertNoLink(root, pair.dst);
     const src = join(root, pair.src);
     const dst = join(root, pair.dst);
+    if (lstatOrNull(src) === null) throw new SyncError(`source missing: ${pair.src}`);
     if (pair.kind === 'file') {
-      if (!existsSync(src)) throw new Error(`source missing: ${pair.src}`);
-      expected.set(pair.dst, toLf(readFileSync(src, 'utf8')));
-      if (existsSync(dst)) present.push(pair.dst);
+      expected.set(pair.dst, readText(root, src));
+      if (lstatOrNull(dst) !== null) present.push(pair.dst);
     } else {
-      if (!existsSync(src)) throw new Error(`source missing: ${pair.src}`);
-      for (const file of walk(src)) {
-        expected.set(`${pair.dst}/${posixRel(src, file)}`, toLf(readFileSync(file, 'utf8')));
+      for (const file of walk(root, src)) {
+        expected.set(`${pair.dst}/${posixRel(src, file)}`, readText(root, file));
       }
-      for (const file of walk(dst)) present.push(`${pair.dst}/${posixRel(dst, file)}`);
+      for (const file of walk(root, dst)) present.push(`${pair.dst}/${posixRel(dst, file)}`);
     }
   }
   return { expected, present };
@@ -120,30 +168,64 @@ function selfTest() {
       mkdirSync(dirname(join(root, path)), { recursive: true });
       writeFileSync(join(root, path), text);
     };
+    // Dir links use a junction on Windows (no privilege needed); a file link the OS
+    // refuses (EPERM/EACCES) makes the case a skip, not a pass.
+    const link = (target, path, dir) => {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      symlinkSync(join(root, target), join(root, path), dir ? 'junction' : 'file');
+    };
     put('CLAUDE.md', '# Example\n\nSee code.example.com and Example Code v2.1.\n');
     put('.claude/skills/a/SKILL.md', '---\nname: a\n---\nUse `.claude/skills/a`.\n');
     put('.claude/skills/a/references/r.md', 'Example Channels: --channels plugin:x\n');
     put('.claude/skills/b/SKILL.md', '---\nname: b\n---\nbody\r\nwith CRLF\r\n');
+    put('outside/keep.md', 'outside the tree\n');
     sync(root);
-    return { root, put };
+    return { root, put, link };
   };
+  // expect: 'pass' (check clean), 'drift' (check reports drift and a re-sync repairs it),
+  // 'refuse' (check and sync both throw SyncError; nothing outside the tree changes).
   const cases = [
-    ['clean copy passes', () => {}, false],
-    ['identity: copy is byte-equal to source', null, false],
-    ['edited copy file fails', ({ put }) => put('.agents/skills/a/SKILL.md', 'hand edit\n'), true],
+    ['clean copy passes', () => {}, 'pass'],
+    ['identity: copy is byte-equal to source', null, 'pass'],
+    ['edited copy file fails', ({ put }) => put('.agents/skills/a/SKILL.md', 'hand edit\n'), 'drift'],
     ['rewritten product name fails', ({ root, put }) => {
       const p = '.agents/skills/a/references/r.md';
       put(p, readFileSync(join(root, p), 'utf8').replace('Example', 'Other'));
-    }, true],
-    ['missing copy file fails', ({ root }) => rmSync(join(root, '.agents/skills/a/references/r.md')), true],
-    ['stray copy file fails', ({ put }) => put('.agents/skills/zz/SKILL.md', 'stray\n'), true],
-    ['source edited without re-sync fails', ({ put }) => put('.claude/skills/b/SKILL.md', 'new\n'), true],
-    ['AGENTS.md drift fails', ({ put }) => put('AGENTS.md', '# Different\n'), true],
+    }, 'drift'],
+    ['missing copy file fails', ({ root }) => rmSync(join(root, '.agents/skills/a/references/r.md')), 'drift'],
+    ['stray copy file fails', ({ put }) => put('.agents/skills/zz/SKILL.md', 'stray\n'), 'drift'],
+    ['source edited without re-sync fails', ({ put }) => put('.claude/skills/b/SKILL.md', 'new\n'), 'drift'],
+    ['AGENTS.md drift fails', ({ put }) => put('AGENTS.md', '# Different\n'), 'drift'],
     ['CRLF-only difference passes', ({ root, put }) => {
       put('AGENTS.md', readFileSync(join(root, 'AGENTS.md'), 'utf8').replace(/\n/g, '\r\n'));
-    }, false],
+    }, 'pass'],
+    ['copy dir symlink pointing outside is refused', ({ link }) => link('outside', '.agents/skills/zz', true), 'refuse'],
+    ['copy root symlink is refused', ({ root, link }) => {
+      rmSync(join(root, '.agents'), { recursive: true });
+      link('outside', '.agents', true);
+    }, 'refuse'],
+    ['source dir symlink is refused', ({ link }) => link('outside', '.claude/skills/c', true), 'refuse'],
+    ['source symlink loop is refused', ({ link }) => link('.claude/skills/a', '.claude/skills/a/loop', true), 'refuse'],
+    ['AGENTS.md file symlink is refused', ({ root, link }) => {
+      rmSync(join(root, 'AGENTS.md'));
+      link('outside/keep.md', 'AGENTS.md', false);
+    }, 'refuse'],
+    ['non-UTF-8 source is refused', ({ root }) => {
+      writeFileSync(join(root, '.claude/skills/a/bad.md'), Buffer.from([0x61, 0xff, 0xfe, 0x0a]));
+    }, 'refuse'],
+    ['binary (NUL byte) source is refused', ({ root }) => {
+      writeFileSync(join(root, '.claude/skills/a/bin.dat'), Buffer.from([0x61, 0x00, 0x62]));
+    }, 'refuse'],
   ];
-  for (const [name, mutate, shouldFail] of cases) {
+  const throwsSyncError = (fn) => {
+    try {
+      fn();
+      return false;
+    } catch (err) {
+      return err instanceof SyncError;
+    }
+  };
+  for (const [name, mutate, expect] of cases) {
     const ctx = fresh();
     try {
       if (mutate === null) {
@@ -154,12 +236,27 @@ function selfTest() {
         results.push([name, same]);
         continue;
       }
-      mutate(ctx);
-      const failed = check(ctx.root).length > 0;
-      let ok = failed === shouldFail;
-      if (ok && shouldFail) {
-        sync(ctx.root);
-        ok = check(ctx.root).length === 0; // re-sync must repair every planted drift
+      try {
+        mutate(ctx);
+      } catch (err) {
+        if (err.code === 'EPERM' || err.code === 'EACCES') {
+          results.push([name, 'skip']);
+          continue;
+        }
+        throw err;
+      }
+      let ok;
+      if (expect === 'refuse') {
+        ok = throwsSyncError(() => check(ctx.root)) && throwsSyncError(() => sync(ctx.root));
+        ok = ok && readdirSync(join(ctx.root, 'outside')).length === 1 &&
+          readFileSync(join(ctx.root, 'outside/keep.md'), 'utf8') === 'outside the tree\n';
+      } else {
+        const failed = check(ctx.root).length > 0;
+        ok = failed === (expect === 'drift');
+        if (ok && failed) {
+          sync(ctx.root);
+          ok = check(ctx.root).length === 0; // re-sync must repair every planted drift
+        }
       }
       results.push([name, ok]);
     } finally {
@@ -167,30 +264,53 @@ function selfTest() {
     }
   }
   let bad = 0;
+  let skipped = 0;
   for (const [name, ok] of results) {
-    console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}`);
-    if (!ok) bad++;
+    console.log(`  ${ok === 'skip' ? 'skip' : ok ? 'ok  ' : 'FAIL'}  ${name}`);
+    if (ok === 'skip') skipped++;
+    else if (!ok) bad++;
   }
-  console.log(`\nself-test: ${results.length - bad}/${results.length} passed`);
+  const passed = results.length - bad - skipped;
+  console.log(`\nself-test: ${passed}/${results.length} passed, ${skipped} skipped`);
   process.exit(bad === 0 ? 0 : 1);
 }
 
+const USAGE = 'usage: node scripts/sync-agents-skills.mjs [--check | --self-test] [--root <dir>]';
 const args = process.argv.slice(2);
 const rootIdx = args.indexOf('--root');
+if (rootIdx >= 0 && (!args[rootIdx + 1] || args[rootIdx + 1].startsWith('--'))) {
+  console.error(`--root needs a directory argument\n${USAGE}`);
+  process.exit(2);
+}
 const root = rootIdx >= 0 ? resolve(args[rootIdx + 1]) : join(dirname(scriptPath), '..');
+
+// A refusal (symlink, non-UTF-8, binary, missing source) is a clean failure, not a crash.
+function run(fn) {
+  try {
+    fn();
+  } catch (err) {
+    if (!(err instanceof SyncError)) throw err;
+    console.error(`refused: ${err.message}`);
+    process.exit(1);
+  }
+}
 
 if (args.includes('--self-test')) {
   selfTest();
 } else if (args.includes('--check')) {
-  const drift = check(root);
-  if (drift.length > 0) {
-    console.error(`${drift.length} file(s) out of sync with their source:`);
-    for (const line of drift) console.error(`  ${line}`);
-    console.error('\nFix: node scripts/sync-agents-skills.mjs (never hand-edit .agents/skills or AGENTS.md)');
-    process.exit(1);
-  }
-  console.log(`.agents/skills and AGENTS.md match their source (${plan(root).expected.size} files).`);
+  run(() => {
+    const drift = check(root);
+    if (drift.length > 0) {
+      console.error(`${drift.length} file(s) out of sync with their source:`);
+      for (const line of drift) console.error(`  ${line}`);
+      console.error('\nFix: node scripts/sync-agents-skills.mjs (never hand-edit .agents/skills or AGENTS.md)');
+      process.exit(1);
+    }
+    console.log(`.agents/skills and AGENTS.md match their source (${plan(root).expected.size} files).`);
+  });
 } else {
-  const { written, removed, total } = sync(root);
-  console.log(`synced ${total} file(s): ${written} written, ${removed} stray removed.`);
+  run(() => {
+    const { written, removed, total } = sync(root);
+    console.log(`synced ${total} file(s): ${written} written, ${removed} stray removed.`);
+  });
 }

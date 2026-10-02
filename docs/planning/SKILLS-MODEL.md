@@ -145,9 +145,12 @@ repository — and it carries its pin so staleness is visible.
 
 ## Codex copy
 
-Codex discovers repository skills under `.agents/skills/` and reads `AGENTS.md`, not
-`.claude/skills/` or `CLAUDE.md` (https://learn.chatgpt.com/docs/build-skills, redirected
-from https://developers.openai.com/codex/skills, retrieved 2026-10-02). Both are generated
+Codex discovers repository skills under `.agents/skills/`, not `.claude/skills/`
+(https://learn.chatgpt.com/docs/build-skills, redirected from
+https://developers.openai.com/codex/skills, retrieved 2026-10-02), and reads `AGENTS.md`,
+not `CLAUDE.md` ("Codex reads `AGENTS.md` files before doing any work":
+https://learn.chatgpt.com/docs/agent-configuration/agents-md, redirected from
+https://developers.openai.com/codex/guides/agents-md, retrieved 2026-10-02). Both are generated
 copies: `node scripts/sync-agents-skills.mjs` mirrors `.claude/skills/**` to
 `.agents/skills/**` and `CLAUDE.md` to `AGENTS.md`, unchanged apart from LF line endings.
 No names, URLs or paths are rewritten (#235: an earlier blind "Claude" -> "Codex" rewrite
