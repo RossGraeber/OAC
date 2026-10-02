@@ -1,0 +1,45 @@
+{
+ "name": "b",
+ "platform": "Darwin",
+ "platform_release": "25.6.0",
+ "python": "3.14.7",
+ "listen": [
+  "tls/127.0.0.1:0"
+ ],
+ "connect": [],
+ "mcast": "on",
+ "tls": true,
+ "expect": 1,
+ "error": null,
+ "t_open_ms": 18.2,
+ "zid": "e0b296ff7f49c602f64b44096de7f917",
+ "t_discovery_ms": 19.1,
+ "peers_seen": [
+  "2edf7062861d5c2db6d64953c57fcf2c"
+ ],
+ "heard_from": {
+  "a": 266.2
+ },
+ "t_all_data_ms": 266.2,
+ "links": [
+  {
+   "src": "tls/127.0.0.1:49189",
+   "dst": "tls/127.0.0.1:49190",
+   "zid": "2edf7062861d5c2db6d64953c57fcf2c",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: 2edf7062861d5c2db6d64953c57fcf2c, src: tls/127.0.0.1:49189, dst: tls/127.0.0.1:49190, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tls/127.0.0.1:49191",
+   "dst": "tls/127.0.0.1:49188",
+   "zid": "2edf7062861d5c2db6d64953c57fcf2c",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: 2edf7062861d5c2db6d64953c57fcf2c, src: tls/127.0.0.1:49191, dst: tls/127.0.0.1:49188, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: Some(\"localhost\"), priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}
