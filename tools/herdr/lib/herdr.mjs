@@ -12,7 +12,7 @@
 
 import { openSync, closeSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { runBounded, spawnLongRunning, killTree, killPid, isAlive, within, sleep, processTable, treeFrom, carriesSession, protectedReason, commandTokens, UNSPLITTABLE_REASON } from './proc.mjs';
+import { runBounded, spawnLongRunning, killTree, killPid, isAlive, within, sleep, processTable, treeFrom, carriesSession, protectedReason, commandLineProblem } from './proc.mjs';
 
 const IS_WIN = process.platform === 'win32';
 // The OS operations teardown needs; the self-test substitutes fakes (#136).
@@ -370,7 +370,8 @@ export class HerdrSession {
   // (that pid only, never its tree) only when ALL hold:
   //   - its creation time still matches the recorded one (not a reused pid),
   //   - it was created no earlier than this driver process (nothing older is the run's),
-  //   - its command line splits (#244: commandTokens; an unsplittable one is unverified),
+  //   - its command line was read and splits (#244/#249: commandLineProblem; an unsplittable
+  //     one, or one that could not be read, is unverified),
   //   - it is not a protected process (protectedReason: the Codex app-server daemon).
   // Anything that cannot be verified (no table, no recorded identity) is never killed; if it
   // is still alive it is reported in leftoverProcesses and the teardown is not clean.
@@ -450,8 +451,11 @@ export class HerdrSession {
         t.skippedPreexistingPids.push({ pid, why: 'created before this driver process' });
         return;
       }
-      // #244: a command line that cannot be split cannot be shown not to be the app-server.
-      if (commandTokens(now) === null) return unverified(pid, UNSPLITTABLE_REASON);
+      // #244: a command line that cannot be split, or (#249) one that could not be read
+      // (Win32_Process.CommandLine null, /proc/<pid>/cmdline unreadable), cannot be shown not
+      // to be the app-server.
+      const clProblem = commandLineProblem(now);
+      if (clProblem) return unverified(pid, clProblem);
       const prot = protectedReason(now);
       if (prot) {
         t.protectedProcesses.push({ pid, why: prot });
