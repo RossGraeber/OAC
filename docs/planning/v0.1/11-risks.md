@@ -268,10 +268,22 @@ list.
   changes a gate verdict:
   - D4: `--channels` takes `plugin:` entries only. OAC already uses the development flag.
   - D5: a documented `CLAUDE_CODE_SESSION_ID` reaches stdio MCP servers. This is an open
-    conflict with C4 §3 in `docs/planning/STATUS.md`.
+    conflict with C4 §3 in `docs/planning/STATUS.md`. (Resolved 2026-10-02, #236: C4 §3
+    keeps the hook `session_id` authoritative and reads the variable as a cross-check;
+    a mismatch fails closed only at `SessionStart` `source` `startup`. Threat: `06-security.md` §14 row 24.)
   - D6: the `2.1.232` floor is unsupported.
 
   The `--resume` and multi-channel docs are still silent, so rows 1-2 stay open.)
+- (Dated note, 2026-10-02, #236: **`SessionStart` `source` drift.** The C4 §3 rule
+  depends on the documented `source` values `startup`, `resume`, `clear`, `compact` and
+  `fork` (`hooks.md`, retrieved 2026-10-02). A missing or unknown `source` is treated as
+  `startup` and fails closed on a mismatch. That is a conservative default from the PR
+  #238 review, outside the operator's literal rule.
+  - **Early-warning signal:** `hooks.md` documents a new `source` value, or a supported
+    Claude Code version sends a `SessionStart` payload without `source`. Either shows up
+    as case 3(b) findings whose `source` is missing or unknown.
+  - **Response:** re-decide that default in C4 §3 with the operator, and map the new
+    value to case 3 or case 4 explicitly.)
 
 ### RISK-CODEX-EXPERIMENTAL — Codex experimental live-inject surface drift
 
@@ -388,7 +400,22 @@ list.
 - **Risk.** Named-pipe DACL peer authentication is unexercised on a live Windows
   host; `interprocess` `2.4.4` exposes no first-party peer-credential accessor;
   `oac mcp-shim`'s inherited environment may not locate the daemon's IPC path
-  without extra configuration.
+  without extra configuration. (Dated note, 2026-10-02, #236: this risk also covers
+  the hook-to-shim pairing mechanism that `docs/planning/decisions/
+  C4-session-identity.md` §3 "Pairing requirement" requires: OS-reported peer PID and
+  process ancestry on the same peer-auth path. It is UNVERIFIED on every OS, and the
+  macOS peer-PID call is unknown, since `getpeereid()` reports only UID/GID.
+  Early-warning signal: the Epic F Claude adapter cannot pair a hook handler with its
+  shim by ancestry. Response: name another daemon-observed key in the Stage 3/4 design.
+  The variable `CLAUDE_CODE_SESSION_ID` is never an allowed substitute. Until then,
+  sessions stay unbound (fail closed). Traceability row 58.
+  **Residual on the same item:** a transition payload that is dropped at the end of the
+  pairing window, or is unpairable, cannot be attributed to a shim. The shim's old
+  binding can then survive and deliver into a session that has moved on. C4 §3 requires
+  the Stage 3/4 implementation to close this gap, for example by refusing that process's
+  shim until it is re-paired, if the mechanism allows. Whether it does is UNVERIFIED.
+  The early-warning signal is the same: the adapter cannot attribute a dropped payload
+  to a process.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption
@@ -734,7 +761,8 @@ B2 rows classified UNVERIFIED, under `RISK-B2-CARRIED`. (Dated note, 2026-10-02,
 rows 13 and 30 are now CLOSED, by the §3.1 re-check at Claude Code `2.1.285`, and their
 STATUS.md bullets are removed. Of rows 1-44, 40 are therefore still listed in STATUS.md,
 and 4 are closed: rows 13, 30, 32 and 40. The counts above are kept as written at the
-time.)
+time.) Row 58 was added 2026-10-02 (#236): the hook-to-shim pairing mechanism that the
+C4 §3 revision requires, under `RISK-LOCAL-IPC`.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -795,6 +823,7 @@ time.)
 | 55 | Whether one Beacon `memory.db` can be read by several harness sessions concurrently without a documented locking model (from L1, issue #166, L1 §6 U3) | **CLOSED** — CONFIRMED by L2 (issue #167, 2026-09-29, L1 §11 item 3): SQLite via `modernc.org/sqlite` `v1.59.0`, `PRAGMA journal_mode=WAL` and `busy_timeout=5000` on every per-call connection, single-statement upserts (`cli/beacon/internal/learning/store.go@v1.3.29` L14, L65-92, L569-595); MCP memory tools are read-only. No Beacon doc states the model, so it is re-read on every pin move. Retrieved 2026-09-29 |
 | 56 | Whether Beacon's Codex integration (`beacon endpoint install` writes OTLP exporter tables to `~/.codex/config.toml`; hooks to `~/.codex/hooks.json`; `beacon mcp connect` edits one `beacon-managed` entry) conflicts with OAC's Codex adapter launch (from L1, issue #166, L1 §6 U4) | **CLOSED** — REFUTED by L2 (issue #167, 2026-09-29, L1 §11 item 4): Beacon replaces only `[otel]` / `[otel.*]` in `config.toml` and copies every other recognised table through (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L464-503); edge case: its line merge recognises a header only when the trimmed line starts with `[` and ends with `]` (L471-485), so a header with a trailing comment (e.g. `[mcp_servers.oac] # x`) directly after an `[otel]` section is dropped with its keys — not OAC's planned path, which registers `oac` with `codex mcp add` rather than by hand (not source-checked against Codex; L1 §12 B1 checks it), writes only `env` keys and its own hooks in Claude `settings.json` (same file L359-397; `cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205), and names its servers `beacon` / `beacon-managed`; no write touches a server named `oac` or the `--dangerously-load-development-channels` launch. Side effect recorded: user-level `log_user_prompt = true` also applies to OAC-launched Codex (feeds row 53). Retrieved 2026-09-29. **L3 live check (issue #192, 2026-10-01, L1 §13):** no collision seen. With Beacon `1.3.29` installed, the Claude development-channel launch connected its server, and Codex `0.159.3` took `turn/start` and `thread/queue/add` input on a daemon-loaded thread. The operator's `config.toml` had no trailing-comment headers. B1 itself was NOT RUN (operator decision on #168). The only B0-to-B7 config differences were Codex's own folder-trust entry in `config.toml` (`[projects.…]`, section diff) and a `~/.claude.json` change attributed, by inference, to Claude Code's own trust write (#206; content not read, and the orchestrating Claude Code session also writes that file); neither is a Beacon write |
 | 57 | B2 rows carried from §3 without a re-check against the pin ("Carried unchanged" or "PARTIAL"), classified UNVERIFIED for Gate S0 (#228, 2026-10-02; `docs/planning/REVERIFICATION-B2.md` "S0 classification note"). Listed in STATUS.md as one grouped entry | RISK-B2-CARRIED |
+| 58 | Hook-to-shim pairing by OS-reported peer PID and process ancestry: whether a Claude Code hook subprocess and its stdio MCP server subprocess share an OS-observable common ancestor on every OS, and which calls yield the peer PID (macOS) and parent PID (#236, 2026-10-02; `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement") | RISK-LOCAL-IPC |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

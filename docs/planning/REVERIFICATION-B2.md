@@ -172,7 +172,9 @@ agree. Only the `claude --help` row was observed directly on `2.1.285`.
   the only supported surface". C4's hook path still works and is still documented, so
   nothing breaks. Per `oac-evidence` §6 this is recorded as a conflict, not redesigned
   here. It is filed in `docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)". It is
-  not an ADR-001 conflict, so no `ADR-001-A*` amendment is proposed.
+  not an ADR-001 conflict, so no `ADR-001-A*` amendment is proposed. (Resolved
+  2026-10-02, #236: C4 §3 "Revision, 2026-10-02" keeps the hook `session_id`
+  authoritative and reads the variable as a cross-check; a mismatch fails closed only at `SessionStart` `source` `startup`.)
 - **D6, the `v2.1.232` floor.** The first-party changelog places "Added `--channels`
   (research preview)" at `2.1.80`, not `2.1.232`. `2.1.232` is not a channels version.
   The only channel-relevant first-party mention of it found is `mcp.md` L324: in sessions that fetch
@@ -586,7 +588,7 @@ ACP is not a v0.1 dependency; neither open item here blocks a gate.
 | D3 | §3.1: "Not available on Bedrock, Vertex, Foundry" | `channels.md` now reads "not available on Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry" — "Vertex" no longer appears | https://code.claude.com/docs/en/channels.md, retrieved 2026-09-16 | No: this is a surface-provider renaming in Anthropic's own prose, not a design or decision naming "Vertex" by name in ADR-001.md or DESIGN.md (checked: neither does). §3.1 prose and any future skill text citing this exclusion list must say "Google Cloud's Agent Platform," not "Vertex." |
 
 | D4 | §3.1: "channels are passed at session start with `--channels plugin:<name>@<marketplace>` or `--channels server:<name>`" | `cli-reference.md` L75: `--channels` takes "Space-separated list of `plugin:<name>@<marketplace>` entries"; L79: `--dangerously-load-development-channels` "Accepts `plugin:<name>@<marketplace>` and `server:<name>` entries" | https://code.claude.com/docs/en/cli-reference.md, retrieved 2026-10-02 (§3.1 re-check at `2.1.285`, row 8) | No. OAC already launches with the development flag (`docs/planning/decisions/C2-process-model.md` §6, `docs/planning/v0.1/08-cli-and-deployment.md` §7). Skill and prose that list `--channels server:<name>` are corrected in the same change (#122) |
-| D5 | §3.1: "hooks receive `session_id` in their input ..., which is the supported way for an external process to learn which live session it is talking to. No `CLAUDE_SESSION_ID` environment variable is documented" | The `CLAUDE_SESSION_ID` spelling is still absent, but `env-vars.md` L365 documents `CLAUDE_CODE_SESSION_ID`, "Set automatically to the current session ID in Bash and PowerShell tool subprocesses, hook command subprocesses, and stdio MCP server subprocesses", with resume caveats | https://code.claude.com/docs/en/env-vars.md, retrieved 2026-10-02 (row 21) | It conflicts with `docs/planning/decisions/C4-session-identity.md` §3's "only supported surface" sentence. It does not break C4's hook path. Recorded in `docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)"; no ADR-001 amendment, since C4 is not ADR-001 text |
+| D5 | §3.1: "hooks receive `session_id` in their input ..., which is the supported way for an external process to learn which live session it is talking to. No `CLAUDE_SESSION_ID` environment variable is documented" | The `CLAUDE_SESSION_ID` spelling is still absent, but `env-vars.md` L365 documents `CLAUDE_CODE_SESSION_ID`, "Set automatically to the current session ID in Bash and PowerShell tool subprocesses, hook command subprocesses, and stdio MCP server subprocesses", with resume caveats | https://code.claude.com/docs/en/env-vars.md, retrieved 2026-10-02 (row 21) | It conflicts with `docs/planning/decisions/C4-session-identity.md` §3's "only supported surface" sentence. It does not break C4's hook path. Recorded in `docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)"; no ADR-001 amendment, since C4 is not ADR-001 text. **RESOLVED 2026-10-02 (#236):** C4 §3 revised (operator decision) — the hook `session_id` stays authoritative, `CLAUDE_CODE_SESSION_ID` is a cross-check only, and a mismatch fails closed only at `SessionStart` `source` `startup` (`docs/planning/decisions/C4-session-identity.md` §3 "Revision, 2026-10-02") |
 | D6 | §3.1: "research preview on Claude Code v2.1.232+"; `PINS.md` floor 1, "Channels exist at all: Claude Code `>= v2.1.232`" | Changelog `2.1.80`: "Added `--channels` (research preview) — allow MCP servers to push messages into your session". `2.1.232` is not a channels version. `mcp.md` L324 gives it as the version from which feature-flag-fetching sessions use the v2 MCP client runtime ("uses the v2 runtime on Claude Code v2.1.232 or later"), the runtime that adds `2026-07-28` and to which the L398 channel-negotiation constraint applies | `anthropics/claude-code` `CHANGELOG.md` @ `52c76441cae91f6891e4712306bffb057ff6fec5`; https://code.claude.com/docs/en/mcp.md L322-324; both retrieved 2026-10-02 (row 18) | No. The operative floor is the minimum version `v2.1.282` (#216), above both. Closes the floor-1 UNVERIFIED item as drift |
 
 No drift item touches ADR-001, DESIGN.md, or a §5 decision directly (checked: none of
@@ -597,6 +599,9 @@ DESIGN.md), so no numbered `ADR-001-A*` amendment is proposed here.
 session-identity decision, `docs/planning/decisions/C4-session-identity.md` §3. It is
 recorded as an open conflict in `docs/planning/STATUS.md`, not resolved here. ADR-001,
 DESIGN.md and §5's text are unchanged, so no `ADR-001-A*` amendment is proposed.)
+
+(Dated note, 2026-10-02, #236: D5 is resolved by a C4 revision, not an ADR-001
+amendment. See the D5 row above and `docs/planning/decisions/C4-session-identity.md` §3.)
 
 ## Closed UNVERIFIED items
 
