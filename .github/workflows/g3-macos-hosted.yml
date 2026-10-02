@@ -1,7 +1,9 @@
-# G3 (Zenoh local peer) macOS leg on a GitHub-hosted macOS runner (issue #219).
+# G3 (Zenoh local peer) Mac leg on a GitHub-hosted macos-latest runner (issue #219).
 #
 # Opt-in gate run, NOT the default CI tier (oac-testing section 2): it starts only by manual
-# dispatch. It runs the quarantined G3 spike scripts in
+# dispatch. (The 2026-10-02 run, 36968235427, used a temporary push trigger limited to the
+# branch gate/219-g3-macos-hosted, because workflow_dispatch needs the file on main first;
+# that trigger was removed before merge.) It runs the quarantined G3 spike scripts in
 # docs/planning/gates/fixtures/g3-zenoh-peer/ unchanged (copied out under their working
 # names, since run_matrix.py spawns peer.py from its own directory) with the PyPI binding
 # eclipse-zenoh==1.10.1, whose core is Zenoh tag 1.10.1 (docs/planning/PINS.md Zenoh row;
@@ -9,18 +11,13 @@
 #
 # Caveat recorded with the result: a hosted runner is a VM, not physical Mac hardware.
 #
-# No secrets, no job token use, permissions contents: read. The throwaway test CA and peer
+# No secrets. Permissions contents: read; checkout does not persist the job token.
+# The throwaway test CA and peer
 # key are generated in RUNNER_TEMP outside the uploaded directory and never uploaded.
 name: g3-macos-hosted
 
 on:
   workflow_dispatch:
-  # TEMPORARY (#219): lets the gate run before this file exists on main. Removed before merge.
-  push:
-    branches:
-      - gate/219-g3-macos-hosted
-    paths:
-      - .github/workflows/g3-macos-hosted.yml
 
 permissions:
   contents: read
@@ -106,11 +103,11 @@ jobs:
           PY="$RUNNER_TEMP/venv/bin/python"
           E="$RUNNER_TEMP/g3-out/results-macos-extras"
           {
-            echo "=== macOS extras: iface=lo0 (valid loopback name) ==="
+            echo "=== Mac extras: iface=lo0 (valid loopback name) ==="
             "$PY" extras.py "$E" lo0
-            echo "=== macOS extras: iface=bogus0 (nonexistent) ==="
+            echo "=== Mac extras: iface=bogus0 (nonexistent) ==="
             "$PY" extras.py "$E-bogus" bogus0
-            echo "=== macOS scouting socket bind while 3 peers live ==="
+            echo "=== Mac scouting socket bind while 3 peers live ==="
             for n in x y z; do
               "$PY" peer.py --name $n --listen tcp/127.0.0.1:0 --mcast on --expect 2 \
                 --timeout 8 --linger 4 --out "$E/bind-$n.json" &

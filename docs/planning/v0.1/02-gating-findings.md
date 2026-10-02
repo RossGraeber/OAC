@@ -69,11 +69,13 @@ One row per gate. Every verdict below matches
 |---|---|---|---|---|
 | G1 Claude wake | **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; the pin float on 2026-09-27 had invalidated the original `v2.1.282` PASS, now superseded and kept as history) | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (`0.157.1`, re-run 2026-09-26, Windows only) | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
-| G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
+| G3 Zenoh local peer | **PASS** (2026-10-02, #219; primary multicast path on all three platforms, no fallback needed) — Windows 11 **PASS**, Linux (WSL2) **PASS** (2026-09-25), macOS 26.6.2 **PASS** on a GitHub-hosted VM, not physical hardware (2026-10-02, run 36968235427). Was NOT RUN at gate level 2026-09-25 to 2026-10-02 (macOS parked). | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | has fallback: two server entry points sharing one core — not needed | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
-**Reason for `NOT RUN` on G3 (partially).** Epic D spikes D1-D5 have all run (D6, fixture
+**Reason for `NOT RUN` on G3 (partially).** (Note 2026-10-02, #219: this paragraph is
+historical for G3. D3's macOS leg ran on a GitHub-hosted VM and G3 is now **PASS** at gate
+level; see §5 and `docs/planning/gates/G3-result.md`.) Epic D spikes D1-D5 have all run (D6, fixture
 capture, runs alongside D1-D5 per its own timebox and is not itself a gate that returns a
 pass/fail/NOT RUN verdict — its own completeness is not asserted here); D3 (G3)'s
 macOS leg is parked (`docs/planning/gates/G3-result.md`). D1 (G1) ran and PASSED on
@@ -110,7 +112,8 @@ re-established for Codex, also tracked at `docs/planning/v0.1/11-risks.md` RISK-
 Stages 2-6 stay
 blocked until Stage 0 (Epic B) and Stage 1 fully complete — Stage 1's own exit (D7) is
 separately still blocked by G3's parked macOS leg (G1's re-run, issue #39 T6/T7, PASSED
-2026-09-28 and no longer blocks D7), independent of G5's `FAIL`.
+2026-09-28 and no longer blocks D7), independent of G5's `FAIL`. (Note 2026-10-02, #219:
+G3's macOS leg PASSED on a GitHub-hosted VM, so no gate leg blocks D7 any more.)
 
 **Verdict vocabulary.** Closed: `PASS` | `PASS (FALLBACK TAKEN)` | `FAIL` | `NOT RUN`.
 No fifth value, no hedge — per `oac-gates` "never probably" rule.
@@ -181,8 +184,10 @@ actually passed in the gate result. Failure of both paths is v0.1 go/no-go.
 
 ## 5. G3 zenoh-peer
 
-- **Verdict:** NOT RUN at gate level — Windows 11 PASS, Linux (WSL2) PASS, macOS NOT RUN
-  (parked); see `docs/planning/gates/G3-result.md`
+- **Verdict:** **PASS** at gate level (2026-10-02, #219) — Windows 11 PASS, Linux (WSL2)
+  PASS (2026-09-25), macOS 26.6.2 PASS on a GitHub-hosted VM, not physical Mac hardware
+  (2026-10-02); primary multicast path everywhere, no fallback needed. Was NOT RUN at gate
+  level until 2026-10-02 (macOS parked). See `docs/planning/gates/G3-result.md`
 - **Pins relied on:** `Zenoh`, `Rust toolchain` (`docs/planning/gates/G3-result.md`)
 - **Result file:** `docs/planning/gates/G3-result.md`
 - **Surface:** Zenoh — **supported**

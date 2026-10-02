@@ -16,7 +16,10 @@ C6-trust-rendering.md`'s identical notes. `docs/planning/STATUS.md` carries a on
 pointer to this file until then.
 
 **Gate-verdict caveat, stated once up front.** Per `docs/planning/STATUS.md`'s Gate
-verdicts table, **gate G3 (Zenoh local peer) is `NOT RUN`**. This document designs the
+verdicts table, **gate G3 (Zenoh local peer) is `NOT RUN`** (note 2026-10-02, #219: G3 is
+now **PASS** at gate level on Windows 11, Linux (WSL2) and macOS on a GitHub-hosted VM, all
+on the primary multicast path; the rest of this caveat still holds for OAC's own mapping,
+which G3 did not exercise). This document designs the
 transport mapping G3 will exercise — key-expression layout, presence, local-mode and
 LAN-mode security, and the containment boundary — it does not assert that loopback
 discovery, presence liveliness, or either security profile works end to end on any
@@ -572,7 +575,8 @@ silently promote any UNVERIFIED item below, per `oac-evidence` §5 — if either
 conditions fires:
 
 - **G3's verdict.** `docs/planning/STATUS.md`'s Gate verdicts table currently records G3
-  (Zenoh local peer) as `NOT RUN`. If G3 runs and finds multicast scouting unreliable on
+  (Zenoh local peer) as `NOT RUN` (note 2026-10-02, #219: now **PASS**; multicast scouting
+  passed on every tested platform, so this trigger did not fire). If G3 runs and finds multicast scouting unreliable on
   a tested platform, §5's "scouting on by default" choice reverses to the named fallback
   (fixed local rendezvous endpoint, no scouting) for that platform, per the G3 row's own
   "Fallback: fixed local endpoint, no scouting" (`docs/planning/STATUS.md`). If G3 fails

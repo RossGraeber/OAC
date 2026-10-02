@@ -26,7 +26,7 @@ invalidating that PASS; re-run and **PASSED again** 2026-09-28 on `v2.1.283` —
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all
 criteria x), and G3 stays
-`NOT RUN` at gate level (Windows/Linux PASS, macOS parked); per `docs/planning/STATUS.md`
+`NOT RUN` at gate level (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md`
 "Current stage," the project is still at **Pre-Stage 0** — no F/G/H test tier is built.
 This section is not re-authored per gate result; only the caveat's own currency is
 corrected here. Every mitigation described below remains **designed**, not fully
@@ -521,7 +521,8 @@ Per `oac-evidence` §8, checked against this file:
   them. Rows 21-23 (L4) likewise add none: they rely on L1 §6 U1 (whether an external
   memory service's capture records OAC-delivered input), already listed there by L1, and
   cite Beacon facts through L1 (pinned `v1.3.29`) rather than re-deriving them.
-- Gate verdicts (G1, G2, G4 `PASS`; G5 `FAIL`; G3 `NOT RUN` at gate level) are cited
+- Gate verdicts (G1, G2, G4 `PASS`; G5 `FAIL`; G3 `NOT RUN` at gate level — note
+  2026-10-02, #219: G3 is now `PASS`) are cited
   from `docs/planning/STATUS.md`, not restated from memory, at every point where a
   claim's proof status matters (opening caveat, §10, §14, §15).
 

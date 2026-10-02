@@ -90,7 +90,10 @@ opening caveat:
   `meta`-attribute rendering is confirmed unforgeable from content; Codex's header-and-
   delimiter framing is confirmed not yet sufficient against a forged nested envelope or a
   replayed delimiter (conflict-register entry C13).
-- **Decision 10 (transport mapping)** — gate **G3 (Zenoh local peer) is `NOT RUN`**.
+- **Decision 10 (transport mapping)** — gate **G3 (Zenoh local peer) is `NOT RUN`**
+  (note 2026-10-02, #219: G3 is now **PASS** at gate level on all three platforms, macOS
+  on a GitHub-hosted VM; this decision's transport mapping is still not proven end to end,
+  since G3 tested discovery and TLS on loopback, not OAC's key expressions or presence).
   `docs/planning/decisions/C7-zenoh-transport.md`'s opening caveat: the document "designs
   the transport mapping G3 will exercise... it does not assert that loopback discovery,
   presence liveliness, or either security profile works end to end on any platform."
@@ -469,7 +472,8 @@ every version-pinned fact in this document on a future Zenoh version bump. Neith
 fired.
 
 **Gate dependency.** Gate **G3 (Zenoh local peer)**, `NOT RUN` — this decision designs
-the mapping G3 exercises; it is not proven end to end on any platform.
+the mapping G3 exercises; it is not proven end to end on any platform. (Note 2026-10-02,
+#219: G3 is now **PASS** at gate level; see `docs/planning/gates/G3-result.md`.)
 
 ### Decision 11 — Configuration and CLI model
 
