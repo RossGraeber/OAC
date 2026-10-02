@@ -89,7 +89,7 @@ import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.
 import { driverAcceptDialog } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
-  fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, processArgv, codexLaunchProof, parseG2Transcript,
+  fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, paneArgv, parseG2Transcript,
   g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
 } from '../lib/g2.mjs';
 
@@ -406,8 +406,12 @@ export default {
       // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
       const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
-      const records = tree.slice(0, 32).map((pid) => processArgv(pid));
-      return { context, seq: herdr.commands.at(-1).seq, herdrProcessInfo: info, argv: records, proof: codexLaunchProof(records) };
+      // #232: argv minimized (executable basenames, the `codex` token; plain `codex` asserts no
+      // argument, so every other argument is a length placeholder); herdr's own answer is kept as
+      // pids only, so no command text it may report reaches the record either.
+      const { argv, proof } = paneArgv(tree, procTable);
+      const herdrProcessInfo = { pane_id: info.pane_id ?? null, shell_pid: info.shell_pid ?? null, foreground_processes: fg.map((pid) => ({ pid })) };
+      return { context, seq: herdr.commands.at(-1).seq, herdrProcessInfo, argv, proof };
     };
 
     try {

@@ -115,7 +115,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, processTable, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
-import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
+import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
 import {
@@ -908,7 +908,7 @@ export default {
       // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
       const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
-      const proof = codexLaunchProof(tree.slice(0, 32).map((pid) => processArgv(pid)));
+      const { proof } = paneArgv(tree, procTable); // #232: argsAfterCodex minimized
       l3.codexPaneArgv = { proof };
       if (proof.found && !proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(proof.argsAfterCodex)}; L3's Codex side is plain \`codex\` attached to the shared daemon`);
       if (!proof.found) finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on herdr\'s reported argv only');

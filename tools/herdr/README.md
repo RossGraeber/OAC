@@ -311,7 +311,12 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    self-test cases) to prove it from a trace rather than assert it.
 7. **Linux, macOS and Windows.** The driver and scenarios avoid POSIX-only calls on the
    harness path: the Codex CLI is run through `cmd.exe` on Windows, pane process argv is read
-   from `/proc` (Linux), `ps` (macOS) or `Win32_Process` (Windows), and quoting follows the
+   from the run's one process-table snapshot (`/proc` on Linux, `ps` on macOS, one
+   `Win32_Process` query on Windows; #232, `lib/g2.mjs` `paneArgv`) and recorded only as a
+   minimized projection: executable basename, the `codex` token, the exact arguments the
+   scenario asserts (none for plain `codex`, the validated `-c` overrides for G4), every other
+   argument as `<arg len=N>` (length only, no hash: a hash of a short secret can be brute-forced),
+   with the manifest's fail-closed redaction scan still on top, and quoting follows the
    pane shell (`lib/pane-shell.mjs`). What is verified today is Linux only, and only against
    test doubles: the self-test's lifecycle half needs POSIX `sh`, K1's live leg has not run,
    and herdr's own Windows and macOS support is its documentation's claim (K1). A Stage 4/5
