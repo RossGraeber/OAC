@@ -124,7 +124,7 @@ Applied throughout this file per ADR-001-A1: "Open Agent Channel (OAC)", "OAC Se
 Channels", binary `oac`. `docs/planning/DESIGN.md`'s own still-unrenamed text
 (`sessionchannels` CLI examples, "MCP Session Channels extension") is never carried into
 this file's diagrams — this file's diagrams use the resolved names directly rather than
-quoting DESIGN.md's stale spelling.
+quoting DESIGN.md's stale spelling. *(Dated note, 2026-10-02, #228: `DESIGN.md` is now renamed in place, closing C12; "still-unrenamed" above describes it before that change.)*
 
 ---
 

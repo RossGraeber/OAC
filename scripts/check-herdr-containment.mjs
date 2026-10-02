@@ -8,7 +8,11 @@
 //
 // Check 9  (containment): no `herdr` / `HERDR_` match (case-insensitive) in any git-tracked
 //          entry under adapters/, core/, cli/, transports/, or spec/; and no workspace or
-//          package manifest outside tools/herdr/ that references tools/herdr. Workflows
+//          package manifest outside tools/herdr/ that references tools/herdr.
+//          tests/integration/ (#146) may name and spawn herdr, but nothing under a product
+//          path, and no manifest outside it, references it (manifests also fail on a
+//          tests/* glob or a bare tests member), and it never imports, compiles in, or
+//          symlinks to driver code. Workflows
 //          (K6 #129): no GitHub Actions workflow other than
 //          .github/workflows/herdr-provider-optin.yml references tools/herdr or a label a
 //          self-hosted runner carries; and that opt-in workflow's triggers are exactly
@@ -27,8 +31,9 @@
 // What is scanned is the git index (what CI sees), never the work tree: every entry under a
 // target, by its index mode. The tracked path itself is matched; a regular file's staged
 // blob is matched; a symlink's stored target text is matched, then the link is resolved hop
-// by hop through the tracked symlinks (including symlinked intermediate directories) and
-// the resolved repo path -- and, if it is a tracked file, its blob -- is matched too; a
+// by hop through the tracked symlinks (including symlinked intermediate directories, each
+// expanded before a following `..`) and the resolved repo path -- and, if it is a tracked
+// file, its blob, or if a directory, every tracked entry under it -- is matched too; a
 // link that resolves outside the repository fails outright. A submodule (gitlink) is
 // matched by its path and its .gitmodules url. Nothing is skipped for not being a file.
 //
@@ -54,6 +59,40 @@ const DRIVER_PATH = 'tools/herdr';
 // Covers `herdr`, `Herdr`, and every `HERDR_*` environment variable.
 const HERDR_TOKEN = /herdr/i;
 const HERDR_PATH_REF = /tools[\\/]+herdr/i;
+
+// Top-level tests/integration/ (#146; tools/herdr/README.md "Reuse contract"): opt-in
+// provider-integration tests that drive herdr as a separate process. herdr references there
+// are intended and allowed; what is checked is that the tests never pull driver code in,
+// and that nothing in a product path or a default build pulls the tests in.
+const INTEGRATION_PATH = 'tests/integration';
+// A reference that climbs out of its own directory to tests/integration (`../../tests/
+// integration`); a crate's own `tests/integration.rs` or `tests/integration/` is not one.
+const INTEGRATION_CLIMB_REF = /(?:\.\.[\\/]+)+tests[\\/]+integration(?![\w.-])/i;
+// Manifests fail closed on anything that could pull tests/integration/ into a default build:
+// tests/integration itself, a tests/* or tests/** glob, or a bare `tests` member. From a
+// root manifest any such path; from a nested one a path climbing to it; from a manifest
+// under tests/ (but outside tests/integration/) any `integration` name or quoted glob.
+const IT_TAIL = String.raw`tests(?:[\\/]+(?:integration(?![\w.-])|\*)|(?![\w.\\/-]))`;
+const INTEGRATION_ROOT_MANIFEST = new RegExp(String.raw`(?<![\w.-])${IT_TAIL}`, 'i');
+const INTEGRATION_CLIMB_MANIFEST = new RegExp(String.raw`(?:\.\.[\\/]+)+${IT_TAIL}`, 'i');
+const INTEGRATION_UNDER_TESTS = /(?<![\w.-])integration(?![\w.-])|["'][^"'\n]*\*/i;
+// A manifest under tests/integration/ may run the driver by path from a script entry
+// (`node ../../tools/herdr/run.mjs ...`); any other tools/herdr reference (a file:/path
+// dependency, a workspace member) still fails.
+const DRIVER_SPAWN = /\bnode\s+(?:[^\s'"]*[\\/])?tools[\\/]+herdr[\\/]+run\.mjs(?![\w.-])/gi;
+const integrationManifestDriverRef = (text) =>
+  text.split(/\r?\n/).flatMap((l, i) => (HERDR_PATH_REF.test(l.replace(DRIVER_SPAWN, '')) ? [i + 1] : []));
+// Driver code imported or compiled into a test: JS import/require (also through
+// `new URL(...)`), Python import, Rust #[path]/include!/include_str!/include_bytes!.
+// Passing tools/herdr/run.mjs to a spawned process is the contract, not an import.
+const DRIVER_IMPORT = new RegExp(
+  String.raw`\b(?:import|from|require)\b\s*\(?\s*(?:new\s+URL\s*\(\s*)?['"\x60][^'"\x60]*tools[\\/]+herdr` +
+    String.raw`|^\s*(?:from|import)\s+tools\.herdr\b` +
+    String.raw`|#\s*\[\s*path\s*=\s*"[^"]*tools[\\/]+herdr|\binclude(?:_str|_bytes)?!\s*\([^;]*tools[\\/]+herdr`,
+  'i',
+);
+// linkOnly rules are matched only against the repo path a symlink lands on.
+const landsIn = (dir) => new RegExp(`^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:/|$)`, 'i');
 
 // GitHub Actions workflows (K6 #129). Only the opt-in workflow may reach the driver or the
 // operator-owned harness runners.
@@ -311,17 +350,22 @@ const MANIFEST_NAMES = new Set([
 // --- harness-config write detection ---------------------------------------
 //
 // Harness config: ~/.claude/settings(.local).json (or under $CLAUDE_CONFIG_DIR),
-// ~/.codex/config.toml (or under $CODEX_HOME), and hooks.json. Reading or hashing these is
-// allowed (K3 records before/after hashes); writing, moving, or deleting them is not.
+// ~/.codex/config.toml (or under $CODEX_HOME), and hooks.json directly in either config
+// directory. Reading or hashing these is allowed (K3 records before/after hashes); writing,
+// moving, or deleting them is not. Each file name is suffix-anchored, so a driver's own
+// scratch file such as hooks.json.sha256 is not config (#135).
+const CONFIG_END = String.raw`(?![\w.])`;
 
 // In JS source, path segments may be split across join() arguments: '.claude', 'settings.json'.
 const CONFIG_JS = new RegExp(
-  String.raw`(?:\.claude|CLAUDE_CONFIG_DIR)\W{1,6}settings(?:\.local)?\.json` +
-    String.raw`|(?:\.codex|CODEX_HOME)\W{1,6}config\.toml|hooks\.json`,
+  String.raw`(?:\.claude|CLAUDE_CONFIG_DIR)\W{1,6}(?:settings(?:\.local)?\.json|hooks\.json)${CONFIG_END}` +
+    String.raw`|(?:\.codex|CODEX_HOME)\W{1,6}(?:config\.toml|hooks\.json)${CONFIG_END}`,
   'i',
 );
 // In shell text, a single path token: ~/.claude/settings.json, "$CODEX_HOME"/config.toml.
-const CONFIG_SH = String.raw`(?:(?:\.claude|CLAUDE_CONFIG_DIR)[}'"]*[\\/]settings(?:\.local)?\.json|(?:\.codex|CODEX_HOME)[}'"]*[\\/]config\.toml|hooks\.json)`;
+const CONFIG_SH =
+  String.raw`(?:(?:\.claude|CLAUDE_CONFIG_DIR)[}'"]*[\\/](?:settings(?:\.local)?\.json|hooks\.json)` +
+  String.raw`|(?:\.codex|CODEX_HOME)[}'"]*[\\/](?:config\.toml|hooks\.json))${CONFIG_END}`;
 // Start of a shell command word: line start, whitespace, an operator, or an opening quote.
 const SH_START = String.raw`(?:^|[\s;|&(\x60'"])`;
 const SH_TOKEN_END = String.raw`['"]?\s*(?:$|[;|&)]|['"\x60]\s*(?:$|[;|&),]))`;
@@ -491,33 +535,40 @@ function readBlobs(root, shas) {
 }
 
 // Resolve a symlink entry to a repo-relative path by following tracked symlinks hop by hop,
-// including symlinked intermediate directories. Returns { rel } or { outside: true }.
+// including symlinked intermediate directories. Walks one segment at a time, as realpath
+// does: a symlinked segment is expanded BEFORE any following `..` applies, so
+// `scripts/dl/../lib` with `scripts/dl -> ../tools/herdr/lib` lands in tools/herdr/
+// (#135). Returns { rel } ('' is the repository root) or { outside: true }.
 function resolveLink(root, linkPath, byPath, blobs) {
   const rootPosix = resolve(root).split('\\').join('/');
-  let parts = linkPath.split('/');
-  for (let hops = 0; hops < 64; hops++) {
-    let rewritten = false;
-    for (let i = 1; i <= parts.length; i++) {
-      const prefix = parts.slice(0, i).join('/');
-      const e = byPath.get(prefix);
-      if (!e || e.mode !== '120000') continue;
-      const target = (blobs.get(e.sha)?.toString('utf8') ?? '').trim().split('\\').join('/');
-      let next;
-      if (posix.isAbsolute(target) || /^[A-Za-z]:\//.test(target)) {
-        if (!target.startsWith(`${rootPosix}/`)) return { outside: true };
-        next = target.slice(rootPosix.length + 1);
-      } else {
-        next = posix.join(posix.dirname(prefix), target);
-      }
-      next = posix.normalize(posix.join(next, ...parts.slice(i)));
-      if (next === '..' || next.startsWith('../')) return { outside: true };
-      parts = next.split('/').filter((p) => p !== '' && p !== '.');
-      rewritten = true;
-      break;
+  const done = [];
+  let pending = linkPath.split('/');
+  let hops = 0;
+  while (pending.length) {
+    const seg = pending.shift();
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (done.length === 0) return { outside: true };
+      done.pop();
+      continue;
     }
-    if (!rewritten) return { rel: parts.join('/') };
+    done.push(seg);
+    const e = byPath.get(done.join('/'));
+    if (!e || e.mode !== '120000') continue;
+    if (++hops > 64) return { outside: true }; // symlink loop
+    const target = (blobs.get(e.sha)?.toString('utf8') ?? '').trim().split('\\').join('/');
+    done.pop();
+    if (posix.isAbsolute(target) || /^[A-Za-z]:\//.test(target)) {
+      // Compared case-sensitively, even on Windows: `c:/repo/x` against root `C:/repo` is
+      // reported outside the repository. That fails closed, so it is left as is.
+      if (target !== rootPosix && !target.startsWith(`${rootPosix}/`)) return { outside: true };
+      done.length = 0;
+      pending = [...target.slice(rootPosix.length).split('/'), ...pending];
+    } else {
+      pending = [...target.split('/'), ...pending];
+    }
   }
-  return { outside: true }; // symlink loop
+  return { rel: done.join('/') };
 }
 
 // --- matching ----------------------------------------------------------------
@@ -558,8 +609,12 @@ function readGitmodules(ctx) {
   return map;
 }
 
-function scanEntry(ctx, entry, rules, hits, { matchPath }) {
+// `seen` holds the directories already entered through a directory symlink during this
+// top-level entry's walk, so a link cycle or fan-out terminates quickly.
+function scanEntry(ctx, entry, allRules, hits, { matchPath, seen = new Set() }) {
   const rel = entry.path;
+  // linkOnly rules judge only where a symlink lands, never a path, blob, or target text.
+  const rules = allRules.filter((r) => !r.linkOnly);
   if (matchPath) matchText(rel, () => `${rel} (tracked path)`, rules, hits);
 
   if (entry.mode === '160000') {
@@ -568,7 +623,7 @@ function scanEntry(ctx, entry, rules, hits, { matchPath }) {
     return;
   }
 
-  const blob = ctx.blobs.get(entry.sha);
+  const blob = ctx.blob(entry.sha);
   if (entry.mode === '120000') {
     // Stored target text first; if that is clean, where the link really lands.
     const before = hits.length;
@@ -578,10 +633,28 @@ function scanEntry(ctx, entry, rules, hits, { matchPath }) {
       if (hits.length === before) hits.push({ where: `${rel} (symlink)`, rule: 'symlink resolves outside the repository' });
       return;
     }
-    if (hits.length === before) matchText(landed.rel, () => `${rel} (symlink resolves to a matching repo path)`, rules, hits);
+    if (hits.length === before) matchText(landed.rel, () => `${rel} (symlink resolves to a matching repo path)`, allRules, hits);
+    if (hits.length !== before) return; // the link itself is the violation
     const dest = ctx.byPath.get(landed.rel);
-    const destBlob = dest && dest.mode !== '160000' && dest.mode !== '120000' && ctx.blob(dest.sha);
-    if (destBlob) matchText(destBlob.toString('utf8'), (n) => `${rel}:${n} (content via symlink)`, rules, hits);
+    if (dest) {
+      const destBlob = dest.mode !== '160000' && dest.mode !== '120000' && ctx.blob(dest.sha);
+      if (destBlob) matchText(destBlob.toString('utf8'), (n) => `${rel}:${n} (content via symlink)`, rules, hits);
+      return;
+    }
+    // A directory (#135): scan every tracked entry under it as if it sat under the link --
+    // path, blob, and, for a nested link, where that lands. Printed paths are the paths
+    // seen through the link, never the link target.
+    // One visited set for the whole walk from a top-level entry (not per chain): each
+    // directory is entered once, so N mutually linked directories cost O(N^2), not O(N!).
+    // A second route to a directory changes only the printed prefix, which no rule needs.
+    if (seen.has(landed.rel)) return;
+    seen.add(landed.rel);
+    const prefix = landed.rel === '' ? '' : `${landed.rel}/`;
+    const inside = ctx.entries.filter((e) => e.path.startsWith(prefix));
+    ctx.preload(inside.filter((e) => e.mode !== '160000').map((e) => e.sha));
+    for (const e of inside) {
+      scanEntry(ctx, { ...e, path: `${rel}/${e.path.slice(prefix.length)}` }, allRules, hits, { matchPath, seen });
+    }
     return;
   }
 
@@ -604,14 +677,18 @@ function runChecks(root) {
   const wanted = [
     ...PRODUCT_PATHS.flatMap(under),
     ...under(DRIVER_PATH),
+    ...under(INTEGRATION_PATH),
     ...manifests,
     ...workflows,
     ...entries.filter((e) => e.mode === '120000' || e.path === '.gitmodules'),
   ].filter((e) => e.mode !== '160000');
-  const ctx = { root, byPath, blobs: readBlobs(root, wanted.map((e) => e.sha)), gitmodules: null };
-  // A symlink can land on any tracked file; read that blob on demand.
+  const ctx = { root, entries, byPath, blobs: readBlobs(root, wanted.map((e) => e.sha)), gitmodules: null };
+  // A symlink can land on any tracked file or directory; read those blobs on demand.
+  ctx.preload = (shas) => {
+    for (const [k, v] of readBlobs(root, shas.filter((s) => !ctx.blobs.has(s)))) ctx.blobs.set(k, v);
+  };
   ctx.blob = (sha) => {
-    if (!ctx.blobs.has(sha)) for (const [k, v] of readBlobs(root, [sha])) ctx.blobs.set(k, v);
+    ctx.preload([sha]);
     return ctx.blobs.get(sha);
   };
   ctx.gitmodules = readGitmodules(ctx);
@@ -622,7 +699,7 @@ function runChecks(root) {
       return;
     }
     const hits = [];
-    for (const e of list) scanEntry(ctx, e, rules, hits, { matchPath });
+    for (const e of list) scanEntry(ctx, e, typeof rules === 'function' ? rules(e) : rules, hits, { matchPath });
     results.push({
       check,
       target,
@@ -632,21 +709,54 @@ function runChecks(root) {
     });
   };
 
-  // Check 9a: herdr in product paths.
-  const productRule = [{ label: 'herdr reference in a product path', re: HERDR_TOKEN }];
+  // Check 9a: herdr in product paths, and no product path reaching tests/integration/.
+  const productRule = [
+    { label: 'herdr reference in a product path', re: HERDR_TOKEN },
+    { label: `product path references ${INTEGRATION_PATH}`, re: INTEGRATION_CLIMB_REF },
+    { label: `product path symlink lands in ${INTEGRATION_PATH}`, re: landsIn(INTEGRATION_PATH), linkOnly: true },
+  ];
   for (const dir of PRODUCT_PATHS) {
     scanTarget('9', `${dir}/`, under(dir), productRule, true, 'no git-tracked files (path not built yet)', 'tracked entries');
   }
 
-  // Check 9b: manifests outside tools/herdr/ referencing tools/herdr.
+  // Check 9b: manifests outside tools/herdr/ referencing tools/herdr; manifests outside
+  // tests/integration/ referencing it (a default build must not compile those tests in).
+  const manifestRules = (e) => {
+    const driverLabel = `manifest references ${DRIVER_PATH}`;
+    if (e.path.startsWith(`${INTEGRATION_PATH}/`)) return [{ label: driverLabel, scan: integrationManifestDriverRef }];
+    const itRe = e.path.startsWith('tests/')
+      ? INTEGRATION_UNDER_TESTS
+      : e.path.includes('/')
+        ? INTEGRATION_CLIMB_MANIFEST
+        : INTEGRATION_ROOT_MANIFEST;
+    return [
+      { label: driverLabel, re: HERDR_PATH_REF },
+      { label: `manifest outside ${INTEGRATION_PATH}/ references it (or a tests/ glob)`, re: itRe },
+    ];
+  };
   scanTarget(
     '9',
     `manifests outside ${DRIVER_PATH}/`,
     manifests,
-    [{ label: `manifest references ${DRIVER_PATH}`, re: HERDR_PATH_REF }],
+    manifestRules,
     false,
     'no workspace or package manifests tracked yet',
     'manifest(s)',
+  );
+
+  // Check 9d (#146): tests/integration/ may name and spawn herdr, but never imports or
+  // compiles in driver code and never symlinks into tools/herdr/.
+  scanTarget(
+    '9',
+    `${INTEGRATION_PATH}/`,
+    under(INTEGRATION_PATH),
+    [
+      { label: `integration test imports or compiles in driver code from ${DRIVER_PATH}`, re: DRIVER_IMPORT },
+      { label: `integration test symlink lands in ${DRIVER_PATH}`, re: landsIn(DRIVER_PATH), linkOnly: true },
+    ],
+    true,
+    'no git-tracked files (the first Stage 4/5 integration test creates it)',
+    'tracked entries',
   );
 
   // Check 9c: workflows (K6). Only the opt-in workflow reaches the driver or the harness
@@ -700,7 +810,7 @@ function report(root, results) {
 // `links` / `gitlinks` plant tracked symlinks / submodules straight into the git index (no
 // OS symlink support needed); `afterAdd` rewrites work-tree files after staging (the index
 // is what counts); `rawFiles` writes byte-exact (e.g. non-UTF-8) file names; `mustNotPrint`
-// lists strings that must never appear in the script's output.
+// lists strings that must never appear in the script's output; `timeoutMs` bounds the run.
 const OPTIN_CLEAN = [
   'name: herdr-provider-optin',
   'on:',
@@ -768,6 +878,18 @@ const CLEAN_BASE = {
   // A manifest inside tools/herdr/ may name its own path.
   'tools/herdr/scenarios.json': '{ "root": "tools/herdr" }\n',
   'Cargo.toml': '[workspace]\nmembers = ["core", "cli"]\n',
+  // A crate's own tests/ directory is not the top-level tests/integration/ (#146).
+  'adapters/claude/Cargo.toml': '[package]\nname = "oac-adapter-claude"\n\n[[test]]\nname = "integration"\npath = "tests/integration.rs"\n',
+  'adapters/claude/tests/integration.rs': '// crate-local integration test\n',
+  // tests/integration/ may name herdr and spawn the driver by path (README reuse contract).
+  'tests/integration/g4-claude.mjs': [
+    '// Opt-in, herdr-driven provider-integration test (HERDR_SESSION is set by the driver).',
+    "spawnSync(process.execPath, ['tools/herdr/run.mjs', '--scenario', 'tests/integration/scenarios/g4.mjs']);",
+    "const manifest = JSON.parse(readFileSync(join(runDir, 'run-manifest.json'), 'utf8'));",
+    '',
+  ].join('\n'),
+  // ...and its own manifest may run the driver by path from a script entry.
+  'tests/integration/package.json': '{ "private": true, "scripts": { "g4": "node ../../tools/herdr/run.mjs --scenario scenarios/g4.mjs" } }\n',
   // herdr is allowed outside product paths (docs, scripts, the driver itself).
   'docs/planning/herdr-notes.md': 'herdr is test tooling; HERDR_SESSION is set by the driver.\n',
   // Workflows: a default one that runs this lint, and a clean opt-in one. Expressions in
@@ -812,6 +934,29 @@ const SELF_TEST_CASES = [
   violation('9 symlink escaping the repository', null, null, {
     links: { 'adapters/claude/sys': '../../../outside/lib' },
   }),
+  // #135 gap 1: `..` after a symlinked segment applies to where that symlink lands.
+  violation('9 symlink target with `..` after a symlinked directory', null, null, {
+    links: { 'scripts/dl': '../tools/herdr/lib', 'adapters/claude/v': '../../scripts/dl/../lib' },
+  }),
+  // #135 gap 2: a symlink to a directory scans the tracked entries under it.
+  violation('9 symlink to a directory whose file names herdr', 'scripts/drv/run.mjs', "spawnSync('herdr', ['agent', 'read']);\n", {
+    links: { 'adapters/claude/drv': '../../scripts/drv' },
+  }),
+  violation('9 symlink to a directory holding a herdr-named file', 'scripts/drv2/herdr_shim.rs', '// shim\n', {
+    links: { 'adapters/claude/drv': '../../scripts/drv2' },
+  }),
+  violation('9 symlink cycle through a directory link terminates', 'scripts/loop/x.rs', 'use herdr;\n', {
+    links: { 'adapters/claude/loop': '../../scripts/loop', 'scripts/loop/back': '../../adapters/claude' },
+  }),
+  // 30 mutually linked directories: each is entered once, so this finishes well inside the
+  // bound (a per-chain visited set took >120 s at 10).
+  violation('9 directory-link fan-out (30 mutually linked dirs) is bounded', 'scripts/d0/x.rs', 'use herdr;\n', {
+    timeoutMs: 10000,
+    links: Object.fromEntries([
+      ['core/fan', '../scripts/d0'],
+      ...Array.from({ length: 30 }, (_, i) => Array.from({ length: 30 }, (_, j) => [`scripts/d${i}/l${j}`, `../d${j}`]).filter((_, j) => j !== i)).flat(),
+    ]),
+  }),
   violation('9 submodule named herdr', null, null, { gitlinks: ['adapters/herdr'] }),
   violation(
     '9 submodule whose url names herdr',
@@ -829,6 +974,31 @@ const SELF_TEST_CASES = [
   violation('9 Cargo.toml references tools/herdr', 'Cargo.toml', '[workspace]\nmembers = ["core", "tools/herdr"]\n'),
   violation('9 package.json references tools/herdr', 'package.json', '{ "workspaces": ["tools/herdr"] }\n'),
   violation('9 nested manifest references tools\\herdr', 'tools/other/pyproject.toml', 'path = "..\\\\tools\\\\herdr"\n'),
+  // Check 9 (#146): tests/integration/ stays a leaf -- nothing in a product path or a default
+  // build reaches it, and it never pulls driver code in.
+  violation('9 product path compiles in a tests/integration file', 'adapters/claude/src/lib.rs',
+    '#[path = "../../../tests/integration/common.rs"]\nmod common;\n'),
+  violation('9 product path symlink chain lands in tests/integration', null, null, {
+    links: { 'scripts/it': '../tests/integration', 'core/it': '../scripts/it' },
+  }),
+  violation('9 root workspace compiles tests/integration in', 'Cargo.toml', '[workspace]\nmembers = ["core", "cli", "tests/integration"]\n'),
+  violation('9 nested manifest depends on tests/integration', 'tools/other/package.json', '{ "devDependencies": { "it": "file:../../tests/integration" } }\n'),
+  violation('9 root workspace globs tests/*', 'Cargo.toml', '[workspace]\nmembers = ["core", "cli", "tests/*"]\n'),
+  violation('9 root workspace names a bare tests member', 'Cargo.toml', '[workspace]\nmembers = ["core", "cli", "tests"]\n'),
+  violation('9 manifest under tests/ reaches integration/', 'tests/Cargo.toml',
+    '[package]\nname = "oac-tests"\n\n[[test]]\nname = "g4"\npath = "integration/g4.rs"\n'),
+  violation('9 root package.json workspaces glob tests/**', 'package.json', '{ "workspaces": ["tests/**"] }\n'),
+  violation('9 integration-test manifest depends on driver code', 'tests/integration/package.json',
+    '{ "scripts": { "g4": "node ../../tools/herdr/run.mjs --scenario g4.mjs" }, "dependencies": { "drv": "file:../../tools/herdr" } }\n'),
+  violation('9 integration test imports driver code (JS)', 'tests/integration/g4-claude.mjs', "import { drive } from '../../tools/herdr/lib/drive.mjs';\n"),
+  violation('9 integration test requires driver code (JS)', 'tests/integration/g4-claude.mjs', "const lib = require('../../tools/herdr/lib/util.mjs');\n"),
+  violation('9 integration test imports driver code via new URL (JS)', 'tests/integration/g4-claude.mjs',
+    "const lib = await import(new URL('../../tools/herdr/lib/util.mjs', import.meta.url));\n"),
+  violation('9 integration test compiles in driver code (Rust)', 'tests/integration/src/lib.rs',
+    'include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/herdr/lib/x.rs"));\n'),
+  violation('9 integration test symlink lands in tools/herdr', null, null, {
+    links: { 'tests/integration/drv': '../../tools/herdr/lib' },
+  }),
   // Check 10: credentials.
   violation('10 auth.json', 'tools/herdr/run.mjs', "readFileSync(join(home, '.codex', 'auth.json'));\n"),
   violation('10 .credentials.json', 'tools/herdr/run.mjs', "const f = '~/.claude/.credentials.json';\n"),
@@ -927,6 +1097,22 @@ const SELF_TEST_CASES = [
     },
   },
   {
+    // #135 gap 3: a driver's own scratch file merely ending in hooks.json, or a hooks.json
+    // outside a harness config directory, is not harness config.
+    name: 'control: driver scratch hooks.json files are not harness config',
+    expect: 'clean',
+    files: {
+      ...CLEAN_BASE,
+      'tools/herdr/lib/scratch.mjs': [
+        "writeFileSync(join(runDir, 'hooks.json.sha256'), h);",
+        "writeFileSync(join(runDir, 'hooks.json'), JSON.stringify(hooks));",
+        "copyFileSync(join(home, '.codex', 'hooks.json'), join(runDir, 'hooks.json.before'));",
+        '',
+      ].join('\n'),
+      'tools/herdr/lib/scratch.sh': ['sha256sum "$CODEX_HOME"/hooks.json > "$RUN"/hooks.json.sha256', 'cp hooks.src "$RUN"/hooks.json', ''].join('\n'),
+    },
+  },
+  {
     name: 'control: untracked herdr file is ignored',
     expect: 'clean',
     files: CLEAN_BASE,
@@ -951,10 +1137,14 @@ function writeTree(dir, files) {
 
 function plantIndexEntries(dir, tc) {
   const git = (args, input) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', input }).trim();
+  // One blob per distinct target, then every link in a single update-index call.
+  const shaOf = new Map();
+  const info = [];
   for (const [rel, target] of Object.entries(tc.links ?? {})) {
-    const sha = git(['hash-object', '-w', '--stdin'], target);
-    git(['update-index', '--add', '--cacheinfo', `120000,${sha},${rel}`]);
+    if (!shaOf.has(target)) shaOf.set(target, git(['hash-object', '-w', '--stdin'], target));
+    info.push(`120000 ${shaOf.get(target)}\t${rel}\n`);
   }
+  if (info.length) git(['update-index', '--add', '--index-info'], info.join(''));
   for (const rel of tc.gitlinks ?? []) {
     git(['update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},${rel}`]);
   }
@@ -990,7 +1180,8 @@ function runSelfTest() {
       execFileSync('git', ['add', '-A'], { cwd: dir });
       plantIndexEntries(dir, tc);
       if (tc.afterAdd) writeTree(dir, tc.afterAdd);
-      const run = spawnSync(process.execPath, [scriptPath, '--root', dir], { encoding: 'utf8' });
+      // timeoutMs: a case that must finish in bounded time fails (status null) instead of hanging.
+      const run = spawnSync(process.execPath, [scriptPath, '--root', dir], { encoding: 'utf8', timeout: tc.timeoutMs });
       const output = run.stdout + run.stderr;
       const resultLine = (run.stdout.match(/^Result: (\w+)/m) ?? [])[1];
       const hitLines = (run.stdout.match(/^ {13}FAIL {2}/gm) ?? []).length;

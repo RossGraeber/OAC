@@ -42,10 +42,13 @@ finding requiring a design change before Stage 2 spec freeze, not a workaround.
 
 - Claude: `meta` is a string-to-string map on `notifications/claude/channel`; each key becomes
   an attribute on the `<channel>` tag Claude sees; keys must be identifier-safe or are silently
-  dropped (§3.1). Legacy MCP negotiation applies here too, per G1.
+  dropped (§3.1). Legacy MCP negotiation applies here too, per G1. Claude Code version is
+  floating (`docs/planning/PINS.md`, Claude Code (Channels), "Version policy", #216); record
+  the observed version. A difference from the last tested version is a warning, never a stop.
 - Codex: text-input framing — the OAC adapter constructs a machine-generated header delimited
   from the untrusted body when injecting via `thread/queue/add` / `turn/start` / `turn/steer`
-  (§3.2, Decision 8). Pinned baseline `@openai/codex` 0.154.0.
+  (§3.2, Decision 8). Codex version is floating (`docs/planning/PINS.md`, "Version policy", #216); record
+  the observed version (a warning when it differs, never a stop). Minimum: `@openai/codex` 0.154.0.
 - This gate is the executable test behind PLANNING-PROMPT §7's security requirements:
   "Model-generated text never establishes identity; provenance is machine-set metadata
   separate from content on both providers," and "Anyone able to reply on a Claude channel can

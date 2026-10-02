@@ -7,7 +7,7 @@ Stage 6 (`PLANNING-PROMPT.md` §8 Stage 6) closes v0.1 with docs, a license inve
 deferred-work list, a known-risk list, and upgrade notes for provider preview surfaces. This
 skill holds the release procedure only. It does not restate the evidence standard
 (`oac-evidence`), the ADR-001 boundaries (`oac-boundaries`), the test taxonomy (`oac-testing`),
-or provider protocol detail (`oac-Codex-channels`, `oac-codex-appserver`, `oac-mcp`,
+or provider protocol detail (`oac-claude-channels`, `oac-codex-appserver`, `oac-mcp`,
 `oac-zenoh`) — load those by name alongside this skill.
 
 ## 1. Packaging checklist (ADR-001 "Decision"; DESIGN "Goals")
@@ -75,9 +75,11 @@ gap to report, not a name to guess.
 This is not advisory at release time:
 
 - [ ] Diff the pins a release ships against `docs/planning/STATUS.md` "Pins" as they stood
-      at the last gate run. If any row of STATUS.md Pins moved (Codex, MCP, Codex CLI,
-      Zenoh, ACP, or Rust toolchain), every gate that pin affects (G1-G5; see `oac-gates` for
-      which pin feeds which gate) must be re-run before this release ships.
+      at the last gate run. If a fixed pin moved (MCP, Zenoh, ACP, or Rust toolchain), every
+      gate that pin affects (G1-G5; see `oac-gates` for which pin feeds which gate) must be
+      re-run before this release ships. **Claude Code and Codex are exempt (#216,
+      2026-10-01):** their versions float, so a newer version warns and never by itself
+      makes a verdict stale; record the last tested versions in the release notes.
 - [ ] Re-run those gates using `oac-gates`' gate-result template and timebox policy — do not
       hand-wave a re-verification.
 - [ ] Update `docs/planning/STATUS.md`'s Gate verdicts table **and** its Pins table in the
@@ -96,8 +98,8 @@ completeness claim:
 
 | Surface | Label | Baseline (not yet pinned) | Gates to re-run on provider move |
 |---|---|---|---|
-| Codex Channels | research preview | Codex v2.1.232+; permission relay v2.1.234+ | G1, G5 |
-| Codex App Server (per-method gating; live-session inject specifically) | experimental | `@openai/codex` 0.154.0 | G2, G5 |
+| Claude Code Channels | research preview | floating, minimum v2.1.282 (PINS.md); permission relay v2.1.234+; §3.1 re-checked at v2.1.285 (2026-10-02) | G1, G4, G5 |
+| Codex App Server (per-method gating; live-session inject specifically) | experimental | `@openai/codex` 0.154.0 (now floating; see PINS.md) | G2, G5, G4 |
 
 `STATUS.md` "Pins" opens with "None of these are confirmed pins. They are the pre-verified
 baseline recorded in PLANNING-PROMPT.md §3, retrieved 2026-09-15." Stage 0 must pin these
@@ -106,7 +108,7 @@ must also carry, not yet labelled above: Zenoh surfaces gated behind the `unstab
 Zenoh public-key auth (§3.4: semantics undocumented, UNVERIFIED).
 
 For each surface, the upgrade note states, without restating the protocol detail itself
-(that lives in `oac-Codex-channels` / `oac-codex-appserver`):
+(that lives in `oac-claude-channels` / `oac-codex-appserver`):
 
 - [ ] What may break when the provider moves — point at that surface skill's `## Pin`
       section rather than re-describing the wire behavior here.
@@ -136,12 +138,12 @@ verified without the evidence `oac-evidence` requires.
 
 - [ ] Confirm `docs/planning/STATUS.md` shows Stage 5 closed and no `Blocked` note applies
       to Stage 6.
-- [ ] Re-run any gate whose pin moved since its last verdict (§3); update `STATUS.md` Gate
+- [ ] Re-run any gate whose fixed pin moved since its last verdict (§3); update `STATUS.md` Gate
       verdicts and Pins tables in the same change.
 - [ ] Run the packaging checklist (§1) on Windows, macOS, and Linux artifacts.
 - [ ] Complete the license inventory (§2); regenerate `NOTICE`; confirm the unapproved-
       license CI check is green.
-- [ ] Write or refresh upgrade notes (§4) for Codex Channels and the Codex App Server
+- [ ] Write or refresh upgrade notes (§4) for Claude Code Channels and the Codex App Server
       experimental methods, citing the current pins.
 - [ ] Refresh `docs/planning/v0.1/12-deferred.md` against the current ADR-001 "## v0.1 scope"
       Defer paragraph and DESIGN "Non-goals" text.
@@ -190,4 +192,4 @@ verified without the evidence `oac-evidence` requires.
 - `oac-gates` — gate-result template and timebox policy, for re-runs under §3.
 - `oac-evidence`, `oac-boundaries`, `oac-testing` — guardrails and taxonomy, not restated
   here.
-- `oac-Codex-channels`, `oac-codex-appserver` — the pin sections the upgrade notes point at.
+- `oac-claude-channels`, `oac-codex-appserver` — the pin sections the upgrade notes point at.

@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 
 import { compareTranscripts, formatDiff, parseTranscript, selectSegment, transcriptFacts, isLegacyRevision } from './compare-transcripts.mjs';
 import { BOX_C_TRANSCRIPT, BOX_C_WAKE_ATTRIBUTES, FIXTURE_DIR, G1_CRITERIA, HERDR_RUNS_DIR, dialogMatchesBoxC, midTurnWindow, parseSections } from './g1.mjs';
-import { attestation, describeDialog, describeDialogs } from './gate-report-common.mjs';
+import { attestation, describeDialog, describeDialogs, herdrExecutableHash } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -288,7 +288,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
     : devDriver
       ? `the dev-channels dialog is not attested as a human accept: ${describeDialog(dev)}; accept policy ${g1.acceptPolicy ?? '?'}; dialog-accept commands in the run: ${(manifest?.commands ?? []).filter((c) => c.role === 'dialog-accept').map((c) => `#${c.seq}`).join(', ') || 'none'}. Criterion 5 is not evaluable, so this record is neither an equivalence record nor verdict-bearing.`
       : `the dev-channels dialog (read #${dev.readSeq}) was accepted by me, a human at the keyboard, during this run.`;
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput ?? '?'}\`)`, consent }));
+  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, herdrHash: herdrExecutableHash(manifest), harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput ?? '?'}\`)`, consent }));
   return out.join('\n');
 }
 

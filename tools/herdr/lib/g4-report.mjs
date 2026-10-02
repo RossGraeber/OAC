@@ -43,7 +43,7 @@ import {
 import { parseSections, committedFile } from './g1.mjs';
 import { isLegacyRevision } from './compare-transcripts.mjs';
 import {
-  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, herdrExecutableHash, reconstructionCallout, describeDialogs, noConsentCriterionLine,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -259,7 +259,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('- Whether Codex honors a per-invocation `-c mcp_servers.<name>.url=...` override for an HTTP server was UNVERIFIED when this scenario was written. This run\'s wire answers it only if exactly one Codex session connected (criterion 4) and the operator confirmed with `codex mcp list` (read-only) that no other Codex entry points at this run\'s port.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G4', g4.dialogs) }));
+  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, herdrHash: herdrExecutableHash(manifest), harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G4', g4.dialogs) }));
   return out.join('\n');
 }
 

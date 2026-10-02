@@ -147,6 +147,11 @@ transport pin, since it crosses both adapters and Zenoh). No opt-in test descrip
 says "the current release" or "latest" — it names the exact pinned version string, the
 same string `docs/planning/gates/README.md`'s per-gate result files record.
 
+*(Dated note, 2026-10-02, #228: for the floating Claude Code and Codex rows (#216), "pinned
+version" means the installed version the test ran on, which it records; a version other
+than the last tested one is a `VERSION WARNING`, never a failure. Fixed rows are
+unchanged.)*
+
 **A pin move invalidates the recorded opt-in result the same way it invalidates a gate
 — cited, not re-derived.** Per `docs/planning/gates/README.md` "Re-run/invalidation
 policy" §a: "Changing the Pinned version cell, the Release date cell, or a row's
@@ -460,7 +465,8 @@ table body itself is **not restated here**; only the row number, a one-line atta
 for orientation, and the proving test already named at §7 above (or cited to §14's own
 "Proving test" cell where this file does not repeat it). Any mitigation without a
 currently passing proving test is an explicit v0.1 gap, per §14's row content and §15's
-"unproven-mitigation disposition" — none of the twenty-three rows currently has a passing
+"unproven-mitigation disposition" — none of the twenty-four rows (row 24 added by #236,
+2026-10-02) currently has a passing
 **test** (F11/H2/H3/G3/G7/G8/G9 are all `NOT RUN`, Pre-Stage 0), though rows 5, 16, and
 17's named gate has since run: gate **G1 `PASS`** (row 16 — originally on Claude Code
 `v2.1.282`, invalidated when the pin went floating 2026-09-27, re-run and PASSED again
@@ -499,6 +505,7 @@ opt-in provider-integration scenario blocked until Stage 5 opens, never CI-defau
 | 21 | Prompt injection via a memory reference or resolved memory | L10 (Stage 5 opt-in scenario); gate G5; F11 | v0.1 gap — L10 `NOT RUN` (blocked, Stage 5); gate G5 **FAIL** (2026-09-27, `docs/planning/gates/G5-result.md`); F11 `NOT RUN`; mitigation is doctrine plus rendering, as row 5 |
 | 22 | False authority via a cited memory ID | L10 (memory ID absent from Claude `meta` and the Codex header block); gate G5; F11 | v0.1 gap — L10/F11 `NOT RUN`; inherits row 17's Codex residual until C13 is resolved |
 | 23 | Capture of an OAC-delivered message by an external memory/telemetry service | None — open risk, not a mitigation (`06-security.md` §15); L2/L3 observe whether capture happens | Open risk — `RISK-BEACON`; capture itself UNVERIFIED (L1 §6 U1) |
+| 24 | Session binding via a spoofed `CLAUDE_CODE_SESSION_ID` | F11; G9 (§7 "Local IPC peer auth") | v0.1 gap — `NOT RUN` |
 
 ---
 

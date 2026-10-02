@@ -263,6 +263,27 @@ list.
   (`docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)) — no interim
   workaround is needed because the surface is already isolated by module
   boundary, only its own name is open.
+- (Dated note, 2026-10-02, #122: the §3.1 re-check at `2.1.285`
+  (`docs/planning/REVERIFICATION-B2.md`) found three documentation drifts, none of which
+  changes a gate verdict:
+  - D4: `--channels` takes `plugin:` entries only. OAC already uses the development flag.
+  - D5: a documented `CLAUDE_CODE_SESSION_ID` reaches stdio MCP servers. This is an open
+    conflict with C4 §3 in `docs/planning/STATUS.md`. (Resolved 2026-10-02, #236: C4 §3
+    keeps the hook `session_id` authoritative and reads the variable as a cross-check;
+    a mismatch fails closed only at `SessionStart` `source` `startup`. Threat: `06-security.md` §14 row 24.)
+  - D6: the `2.1.232` floor is unsupported.
+
+  The `--resume` and multi-channel docs are still silent, so rows 1-2 stay open.)
+- (Dated note, 2026-10-02, #236: **`SessionStart` `source` drift.** The C4 §3 rule
+  depends on the documented `source` values `startup`, `resume`, `clear`, `compact` and
+  `fork` (`hooks.md`, retrieved 2026-10-02). A missing or unknown `source` is treated as
+  `startup` and fails closed on a mismatch. That is a conservative default from the PR
+  #238 review, outside the operator's literal rule.
+  - **Early-warning signal:** `hooks.md` documents a new `source` value, or a supported
+    Claude Code version sends a `SessionStart` payload without `source`. Either shows up
+    as case 3(b) findings whose `source` is missing or unknown.
+  - **Response:** re-decide that default in C4 §3 with the operator, and map the new
+    value to case 3 or case 4 explicitly.)
 
 ### RISK-CODEX-EXPERIMENTAL — Codex experimental live-inject surface drift
 
@@ -333,6 +354,16 @@ list.
   (`v2.1.274`)" and that `PINS.md` "keeps the actually-pinned version (`v2.1.274`) as
   the operative floor"; the Claude Code (Channels) row went floating 2026-09-27, so
   there is no fixed pin to hold that role.)
+- (Dated note, 2026-10-02, #122: **resolved as drift.** The first-party changelog
+  places "Added `--channels` (research preview)" at `2.1.80`, so `2.1.232` is not a
+  channels version (`anthropics/claude-code` `CHANGELOG.md` @
+  `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02;
+  `docs/planning/REVERIFICATION-B2.md` Drift register D6). The `>= v2.1.232` channels
+  floor text is unsupported. `2.1.232` is where https://code.claude.com/docs/en/mcp.md
+  L324 (retrieved 2026-10-02) starts the v2 MCP client runtime for sessions that fetch
+  feature flags: "uses the v2 runtime on Claude Code v2.1.232 or later". That runtime
+  adds `2026-07-28`, and the channel-negotiation constraint applies to it. The operative floor stays the minimum version `v2.1.282`, so nothing
+  this entry protects changes. Ledger row 13 is closed.)
 
 ### RISK-MCP-EXPERIMENTAL — `experimental` capability existence at `2026-07-28`
 
@@ -369,7 +400,22 @@ list.
 - **Risk.** Named-pipe DACL peer authentication is unexercised on a live Windows
   host; `interprocess` `2.4.4` exposes no first-party peer-credential accessor;
   `oac mcp-shim`'s inherited environment may not locate the daemon's IPC path
-  without extra configuration.
+  without extra configuration. (Dated note, 2026-10-02, #236: this risk also covers
+  the hook-to-shim pairing mechanism that `docs/planning/decisions/
+  C4-session-identity.md` §3 "Pairing requirement" requires: OS-reported peer PID and
+  process ancestry on the same peer-auth path. It is UNVERIFIED on every OS, and the
+  macOS peer-PID call is unknown, since `getpeereid()` reports only UID/GID.
+  Early-warning signal: the Epic F Claude adapter cannot pair a hook handler with its
+  shim by ancestry. Response: name another daemon-observed key in the Stage 3/4 design.
+  The variable `CLAUDE_CODE_SESSION_ID` is never an allowed substitute. Until then,
+  sessions stay unbound (fail closed). Traceability row 58.
+  **Residual on the same item:** a transition payload that is dropped at the end of the
+  pairing window, or is unpairable, cannot be attributed to a shim. The shim's old
+  binding can then survive and deliver into a session that has moved on. C4 §3 requires
+  the Stage 3/4 implementation to close this gap, for example by refusing that process's
+  shim until it is re-paired, if the mechanism allows. Whether it does is UNVERIFIED.
+  The early-warning signal is the same: the adapter cannot attribute a dropped payload
+  to a process.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption
@@ -494,6 +540,39 @@ list.
 - **Response.** Re-search the SEP index at the next MCP pin move
   (`REVERIFICATION-B2.md` §3.3); rename the extension identifier only if a
   conflict is actually found.
+
+### RISK-B2-CARRIED — §3 facts carried, not re-checked against the pin (#228)
+
+*(Added 2026-10-02, #228, for Gate S0 criterion 3.)*
+
+- **Risk.** Thirteen B2 rows carried a `docs/planning/PLANNING-PROMPT.md` §3
+  fact as "Carried unchanged" or "PARTIAL", without re-checking it against the
+  pin. Under `oac-evidence` §5 they are UNVERIFIED. They cover Codex background
+  facts (the `codex queue` flag spelling, UUIDv7 thread ids surviving restarts,
+  the unsupported rollout surface, hooks/`notify` being unable to originate a
+  turn, Unix-socket peer-validation semantics), Zenoh background facts
+  (licensing, the stable API, the binding matrix, the attribution of the
+  loopback fix to PR #2671, the §3.4 multi-fact row) and ACP protocol version
+  `1`. The full list is `docs/planning/REVERIFICATION-B2.md` "S0
+  classification note (2026-10-02, #228)" and the grouped `docs/planning/STATUS.md`
+  "Open UNVERIFIED items" entry from the Gate S0 check. Two of the rows
+  (`codex mcp-server` dates, no SEP) are also tracked by their own entries,
+  RISK-CODEX-MCP-DATES and RISK-SEP. ACP protocol version `1` is tracked only
+  here; RISK-ACP covers the separate schema v2 alpha item.
+- **What it invalidates.** Nothing load-bearing in v0.1. None of these facts is
+  a G1-G5 pass criterion. The behaviours v0.1 depends on are evidenced
+  separately: loopback discovery by G3 at Zenoh `1.10.1`, and `thread/queue/add`'s
+  method and params at Codex `0.157.1` (REVERIFICATION-B2.md, `0.157.1` table
+  fact 4). ACP is not a v0.1 dependency. A wrong fact here would misstate
+  background in the package, not break a gate.
+- **Early-warning signal.** A Stage 3 or Stage 4 task comes to rely on one of
+  these facts, for example the Codex adapter depending on thread-id stability
+  across restarts, or the license inventory (#79) needing Zenoh's license. A
+  first-party source contradicting one of them is another signal.
+- **Response.** Re-check the fact against the current pin with a first-party
+  citation before any task relies on it (`oac-evidence` §5 promotion
+  procedure). Then close or narrow it in STATUS.md and in the B2 note in the same
+  change. This entry gates nothing.
 
 ### RISK-BIN-SIZE — Zenoh binary size estimate unmeasured
 
@@ -677,12 +756,18 @@ listed in STATUS.md's "Open UNVERIFIED items" as one L1 entry. L2 (issue #167,
 row 53 with live evidence (L1 §13), so no row 53-56 entry stays listed in STATUS.md.
 Like rows 32 and 40, rows 53-56 are closed and cite their own closing evidence. Row 53
 also keeps `RISK-BEACON` in its closing cell, because the capture it confirmed is still
-an open risk.
+an open risk. Row 57 was added 2026-10-02 (#228): the grouped Gate S0 entry for the
+B2 rows classified UNVERIFIED, under `RISK-B2-CARRIED`. (Dated note, 2026-10-02, #122:
+rows 13 and 30 are now CLOSED, by the §3.1 re-check at Claude Code `2.1.285`, and their
+STATUS.md bullets are removed. Of rows 1-44, 40 are therefore still listed in STATUS.md,
+and 4 are closed: rows 13, 30, 32 and 40. The counts above are kept as written at the
+time.) Row 58 was added 2026-10-02 (#236): the hook-to-shim pairing mechanism that the
+C4 §3 revision requires, under `RISK-LOCAL-IPC`.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
-| 1 | Claude channel behaviour across `--resume`/`--continue` | RISK-CLAUDE-PREVIEW |
-| 2 | One MCP server presenting more than one logical channel | RISK-CLAUDE-PREVIEW |
+| 1 | Claude channel behaviour across `--resume`/`--continue` (docs still silent at `2.1.285`, re-checked 2026-10-02, #122) | RISK-CLAUDE-PREVIEW |
+| 2 | One MCP server presenting more than one logical channel (docs still silent at `2.1.285`, re-checked 2026-10-02, #122) | RISK-CLAUDE-PREVIEW |
 | 3 | Implicit Codex daemon attach default at runtime: closed on Windows by G2, on `0.154.0` and again on the currently observed `0.157.1` (re-run 2026-09-26, `docs/planning/gates/G2-result.md`); still open on macOS/Linux | RISK-CODEX-EXPERIMENTAL |
 | 4 | Codex Desktop control-socket exposure | RISK-CODEX-EXPERIMENTAL |
 | 5 | Zenoh `auth.pubkey` semantics | RISK-ZENOH-AUTH |
@@ -693,7 +778,7 @@ an open risk.
 | 10 | Zenoh crate version/date read from GitHub, not crates.io | RISK-ZENOH-SOURCE |
 | 11 | `codex mcp-server` deprecation/deletion dates | RISK-CODEX-MCP-DATES |
 | 12 | No SEP for agent-to-agent messaging | RISK-SEP |
-| 13 | "Research preview on Claude Code v2.1.232+" floor | RISK-FLOOR |
+| 13 | "Research preview on Claude Code v2.1.232+" floor | **CLOSED as drift** (2026-10-02, #122). The first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, so `2.1.232` is not a channels version. It is instead where `mcp.md` L324 starts the v2 MCP client runtime, the runtime the channel-negotiation constraint applies to, for sessions that fetch feature flags. The operative floor is the minimum `v2.1.282` (#216). See `docs/planning/REVERIFICATION-B2.md` Drift register D6; RISK-FLOOR keeps its history |
 | 14 | MCP `experimental` capabilities at current era `2026-07-28` | RISK-MCP-EXPERIMENTAL |
 | 15 | Zenoh default TLS stack `rustls` | RISK-ZENOH-AUTH |
 | 16 | `rmcp`-based server registering as a legacy-era live channel | RISK-G4 |
@@ -710,7 +795,7 @@ an open risk.
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
-| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`). Dated note, 2026-10-01, #216: that mechanism is retired for this row; a future release is a version warning and invalidates no verdict | RISK-CLAUDE-PREVIEW |
+| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`). Dated note, 2026-10-01, #216: that mechanism is retired for this row; a future release is a version warning and invalidates no verdict | **CLOSED** (2026-10-02, #122). The one §3.1 re-check the operator decided on #122 ran at `2.1.285` (`docs/planning/REVERIFICATION-B2.md` "§3.1 re-check at Claude Code `2.1.285`"). 18 of 23 rows hold and three drifted (D4-D6); rows 1-2 of this table stay open. Newer versions are version warnings only. RISK-CLAUDE-PREVIEW stays open |
 | 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |
 | 32 | Exact wrapper text for a mid-turn-delivered channel notification (from G1) | **CLOSED** — captured verbatim by G5 case C6 at Claude Code `2.1.283` (`docs/planning/gates/G5-result.md`): the full `<system-reminder>A message arrived from … while you were working: … IMPORTANT: This is NOT from your user …</system-reminder>` wrapper text, with the real `oac_*` attributes intact inside it. |
 | 33 | G3 on physical Mac hardware (from G3). Was "G3 criteria 1-4 on macOS"; those closed PASS on a GitHub-hosted VM 2026-10-02 (#219), leaving physical hardware open | RISK-G3 |
@@ -737,6 +822,8 @@ an open risk.
 | 54 | The exact shape and stability of Beacon's memory item ID and of `get_memory` / `get_memory_context` results across releases (from L1, issue #166, L1 §6 U2) | **CLOSED** — CONFIRMED by L2 (issue #167, 2026-09-29, L1 §11 item 2): ID is `memory_` + 32 hex chars, a truncated SHA-256 over project ID, candidate ID, kind and title (`cli/beacon/internal/learning/store.go@v1.3.29` L694-701); `get_memory` returns `LearningMemoryV1` with `schema_version` `beacon.learning.v1` (`pkg/asymptoteobserve/learning.go@v1.3.29` L3, L108-122); `search_memory` / `get_memory_context` summaries carry no version field (`cli/beacon/internal/mcpserver/server.go@v1.3.29` L80-99). Retrieved 2026-09-29. Not an OAC dependency (L1 §4 Q1). RISK-BEACON stays open for row 53 and the fast-moving pin |
 | 55 | Whether one Beacon `memory.db` can be read by several harness sessions concurrently without a documented locking model (from L1, issue #166, L1 §6 U3) | **CLOSED** — CONFIRMED by L2 (issue #167, 2026-09-29, L1 §11 item 3): SQLite via `modernc.org/sqlite` `v1.59.0`, `PRAGMA journal_mode=WAL` and `busy_timeout=5000` on every per-call connection, single-statement upserts (`cli/beacon/internal/learning/store.go@v1.3.29` L14, L65-92, L569-595); MCP memory tools are read-only. No Beacon doc states the model, so it is re-read on every pin move. Retrieved 2026-09-29 |
 | 56 | Whether Beacon's Codex integration (`beacon endpoint install` writes OTLP exporter tables to `~/.codex/config.toml`; hooks to `~/.codex/hooks.json`; `beacon mcp connect` edits one `beacon-managed` entry) conflicts with OAC's Codex adapter launch (from L1, issue #166, L1 §6 U4) | **CLOSED** — REFUTED by L2 (issue #167, 2026-09-29, L1 §11 item 4): Beacon replaces only `[otel]` / `[otel.*]` in `config.toml` and copies every other recognised table through (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L464-503); edge case: its line merge recognises a header only when the trimmed line starts with `[` and ends with `]` (L471-485), so a header with a trailing comment (e.g. `[mcp_servers.oac] # x`) directly after an `[otel]` section is dropped with its keys — not OAC's planned path, which registers `oac` with `codex mcp add` rather than by hand (not source-checked against Codex; L1 §12 B1 checks it), writes only `env` keys and its own hooks in Claude `settings.json` (same file L359-397; `cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205), and names its servers `beacon` / `beacon-managed`; no write touches a server named `oac` or the `--dangerously-load-development-channels` launch. Side effect recorded: user-level `log_user_prompt = true` also applies to OAC-launched Codex (feeds row 53). Retrieved 2026-09-29. **L3 live check (issue #192, 2026-10-01, L1 §13):** no collision seen. With Beacon `1.3.29` installed, the Claude development-channel launch connected its server, and Codex `0.159.3` took `turn/start` and `thread/queue/add` input on a daemon-loaded thread. The operator's `config.toml` had no trailing-comment headers. B1 itself was NOT RUN (operator decision on #168). The only B0-to-B7 config differences were Codex's own folder-trust entry in `config.toml` (`[projects.…]`, section diff) and a `~/.claude.json` change attributed, by inference, to Claude Code's own trust write (#206; content not read, and the orchestrating Claude Code session also writes that file); neither is a Beacon write |
+| 57 | B2 rows carried from §3 without a re-check against the pin ("Carried unchanged" or "PARTIAL"), classified UNVERIFIED for Gate S0 (#228, 2026-10-02; `docs/planning/REVERIFICATION-B2.md` "S0 classification note"). Listed in STATUS.md as one grouped entry | RISK-B2-CARRIED |
+| 58 | Hook-to-shim pairing by OS-reported peer PID and process ancestry: whether a Claude Code hook subprocess and its stdio MCP server subprocess share an OS-observable common ancestor on every OS, and which calls yield the peer PID (macOS) and parent PID (#236, 2026-10-02; `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement") | RISK-LOCAL-IPC |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

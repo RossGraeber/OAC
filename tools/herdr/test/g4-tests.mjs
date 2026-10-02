@@ -265,6 +265,43 @@ export async function g4Unit(check) {
   check('g4 sanitize (panes): with it, the placeholder survives redaction intact for every one of those usernames, including ones matching inside the old placeholder (sion, tens, ext)', sp.replaced === 2 && survives.every(([, v]) => v.ok), JSON.stringify(survives.filter(([, v]) => !v.ok)));
   const adversarial = placeholderIntegrity(createRedactor({ username: 'oac_ext', home: '/home/oac_ext', hostname: 'box-1' }).redactText(sp.text).text, sp.replaced);
   check('g4 sanitize: a username that does match inside the placeholder is caught by the integrity count (fail closed), and a wrapped identifier fragment is caught too', !adversarial.ok && !placeholderIntegrity(`${OAC_EXT_PLACEHOLDER} io.github.ross\ngraeber/oac-session-channels`, 1).ok);
+
+  // #148: a wrapped identifier escapes the sanitizer, and a username matching the unbroken side
+  // of the wrap is then redacted, so neither literal anchor survives in the raw text.
+  const redAs = (u, t) => createRedactor({ username: u, home: `/home/${u}`, hostname: 'box-1' }).redactText(t).text;
+  const exact = [['github', OAC_EXT.replace('oac-sess', 'oac-sess\n')], ['session', OAC_EXT.replace('io.git', 'io.git\n')]].map(([u, w]) => {
+    const t = redAs(u, `${OAC_EXT_PLACEHOLDER}\nprovenance under ${w}\n`);
+    return { u, t, anchorsGone: !/oac-session-channels|io\.github\./i.test(t), pi: placeholderIntegrity(t, 1) };
+  });
+  check('g4 sanitize (#148): a wrapped identifier whose unbroken side matched the username (github / break in oac-session-channels; session / break in io.github.) is flagged as a fragment though no literal anchor survives and the count still lines up', exact.every((x) => x.anchorsGone && x.t.includes('<USER>') && x.pi.found === 1 && x.pi.fragment && !x.pi.ok), JSON.stringify(exact));
+  const wrapAt = (t, w, nl) => t.match(new RegExp(`.{1,${w}}`, 'gs')).join(nl);
+  const wrapUsers = ['rossg', 'graeber', 'ross', 'github', 'sion', 'session', 'channels', 'tens', 'oac', 'rossgraeber'];
+  const wrapMiss = [];
+  let wrapCases = 0;
+  // Wrap decorations a TUI or terminal may put at a soft wrap: a box border, a quote / output /
+  // bullet prefix, an SGR reset, NEL, U+2028, a zero-width space, a soft hyphen.
+  const wrapSeps = ['\n', '\r\n', '│\n│ ', '\n▌ ', '\n█', '\n| ', '\n⎿ ', '\n• ', '\n› ', '\x1b[0m\n\x1b[2m', '\u0085', ' ', '​', '­\n'];
+  for (const nl of wrapSeps) for (let w = 4; w <= 60; w++) for (const u of wrapUsers) {
+    const raw = wrapAt(`  ⎿  provenance under ${OAC_EXT} ok`, w, nl);
+    const sp2 = sanitizeG4Text(raw);
+    const v = placeholderIntegrity(redAs(u, sp2.text), sp2.replaced);
+    wrapCases++;
+    if (v.ok !== (sp2.replaced === 1)) wrapMiss.push({ nl, w, u, replaced: sp2.replaced, v });
+  }
+  check('g4 sanitize (#148): at every pane width 4-60, with LF, CRLF, box-border, quote/output/bullet-prefix, ANSI, NEL, U+2028, zero-width-space and soft-hyphen wraps, for every username matching a piece of the identifier, a split identifier fails integrity and an unsplit one passes', wrapMiss.length === 0 && wrapCases === wrapSeps.length * 57 * wrapUsers.length, JSON.stringify(wrapMiss.slice(0, 3)));
+  // Only the near-copy match catches these (no literal anchor left); a preceding 'İ' lowercases to
+  // two UTF-16 units, which must not misalign the match.
+  const dpOnly = ['x <USER>.github.rossgraeber/oac-sess\n<USER>n-channels y', 'x io.git\nhub.rossgraeber/oac-s<USER>ion-channels y'];
+  const dotted = ['', 'İ ', 'İİ '].flatMap((pre) => dpOnly.map((t) => ({ pre, t, ok: placeholderIntegrity(pre + t, 0).ok })));
+  check('g4 sanitize (#148): a near-copy is caught with non-ASCII text before it whose lowercase is longer (İ)', dotted.every((x) => !x.ok), JSON.stringify(dotted.filter((x) => x.ok)));
+  const sepSplits = ['io.', 'io.github.', 'io.github.rossgraeber/', 'io.github.rossgraeber/oac-', 'io.github.rossgraeber/oac-session-', 'io', 'io.github', 'io.github.rossgraeber', 'io.github.rossgraeber/oac', 'io.github.rossgraeber/oac-session'].flatMap((head) => ['\n', '\r\n'].flatMap((nl) => ['github', 'session', 'rossgraeber', 'oac', 'channels'].map((u) => {
+    const t = `x ${head}${nl}${OAC_EXT.slice(head.length)} y`;
+    return { head, nl, u, ok: placeholderIntegrity(redAs(u, sanitizeG4Text(t).text), 0).ok };
+  })));
+  check('g4 sanitize (#148): a wrap falling right before or after a separator (. / -) is flagged for every matching username', sepSplits.every((x) => !x.ok), JSON.stringify(sepSplits.filter((x) => x.ok).slice(0, 3)));
+  const benign = [`<USER> ran /home/<USER>/x on <HOST>\n${OAC_EXT_PLACEHOLDER}`, `see github.com/<USER>/OAC (session <SECRET>)\n${OAC_EXT_PLACEHOLDER}`,`<WITHHELD: bearer token> <USER_HOME>\n${OAC_EXT_PLACEHOLDER}`];
+  const benignSan = ['rossg', 'github', 'session', 'oac'].map((u) => placeholderIntegrity(redAs(u, sanitizeG4Transcript(BASELINE).text), BASELINE.split(OAC_EXT).length - 1));
+  check('g4 sanitize (#148): no false alarm on placeholders that do not stand in an identifier near-copy, nor on the sanitized human-run transcript redacted for matching usernames', benign.every((t) => placeholderIntegrity(t, 1).ok) && benignSan.every((v) => v.ok), JSON.stringify([benign.map((t) => placeholderIntegrity(t, 1)), benignSan]));
   check('g4 ports: the defaults avoid the human run\'s ports, which a leftover global Codex entry may still name', !HUMAN_RUN_PORTS.includes(DEFAULT_PORTS.httpPort) && !HUMAN_RUN_PORTS.includes(DEFAULT_PORTS.modernHttpPort) && HUMAN_RUN_PORTS.includes(17448));
   check('g4 sessions: the human run had two Codex HTTP sessions on one server (two registrations), which the report\'s one-session check would flag', codexSessions(bf, 19680).length === 2);
 

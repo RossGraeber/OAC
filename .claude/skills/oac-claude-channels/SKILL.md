@@ -7,7 +7,8 @@ Version-pinned Claude Code Channels detail (research preview). Loaded for work
 items labelled `area:adapter-claude` and for gate G1 (Claude wake). This is the
 one exception to "link, don't copy": third-party protocol detail an agent
 cannot look up in this repo is copied here, pinned. All facts below are
-PLANNING-PROMPT.md §3.1, retrieved 2026-09-15 — see `## Pin`. Companion
+PLANNING-PROMPT.md §3.1 (2026-09-15), re-checked at Claude Code `2.1.285` on
+2026-10-02 — see `## Pin`. Companion
 guardrails: `oac-boundaries`, `oac-evidence` (do not restate their content).
 
 ## Constraints that most often trip an agent up
@@ -88,8 +89,10 @@ PLANNING-PROMPT.md §3.1.
 
 ## 6. Loading
 
-Channels are passed at session start with `--channels plugin:<name>@<marketplace>`
-or `--channels server:<name>`.
+Channels are passed at session start. `--channels` takes
+`plugin:<name>@<marketplace>` entries only; a bare server (`server:<name>`, which is
+OAC's case) loads only through `--dangerously-load-development-channels` (drift D4,
+`cli-reference.md`, 2026-10-02; §3.1's `--channels server:<name>` is wrong).
 
 - **A channel cannot be attached to an already-running session.**
 - Behavior across `--resume` is UNVERIFIED (open in `docs/planning/STATUS.md`
@@ -112,11 +115,19 @@ Source: PLANNING-PROMPT.md §3.1, §7.
 
 ## 8. Session identity
 
-Hooks receive `session_id` in their input (for example `SessionStart`) — this
-is the supported way for an external process to learn which live session it
-is talking to. No `CLAUDE_SESSION_ID` environment variable is documented
-(UNVERIFIED). Capture `session_id` from hook input, never from an
-undocumented environment variable.
+Hooks receive `session_id` in their input (for example `SessionStart`). It is
+the **authoritative** session id (C4 §3). There is no `CLAUDE_SESSION_ID`
+variable, but **`CLAUDE_CODE_SESSION_ID` is documented**: it is set in hook,
+Bash/PowerShell tool and stdio MCP server subprocesses. An MCP server keeps the
+ID it was spawned with, so the hook ID moves away from it after `/clear`,
+`--continue`/bare `--resume`, in-session `/resume`, fork paths (`--fork-session`,
+`/fork`, `/branch`) and moving a conversation to the background (`env-vars.md`,
+`hooks.md` SessionStart `source`, 2026-10-02; drift D5). Per C4 §3 "Revision,
+2026-10-02" (#236), `oac mcp-shim` reads it as a **cross-check only**. Equal →
+bind. A mismatch fails closed only at `source` `startup`. For
+`resume`/`clear`/`fork`/`compact` the daemon binds the hook ID as a new OAC id
+and logs a diagnostic. A hook ID already bound to another live shim → refuse the
+newcomer. The variable alone unlocks nothing and is never the sole pairing key.
 
 Claude Code's own cross-session messaging (`ListAgents`/`SendMessage`) is a
 **separate feature** and is **not integrated with Channels**. Do not conflate
@@ -125,14 +136,18 @@ the two when building or reviewing the adapter. Source: PLANNING-PROMPT.md
 
 ## 9. Stability
 
-Research preview on Claude Code v2.1.232+. The flag syntax and protocol may
-change. The `--channels` flags do not appear in `claude --help`. Label this
+Research preview. The changelog shows `--channels` was added in `2.1.80`. §3.1's
+"v2.1.232+" is unsupported as a channels floor (drift D6). `2.1.232` is instead
+where `mcp.md` starts the v2 MCP runtime, the one §4's constraint guards against, for
+sessions that fetch feature flags. The working floor is PINS.md's minimum version. The flag syntax and protocol may change. The `--channels` flags do not
+appear in `claude --help` (observed on `2.1.285`). Label this
 surface **research preview** per `oac-evidence` §4 whenever you mention it.
 
 ## 10. Agent SDK
 
-Agent SDK support for Channels is UNVERIFIED, presumed absent. Do not assume
-the Agent SDK can drive or receive channels.
+The Agent SDK does not support Channels: its capability table omits them (closed
+in B2, still true on 2026-10-02). Do not assume the Agent SDK can drive or
+receive channels.
 
 ## Where the content lives
 
@@ -152,26 +167,24 @@ the Agent SDK can drive or receive channels.
 2026-10-01). Minimum `v2.1.282` (the first version the project worked with), last tested
 `v2.1.285` (PINS.md "Version policy"). A different version, or one below the minimum, is a
 warning: never a stop, never `NOT RUN`, never a CI block, never by itself a reason to
-invalidate a verdict. Everything below was verified on `v2.1.274` only (STATUS.md open item).
+invalidate a verdict.
 
-**Re-verified pin (B2):** Claude Code `v2.1.274` (Channels research preview),
-published 2026-09-17T00:12:02Z UTC. Both floors satisfied: channels-exist
-floor `>= v2.1.232` (UNVERIFIED — re-checked in B2 against the full text of
-`channels.md` as fetched 2026-09-16; still sourced only from
-PLANNING-PROMPT.md §3.1, not independently confirmed on the first-party
-page at this pin; see PINS.md and `docs/planning/REVERIFICATION-B2.md`
-§3.1); permission-relay floor `>= v2.1.234` confirmed verbatim on
-`channels-reference.md`. MCP legacy revision `2025-11-25` or earlier required
-for channel negotiation, current revision `2026-07-28`. B2 also closed two
-adjacent open items: no `CLAUDE_SESSION_ID` environment variable exists
-(`hooks.md` documents `session_id` as a hook-payload field instead), and the
-Agent SDK does not support Channels (confirmed absent from its own
-capability table at `code.claude.com/docs/en/agent-sdk/overview`). Whether
-channels survive `--resume`/`--continue`, and whether one MCP server can
-register more than one logical channel, remain UNVERIFIED — docs silent at
-this pin; see `docs/planning/REVERIFICATION-B2.md` §3.1 boxes 1-2. Source:
-`docs/planning/PINS.md` — "Claude Code Channels" pin record, and
-`docs/planning/REVERIFICATION-B2.md` §3.1, retrieved 2026-09-16.
+**Re-checked at `2.1.285` (2026-10-02, #122):** this is the one B2-style desk re-check the
+operator decided on #122. Later versions are version warnings only. It covers 23 facts:
+18 hold, two stay UNVERIFIED and three drifted.
+- UNVERIFIED: whether channels survive `--resume`/`--continue`, and whether one server
+  can present more than one logical channel. The docs are still silent on both.
+- D4: `--channels` takes `plugin:` entries only (§6).
+- D5: `CLAUDE_CODE_SESSION_ID` (§8); resolved by the C4 revision (#236).
+- D6: the `v2.1.232` floor is unsupported (§9).
+
+Permission-relay floor `>= v2.1.234` holds. Channel servers must not negotiate
+`2026-07-28`. The page says only "the earlier handshake", and G1 observed `2025-11-25`.
+Sources: `channels.md`, `channels-reference.md`, `mcp.md`, `hooks.md`, `env-vars.md`,
+`cli-reference.md`, `agent-sdk/overview.md` under `code.claude.com/docs/en/`, the
+`anthropics/claude-code` changelog, and `claude --help` on `2.1.285`, all retrieved
+2026-10-02. Record: `docs/planning/REVERIFICATION-B2.md` "§3.1 re-check at Claude Code
+`2.1.285`". The earlier B2 pass, at `v2.1.274`, is the §3.1 section of the same file.
 
 Current gate verdicts for this surface (G1, G4, G5) are not restated here — see
 `docs/planning/STATUS.md`'s Gate verdicts table. Each verdict records the version it ran

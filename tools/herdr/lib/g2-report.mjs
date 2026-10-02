@@ -42,7 +42,7 @@ import {
   DEFAULT_OPERATOR_PROMPT, compareByMode, formatModeDiff, g2Facts, identifyTuiThread, parseG2Transcript, readG2Criteria, G2_CRITERIA_SHA256, CriteriaDriftError,
 } from './g2.mjs';
 import { parseSections, committedFile, sha256 } from './g1.mjs';
-import { describeDialogs, noConsentCriterionLine } from './gate-report-common.mjs';
+import { describeDialogs, herdrExecutableHash, noConsentCriterionLine } from './gate-report-common.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -288,7 +288,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('');
   out.push('Generated unticked. Only the operator who ran this machine ticks these lines, each only if true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation"). An unticked line means this record is neither an equivalence record nor verdict-bearing.');
   out.push('');
-  out.push(`- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${manifest?.herdr?.observedVersionOutput ?? '?'}\`; sha256 of the executable: \`<64 hex>\``);
+  out.push(`- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${manifest?.herdr?.observedVersionOutput ?? '?'}\`; sha256 of the executable: ${herdrExecutableHash(manifest)}`);
   out.push(`- [ ] **Harness:** the real, logged-in Codex CLI ran, not a test double. \`codex --version\`: \`${v.cliOutput ?? '?'}\``);
   out.push(`- [ ] **Consent dialog:** ${noConsentCriterionLine('G2', g2.dialogs)}`);
   out.push('- **Attested by:** <operator>, <YYYY-MM-DD>');

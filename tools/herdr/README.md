@@ -25,7 +25,7 @@ never replaces a supported interface and it decides nothing.
 
 | Path | What |
 |---|---|
-| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). |
+| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). Executable identity (#140, `lib/manifest.mjs`, run-manifest `schemaVersion` 2): herdr is resolved once and spawned only by that path (unresolved: NOT RUN, nothing spawned), and re-hashed at teardown; `herdr.executable` and `harnessExecutables` record basename, sha256, format and (herdr) `testDouble`, never a directory, and each written capture records its `sha256` (`oac-gates` `references/scripted-runs.md` "Executables and capture hashes"). Teardown process accounting (#136, `lib/herdr.mjs` `teardown`, `lib/proc.mjs` `processTable`): every pane `workspaceCreate` returned is queried with `pane process-info` whether or not the scenario asked, and the pane processes' and the herdr server's descendants are recorded from one process table (Linux `/proc`, macOS `ps`, Windows `Get-CimInstance Win32_Process`: pid, parent pid, creation time, argv). After the stop a recorded pid still alive is killed, that pid only and never its tree, only if its creation time is unchanged, it is no older than the driver process, and it is not the Codex app-server (the shared daemon is never stopped). Anything it cannot verify is not killed: it is listed in `teardown.leftoverProcesses` (`unverifiedPids`), and teardown is not clean. This covers a live pid missing from the process table and a creation time that cannot be compared with the driver's. By design, `teardown.protectedProcesses` (an app-server the run's panes started, left running) does not affect `clean`; a scenario that expects no daemon checks `protectedProcesses.length === 0` itself. Known limits: the `app-server` match is UNVERIFIED against a live daemon's argv (the operator's own daemon predates the driver and is excluded before that match; if a pane-started daemon lacks the token, teardown kills that run-started daemon). A GUI process a pane started (a browser opened for a login, if none was running) is a pane descendant created after the driver and is killed, as POSIX group kills already did. The third-signal emergency exit in `run.mjs` still kills the server tree (`taskkill /T` on Windows). |
 | `ci.mjs`, `runner-hooks/` | The opt-in CI entry point and runner hooks (K6). |
 | `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). |
 | `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8), `l3-beacon` (L3b; the Beacon live leg, not a gate). |
@@ -279,7 +279,12 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    captures; it never imports driver code into a product crate or module, and no product
    manifest (and no test manifest that a default build compiles) may reference
    `tools/herdr/`. The scenario module itself may live under `tests/integration/` and be
-   passed to `--scenario` by path.
+   passed to `--scenario` by path. `scripts/check-herdr-containment.mjs` check 9 enforces
+   this (#146): `tests/integration/` may name herdr and run the driver by path, including
+   from a script entry in its own manifest, but it fails if anything under it imports,
+   compiles in, or symlinks to driver code. It also fails if a product path reaches
+   `tests/integration/`, or a manifest outside it names it or a `tests/` glob or member.
+   The exact rules are in `oac-boundaries` `references/mechanical-checks.md`, check 9.
 3. **Opt-in and pinned.** Reached only by an explicit, separately invoked target, never the
    default `test` run; each test names its exact transport and herdr pins from
    `docs/planning/PINS.md` (`09-test-strategy.md` §4), and records the Claude Code and Codex
@@ -321,10 +326,6 @@ not resolved silently):
 - `tests/integration/` is DESIGN's *suggested* layout; `oac-testing` says the actual test
   layout is confirmed by Stage 3 output (F8/F9). Point 2 above follows K8's acceptance, ahead
   of that confirmation.
-- `scripts/check-herdr-containment.mjs` scans the product paths, not `tests/`. Nothing
-  mechanical yet stops a product crate from depending on a test under `tests/integration/`
-  that in turn drives herdr, or a default build from compiling such a test. Whether check 9
-  should grow a `tests/integration/` rule is open.
 - Point 5 means an unattended opt-in CI run of any test that shows the G11 confirmation is
   impossible under the current rule (#196 did not change G11).
 
@@ -345,6 +346,9 @@ they are per-machine and belong to the operator.
 `%USERPROFILE%\.herdr\packages\standalone\releases\<version>-x86_64-pc-windows-msvc\herdr.exe`
 and does not add it to PATH. Add that directory to the user PATH (or prepend it in the shell
 that runs the driver), then check `herdr --version` prints the pin in `docs/planning/PINS.md`.
+The driver reads that pin from PINS.md as committed at HEAD. An uncommitted edit to the
+`herdr (test tooling)` row ends the run `NOT RUN` and is not applied; any other uncommitted
+PINS.md edit is a finding only (#139). Commit or revert a herdr-row edit before `--self-test`.
 
 **2. Isolation is the driver's job.** Set nothing. `run.mjs` starts its own named, headless
 session (`oac-k-<scenario>-<stamp>-<rand>`), writes its own `herdr-config.toml` (with

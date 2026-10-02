@@ -314,7 +314,7 @@
       "redaction": {
         "script": "None named for this probe — G4-result.md \"Fixture reproduction\": the file is a verbatim copy (Copy-Item) of the driver's own transcript, \"the server logs only protocol JSON to this file — the same shape redact.mjs already produces byte-for-byte from a fresh run\".",
         "script_sha256": null,
-        "residual_scan_result": "G4-result.md: re-scanned during write-up for rossg, RossG, DESKTOP-N8MHSJ4, @gmail, sk-, Bearer , systemPrompt, prompt_snapshot (public extension identifier masked first, then restored) — \"zero residual hits, confirming there was nothing to redact rather than that a redaction pass found and removed something.\""
+        "residual_scan_result": "G4-result.md: re-scanned during write-up for rossg, RossG, the operator's hostname, @gmail, sk-, Bearer , systemPrompt, prompt_snapshot (public extension identifier masked first, then restored) — \"zero residual hits, confirming there was nothing to redact rather than that a redaction pass found and removed something.\""
       },
       "coverage": {
         "server/discover (HTTP, modern, two independent Codex registrations)": "1-4",
@@ -350,7 +350,7 @@
       "redaction": {
         "script": "g5-spike/redact.mjs (quarantined, not committed)",
         "script_sha256": null,
-        "residual_scan_result": "G5-result.md: \"re-scanned independently during this write-up with grep -i for rossg, RossG, DESKTOP-N8MHSJ4, @gmail, sk-, Bearer , systemPrompt, prompt_snapshot (the public extension identifier masked first, then restored) — zero residual hits in all three files.\""
+        "residual_scan_result": "G5-result.md: \"re-scanned independently during this write-up with grep -i for rossg, RossG, the operator's hostname, @gmail, sk-, Bearer , systemPrompt, prompt_snapshot (the public extension identifier masked first, then restored) — zero residual hits in all three files.\""
       },
       "coverage": {
         "server/discover (request + -32601 response)": "2-3, 11-12",
