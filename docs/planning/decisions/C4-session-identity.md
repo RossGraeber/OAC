@@ -5,8 +5,9 @@ PLANNING-PROMPT.md §5.4, §5.7, §7, §3.1, §3.2; conflict C8.
 
 **Status:** Decided. **Revised 2026-10-02 (#236, operator decision, resolves drift D5):**
 §3 now names the hook-stdin `session_id` the **authoritative** source and adds
-`CLAUDE_CODE_SESSION_ID` as a cross-check (§3 "Revision, 2026-10-02"); §13 gains one
-threat row. Earlier text is kept and marked, not deleted.
+`CLAUDE_CODE_SESSION_ID` as a cross-check (§3 "Revision, 2026-10-02"): a mismatch fails
+closed only when the `SessionStart` `source` is `startup`; §6 gets a matching note and
+§13 gains one threat row. Earlier text is kept and marked, not deleted.
 
 **Standalone-ledger note.** This file lives at `docs/planning/decisions/` because
 `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) does not exist yet.
@@ -135,11 +136,14 @@ no longer holds. The hook path this section decides on is still documented and s
 stands. Whether `oac mcp-shim` should also read the variable is open in
 `docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)", for a C4 revision.
 
-**Revision, 2026-10-02 (#236, operator decision): the hook `session_id` stays
-authoritative; `CLAUDE_CODE_SESSION_ID` is a cross-check.** This resolves drift D5
-(`docs/planning/REVERIFICATION-B2.md` Drift register) and the STATUS.md open conflict
-above. It changes C4 only. ADR-001, DESIGN.md and PLANNING-PROMPT.md §5 are untouched,
-so no `ADR-001-A*` amendment is proposed.
+**Revision, 2026-10-02 (#236, operator decision, refined the same day after the PR #238
+review): the hook `session_id` stays authoritative; `CLAUDE_CODE_SESSION_ID` is a
+cross-check.** This resolves drift D5 (`docs/planning/REVERIFICATION-B2.md` Drift
+register) and the STATUS.md open conflict above. It changes C4 only. ADR-001, DESIGN.md
+and PLANNING-PROMPT.md §5 are untouched, so no `ADR-001-A*` amendment is proposed. The
+refinement (operator comment on #236, option (c) of the PR #238 review) makes a mismatch
+fail closed only on a fresh start, refuses a duplicate newcomer instead of withdrawing a
+live binding, and forbids pairing on the variable alone.
 
 *Evidence, re-fetched for this revision.* `CLAUDE_CODE_SESSION_ID` (surface label:
 **supported**, a documented environment variable) is, verbatim: "Set automatically to
@@ -159,66 +163,123 @@ as hooks/Bash on `--resume`". Source: `anthropics/claude-code` `CHANGELOG.md` @
 `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02. All three versions sit
 below the minimum version `v2.1.282` (`docs/planning/PINS.md`).
 
-*Terms.* **H** is the `session_id` from the hook's stdin JSON, reaching the daemon by the
-capture path above. **E** is the value of `CLAUDE_CODE_SESSION_ID` in `oac mcp-shim`'s
-own process environment. The shim reads E once, at startup, and sends it to the daemon
-in its C2 IPC connection hello. The shim reads nothing else to learn a session id. The
-daemon makes every comparison below and stays the only writer of registration records
-(§5). **Bind** means the daemon writes a registration record for H (§5) and attaches
-that shim's channel connection to it, so messages addressed to that OAC session id are
-delivered through that shim. Values are compared as exact byte strings.
+`SessionStart` hook input carries `source`: "How the session started: `"startup"` for
+new sessions, `"resume"` for resumed sessions, `"clear"` after `/clear`, `"compact"`
+after compaction, or `"fork"` for a new session forked from an existing one". Its
+matcher table says `resume` fires on "`--resume`, `--continue`, or `/resume`", and
+`fork` on "`--fork-session` with `--resume` or `--continue`, the `/fork` background
+copy, `/branch`, or a conversation you move to the background". It also says "Before
+v2.1.214, forked sessions reported source `"resume"`", which is below the minimum
+version. Source: https://code.claude.com/docs/en/hooks.md "SessionStart" and
+"SessionStart input" (L1096-1130), retrieved 2026-10-02. So a launch with
+`--resume <session-id>` reports `source` `resume`, not `startup`.
+
+*Terms.* **H** is the `session_id` from the hook's stdin JSON, reaching the daemon by
+the capture path above. **S** is the `source` field of the `SessionStart` payload that
+delivered H. **E** is the value of `CLAUDE_CODE_SESSION_ID` in `oac mcp-shim`'s own
+process environment. The shim reads E once, at startup, and sends it to the daemon in
+its C2 IPC connection hello. The shim reads nothing else to learn a session id. The
+daemon makes every decision below and stays the only writer of registration records
+(§5). **Pairing** is the daemon's decision about which shim connection a hook payload
+belongs to. **Bind** means the daemon writes a registration record for H (§5) and
+attaches the paired shim connection to it, so messages addressed to that OAC session id
+are delivered through that shim. Values are compared as exact byte strings.
 
 *The rule.* H is authoritative. E never overrides H, never stands in for H, and is never
-silently preferred. Four cases:
+silently preferred. If the paired shim connection is already bound to this same H,
+nothing changes, whatever E and S are. Otherwise:
 
-1. **H and E both present and equal.** Bind, exactly as the hook path above. The
-   record's `harness_native_id` is H. E confirms the shim-to-session pairing and adds no
-   other authority.
-2. **H and E both present and different.** **Fail closed.** The daemon binds neither
-   value: it writes no registration record for H with that shim connection, never
-   registers E, and does not pick one. If that shim connection is already bound (an
-   earlier hook delivered an H equal to E, and a later hook delivers a different H), the
-   daemon withdraws that binding and deregisters the record, as at end of session (§5).
-   The daemon records a finding: a local log entry naming H, E and the shim connection.
-   The session is not OAC-reachable through that shim. It is not discoverable, has no
-   presence, and gets no delivery, until a fresh launch produces case 1. The same holds
-   when more than one shim connection presents the same E for one H: the daemon binds
-   none of them and records a finding. An `oac` hook handler MAY also compare its own
-   environment's `CLAUDE_CODE_SESSION_ID` with its stdin `session_id`. The docs say the
-   two match for hooks, so a mismatch there is case 2 for that hook event.
-3. **Only E present** (no hook payload received yet for this shim, or hooks are not
+1. **H and E both present and equal.** Bind. The record's `harness_native_id` is H. E
+   confirms the pairing and adds no other authority.
+2. **H and E both present and different**, decided by S:
+   - **(a) S is `startup`**, or S is missing or not one of the five documented values
+     (both are treated as `startup`). **Fail closed.** For a new session the docs make H
+     and E the same id, so a difference here is unexplained. The daemon binds neither
+     value: it writes no registration record for H with that shim connection, never
+     registers E, and does not pick one. It records a **finding**: a local log entry
+     naming H, E, S and the shim connection. The session is not OAC-reachable through
+     that shim (not discoverable, no presence, no delivery) until a fresh launch reaches
+     case 1.
+   - **(b) S is `resume`, `clear`, `fork` or `compact`.** **Expected divergence; the
+     session keeps working.** E is the shim's spawn-time id and is stale by design after
+     these transitions (divergence list below). The daemon binds on H, the authoritative
+     value, as a **new** registration record under a **new** OAC session id, per §6. Any
+     earlier registration of that shim connection is deregistered as at end of session
+     (§5), and its authorization state is not carried forward (§6). The mismatch is
+     logged as a **diagnostic** naming H, E and S, not as a finding. From then on E plays
+     no part for that connection.
+
+   An `oac` hook handler MAY also compare its own environment's `CLAUDE_CODE_SESSION_ID`
+   with its stdin `session_id`. The docs say these match for hooks, including after
+   `/clear`, so a mismatch there is a finding. With S `startup` the hook event is
+   handled as case 2(a).
+3. **Duplicate E: refuse the newcomer.** If a shim connection presents an E that another
+   live shim connection already presented, the daemon never binds the **later**
+   connection (the newcomer) and records a finding. It never withdraws or changes the
+   existing connection's binding because of the newcomer. Two Claude Code processes
+   legitimately resuming the same conversation with `--resume <session-id>` also land
+   here; the second stays unbound.
+4. **Only E present** (no hook payload paired with this shim yet, or hooks are not
    installed). E is a **non-authoritative hint**. It MAY be used for (a) log and trace
-   correlation, shown as "unconfirmed" in any `oac` diagnostic output, and (b) a lookup
-   key that pairs the shim connection with a hook payload that arrives later; the outcome
-   of that pairing is still decided only by case 1 or case 2. E MUST NOT create a
-   registration record, mint or select an OAC session id, make the session appear in
-   discovery, presence or `list_sessions`, serve as an allowlist or ACL subject, enter
-   pairing, route or deliver a message, appear in provenance (a Claude `meta` attribute)
-   or on the wire, or authorize anything. If no hook payload ever arrives, the shim stays
+   correlation, shown as "unconfirmed" in any `oac` diagnostic output, and (b) a
+   secondary consistency check on pairing when S is `startup`. It MUST NOT be the sole
+   pairing key (pairing requirement below). E MUST NOT create a registration record,
+   mint or select an OAC session id, make the session appear in discovery, presence or
+   `list_sessions`, serve as an allowlist or ACL subject, enter pairing with a peer,
+   route or deliver a message, appear in provenance (a Claude `meta` attribute) or on the
+   wire, or authorize anything. If no hook payload is ever paired with the shim, it stays
    unbound, as it would without E.
-4. **Only H present** (E absent from the shim's environment). Unchanged: the hook path
+5. **Only H present** (E absent from the shim's environment). Unchanged: the hook path
    above applies as before. Absence of E is logged as a diagnostic, not treated as a
    finding, and does not fail closed.
 
-*Correlation constraint.* Which `oac` entry point receives the hook payload stays a
-Stage 3/4 detail (next paragraph). This revision adds one constraint: however a hook
-payload is matched to a shim connection, E alone never decides the match. Case 1's
-equality with H is required, and a duplicate or mismatching E fails closed (case 2).
+*Pairing requirement.* Which `oac` entry point receives the hook payload stays a Stage
+3/4 detail (next paragraph). This revision adds a requirement on how a hook payload is
+paired with a shim connection:
 
-*Continue/resume caveat and its consequence.* An MCP server "retains the ID it was
-spawned with", and on `--continue` or `--resume` without an explicit ID "it may receive
-the initial startup ID instead" (env-vars.md L365, above). In those launches, and after
-`/clear` (which updates the id for hooks but not for an already-running MCP server), H
-and E can differ through no attack at all. Case 2 still applies: OAC fails closed, so a
-session continued that way, or cleared, is not OAC-reachable until it is relaunched with
-a fresh start or `--resume <session-id>`. `--resume <session-id>` gives the MCP server
-"the resumed ID, matching hooks and Bash", so it reaches case 1, and per §6 it is still
-registered under a **new** OAC session id. This matches §6's conservative rule and
-`[ADR-001-A2 Amendment]`'s "launched OAC-enabled" definition. It narrows which launches
-are OAC-enabled; it does not reach into a session OAC did not launch (`oac-boundaries`
+- Pairing MUST rest on a key the daemon observes itself from the operating system, not
+  on a value the connecting process supplies.
+- E MUST NOT be the sole pairing key at any time. After a transition (S other than
+  `startup`) E is not used for pairing at all, because it is stale by design.
+- The required mechanism is OS-reported process identity on the same C2 peer-auth path
+  as `docs/planning/v0.1/06-security.md` §14 row 13. That means the peer PID of each IPC
+  connection (`GetNamedPipeClientProcessId` on Windows; `SO_PEERCRED` on Linux) and,
+  from it, process ancestry: the hook handler and the shim are paired only when both
+  descend from the same Claude Code process.
+- **UNVERIFIED — not established by first-party docs or a run:**
+  - whether a Claude Code hook command subprocess and its stdio MCP server subprocess
+    share an OS-observable common Claude Code ancestor on every supported OS (a hook may
+    run under an intermediate shell, an MCP server under a launcher);
+  - which call yields the peer PID on macOS, since `getpeereid()` reports only UID/GID;
+  - which call yields a parent PID from a peer PID on each OS.
+
+  Owner: the Epic F Claude adapter work and G9. Until a daemon-observed key is
+  established, the daemon does not bind on a hook payload it cannot pair. That is the
+  fail-closed default, and it costs availability, never authority.
+
+*Divergence list and its consequence.* H and E can differ through no attack at all in
+the following cases. E is the MCP server's spawn-time id, because an MCP server "retains
+the ID it was spawned with" (env-vars.md L365), while the hooks follow the session.
+
+- `/clear` (S `clear`), which updates the id for hooks but not for the running MCP
+  server.
+- `--continue` and `--resume` without an ID, where the MCP server "may receive the
+  initial startup ID instead" (S `resume`).
+- In-session `/resume` (S `resume`).
+- `--fork-session` with `--resume` or `--continue`, the `/fork` background copy,
+  `/branch`, and moving a conversation to the background (S `fork`).
+- Compaction (S `compact`). The docs do not say whether the id changes; it is listed
+  under 2(b) so that it never blocks.
+
+Sources: env-vars.md L365 and hooks.md "SessionStart", both retrieved 2026-10-02. Under
+2(b) such a session stays OAC-reachable, but under a **new** OAC session id. Peers
+addressing the old id no longer reach it, and allowlist or pairing grants are not
+carried forward (§6). Only an unexplained fresh-start mismatch (2(a)) blocks. This
+matches §6's conservative rule and `[ADR-001-A2 Amendment]`'s "launched OAC-enabled"
+definition. It does not reach into a session OAC did not launch (`oac-boundaries`
 boundary 7). Runtime equality of H and E on a fresh start is documented, not yet
-observed. The Claude adapter's contract tests (Epic F) and F11 (§13) exercise the four
-cases.
+observed. The Claude adapter's contract tests (Epic F) and F11 (§13) exercise the cases
+above.
 
 **Which specific `oac` entry point receives the hook payload (a dedicated `oac hook`
 subcommand versus routing it through the already-running `oac mcp-shim` for that
@@ -363,6 +424,15 @@ delivers a `session_id`, whatever value it carries is captured and registered as
 **a new registration record** (§5) under a **new** opaque OAC session id (§2) — OAC does
 not attempt to recognize a resumed Claude `session_id` as "the same" prior OAC session
 and does not carry a prior registration's authorization state forward onto it.
+
+(Dated note, 2026-10-02, #236: this registration is now subject to §3 "Revision,
+2026-10-02". On a `SessionStart` whose `source` is `resume`, `clear`, `fork` or
+`compact`, H may differ from the shim's `CLAUDE_CODE_SESSION_ID`. That is expected, and
+the daemon still registers H here as a new record under a new OAC session id (§3 case
+2(b)), provided it can pair the hook payload with the shim without relying on the
+variable (§3 "Pairing requirement"). Only an unexplained mismatch at `source` `startup`
+fails closed (§3 case 2(a)). A duplicate variable value is refused for the newcomer
+(§3 case 3).)
 
 **Why this is the correct default, not a guess.** Per `[ADR-001-A2 Amendment]`
 (`docs/planning/ADR-001-AMENDMENTS.md` "ADR-001-A2"), the Validation criterion's
@@ -703,7 +773,7 @@ Per `oac-security-work` §1's template, C4-owned threats only — the envelope-l
 | Cross-project disclosure (session in one working directory discoverable by an unauthorized peer in another) | Two OAC sessions exist under different working directories on the same or different devices | `working_directory` field scopes the registration record (§5); discovery queries are filtered by it before a grant, not after | H2 (fourth acceptance item, verbatim: cross-project leakage) | H2 `NOT RUN`; the query/grant logic itself is C6/F6's implementation, not built yet |
 | Device-key exfiltration from the fallback file | Attacker gains filesystem read access to the `age`-encrypted fallback file (§11) | File is `age`-encrypted (scrypt-derived key from a CSPRNG-generated passphrase never itself stored alongside the file, §11); directory/file permissions restrict OS-level read access as a second layer | F5 (authorization engine and pairing store — the key-material handling this decision feeds); F11 security suite | Filesystem permissions and the `age` encryption together are defense in depth, not defense against a fully compromised host with the passphrase's own secrets-manager access — that residual risk is inherent to any local secret store and is not eliminated by this design, only reduced versus a plaintext file |
 | Stale-registration replay after resume | A held-open registration record (§5) is presented after the harness session it named has actually ended or been superseded (§6, §7) | Session lifetime is tied to the IPC connection's life (`docs/planning/decisions/ C2-process-model.md` §5 — EOF deregisters); Claude resumes default to a **new** registration (§6) rather than reusing a stale one; Codex re-binds only through the daemon's own authoritative client observation (§7) | F4 (replay defence and duplicate suppression); H2 | F4/H2 `NOT RUN`; the Codex cross-process silent-append hazard (§7, issue #21743) remains a named gap the proving tests above do not close — it is invisible to OAC by construction (§7), not mitigated by a test |
-| Session binding via a spoofed `CLAUDE_CODE_SESSION_ID` (added 2026-10-02, #236) | A process that can start `oac mcp-shim` outside Claude Code, or set its environment, sets the variable to another session's id and reaches the daemon's IPC endpoint | The variable is a hint only and binds nothing alone; binding needs a byte-equal hook-stdin `session_id`; a mismatch, or two shims presenting the same value, fails closed with a finding (§3 "Revision, 2026-10-02", cases 2-3); C2 local IPC peer authentication admits only same-UID peers | F11 security suite; G9 (local IPC peer auth) | F11/G9 `NOT RUN`. A same-UID process that can also forge a hook payload is inside the local trust boundary already (C2 §4), and OAC cannot tell it apart: the cross-check detects accidental divergence, not a same-UID adversary. Whether Claude Code overwrites an inherited value in the processes it spawns is documented ("Set automatically"), not observed |
+| Session binding via a spoofed `CLAUDE_CODE_SESSION_ID` (added 2026-10-02, #236) | A same-UID process starts `oac mcp-shim` outside Claude Code, or sets its environment, with another session's id, and reaches the daemon's IPC endpoint | The variable binds nothing alone and is never the sole pairing key; pairing rests on daemon-observed OS process identity (peer PID and ancestry on the C2 peer-auth path); a second shim presenting the same value is refused as the newcomer and never displaces an existing binding; local IPC admits only same-UID peers (§3 "Revision, 2026-10-02", cases 3-4 and "Pairing requirement") | F11 security suite; G9 (local IPC peer auth) | F11/G9 `NOT RUN`. Byte-equality of the variable with the hook `session_id` alone does not stop a spoofer: if the variable were the pairing key, a spoofing shim would pair with the genuine hook payload as case 1. That is why it must never be the sole key, and the ancestry mechanism that replaces it is UNVERIFIED (§3, §16). **Pairing race:** a spoofing shim that connects before the genuine one makes the genuine shim the refused newcomer. That is a local denial of service against that session's reachability, reduced (not removed) by refusing newcomers instead of withdrawing live bindings. Two legitimate processes resuming the same conversation collide the same way. A same-UID process that can also forge a hook payload is already inside the local trust boundary (C2 §4), so the cross-check catches accidental mispairing, not a same-UID adversary |
 
 Every row above names its proving test per `oac-security-work` §1's rule; none is marked
 mitigated without one. Because every named test's verdict is currently `NOT RUN`
@@ -812,9 +882,13 @@ as "Carried to 11-risks.md" item 3, which is the separate, differently-owned que
 whether implicit Codex daemon attach executes by default at runtime) are both existing
 entries this document relies on and does not resolve. The `CLAUDE_SESSION_ID` absence
 (§3) is confirmed closed, not reopened. (Dated note, 2026-10-02, #236: the §3 revision
-adds no UNVERIFIED item. `CLAUDE_CODE_SESSION_ID` and its caveats are first-party
-documented; that H and E match at runtime is documented, not yet observed, and is left
-to the tests §13 names.)
+adds **one** UNVERIFIED item: the hook-to-shim pairing mechanism, OS-reported peer PID
+and process ancestry on the C2 peer-auth path (§3 "Pairing requirement"). It is
+mirrored in `docs/planning/STATUS.md` "Open UNVERIFIED items" and in
+`docs/planning/v0.1/11-risks.md` RISK-LOCAL-IPC. `CLAUDE_CODE_SESSION_ID`, its caveats
+and the `SessionStart` `source` values are first-party documented. That H and E match on
+a fresh start at runtime is documented, not yet observed, and is left to the tests §13
+names.)
 
 ## 17. Acceptance boxes, ticked against lines in this file
 
@@ -861,10 +935,14 @@ to the tests §13 names.)
 **Revision #236 (2026-10-02), a later change to this file:**
 
 - This file: status line; §3 (authoritative-source wording, superseded text kept, and
-  the "Revision, 2026-10-02" block); §13 gains the spoofed-variable row; §16 gains the
-  `CLAUDE_CODE_SESSION_ID` label row and a dated note.
+  the "Revision, 2026-10-02" block, refined after the PR #238 review to the
+  `source`-aware rule); §6 gains a dated note that ties its resume registration to §3;
+  §13 gains the spoofed-variable row; §16 gains the `CLAUDE_CODE_SESSION_ID` label row
+  and a dated note recording one new UNVERIFIED item (the pairing mechanism).
 - `docs/planning/STATUS.md`: the D5 open conflict moves to resolved; `**Last updated:**`
-  entry added.
+  entry added; the pairing-mechanism item added to "Open UNVERIFIED items".
+- `docs/planning/v0.1/11-risks.md`: RISK-LOCAL-IPC widened to the pairing mechanism;
+  traceability row 58.
 - `docs/planning/REVERIFICATION-B2.md`: D5 marked resolved in the Drift register and its
   D5 bullet.
 - `docs/planning/v0.1/06-security.md` §1 and §14 (row 24), with the row count in §15,
