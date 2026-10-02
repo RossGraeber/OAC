@@ -1206,13 +1206,13 @@ Generated unticked. Only the operator who ran this machine ticks these lines, ea
 true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation",
 adapted to name Beacon).
 
-- [ ] **herdr:** the real herdr binary ran, not a test double. `herdr --version`:
-  `herdr 0.9.1`; sha256 of the executable: `<64 hex>`
-- [ ] **Harness:** the real, logged-in Claude Code CLI (`claude --version`: `2.1.285`) and
+- [X] **herdr:** the real herdr binary ran, not a test double. `herdr --version`:
+  `herdr 0.9.1`; sha256 of the executable: `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6`
+- [X] **Harness:** the real, logged-in Claude Code CLI (`claude --version`: `2.1.285`) and
   Codex CLI (`codex --version`: `0.159.3`) ran, not test doubles.
-- [ ] **Beacon:** the real, operator-installed Beacon endpoint (`beacon version`:
+- [X] **Beacon:** the real, operator-installed Beacon endpoint (`beacon version`:
   `1.3.29`) ran in Local mode, not a test double.
-- [ ] **Consent dialog:** accepted by the DRIVER (`accept=driver`, #196), not by me:
+- [X] **Consent dialog:** accepted by the DRIVER (`accept=driver`, #196), not by me:
   Claude workspace-trust, Claude MCP-server approval, Claude development-channels and Codex
   workspace-trust (sequence numbers above).
-- **Attested by:** <operator>, <YYYY-MM-DD>
+- **Attested by:** Ross Graeber, 2026-10-02
