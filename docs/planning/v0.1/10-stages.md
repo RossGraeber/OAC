@@ -382,8 +382,10 @@ for its verdict.
 - §6's entry criterion on G5 design changes is met. C6 §5.0 landed before any Stage 2
   work.
 - The herdr re-runs that are still open (#130, #131, #124) and the herdr tooling fixes
-  (#239, #243, #244, #246) continue alongside Stage 2 (operator decision on #40). They
-  cannot change a verdict.
+  (#239, #244, #246) continue alongside Stage 2 (operator decision on #40). They cannot
+  change a verdict. #243 is done (PR #245).
+- This paragraph lands after #231's G5 verdict change. That change syncs every file
+  stating G5's verdict and regenerates `02-gating-findings.md`.
 
 *History (pre-D7), kept unedited:* At this document's own landing, all five gates were
 `NOT RUN` and Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and

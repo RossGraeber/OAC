@@ -11,6 +11,16 @@
   orchestrator after #231 merges. This record is written for the PASS branch only: C13
   closes and Stage 2 opens fully. If the attested G5 Codex verdict is anything other than
   PASS, this record does not land as written. The go/no-go in §5 has to be rewritten.
+- **Precondition:** this record lands after #231's G5 verdict change. That change syncs
+  every file stating G5's verdict and regenerates `02-gating-findings.md`. It owns:
+  - `gates/G5-result.md`;
+  - the STATUS "Gate verdicts" G5 row, the "Decisions landed" C13 bullet and the "Open
+    conflict-register items" C13 entry;
+  - removing the closed C13 UNVERIFIED ledger item;
+  - every other file stating G5's verdict.
+
+  This record owns only its own text, the new STATUS top entry, the STATUS "Current
+  stage" cells and the `10-stages.md` §5 "Current verdict" paragraph.
 - **Skills:** `oac-gates`, `oac-evidence`, `oac-boundaries`.
 
 This record is the published Stage 1 exit decision that `10-stages.md` §5 "Exit artifacts"
@@ -20,7 +30,7 @@ stays authoritative for its verdict, date, pins and transcript summary
 spike-code quarantine inventory, the Gate S1 checklist with evidence, the go/no-go
 statement, and what continues after the exit.
 
-Line citations are to `main` at `259d9ce` (the #242 merge, 2026-10-02) unless a line says
+Line citations are to `main` at `df32552` (the #245 merge, 2026-10-02) unless a line says
 otherwise.
 
 ---
@@ -33,7 +43,7 @@ otherwise.
 | G2 Codex live inject | **PASS** (re-run 2026-09-26, Codex `0.157.1`, primary path: implicit daemon attach) | none, not needed | `docs/planning/gates/G2-result.md` L125-126 |
 | G3 Zenoh local peer | **PASS** (gate level, 2026-10-02, #219; primary multicast path on Windows 11, Linux WSL2 and macOS 26.6.2 on a hosted VM) | none, not needed | `docs/planning/gates/G3-result.md` L182, L197 |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min box, not expired; primary single-process design) | none, not needed | `docs/planning/gates/G4-result.md` L180, L189 |
-| G5 Provenance | <pending #231 merge: G5 Codex verdict> (gate-level verdict, Claude leg PASS 2026-09-27 per #220 ruling 3; Codex leg from the C13 §11 E1 re-run) | none, no fallback exists | `docs/planning/gates/G5-result.md` <pending #231 merge: G5-result.md verdict line> |
+| G5 Provenance | <pending #231 merge: G5 Codex verdict> (gate-level verdict, Claude leg PASS 2026-09-27 per #220 ruling 3; Codex leg from the C13 §11 E1 re-run) | none, no fallback exists | `docs/planning/gates/G5-result.md` <pending #231 merge: G5-result.md verdict line, as of the `main` merge commit of #231> |
 
 The G5 row was **FAIL** (2026-09-27; Codex criteria 2/3 f, Claude all criteria x) until the
 C13 re-run. That FAIL was already a closed verdict, so it never blocked D7 itself
@@ -57,7 +67,7 @@ builds in (`docs/planning/v0.1/07-repository-and-dependencies.md` §1 layout). T
 `.throwaway-quarantined` suffix stops any of them from being picked up as a `.mjs`, `.py` or
 `.sh` source by tooling. Each one has an entry in `docs/planning/gates/fixtures/MANIFEST.json`
 (15 `path` entries ending `.throwaway-quarantined`). The blob ids are from
-`git ls-files -s` at `259d9ce`.
+`git ls-files -s` at `df32552`.
 
 | Path (under `docs/planning/gates/fixtures/`) | Git blob | Spike / gate | Where it is described |
 |---|---|---|---|
@@ -89,7 +99,7 @@ path:
   client under the same guard (`tools/herdr/lib/g2.mjs` L34-42).
 
 In all three, the quarantined file is executed as recorded evidence (a replay), never
-imported. `tools/herdr/test/g1-tests.mjs` L334 and `tools/herdr/test/g2-tests.mjs` L271
+imported. `tools/herdr/test/g1-tests.mjs` L334 and `tools/herdr/test/g2-tests.mjs` L298
 assert that the scenarios never import it.
 
 ### 2.2 Discarded, never committed
@@ -130,7 +140,8 @@ The exception is contained mechanically:
    (2026-09-27, `gates/G5-result.md` L307). After the C13 re-run it is <pending #231 merge:
    G5 Codex verdict>. No gate exits at `NOT RUN`. G3's gate-level `NOT RUN` ended
    2026-10-02 (#219). G4's earlier out-of-box `NOT RUN` was superseded by the 2026-09-26
-   re-run (`gates/G4-result.md` L467, "Re-run history").
+   re-run (`gates/G4-result.md` "Re-run history" table at L293; the superseded `NOT RUN`
+   record is at L467).
 2. **Every pass criterion was evaluated individually — holds.** Each result has a "Pass
    criteria evaluated" list, one entry per criterion in the gate's reference file:
    - `gates/G1-result.md` L41 (Box C, five criteria);
@@ -151,15 +162,18 @@ The exception is contained mechanically:
    `turn/start`, `thread/queue/add` and the event stream (`fixtures/d6-codex-protocol/`).
    Every fixture records its version and capture date, and none contains credentials
    (`docs/planning/STATUS.md`, the 2026-09-28 #39/D6 "Last updated" entry, L378-389 at
-   `259d9ce`). `node
+   `259d9ce`; unchanged at `df32552`). `node
    scripts/check-fixture-manifest.mjs` passes at this change: 203 MANIFEST entries match
    203 committed fixture files. #231 adds 8 more `-herdr` fixtures with MANIFEST entries,
    and its own run of the check passes with 211 entries. The fixture-capture process
    Stage 3 consumes is `docs/planning/v0.1/09-test-strategy.md` §13.
 5. **No spike code remains on a path a later stage will build in — holds.** None of
-   `core/`, `adapters/`, `cli/`, `transports/`, `spec/` or `tests/` exists at `259d9ce`.
+   `core/`, `adapters/`, `cli/`, `transports/`, `spec/` or `tests/` exists at `df32552`.
    The only tracked code outside `docs/`, `.claude/`, `.agents/` and `tools/herdr/` is
-   `scripts/*.mjs` (repository checks) and `rust-toolchain.toml`. Spike code is
+   `scripts/*.mjs` (repository checks), `rust-toolchain.toml` and `.github/workflows/`.
+   One of those workflows runs spike code: `g3-macos-hosted.yml` (dispatch-only, #219)
+   copies the quarantined G3 `*.py` files into the runner's temp directory and runs them
+   there (§2.1). It builds nothing on a product path. Spike code is
    quarantined or discarded as §2 lists, and the one exception is contained (§2.3).
    `node scripts/check-herdr-containment.mjs` at this change: "PENDING -- 0 violations; 7
    of 10 target(s) not built yet". PENDING is not a pass, and the check must be re-run once
@@ -168,7 +182,15 @@ The exception is contained mechanically:
 **#40's own acceptance items:**
 
 - Each result carries gate id, pinned versions, date, transcript summary and verdict:
-  holds, from the result-file template in `docs/planning/gates/README.md`.
+  holds. Each file follows the result-file template in `docs/planning/gates/README.md`.
+  The fields are at these lines (gate id, pinned versions, date, transcript summary,
+  verdict):
+  - `gates/G1-result.md` L19, L20, L22, L26, L124;
+  - `gates/G2-result.md` L3, L4, L36, L48, L125;
+  - `gates/G3-result.md` L3, L4, L48, L69, L182;
+  - `gates/G4-result.md` L3, L4, L26, L35, L180;
+  - `gates/G5-result.md` L3, L4, L15, L22, L307. The G5 verdict line is the 2026-09-27
+    FAIL; #231's verdict change replaces it.
 - Every gate reads pass, fail or fallback-taken: holds, per criterion 1.
 - Fallbacks taken are reflected into decisions and `02-gating-findings.md`: none were
   taken. The one design change, C13, is reflected in C6 §5.0 and C13 (#220).
@@ -227,7 +249,7 @@ covered by the operator decision on #40.
 | #131 | G4 and G5 herdr scenarios, the K8 Claude regression, and the Stage 4/5 reuse contract | Test tooling. The K8 G5 Claude regression ran on 2026-10-02 as a non-verdict run (#231). |
 | #124 | herdr evaluation (K1): the Linux and macOS legs | herdr's pin row has "Gates affected: none" (`PINS.md`). |
 | #239 | herdr self-test: g1 #196 stuck-selection case leaves a pane process behind (WSL teardown race) | Self-test hygiene. Not a gate input. |
-| #243 | herdr: Windows `splitCommandLine` mis-parses backslash-escaped quotes (G4 launch proof) | Driver bug. Not a gate input. |
+| #243 | herdr: Windows `splitCommandLine` mis-parses backslash-escaped quotes (G4 launch proof) | **Done.** Closed by PR #245 (merged 2026-10-02, `df32552`). It was a driver bug, not a gate input. |
 | #244 | herdr: allowlist G4 `-c` override values | Driver hardening. Not a gate input. |
 | #246 | herdr(g5): settle before the after-delivery read in the arms path (`agent_not_idle` race) | It made run `20261002T160321Z` NOT RUN (it did not consume E1). The scored run was unaffected. |
 | K6 (#129) | Opt-in CI on operator-owned runners | **Deferred past v0.1** (operator decision on #129, 2026-10-02; `docs/planning/v0.1/12-deferred.md` §3). |
@@ -236,7 +258,7 @@ Open UNVERIFIED items carried out of Stage 1 stay in `docs/planning/STATUS.md` "
 UNVERIFIED items" and `docs/planning/v0.1/11-risks.md`. This record does not close any of
 them.
 
-## 7. `02-gating-findings.md` regeneration (pending #231)
+## 7. `02-gating-findings.md` regeneration (in #231's verdict change)
 
 There is no generator script. `scripts/` holds only `check-fixture-manifest.mjs`,
 `check-herdr-containment.mjs`, `check-skills.mjs`, `sync-agents-skills.mjs` and
@@ -246,14 +268,14 @@ regenerated by hand, from the five `gates/G<n>-result.md` files
 `02-gating-findings.md` "Generated-summary notice" and §8). It was last regenerated with G3
 (#219, `879416c`).
 
-The G5 inputs are not on `main` yet: #231 carries the run record, and the orchestrator
-writes the G5 verdict after attestation. So the regeneration is **not run in this change**.
-After #231 merges and `gates/G5-result.md` plus the STATUS "Gate verdicts" G5 row carry the
-attested verdict, the steps are:
+**This record does not regenerate it.** It is regenerated in #231's G5 verdict change. The
+scripted-run rules put the verdict, its fixtures and `STATUS.md` in one change, and that
+same change syncs every file stating G5's verdict ("Precondition" at the top). For that
+change, the steps are:
 
 1. **§2 Verdict summary, G5 row:** copy the STATUS "Gate verdicts" G5 cell for cell.
-2. **§2 "Reason for `NOT RUN` on G3 (partially)":** add a dated note (2026-10-02, #40) that
-   the G5 FAIL text is history, and give the attested G5 verdict with its link.
+2. **§2 "Reason for `NOT RUN` on G3 (partially)":** add a dated note that the G5 FAIL text
+   is history, and give the attested G5 verdict with its link.
 3. **§7 G5 provenance, Verdict bullet:** restate the G5-result.md verdict, date, timebox
    and the C13 run link. Keep the 2026-09-27 FAIL as history, as §3 does for G1.
 4. Check that no other §2-§7 row disagrees with its result file. Only G5 should change.
@@ -267,6 +289,6 @@ attested verdict, the steps are:
 - No boundary in `oac-boundaries` is touched. This record decides no provider integration,
   credential use, transport vocabulary or model routing. The herdr exception (§2.3) is test
   tooling, contained by check 9.
-- Every claim cites a repo file and line at `259d9ce`, or an issue or PR. There are no new
+- Every claim cites a repo file and line at `df32552`, or an issue or PR. There are no new
   external provider claims, so no new URL, version or retrieval-date citations and no new
   UNVERIFIED items.
