@@ -1,0 +1,47 @@
+{
+ "name": "a",
+ "platform": "Darwin",
+ "platform_release": "25.6.0",
+ "python": "3.14.7",
+ "listen": [
+  "tcp/127.0.0.1:17447"
+ ],
+ "connect": [],
+ "mcast": "off",
+ "tls": false,
+ "expect": 2,
+ "error": null,
+ "t_open_ms": 0.6,
+ "zid": "b6d09010a4b8c690b26955ad91d73ef8",
+ "t_discovery_ms": 196.9,
+ "peers_seen": [
+  "e3e4fd6c672e438def2307f40342f791",
+  "33d7ed9b70a330d86e0681c3065c96fa"
+ ],
+ "heard_from": {
+  "c": 4.6,
+  "b": 4.6
+ },
+ "t_all_data_ms": 4.6,
+ "links": [
+  {
+   "src": "tcp/127.0.0.1:17447",
+   "dst": "tcp/127.0.0.1:49245",
+   "zid": "e3e4fd6c672e438def2307f40342f791",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: e3e4fd6c672e438def2307f40342f791, src: tcp/127.0.0.1:17447, dst: tcp/127.0.0.1:49245, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:17447",
+   "dst": "tcp/127.0.0.1:49246",
+   "zid": "33d7ed9b70a330d86e0681c3065c96fa",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: 33d7ed9b70a330d86e0681c3065c96fa, src: tcp/127.0.0.1:17447, dst: tcp/127.0.0.1:49246, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}

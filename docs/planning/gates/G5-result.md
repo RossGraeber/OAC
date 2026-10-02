@@ -333,7 +333,9 @@
   G1-G5 carries a closed verdict: `PASS`, `PASS (FALLBACK TAKEN)`, or `FAIL`. No gate
   exits Stage 1 at `NOT RUN`" — `FAIL` is one of the three accepted closed verdicts, so
   Stage 1 can still close once every gate reads one of them (G3's macOS leg is the
-  actual remaining blocker on that front, not this FAIL). What §5's "Go/no-go
+  actual remaining blocker on that front, not this FAIL). (Note 2026-10-02, #219: G3's
+  macOS leg has since PASSED on a GitHub-hosted VM, so G3 is `PASS` and no longer blocks
+  Stage 1's exit; see `docs/planning/gates/G3-result.md`.) What §5's "Go/no-go
   condition" stops is narrower and specific: "G5 `FAIL` on a provider → that provider's
   provenance rendering requires a design change before Stage 2 freezes the interfaces,
   not a workaround. It invalidates `docs/planning/DESIGN.md` v0.1 acceptance criterion
