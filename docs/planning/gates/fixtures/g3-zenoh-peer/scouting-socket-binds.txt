@@ -13,3 +13,9 @@ UNCONN 0      0         224.0.0.224:7446       0.0.0.0:*    users:(("python",pid
 UNCONN 0      0         224.0.0.224:7446       0.0.0.0:*    users:(("python",pid=538,fd=14))
 
 Peer results for the same runs: results-windows/bind-{x,y,z}.json, results-linux-wsl2/bind-{x,y,z}.json
+
+--- macOS 26.6.2 (GitHub-hosted macos-latest VM, arm64; 2026-10-02, Actions run 36968235427): `netstat -anv -p udp | grep -E '[.:]7446\b'` (3 live peer processes) ---
+udp4       0      0  224.0.0.224.7446       *.*                                         578            0  786896    9216           Python:17153  00100 00000004 0000000000001200 00000001 00000800      1      0 000002
+udp4       0      0  224.0.0.224.7446       *.*                                         578            0  786896    9216           Python:17152  00100 00000004 00000000000011ff 00000001 00000800      1      0 000002
+udp4       0      0  224.0.0.224.7446       *.*                                         578            0  786896    9216           Python:17154  00100 00000004 00000000000011fe 00000001 00000800      1      0 000002
+Peer results for the same run: results-macos-hosted/bind-{x,y,z}.json

@@ -41,7 +41,7 @@ verdict was `NOT RUN` and the project was at Pre-Stage 0. Per the current
 pin went floating 2026-09-27, last observed `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all criteria x), and G3 stays `NOT RUN` at gate level
-(Windows/Linux PASS, macOS parked); per `docs/planning/STATUS.md` "Current stage," the
+(Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md` "Current stage," the
 project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
 exited. This file is not re-authored per gate result; only this caveat's own currency is
 corrected here. The criteria are the plan, not a report.
@@ -316,7 +316,10 @@ provenance framing until conflict-register entry C13 lands; G3 stays
 `NOT RUN` at gate level (Windows/Linux PASS, macOS parked). Per Gate S1 acceptance
 criterion 1 above, `FAIL` is a closed verdict, so G5 does not itself block Stage 1's
 exit — G3's parked macOS leg is what still keeps Stage 1 from exiting (G1's re-run,
-issue #39 T6/T7, PASSED 2026-09-28 and no longer blocks it).
+issue #39 T6/T7, PASSED 2026-09-28 and no longer blocks it). (Note 2026-10-02, #219: G3's
+macOS leg ran on a GitHub-hosted VM and passed; **G3 is now PASS** at gate level, on the
+primary multicast path, so the fallback above was not needed and no gate leg still keeps
+Stage 1 from exiting. See `docs/planning/gates/G3-result.md`.)
 
 ---
 

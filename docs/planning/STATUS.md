@@ -31,6 +31,17 @@ In this change:
 **The re-run has not been run, and G5's verdict is unchanged (`FAIL`).** No pin, spec or
 ADR text changes.)
 
+**Last updated:** 2026-10-02 (**Issue #219: G3's macOS leg ran on a GitHub-hosted
+`macos-latest` runner; G3 is now PASS at gate level.** Operator decision 2026-10-02. The
+quarantined G3 matrix ran unchanged with `eclipse-zenoh==1.10.1` (core = tag `1.10.1`) on
+macOS 26.6.2, arm64, image `macos26`/`20260907.0351.1`: 18 of 18 runs passed, every
+criterion on the primary multicast path. Run
+https://github.com/RossGraeber/OAC/actions/runs/36968235427. Caveat: a hosted VM, not
+physical Mac hardware; physical Mac is a new open item. `#iface=` is not enforced on macOS
+(`bogus0` accepted). The opt-in, dispatch-only `.github/workflows/g3-macos-hosted.yml` and
+the fixtures `g3-zenoh-peer/results-macos-hosted/` (MANIFEST updated) landed with it. D7 is
+no longer blocked by any gate leg. Dated notes below and in the mirrors; no pin moves.)
+
 **Last updated:** 2026-10-02 (**Issue #220: C13 now has an owner and a PROPOSED
 decision.** New record `docs/planning/decisions/C13-codex-provenance-framing.md`, status
 **PROPOSED — awaiting operator approval on #220**. It proposes amending C6 §5's Codex
@@ -575,6 +586,9 @@ default 1 s connect retry. The spike used the Python binding `eclipse-zenoh==1.1
 (core = tag `1.10.1`), not the Rust crate. As a result, "G3 via the Rust crate" is a new
 UNVERIFIED item, and the binary-size estimate stays open, owned by task I3. Result:
 `docs/planning/gates/G3-result.md`; fixtures: `docs/planning/gates/fixtures/g3-zenoh-peer/`.
+(Note 2026-10-02, #219: the macOS leg ran on a GitHub-hosted `macos-latest` VM, macOS
+26.6.2 arm64, 18 of 18 runs passed; **G3 is now PASS at gate level**. Hosted VM, not
+physical Mac hardware. See G3-result.md.)
 
 **G2/issue #35/D2:** gate spike PASS on the primary path,
 implicit daemon attach, on Codex `0.154.0`, with no pin drift. A plainly launched `codex`
@@ -829,8 +843,8 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 Windows and Linux PASS, macOS parked; G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D3's macOS leg, and D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is still blocked on D3's macOS leg only, G1's re-run PASSED 2026-09-28 and no longer blocks it; separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`; C13 design decided 2026-10-02, Codex-leg re-run pending, #220), J (agent skills) |
+| Blocked | Stages 2-6, and the rest of Stage 1 pending D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is no longer blocked by any gate leg: G3's macOS leg PASSED 2026-10-02 (#219) and G1's re-run PASSED 2026-09-28, so every gate has a closed verdict; separately Stage 2 cannot freeze the Codex provenance interface until C13 closes. The C13 design is decided (C6 §5.0, 2026-10-02, #220), and C13 closes when G5's Codex-leg re-run under C13 §11 passes; that re-run is pending). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
 
@@ -882,7 +896,8 @@ the environment both report `0.157.1`, so the verdict is current. (Dated note, 2
 #216: currency no longer depends on the environment's version; the last tested Codex
 version is now `0.159.3`, and G2 stands on `0.157.1`.) G3 has run on two of its three platforms
 (2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
-gate-level verdict stays `NOT RUN` until the macOS leg runs. G4 spiked on 2026-09-25/26
+gate-level verdict stays `NOT RUN` until the macOS leg runs. (Note 2026-10-02, #219: the
+macOS leg ran on a GitHub-hosted VM and passed; **G3 is now PASS** at gate level.) G4 spiked on 2026-09-25/26
 (issue #37/D4); that run's evidence was gathered after its declared 120-minute timebox
 had already expired, so it recorded `NOT RUN` despite every criterion individually
 confirming. A fresh, redeclared 60-minute timebox on 2026-09-26 stayed unexpired
@@ -901,8 +916,8 @@ G5. See `docs/planning/gates/G5-result.md`.
 Every task labelled `gate:G1`, `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
 gate has a current gate-level verdict. Per `docs/planning/v0.1/10-stages.md` §5's Gate S1
 acceptance criterion 1, a `FAIL` is a closed verdict, so this does not itself block
-**Stage 1's own exit** (D7 — separately still blocked by G3's macOS leg only; G1's
-re-run PASSED 2026-09-28 and no longer blocks it); per §5's
+**Stage 1's own exit** (D7 — no longer blocked by any gate leg: G3's macOS leg PASSED
+2026-10-02 (#219), and G1's re-run PASSED 2026-09-28); per §5's
 go/no-go condition and §2, it blocks the pipeline from proceeding past **Stage 2's
 interface freeze** for Codex's provenance framing until conflict-register entry C13
 lands and DESIGN acceptance criterion 6 is re-established for Codex.
@@ -911,7 +926,7 @@ lands and DESIGN acceptance criterion 6 is re-established for Codex.
 |---|---|---|---|---|
 | G1 Claude wake | **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; primary path: legacy MCP negotiation, idle wake, mid-turn queueing, tool reply — the mid-turn pair landed at two separate tool-call boundaries rather than batched together at one, an observed `2.1.283` behavior change, not a criterion failure). Originally PASSED on `v2.1.282` (2026-09-25); invalidated 2026-09-27 when the Claude Code (Channels) pin went floating; that original record is kept as history. | Claude adapter viability. go/no-go, no fallback. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
 | G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
-| G3 Zenoh local peer | NOT RUN at gate level — Windows 11 **PASS**, Linux (WSL2) **PASS**, macOS NOT RUN (parked) | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
+| G3 Zenoh local peer | **PASS** (2026-10-02, #219; primary multicast path on all three platforms, no fallback needed) — Windows 11 **PASS**, Linux (WSL2) **PASS** (2026-09-25), macOS 26.6.2 **PASS** on a GitHub-hosted VM, not physical hardware (2026-10-02, run 36968235427). Was NOT RUN at gate level 2026-09-25 to 2026-10-02 (macOS parked). | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
 | G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
@@ -1191,16 +1206,18 @@ without an UNVERIFIED label.
   Desktop-originated sessions in the daemon's `thread/list` only as `notLoaded` saved
   history. That shows shared on-disk history, not live socket exposure, so the item
   stays open; see `docs/planning/gates/G2-result.md`).
-- G3 criteria 1-4 on macOS: loopback multicast discovery, rendezvous discovery, TLS on
-  `127.0.0.1`, and multi-peer port behavior (UNVERIFIED — macOS leg parked, no macOS host;
-  macOS is also the primary target of PR #2671's loopback-TX fix;
-  the same quarantined matrix runs there unchanged; see `docs/planning/gates/G3-result.md`).
+- G3 on physical Mac hardware (UNVERIFIED — new 2026-10-02, #219: G3 criteria 1-4 on macOS
+  closed PASS on a GitHub-hosted VM, macOS 26.6.2 arm64; physical-Mac interfaces, the
+  application firewall prompt and an interactive session were not exercised; see
+  `docs/planning/gates/G3-result.md`).
 - G3 on bare-metal Linux (UNVERIFIED — the Linux leg ran on WSL2 Ubuntu 24.04 with a real
   Linux kernel, links on `lo`; treated as the Linux leg per the operator's direction).
 - `#iface=` behavior on macOS, and on Windows with a *valid* interface name (UNVERIFIED —
   G3 confirmed Linux enforces it. On Windows, G3 tried only a nonexistent name, which was
   accepted without exception while the link bound on loopback. A valid Windows name and
-  Zenoh log warnings were not tested. macOS was not tested).
+  Zenoh log warnings were not tested. macOS was not tested. Note 2026-10-02, #219: on the
+  macOS hosted VM both `lo0` and a nonexistent `bogus0` were accepted without exception and
+  links bound on `lo0`, so `#iface=` is not enforced on macOS; log warnings still untested).
 - G3 criteria via the Rust `zenoh` crate built with toolchain `1.98.1`, using OAC's feature
   set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see

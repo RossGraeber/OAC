@@ -3485,7 +3485,7 @@
       "pins_as_of": "2026-09-16, commit a44a7ed7278caab383f264f5bc8e12bb5c8c73e9 (per G3-result.md \"PINS.md as-of\")",
       "version_matches_pin": true,
       "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
-      "capture_date": "2026-09-25",
+      "capture_date": "2026-09-25 (Windows, Linux lines 1-15); 2026-10-02 (macOS lines 16-21)",
       "capture_utc_range": null,
       "superseded_by": null,
       "redaction": {
@@ -3494,10 +3494,13 @@
         "residual_scan_result": "G3-result.md: \"Preserved verbatim in scouting-socket-binds.txt\": Windows netstat and Linux ss output showing three processes sharing the scouting socket without collision. No username/hostname present (raw netstat/ss port-bind lines only)."
       },
       "coverage": {
-        "verbatim netstat (Windows, UDP 0.0.0.0:7446) and ss (Linux, 224.0.0.224:7446) output, 3 peers each": "1-15"
+        "verbatim netstat (Windows, UDP 0.0.0.0:7446) and ss (Linux, 224.0.0.224:7446) output, 3 peers each (2026-09-25)": "1-15",
+        "verbatim netstat (macOS hosted VM, udp4 224.0.0.224.7446) output, 3 peers (2026-10-02, issue #219)": "16-21"
       },
       "coverage_notes": "Not a protocol-exchange transcript — raw OS socket-bind tool output, cited by G3-result.md criterion 4 evidence.",
-      "notes": []
+      "notes": [
+        "2026-10-02 (#219): macOS hosted-runner netstat lines appended verbatim from the run 36968235427 artifact (extras.log); netstat lines carry no username or hostname."
+      ]
     },
     {
       "path": "docs/planning/gates/fixtures/g1-claude-wake/channel-server.mjs.throwaway-quarantined",
@@ -3744,6 +3747,1410 @@
       "notes": [
         "This file is quarantined spike code, not a fixture in the D6 sense; included here only because it is committed under docs/planning/gates/fixtures/ and this manifest is instructed to cover every committed file in that tree."
       ]
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/bind-x.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/bind-y.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/bind-z.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-65"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/iface-bogus0-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/iface-bogus0-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/iface-lo0-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/iface-lo0-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r1-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-65"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r1-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r1-c.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r2-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-65"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r2-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r2-c.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r3-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r3-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-56"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-3-r3-c.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-65"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-r1-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-r1-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-r2-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-r2-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-r3-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tcp-r3-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tls-r1-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tls-r1-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tls-r2-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tls-r2-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-45"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tls-r3-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/mcast-tls-r3-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/negative-mcast-off-no-rdv-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-22"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/negative-mcast-off-no-rdv-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-22"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r1-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-47"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r1-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-58"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r1-c.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-58"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r2-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-47"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r2-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-58"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r2-c.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-58"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r3-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-47"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r3-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-58"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-3-r3-c.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-58"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-r1-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-r1-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-38"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-r2-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-r2-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-38"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-r3-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tcp-r3-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-38"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tls-r1-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tls-r1-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-38"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tls-r2-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tls-r2-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-38"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tls-r3-a.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-36"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/rdv-tls-r3-b.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-peer discovery result (zid, locators, ports, timings)": "1-38"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g3-zenoh-peer/results-macos-hosted/summary.json",
+      "provider": "zenoh",
+      "surface": "zenoh-peer-discovery-result (macOS 26.6.2, GitHub-hosted macos-latest runner VM, arm64)",
+      "observed_version": {
+        "zenoh_core": "1.10.1",
+        "binding": "eclipse-zenoh 1.10.1 (PyPI wheel, cp39-abi3 macOS universal2/arm64), Python 3.14.7",
+        "node": null
+      },
+      "pins_row": "Zenoh",
+      "pins_as_of": "PINS.md at origin/main 2026-10-02 (last commit touching it: deaa1b4f23be6c987550b95b90236d11057ecaf9, 2026-10-01); Zenoh row value 1.10.1 unchanged since a44a7ed7278caab383f264f5bc8e12bb5c8c73e9",
+      "version_matches_pin": true,
+      "version_matches_pin_note": "Matches PINS.md Zenoh row (1.10.1) exactly.",
+      "capture_date": "2026-10-02",
+      "capture_utc_range": "2026-10-02T05:17:13Z-2026-10-02T05:18:22Z (GitHub Actions run 36968235427 step timestamps)",
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Files are byte-identical to the run 36968235427 artifact (no edits needed). Regex scan for runner|iad20|/Users|PRIVATE KEY over every committed file: 0 hits. The throwaway CA and peer key were generated in RUNNER_TEMP outside the uploaded directory and never uploaded."
+      },
+      "coverage": {
+        "per-scenario discovery/data-arrival timing summary (all scenarios, 3 reps each)": "1-288"
+      },
+      "coverage_notes": "Not a protocol-exchange transcript (no JSON-RPC/MCP methods) — a per-run/per-peer result record from the throwaway matrix runner, run unchanged on a GitHub-hosted macOS VM (issue #219). See G3-result.md \"macOS leg (2026-10-02)\" for how each scenario was scored.",
+      "notes": []
     },
     {
       "path": "docs/planning/gates/fixtures/d6-codex-protocol/transcript-conn1-2026-09-28.jsonl",

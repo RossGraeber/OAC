@@ -546,8 +546,9 @@ who reads and scores the answer: herdr reading the pane, or a human.
   `FAIL`, and whose arm 0 reproduced the old FAIL, consumes the exception, and its verdict
   is final. A `NOT RUN` or inconclusive run does not consume it, and is listed under
   "Findings". A `FAIL` is not re-run under the exception.
-  - Cost: it changes two rules for one run, and the scenario's first live run is also the
-    verdict run (arm 0 is its calibration).
+
+  *Cost:* it changes two rules for one run, and the scenario's first live run is also the
+  verdict run (arm 0 is its calibration).
 - **E2: evidence only.** The herdr re-run is evidence.
   - An equivalence record must compare against a verdict-bearing **human** run of the same
     method (`scripted-runs.md` "Equivalence record"), and no human run exists under the
