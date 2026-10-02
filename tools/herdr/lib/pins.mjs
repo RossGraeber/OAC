@@ -10,6 +10,8 @@
 
 import { readFileSync } from 'node:fs';
 
+import { committedFile } from './g1.mjs';
+
 export const PIN_ROW = 'herdr (test tooling)';
 
 export function parseHerdrPin(pinsText) {
@@ -40,6 +42,24 @@ export function parseHerdrPin(pinsText) {
 
 export function readHerdrPin(pinsPath) {
   return parseHerdrPin(readFileSync(pinsPath, 'utf8'));
+}
+
+export const PINS_REL_PATH = 'docs/planning/PINS.md';
+
+// The herdr pin as COMMITTED at HEAD (#139): the driver never accepts a herdr version on the
+// strength of an uncommitted PINS.md edit. Throws (run.mjs ends the run NOT RUN) when git
+// cannot read PINS.md at HEAD, when the working-tree PINS.md differs from HEAD (compared in
+// git's normalized form, as `git status` does, #152), or when the committed row does not parse.
+// -> { pin, source: { path, headCommit, committedSha256, workingTreeMatchesHead } }.
+export function readCommittedHerdrPin(repoRoot) {
+  const f = committedFile(repoRoot, PINS_REL_PATH);
+  const source = { path: PINS_REL_PATH, headCommit: f.headCommit, committedSha256: f.committedSha256, workingTreeMatchesHead: f.workingTreeMatchesHead };
+  if (!f.workingTreeMatchesHead) {
+    const err = new Error(`${PINS_REL_PATH} has uncommitted changes (the working tree differs from HEAD ${f.headCommit}); the herdr pin is read only from the committed file, so commit or revert the edit first`);
+    err.source = source;
+    throw err;
+  }
+  return { pin: parseHerdrPin(f.bytes.toString('utf8')), source };
 }
 
 // Exact comparison of `herdr --version` stdout (surrounding whitespace ignored).

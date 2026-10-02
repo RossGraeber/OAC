@@ -44,6 +44,11 @@
 // directory throws EPERM once, or persistently: the manifest is still written, the outcome
 // reflects the run, and a persistent failure is recorded (teardown.clean=false, the leftover
 // path redacted, a finding). A setup error is named with its phase on the console.
+//
+// #139 adds unit checks for reading the herdr pin from PINS.md as committed at HEAD (a
+// throwaway git repository) and for the per-pane dialog-accept read guard (a stub herdr), and
+// lifecycle cases: an uncommitted PINS.md edit in a temporary clone ends NOT RUN without being
+// applied, and pane-level input between an agent-level read and an accept is refused.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,14 +57,14 @@ import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import { parseHerdrPin, readHerdrPin, versionMatches, parseClaudeVersions } from '../lib/pins.mjs';
+import { parseHerdrPin, readHerdrPin, readCommittedHerdrPin, versionMatches, parseClaudeVersions } from '../lib/pins.mjs';
 import { quoteCommand, regexLiteral } from '../lib/pane-shell.mjs';
 import { createRedactor, reportIsClean, parseLiteralSpec } from '../lib/redact.mjs';
 import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSessionName } from '../lib/herdr.mjs';
 import { harnessConfigFiles, herdrLaunchEnv } from '../lib/manifest.mjs';
 import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
 import { removeScratch, SCRATCH_RETRY_DELAYS_MS } from '../lib/scratch.mjs';
-import { g1Unit, g1Cases, installFakeClaudeCli } from './g1-tests.mjs';
+import { g1Unit, g1Cases, installFakeClaudeCli, cloneWithPins } from './g1-tests.mjs';
 import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.mjs';
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 import { g4Unit, g4Cases } from './g4-tests.mjs';
@@ -115,6 +120,49 @@ function unitPins() {
   check('pins: missing row throws', throws(table(['| zenoh | supported | `1.10.1` | G3 |'])));
   check('pins: duplicate row throws', throws(table(['| herdr (test tooling) | s | `v1.2.3` | none |', '| herdr (test tooling) | s | `v1.2.4` | none |'])));
   check('pins: unparseable tag throws', throws(table(['| herdr (test tooling) | s | **floating** | none |'])));
+
+  // #139: the driver reads the herdr pin from PINS.md as committed at HEAD, and refuses an
+  // uncommitted edit rather than applying it. A throwaway git repository, never this one.
+  const dir = mkdtempSync(join(tmpdir(), 'oac-pins-head-'));
+  try {
+    const git = (...a) => spawnSync('git', ['-c', 'user.name=oac-selftest', '-c', 'user.email=selftest@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...a], { cwd: dir, encoding: 'utf8' });
+    const pinsFile = join(dir, 'docs', 'planning', 'PINS.md');
+    mkdirSync(dirname(pinsFile), { recursive: true });
+    writeFileSync(pinsFile, `${table(['| herdr (test tooling) | supported | `v1.2.3` | none |'])}\n`);
+    const ok = git('init', '-q').status === 0 && git('add', '--', 'docs/planning/PINS.md').status === 0 && git('commit', '-q', '-m', 'pins').status === 0;
+    check('pins #139: test repository set up', ok);
+    const clean = readCommittedHerdrPin(dir);
+    check('pins #139: a clean PINS.md is read from HEAD, with its source recorded', clean.pin.tag === 'v1.2.3' && clean.source.workingTreeMatchesHead === true && /^[0-9a-f]{40}$/.test(clean.source.headCommit) && clean.source.path === 'docs/planning/PINS.md', JSON.stringify(clean.source));
+    writeFileSync(pinsFile, `${table(['| herdr (test tooling) | supported | `v9.9.9` | none |'])}\n`);
+    let err = null;
+    let got = null;
+    try {
+      got = readCommittedHerdrPin(dir);
+    } catch (e) {
+      err = e;
+    }
+    check('pins #139: an uncommitted PINS.md edit is refused, never applied', got === null && /uncommitted changes/.test(err?.message ?? '') && err.source?.workingTreeMatchesHead === false && !/9\.9\.9/.test(err.message), err?.message ?? JSON.stringify(got));
+    git('add', '--', 'docs/planning/PINS.md');
+    err = null;
+    try {
+      readCommittedHerdrPin(dir);
+    } catch (e) {
+      err = e;
+    }
+    check('pins #139: a staged but uncommitted PINS.md edit is refused too', /uncommitted changes/.test(err?.message ?? ''), err?.message);
+    git('commit', '-q', '-m', 'pin move');
+    check('pins #139: once committed, the edit is the pin', readCommittedHerdrPin(dir).pin.tag === 'v9.9.9');
+    rmSync(pinsFile);
+    err = null;
+    try {
+      readCommittedHerdrPin(dir);
+    } catch (e) {
+      err = e;
+    }
+    check('pins #139: a deleted working-tree PINS.md is refused', /uncommitted changes/.test(err?.message ?? ''), err?.message);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function unitQuoting() {
@@ -331,6 +379,46 @@ async function unitGuards() {
     s.inputHalted = null;
     check('fix8: mislabelled input refused even when not halted', (await rejects(() => s.exec('read', ['agent', 'send-keys', 'x', 'enter']), /must carry an input role/)) && commands.length === 0);
     check('guard: dialog-accept refused without a preceding read', await rejects(() => s.dialogAccept('x'), /not a read/));
+
+    // #139: the read guard is per pane. A stub herdr that succeeds on every call (prints
+    // `{}`), so this runs on every platform; only the driver's bookkeeping is under test.
+    const g = new HerdrSession({
+      herdrCmd: [process.execPath, '-e', 'process.stdout.write("{}")', '--'],
+      sessionName: 'unit-guard',
+      env: process.env,
+      cwd: base,
+      timebox: { remainingMs: () => 60000 },
+      commands: [],
+    });
+    const accepts = async () => {
+      try {
+        await g.dialogAccept('agentA');
+        return true;
+      } catch (e) {
+        if (e instanceof DriverError && /not a read/.test(e.message)) return false;
+        throw e;
+      }
+    };
+    await g.agentStart('agentA', { launchArgv: ['claude'], paneId: 'w1:p1', timeoutMs: 1000 });
+    await g.agentStart('agentB', { launchArgv: ['codex'], paneId: 'w2:p1', timeoutMs: 1000 });
+    await g.agentRead('agentA');
+    check('guard #139: an agent read then accept is allowed', await accepts());
+    await g.agentRead('agentA');
+    await g.paneRun('w1:p1', 'echo typed-into-the-pane');
+    check('guard #139: input sent to the agent\'s pane by pane id after an agent-level read resets the guard (accept refused)', !(await accepts()));
+    await g.agentRead('agentA');
+    await g.paneWaitOutput('w1:p1', { match: 'x', timeoutMs: 1000 });
+    check('guard #139: any non-read command on the agent\'s pane after the read resets the guard', !(await accepts()));
+    await g.paneRead('w1:p1');
+    check('guard #139: a read of the agent\'s pane by pane id covers the agent (accept allowed)', await accepts());
+    await g.agentRead('agentA');
+    await g.paneRun('w2:p1', 'echo other-pane');
+    await g.agentSendKeys('agentB', ['enter']);
+    check('guard #139: commands on another agent\'s pane leave this agent\'s read standing', await accepts());
+    await g.agentRead('agentA');
+    await g.exec('operator-input', ['pane', 'send-text', 'w1:p1', 'untargeted']);
+    check('guard #139: input with no recorded target resets every guard', !(await accepts()));
+    check('guard #139: the agent name and its pane share one guard key', g.guardKey('agentA') === 'w1:p1' && g.guardKey('w1:p1') === 'w1:p1' && g.guardKey('unknown') === 'unknown');
     check('guard: ROLES are the manifest vocabulary', ['operator-input', 'dialog-accept', 'wait', 'read'].every((r) => ROLES.includes(r)));
   } finally {
     rmSync(base, { recursive: true, force: true });
@@ -608,6 +696,28 @@ async function lifecycle() {
     const m = r.manifest;
     check('dialog accept after read: PASS with a dialog-accept command', r.status === 0 && m.commands.some((c) => c.role === 'dialog-accept'), m.outcomeReason);
     check('dialog accept after read: launch argv verbatim, mapped to --kind and passthrough args', JSON.stringify(m.launch.argv) === JSON.stringify(m.launch.herdrReportedArgv) && r.calls.some((c) => c.argv.join(' ').includes('agent start selftest --kind claude --pane w1:p1 --timeout 10000 -- --dangerously-load-development-channels server:selftest')));
+  });
+  run('dialog accept after pane-level input', { scenario: join(HERE, 'scenarios', 'agent-io.mjs'), args: ['--param', 'op=dialog-after-pane-input'] }, (r) => {
+    const m = r.manifest;
+    check('#139 dialog accept after pane-level input: FAIL, refused (the pane command reset the agent\'s read guard), no dialog-accept sent', r.status === 1 && /not a read/.test(m.outcomeReason) && !m.commands.some((c) => c.role === 'dialog-accept') && m.commands.some((c) => c.role === 'operator-input' && c.argv.includes('run') && c.target === 'w1:p1'), `${r.status} ${m.outcomeReason}`);
+  });
+  run('dialog accept after pane-level read', { scenario: join(HERE, 'scenarios', 'agent-io.mjs'), args: ['--param', 'op=dialog-after-pane-read'] }, (r) => {
+    const m = r.manifest;
+    const i = m.commands.findIndex((c) => c.role === 'dialog-accept');
+    check('#139 dialog accept after pane-level read: PASS, the accept straight after a read of the agent\'s pane', r.status === 0 && i > 0 && m.commands[i - 1].role === 'read' && m.commands[i - 1].argv.includes('pane'), `${r.status} ${m.outcomeReason}`);
+  });
+  // #139: an uncommitted PINS.md edit is never applied. The clone's working tree moves the
+  // herdr pin to v0.9.0 (uncommitted) and the fake herdr prints 0.9.0: on a working-tree read
+  // that would pass the version check; read from HEAD the run is refused before herdr starts.
+  let dirtyPins = null;
+  run('uncommitted PINS.md edit', { mode: 'version=0.9.0', prepare: () => (dirtyPins = cloneWithPins((t) => t.replace(/^(\| herdr \(test tooling\) \|[^|]*\| )`v\d+\.\d+\.\d+`/m, '$1`v0.9.0`'), { commit: false })) }, (r) => {
+    try {
+      const m = r.manifest;
+      check('#139 uncommitted PINS.md edit: NOT RUN (exit 3), refused, the edit not applied', r.status === 3 && m.outcome === 'NOT RUN' && /uncommitted changes/.test(m.outcomeReason) && /Refusing to run/.test(m.outcomeReason) && m.herdr.pinnedTag === null, `${r.status} ${m?.outcome} ${m?.outcomeReason}`);
+      check('#139 uncommitted PINS.md edit: pins source recorded (working tree differs from HEAD), herdr never called, no server', m.herdr.pinsSource?.workingTreeMatchesHead === false && /^[0-9a-f]{40}$/.test(m.herdr.pinsSource.headCommit) && r.calls.length === 0 && m.session.serverPid === null, JSON.stringify({ src: m.herdr.pinsSource, calls: r.calls.length }));
+    } finally {
+      if (dirtyPins) rmSync(dirtyPins, { recursive: true, force: true });
+    }
   });
   run('scenario throws', { scenario: join(HERE, 'scenarios', 'throws.mjs') }, (r) => {
     check('scenario throws: FAIL (exit 1) with the error, torn down', r.status === 1 && /planted scenario failure/.test(r.manifest.outcomeReason) && r.manifest.teardown.clean);

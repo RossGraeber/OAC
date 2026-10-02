@@ -99,7 +99,12 @@ export class HerdrSession {
     this.graceMs = graceMs;
     this.defaultDeadlineMs = defaultDeadlineMs;
     this.inputHalted = null; // reason string once a timeout has occurred
+    // The dialog-accept read guard (#139): the last successful role per PANE. An agent name
+    // and the pane id it was started in are one guard key (agentStart records the mapping), so
+    // a command sent to the pane directly resets the guard for the agent too, and a read of
+    // either covers both. Any other target is its own key.
     this.lastRoleByTarget = new Map();
+    this.paneOfAgent = new Map(); // agent name -> pane id
     this.panePids = new Map(); // pid -> start time (null where the platform gives none)
     this.server = null;
     // Any abort (timebox expiry, operator signal, end of run) halts input for good, whether
@@ -191,8 +196,11 @@ export class HerdrSession {
     };
     this.commands.push(entry);
     // A target's last role is updated only by a command that succeeded: a failed read must
-    // not unlock dialogAccept.
-    if (target) this.lastRoleByTarget.delete(target);
+    // not unlock dialogAccept. Keyed per pane (#139). Input with no target could have reached
+    // any pane, so it resets every guard.
+    const guardKey = target ? this.guardKey(target) : null;
+    if (guardKey) this.lastRoleByTarget.delete(guardKey);
+    else if (input || INPUT_ROLES.has(role)) this.lastRoleByTarget.clear();
 
     if (res.spawnError) throw new DriverError(`could not start herdr (${res.spawnError})`);
     if (aborted) {
@@ -215,8 +223,14 @@ export class HerdrSession {
         if (!teardown) throw new DriverError(`herdr ${argv.slice(0, 2).join(' ')} did not print JSON`);
       }
     }
-    if (target && res.exitCode === 0) this.lastRoleByTarget.set(target, role);
+    if (guardKey && res.exitCode === 0) this.lastRoleByTarget.set(guardKey, role);
     return { ...res, errorCode, entry, json: parsed };
+  }
+
+  // The read-guard key for a target: the pane an agent name was started in, else the target
+  // itself (a pane id, or an agent this session did not start).
+  guardKey(target) {
+    return this.paneOfAgent.get(target) ?? target;
   }
 
   abortReason() {
@@ -396,6 +410,8 @@ export class HerdrSession {
     const args = ['agent', 'start', name, '--kind', kind, '--pane', paneId];
     if (rest.length) args.push('--', ...rest);
     const herdrTimeoutMs = timeoutMs == null ? timeoutMs : Math.min(timeoutMs, AGENT_START_MAX_TIMEOUT_MS);
+    // From here on the agent name and its pane share one read guard (#139).
+    if (paneId) this.paneOfAgent.set(name, paneId);
     const r = await this.exec('operator-input', args, { target: name, herdrTimeoutMs, json: true, allowErrorCodes });
     return { argv: r.json?.result?.argv ?? null, errorCode: r.errorCode, agent: r.json?.result?.agent ?? null, herdrTimeoutMs };
   }
@@ -414,9 +430,11 @@ export class HerdrSession {
   }
 
   // Accepting a dialog is only allowed straight after reading that target, so the dialog
-  // text is on record before any keystroke reaches it (K1 §5 item 4).
+  // text is on record before any keystroke reaches it (K1 §5 item 4). "Straight after" is
+  // per pane (#139): a command sent to the agent's pane by pane id after the read also
+  // resets the guard.
   dialogAccept(target, keys = ['enter'], opts = {}) {
-    if (this.lastRoleByTarget.get(target) !== 'read') {
+    if (this.lastRoleByTarget.get(this.guardKey(target)) !== 'read') {
       throw new DriverError(`dialog-accept on "${target}" refused: the last command on it was not a read`);
     }
     return this.agentSendKeys(target, keys, { ...opts, role: 'dialog-accept' });

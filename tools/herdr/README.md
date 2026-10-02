@@ -345,6 +345,8 @@ they are per-machine and belong to the operator.
 `%USERPROFILE%\.herdr\packages\standalone\releases\<version>-x86_64-pc-windows-msvc\herdr.exe`
 and does not add it to PATH. Add that directory to the user PATH (or prepend it in the shell
 that runs the driver), then check `herdr --version` prints the pin in `docs/planning/PINS.md`.
+The driver reads that pin from PINS.md as committed at HEAD. If PINS.md has uncommitted
+changes, the run ends `NOT RUN` and the edit is not applied (#139).
 
 **2. Isolation is the driver's job.** Set nothing. `run.mjs` starts its own named, headless
 session (`oac-k-<scenario>-<stamp>-<rand>`), writes its own `herdr-config.toml` (with
