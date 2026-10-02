@@ -83,28 +83,35 @@ const ALLOWED_OVERRIDE = /^(?:mcp_servers\.[A-Za-z0-9_-]{1,64}\.(?:url|enabled|s
 // kept verbatim in the run record (codexLaunch.argv, validation.overrides, herdrReportedArgv,
 // and the minimized paneArgv's allow list). Codex reads a `-c` value as TOML. Per key:
 // - `mcp_servers.<name>.url`: a TOML basic string holding a loopback http(s) URL: scheme http
-//   or https; host exactly 127.0.0.1, [::1] or localhost; an optional port 1-65535; an
-//   optional path of unreserved characters and `/` only (`[A-Za-z0-9._~/-]`; #249: no `%`
-//   escape and no `;`, `=`, `@` or other sub-delimiter, so neither an encoded `%3Ftoken=` nor
-//   a `key=value`-shaped segment is accepted and recorded). No userinfo (`user:pass@` is where
-//   a credential would sit), no query and no fragment (where a token or API key would sit; the
-//   G4 server answers on a bare `/mcp`), no escapes, quotes or whitespace. Loopback only: the
-//   scripted run talks to its own staged server on this machine, never to a remote MCP server.
+//   or https; host exactly 127.0.0.1, [::1] or localhost; an optional port 1-65535; and the
+//   path exactly `/mcp` (#249, PR #251 review 3). The staged G4 server answers on exactly
+//   `/mcp` and on nothing else (gate-servers/g4-server.mjs refuses any other request URL), so
+//   no other path can reach it; admitting one would only let a token-shaped segment
+//   (`/sk-...`, an encoded `%3Ftoken=`) into the record. Not `/mcp/` and not `/MCP`, which the
+//   server does not answer either. No userinfo (`user:pass@` is where a credential would sit),
+//   no query and no fragment (where a token or API key would sit), no escapes, quotes or
+//   whitespace. Loopback only: the scripted run talks to its own staged server on this
+//   machine, never to a remote MCP server.
 // - `mcp_servers.<name>.enabled` and `features.<name>`: a TOML boolean, `true` or `false`.
 // - `mcp_servers.<name>.startup_timeout_sec` / `tool_timeout_sec`: a non-negative TOML
-//   number (digits, an optional fraction). No leading zero on the integer part (#249: TOML
-//   rejects `007`; `0`, `0.5` and `30` pass).
+//   number, as a deliberate fail-closed SUBSET of TOML's numbers (#249, PR #251 review 4):
+//   accepted is `0` or 1-9 integer digits without a leading zero, optionally `.` and 1-9
+//   fraction digits (`0`, `0.5`, `30`, `12.5`, `999999999`), every one of which is a valid
+//   TOML number. Refused: what TOML refuses (`007`, `00.5`, `.5`, `0.`) and, deliberately,
+//   TOML forms a timeout does not need (signs, exponents, `_` separators, hex/octal/binary,
+//   `inf`, `nan`, 10+ digits). How Codex itself parses a `-c` value is UNVERIFIED here; being
+//   stricter than Codex is safe either way.
 // Anything else is refused. A refusal reason names the argument's position and the rule it
 // broke, never the argument's text: a refused value is never echoed into a record or the
 // console.
-const LOOPBACK_URL = /^"(https?):\/\/(127\.0\.0\.1|\[::1\]|localhost)(?::(\d{1,5}))?((?:\/[A-Za-z0-9._~-]*)*)"$/i;
+const LOOPBACK_URL = /^"(https?):\/\/(127\.0\.0\.1|\[::1\]|localhost)(?::(\d{1,5}))?(\/mcp)"$/i;
 const BOOLEAN = /^(?:true|false)$/;
 const NUMBER = /^(?:0|[1-9]\d{0,8})(?:\.\d{1,9})?$/;
 export function overrideValueProblem(key, value) {
   const v = String(value);
   if (/\.url$/.test(key)) {
     const m = LOOPBACK_URL.exec(v);
-    if (!m) return 'is not a double-quoted loopback http(s) URL (host 127.0.0.1, [::1] or localhost; a path of [A-Za-z0-9._~/-] only; no user:password@, no query, no fragment)';
+    if (!m) return 'is not a double-quoted loopback http(s) URL (host 127.0.0.1, [::1] or localhost; path exactly /mcp; no user:password@, no query, no fragment)';
     if (m[3] !== undefined && !(Number(m[3]) >= 1 && Number(m[3]) <= 65535)) return 'is a loopback URL with a port outside 1-65535';
     let u;
     try {
@@ -113,7 +120,7 @@ export function overrideValueProblem(key, value) {
       return 'is not a parseable URL';
     }
     // Belt and braces: what a URL parser makes of it must agree with the grammar above.
-    if (!['127.0.0.1', '[::1]', 'localhost'].includes(u.hostname.toLowerCase()) || u.username || u.password || u.search || u.hash) return 'does not parse to a loopback URL without userinfo, query or fragment';
+    if (!['127.0.0.1', '[::1]', 'localhost'].includes(u.hostname.toLowerCase()) || u.pathname !== '/mcp' || u.username || u.password || u.search || u.hash) return 'does not parse to a loopback URL with path exactly /mcp and no userinfo, query or fragment';
     return null;
   }
   if (/\.enabled$/.test(key) || /^features\./.test(key)) return BOOLEAN.test(v) ? null : 'is not a TOML boolean (true or false)';

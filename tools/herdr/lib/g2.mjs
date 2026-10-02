@@ -353,18 +353,20 @@ export { normalizeDialogText };
 
 // One pid's argv from a process-table snapshot: { pid, argv, commandLine, platform, source },
 // `argv` an array where the OS gives one (Linux), else null with `commandLine` as the OS prints
-// it and `platform` the OS the row was read on (the row's own `platform`, set by lib/proc.mjs's
-// table parsers; the host's for a row without one), whose rules split that command line (#249).
+// it. `platform` is the row's own (set by lib/proc.mjs's table parsers), or null for a row
+// without one: a consumer then splits with ITS fallback (#249), so a row's stored platform wins
+// and an untagged row really falls back. `platform` here is that fallback, used only to name
+// `source` by the platform whose rules will actually split the row.
 // Unminimized: in memory only, never put it in a record.
-export function processArgv(pid, table) {
+export function processArgv(pid, table, { platform: fallback = process.platform } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return { pid, argv: null, commandLine: null, platform: null, source: 'no pid' };
   if (!table) return { pid, argv: null, commandLine: null, platform: null, source: `process table not readable on ${process.platform}` };
   const p = table.get(pid);
   if (!p) return { pid, argv: null, commandLine: null, platform: null, source: 'not in the process table (process gone?)' };
   if (Array.isArray(p.argv)) return { pid, argv: [...p.argv], commandLine: null, platform: p.platform ?? null, source: `/proc/${pid}/cmdline (process table)` };
-  const platform = p.platform ?? process.platform;
-  const source = platform === 'win32' ? 'Win32_Process.CommandLine (process table)' : 'ps command (process table)';
-  return { pid, argv: null, commandLine: typeof p.commandLine === 'string' ? p.commandLine : null, platform, source };
+  const used = p.platform ?? fallback;
+  const source = used === 'win32' ? 'Win32_Process.CommandLine (process table)' : used === 'linux' && p.commandLine == null ? `/proc/${pid}/cmdline not readable (process table)` : 'ps command (process table)';
+  return { pid, argv: null, commandLine: typeof p.commandLine === 'string' ? p.commandLine : null, platform: p.platform ?? null, source };
 }
 
 // --- minimized argv (#232) ------------------------------------------------------------------
@@ -417,7 +419,7 @@ export function minimizeArgv(tokens, { allow = [], executable = true } = {}) {
 // platform its row was read on (record.platform, from processArgv), the same per-row rule
 // lib/proc.mjs commandTokens() applies at teardown; `platform` is used for a record without one.
 export function paneArgv(pids, table, { allow = [], expectArgsAfterCodex = null, limit = 32, platform = process.platform } = {}) {
-  const full = pids.slice(0, limit).map((pid) => processArgv(pid, table));
+  const full = pids.slice(0, limit).map((pid) => processArgv(pid, table, { platform }));
   const p = codexLaunchProof(full, { platform });
   const proof = { ...p, argsAfterCodex: minimizeArgv(p.argsAfterCodex, { allow, executable: false }) };
   if (expectArgsAfterCodex) proof.matchesExpected = p.found ? JSON.stringify(p.argsAfterCodex) === JSON.stringify(expectArgsAfterCodex) : null;

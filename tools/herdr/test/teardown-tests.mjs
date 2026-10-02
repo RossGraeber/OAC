@@ -47,9 +47,10 @@ function winRows({ reused = false } = {}) {
   ];
 }
 
-// Linux-shaped rows: start = clock ticks since boot (a string), argv arrays.
+// Linux-shaped rows: start = clock ticks since boot (a string), argv arrays, tagged 'linux' as
+// lib/proc.mjs's /proc parser tags them (#249).
 function linuxTable({ reused = false } = {}) {
-  const row = (pid, ppid, ticks, argv) => [pid, { pid, ppid, start: String(ticks), startKey: ticks, argv, commandLine: null }];
+  const row = (pid, ppid, ticks, argv) => [pid, { pid, ppid, start: String(ticks), startKey: ticks, argv, commandLine: null, platform: 'linux' }];
   return new Map([
     row(1, 0, 1, ['/sbin/init']),
     row(50, 1, 1000, ['node', 'tools/herdr/run.mjs']),
@@ -136,9 +137,12 @@ export async function teardownUnit(check) {
   const bad = winRow(204, `C:\\x\\herdr.exe --session ${SESSION} app-server`);
   bad.commandLine = `C:\\x\\herdr.exe --session ${SESSION}\0 app-server`; // a NUL: no real command line carries one
   check('#244 unsplittable command line (null tokens): carriesSession is "no match"; protectedReason is fail-safe (protected, never killed)', commandTokens(bad) === null && carriesSession(bad, SESSION) === false && protectedReason(bad) === UNSPLITTABLE_REASON);
-  check('#244 commandTokens: a non-Windows row with no command line has no tokens (nothing to match); a Linux argv is used as is', same(commandTokens({ pid: 9, argv: null, commandLine: null }), []) && same(commandTokens({ pid: 9, argv: null, commandLine: null, platform: 'darwin' }), []) && same(commandTokens(linuxTable().get(107)), ['herdr', '--session', SESSION, 'pane', 'read', 'w1:p1']));
+  check('#244 commandTokens: an untagged (hand-built) row with no command line has no tokens (nothing to match); a Linux argv is used as is, an empty one (kernel thread) too', same(commandTokens({ pid: 9, argv: null, commandLine: null }), []) && same(commandTokens({ pid: 9, argv: [], commandLine: null, platform: 'linux' }), []) && same(commandTokens(linuxTable().get(107)), ['herdr', '--session', SESSION, 'pane', 'read', 'w1:p1']));
   // #249 (PR #248 review 6): Win32_Process.CommandLine is null where the query may not read it.
   check('#249 unreadable Windows command line (null): no tokens (null), no session match, protected as unreadable (never killed)', win.get(4).commandLine === null && commandTokens(win.get(4)) === null && carriesSession(win.get(4), SESSION) === false && protectedReason(win.get(4)) === UNREADABLE_REASON && commandLineProblem(win.get(4)) === UNREADABLE_REASON && commandLineProblem(bad) === UNSPLITTABLE_REASON && commandLineProblem(win.get(102)) === null);
+  // #249 (PR #251 review 2): the same rule on Linux: a /proc row whose cmdline could not be read.
+  const linNull = { pid: 9, ppid: 1, start: '5', startKey: 5, argv: null, commandLine: null, platform: 'linux' };
+  check('#249 unreadable Linux cmdline (argv null on a /proc row): no tokens (null), no session match, protected as unreadable (never killed)', commandTokens(linNull) === null && carriesSession(linNull, SESSION) === false && protectedReason(linNull) === UNREADABLE_REASON && commandLineProblem(linNull) === UNREADABLE_REASON && commandLineProblem(linuxTable().get(102)) === null);
 
   // --- teardown against fake process operations, both platform shapes -----------------------
   for (const [shape, before, after] of [
@@ -177,6 +181,12 @@ export async function teardownUnit(check) {
     const rows = () => winRows().map((r) => (r.p === 103 ? { ...r, cl: null } : r));
     const { t, f } = await teardownCase([parseWin32ProcessJson(JSON.stringify(rows())), parseWin32ProcessJson(JSON.stringify(rows()))]);
     check('#249 win32: an unreadable (null) command line is never killed; it is unverified, a leftover, and teardown is not clean', !f.kills.includes(103) && t.unverifiedPids.some((u) => u.pid === 103 && u.why === UNREADABLE_REASON) && t.leftoverProcesses.includes(103) && !t.protectedProcesses.some((p) => p.pid === 103) && f.kills.includes(102) && t.clean === false, JSON.stringify(t));
+  }
+  {
+    // #249 (PR #251 review 2): the Linux twin: /proc/103/cmdline unreadable (argv null).
+    const tbl = () => { const t = linuxTable(); t.set(103, { ...t.get(103), argv: null }); return t; };
+    const { t, f } = await teardownCase([tbl(), tbl()]);
+    check('#249 linux: an unreadable /proc cmdline is never killed; it is unverified, a leftover, and teardown is not clean', !f.kills.includes(103) && t.unverifiedPids.some((u) => u.pid === 103 && u.why === UNREADABLE_REASON) && t.leftoverProcesses.includes(103) && !t.protectedProcesses.some((p) => p.pid === 103) && f.kills.includes(102) && t.clean === false, JSON.stringify(t));
   }
   {
     const { t, f } = await teardownCase([null, null], { alive: [101, 102] });

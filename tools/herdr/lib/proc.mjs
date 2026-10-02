@@ -193,7 +193,8 @@ export function killPid(pid) {
 //   startKey  a number that orders processes of one snapshot by creation (null if unknown)
 //   argv      array where the OS gives one (Linux), else null; commandLine is then the
 //             OS's own string (macOS `ps` command, Windows Win32_Process.CommandLine)
-//   platform  on a commandLine row, whose rules split it ('win32' or 'darwin'; #244)
+//   platform  the OS the row was read on: on a commandLine row, whose rules split it ('win32'
+//             or 'darwin'; #244); 'linux' on a /proc row (#249: argv null = unreadable)
 // Returns null when the table cannot be read; callers then treat every pid as unverified
 // and kill nothing on its strength.
 
@@ -256,7 +257,7 @@ function linuxProcessTable() {
     } catch {
       /* gone, or not readable */
     }
-    table.set(Number(entry), { pid: Number(entry), ppid: Number(st[1]), start: st[19] ?? null, startKey: st[19] == null ? null : Number(st[19]), argv, commandLine: null });
+    table.set(Number(entry), { pid: Number(entry), ppid: Number(st[1]), start: st[19] ?? null, startKey: st[19] == null ? null : Number(st[19]), argv, commandLine: null, platform: 'linux' });
   }
   return table;
 }
@@ -392,15 +393,17 @@ export function splitWindowsCommandLine(s) {
 // row carries the OS's command line string, split by splitCommandLine under the rules of the
 // platform the row was read on (row.platform, set by the parsers above; the host's otherwise),
 // so teardown and the launch proof (lib/g2.mjs paneArgv) split a command line by one rule set.
-// [] when the row has no argv and no command line (nothing to match). null when the command
-// line cannot be split (a non-string or a NUL), and (#249) when a Windows row's command line
-// could not be read at all: Win32_Process.CommandLine is null for a process the query may not
-// read (another user's, a protected or system process), and an unread command line cannot be
-// shown not to be the app-server. The caller treats a null as unverifiable, never as "no
-// match, safe to kill" (commandLineProblem names which).
+// null when the command line cannot be split (a non-string or a NUL), and (#249) when a row
+// the OS process table produced (tagged with its platform: win32, darwin or linux) carries no
+// argv and no command line, i.e. it could not be read: Win32_Process.CommandLine is null for
+// a process the query may not read (another user's, a protected or system process), and a
+// Linux /proc/<pid>/cmdline read can fail. An unread command line cannot be shown not to be
+// the app-server. The caller treats a null as unverifiable, never as "no match, safe to kill"
+// (commandLineProblem names which). [] only for an untagged row with neither (a hand-built
+// table: nothing to match). A readable but empty Linux cmdline (a kernel thread) is argv [].
 export function commandTokens(proc) {
   if (Array.isArray(proc?.argv)) return proc.argv;
-  if (proc?.commandLine == null) return proc?.platform === 'win32' ? null : [];
+  if (proc?.commandLine == null) return proc?.platform ? null : [];
   return splitCommandLine(proc.commandLine, { platform: proc.platform ?? process.platform });
 }
 
@@ -415,7 +418,7 @@ export function carriesSession(proc, name) {
 // Processes teardown must never kill, whoever started them: the Codex app-server (the
 // operator's long-lived shared daemon, #202/#203; a pane's `codex` could also have started
 // one). Matched on the argv token `app-server`; left running and recorded instead. Fail-safe
-// (#244): a command line that cannot be split, or (#249) a Windows one that could not be read,
+// (#244): a command line that cannot be split, or (#249) one that could not be read,
 // cannot be shown NOT to be the daemon, so it is protected as well (teardown reports such a
 // pid as unverified before it gets here).
 export const UNSPLITTABLE_REASON = 'command line could not be split, so it cannot be shown not to be the Codex app-server';

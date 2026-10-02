@@ -371,7 +371,7 @@ export class HerdrSession {
   //   - its creation time still matches the recorded one (not a reused pid),
   //   - it was created no earlier than this driver process (nothing older is the run's),
   //   - its command line was read and splits (#244/#249: commandLineProblem; an unsplittable
-  //     one, or a Windows one that could not be read, is unverified),
+  //     one, or one that could not be read, is unverified),
   //   - it is not a protected process (protectedReason: the Codex app-server daemon).
   // Anything that cannot be verified (no table, no recorded identity) is never killed; if it
   // is still alive it is reported in leftoverProcesses and the teardown is not clean.
@@ -451,8 +451,9 @@ export class HerdrSession {
         t.skippedPreexistingPids.push({ pid, why: 'created before this driver process' });
         return;
       }
-      // #244: a command line that cannot be split, or (#249) a Windows one that could not be
-      // read (Win32_Process.CommandLine null), cannot be shown not to be the app-server.
+      // #244: a command line that cannot be split, or (#249) one that could not be read
+      // (Win32_Process.CommandLine null, /proc/<pid>/cmdline unreadable), cannot be shown not
+      // to be the app-server.
       const clProblem = commandLineProblem(now);
       if (clProblem) return unverified(pid, clProblem);
       const prot = protectedReason(now);

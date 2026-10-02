@@ -288,12 +288,12 @@ export async function g4Unit(check) {
   const url = (u) => ['codex', '-c', `mcp_servers.g4.url=${u}`];
   const goodValues = [
     url('"http://127.0.0.1:17458/mcp"'), url('"http://[::1]:17458/mcp"'), url('"http://localhost:17458/mcp"'), url('"https://127.0.0.1/mcp"'),
-    url('"http://LOCALHOST:1/"'), url('"http://127.0.0.1:65535"'), url('"http://127.0.0.1:17458/a/b-c_d.e~f"'),
+    url('"http://LOCALHOST:1/mcp"'), url('"http://127.0.0.1:65535/mcp"'), url('"http://[::1]/mcp"'),
     [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.enabled=true', '-c', 'mcp_servers.g4.startup_timeout_sec=30', '-c', 'mcp_servers.g4.tool_timeout_sec=12.5', '-c', 'features.x=false'],
     // #249: zero and a zero-led fraction are TOML numbers.
     [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.startup_timeout_sec=0', '-c', 'mcp_servers.g4.tool_timeout_sec=0.5'],
   ];
-  check('g4 codex launch #244: loopback URLs (127.0.0.1, [::1], localhost; http or https; any port and path) and boolean/number scalars are accepted', goodValues.every((a) => validateCodexLaunch(a).ok), JSON.stringify(goodValues.filter((a) => !validateCodexLaunch(a).ok)));
+  check('g4 codex launch #244/#249: loopback URLs (127.0.0.1, [::1], localhost; http or https; any port; path exactly /mcp) and boolean/number scalars are accepted', goodValues.every((a) => validateCodexLaunch(a).ok), JSON.stringify(goodValues.filter((a) => !validateCodexLaunch(a).ok)));
   const SECRET = 'S3CRETvalue42';
   const badValues = [
     ['userinfo', url(`"http://user:${SECRET}@127.0.0.1:17458/mcp"`)],
@@ -315,14 +315,24 @@ export async function g4Unit(check) {
     ['string for a feature flag', [...url('"http://127.0.0.1:17458/mcp"'), '-c', `features.x=${SECRET}`]],
     ['string for a timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', `mcp_servers.g4.tool_timeout_sec="${SECRET}"`]],
     ['negative timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.tool_timeout_sec=-1']],
-    // #249: the path is [A-Za-z0-9._~/-] only; an encoded query or a key=value-shaped segment is refused.
+    // #249 (PR #251 review 3): the path is exactly /mcp, the only path the G4 server answers.
     ['percent-encoded query in the path', url(`"http://127.0.0.1:17458/mcp%3Ftoken=${SECRET}"`)],
-    ['token-shaped path segment', url(`"http://127.0.0.1:17458/mcp;token=${SECRET}"`)],
+    ['key=value path segment', url(`"http://127.0.0.1:17458/mcp;token=${SECRET}"`)],
     ['at sign in the path', url(`"http://127.0.0.1:17458/mcp/@${SECRET}"`)],
     ['sub-delimiters in the path', url(`"http://127.0.0.1:17458/mcp/$${SECRET}!*'(),+:"`)],
+    ['raw token-shaped path', url(`"http://127.0.0.1:1/sk-ant-api03-${SECRET}"`)],
+    ['token segment after /mcp', url(`"http://127.0.0.1:1/mcp/${SECRET}"`)],
+    ['no path', url('"http://127.0.0.1:65535"')],
+    ['root path', url('"http://127.0.0.1:1/"')],
+    ['trailing slash', url('"http://127.0.0.1:1/mcp/"')],
+    ['upper-case path', url('"http://127.0.0.1:1/MCP"')],
+    ['other path', url('"http://127.0.0.1:17458/a/b-c_d.e~f"')],
+    ['dot segment resolving to /mcp', url('"http://127.0.0.1:1/x/../mcp"')],
     // #249: TOML rejects a leading zero.
     ['leading-zero timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.tool_timeout_sec=007']],
     ['leading-zero fractional timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.startup_timeout_sec=00.5']],
+    // #249 (PR #251 review 4): the deliberate fail-closed subset also refuses TOML forms a timeout does not need.
+    ...['.5', '0.', '1e3', '+1', '1_000', '0x10', 'inf', 'nan', '1000000000', '0.0000000001'].map((n) => [`timeout ${n}`, [...url('"http://127.0.0.1:17458/mcp"'), '-c', `mcp_servers.g4.tool_timeout_sec=${n}`]]),
   ];
   const refusals = badValues.map(([what, a]) => [what, validateCodexLaunch(a)]);
   check('g4 codex launch #244: a userinfo URL, a non-loopback URL, a query, a fragment, another scheme and a non-boolean/non-number scalar are all refused', refusals.every(([, v]) => !v.ok), JSON.stringify(refusals.filter(([, v]) => v.ok).map(([w]) => w)));

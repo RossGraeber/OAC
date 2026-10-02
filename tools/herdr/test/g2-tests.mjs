@@ -257,6 +257,27 @@ export function g2Unit(check) {
   const macOv = ['-c', 'features.x=a b'];
   const macTable = parsePsTable("    6     1 Wed Oct  2 10:00:02 2026 /opt/codex -c 'features.x=a b'\n");
   const macRowP = paneArgv([6], macTable, { allow: macOv, expectArgsAfterCodex: macOv, platform: 'win32' });
+  // #249 (PR #251 review 1): an UNTAGGED row (a hand-built table) is split by the caller's
+  // fallback, and a tagged row by its own platform, whatever the host is. The host is spoofed
+  // as linux and as darwin (process.platform, restored after), so this holds on every OS.
+  const untagged = new Map([[5, { pid: 5, ppid: 1, argv: null, commandLine: g4cl }]]);
+  const spoofed = (host, fn) => {
+    const desc = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { ...desc, value: host });
+    try {
+      return fn();
+    } finally {
+      Object.defineProperty(process, 'platform', desc);
+    }
+  };
+  const hostRuns = ['linux', 'darwin'].map((host) => spoofed(host, () => ({
+    host,
+    untaggedWin: paneArgv([5], untagged, { allow: g4ov, expectArgsAfterCodex: g4ov, platform: 'win32' }),
+    untaggedHost: paneArgv([5], untagged, { allow: g4ov, expectArgsAfterCodex: g4ov }),
+    taggedWin: paneArgv([5], winTable, { allow: g4ov, expectArgsAfterCodex: g4ov }),
+    record: processArgv(5, untagged, { platform: 'win32' }),
+  })));
+  check('g2 argv #249: on a non-Windows host (spoofed linux, darwin) a win32-tagged row splits by the Windows rules, an untagged row by the caller\'s fallback (win32 given: Windows rules; none given: the host\'s), and processArgv leaves an untagged row\'s platform null with `source` naming the platform used', hostRuns.every((h) => h.taggedWin.proof.matchesExpected === true && h.untaggedWin.proof.matchesExpected === true && h.untaggedHost.proof.matchesExpected === false && h.record.platform === null && /Win32_Process/.test(h.record.source)), JSON.stringify(hostRuns.map((h) => [h.host, h.taggedWin.proof.matchesExpected, h.untaggedWin.proof.matchesExpected, h.untaggedHost.proof.matchesExpected, h.record])));
   check('g2 argv #249: paneArgv and the launch proof split each row under its stored platform (a Win32_Process row by the C runtime rules, a ps row by the POSIX-ish rules), whatever the fallback says', processArgv(5, winTable).platform === 'win32' && processArgv(6, macTable).platform === 'darwin' && /Win32_Process/.test(processArgv(5, winTable).source) && /ps command/.test(processArgv(6, macTable).source) && winRowP.proof.matchesExpected === true && same(winRowP.argv[0].argv, ['node.exe', 'codex.js', ...g4ov]) && macRowP.proof.matchesExpected === true && same(macRowP.argv[0].argv, ['codex', ...macOv]), JSON.stringify({ winRowP, macRowP }));
   check('g2 argv: no codex process -> not found (never assumed plain)', !codexLaunchProof([{ pid: 1, argv: ['bash', '-l'] }, { pid: 2, argv: null, commandLine: null }]).found);
 
