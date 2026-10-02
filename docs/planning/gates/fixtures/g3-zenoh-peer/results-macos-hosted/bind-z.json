@@ -1,0 +1,65 @@
+{
+ "name": "z",
+ "platform": "Darwin",
+ "platform_release": "25.6.0",
+ "python": "3.14.7",
+ "listen": [
+  "tcp/127.0.0.1:0"
+ ],
+ "connect": [],
+ "mcast": "on",
+ "tls": false,
+ "expect": 2,
+ "error": null,
+ "t_open_ms": 3.6,
+ "zid": "2c88ac867c658263615b561ba0b03b2c",
+ "t_discovery_ms": 4.5,
+ "peers_seen": [
+  "e0a62cf2ac81147180600626eabd31a6",
+  "50b0c8d904d977d936c5b10c6b3db393"
+ ],
+ "heard_from": {
+  "x": 194.9,
+  "y": 219.8
+ },
+ "t_all_data_ms": 219.8,
+ "links": [
+  {
+   "src": "tcp/127.0.0.1:49280",
+   "dst": "tcp/127.0.0.1:49283",
+   "zid": "e0a62cf2ac81147180600626eabd31a6",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: e0a62cf2ac81147180600626eabd31a6, src: tcp/127.0.0.1:49280, dst: tcp/127.0.0.1:49283, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:49282",
+   "dst": "tcp/127.0.0.1:49279",
+   "zid": "e0a62cf2ac81147180600626eabd31a6",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: e0a62cf2ac81147180600626eabd31a6, src: tcp/127.0.0.1:49282, dst: tcp/127.0.0.1:49279, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:49280",
+   "dst": "tcp/127.0.0.1:49285",
+   "zid": "50b0c8d904d977d936c5b10c6b3db393",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: 50b0c8d904d977d936c5b10c6b3db393, src: tcp/127.0.0.1:49280, dst: tcp/127.0.0.1:49285, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  },
+  {
+   "src": "tcp/127.0.0.1:49286",
+   "dst": "tcp/127.0.0.1:49281",
+   "zid": "50b0c8d904d977d936c5b10c6b3db393",
+   "mtu": "65328",
+   "is_streamed": "True",
+   "interfaces": "['lo0']",
+   "repr": "Link { zid: 50b0c8d904d977d936c5b10c6b3db393, src: tcp/127.0.0.1:49286, dst: tcp/127.0.0.1:49281, group: None, mtu: 65328, is_streamed: true, interfaces: [\"lo0\"], auth_identifier: None, priorities: Some((0, 7)), reliability: Some(Reliable) }"
+  }
+ ],
+ "ok": true
+}

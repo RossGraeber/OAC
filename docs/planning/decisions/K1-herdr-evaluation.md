@@ -17,8 +17,8 @@ herdr binary, no Claude Code install and no Codex install, and no harness login.
 `[ADR-001 Boundary]` "MUST NOT steal or reuse another harness's provider credentials" and
 issue #123's own execution-scope note, that session must never hold harness
 credentials. So it could not run the live leg. It did not guess at live results. This is
-the same `NOT RUN` stance `docs/planning/gates/G3-result.md` takes for its parked macOS
-leg: a leg that could not be executed is recorded as not run, with the blocker named. It
+the same `NOT RUN` stance `docs/planning/gates/G3-result.md` took for its parked macOS
+leg (note 2026-10-02, #219: that leg has since run on a GitHub-hosted VM and passed): a leg that could not be executed is recorded as not run, with the blocker named. It
 is never scored as a pass because the documentation "should" hold.
 
 **Where this record lives.** `docs/planning/decisions/` holds the C-series decisions
