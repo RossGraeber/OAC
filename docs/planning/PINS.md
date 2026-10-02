@@ -6,27 +6,38 @@ that release was published, the first-party URL the pin was observed at, and the
 it was retrieved. A pin is not a preference or a "latest as of planning" note — it is
 the version the rest of the plan is written against.
 
-**Exception:** the Codex CLI / app-server row is **floating** by operator decision
-(2026-09-26), and the Claude Code (Channels) row is likewise **floating** by operator
-decision (2026-09-27). Each records the last observed version, not a fixed one. See the
-"Floating-version policy" under each record.
+**Exception: the harness CLIs float, and their versions warn, never gate.** The Codex
+CLI / app-server row (floating since 2026-09-26) and the Claude Code (Channels) row
+(floating since 2026-09-27) hold no pin. Operator decision on #216 (2026-10-01): "Minimum
+version is the first version encountered while working. Document last version tested
+against. Allow version to float. Do not gate on version, warn on version." Each of the two
+rows therefore records a **minimum version** (the first version the project actually worked
+with, cited from the record) and a **last tested version** (updated after each live run).
+A version other than the last tested one, or below the minimum, is a warning: it never
+stops a run, never makes it `NOT RUN`, never blocks CI and never by itself invalidates a
+gate verdict. This covers the CLIs and their wire and daemon versions. See "Version policy
+(operator decision, 2026-10-01, #216)" under each record.
 
-**Changing any row in this file is a trigger event.** Per `oac-evidence` §7, a moved
+**Changing any other row in this file is a trigger event.** Per `oac-evidence` §7, a moved
 pin requires re-verifying every §3 fact that depended on it (Epic B2) and, per the
 gate re-run policy (`docs/planning/gates/README.md`), re-running
 every gate whose verdict depended on it. Do not silently bump a version in this file.
+For the two harness rows, updating the last tested version after a live run is routine
+record-keeping, not a pin move: it invalidates no gate verdict (see "Pin-move checklist").
 
 ## Pin-move checklist
 
 When any pin in the table below changes (version, release date, or a row's
-presence), make all of these edits in the **same commit**:
+presence), make all of these edits in the **same commit**. **The Claude Code (Channels)
+and Codex CLI / app-server rows are exempt** (#216, 2026-10-01): a change to their minimum
+or last tested version only bumps `**Last updated:**` below and adds a dated line to the
+row's version history. It reverts no verdict and adds no `INVALIDATED` callout. A new
+harness version still needs the §3 facts re-checked (`oac-evidence` §7) before a gate
+result relies on it, but that is a finding to follow up, not a gate on the run.
 
 - [ ] Read the moved row's `Gates affected` cell to find which gate results to
-      invalidate. For a **floating** row, this means only the verdicts whose own
-      recorded observed version differs from the row's new last-observed version (which
-      must equal what the environment currently reports) — a gate that already ran on
-      the version now being recorded stays current; see `docs/planning/gates/README.md`
-      §a.
+      invalidate (never for the two harness rows above; see
+      `docs/planning/gates/README.md` §a).
 - [ ] Each affected `docs/planning/gates/G<n>-result.md`: set `**Verdict:**` to
       `NOT RUN`, append the superseded verdict to its `Re-run history` table with
       `Invalidated by: <surface> pin <old> -> <new>, <YYYY-MM-DD>`, and add a
@@ -43,7 +54,15 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-09-29 (L1, issue #166: added row `Beacon (external memory
+**Last updated:** 2026-10-01 (issue #216, operator decision: harness versions float; warn,
+never gate. The `Claude Code (Channels)` and `Codex CLI / app-server` rows now record a
+**minimum version** and a **last tested version** instead of a "last observed" version.
+Claude Code: minimum `v2.1.282` (first version worked with, G1 2026-09-25), last tested
+`v2.1.285` (L3, 2026-10-01). Codex: minimum `@openai/codex@0.154.0` (first version worked
+with, G2 2026-09-25), last tested `@openai/codex@0.159.3` (L3, 2026-10-01). Citations are
+under "Version policy" in each record. The pin-move checklist no longer applies to these two
+rows, so no gate verdict is invalidated. G1, G2, G4 and G5 keep their recorded verdicts and
+the versions they ran on.) Previously 2026-09-29 (L1, issue #166: added row `Beacon (external memory
 service)`, a fixed pin at `v1.3.29`, `Gates affected: none`, see "Beacon (external memory
 service)" below and `docs/planning/decisions/L1-beacon-memory.md`. The pin-move checklist
 was executed in the same commit. A row was added, but it names no gate, so no
@@ -79,8 +98,8 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | **floating** — last observed `v2.1.283`; see "Floating-version policy" below | 2026-09-25T21:50:12Z (UTC) | https://github.com/anthropics/claude-code/releases/tag/v2.1.283 | 2026-09-27 | G1; G4 (legacy-MCP negotiation); G5 |
-| Codex CLI / app-server | experimental (per-method gating) | **floating** — last observed `@openai/codex@0.157.1` (commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`); see "Floating-version policy" below | 2026-09-26 | https://github.com/openai/codex/releases/tag/rust-v0.157.1 | 2026-09-26 | G2, G5, G4 (Codex leg) |
+| Claude Code (Channels) | research preview | **floating** — minimum `v2.1.282`; last tested `v2.1.285` (L3, 2026-10-01); warn on version, never gate; see "Version policy" below | 2026-09-29T19:27:30Z (UTC; the last tested version) | https://github.com/anthropics/claude-code/releases/tag/v2.1.285 | 2026-10-01 | G1; G4 (legacy-MCP negotiation); G5 (a version change invalidates none of them, #216) |
+| Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.159.3` (commit `01fc69f4026735edfdf6789820549727a4867b11`; L3, 2026-10-01); warn on version, never gate; see "Version policy" below | 2026-09-30T22:57:34Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.159.3 | 2026-10-01 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
@@ -99,7 +118,56 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 
 ### Claude Code Channels
 
+#### Version policy (operator decision, 2026-10-01, #216)
+
+The operator decision on #216 replaces the invalidation rules of the floating-version
+policy below. The row still floats. It records two versions, and neither one gates
+anything:
+
+- **Minimum version: `v2.1.282`.** This is the first Claude Code version the project
+  actually worked with. During the original G1 spike (2026-09-25), the client that
+  connected reported `clientInfo.version: "2.1.282"`. Sources:
+  `docs/planning/gates/G1-result.md`, "Original run (2026-09-25, v2.1.282)" and its "Pin
+  drift found during this spike" field (transcript line 20); and
+  `docs/planning/gates/fixtures/MANIFEST.json`, the `g1-claude-wake/transcript.jsonl`
+  entry, `observed_version.claude_code` "2.1.282 (clientInfo.version, line 20 ...)".
+  Lines 1-19 of that fixture come from synthetic `test` clients (`clientInfo` `{"name":
+  "test","version":"0"}` at lines 4, 12 and 16; 2026-09-17 and 2026-09-25), not Claude
+  Code. Line 20 is the first real Claude Code client. The B1 pin `v2.1.274` was never run
+  against: it was read from the release page, and the client that ran was already
+  `2.1.282`. The VS Code extension directories `anthropic.claude-code-2.1.274-win32-x64`
+  and `...-2.1.276-win32-x64` seen on disk during G1 (`G1-result.md`, "Pin drift found
+  during this spike") never ran: the connecting client reported `2.1.282`. The capability
+  floors in the B1 record below (`>= v2.1.232` Channels, `>= v2.1.234` permission relay)
+  are documentation facts about when the surface appeared. They are not this minimum.
+  `v2.1.282` is above both floors.
+- **Last tested version: `v2.1.285`** (GitHub release `v2.1.285`, published
+  2026-09-29T19:27:30Z UTC, retrieved 2026-10-01 via `gh api
+  repos/anthropics/claude-code/releases/tags/v2.1.285`). It ran in the L3 Beacon live leg
+  on 2026-10-01: `claude --version` `2.1.285`
+  (`docs/planning/decisions/L1-beacon-memory.md` §13, "Live results (L3)"). Update this
+  field, and the version history below, after each live run.
+- **Warn, never gate.** A version other than the last tested one, or below the minimum,
+  is a `VERSION WARNING` finding (`tools/herdr/lib/pins.mjs` `claudeVersionWarning`).
+  This applies to `claude --version` and to the wire `clientInfo.version`. The warning
+  never stops a run, never makes it `NOT RUN`, never blocks CI and never by itself
+  invalidates a gate verdict. A gate result still records the version it actually ran
+  on.
+- **Recorded verdicts stand.** G1 (PASS, `v2.1.283`), G4 (PASS, `v2.1.283`) and G5 (FAIL,
+  `v2.1.283`) keep their verdicts and the versions they ran on. The invalidation history
+  below (G1 invalidated 2026-09-27, re-run 2026-09-28) is kept as history.
+- **§3.1 facts.** Re-checking the §3.1 facts against a newly tested version
+  (`oac-evidence` §7) is still worth doing, and is still open at `v2.1.282` and later
+  (see "Open questions carried into B2"). It is tracked as a finding and never gates a run.
+- Version history (dated additions only): `v2.1.284` in a manual L3 attempt
+  (2026-09-30), and `v2.1.285` in the L3 live leg (2026-10-01), both recorded in L1 §13.
+  `v2.1.285` is the last tested version from 2026-10-01.
+
 #### Floating-version policy (operator decision, 2026-09-27)
+
+> **Superseded in part, 2026-10-01 (#216).** The row still floats. The rule below that a
+> newly observed version invalidates G1, G4 and G5, and the use of the pin-move checklist
+> for this row, no longer apply: see "Version policy" above. The text is kept as history.
 
 **This row no longer holds a fixed pin.** The surface auto-updates faster than this
 project can re-pin it. Native installations "automatically update in the background to
@@ -218,11 +286,59 @@ The B1 record below describes the original `v2.1.274` pin and is kept as history
   stale after this pin move** — see "Floating-version policy" above), **G4** via the
   legacy-MCP negotiation constraint above, and **G5** (Provenance: STATUS.md's Gate
   verdicts table states G5's verdict depends on machine-set provenance rendering on
-  both providers, so it depends on this pin, not only on the Codex pin).
+  both providers, so it depends on this pin, not only on the Codex pin). *Dated note,
+  2026-10-01 (#216):* G1 was re-run and PASSED on `v2.1.283` (2026-09-28), and a Claude
+  Code version change no longer invalidates G1, G4 or G5 ("Version policy" above).
 
 ### Codex CLI and app-server
 
+#### Version policy (operator decision, 2026-10-01, #216)
+
+The operator decision on #216 replaces the invalidation rules of the floating-version
+policy below. The row still floats. It records two versions, and neither one gates
+anything:
+
+- **Minimum version: `@openai/codex@0.154.0`** (tag `rust-v0.154.0` → commit
+  `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`). This is the first Codex version the project
+  actually worked with: the original G2 run on 2026-09-25 ran on `codex-cli 0.154.0`, with
+  the daemon's `cliVersion` / `appServerVersion` / `managedCodexVersion` also `0.154.0`.
+  Sources: `docs/planning/gates/G2-result.md`, "Re-run history", first row ("2026-09-25 |
+  Codex CLI / app-server `0.154.0` ... | PASS"); and
+  `docs/planning/gates/fixtures/MANIFEST.json`, the `g2-codex-inject/transcript.jsonl`
+  entry, `observed_version` `codex_cli` / `codex_daemon` `0.154.0`, `capture_date`
+  2026-09-25.
+- **Last tested version: `@openai/codex@0.159.3`** (GitHub release `rust-v0.159.3`,
+  published 2026-09-30T22:57:34Z UTC; tag object
+  `8e46774a94a745ffdf676bd7a8aa36466bbd4f99` → commit
+  `01fc69f4026735edfdf6789820549727a4867b11`; retrieved 2026-10-01 via `gh api
+  repos/openai/codex/releases/tags/rust-v0.159.3` and `gh api
+  repos/openai/codex/git/ref/tags/rust-v0.159.3`). It ran in the L3 Beacon live leg on
+  2026-10-01. The CLI, all three daemon fields and the wire `userAgent` reported `0.159.3`
+  (`docs/planning/decisions/L1-beacon-memory.md` §13, "Live results (L3)"). Update this
+  field, and the version history below, after each live run.
+- **Warn, never gate.** A version other than the last tested one, or below the minimum,
+  is a `VERSION WARNING` finding (`tools/herdr/lib/pins.mjs` `codexVersionWarning`). This
+  applies to `codex --version`, to each `codex app-server daemon version` field and to the
+  wire `initialize` `userAgent` (and to the MCP client user-agent in G4). The warning
+  never stops a run, never makes it `NOT RUN`, never blocks CI and never by itself
+  invalidates a gate verdict. A gate result still records the version it actually ran
+  on. The daemon's auto-updater may keep moving the version; that is expected.
+- **Recorded verdicts stand.** G2 (PASS, `0.157.1`), G4 (PASS, `0.157.1`) and G5 (FAIL,
+  `0.157.1`) keep their verdicts and the versions they ran on. The 2026-09-26 invalidation
+  of G2 is kept as history.
+- **§3.2 facts.** Re-checking the §3.2 facts against a newly tested version
+  (`oac-evidence` §7) is still worth doing. It is tracked as a finding and never gates a
+  run. The last re-verification is at `0.157.1` (`docs/planning/REVERIFICATION-B2.md`).
+- Version history (dated additions only): `0.158.0` and `0.159.2` in L3 probe runs
+  (2026-09-30), and `0.159.3` in the L3 live leg (2026-10-01), all recorded in L1 §13.
+  `0.159.3` is the last tested version from 2026-10-01.
+
 #### Floating-version policy (operator decision, 2026-09-26)
+
+> **Superseded in part, 2026-10-01 (#216).** The row still floats. The rule below that
+> any new release invalidates G2, G5 and G4's Codex leg, and the use of the pin-move
+> checklist for this row, no longer apply: see "Version policy" above. The text is kept as
+> history.
 
 **This row no longer holds a fixed pin.** During gate G4 on 2026-09-25/26, a Codex
 auto-updater moved the environment from `0.154.0` to `0.157.0`, and then to `0.157.1`
@@ -292,7 +408,9 @@ by G2. One behavior-preserving rename was also found (`accept_hdr_async` →
   DESIGN.md; PLANNING-PROMPT.md §5.11 mentions `oac mcp-shim` only as an illustrative
   CLI-model example, not a named module in DESIGN.md).
   `shim boundary: UNNAMED — see DESIGN.md`. Carried to task 12's open-items list below.
-- Gates affected: **G2** (Codex live inject), **G5** (Provenance).
+- Gates affected: **G2** (Codex live inject), **G5** (Provenance). *Dated note,
+  2026-10-01 (#216):* G4's Codex leg was added 2026-09-26, and a Codex version change no
+  longer invalidates any of them ("Version policy" above).
 
 #### Daemon-attach open question (G2 input)
 
@@ -658,6 +776,12 @@ semver, and are recorded verbatim — never reformatted.
 ## Constraint floors
 
 Each floor below is independently checkable by a reader who has only this file open.
+
+*Dated note, 2026-10-01 (#216):* the two Claude Code floors below record when the
+capability appeared. The operative floor for the project is the row's **minimum version**,
+`v2.1.282`, the first version the project worked with ("Version policy" under Claude Code
+Channels). It is above both floors. Like every harness version check, it warns and never
+gates.
 
 - **Claude Code `>= v2.1.232`** — channels exist at all. Reason: Channels ship as a
   research-preview feature starting at this release (Source:

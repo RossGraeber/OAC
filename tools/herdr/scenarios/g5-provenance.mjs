@@ -16,8 +16,9 @@
 // never driven a real herdr, Claude Code or Codex. Pane-text patterns are the unconfirmed ones
 // in lib/g1.mjs and lib/g2.mjs.
 //
-// Operator command (herdr at the PINS.md pin; Claude Code and Codex at PINS.md's last-observed
-// versions, signed in the way the operator normally uses them):
+// Operator command (herdr at the PINS.md pin; Claude Code and Codex at any version, since
+// versions float and a difference from PINS.md's last tested versions is a VERSION WARNING
+// finding, never a stop (#216); signed in the way the operator normally uses them):
 //
 //   node tools/herdr/run.mjs --scenario g5-provenance \
 //     --launch '["claude","--dangerously-load-development-channels","server:g5spike"]' \
@@ -25,11 +26,12 @@
 //   node tools/herdr/lib/g5-report.mjs --run <run dir>            # draft comparison
 //
 // What it does, in the human run's order:
-//   0. Preflight: the Claude launch verbatim; both CLIs at PINS.md's committed last-observed
-//      versions (else NOT RUN, pin-move trigger); the reconstructed server and client staged
-//      into scratch with their case table; a project .mcp.json registers g5spike.
-//   1. `codex app-server daemon start` and `daemon version` (all three fields at the pin), the
-//      client's `list` (wire userAgent at the pin), as in the G2 scenario.
+//   0. Preflight: the Claude launch verbatim; both CLIs compared with PINS.md's committed
+//      minimum and last tested versions (a difference is a VERSION WARNING finding; the run
+//      continues: versions float, warn, never gate, #216); the reconstructed server and
+//      client staged into scratch with their case table; a project .mcp.json registers g5spike.
+//   1. `codex app-server daemon start` and `daemon version` (all three fields compared too),
+//      the client's `list` (wire userAgent compared too), as in the G2 scenario.
 //   2. Claude launches (dialogs read verbatim before any keystroke; accept=driver by default
 //      since #196, each accept recorded as `driver`; accept=human remains available);
 //      the legacy handshake is awaited on the wire; its clientInfo.version must equal the CLI.
@@ -64,7 +66,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
-import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger, parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, codexPinMoveTrigger, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
+import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
@@ -232,29 +234,34 @@ export default {
       if (!g5.launch.verbatim) throw new DriverError(`launch ${JSON.stringify(launch)} is not G5's verbatim launch ${JSON.stringify(G5_LAUNCH)}; this would not be a G5 re-run`);
       const pinsFile = committedFile(REPO, PINS_PATH);
       const pinsText = pinsFile.bytes.toString('utf8');
-      const cpin = parseClaudeLastObserved(pinsText);
-      const xpin = parseCodexLastObserved(pinsText);
+      // Versions float and are never gated (#216): every difference from PINS.md's minimum
+      // or last tested version is a VERSION WARNING finding, and the run continues.
+      const cpin = parseClaudeVersions(pinsText);
+      const xpin = parseCodexVersions(pinsText);
       const cRaw = ctx.harnessVersion('claude');
       const xRaw = ctx.harnessVersion('codex');
       const cli = { claude: parseClaudeCliVersion(cRaw), codex: parseCodexCliVersion(xRaw) };
       g5.versions = {
-        pins: { claudeRow: CLAUDE_PIN_ROW, claudeLastObserved: cpin.lastObserved, codexRow: CODEX_PIN_ROW, codexLastObserved: xpin.lastObserved, codexCommit: xpin.commit, headCommit: pinsFile.headCommit, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead },
+        pins: { claudeRow: CLAUDE_PIN_ROW, claudeMinimum: cpin.minimum, claudeLastTested: cpin.lastTested, codexRow: CODEX_PIN_ROW, codexMinimum: xpin.minimum, codexLastTested: xpin.lastTested, codexCommit: xpin.commit, headCommit: pinsFile.headCommit, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead },
         cliOutput: { claude: cRaw, codex: xRaw },
         cli,
         daemon: null,
         wire: { claude: null, codex: null, codexUserAgent: null },
-        verified: false,
+        verified: false, // true once every source reports one and the same version per harness
+        matchesLastTested: null,
+        warnings: [],
       };
-      if (!pinsFile.workingTreeMatchesHead) stop(`${PINS_PATH} has uncommitted changes; the pin checks read the committed PINS.md, so commit or discard the edit first. Nothing launched`);
+      const warn = (w) => {
+        if (!w) return;
+        g5.versions.warnings.push(w);
+        ctx.finding(w);
+      };
+      if (!pinsFile.workingTreeMatchesHead) ctx.finding(`${PINS_PATH} has uncommitted changes; the version checks read the committed PINS.md (HEAD ${pinsFile.headCommit})`);
+      warn(pinsReadWarning(cpin, 'G5'));
+      warn(pinsReadWarning(xpin, 'G5'));
       for (const [h, raw] of [['claude', cRaw], ['codex', xRaw]]) if (!cli[h] && /^N\/A/.test(raw ?? 'N/A')) stop(`${h} --version could not be run (${raw ?? 'not recorded'}); nothing launched`);
-      const trig = (t) => {
-        if (t) {
-          ctx.finding(t);
-          stop(t);
-        }
-      };
-      trig(claudePinMoveTrigger({ observed: cli.claude, lastObserved: cpin.lastObserved, source: '`claude --version`', gate: 'G5' }));
-      trig(codexPinMoveTrigger({ observed: cli.codex, lastObserved: xpin.lastObserved, source: '`codex --version`', gate: 'G5' }));
+      warn(claudeVersionWarning({ observed: cli.claude, lastTested: cpin.lastTested, minimum: cpin.minimum, source: '`claude --version`', gate: 'G5' }));
+      warn(codexVersionWarning({ observed: cli.codex, lastTested: xpin.lastTested, minimum: xpin.minimum, source: '`codex --version`', gate: 'G5' }));
       g5.captureNames = unverifiedNames(g5.date);
 
       serverDir = ctx.dir('g5-server');
@@ -277,7 +284,7 @@ export default {
       const daemonV = parseCodexDaemonVersion(dv.r.stdout);
       g5.daemon.versionBefore = { ...dv.rec, parsed: daemonV };
       g5.versions.daemon = daemonV;
-      for (const k of CODEX_DAEMON_VERSION_FIELDS) trig(codexPinMoveTrigger({ observed: daemonV?.[k] ?? null, lastObserved: xpin.lastObserved, source: `\`codex app-server daemon version\` ${k}`, gate: 'G5' }));
+      for (const k of CODEX_DAEMON_VERSION_FIELDS) warn(codexVersionWarning({ observed: daemonV?.[k] ?? null, lastTested: xpin.lastTested, minimum: xpin.minimum, source: `\`codex app-server daemon version\` ${k}`, gate: 'G5' }));
       const pre = await runClient('list', []);
       const preFacts = clientFacts().wire;
       g5.preLaunchLoaded = loadedSince(preFacts.loadedLists, pre.linesBefore);
@@ -285,7 +292,7 @@ export default {
       if (g5.preLaunchLoaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; nothing launched');
       g5.versions.wire.codex = pre.userAgentVersion;
       g5.versions.wire.codexUserAgent = preFacts.connections.at(-1)?.userAgent ?? null;
-      trig(codexPinMoveTrigger({ observed: pre.userAgentVersion, lastObserved: xpin.lastObserved, source: 'the wire initialize userAgent', gate: 'G5' }));
+      warn(codexVersionWarning({ observed: pre.userAgentVersion, lastTested: xpin.lastTested, minimum: xpin.minimum, source: 'the wire initialize userAgent', gate: 'G5' }));
 
       // --- 2. Claude --------------------------------------------------------------------------
       const ws = await herdr.workspaceCreate({ cwd: projectDir, label: 'oac-g5-claude' });
@@ -303,7 +310,7 @@ export default {
       }, num('handshakeTimeoutMs'), { lbl: 'handshake-wait' });
       g5.handshake = { initialize: hs.init, discoverProbes: hs.f.discover.length, instances: hs.f.instances };
       g5.versions.wire.claude = hs.init.clientVersion;
-      trig(claudePinMoveTrigger({ observed: hs.init.clientVersion, lastObserved: cpin.lastObserved, source: 'the wire initialize clientInfo.version', gate: 'G5' }));
+      warn(claudeVersionWarning({ observed: /^\d+\.\d+\.\d+$/.test(String(hs.init.clientVersion ?? '')) ? hs.init.clientVersion : null, lastTested: cpin.lastTested, minimum: cpin.minimum, source: 'the wire initialize clientInfo.version', gate: 'G5' }));
       await claude.settle('post-handshake', num('startupTimeoutMs'));
 
       // --- 3. Codex TUI; the operator's thread marker; the thread on the wire ----------------------
@@ -362,9 +369,17 @@ export default {
       }
       const threadId = found.threadId;
       g5.thread = { id: threadId, markerPrompt: marker, markerFromLine: markerFrom, preLaunchLoaded: (g5.preLaunchLoaded ?? []).includes(threadId) };
-      g5.versions.verified = true;
-      g5.fixtures = fixtureNames(g5.date, cli.claude, cli.codex);
-      g5.captureNames = g5.fixtures;
+      // Captures name one version per harness only when every source agrees (#216: no
+      // comparison with PINS.md here; that is a VERSION WARNING above, never a stop).
+      const sameVersions = !!cli.claude && !!cli.codex && g5.versions.wire.claude === cli.claude && g5.versions.wire.codex === cli.codex && CODEX_DAEMON_VERSION_FIELDS.every((k) => daemonV?.[k] === cli.codex);
+      if (sameVersions) {
+        g5.versions.verified = true;
+        g5.versions.matchesLastTested = cli.claude === cpin.lastTested && cli.codex === xpin.lastTested;
+        g5.fixtures = fixtureNames(g5.date, cli.claude, cli.codex);
+        g5.captureNames = g5.fixtures;
+      } else {
+        ctx.finding(`a harness's CLI, daemon and wire versions differ (CLI ${JSON.stringify(g5.versions.cliOutput)}, daemon ${JSON.stringify(daemonV)}, wire ${JSON.stringify({ claude: g5.versions.wire.claude, codex: g5.versions.wire.codex })}); the run continues, but its captures stay unverified-* because they cannot name one version per harness`);
+      }
 
       // --- 4. Claude cases -------------------------------------------------------------------------
       const fireCase = (id) => {
@@ -454,7 +469,7 @@ export default {
       g5.daemon.versionAfter = { ...dv2.rec, parsed: parseCodexDaemonVersion(dv2.r.stdout) };
       const wireVersions = [...new Set(clientFacts().wire.connections.map((c) => c.userAgentVersion))];
       g5.postRun = { cliOutput: post, claude: parseClaudeCliVersion(post.claude), codex: parseCodexCliVersion(post.codex), daemon: g5.daemon.versionAfter.parsed, codexWireVersionsSeen: wireVersions };
-      g5.postRun.matches = g5.postRun.claude === cli.claude && g5.postRun.codex === cli.codex && CODEX_DAEMON_VERSION_FIELDS.every((k) => g5.postRun.daemon?.[k] === xpin.lastObserved) && wireVersions.length === 1 && wireVersions[0] === xpin.lastObserved;
+      g5.postRun.matches = g5.postRun.claude === cli.claude && g5.postRun.codex === cli.codex && CODEX_DAEMON_VERSION_FIELDS.every((k) => g5.postRun.daemon?.[k] === cli.codex) && wireVersions.length === 1 && wireVersions[0] === cli.codex;
       if (!g5.postRun.matches) {
         ctx.finding(`a harness version changed during the run or differed between connections (${JSON.stringify(g5.versions.cliOutput)} before, ${JSON.stringify(post)} after; daemon after ${JSON.stringify(g5.postRun.daemon)}; Codex wire ${JSON.stringify(wireVersions)}); the captures lose their fixture names`);
         g5.versions.verified = false;

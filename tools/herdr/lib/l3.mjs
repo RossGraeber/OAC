@@ -55,10 +55,13 @@ export const L3_RECORD_VERSION = 1;
  * @property {string|null} versions.claudeCli    `claude --version`.
  * @property {object} versions.codex             { cli, daemon, wire }: the CLI, the daemon's
  *                                               version report, and the wire userAgent value.
- * @property {object} versions.pins              PINS.md last-observed values and whether each
- *                                               differs: { claude: { lastObserved, differs },
- *                                               codex: { lastObserved, differs } }. A difference
- *                                               is a finding; L3 is not a gate and does not stop.
+ * @property {object} versions.pins              PINS.md minimum and last tested versions and
+ *                                               whether the CLI differs from the last tested one:
+ *                                               { claude: { minimum, lastTested, differs },
+ *                                               codex: { minimum, lastTested, differs } }. Records
+ *                                               made before #216 carry `lastObserved` instead. A
+ *                                               difference is a VERSION WARNING finding and never
+ *                                               stops the leg (versions float, #216).
  * @property {object} config                     Harness config, hashes only.
  * @property {Array<ConfigHash>} config.hashes   hashConfig() output for this phase.
  * @property {object|null} config.compare        compareSections(baseline, this phase), or null

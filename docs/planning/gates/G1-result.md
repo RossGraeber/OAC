@@ -204,6 +204,11 @@
   | 2026-09-28 (Box B) | Claude Code v2.1.283 (observed pre- and post-box; matches PINS.md's floating last-observed) | **INCOMPLETE** — see "Re-run attempt 1 (Box B)" below. Several pass-criteria probes were not attempted; not a verdict. | n/a — recorded as an incomplete attempt, not verdict-bearing |
   | 2026-09-28 (Box C) | Claude Code v2.1.283 (observed pre- and post-box; matches PINS.md's floating last-observed) | **PASS** — see "Pass criteria evaluated" above. Operator decision 2026-09-28: criterion 3 satisfied as worded (order preserved, nothing dropped, nothing interleaved); the delivery-at-two-boundaries pattern is recorded as an observed `2.1.283` behavior change, not a failure. **This is the current, verdict-bearing result** (all top-level fields on this page describe this run). | n/a — current verdict |
 
+  *Dated note, 2026-10-01 (#216):* by operator decision, harness versions now float and
+  warn, never gate. The 2026-09-27 invalidation in the first row is history. A later Claude
+  Code version (PINS.md last tested `v2.1.285`, minimum `v2.1.282`) does not invalidate
+  the current PASS, which stands on `v2.1.283`. The verdict is unchanged.
+
 ### Scripted re-run through herdr (K4) — pointer only, not verdict-bearing
 
 A herdr-driven re-run of this gate's Box C probes exists as test tooling (Epic K, K4

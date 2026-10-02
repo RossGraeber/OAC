@@ -89,7 +89,7 @@ fourth option:
 
 Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, with
 default `CODEX_HOME` in a non-elevated terminal). **Codex is now floating**: an auto-updater
-tracks each release, so re-verify on the version you observe (PINS.md "Floating-version policy"). `thread/queue/add` is absent from the default checked-in schema. Get its
+tracks each release; a version other than PINS.md's last tested one warns, never gates (#216, "Version policy"). `thread/queue/add` is absent from the default checked-in schema. Get its
 shape from `codex app-server generate-json-schema --experimental`; it requires `threadId`,
 `clientUserMessageId` and `input`.
 
@@ -176,8 +176,8 @@ criterion.
 
 ## Pin
 
-**Floating** (operator decision, 2026-09-26). Last observed `0.157.1`, commit `36650394`.
-Everything below was verified on 0.154.0 only (STATUS.md open item).
+**Floating**; warn on version, never gate (#216). Minimum `0.154.0`, last tested `0.159.3`
+(PINS.md "Version policy"). Everything below was verified on 0.154.0 only (STATUS.md).
 
 **Re-verified pin (B2):** `@openai/codex@0.154.0` (published 2026-09-09T22:40:10.746Z),
 cross-checked against GitHub tag `rust-v0.154.0`, commit
@@ -199,5 +199,5 @@ is reachable via the control socket. Source: `docs/planning/PINS.md` —
 `docs/planning/REVERIFICATION-B2.md` §3.2, retrieved 2026-09-16.
 
 Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
-re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. Re-verification on each
-observed version follows PINS.md "Floating-version policy" and `oac-evidence` §7.
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. Re-checking facts on a new
+version (`oac-evidence` §7) is a finding to follow up, never a gate on a run (#216).

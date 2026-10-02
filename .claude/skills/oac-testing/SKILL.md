@@ -23,7 +23,7 @@ From DESIGN "Testing" and PLANNING-PROMPT.md §9 item 10.
 | Security | Spoof, replay, unauthorized-routing mitigations (F11, H2) | Fakes (Stage 3); real transport/adapters (Stage 5, H2) | CI-default against fakes; against real providers it is opt-in, pinned |
 | Resilience | Disconnect/reconnect, daemon restart, TTL `expired`, `unreachable`, duplicate suppression across restart (H3) | In-memory transport and fakes (Stage 3-shaped); real transport in Stage 5 | CI-default against in-memory transport/fakes; opt-in where it needs the real transport |
 | Fake-harness integration | Core + adapter + transport wired together with no live provider (Stage 3 exit condition) | Fake Claude endpoint, fake Codex endpoint, in-memory or loopback-Zenoh transport | CI-default |
-| Provider integration | Real adapter behaviour against a real, pinned harness version (gates G1/G2; Stage 4) | Real Claude Code / real Codex on pinned versions, driven through herdr by default (`tools/herdr/`, Epic K; the operator only signs in; the driver accepts harness dialogs, recorded as `driver`, except a consent step a gate criterion names — #196) | Opt-in only, explicit flag, pinned versions; herdr-driven runs included, never default (§2) |
+| Provider integration | Real adapter behaviour against a real harness at a recorded version (gates G1/G2; Stage 4) | Real Claude Code / real Codex at any version (it floats; one other than PINS.md's last tested is a warning, never a stop, #216), driven through herdr by default (`tools/herdr/`, Epic K; the operator only signs in; the driver accepts harness dialogs, recorded as `driver`, except a consent step a gate criterion names — #196) | Opt-in only, explicit flag, versions recorded; herdr-driven runs included, never default (§2) |
 | End-to-end | The ADR-001 validation criterion for real: Claude -> OAC -> Zenoh -> Codex -> Zenoh -> OAC -> Claude (H1) | Real providers, real transport | Opt-in (needs live providers), but is the go/no-go test — see §5 |
 | Cross-platform CLI smoke | One-command startup, `status`/`sessions`/`doctor`, clean shutdown (H4) | The built CLI binary, no live provider required | CI-default, matrixed on Windows/macOS/Linux |
 
@@ -36,7 +36,9 @@ PLANNING-PROMPT.md §6 and §9.10, sharply:
   Zenoh peer on `127.0.0.1` is loopback and stays default; a call that would touch Claude
   Code, Codex, or any hosted API does not.
 - **Provider integration tests are isolated behind an explicit opt-in and pinned versions**
-  (F12 acceptance: "Provider integration tests exist but are opt-in and pinned"). Opt-in means
+  (F12 acceptance: "Provider integration tests exist but are opt-in and pinned"). For the harness
+  CLIs "pinned" means the version is recorded and compared with PINS.md's minimum and last
+  tested versions: a difference warns, never gates, never fails CI (#216). Opt-in means
   a separate flag/target a default `test` run never triggers, not a slower default tier.
 - Anything that needs a real harness process — Claude Code, Codex, or the end-to-end run — is
   opt-in **by construction**, because it cannot satisfy the no-live-provider default rule, not
@@ -157,7 +159,7 @@ attach without an OAC-enabled launch is not testing what H1 requires, and cannot
 A test claiming to satisfy H1 must assert every clause above individually (H1 acceptance
 mirrors this: no receiver polling, active reply received, no cross-model-API credential use
 asserted by the test itself not by inspection, identity/authorization enforced not inferred),
-and it must **run on Windows, macOS, and Linux** on the pinned provider versions (H1
+and it must **run on Windows, macOS, and Linux**, recording the provider versions (H1
 acceptance, H4). A single-platform pass is not done.
 
 ## 7. Exit criteria for a test work item
@@ -166,8 +168,8 @@ acceptance, H4). A single-platform pass is not done.
       layout (DESIGN's "Suggested repository shape" sketch, not yet fixed — see §3); no ad
       hoc test location invented ahead of that confirmation.
 - [ ] If CI-default per §1, it runs with no live provider, no API key, and no network beyond
-      loopback; if it needs a real harness, it is behind an explicit opt-in flag and pinned
-      to an exact version (§2).
+      loopback; if it needs a real harness, it is behind an explicit opt-in flag and records
+      the exact version it ran on; drift from PINS.md warns, never gates (§2, #216).
 - [ ] Any new fixture it depends on satisfies §3 — recorded from a real harness during a
       Stage 1 spike, never hand-written, no secrets, version and date carried.
 - [ ] If the test concerns an adapter claiming active inbound, it asserts the no-polling
