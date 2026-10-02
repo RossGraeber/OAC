@@ -24,7 +24,7 @@ import { parseCodexVersions, parseCodexCliVersion, parseCodexUserAgentVersion, p
 import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
-  splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
+  splitCommandLine, splitWindowsCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
   processArgv, minimizeArgv, paneArgv, argPlaceholder,
 } from '../lib/g2.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
@@ -221,6 +221,33 @@ export function g2Unit(check) {
   check('g2 argv: arguments after codex (a config override) are not plain', ov.found && !ov.plain && JSON.stringify(ov.argsAfterCodex) === '["-c","model=x"]' && ov.pid === 8);
   const win = codexLaunchProof([{ pid: 9, argv: null, commandLine: '"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\x\\AppData\\Roaming\\npm\\node_modules\\@scope\\codex\\bin\\codex.js" --remote ws://127.0.0.1:1' }]);
   check('g2 argv: a Windows command line is split and checked the same way', win.found && !win.plain && win.argsAfterCodex[0] === '--remote' && splitCommandLine('"a b" c').join('|') === 'a b|c');
+  // #243: the Microsoft C runtime argv rules ("Parsing C command-line arguments",
+  // learn.microsoft.com, ms.date 2021-12-09): every row of that page's examples table, verbatim,
+  // behind a program name.
+  const W = (s) => splitWindowsCommandLine(s);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const MS_TABLE = [
+    ['"a b c" d e', ['a b c', 'd', 'e']],
+    ['"ab\\"c" "\\\\" d', ['ab"c', '\\', 'd']],
+    ['a\\\\\\b d"e f"g h', ['a\\\\\\b', 'de fg', 'h']],
+    ['a\\\\\\"b c d', ['a\\"b', 'c', 'd']],
+    ['a\\\\\\\\"b c" d e', ['a\\\\b c', 'd', 'e']],
+    ['a"b"" c d', ['ab" c d']],
+  ];
+  const tableBad = MS_TABLE.filter(([cl, want]) => !same(W(`ARGS.EXE ${cl}`), ['ARGS.EXE', ...want]) || !same(splitCommandLine(`ARGS.EXE ${cl}`, { platform: 'win32' }), ['ARGS.EXE', ...want]));
+  check('g2 argv #243: every row of Microsoft\'s documented examples table splits to the documented argv', tableBad.length === 0, JSON.stringify(tableBad.map(([cl]) => [cl, W(`ARGS.EXE ${cl}`)])));
+  check('g2 argv #243: 2n backslashes + quote -> n backslashes and a delimiting quote; 2n+1 -> n and a literal quote; backslashes elsewhere are literal', same(W('p a\\\\"b c"'), ['p', 'a\\b c']) && same(W('p a\\\\\\"b'), ['p', 'a\\"b']) && same(W('p C:\\dir\\x \\\\server\\share'), ['p', 'C:\\dir\\x', '\\\\server\\share']) && same(W('p "C:\\dir with space\\\\"'), ['p', 'C:\\dir with space\\']) && same(W('p a\\'), ['p', 'a\\']));
+  check('g2 argv #243: "" inside a quoted string is one literal quote and the string goes on; "" alone is an empty argument; tabs delimit', same(W('p "a""b c" d'), ['p', 'a"b c', 'd']) && same(W('p "" x'), ['p', '', 'x']) && same(W('p\ta\t\tb  '), ['p', 'a', 'b']));
+  check('g2 argv #243: argv[0] has no backslash escaping (quotes toggle and are dropped)', same(W('"C:\\Program Files\\node.exe" x'), ['C:\\Program Files\\node.exe', 'x']) && same(W('"C:\\a b\\"x y'), ['C:\\a b\\x', 'y']) && same(W('C:\\bin\\p\\" z'), ['C:\\bin\\p\\ z']));
+  // The PR #242 review's real Win32_Process.CommandLine for the default G4 launch: 3 wrong tokens before #243.
+  const g4cl = '"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\x\\AppData\\Roaming\\npm\\node_modules\\@scope\\codex\\bin\\codex.js" -c "mcp_servers.g4http.url=\\"http://127.0.0.1:1/mcp\\""';
+  const g4ov = ['-c', 'mcp_servers.g4http.url="http://127.0.0.1:1/mcp"'];
+  const g4p = paneArgv([5], new Map([[5, { pid: 5, ppid: 1, argv: null, commandLine: g4cl }]]), { allow: g4ov, expectArgsAfterCodex: g4ov, platform: 'win32' });
+  check('g2 argv #243: the default G4 launch\'s Windows command line splits into the validated overrides and matchesExpected', same(W(g4cl).slice(2), g4ov) && g4p.proof.found && g4p.proof.matchesExpected === true && same(g4p.argv[0].argv, ['node.exe', 'codex.js', ...g4ov]), JSON.stringify(g4p));
+  check('g2 argv #243: a value with embedded escaped quotes and spaces stays one argument', same(W('p "features.x=a \\"b\\" c"'), ['p', 'features.x=a "b" c']));
+  const wrongEsc = paneArgv([5], new Map([[5, { pid: 5, ppid: 1, argv: null, commandLine: g4cl.replace('url=\\"', 'url="') }]]), { allow: g4ov, expectArgsAfterCodex: g4ov, platform: 'win32' });
+  check('g2 argv #243 fail-closed: a non-string or a NUL-carrying command line gives null (no proof); a differently escaped launch does not match', W(null) === null && W(42) === null && W('codex\0 -c x') === null && same(W(''), []) && splitCommandLine(null) === null && !codexLaunchProof([{ pid: 1, argv: null, commandLine: 'codex.exe\0 -c x' }], { platform: 'win32' }).found && wrongEsc.proof.found && wrongEsc.proof.matchesExpected === false, JSON.stringify(wrongEsc.proof));
+  check('g2 argv #243: the non-Windows (macOS `ps`) branch is pinned on every OS: quoted runs kept together, quotes stripped, no backslash rules', same(splitCommandLine('"a b" \'c d\' e', { platform: 'darwin' }), ['a b', 'c d', 'e']) && same(splitCommandLine('a\\"b c', { platform: 'darwin' }), ['a\\"b', 'c']));
   check('g2 argv: no codex process -> not found (never assumed plain)', !codexLaunchProof([{ pid: 1, argv: ['bash', '-l'] }, { pid: 2, argv: null, commandLine: null }]).found);
 
   // --- #232: minimized pane argv, read from one process-table snapshot ----------------------
