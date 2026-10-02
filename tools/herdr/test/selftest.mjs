@@ -52,6 +52,11 @@
 // between an agent-level read and an accept is refused.
 // Commit or revert any edit to PINS.md's herdr row before running --self-test: every
 // lifecycle run reads the herdr pin from this checkout and refuses such an edit (#139).
+//
+// #239: OAC_HERDR_SELFTEST_ONLY=<text> runs only the lifecycle cases whose name contains
+// <text> (the unit checks and the other lifecycle blocks are skipped), so one case can be
+// looped, e.g. OAC_HERDR_SELFTEST_ONLY='selection does not move'. Unset (the default),
+// everything runs. A filter that matches no case is a failure, never an empty pass.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -84,6 +89,7 @@ const FAKE_RM = join(HERE, 'fake-rm-eperm.mjs');
 const BOX_C = join(REPO, 'docs', 'planning', 'gates', 'fixtures', 'g1-claude-wake', 'transcript-2026-09-28-2.1.283-boxC.jsonl');
 const CLAUDE_TESTED = parseClaudeVersions(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')).lastTested;
 
+const ONLY = process.env.OAC_HERDR_SELFTEST_ONLY || null;
 let passed = 0;
 let failed = 0;
 function check(name, cond, detail = '') {
@@ -883,6 +889,11 @@ async function lifecycle() {
   cases.push(...g4Cases(check));
   cases.push(...g5Cases(check));
 
+  if (ONLY) {
+    const picked = cases.filter((c) => c.name.includes(ONLY));
+    check(`OAC_HERDR_SELFTEST_ONLY matches at least one lifecycle case (${JSON.stringify(ONLY)})`, picked.length > 0);
+    cases.splice(0, cases.length, ...picked);
+  }
   for (const c of cases) {
     // K8: a case may hold a resource (a busy loopback port) for the length of its run.
     const undo = c.setup ? await c.setup() : null;
@@ -903,6 +914,7 @@ async function lifecycle() {
       rmSync(b.base, { recursive: true, force: true });
     }
   }
+  if (ONLY) return;
 
   // Operator abort: SIGINT mid-wait ends NOT RUN and still tears down.
   {
@@ -973,7 +985,21 @@ async function lifecycle() {
   check('lifecycle: every run removed its scratch directory', leftover.length === 0, leftover.join(','));
 }
 
+// #239: only the lifecycle cases OAC_HERDR_SELFTEST_ONLY names (POSIX only, like the
+// lifecycle half).
+async function runOnly() {
+  if (process.platform === 'win32') {
+    console.log('OAC_HERDR_SELFTEST_ONLY: lifecycle cases need POSIX sh; nothing run on Windows');
+    return 1;
+  }
+  console.log(`herdr driver self-test (lifecycle cases matching ${JSON.stringify(ONLY)} only)`);
+  await lifecycle();
+  console.log(`\nself-test: ${passed}/${passed + failed} checks passed${failed ? `, ${failed} FAILED` : ''}.`);
+  return failed ? 1 : 0;
+}
+
 export async function runSelfTest() {
+  if (ONLY) return runOnly();
   console.log('herdr driver self-test (unit)');
   unitPins();
   unitQuoting();
