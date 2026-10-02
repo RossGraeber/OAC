@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync, statSync, accessSync, realpathSync, createReadStream, constants as fsConstants } from 'node:fs';
 import { homedir, platform, release, arch, type } from 'node:os';
-import { basename, isAbsolute, join, posix, relative, win32 } from 'node:path';
+import { basename, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runBounded } from './proc.mjs';
 
@@ -129,14 +129,10 @@ function harnessConfigDirs(env = process.env) {
   return [env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), env.CODEX_HOME || join(homedir(), '.codex')];
 }
 
+// Compared as spelled: the config directory itself is never touched, not even by realpath
+// (the self-test's fs trace holds the driver to that).
 function isUnder(file, dir) {
-  let d = dir;
-  try {
-    d = realpathSync(dir);
-  } catch {
-    /* absent: compare as spelled */
-  }
-  const rel = relative(d, file);
+  const rel = relative(resolve(dir), file);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
