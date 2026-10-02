@@ -15,7 +15,11 @@ note. `docs/planning/STATUS.md` carries a one-line pointer to this file until th
 **Provenance-proof caveat, stated once up front.** Per `docs/planning/STATUS.md`'s Gate
 verdicts table, **gate G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude all
 criteria x) (2026-09-27,
-`docs/planning/gates/G5-result.md`). This document designs the envelope-authenticity
+`docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-02, #220: G5 is now **PASS**.
+Its Codex leg was re-run under C13 §11 against C6 §5.0's amended framing and passed, with
+the operator attestation at `<attestation commit>`, and the 2026-09-27 Claude results
+stand. The `FAIL` is history. This changes nothing below: G5 still tests the rendering
+layer, not signature verification.)* This document designs the envelope-authenticity
 mechanism G5 exercises; envelope-authenticity itself (signature verification) is not what
 G5 tests or failed — G5 tests the separate rendering layer `docs/planning/decisions/
 C6-trust-rendering.md` §2-§5 and `oac-security-work` §5 own, not §9-§10 of this document
@@ -825,6 +829,11 @@ or the underlying task is not yet built (`docs/planning/STATUS.md`, Pre-Stage 0)
 row above describes a **designed** mitigation, matching the caveat stated at the top of
 this document and the identical precedent `docs/planning/decisions/
 C4-session-identity.md` §13 sets.
+
+*Dated note, 2026-10-02 (#220):* the prompt-injection row's "G5 **FAIL**" is history. G5 is
+now **PASS** after its Codex-leg re-run under C13 §11 (`docs/planning/gates/G5-result.md`).
+The row's mitigation stays doctrine, and F11 stays `NOT RUN`, so the row is unchanged in
+substance.
 
 ## 14. Rejected alternatives
 

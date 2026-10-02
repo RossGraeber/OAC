@@ -26,7 +26,8 @@ invalidating that PASS; re-run and **PASSED again** 2026-09-28 on `v2.1.283` —
 `docs/planning/gates/G1-result.md`. Dated note, 2026-10-01, #216: harness versions now
 float and warn, never gate, so a later Claude Code version no longer invalidates it), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all
-criteria x), and G3 stays
+criteria x) (dated note, 2026-10-02, #220: G5 is now **PASS** after its Codex-leg re-run
+under C13 §11 — see `docs/planning/gates/G5-result.md`), and G3 stays
 `NOT RUN` at gate level (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md`
 "Current stage," the project is still at **Pre-Stage 0** — no F/G/H test tier is built.
 This section is not re-authored per gate result; only the caveat's own currency is
@@ -317,7 +318,11 @@ operator on #220). The amendment has three parts:
 
 The description below is the pre-amendment framing. This section and §14 rows 5, 17 and 22
 are rewritten when G5's Codex-leg re-run (C13 §11) is recorded. Until then G5 stays
-`FAIL`, and the amendment is designed, not proven.
+`FAIL`, and the amendment is designed, not proven. *(Dated note, 2026-10-02, #220: the
+re-run is recorded and passed, and G5 is `PASS`. The amendment is proven at gate level
+against live Codex, through the gate's reconstructed client. In OAC's adapter it stays
+designed until the G7/F11 tests exist. The rewrite of this section and of §14 rows 5, 17
+and 22 is still to do, as a C13 §14 follow-up.)*
 
 Codex has no side-channel metadata field — provenance rides inside the one
 `{type:"text",text}` item's `text` string, in three parts: a machine-generated header
@@ -372,7 +377,11 @@ the forged id — it named neither and quoted the claim as a claim — but it di
 model unable to resolve a sender at all, a narrower related gap. Tracked as
 conflict-register entry C13 (`docs/planning/v0.1/03-decisions-and-amendments.md` §4);
 resolving it is a prerequisite for Stage 2's interface freeze on the Codex provenance
-surface (`docs/planning/v0.1/10-stages.md` §5).
+surface (`docs/planning/v0.1/10-stages.md` §5). *(Dated note, 2026-10-02, #220: **G5's
+verdict is now `PASS`**. Under C6 §5.0's amended framing, the C13 §11 re-run scored every
+required Codex trial x on criteria 2 and 3, and the Claude results stand. C13 is
+`RESOLVED-IN-DECISION`, so this prerequisite is met. The paragraph above describes the
+pre-amendment frame and is history.)*
 
 ## 11. Permission relay off by default in v0.1, with justification
 
@@ -501,7 +510,11 @@ open (`docs/planning/STATUS.md`, Pre-Stage 0; L10 waits on Stage 5). The gate re
 that do exist — gate G1 `PASS` (row 16), gate G2 `PASS` (rows 12, 17), gate G5 `FAIL`
 (rows 5, 16, 17, 21, 22) — are cited in their rows for what each actually confirmed, but
 a gate result is not a test tier and does not by itself close a row
-(`docs/planning/v0.1/09-test-strategy.md` §12).
+(`docs/planning/v0.1/09-test-strategy.md` §12). *(Dated note, 2026-10-02, #220: gate G5 is
+now `PASS`, after its Codex-leg re-run under C13 §11. The "G5 FAIL" citations in rows 5,
+16, 17, 21 and 22 are history. Folding C13 §9's replacement rows into this table is a
+separate C13 §14 follow-up. Those rows stay designed until G7/F11 exist, so no row closes
+here.)*
 **Row 23 is the exception, by design:** it names no proving test because the threat
 sits outside OAC's control (capture inside the harness session by a service OAC never
 configures); it is recorded as an explicit **open risk** under `RISK-BEACON` in
@@ -572,7 +585,7 @@ Per `oac-evidence` §8, checked against this file:
   `docs/planning/v0.1/11-risks.md`. `CLAUDE_CODE_SESSION_ID`, its caveats and the
   `SessionStart` `source` values are first-party documented (C4 §3, §16).
 - Gate verdicts (G1, G2, G4 `PASS`; G5 `FAIL`; G3 `NOT RUN` at gate level — note
-  2026-10-02, #219: G3 is now `PASS`) are cited
+  2026-10-02, #219: G3 is now `PASS`; note 2026-10-02, #220: G5 is now `PASS`) are cited
   from `docs/planning/STATUS.md`, not restated from memory, at every point where a
   claim's proof status matters (opening caveat, §10, §14, §15).
 

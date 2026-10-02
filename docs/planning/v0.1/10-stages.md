@@ -40,7 +40,8 @@ verdict was `NOT RUN` and the project was at Pre-Stage 0. Per the current
 `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code (Channels)
 pin went floating 2026-09-27, last observed `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
-criteria 2/3 f; Claude all criteria x), and G3 stays `NOT RUN` at gate level
+criteria 2/3 f; Claude all criteria x) (dated note, 2026-10-02, #220: G5 is now **PASS**
+after its Codex-leg re-run under C13 §11 — see `docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level
 (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md` "Current stage," the
 project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
 exited. This file is not re-authored per gate result; only this caveat's own currency is
@@ -251,7 +252,9 @@ against the evidence as it stands on that date. Each criterion:
    #228.** C1-C4 and C6-C10 are resolved (`RESOLVED-HERE`, `RESOLVED-BY-DECISION`,
    `RESOLVED-BY-EVIDENCE` or `RESOLVED-IN-DECISION`; `docs/planning/ADR-001-AMENDMENTS.md`
    conflict register). C12 is `RESOLVED-HERE`: #228 applied ADR-001-A1 to
-   `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open. C11 is
+   `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open (dated note,
+   2026-10-02, #220: C13 is now `RESOLVED-IN-DECISION`, after G5's Codex-leg re-run
+   passed). C11 is
    `ASSIGNED`; its module name is owned by the Epic F/G adapter implementation (#6, #7,
    both open; `docs/planning/decisions/C4-session-identity.md` §16). C5 is `ASSIGNED`.
    The tasks it named before (D4, C2, C3) are closed, so #228 names live owners, with a
@@ -376,7 +379,11 @@ primary multicast path, so the fallback above was not needed and no gate leg sti
 Stage 1 from exiting. See `docs/planning/gates/G3-result.md`.) (Note 2026-10-02, #228: Gate
 S0 is now declared met (§4), so Stage 1 is recorded as entered and is the current stage.
 Its exit is D7, #40. Every gate leg has a closed verdict; G5's Codex-leg re-run under C13
-(#220) is pending.)
+(#220) is pending.) (Note 2026-10-02, #220: the re-run under C13 §11 passed, route E1,
+attested at `<attestation commit>`. **G5 is now PASS**, so every gate G1-G5 reads `PASS`.
+C13 is `RESOLVED-IN-DECISION`, so the go/no-go condition above no longer stops the pipeline
+at Stage 2's interface freeze for Codex provenance. Stage 2 still waits on Stage 1's exit,
+D7. See `docs/planning/gates/G5-result.md`.)
 
 ---
 
