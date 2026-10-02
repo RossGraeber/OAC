@@ -122,6 +122,10 @@ description: Trigger-rich one-or-two-line summary naming what it holds and when 
 - Tables for routing/matrix data, numbered lists for procedures, `- [ ]` for
   checklists. Plain prose, decisions not options, no emoji, no "this document
   describes...".
+- **Every** edit under `.claude/skills/` or to `CLAUDE.md`: run
+  `node scripts/sync-agents-skills.mjs` to regenerate the Codex copy
+  (`.agents/skills/`, `AGENTS.md`) and commit it. Never hand-edit the copy;
+  CI runs `--check` and fails on drift.
 
 ## 7. Surface skills: the pin section
 
@@ -188,3 +192,5 @@ Stage 0 closes:
 - Acceptance criteria for this skill and its siblings:
   `docs/planning/backlog/05-tasks-GHIJ.json` (Epic J, tasks J1-J4)
 - Budget checker: `scripts/check-skills.mjs`
+- Codex copy generator and drift check: `scripts/sync-agents-skills.mjs`
+  (`docs/planning/SKILLS-MODEL.md` "Codex copy")

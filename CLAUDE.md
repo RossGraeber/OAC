@@ -21,7 +21,11 @@ Full detail, drift examples, and the grep/lint checks: skill `oac-boundaries`.
 A work item's own **Skills:** line is authoritative. Missing one, or working outside the
 backlog? Load skill `oac` — it holds the project map and the label -> skill routing table.
 
-When a local skill under `.claude/skills/` covers the topic at hand, load and follow it
+When a local skill under `.claude/skills/` (Codex: the identical generated copy in
+`.agents/skills/`) covers the topic at hand, load and follow it
 in preference to other internal documentation (docs/, ADRs, backlog notes, prior
 conversation memory, etc.). Skills are the maintained, authoritative source for how to do
 the work; other documentation may be stale or provide only background context.
+
+Edited `.claude/skills/` or `CLAUDE.md`? Run `node scripts/sync-agents-skills.mjs`
+(`.agents/skills/` and `AGENTS.md` are generated; never edit them).

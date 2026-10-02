@@ -7,7 +7,7 @@ Loaded for `area:security` work items (PLANNING-PROMPT.md §7; DESIGN "Security"
 "Security model"). This skill holds the threat-modeling procedure and the doctrine that
 governs it. It does not restate `oac-boundaries` (ADR-001 MUST NOTs), `oac-evidence`
 (sourcing standard), `oac-testing` (test tiers), or the surface skills' protocol detail
-(`oac-Codex-channels`, `oac-codex-appserver`, `oac-zenoh`) — load those separately when the
+(`oac-claude-channels`, `oac-codex-appserver`, `oac-zenoh`) — load those separately when the
 task needs them; link here instead of copying.
 
 ## 1. Threat table template
@@ -53,8 +53,8 @@ names that must appear unparaphrased):
       is the known conflict (Appendix A C4), not the rule: task C5 resolves it as "Signature
       is normative, not 'implementation-defined' (resolves C4)." Write and treat the
       envelope signature as normative.
-- [ ] "Anyone able to reply on a Codex channel can approve tool use if permission relay is
-      enabled." — this is the `Codex/channel/permission` capability named in
+- [ ] "Anyone able to reply on a Claude channel can approve tool use if permission relay is
+      enabled." — this is the `claude/channel/permission` capability named in
       PLANNING-PROMPT.md §3.1; see §5 below for its default.
 - [ ] "Codex `turn/steer` writes into an in-flight turn; unauthorized steer is a
       code-execution risk." — `turn/steer` is the exact method name (PLANNING-PROMPT.md
@@ -62,7 +62,7 @@ names that must appear unparaphrased):
       (see task G7, `docs/planning/backlog/05-tasks-GHIJ.json`: "`turn/steer` is either
       unused or gated behind an explicit authorization check").
 - [ ] "The `--dangerously-load-development-channels` confirmation is the only user consent
-      step on the Codex side until OAC is on an allowlist; the plan must not weaken it." —
+      step on the Claude side until OAC is on an allowlist; the plan must not weaken it." —
       quote the flag verbatim; never propose automating past, suppressing, or pre-answering
       that interactive confirmation.
 - [ ] "Model-generated text never establishes identity; provenance is machine-set metadata
@@ -133,35 +133,35 @@ machine-enforced and distinct from message content."
 
 Per-provider requirement, at the level PLANNING-PROMPT.md §5 decision 8 sets it (do not
 restate the protocol mechanics — that detail lives in the named surface skill):
-- **Codex:** sender, device, session, message id, and reply target arrive as `meta`
+- **Claude:** sender, device, session, message id, and reply target arrive as `meta`
   attributes the harness attaches to the `<channel>` tag — never inside the message text
   the model reads as content. Security consequence to hold here (mechanics deferred to
-  `oac-Codex-channels`): a non-identifier-safe `meta` key is **silently dropped**, so no
+  `oac-claude-channels`): a non-identifier-safe `meta` key is **silently dropped**, so no
   security-relevant provenance attribute may depend on a key that isn't identifier-safe.
 - **Codex:** inbound text-input framing carries a machine-generated header, with the
   untrusted message body kept in a clearly delimited section separate from that header.
   Protocol detail (turn/thread mapping, framing mechanics): `oac-codex-appserver`.
 
-**Permission relay is off by default in v0.1.** Appendix A C10: "Codex permission relay
+**Permission relay is off by default in v0.1.** Appendix A C10: "Claude permission relay
 lets any allowlisted sender approve tools" → "Off by default in v0.1." Task G4's acceptance
 reads "Permission relay is off by default"; task H2's reads "Permission relay is confirmed
 off, and the consequence of enabling it is documented" — build to G4's wording, verify to
 H2's. Any work item that turns it on needs its own decision, not a silent flip.
 
 **Delivery-receipt honesty (§5 decision 5):** receipts distinguish "accepted by adapter,"
-"handed to harness," and "unknown" — never overstate them. A resolved Codex notification
+"handed to harness," and "unknown" — never overstate them. A resolved Claude notification
 send is "handed to harness," never "seen by the model" (task G4 acceptance).
 
 ## 6. Relationship to Gate G5
 
-Provenance is a claim until G5 has run. G5's pass criterion (PLANNING-PROMPT.md §4): "A
-message whose text claims a different sender is rendered to the model with machine-set
-provenance that contradicts the claim, on both providers." Per `docs/planning/STATUS.md`,
-**G5 verdict is `NOT RUN`** as of this writing. Do not write or accept a security work item
-that asserts provenance is "proven" or "working" before G5 has a recorded PASS — cite the
-current verdict from STATUS.md rather than assuming it. If your work item depends on G5
-having passed, check STATUS.md first; if it still reads NOT RUN, that dependency is blocked
-(see `oac-gates` for gate procedure).
+Provenance is a claim until G5 has run per provider. G5's pass criterion
+(PLANNING-PROMPT.md §4): "A message whose text claims a different sender is rendered to
+the model with machine-set provenance that contradicts the claim, on both providers."
+Check `docs/planning/STATUS.md`'s Gate verdicts table for G5's **current** per-provider
+result before writing or accepting any claim about provenance being proven — do not
+assume "proven" or "NOT RUN" from memory. Even where G5 has passed for a provider, it
+confirmed only the throwaway spike's hand-rolled server, not OAC's own not-yet-built
+adapter — don't cite a G5 pass as proof of OAC's own implementation.
 
 ## 7. Exit criteria for a security work item
 
@@ -198,5 +198,5 @@ having passed, check STATUS.md first; if it still reads NOT RUN, that dependency
   `04-tasks-EF.json` E5/F3/F4/F5/F11, `05-tasks-GHIJ.json` G3/G7/G9/H2/H5 — the concrete
   work items this skill governs.
 - `docs/planning/STATUS.md` — current G5 verdict and pins.
-- `oac-boundaries`, `oac-evidence`, `oac-testing`, `oac-gates`, `oac-Codex-channels`,
+- `oac-boundaries`, `oac-evidence`, `oac-testing`, `oac-gates`, `oac-claude-channels`,
   `oac-codex-appserver`, `oac-zenoh` — link, do not restate.

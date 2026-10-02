@@ -16,9 +16,9 @@ restate this content elsewhere; other skills link to it by name.
 - The current revision (`2026-07-28`) is **stateless**: there is no `initialize` handshake,
   and servers cannot initiate requests or push unsolicited content into the model's context.
   Do not assume a server can proactively send anything into a session on this revision.
-- A server that negotiates `2026-07-28` cannot deliver Codex channel messages and is not
-  registered as a channel (cross-reference `oac-Codex-channels` and PLANNING-PROMPT.md
-  §3.1). The Codex path must negotiate a legacy revision; gate G4 tests whether one process
+- A server that negotiates `2026-07-28` cannot deliver Claude channel messages and is not
+  registered as a channel (cross-reference `oac-claude-channels` and PLANNING-PROMPT.md
+  §3.1). The Claude path must negotiate a legacy revision; gate G4 tests whether one process
   can still serve the `2026-07-28` tool path as well.
 - There is no spec rule for namespacing custom method names. Only `_meta` keys and extension
   identifiers carry prefix rules. Do not invent a namespacing convention for method names and
@@ -64,8 +64,8 @@ first (see `docs/planning/v0.1/03-decisions-and-amendments.md` once it exists, o
   `io.github.<owner>/oac`).
 - Negotiated through the `extensions` map in capabilities.
 - Breaking changes require a new identifier.
-- `experimental` capabilities still exist separately and are what Codex Channels use
-  (`capabilities.experimental["Codex/channel"]` — see `oac-Codex-channels`, not restated
+- `experimental` capabilities still exist separately and are what Claude Channels use
+  (`capabilities.experimental["claude/channel"]` — see `oac-claude-channels`, not restated
   here).
 - No spec rule for namespacing custom method names; only `_meta` keys and extension
   identifiers have prefix rules.
@@ -73,18 +73,18 @@ first (see `docs/planning/v0.1/03-decisions-and-amendments.md` once it exists, o
 
 ## The dual-era constraint gate G4 tests
 
-Gate G4 (MCP dual-era server): one OAC MCP server process must serve Codex's legacy-revision
+Gate G4 (MCP dual-era server): one OAC MCP server process must serve Claude's legacy-revision
 channel path and a `2026-07-28` tool path (for Codex via `codex mcp add`) without breaking
 either.
 
-- A Codex channel server negotiating `2026-07-28` cannot deliver channel messages and is not
-  registered as a channel (PLANNING-PROMPT.md §3.1). The Codex path must negotiate a legacy
+- A Claude channel server negotiating `2026-07-28` cannot deliver channel messages and is not
+  registered as a channel (PLANNING-PROMPT.md §3.1). The Claude path must negotiate a legacy
   revision (`2025-11-25` or earlier), optionally forced with `MCP_PROTOCOL_NEGOTIATION=legacy`
   for stdio servers.
 - The Codex tool path (via `codex mcp add`) may negotiate the current revision.
 - Pass/fail/fallback for G4: one process serves both eras, or — fallback — two entry points
   share one core (PLANNING-PROMPT.md §4, Appendix A conflict C5).
-- G4 cross-references PLANNING-PROMPT.md §3.1 (Codex's MCP version constraint) and §5
+- G4 cross-references PLANNING-PROMPT.md §3.1 (Claude's MCP version constraint) and §5
   decisions 2 and 3.
 
 ## Agent-to-agent messaging: nothing to wait for
@@ -129,7 +129,7 @@ one is in progress.
 
 ## Where the content lives
 
-- Full baseline text: `docs/planning/PLANNING-PROMPT.md` §3.3 (MCP), §3.1 (Codex MCP version
+- Full baseline text: `docs/planning/PLANNING-PROMPT.md` §3.3 (MCP), §3.1 (Claude MCP version
   constraint), §4 (gate G4), §5 decision 3 (spec packaging), Appendix A conflicts C3 and C5,
   Appendix B (MCP URLs).
 - ADR conflict: `docs/planning/ADR-001.md` Decision section ("MCP Session Channels
