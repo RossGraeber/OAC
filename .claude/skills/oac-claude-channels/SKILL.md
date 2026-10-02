@@ -132,8 +132,9 @@ the two when building or reviewing the adapter. Source: PLANNING-PROMPT.md
 ## 9. Stability
 
 Research preview. The changelog shows `--channels` was added in `2.1.80`. §3.1's
-"v2.1.232+" is unsupported (drift D6); the working floor is PINS.md's minimum
-version. The flag syntax and protocol may change. The `--channels` flags do not
+"v2.1.232+" is unsupported as a channels floor (drift D6). `2.1.232` is instead
+where `mcp.md` starts the v2 MCP runtime, the one §4's constraint guards against, for
+sessions that fetch feature flags. The working floor is PINS.md's minimum version. The flag syntax and protocol may change. The `--channels` flags do not
 appear in `claude --help` (observed on `2.1.285`). Label this
 surface **research preview** per `oac-evidence` §4 whenever you mention it.
 

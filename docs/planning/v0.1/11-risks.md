@@ -343,11 +343,14 @@ list.
   the operative floor"; the Claude Code (Channels) row went floating 2026-09-27, so
   there is no fixed pin to hold that role.)
 - (Dated note, 2026-10-02, #122: **resolved as drift.** The first-party changelog
-  places "Added `--channels` (research preview)" at `2.1.80`, and `2.1.232` appears in
-  no first-party source checked (`anthropics/claude-code` `CHANGELOG.md` @
+  places "Added `--channels` (research preview)" at `2.1.80`, so `2.1.232` is not a
+  channels version (`anthropics/claude-code` `CHANGELOG.md` @
   `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02;
-  `docs/planning/REVERIFICATION-B2.md` Drift register D6). The `>= v2.1.232` floor text
-  is unsupported. The operative floor stays the minimum version `v2.1.282`, so nothing
+  `docs/planning/REVERIFICATION-B2.md` Drift register D6). The `>= v2.1.232` channels
+  floor text is unsupported. `2.1.232` is where https://code.claude.com/docs/en/mcp.md
+  L324 (retrieved 2026-10-02) starts the v2 MCP client runtime for sessions that fetch
+  feature flags: "uses the v2 runtime on Claude Code v2.1.232 or later". That runtime
+  adds `2026-07-28`, and the channel-negotiation constraint applies to it. The operative floor stays the minimum version `v2.1.282`, so nothing
   this entry protects changes. Ledger row 13 is closed.)
 
 ### RISK-MCP-EXPERIMENTAL — `experimental` capability existence at `2026-07-28`
@@ -747,7 +750,7 @@ time.)
 | 10 | Zenoh crate version/date read from GitHub, not crates.io | RISK-ZENOH-SOURCE |
 | 11 | `codex mcp-server` deprecation/deletion dates | RISK-CODEX-MCP-DATES |
 | 12 | No SEP for agent-to-agent messaging | RISK-SEP |
-| 13 | "Research preview on Claude Code v2.1.232+" floor | **CLOSED as drift** (2026-10-02, #122). The first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, and no first-party source checked states `2.1.232`. The operative floor is the minimum `v2.1.282` (#216). See `docs/planning/REVERIFICATION-B2.md` Drift register D6; RISK-FLOOR keeps its history |
+| 13 | "Research preview on Claude Code v2.1.232+" floor | **CLOSED as drift** (2026-10-02, #122). The first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, so `2.1.232` is not a channels version. It is instead where `mcp.md` L324 starts the v2 MCP client runtime, the runtime the channel-negotiation constraint applies to, for sessions that fetch feature flags. The operative floor is the minimum `v2.1.282` (#216). See `docs/planning/REVERIFICATION-B2.md` Drift register D6; RISK-FLOOR keeps its history |
 | 14 | MCP `experimental` capabilities at current era `2026-07-28` | RISK-MCP-EXPERIMENTAL |
 | 15 | Zenoh default TLS stack `rustls` | RISK-ZENOH-AUTH |
 | 16 | `rmcp`-based server registering as a legacy-era live channel | RISK-G4 |

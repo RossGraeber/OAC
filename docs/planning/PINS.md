@@ -266,9 +266,14 @@ The B1 record below describes the original `v2.1.274` pin and is kept as history
   *Dated note, 2026-10-02 (#122): closed as drift (D6).* The first-party changelog
   places "Added `--channels` (research preview) — allow MCP servers to push messages
   into your session" at `2.1.80` (`anthropics/claude-code` `CHANGELOG.md` @
-  `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02). No first-party
-  source checked states `2.1.232`, so this floor is unsupported. The operative floor is
-  the minimum version `v2.1.282` ("Version policy" above).
+  `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02). `2.1.232` is not a
+  channels version, so this floor is unsupported. The version does appear first-party,
+  for something else: https://code.claude.com/docs/en/mcp.md L324 (retrieved
+  2026-10-02) says that in sessions that fetch feature flags, Claude Code "uses the v2
+  runtime on Claude Code v2.1.232 or later". That is the v2 MCP client runtime, which
+  adds revision `2026-07-28` (L322) and to which the channel-negotiation constraint
+  (L398, "Constraint floors" below) applies. The operative floor is the minimum version
+  `v2.1.282` ("Version policy" above).
 - Floor 2 — permission relay (`claude/channel/permission`): Claude Code `>= v2.1.234`.
   Source: https://code.claude.com/docs/en/channels-reference.md — "Before v2.1.234,
   Claude Code treated `false` as declared" and "Claude Code v2.1.234 and later sends
@@ -800,9 +805,12 @@ gates.
   Code v2.1.232+"). Consequence of violating: `--channels` and
   `--dangerously-load-development-channels` do not exist below this version; the
   Claude adapter cannot be built at all. *(Dated note, 2026-10-02, #122: drift D6. The
-  first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, and
-  `2.1.232` is not stated by any first-party source checked, including `channels.md`.
-  The quotation above is PLANNING-PROMPT.md §3.1's wording, not the page's. This floor
+  first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, so
+  `2.1.232` is not a channels version. The quotation above is PLANNING-PROMPT.md §3.1's
+  wording, not `channels.md`'s. `mcp.md` L324 does name `2.1.232`, as the version from
+  which sessions that fetch feature flags use the v2 MCP client runtime ("uses the v2
+  runtime on Claude Code v2.1.232 or later"). That runtime adds `2026-07-28` and is the
+  one the `2025-11-25` floor below guards against (retrieved 2026-10-02). This floor
   binds nothing: the minimum `v2.1.282` is above both.)*
 - **Claude Code `>= v2.1.234`** — permission relay. Reason: `claude/channel/permission`
   capability semantics changed in this release (Source:

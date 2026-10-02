@@ -17,16 +17,19 @@ after that are version warnings only (#216). In this change:
   - **D5**: a documented `CLAUDE_CODE_SESSION_ID` environment variable reaches stdio MCP
     server subprocesses. This conflicts with C4 §3's "only supported surface" wording;
     see "Open conflicts" below.
-  - **D6**: the changelog dates `--channels` to `2.1.80`, so the `>= v2.1.232` floor is
-    unsupported.
+  - **D6**: the changelog dates `--channels` to `2.1.80`, so the `>= v2.1.232` channels
+    floor is unsupported. `2.1.232` is instead where `mcp.md` L324 starts the v2 MCP
+    client runtime for sessions that fetch feature flags.
   - Still UNVERIFIED: resume, one-server-many-channels, mid-turn batching.
 - **Ledger.** Two items are closed and removed from "Open UNVERIFIED items": the
   `v2.1.232` floor (closed as drift D6) and the "§3.1 not re-verified since `v2.1.274`"
   item. The resume and multi-channel items are re-dated to `2.1.285`. See "Closed by the
   §3.1 re-check" below that list. `11-risks.md` rows 13 and 30 are marked CLOSED, and
   RISK-FLOOR gets a dated note.
-- **Skills.** `oac-claude-channels` (§6, §8, §9, `## Pin`), `oac-release` and
-  `oac-evidence`'s citation example now carry the re-checked facts.
+- **Skills.** `oac-claude-channels` (§6, §8, §9, §10, `## Pin`, and its
+  `references/distribution-and-security.md`), the `oac-gates` G1 reference
+  (`references/G1-claude-wake.md`), `oac-release` and `oac-evidence`'s citation example
+  now carry the re-checked facts.
 - **Stale G2 text (#122 item 1).** `08-cli-and-deployment.md`'s caveat, its §10 heading
   and the §10 daemon-attach bullet no longer call the Codex path unproven. G2 PASSED
   (Windows, `0.157.1`).
@@ -1645,9 +1648,13 @@ this list; citations in REVERIFICATION-B2.md "§3.1 re-check at Claude Code `2.1
   18 hold, three drifted (D4-D6) and two stay UNVERIFIED (both still listed above). Newer
   versions are version warnings only (#216).
 - **"Research preview on Claude Code v2.1.232+" floor.** Closed as **drift D6**. The
-  first-party changelog places "Added `--channels` (research preview)" at `2.1.80`, and
-  no first-party source checked states `2.1.232` (`anthropics/claude-code`
-  `CHANGELOG.md` @ `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02).
+  first-party changelog places "Added `--channels` (research preview)" at `2.1.80`, so
+  `2.1.232` is not a channels version (`anthropics/claude-code` `CHANGELOG.md` @
+  `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02). `2.1.232` is the
+  version from which sessions that fetch feature flags use the v2 MCP client runtime.
+  That runtime adds `2026-07-28` and is the one the channel-negotiation constraint
+  applies to: "uses the v2 runtime on Claude Code v2.1.232 or later"
+  (https://code.claude.com/docs/en/mcp.md L324, retrieved 2026-10-02).
   The operative floor is the minimum version `v2.1.282` (#216). The research-preview
   label itself holds (`channels.md`, retrieved 2026-10-02).
 - **Correction to "Closed in B2" below, not a re-opening.** The literal fact "no

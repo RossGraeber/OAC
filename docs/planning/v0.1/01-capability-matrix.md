@@ -213,8 +213,10 @@ items" list):**
 - "Research preview on Claude Code `v2.1.232+`" floor (UNVERIFIED — not confirmable on
   `channels.md` at `v2.1.274`; see `docs/planning/REVERIFICATION-B2.md` §3.1 box 7 and
   `docs/planning/PINS.md` floor 1). *Dated note, 2026-10-02 (#122): closed as drift D6.*
-  The first-party changelog dates `--channels` to `2.1.80`, and no first-party source
-  checked states `2.1.232`.
+  The first-party changelog dates `--channels` to `2.1.80`, so `2.1.232` is not a
+  channels version. It is where https://code.claude.com/docs/en/mcp.md L324 (retrieved
+  2026-10-02) starts the v2 MCP client runtime for sessions that fetch feature flags.
+  That runtime adds `2026-07-28`, and the channel-negotiation constraint applies to it.
 - *Dated note, 2026-10-02 (#122):* the two items above were re-checked at Claude Code
   `2.1.285`. The docs are still silent on both, so both stay open
   (`docs/planning/REVERIFICATION-B2.md` "§3.1 re-check at Claude Code `2.1.285`", rows
