@@ -490,8 +490,11 @@ An operator never ticks a line that calls a driver accept their own.
   - its arm 0 (the old C6 §5 frame) reproduces the 2026-09-27 FAIL, as C13 §11 defines it.
     Otherwise the run is inconclusive and carries no verdict;
   - its `tools/herdr/` diff (excluding `tools/herdr/test/`) from commit
-    `2776e7a89bc3d7f5d7c39bea791a1919dd17119a` (the #217 merge on `main`; `tools/herdr/`
-    is unchanged from there to `main` as of 2026-10-02) is limited to:
+    `2776e7a89bc3d7f5d7c39bea791a1919dd17119a` (the #217 merge on `main`) is limited to
+    the list below. *Corrected 2026-10-02:* `tools/herdr/` on `main` has changed since
+    2776e7a8 (#222, #226, #227), so the run is driven from the PR #231 branch,
+    `herdr/220-c13-g5-codex-framing`, which is based on `74e3e64` (PR #223's head; its
+    `tools/herdr/` equals 2776e7a8's) and never merges `main`. The list:
     - the approved framing in `gate-servers/g5-codex.mjs`;
     - the new cases in `gate-servers/g5-cases.json`;
     - the scoring in `lib/g5-report.mjs`;
@@ -520,6 +523,21 @@ An operator never ticks a line that calls a driver accept their own.
   not change the rule for any other gate. `Driver:` cites this bullet. The rationale is
   consistency with the standing herdr-first decisions (#187, #196, #216); the record is
   C13 §0/§11.
+
+  **Operator rulings, 2026-10-02 (#220, from the PR #231 review).** These bind the run:
+  1. *Scope.* Arm and case selection includes three things, in arms mode only
+     (`--param arms`): a fresh Codex TUI per arm, handling a refused delivery, and no
+     operator question for a mechanically scored case. The K8 path (no `arms`) stays as it
+     was.
+  2. *Scoring.* The agent scores Codex criteria 2 and 3 for each reply from the captures.
+     For this run that replaces "Evidence"'s operator-scored reading. The operator attests
+     the run, and the record states the basis as agent-scored.
+  3. *Claude leg.* The run skips the Claude leg (`claudeCases=none`). The 2026-09-27
+     Claude results stand. A separate, non-verdict K8 run re-checks Claude for regression.
+  4. *Non-consuming runs.* A run that a tooling problem leaves unscorable does not consume
+     the exception. Examples: a refusal case never attempted, a delivery in the wrong
+     thread, or a dirty `tools/herdr/`. Such a run is `NOT EVALUABLE` in the report. Only
+     a real `PASS` or `FAIL` with arm 0 reproduced consumes it.
 
 ## Checklist: recording a scripted run
 
