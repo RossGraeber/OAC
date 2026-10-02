@@ -117,6 +117,18 @@ reads Claude's session files, rollout state, or any other on-disk artifact to le
 with `[ADR-001 Boundary]` "MUST NOT depend on UI/terminal scraping or undocumented
 private RPCs for supported integrations."
 
+*Dated note, 2026-10-02 (#122): open conflict, not resolved here.* The §3.1 re-check at
+Claude Code `2.1.285` found a documented `CLAUDE_CODE_SESSION_ID` environment variable.
+It is "Set automatically to the current session ID in Bash and PowerShell tool
+subprocesses, hook command subprocesses, and stdio MCP server subprocesses". An MCP
+server "retains the ID it was spawned with". On `--continue`, or `--resume` without an
+ID, "it may receive the initial startup ID instead"
+(https://code.claude.com/docs/en/env-vars.md, retrieved 2026-10-02;
+`docs/planning/REVERIFICATION-B2.md` drift D5). So "the only supported surface" above
+no longer holds. The hook path this section decides on is still documented and still
+stands. Whether `oac mcp-shim` should also read the variable is open in
+`docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)", for a C4 revision.
+
 **Which specific `oac` entry point receives the hook payload (a dedicated `oac hook`
 subcommand versus routing it through the already-running `oac mcp-shim` for that
 session) is a Stage 3/4 implementation detail** (`oac-implementation`, Epic F/G adapter

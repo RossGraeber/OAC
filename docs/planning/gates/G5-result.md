@@ -397,7 +397,7 @@
     `01a0e179-aac7-7992-a5c8-d8fdb4fb1ccd`.
   - **Redaction.** All three files were produced by the spike's own `redact.mjs`
     (quarantined, not committed) before being copied here; re-scanned independently
-    during this write-up with `grep -i` for `rossg`, `RossG`, `DESKTOP-N8MHSJ4`,
+    during this write-up with `grep -i` for `rossg`, `RossG`, the operator's hostname,
     `@gmail`, `sk-`, `Bearer `, `systemPrompt`, `prompt_snapshot` (the public extension
     identifier `io.github.rossgraeber/oac-session-channels` masked first, then
     restored) — zero residual hits in all three files.

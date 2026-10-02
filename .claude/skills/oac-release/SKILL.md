@@ -98,7 +98,7 @@ completeness claim:
 
 | Surface | Label | Baseline (not yet pinned) | Gates to re-run on provider move |
 |---|---|---|---|
-| Claude Code Channels | research preview | Claude Code v2.1.232+; permission relay v2.1.234+ (now floating; see PINS.md) | G1, G4, G5 |
+| Claude Code Channels | research preview | floating, minimum v2.1.282 (PINS.md); permission relay v2.1.234+; §3.1 re-checked at v2.1.285 (2026-10-02) | G1, G4, G5 |
 | Codex App Server (per-method gating; live-session inject specifically) | experimental | `@openai/codex` 0.154.0 (now floating; see PINS.md) | G2, G5, G4 |
 
 `STATUS.md` "Pins" opens with "None of these are confirmed pins. They are the pre-verified

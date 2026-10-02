@@ -294,7 +294,9 @@ which are likeliest to force a re-run.
   (2026-09-27), mirroring the Codex row. Since #216 (2026-10-01) it records minimum
   `v2.1.282` and last tested `v2.1.285` (`docs/planning/PINS.md`, Claude Code Channels,
   "Version policy"). Channels floor `v2.1.232` and permission-relay floor `v2.1.234` hold
-  at both. Relied on by **G1**, **G4** (legacy-MCP negotiation) and **G5**. Claude Code
+  at both. (Dated note, 2026-10-02, #122: the `v2.1.232` floor is unsupported. The
+  changelog dates `--channels` to `2.1.80`; drift D6, `docs/planning/REVERIFICATION-B2.md`.
+  Both versions are still above `2.1.80`.) Relied on by **G1**, **G4** (legacy-MCP negotiation) and **G5**. Claude Code
   ships releases at high cadence and the channel surface is preview, so expect frequent
   version warnings here. A version change no longer invalidates a verdict (§a).
 - **Codex CLI / app-server — `experimental` (per-method gating)** is **floating** by

@@ -28,9 +28,12 @@ again** 2026-09-28 on `v2.1.283` — see `docs/planning/gates/G1-result.md`), **
 G2 (Codex live inject) is `PASS`** (`0.157.1`, re-run 2026-09-26, Windows only). Every
 launch command in this file — §7's Claude Code command, §9's Codex command, §10's
 daemon-attach target — is a **documented target**, a command verified against
-first-party syntax, not a proven wake path. Stated once here, in the style of
-`docs/planning/v0.1/04-architecture.md` lines 14-23, rather than repeated at each
-command.
+first-party syntax. The wake and inject paths behind them are proven by G1 and G2 (G2 on
+Windows only; macOS and Linux unexercised), but the `oac` side of each command does not
+exist yet, so no command here has run end to end as written. Stated once here, in the
+style of `docs/planning/v0.1/04-architecture.md` lines 14-23, rather than repeated at
+each command. (Dated note, 2026-10-02, #122: this paragraph previously ended "not a
+proven wake path", written before G2 passed.)
 
 ---
 
@@ -151,7 +154,10 @@ Expanded from the doctor row in §5, per `docs/planning/decisions/C2-process-mod
    `v2.1.274`; see `docs/planning/STATUS.md` "Open UNVERIFIED items" and
    `docs/planning/PINS.md`) — **plus** `MCP_PROTOCOL_NEGOTIATION` set correctly
    (`legacy`, or unset), per `docs/planning/PINS.md` "Constraint floors" and the Claude
-   Code Channels pin record.
+   Code Channels pin record. (Dated note, 2026-10-02, #122: the `>= v2.1.232` item is
+   closed as drift, because the changelog dates `--channels` to `2.1.80`. The operative
+   floor in `docs/planning/PINS.md` is now the minimum version, `v2.1.282` (#216). See
+   `docs/planning/REVERIFICATION-B2.md` Drift register D6.)
 5. **Codex daemon reachability** — whether the Codex app-server's control socket
    (`CODEX_HOME/app-server-control/app-server-control.sock`, §10 below) is reachable.
 
@@ -243,9 +249,10 @@ This is the **supported outbound tool-registration** path
 
 ---
 
-## 10. G2 target statement — pending, not proven
+## 10. G2 target statement — proven on Windows
 
-Separate from §9's command, per the task breakdown.
+Separate from §9's command, per the task breakdown. (Dated note, 2026-10-02, #122: this
+heading previously read "pending, not proven", written before G2 passed.)
 
 The live-inject path — daemon-attach, `codex app-server daemon start`, control socket
 `CODEX_HOME/app-server-control/app-server-control.sock` — is confirmed working per gate
@@ -258,13 +265,14 @@ runtime behaviour, consumed by the daemon's own Codex app-server client
 G2's recorded fallback, per `docs/planning/STATUS.md`'s Gate verdicts table: "OAC-owned
 app-server with `codex --remote`."
 
-**Open UNVERIFIED items carried, not re-derived** (`docs/planning/decisions/
-C2-process-model.md` §2 leg 4, §10):
+**Items carried from** `docs/planning/decisions/C2-process-model.md` §2 leg 4, §10:
 
-- Whether implicit Codex daemon attach is enabled by default at runtime in the pinned
-  release `0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) — the code path
-  is source-confirmed present at this commit; runtime behaviour is G2's own go/no-go
-  question.
+- Whether implicit Codex daemon attach is enabled by default at runtime — **closed on
+  Windows by G2**, at `0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`) and
+  again at `0.157.1` (re-run 2026-09-26, `docs/planning/gates/G2-result.md`); still open
+  on macOS and Linux (`docs/planning/v0.1/11-risks.md` row 3). (Dated note, 2026-10-02,
+  #122: this bullet previously called the runtime behaviour "G2's own go/no-go
+  question", written before G2 passed.)
 - A 2026-09-17 re-fetch of `https://learn.chatgpt.com/docs/app-server` did not surface
   the `codex app-server daemon start` command or the `app-server-control.sock` control-
   socket path in the page content returned — recorded as a possible documentation-drift
