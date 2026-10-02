@@ -14,6 +14,7 @@
 // about herdr or Codex: a live G2 run through herdr is UNVERIFIED until it runs live.
 
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
@@ -24,7 +25,9 @@ import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
   splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
+  processArgv, minimizeArgv, paneArgv, argPlaceholder,
 } from '../lib/g2.mjs';
+import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
 import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport } from '../lib/g2-report.mjs';
 import { cloneWithPins } from './g1-tests.mjs';
@@ -32,6 +35,8 @@ import { cloneWithPins } from './g1-tests.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const read = (p) => readFileSync(p, 'utf8');
+// Every regular file under dir, recursively (#232: what a run wrote).
+const filesUnder = (dir) => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? filesUnder(join(dir, d.name)) : d.isFile() ? [join(dir, d.name)] : [])) : []);
 // LF, as committed: a CRLF checkout (core.autocrlf=true) must not make the byte-identity
 // checks below fail.
 const BASELINE = read(join(REPO, BASELINE_TRANSCRIPT)).replace(/\r\n/g, '\n');
@@ -218,6 +223,42 @@ export function g2Unit(check) {
   check('g2 argv: a Windows command line is split and checked the same way', win.found && !win.plain && win.argsAfterCodex[0] === '--remote' && splitCommandLine('"a b" c').join('|') === 'a b|c');
   check('g2 argv: no codex process -> not found (never assumed plain)', !codexLaunchProof([{ pid: 1, argv: ['bash', '-l'] }, { pid: 2, argv: null, commandLine: null }]).found);
 
+  // --- #232: minimized pane argv, read from one process-table snapshot ----------------------
+  // A random secret of no known shape, planted in pane descendants' argv (Linux argv and a
+  // Windows command line). It must not survive into anything paneArgv returns for a record.
+  {
+  const SECRET = Array.from(randomBytes(20), (b) => String.fromCharCode(97 + (b % 26))).join('');
+  const red = createRedactor();
+  check('g2 #232: the planted secret is unknown-shaped (redaction alone leaves it in place)', red.redactValue({ v: SECRET }).value.v === SECRET);
+  // Synthetic pids no OS process has: finding them proves the read came from the table.
+  const P = 2 ** 31 - 10;
+  const table = new Map([
+    [P, { pid: P, ppid: 1, argv: ['/bin/bash', '-l'], commandLine: null }],
+    [P + 1, { pid: P + 1, ppid: P, argv: ['/usr/bin/node', '/home/u/.npm/bin/codex'], commandLine: null }],
+    [P + 2, { pid: P + 2, ppid: P + 1, argv: ['/usr/bin/helper', `--token=${SECRET}`, SECRET], commandLine: null }],
+    [P + 3, { pid: P + 3, ppid: P + 1, argv: null, commandLine: `"C:\\Program Files\\x\\helper.exe" --auth ${SECRET}` }],
+  ]);
+  const pr = processArgv(P + 2, table);
+  check('g2 #232 perf: processArgv reads the process-table snapshot, never the OS per pid (synthetic pid found; no table or an unknown pid reads nothing)', pr.argv?.[2] === SECRET && /process table/.test(pr.source) && processArgv(P + 2, null).argv === null && /not readable/.test(processArgv(P + 2, null).source) && processArgv(P + 9, table).argv === null && /not in the process table/.test(processArgv(P + 9, table).source), JSON.stringify(pr.source));
+  const pa = paneArgv([P, P + 1, P + 2, P + 3, P + 9], table);
+  const paText = JSON.stringify(pa);
+  check('g2 #232: minimized records keep executable basenames and the codex token; every other argument is a length placeholder', JSON.stringify(pa.argv.map((a) => a.argv)) === JSON.stringify([['bash', '<arg len=2>'], ['node', 'codex'], ['helper', `<arg len=${8 + SECRET.length}>`, `<arg len=${SECRET.length}>`], ['helper.exe', '<arg len=6>', `<arg len=${SECRET.length}>`], null]) && pa.argv.every((a) => a.minimized && !('commandLine' in a)), paText);
+  const paRed = red.redactValue(pa);
+  check('g2 #232: the planted secret is nowhere in the records, which pass the fail-closed scan unchanged', !paText.includes(SECRET) && reportIsClean(paRed.report) && JSON.stringify(paRed.value) === paText, JSON.stringify(paRed.report));
+  check('g2 #232: the codex proof is computed on the full argv; plain survives minimization', pa.proof.found && pa.proof.plain && pa.proof.pid === P + 1 && pa.proof.codexToken === 'codex' && JSON.stringify(pa.proof.argsAfterCodex) === '[]');
+  const allow = ['-c', 'mcp_servers.x.url="http://127.0.0.1:1/mcp"'];
+  const ovp = paneArgv([P], new Map([[P, { pid: P, ppid: 1, argv: ['/opt/codex', ...allow, '--api-key', SECRET], commandLine: null }]]), { allow, expectArgsAfterCodex: allow });
+  check('g2 #232: a non-plain launch keeps only the allowlisted arguments verbatim; an extra argument is a placeholder and fails the expected-overrides match', !ovp.proof.plain && JSON.stringify(ovp.proof.argsAfterCodex) === JSON.stringify([...allow, '<arg len=9>', `<arg len=${SECRET.length}>`]) && ovp.proof.matchesExpected === false && !JSON.stringify(ovp).includes(SECRET), JSON.stringify(ovp.proof));
+  const exact = paneArgv([P], new Map([[P, { pid: P, ppid: 1, argv: ['/opt/codex', ...allow], commandLine: null }]]), { allow, expectArgsAfterCodex: allow });
+  // The match is decided on the full argv: a process whose argument literally reads like a
+  // placeholder does not match an expectation spelled that way.
+  const ph = argPlaceholder('x'.repeat(9));
+  const lookalike = paneArgv([P], new Map([[P, { pid: P, ppid: 1, argv: ['/opt/codex', '-c', 'y'.repeat(9)], commandLine: null }]]), { allow: ['-c'], expectArgsAfterCodex: ['-c', ph] });
+  check('g2 #232: the exact validated overrides match and are kept verbatim; the match never compares placeholders', exact.proof.matchesExpected === true && JSON.stringify(exact.proof.argsAfterCodex) === JSON.stringify(allow) && JSON.stringify(lookalike.proof.argsAfterCodex) === JSON.stringify(['-c', ph]) && lookalike.proof.matchesExpected === false);
+  const many = new Map(Array.from({ length: 40 }, (_, i) => [P - i, { pid: P - i, ppid: 1, argv: ['sh'], commandLine: null }]));
+  check('g2 #232: at most 32 processes are recorded; minimizeArgv passes null through', paneArgv([...many.keys()], many).argv.length === 32 && minimizeArgv(null) === null);
+  }
+
   // --- staging, names, guards ---------------------------------------------------------------
   const tmp = mkdtempSync(join(tmpdir(), 'oac-g2-unit-'));
   try {
@@ -260,8 +301,11 @@ const TRACER = join(HERE, 'fs-trace.mjs');
 // A fake `codex` on PATH: a copy of test/fake-codex.mjs named `codex`, so a pane process's
 // argv reads `node <base>/bin/codex` like an npm-installed Codex. With trace: every Node
 // process the driver starts is traced (test/fs-trace.mjs) into <base>/fs-trace.jsonl.
-export function fakeCodexEnv(base, { trace = false, ...env } = {}) {
+// plantSecret (#232): the fake TUI starts a child carrying a random secret in its argv and
+// writes the secret to <base>/planted-secret.txt (plantedSecret below reads it back).
+export function fakeCodexEnv(base, { trace = false, plantSecret = false, ...env } = {}) {
   const bin = join(base, 'bin');
+  if (plantSecret) env.FAKE_CODEX_PLANT_SECRET_FILE = join(base, 'planted-secret.txt');
   mkdirSync(bin, { recursive: true });
   const p = join(bin, 'codex');
   copyFileSync(join(HERE, 'fake-codex.mjs'), p);
@@ -368,9 +412,19 @@ export function g2Cases(check) {
     }
   });
 
-  run('g2 driver accept, Codex settles to unknown', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_POST_STATE: 'unknown' } }, (r) => {
+  // #232: this case also plants a random, unknown-shaped secret in the argv of a pane
+  // descendant (a child of the fake Codex TUI). It must reach no record file.
+  run('g2 driver accept, Codex settles to unknown (secret planted in a descendant\'s argv)', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_POST_STATE: 'unknown', plantSecret: true } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
+    const secretFile = join(r.base, 'planted-secret.txt');
+    const secret = existsSync(secretFile) ? read(secretFile) : '';
+    check('g2 #232 planted: the secret is unknown-shaped (redaction alone leaves it in place)', /^[a-z]{20}$/.test(secret) && createRedactor().redactValue({ v: secret }).value.v === secret);
+    const planted = (g2.paneArgv ?? []).flatMap((pa) => pa.argv).filter((a) => a.minimized && a.argv?.length === 4 && a.argv[3] === argPlaceholder(secret));
+    check('g2 #232 planted: the descendant carrying it was recorded, its argv minimized to the executable and length placeholders', planted.length >= 1 && planted.every((a) => !a.argv[0].includes('/') && a.argv.slice(1).every((x) => /^<arg len=\d+>$/.test(x))), JSON.stringify(g2.paneArgv?.map((pa) => pa.argv)));
+    const leaked = filesUnder(r.outDir).filter((f) => read(f).includes(secret));
+    check('g2 #232 planted: the secret is in neither the run manifest nor any other file the run wrote', secret.length === 20 && !r.manifestText.includes(secret) && leaked.length === 0 && filesUnder(r.outDir).length >= 2, leaked.map((f) => relative(r.outDir, f)).join(','));
+    check('g2 #232 planted: herdr\'s process-info answer is recorded as pids only', g2.paneArgv.every((pa) => Object.keys(pa.herdrProcessInfo).join() === 'pane_id,shell_pid,foreground_processes' && pa.herdrProcessInfo.foreground_processes.every((p) => Object.keys(p).join() === 'pid')));
     check('g2 unknown: PASS', r.status === 0 && m.outcome === 'PASS', `${m.outcome} ${m.outcomeReason}`);
     check('g2 unknown: herdr\'s `unknown` state was observed and recorded, with a finding', g2.herdrStates.some((s) => s.state === 'unknown') && m.findings.some((f) => /`unknown`/.test(f) && /nothing re-sent/.test(f)), JSON.stringify(g2.herdrStates));
     check('g2 unknown: it triggered no re-submission -- one operator prompt, each delivery once on the wire', r.prompts.length === 1 && g2.injectionsSent.length === 2 && g2Facts(parseG2Transcript(r.capture(names().transcript))).turnStarts.length === 2);

@@ -16,11 +16,10 @@
 // TUI, a best guess; no other Codex dialog, recognized or not, is ever accepted by the driver.
 //
 // Credential hygiene: nothing here opens anything under the Codex home directory. The only
-// process data read is a pid's argv (/proc/<pid>/cmdline, `ps -o command=`, or the Win32
-// process CommandLine), never a process environment.
+// process data read is a pid's argv, from the run's process-table snapshot (lib/proc.mjs),
+// never a process environment; only a minimized projection of it is recorded (#232, paneArgv).
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 
 import { committedFile, sha256, selectedOption, normalizeDialogText, planDriverAccept, dialogOptions } from './g1.mjs';
@@ -343,28 +342,64 @@ export { normalizeDialogText };
 
 // --- the pane's process argv (the "plain codex" proof) ------------------------------------
 
-// One pid's argv, read from the OS: Linux /proc/<pid>/cmdline, macOS `ps -o command=`,
-// Windows the Win32_Process CommandLine. Never the process environment. `argv` is an array
-// where the OS gives one (Linux), else null with `commandLine` as the OS prints it.
-export function processArgv(pid) {
+// #232: the pane's process argv is read from the run's one process-table snapshot
+// (lib/proc.mjs processTable: Linux /proc/<pid>/cmdline, macOS `ps`, Windows one
+// Win32_Process query), never one OS query per pid (~1.6 s each on Windows). Never the
+// process environment. The FULL argv stays in memory; only paneArgv's minimized projection
+// below is ever recorded.
+
+// One pid's argv from a process-table snapshot: { pid, argv, commandLine, source }, `argv`
+// an array where the OS gives one (Linux), else null with `commandLine` as the OS prints it.
+// Unminimized: in memory only, never put it in a record.
+export function processArgv(pid, table) {
   if (!Number.isInteger(pid) || pid <= 0) return { pid, argv: null, commandLine: null, source: 'no pid' };
-  if (process.platform === 'linux') {
-    try {
-      const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter((a, i, all) => a !== '' || i < all.length - 1);
-      return { pid, argv, commandLine: null, source: `/proc/${pid}/cmdline` };
-    } catch {
-      return { pid, argv: null, commandLine: null, source: 'not readable (process gone?)' };
-    }
-  }
-  if (process.platform === 'darwin') {
-    const ps = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 10000 });
-    return { pid, argv: null, commandLine: ps.status === 0 ? ps.stdout.trim() : null, source: 'ps -o command=' };
-  }
-  if (process.platform === 'win32') {
-    const ps = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`], { encoding: 'utf8', timeout: 20000, windowsHide: true });
-    return { pid, argv: null, commandLine: ps.status === 0 ? ps.stdout.trim() || null : null, source: 'Win32_Process.CommandLine' };
-  }
-  return { pid, argv: null, commandLine: null, source: `not available on ${process.platform}` };
+  if (!table) return { pid, argv: null, commandLine: null, source: `process table not readable on ${process.platform}` };
+  const p = table.get(pid);
+  if (!p) return { pid, argv: null, commandLine: null, source: 'not in the process table (process gone?)' };
+  if (Array.isArray(p.argv)) return { pid, argv: [...p.argv], commandLine: null, source: `/proc/${pid}/cmdline (process table)` };
+  const source = process.platform === 'win32' ? 'Win32_Process.CommandLine (process table)' : 'ps command (process table)';
+  return { pid, argv: null, commandLine: typeof p.commandLine === 'string' ? p.commandLine : null, source };
+}
+
+// --- minimized argv (#232) ------------------------------------------------------------------
+//
+// A pane descendant's argv can carry a secret no redaction pattern knows (a token passed as
+// an argument). Records keep only what launch identity needs: the executable's basename, the
+// basename of a `codex` token, and the exact arguments the scenario itself asserts (its
+// allowlist: none for a plain `codex` launch, the validated `-c` overrides for G4). Every
+// other argument becomes `<arg len=N>`, so the count of arguments (what "plain" asserts)
+// survives and nothing of the value does. Length only, no hash: an unkeyed hash of a short
+// secret is an offline brute-force oracle; a per-run keyed hash would only show equality
+// within one run, which no check uses, and its key would be one more secret to keep out of
+// the record. The run manifest still goes through the fail-closed redaction scan
+// (redactValue + withholdResiduals in run.mjs) on top of this.
+
+export const argPlaceholder = (value) => `<arg len=${String(value).length}>`;
+const tokenBase = (t) => basename(String(t).replace(/\\/g, '/'));
+
+// tokens: a full argv. allow: exact argument strings the scenario asserts. executable: the
+// first token is the executable (kept as its basename). null in, null out.
+export function minimizeArgv(tokens, { allow = [], executable = true } = {}) {
+  if (!Array.isArray(tokens)) return null;
+  const allowed = new Set(allow.map(String));
+  return tokens.map((t, i) => {
+    const s = String(t);
+    if ((executable && i === 0) || CODEX_TOKEN.test(tokenBase(s))) return tokenBase(s);
+    return allowed.has(s) ? s : argPlaceholder(s);
+  });
+}
+
+// The recordable view of a pane's process tree: the first `limit` pids' argv read from one
+// process-table snapshot, minimized, and the `codex` launch proof computed on the FULL argv
+// in memory, its argsAfterCodex minimized the same way. expectArgsAfterCodex (G4): the exact
+// arguments the launch must carry; `matchesExpected` compares them on the full argv.
+export function paneArgv(pids, table, { allow = [], expectArgsAfterCodex = null, limit = 32 } = {}) {
+  const full = pids.slice(0, limit).map((pid) => processArgv(pid, table));
+  const p = codexLaunchProof(full);
+  const proof = { ...p, argsAfterCodex: minimizeArgv(p.argsAfterCodex, { allow, executable: false }) };
+  if (expectArgsAfterCodex) proof.matchesExpected = p.found ? JSON.stringify(p.argsAfterCodex) === JSON.stringify(expectArgsAfterCodex) : null;
+  const argv = full.map((r) => ({ pid: r.pid, argv: minimizeArgv(r.argv ?? (r.commandLine != null ? splitCommandLine(r.commandLine) : null), { allow }), source: r.source, minimized: true }));
+  return { argv, proof };
 }
 
 // Split a command line the way the OS printed it (quotes stripped); good enough to find the
