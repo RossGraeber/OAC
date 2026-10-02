@@ -45,8 +45,8 @@ into it on this repo.
    Drift: while implementing the transport contract you add a `zenoh_key_expr` field to a
    `core/` type, or the spec text under `spec/` explains delivery in terms of Zenoh
    liveliness tokens instead of the neutral presence states. DESIGN §Zenoh transport: "Zenoh
-   types must not escape the transport module." DESIGN §MCP Session Channels extension: "The
-   specification MUST NOT mention Zenoh keys, MQTT topics, NATS subjects, or
+   types must not escape the transport module." DESIGN §OAC Session Channels specification:
+   "The specification MUST NOT mention Zenoh keys, MQTT topics, NATS subjects, or
    provider-specific method names."
 
 6. **[ADR-001 Decision]** "The reference implementation is a CLI and must not require

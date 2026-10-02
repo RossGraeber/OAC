@@ -147,6 +147,11 @@ transport pin, since it crosses both adapters and Zenoh). No opt-in test descrip
 says "the current release" or "latest" — it names the exact pinned version string, the
 same string `docs/planning/gates/README.md`'s per-gate result files record.
 
+*(Dated note, 2026-10-02, #228: for the floating Claude Code and Codex rows (#216), "pinned
+version" means the installed version the test ran on, which it records; a version other
+than the last tested one is a `VERSION WARNING`, never a failure. Fixed rows are
+unchanged.)*
+
 **A pin move invalidates the recorded opt-in result the same way it invalidates a gate
 — cited, not re-derived.** Per `docs/planning/gates/README.md` "Re-run/invalidation
 policy" §a: "Changing the Pinned version cell, the Release date cell, or a row's
