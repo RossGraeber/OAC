@@ -25,7 +25,7 @@ import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
   splitCommandLine, splitWindowsCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
-  processArgv, minimizeArgv, paneArgv, argPlaceholder,
+  processArgv, minimizeArgv, paneArgv, argPlaceholder, arg0Placeholder, EXPECTED_EXECUTABLE,
 } from '../lib/g2.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
@@ -269,7 +269,15 @@ export function g2Unit(check) {
   check('g2 #232 perf: processArgv reads the process-table snapshot, never the OS per pid (synthetic pid found; no table or an unknown pid reads nothing)', pr.argv?.[2] === SECRET && /process table/.test(pr.source) && processArgv(P + 2, null).argv === null && /not readable/.test(processArgv(P + 2, null).source) && processArgv(P + 9, table).argv === null && /not in the process table/.test(processArgv(P + 9, table).source), JSON.stringify(pr.source));
   const pa = paneArgv([P, P + 1, P + 2, P + 3, P + 9], table);
   const paText = JSON.stringify(pa);
-  check('g2 #232: minimized records keep executable basenames and the codex token; every other argument is a length placeholder', JSON.stringify(pa.argv.map((a) => a.argv)) === JSON.stringify([['bash', '<arg len=2>'], ['node', 'codex'], ['helper', `<arg len=${8 + SECRET.length}>`, `<arg len=${SECRET.length}>`], ['helper.exe', '<arg len=6>', `<arg len=${SECRET.length}>`], null]) && pa.argv.every((a) => a.minimized && !('commandLine' in a)), paText);
+  check('g2 #232/#244: minimized records keep expected executable basenames and the codex token; an unexpected executable is an arg0 placeholder; every other argument is a length placeholder', JSON.stringify(pa.argv.map((a) => a.argv)) === JSON.stringify([['bash', '<arg len=2>'], ['node', 'codex'], [arg0Placeholder('/usr/bin/helper'), `<arg len=${8 + SECRET.length}>`, `<arg len=${SECRET.length}>`], [arg0Placeholder('C:\\Program Files\\x\\helper.exe'), '<arg len=6>', `<arg len=${SECRET.length}>`], null]) && pa.argv.every((a) => a.minimized && !('commandLine' in a)), paText);
+  // #244 (PR #242 review note C): argv[0] is process-settable on Linux (process.title,
+  // setproctitle). Its basename is kept only when it names an expected executable.
+  const a0 = (argv0) => minimizeArgv([argv0, 'x'])[0];
+  const keptA0 = ['/bin/bash', '-bash', '/usr/bin/zsh', 'sh', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'pwsh.exe', 'C:\\Windows\\system32\\cmd.exe', '/usr/local/bin/node', 'C:\\Program Files\\nodejs\\node.exe', '/opt/bin/codex', 'codex.cmd', '/usr/local/bin/claude', 'claude.exe', '/usr/local/bin/herdr'];
+  check('g2 #244: an expected executable (shell, node, harness CLI, herdr) keeps its basename as argv[0]', keptA0.every((x) => a0(x) === x.replace(/\\/g, '/').split('/').pop()), JSON.stringify(keptA0.map(a0)));
+  const setTitle = [`sshd: op@pts/${SECRET}`, `worker ${SECRET}`, `/usr/bin/${SECRET}`, `${SECRET}.exe`, 'python3', '/usr/bin/env', 'bash-but-not', 'node=1', ''];
+  check('g2 #244: a process-set or unexpected argv[0] (setproctitle text, an unknown helper, a lookalike) is `<arg0 len=N>`, its text nowhere', setTitle.every((x) => a0(x) === arg0Placeholder(x)) && !JSON.stringify(setTitle.map(a0)).includes(SECRET) && !EXPECTED_EXECUTABLE.test('bash-but-not'), JSON.stringify(setTitle.map(a0)));
+  check('g2 #244: argsAfterCodex (executable: false) is unaffected: its first token is an argument, not an argv[0]', JSON.stringify(minimizeArgv(['bash', 'x'], { executable: false })) === JSON.stringify(['<arg len=4>', '<arg len=1>']));
   const paRed = red.redactValue(pa);
   check('g2 #232: the planted secret is nowhere in the records, which pass the fail-closed scan unchanged', !paText.includes(SECRET) && reportIsClean(paRed.report) && JSON.stringify(paRed.value) === paText, JSON.stringify(paRed.report));
   check('g2 #232: the codex proof is computed on the full argv; plain survives minimization', pa.proof.found && pa.proof.plain && pa.proof.pid === P + 1 && pa.proof.codexToken === 'codex' && JSON.stringify(pa.proof.argsAfterCodex) === '[]');

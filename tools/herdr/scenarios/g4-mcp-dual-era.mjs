@@ -30,7 +30,11 @@
 //   0. Preflight. The Claude launch must be G4's, verbatim. The Codex launch (--param
 //      codexLaunch, a JSON argv; default `codex -c mcp_servers.g4http.url="http://127.0.0.1:
 //      <httpPort>/mcp"`) may carry only per-invocation `-c` overrides of MCP-server url /
-//      enabled / timeout keys and feature flags: the operator's global Codex config is never
+//      enabled / timeout keys and feature flags, and only allowlisted values (#244: a
+//      loopback http(s) URL without userinfo, query or fragment; a boolean; a number). A
+//      --param codexLaunch that breaks those rules is refused by validateParams before the
+//      driver creates or records anything (usage error, exit 2, no run manifest). The
+//      operator's global Codex config is never
 //      edited, no Codex config file is written, and the Codex home is never copied or
 //      redirected. `claude --version` and `codex --version` are compared with PINS.md's
 //      committed minimum and last tested versions; a difference is a VERSION WARNING
@@ -75,10 +79,10 @@ import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVers
 import { harnessVersions } from '../lib/manifest.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv } from '../lib/g2.mjs';
-import { descendants, processTable } from '../lib/proc.mjs';
+import { descendants } from '../lib/proc.mjs';
 import { makeAgent, stopper, stageGateFiles, loopbackPortFree } from '../lib/gate-common.mjs';
 import {
-  G4_LAUNCH, G4_SERVER_FILES, PINS_PATH, DEFAULT_PORTS, DEFAULT_PROMPTS, g4McpJson, defaultCodexLaunch, validateCodexLaunch, validatePaneEnv, assertNotInjected,
+  G4_LAUNCH, G4_SERVER_FILES, PINS_PATH, DEFAULT_PORTS, DEFAULT_PROMPTS, g4McpJson, defaultCodexLaunch, validateCodexLaunch, codexLaunchParamProblem, validatePaneEnv, assertNotInjected,
   fixtureNames, unverifiedNames, parseG4Transcript, g4Facts, roles, sanitizeG4Transcript, sanitizeG4Text, MODERN, LEGACY, HUMAN_RUN_PORTS, codexSessions,
 } from '../lib/g4.mjs';
 
@@ -90,6 +94,9 @@ export default {
   name: 'g4-mcp-dual-era',
   description: 'G4 re-run through herdr for comparison with the human-run 2026-09-26 re-run (K8). Reconstructed server. Not verdict-bearing.',
   harnesses: ['claude', 'codex'],
+  // #244: run.mjs calls this before it creates scratch, an output directory or a manifest, so a
+  // refused codexLaunch leaves no record at all. The reason names no argument text.
+  validateParams: ({ params }) => codexLaunchParamProblem(params),
   defaults: {
     launch: [...G4_LAUNCH],
     timeboxMs: 60 * 60 * 1000, // the 2026-09-26 re-run declared 60 minutes (G4-result.md "Timebox")
@@ -319,10 +326,10 @@ export default {
       const httpBefore = facts().httpInitialize.length;
       const cstart = await herdr.agentStart('g4codex', { launchArgv: codexLaunch, paneId: cws.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
       g4.codexLaunch.herdrReportedArgv = cstart.argv;
-      const info = await herdr.paneProcessInfo(cws.paneId);
+      // One process table for the pane's whole tree, the one the driver took for its query
+      // (#136 review, #244 note D: each table is one WMI query, ~1.6 s, on Windows).
+      const { info, table: procTable } = await herdr.paneProcessSnapshot(cws.paneId);
       const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-      // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
-      const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
       // #232: argv minimized; the only arguments kept verbatim are the validated per-invocation
       // overrides this launch asserts, compared on the full argv in memory.

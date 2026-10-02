@@ -180,7 +180,12 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
   17458/17460), asks the operator to check `codex mcp list` (read-only) first, records a
   finding when more than one Codex HTTP session connects, and the report's criterion 4
   requires exactly one before attributing Codex's traffic to the per-invocation
-  registration.
+  registration. The override **values** are allowlisted as well (#244), because validated
+  overrides are kept verbatim in the record: a `url` must be a quoted loopback http(s) URL
+  (host `127.0.0.1`, `[::1]` or `localhost`, any port and path, no `user:password@`, no
+  query, no fragment), `enabled` and `features.*` a boolean, a timeout a number. A
+  `codexLaunch` that breaks a rule is refused before the driver creates or records
+  anything (exit 2, no run manifest), and the reason never quotes the refused text.
 - **G5** (`g5-provenance`): Claude cases C1-C6 through the channel server's own case trigger
   (C6 mid-turn), Codex cases X1-X6 through the app-server client. **The spoofing bodies reach
   the harness only through the channel server or the app-server client**; herdr types only
@@ -313,12 +318,15 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    harness path: the Codex CLI is run through `cmd.exe` on Windows, pane process argv is read
    from the run's one process-table snapshot (`/proc` on Linux, `ps` on macOS, one
    `Win32_Process` query on Windows; #232, `lib/g2.mjs` `paneArgv`) and recorded only as a
-   minimized projection: executable basename, the `codex` token, the exact arguments the
+   minimized projection: the executable's basename when it is an expected one (a shell,
+   node, a harness CLI or herdr; otherwise `<arg0 len=N>`, since a process can rewrite its
+   own argv[0], #244), the `codex` token, the exact arguments the
    scenario asserts (none for plain `codex`, the validated `-c` overrides for G4), every other
    argument as `<arg len=N>` (length only, no hash: a hash of a short secret can be brute-forced),
    with the manifest's fail-closed redaction scan still on top, and quoting follows the
    pane shell (`lib/pane-shell.mjs`). A Windows command line is split by the Microsoft C
-   runtime's argv rules (#243, `lib/g2.mjs` `splitWindowsCommandLine`); the self-test's
+   runtime's argv rules (#243, `lib/proc.mjs` `splitWindowsCommandLine`; teardown's
+   `--session` match and app-server protection split by the same rules, #244); the self-test's
    Windows unit half round-trips the default G4 launch through a real child process.
    What is verified today is Linux only, and only against
    test doubles: the self-test's lifecycle half needs POSIX `sh`, K1's live leg has not run,

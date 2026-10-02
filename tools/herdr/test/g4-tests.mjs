@@ -24,7 +24,7 @@ import { createInterface } from 'node:readline';
 
 import {
   BASELINE_TRANSCRIPT, FIXTURE_DIR, G4_LAUNCH, OAC_EXT, OAC_EXT_PLACEHOLDER, G4_CRITERIA_SHA256, G4_REFERENCE, DEFAULT_PROMPTS,
-  readG4Criteria, validateCodexLaunch, validatePaneEnv, defaultCodexLaunch, assertNotInjected, fixtureNames, unverifiedNames, parseG4Transcript, g4Facts,
+  readG4Criteria, validateCodexLaunch, codexLaunchParamProblem, validatePaneEnv, defaultCodexLaunch, assertNotInjected, fixtureNames, unverifiedNames, parseG4Transcript, g4Facts,
   modernRequests, roles, sanitizeG4Transcript, sanitizeG4Text, placeholderIntegrity, HUMAN_RUN_PORTS, DEFAULT_PORTS, codexSessions,
 } from '../lib/g4.mjs';
 import { CriteriaDriftError, parseCriteriaSection } from '../lib/gate-common.mjs';
@@ -254,7 +254,42 @@ export async function g4Unit(check) {
   const ok = validateCodexLaunch(defaultCodexLaunch(17448));
   check('g4 codex launch: the default is a per-invocation MCP-server url override, nothing else', ok.ok && ok.overrides.length === 1 && ok.overrides[0].key === 'mcp_servers.g4http.url' && JSON.stringify(defaultCodexLaunch(17448)) === '["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:17448/mcp\\""]');
   await windowsLaunchRoundTrip(check);
-  check('g4 codex launch: a feature flag beside the url is allowed (the row-41 opt-in, as a method change)', validateCodexLaunch(['codex', '-c', 'mcp_servers.g4.url="http://x/mcp"', '--config', 'features.mcp_2026_07_28=true']).ok);
+  check('g4 codex launch: a feature flag beside the url is allowed (the row-41 opt-in, as a method change)', validateCodexLaunch(['codex', '-c', 'mcp_servers.g4.url="http://127.0.0.1:17458/mcp"', '--config', 'features.mcp_2026_07_28=true']).ok);
+  // #244 (PR #242 review note A): override VALUES are allowlisted too; a refusal records nothing.
+  const url = (u) => ['codex', '-c', `mcp_servers.g4.url=${u}`];
+  const goodValues = [
+    url('"http://127.0.0.1:17458/mcp"'), url('"http://[::1]:17458/mcp"'), url('"http://localhost:17458/mcp"'), url('"https://127.0.0.1/mcp"'),
+    url('"http://LOCALHOST:1/"'), url('"http://127.0.0.1:65535"'), url('"http://127.0.0.1:17458/a/b-c_d.e~f"'),
+    [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.enabled=true', '-c', 'mcp_servers.g4.startup_timeout_sec=30', '-c', 'mcp_servers.g4.tool_timeout_sec=12.5', '-c', 'features.x=false'],
+  ];
+  check('g4 codex launch #244: loopback URLs (127.0.0.1, [::1], localhost; http or https; any port and path) and boolean/number scalars are accepted', goodValues.every((a) => validateCodexLaunch(a).ok), JSON.stringify(goodValues.filter((a) => !validateCodexLaunch(a).ok)));
+  const SECRET = 'S3CRETvalue42';
+  const badValues = [
+    ['userinfo', url(`"http://user:${SECRET}@127.0.0.1:17458/mcp"`)],
+    ['userinfo, user only', url(`"http://${SECRET}@localhost/mcp"`)],
+    ['non-loopback host', url(`"http://${SECRET}.example.net/mcp"`)],
+    ['non-loopback IP', url('"http://10.0.0.5:17458/mcp"')],
+    ['loopback lookalike host', url('"http://127.0.0.1.example.net/mcp"')],
+    ['localhost subdomain', url('"http://localhost.example.net/mcp"')],
+    ['userinfo hiding a remote host', url(`"http://127.0.0.1@${SECRET}.example.net/mcp"`)],
+    ['query string', url(`"http://127.0.0.1:17458/mcp?key=${SECRET}"`)],
+    ['fragment', url(`"http://127.0.0.1:17458/mcp#${SECRET}"`)],
+    ['other scheme', url('"ws://127.0.0.1:17458/mcp"')],
+    ['unquoted url', url('http://127.0.0.1:17458/mcp')],
+    ['port out of range', url('"http://127.0.0.1:70000/mcp"')],
+    ['port zero', url('"http://127.0.0.1:0/mcp"')],
+    ['escape in the string', url('"http://127.0.0.1:17458/mcp\\u0040x"')],
+    ['whitespace', url(`"http://127.0.0.1:17458/mcp ${SECRET}"`)],
+    ['string for a boolean', [...url('"http://127.0.0.1:17458/mcp"'), '-c', `mcp_servers.g4.enabled="${SECRET}"`]],
+    ['string for a feature flag', [...url('"http://127.0.0.1:17458/mcp"'), '-c', `features.x=${SECRET}`]],
+    ['string for a timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', `mcp_servers.g4.tool_timeout_sec="${SECRET}"`]],
+    ['negative timeout', [...url('"http://127.0.0.1:17458/mcp"'), '-c', 'mcp_servers.g4.tool_timeout_sec=-1']],
+  ];
+  const refusals = badValues.map(([what, a]) => [what, validateCodexLaunch(a)]);
+  check('g4 codex launch #244: a userinfo URL, a non-loopback URL, a query, a fragment, another scheme and a non-boolean/non-number scalar are all refused', refusals.every(([, v]) => !v.ok), JSON.stringify(refusals.filter(([, v]) => v.ok).map(([w]) => w)));
+  check('g4 codex launch #244: a refusal records nothing of the launch (no overrides, the reason names a position, never the text)', refusals.every(([, v]) => v.overrides.length === 0 && !v.why.includes(SECRET) && !/example\.net|10\.0\.0\.5|ws:|70000/.test(v.why) && /argument \d+/.test(v.why)), JSON.stringify(refusals.map(([w, v]) => [w, v.why])));
+  check('g4 codex launch #244: an unknown key is refused without echoing it either', ((v) => !v.ok && v.overrides.length === 0 && !v.why.includes(SECRET))(validateCodexLaunch(['codex', '-c', `${SECRET}=1`, ...url('"http://127.0.0.1:1/mcp"').slice(1)])));
+  check('g4 codexLaunch param #244: refused before the run, the reason never quoting the value; no param or a valid one passes', codexLaunchParamProblem({}) === null && codexLaunchParamProblem({ codexLaunch: JSON.stringify(defaultCodexLaunch(17458)) }) === null && /^codexLaunch refused: /.test(codexLaunchParamProblem({ codexLaunch: JSON.stringify(badValues[0][1]) }) ?? '') && !codexLaunchParamProblem({ codexLaunch: JSON.stringify(badValues[0][1]) }).includes(SECRET) && codexLaunchParamProblem({ codexLaunch: `not json ${SECRET}` }) === 'codexLaunch must be a JSON argv');
   const bad = [
     [['codex', '--profile', 'p', '-c', 'mcp_servers.g4.url="u"'], /not a per-invocation/],
     [['codex', '-c', 'model="x"', '-c', 'mcp_servers.g4.url="u"'], /is not an MCP-server/],
@@ -454,9 +489,19 @@ export function g4Cases(check) {
     check('g4 driver: the report still scores nothing on the accept (no G4 criterion names it)', evalRun(r).rows.map((x) => x.score).join('|') === [SCORES.NE, SCORES.EQ, SCORES.EQ, SCORES.EQ, SCORES.NE].join('|'));
   });
 
-  run('g4 codex launch with a non-MCP override', { args: [...FAST, ...PORTS(37468, 37470), '--param', 'codexLaunch=["codex","-c","model=\\"other\\"","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37468/mcp\\""]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
-    check('g4 override: FAIL before anything starts (no workspace, no agent)', r.status === 1 && /codexLaunch refused/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('workspace') || c.argv.includes('agent')), r.manifest.outcomeReason);
+  // #244: a codexLaunch the allowlist refuses is refused by the scenario's validateParams before
+  // run.mjs creates scratch, an output directory or a manifest: usage error (exit 2), nothing
+  // recorded, and the console reason never quotes the refused text.
+  const SECRET = 'S3CRETvalue42';
+  const refusedBeforeRun = (name, codexLaunchArgv, port) => cases.push({
+    name,
+    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: [...FAST, ...PORTS(port, port + 2), '--param', `codexLaunch=${JSON.stringify(codexLaunchArgv)}`], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } },
+    invariantOpts: { noManifest: true },
+    assert: (r) => check(`${name}: usage error (exit 2) naming the rule, the refused text on no output`, r.status === 2 && /codexLaunch refused: .*refused before anything was created, nothing recorded/.test(r.stderr) && !`${r.stdout}${r.stderr}`.includes(SECRET), `${r.status} ${r.stderr}`),
   });
+  refusedBeforeRun('g4 codex launch with a non-MCP override', ['codex', '-c', `model="${SECRET}"`, '-c', 'mcp_servers.g4http.url="http://127.0.0.1:37468/mcp"'], 37468);
+  refusedBeforeRun('g4 codex launch #244: userinfo URL', ['codex', '-c', `mcp_servers.g4http.url="http://op:${SECRET}@127.0.0.1:37528/mcp"`], 37528);
+  refusedBeforeRun('g4 codex launch #244: non-loopback URL', ['codex', '-c', `mcp_servers.g4http.url="http://${SECRET}.example.net:37538/mcp"`], 37538);
 
   run('g4 launch not verbatim', { args: [...FAST, '--launch', '["claude","--dangerously-load-development-channels","server:g4spike"]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g4 launch: a launch other than G4\'s verbatim one FAILs before anything starts', r.status === 1 && /not G4's verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')));

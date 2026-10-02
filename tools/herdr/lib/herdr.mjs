@@ -11,7 +11,7 @@
 // docs/planning/decisions/K1-herdr-evaluation.md §5.
 
 import { openSync, closeSync } from 'node:fs';
-import { runBounded, spawnLongRunning, killTree, killPid, isAlive, within, sleep, processTable, treeFrom, carriesSession, protectedReason } from './proc.mjs';
+import { runBounded, spawnLongRunning, killTree, killPid, isAlive, within, sleep, processTable, treeFrom, carriesSession, protectedReason, commandTokens, UNSPLITTABLE_REASON } from './proc.mjs';
 
 const IS_WIN = process.platform === 'win32';
 // The OS operations teardown needs; the self-test substitutes fakes (#136).
@@ -351,6 +351,7 @@ export class HerdrSession {
   // (that pid only, never its tree) only when ALL hold:
   //   - its creation time still matches the recorded one (not a reused pid),
   //   - it was created no earlier than this driver process (nothing older is the run's),
+  //   - its command line splits (#244: commandTokens; an unsplittable one is unverified),
   //   - it is not a protected process (protectedReason: the Codex app-server daemon).
   // Anything that cannot be verified (no table, no recorded identity) is never killed; if it
   // is still alive it is reported in leftoverProcesses and the teardown is not clean.
@@ -427,6 +428,8 @@ export class HerdrSession {
         t.skippedPreexistingPids.push({ pid, why: 'created before this driver process' });
         return;
       }
+      // #244: a command line that cannot be split cannot be shown not to be the app-server.
+      if (commandTokens(now) === null) return unverified(pid, UNSPLITTABLE_REASON);
       const prot = protectedReason(now);
       if (prot) {
         t.protectedProcesses.push({ pid, why: prot });
@@ -474,11 +477,18 @@ export class HerdrSession {
   }
 
   async paneProcessInfo(paneId) {
+    return (await this.paneProcessSnapshot(paneId)).info;
+  }
+
+  // herdr's answer for a pane and the ONE process-table snapshot the driver took for it
+  // (#244, PR #242 review note D): a scenario that reads the pane's argv uses this `table`
+  // rather than taking a second one (each is ~1-2 s, one WMI query, on Windows).
+  async paneProcessSnapshot(paneId) {
     const q = await this.queryPane(paneId);
     const table = this.proc.table();
     for (const pid of q.pids ?? []) this.trackPid(pid, table, 'pane process (herdr pane process-info)');
     this.trackPaneTrees(table);
-    return q.info ?? {};
+    return { info: q.info ?? {}, table };
   }
 
   // --- panes -------------------------------------------------------------------------

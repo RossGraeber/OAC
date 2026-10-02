@@ -77,24 +77,84 @@ export function g4McpJson({ node, serverPath, httpPort, modernHttpPort }) {
 // project's file from the operator's, so it is not used.
 
 export const defaultCodexLaunch = (httpPort) => ['codex', '-c', `mcp_servers.g4http.url="http://127.0.0.1:${httpPort}/mcp"`];
-const ALLOWED_OVERRIDE = /^(?:mcp_servers\.[A-Za-z0-9_-]+\.(?:url|enabled|startup_timeout_sec|tool_timeout_sec)|features\.[A-Za-z0-9_]+)$/;
+const ALLOWED_OVERRIDE = /^(?:mcp_servers\.[A-Za-z0-9_-]{1,64}\.(?:url|enabled|startup_timeout_sec|tool_timeout_sec)|features\.[A-Za-z0-9_]{1,64})$/;
 
-// -> { ok, why, overrides: [{ key, value }] }
+// #244 (PR #242 review note A): the VALUES are allowlisted too, because a validated override is
+// kept verbatim in the run record (codexLaunch.argv, validation.overrides, herdrReportedArgv,
+// and the minimized paneArgv's allow list). Codex reads a `-c` value as TOML. Per key:
+// - `mcp_servers.<name>.url`: a TOML basic string holding a loopback http(s) URL: scheme http
+//   or https; host exactly 127.0.0.1, [::1] or localhost; an optional port 1-65535; an
+//   optional path. No userinfo (`user:pass@` is where a credential would sit), no query and
+//   no fragment (where a token or API key would sit; the G4 server answers on a bare `/mcp`),
+//   no escapes, quotes or whitespace. Loopback only: the scripted run talks to its own
+//   staged server on this machine, never to a remote MCP server.
+// - `mcp_servers.<name>.enabled` and `features.<name>`: a TOML boolean, `true` or `false`.
+// - `mcp_servers.<name>.startup_timeout_sec` / `tool_timeout_sec`: a non-negative TOML
+//   number (digits, an optional fraction).
+// Anything else is refused. A refusal reason names the argument's position and the rule it
+// broke, never the argument's text: a refused value is never echoed into a record or the
+// console.
+const LOOPBACK_URL = /^"(https?):\/\/(127\.0\.0\.1|\[::1\]|localhost)(?::(\d{1,5}))?((?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]*)*)"$/i;
+const BOOLEAN = /^(?:true|false)$/;
+const NUMBER = /^\d{1,9}(?:\.\d{1,9})?$/;
+export function overrideValueProblem(key, value) {
+  const v = String(value);
+  if (/\.url$/.test(key)) {
+    const m = LOOPBACK_URL.exec(v);
+    if (!m) return 'is not a double-quoted loopback http(s) URL (host 127.0.0.1, [::1] or localhost; no user:password@, no query, no fragment)';
+    if (m[3] !== undefined && !(Number(m[3]) >= 1 && Number(m[3]) <= 65535)) return 'is a loopback URL with a port outside 1-65535';
+    let u;
+    try {
+      u = new URL(v.slice(1, -1));
+    } catch {
+      return 'is not a parseable URL';
+    }
+    // Belt and braces: what a URL parser makes of it must agree with the grammar above.
+    if (!['127.0.0.1', '[::1]', 'localhost'].includes(u.hostname.toLowerCase()) || u.username || u.password || u.search || u.hash) return 'does not parse to a loopback URL without userinfo, query or fragment';
+    return null;
+  }
+  if (/\.enabled$/.test(key) || /^features\./.test(key)) return BOOLEAN.test(v) ? null : 'is not a TOML boolean (true or false)';
+  if (/_timeout_sec$/.test(key)) return NUMBER.test(v) ? null : 'is not a non-negative TOML number';
+  return 'has no value rule';
+}
+
+// -> { ok, why, overrides: [{ key, value }] }. On a refusal `overrides` is [] and `why` holds
+// no argument text, so a refused launch leaves nothing of itself in a record.
 export function validateCodexLaunch(argv) {
-  if (!Array.isArray(argv) || argv[0] !== 'codex') return { ok: false, why: 'the Codex launch must start with the herdr agent kind `codex`', overrides: [] };
+  const refuse = (why) => ({ ok: false, why, overrides: [] });
+  if (!Array.isArray(argv) || argv[0] !== 'codex') return refuse('the Codex launch must start with the herdr agent kind `codex`');
   const overrides = [];
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
-    if (a !== '-c' && a !== '--config') return { ok: false, why: `argument ${JSON.stringify(a)} is not a per-invocation \`-c key=value\` override`, overrides };
+    const pos = i;
+    if (a !== '-c' && a !== '--config') return refuse(`argument ${pos} is not a per-invocation \`-c key=value\` override`);
     const kv = argv[++i];
     const eq = typeof kv === 'string' ? kv.indexOf('=') : -1;
-    if (eq < 1) return { ok: false, why: `\`${a}\` needs a key=value`, overrides };
+    if (eq < 1) return refuse(`\`${a}\` at argument ${pos} needs a key=value`);
     const key = kv.slice(0, eq).trim();
-    if (!ALLOWED_OVERRIDE.test(key)) return { ok: false, why: `override key ${JSON.stringify(key)} is not an MCP-server url/enabled/timeout key or a feature flag; nothing else may be overridden`, overrides };
+    if (!ALLOWED_OVERRIDE.test(key)) return refuse(`the override key at argument ${pos + 1} is not an MCP-server url/enabled/timeout key or a feature flag; nothing else may be overridden`);
+    const problem = overrideValueProblem(key, kv.slice(eq + 1));
+    if (problem) return refuse(`the value of the override at argument ${pos + 1} ${problem}`);
     overrides.push({ key, value: kv.slice(eq + 1) });
   }
-  if (!overrides.some((o) => /^mcp_servers\.[^.]+\.url$/.test(o.key))) return { ok: false, why: 'no per-invocation MCP server url (`-c mcp_servers.<name>.url="..."`)', overrides };
+  if (!overrides.some((o) => /^mcp_servers\.[^.]+\.url$/.test(o.key))) return refuse('no per-invocation MCP server url (`-c mcp_servers.<name>.url="..."`)');
   return { ok: true, why: null, overrides };
+}
+
+// The G4 scenario's `--param codexLaunch`, as the driver checks it BEFORE anything is created
+// or recorded (run.mjs calls a scenario's validateParams first). null when acceptable. With
+// no codexLaunch given, the scenario builds the default from its checked httpPort and still
+// validates it at its preflight step.
+export function codexLaunchParamProblem(params) {
+  if (!params?.codexLaunch) return null;
+  let argv;
+  try {
+    argv = JSON.parse(params.codexLaunch);
+  } catch {
+    return 'codexLaunch must be a JSON argv';
+  }
+  const v = validateCodexLaunch(argv);
+  return v.ok ? null : `codexLaunch refused: ${v.why}`;
 }
 
 // Env handed to the Claude pane: only non-credential names, never a harness home.

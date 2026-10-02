@@ -24,6 +24,9 @@ import { basename, join } from 'node:path';
 
 import { committedFile, sha256, selectedOption, normalizeDialogText, planDriverAccept, dialogOptions } from './g1.mjs';
 import { diffSequences } from './compare-transcripts.mjs';
+import { splitCommandLine, splitWindowsCommandLine } from './proc.mjs';
+
+export { splitCommandLine, splitWindowsCommandLine };
 
 // G2's launch: plain `codex`, no arguments and no config overrides (G2 criterion 1;
 // G2-result.md: "the human operator ran plain `codex` (no `-c`, no `--remote`, no flags)").
@@ -375,16 +378,30 @@ export function processArgv(pid, table) {
 // (redactValue + withholdResiduals in run.mjs) on top of this.
 
 export const argPlaceholder = (value) => `<arg len=${String(value).length}>`;
+export const arg0Placeholder = (value) => `<arg0 len=${String(value).length}>`;
 const tokenBase = (t) => basename(String(t).replace(/\\/g, '/'));
 
+// #244 (PR #242 review note C): argv[0] is whatever the process put there. On Linux a process
+// can rewrite its own cmdline (node's process.title, setproctitle: `sshd: user@pts/0`), so its
+// "basename" is process-chosen text, not necessarily an executable name. argv[0] is kept (as
+// its basename) only when that basename is one of the executables a harness pane is expected
+// to run: a shell (a login shell's leading `-` allowed), the node runtime, a harness CLI, or
+// herdr, optionally with a Windows/script extension. Anything else becomes `<arg0 len=N>`.
+// Default-deny on purpose: an unknown helper only loses its name in the record; no check reads
+// an argv[0] (the launch proof runs on the full argv in memory and keeps the `codex` token
+// through CODEX_TOKEN, not through this list).
+export const EXPECTED_EXECUTABLE = /^-?(?:sh|bash|dash|zsh|fish|ksh|pwsh|powershell|cmd|node|nodejs|codex|claude|herdr)(?:\.exe|\.cmd|\.bat|\.ps1|\.js)?$/i;
+
 // tokens: a full argv. allow: exact argument strings the scenario asserts. executable: the
-// first token is the executable (kept as its basename). null in, null out.
+// first token is the executable (its basename kept when EXPECTED_EXECUTABLE, else a
+// placeholder). null in, null out.
 export function minimizeArgv(tokens, { allow = [], executable = true } = {}) {
   if (!Array.isArray(tokens)) return null;
   const allowed = new Set(allow.map(String));
   return tokens.map((t, i) => {
     const s = String(t);
-    if ((executable && i === 0) || CODEX_TOKEN.test(tokenBase(s))) return tokenBase(s);
+    if (CODEX_TOKEN.test(tokenBase(s))) return tokenBase(s);
+    if (executable && i === 0) return EXPECTED_EXECUTABLE.test(tokenBase(s)) ? tokenBase(s) : arg0Placeholder(s);
     return allowed.has(s) ? s : argPlaceholder(s);
   });
 }
@@ -403,93 +420,8 @@ export function paneArgv(pids, table, { allow = [], expectArgsAfterCodex = null,
   return { argv, proof };
 }
 
-// Split a command line the way the OS printed it into the argv the process received. On
-// Windows (Win32_Process.CommandLine) that is the Microsoft C runtime's rule set
-// (splitWindowsCommandLine, #243). Elsewhere (macOS `ps`, which prints the arguments joined
-// by spaces with no quoting) a quoted run is kept together and quotes are stripped; good
-// enough to find the `codex` token. null for a non-string or one carrying a NUL.
-export function splitCommandLine(s, { platform = process.platform } = {}) {
-  if (platform === 'win32') return splitWindowsCommandLine(s);
-  if (typeof s !== 'string' || s.includes('\0')) return null;
-  const out = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  for (const m of s.matchAll(re)) out.push(m[1] ?? m[2] ?? m[3]);
-  return out;
-}
-
-// #243: the argv a Microsoft C runtime program (node.exe, codex.exe) builds from its command
-// line, per Microsoft's "Parsing C command-line arguments"
-// (https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments,
-// ms.date 2021-12-09, retrieved 2026-10-02):
-// - arguments are delimited by spaces or tabs;
-// - argv[0], the program name, is special: double-quoted parts keep spaces and tabs, the
-//   quotes are dropped, and none of the rules below apply (no backslash escaping);
-// - a double-quoted string is one argument and may be embedded in an argument; inside a
-//   quoted string a pair of double quotes is one literal double quote (and the string goes
-//   on); a command line that ends inside a quoted string ends the last argument there;
-// - backslashes are literal unless they immediately precede a double quote: 2n backslashes
-//   then a quote give n backslashes and the quote is a delimiter; 2n+1 backslashes then a
-//   quote give n backslashes and a literal quote.
-// Fail closed: a non-string, or one carrying a NUL (no real command line does), gives null, so
-// no launch proof can be computed from it; an empty one gives [].
-export function splitWindowsCommandLine(s) {
-  if (typeof s !== 'string' || s.includes('\0')) return null;
-  if (s === '') return [];
-  const out = [];
-  const n = s.length;
-  const blank = (c) => c === ' ' || c === '\t';
-  let i = 0;
-  // argv[0]: quotes toggle, are dropped; whitespace outside quotes ends it.
-  let arg0 = '';
-  let inQuote = false;
-  for (; i < n; i += 1) {
-    const c = s[i];
-    if (c === '"') inQuote = !inQuote;
-    else if (!inQuote && blank(c)) break;
-    else arg0 += c;
-  }
-  out.push(arg0);
-  for (;;) {
-    while (i < n && blank(s[i])) i += 1;
-    if (i >= n) break;
-    let arg = '';
-    inQuote = false;
-    for (; i < n; i += 1) {
-      const c = s[i];
-      if (c === '\\') {
-        let k = i;
-        while (k < n && s[k] === '\\') k += 1;
-        const count = k - i;
-        if (k < n && s[k] === '"') {
-          arg += '\\'.repeat(count >> 1);
-          if (count % 2 === 1) {
-            arg += '"';
-            i = k; // the escaped quote is consumed
-          } else {
-            i = k - 1; // the quote is handled as a delimiter next round
-          }
-        } else {
-          arg += '\\'.repeat(count);
-          i = k - 1;
-        }
-        continue;
-      }
-      if (c === '"') {
-        if (inQuote && s[i + 1] === '"') {
-          arg += '"'; // "" inside a quoted string: one literal quote, still quoted
-          i += 1;
-        } else {
-          inQuote = !inQuote;
-        }
-        continue;
-      }
-      if (!inQuote && blank(c)) break;
-      arg += c;
-    }
-    out.push(arg);
-  }
-  return out;
-}
+// splitCommandLine / splitWindowsCommandLine (#243) live in lib/proc.mjs (#244), so teardown's
+// commandTokens() and the launch proof split a command line by one rule set; re-exported here.
 
 const CODEX_TOKEN = /^codex(?:\.js|\.exe|\.cmd|\.ps1)?$/i;
 

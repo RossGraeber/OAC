@@ -143,6 +143,11 @@ async function runScenarioInner(opts, state) {
   const scenario = await loadScenario(opts.scenario);
   const launch = opts.launch ?? scenario.defaults?.launch ?? [];
   const params = { ...(scenario.defaults?.params ?? {}), ...opts.params };
+  // #244: a scenario's own parameter rules run before scratch, the output directory or the
+  // manifest exist, so a refused parameter is never recorded. The scenario's reason must not
+  // echo the refused value; it is printed to the console only.
+  const paramProblem = typeof scenario.validateParams === 'function' ? scenario.validateParams({ params, launch }) : null;
+  if (paramProblem) throw new UsageError(`${scenario.name}: ${paramProblem}; refused before anything was created, nothing recorded`);
   const timeboxMs = opts.timeboxMs ?? scenario.defaults?.timeboxMs ?? 300000;
   const runId = `${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}-${randomBytes(3).toString('hex')}`;
   const graceMs = 5000;
