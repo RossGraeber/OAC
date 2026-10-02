@@ -11,7 +11,20 @@
 // docs/planning/decisions/K1-herdr-evaluation.md §5.
 
 import { openSync, closeSync } from 'node:fs';
-import { runBounded, spawnLongRunning, killTree, isAlive, within, sleep, processesForSession, processStartTime, descendants } from './proc.mjs';
+import { runBounded, spawnLongRunning, killTree, killPid, isAlive, within, sleep, processTable, treeFrom, carriesSession, protectedReason } from './proc.mjs';
+
+const IS_WIN = process.platform === 'win32';
+// The OS operations teardown needs; the self-test substitutes fakes (#136).
+export const PROC_OPS = Object.freeze({
+  table: () => processTable(),
+  isAlive,
+  killPid,
+  // The herdr server: POSIX kills its process group (the driver spawned it detached, as the
+  // group leader). Windows kills the server pid only, never its tree (taskkill /T would
+  // reach every descendant unverified); its descendants are tracked and verified first.
+  killServer: (pid, signal) => (IS_WIN ? killPid(pid) : killTree(pid, signal)),
+  selfPid: process.pid,
+});
 
 export const ROLES = Object.freeze(['operator-input', 'dialog-accept', 'wait', 'read', 'lifecycle', 'preflight']);
 
@@ -90,7 +103,9 @@ function parseErrorCode(stderr) {
 export class HerdrSession {
   // herdrCmd: [file, ...prefixArgs] -- normally ['herdr'].
   // timebox: { remainingMs(): number } ; commands: array the manifest records into.
-  constructor({ herdrCmd, sessionName, env, cwd, timebox, commands, abortSignal, graceMs = 5000, defaultDeadlineMs = 15000 }) {
+  // procOps: the OS process operations teardown uses (#136); the self-test passes fakes.
+  constructor({ herdrCmd, sessionName, env, cwd, timebox, commands, abortSignal, graceMs = 5000, defaultDeadlineMs = 15000, procOps = PROC_OPS }) {
+    this.proc = procOps;
     this.herdrCmd = herdrCmd;
     this.name = sessionName;
     this.env = env;
@@ -108,7 +123,11 @@ export class HerdrSession {
     // arm the guard; input with no recorded target resets every guard.
     this.lastRoleByTarget = new Map();
     this.paneOfAgent = new Map(); // agent name -> pane id
-    this.panePids = new Map(); // pid -> start time (null where the platform gives none)
+    // Every process the run's panes (or the herdr server) started that the driver has seen:
+    // pid -> { start, via } (start: the process-table identity, null if unknown). Teardown
+    // verifies each against a fresh table before it kills anything (#136).
+    this.panePids = new Map();
+    this.panes = new Set(); // every pane id workspaceCreate returned (#136)
     this.server = null;
     // Any abort (timebox expiry, operator signal, end of run) halts input for good, whether
     // or not a command was in flight -- including for calls made with teardown: true.
@@ -243,15 +262,32 @@ export class HerdrSession {
     return typeof r === 'string' ? r : 'operator abort (signal received)';
   }
 
-  trackPid(pid) {
-    if (!Number.isInteger(pid) || this.panePids.has(pid)) return;
-    this.panePids.set(pid, processStartTime(pid));
+  // Record a pid the run's panes started, with its process-table identity (null when the
+  // table could not be read or no longer lists it: teardown then never kills it on that pid).
+  trackPid(pid, table, via) {
+    if (!Number.isInteger(pid) || pid <= 0 || pid === this.proc.selfPid || this.panePids.has(pid)) return;
+    this.panePids.set(pid, { start: table?.get(pid)?.start ?? null, via });
   }
 
-  // Record every live descendant of the pane processes seen so far (a harness's own child
-  // processes: MCP servers, tool subprocesses), so teardown can check them too.
-  trackPaneTrees() {
-    for (const pid of [...this.panePids.keys()]) for (const d of descendants(pid) ?? []) this.trackPid(d);
+  // Record every live descendant of the processes seen so far (a harness's own child
+  // processes: MCP servers, tool subprocesses), and of the herdr server, so teardown can check
+  // them too. A tracked pid whose identity no longer matches is someone else's now: its tree
+  // is not followed.
+  trackPaneTrees(table = this.proc.table()) {
+    if (!table) return;
+    const roots = [...this.panePids].filter(([pid, rec]) => rec.start !== null && table.get(pid)?.start === rec.start).map(([pid]) => pid);
+    for (const pid of roots) for (const d of treeFrom(table, pid)) this.trackPid(d, table, 'descendant of a pane process');
+    const serverPid = this.server?.child.pid;
+    if (serverPid && !this.server.exitInfo) for (const d of treeFrom(table, serverPid)) this.trackPid(d, table, 'descendant of the herdr server');
+  }
+
+  // Ask herdr which processes a pane runs and track them (no tree walk).
+  async queryPane(paneId, { teardown = false } = {}) {
+    const r = await this.exec('read', ['pane', 'process-info', '--pane', paneId], { target: paneId, json: true, teardown, deadlineMs: teardown ? 10000 : null });
+    if (r.exitCode !== 0 || !r.json) return { ok: false, why: r.entry?.timedOut ? 'timed out' : `exit ${r.exitCode}${r.errorCode ? ` ${r.errorCode}` : ''}` };
+    const info = r.json?.result?.process_info ?? {};
+    const pids = [info.shell_pid, ...(info.foreground_processes ?? []).map((p) => p?.pid)].filter((p) => Number.isInteger(p));
+    return { ok: true, info, pids };
   }
 
   // --- preflight and lifecycle -------------------------------------------------------
@@ -307,9 +343,49 @@ export class HerdrSession {
 
   // Stop the session and make sure nothing it started is still running. Always runs, even
   // after an abort or a timeout; each step is bounded.
+  //
+  // Process accounting (#136): before the stop, every pane the run created is queried
+  // (`pane process-info`), whether or not the scenario ever asked, and the pane processes'
+  // and the herdr server's descendants are recorded from one process-table snapshot. After
+  // the stop, each recorded pid still alive is checked against a fresh snapshot and killed
+  // (that pid only, never its tree) only when ALL hold:
+  //   - its creation time still matches the recorded one (not a reused pid),
+  //   - it was created no earlier than this driver process (nothing older is the run's),
+  //   - it is not a protected process (protectedReason: the Codex app-server daemon).
+  // Anything that cannot be verified (no table, no recorded identity) is never killed; if it
+  // is still alive it is reported in leftoverProcesses and the teardown is not clean.
   async teardown() {
-    const t = { sessionStop: null, serverExited: null, forcedKills: [], leftoverProcesses: [], skippedReusedPids: [], processScan: null, sessionDelete: null, clean: false };
-    this.trackPaneTrees();
+    const t = {
+      sessionStop: null,
+      serverExited: null,
+      panes: { created: this.panes.size, queried: [], notQueried: [] },
+      forcedKills: [],
+      leftoverProcesses: [],
+      unverifiedPids: [],
+      skippedReusedPids: [],
+      skippedPreexistingPids: [],
+      protectedProcesses: [],
+      processScan: null,
+      sessionDelete: null,
+      clean: false,
+    };
+    const reported = [];
+    for (const paneId of this.panes) {
+      let q;
+      try {
+        q = await this.queryPane(paneId, { teardown: true });
+      } catch (err) {
+        q = { ok: false, why: err.message };
+      }
+      if (q.ok) {
+        t.panes.queried.push(paneId);
+        reported.push(...q.pids);
+      } else t.panes.notQueried.push({ paneId, why: q.why });
+    }
+    const before = this.proc.table();
+    for (const pid of reported) this.trackPid(pid, before, 'pane process (herdr pane process-info at teardown)');
+    this.trackPaneTrees(before);
+
     const stop = await this.exec('lifecycle', ['session', 'stop', this.name, '--json'], { session: false, teardown: true, deadlineMs: 25000 });
     t.sessionStop = stop.exitCode === 0 ? 'ok' : `exit ${stop.exitCode}${stop.errorCode ? ` ${stop.errorCode}` : ''}${stop.entry.timedOut ? ' (timed out)' : ''}`;
 
@@ -317,10 +393,10 @@ export class HerdrSession {
     if (this.server) {
       let exited = this.server.exitInfo ? true : (await within(this.server.exited, 5000)) !== 'timeout';
       if (!exited) {
-        killTree(serverPid, 'SIGTERM');
+        this.proc.killServer(serverPid, 'SIGTERM');
         exited = (await within(this.server.exited, 3000)) !== 'timeout';
         if (!exited) {
-          killTree(serverPid, 'SIGKILL');
+          this.proc.killServer(serverPid, 'SIGKILL');
           exited = (await within(this.server.exited, 3000)) !== 'timeout';
         }
         t.forcedKills.push({ what: 'herdr server', pid: serverPid });
@@ -328,23 +404,43 @@ export class HerdrSession {
       t.serverExited = exited;
     }
 
+    const after = this.proc.table();
+    const floor = after?.get(this.proc.selfPid)?.startKey ?? null;
     const stray = new Set();
-    for (const [pid, started] of this.panePids) {
-      if (!isAlive(pid)) continue;
-      // PID reuse guard: a recorded pid now carrying a different start time is someone else's.
-      const now = processStartTime(pid);
-      if (started !== null && now !== null && now !== started) t.skippedReusedPids.push(pid);
-      else stray.add(pid);
+    const consider = (pid, recorded, what) => {
+      if (stray.has(pid) || !this.proc.isAlive(pid)) return;
+      const now = after?.get(pid);
+      if (!after || recorded === null) {
+        t.unverifiedPids.push({ pid, why: !after ? 'process table not readable' : 'no creation time was recorded for it' });
+        return;
+      }
+      if (!now) return; // alive per signal 0 but not in the table: exited in between
+      if (now.start !== recorded) {
+        t.skippedReusedPids.push(pid);
+        return;
+      }
+      if (floor === null || now.startKey === null || now.startKey < floor) {
+        t.skippedPreexistingPids.push({ pid, why: floor === null || now.startKey === null ? 'creation time not comparable with the driver\'s' : 'created before this driver process' });
+        return;
+      }
+      const prot = protectedReason(now);
+      if (prot) {
+        t.protectedProcesses.push({ pid, why: prot });
+        return;
+      }
+      stray.add(pid);
+      t.forcedKills.push({ what, pid });
+    };
+    for (const [pid, rec] of this.panePids) consider(pid, rec.start, `pane process left running after session stop (${rec.via})`);
+    if (after) {
+      // A process still carrying this run's unique --session <name> (a herdr process of the run).
+      for (const p of after.values()) if (p.pid !== this.proc.selfPid && carriesSession(p, this.name)) consider(p.pid, p.start, 'process still carrying --session <name>');
     }
-    const scanned = processesForSession(this.name);
-    t.processScan = scanned === null ? `not available on ${process.platform}; pane and server pids checked individually` : 'argv scan for --session <name>';
-    for (const pid of scanned ?? []) stray.add(pid);
-    for (const pid of stray) {
-      killTree(pid, 'SIGKILL');
-      t.forcedKills.push({ what: this.panePids.has(pid) ? 'pane process (or its descendant) left running after session stop' : 'process still carrying --session <name>', pid });
-    }
+    t.processScan = after ? 'process table (pid, parent pid, creation time, argv) checked for --session <name>' : `process table not readable on ${process.platform}; recorded pids checked individually, none killed`;
+    for (const pid of stray) this.proc.killPid(pid);
     if (stray.size) await sleep(500);
-    for (const pid of [serverPid, ...stray]) if (pid && isAlive(pid)) t.leftoverProcesses.push(pid);
+    const unverifiedAlive = t.unverifiedPids.map((u) => u.pid).filter((pid) => this.proc.isAlive(pid));
+    for (const pid of new Set([serverPid, ...stray, ...unverifiedAlive])) if (pid && this.proc.isAlive(pid)) t.leftoverProcesses.push(pid);
 
     const del = await this.exec('lifecycle', ['session', 'delete', this.name, '--json'], { session: false, teardown: true, deadlineMs: 15000 });
     t.sessionDelete = del.exitCode === 0 ? 'ok' : `exit ${del.exitCode}${del.errorCode ? ` ${del.errorCode}` : ''}`;
@@ -368,16 +464,17 @@ export class HerdrSession {
     const res = r.json?.result ?? {};
     const out = { workspaceId: res.workspace?.workspace_id, tabId: res.tab?.tab_id, paneId: res.root_pane?.pane_id };
     if (!out.paneId) throw new DriverError('workspace create returned no root_pane.pane_id');
+    // Teardown queries every pane the run created, whether or not the scenario did (#136).
+    this.panes.add(out.paneId);
     return out;
   }
 
   async paneProcessInfo(paneId) {
-    const r = await this.exec('read', ['pane', 'process-info', '--pane', paneId], { target: paneId, json: true });
-    const info = r.json?.result?.process_info ?? {};
-    this.trackPid(info.shell_pid);
-    for (const p of info.foreground_processes ?? []) this.trackPid(p.pid);
-    this.trackPaneTrees();
-    return info;
+    const q = await this.queryPane(paneId);
+    const table = this.proc.table();
+    for (const pid of q.pids ?? []) this.trackPid(pid, table, 'pane process (herdr pane process-info)');
+    this.trackPaneTrees(table);
+    return q.info ?? {};
   }
 
   // --- panes -------------------------------------------------------------------------
