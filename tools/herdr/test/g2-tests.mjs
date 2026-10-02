@@ -19,14 +19,15 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { parseCodexVersions, parseCodexCliVersion, parseCodexUserAgentVersion, parseCodexDaemonVersion, codexVersionWarning } from '../lib/pins.mjs';
+import { parseCodexVersions, parseCodexCliVersion, parseCodexUserAgentVersion, parseCodexDaemonVersion, codexVersionWarning, pinsReadWarning } from '../lib/pins.mjs';
 import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
   splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
 } from '../lib/g2.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
-import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, renderReport } from '../lib/g2-report.mjs';
+import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport } from '../lib/g2-report.mjs';
+import { cloneWithPins } from './g1-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -55,7 +56,9 @@ export function g2Unit(check) {
   const table = (cell) => `| Surface | Stability label | Pinned version | Gates affected |\n|---|---|---|---|\n| Codex CLI / app-server | experimental | ${cell} | G2 |\n`;
   const syn = parseCodexVersions(table(`**floating** — minimum \`@scope/codex@0.150.0\` (commit \`${'b'.repeat(40)}\`); last tested \`@scope/codex@0.160.2\` (commit \`${'a'.repeat(40)}\`); see policy`));
   check('g2 version: synthetic row -> minimum, last tested, and the last tested version\'s commit (not the minimum\'s)', syn.minimum === '0.150.0' && syn.lastTested === '0.160.2' && syn.commit === 'a'.repeat(40), JSON.stringify(syn));
-  check('g2 version: a row without a minimum or a last tested version throws', throws(() => parseCodexVersions(table('`0.154.0`'))) && throws(() => parseCodexVersions(table('**floating** — last observed `@scope/codex@0.157.1`'))) && throws(() => parseCodexVersions(table('**floating** — last tested `@scope/codex@0.157.1`'))));
+  const badRows = [table('`0.154.0`'), table('**floating** — last observed `@scope/codex@0.157.1`'), table('**floating** — last tested `@scope/codex@0.157.1`'), 'nothing', undefined].map((t) => { try { return parseCodexVersions(t); } catch (e) { return { threw: e.message }; } });
+  check('g2 version (#216 review): a malformed or missing row never throws; unreadable versions are null, the problem named, and pinsReadWarning reports it', badRows.every((p) => !p.threw && typeof p.problem === 'string') && badRows[2].lastTested === '0.157.1' && badRows[2].minimum === null && badRows[0].commit === null && /^VERSION WARNING \(G2\): could not read/.test(pinsReadWarning(badRows[3], 'G2')) && real.problem === null, JSON.stringify(badRows));
+  check('g2 version (#216 review): null last tested/minimum -> a "could not be read" warning', /last tested version could not be read/.test(codexVersionWarning({ observed: '0.159.3', lastTested: null, minimum: null, source: 'x' })) && !/undefined|null/.test(codexVersionWarning({ observed: '0.159.3', lastTested: null, minimum: null, source: 'x' })));
   check('g2 pin: codex --version, userAgent and daemon version parse', parseCodexCliVersion('codex-cli 0.157.1\n') === '0.157.1' && parseCodexCliVersion('N/A (not runnable: ENOENT)') === null && parseCodexCliVersion('0.157.1') === null &&
     parseCodexUserAgentVersion('codex-tui/0.157.1 (Windows 10.0.26200; x86_64) unknown (oac_g2_spike; 0.0.1)') === '0.157.1' && parseCodexUserAgentVersion('oac_g2_spike/0.154.0 (Windows)') === '0.154.0' && parseCodexUserAgentVersion('no version here') === null);
   const dv = parseCodexDaemonVersion('{"status":"running","pid":4,"socketPath":"/x","managedCodexVersion":"0.157.1","cliVersion":"0.157.1","appServerVersion":"0.157.1"}\n');
@@ -237,7 +240,7 @@ export function g2Unit(check) {
   check('g2 report: versions verified only when CLI, all daemon fields and the wire report one and the same version, before and after; PINS.md is not part of it (#216)', versionsVerified(V()) && !versionsVerified(V({ wire: '0.158.0' })) && !versionsVerified(V({ daemon: { cliVersion: '0.157.1', appServerVersion: '0.158.0', managedCodexVersion: '0.157.1' } })) && !versionsVerified(V({}, false)) && versionsVerified(V({ pinsSource: { workingTreeMatchesHead: false } })) && versionsVerified(V({ pinsLastTested: '0.159.3' })));
   check('g2 report (#216): matching the last tested version is informational only', versionMatchesLastTested(V()) && !versionMatchesLastTested(V({ pinsLastTested: '0.159.3' })));
   const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: [{ file: 'transcript-x-herdr.jsonl', written: true }, { file: 'pane-x-herdr.txt', written: true }], scenarioData: { g2: { ...V(), fixtures: { transcript: 'transcript-x-herdr.jsonl', pane: 'pane-x-herdr.txt' }, captureNames: { transcript: 'transcript-x-herdr.jsonl', pane: 'pane-x-herdr.txt' }, client: { match: true, workingTreeMatchesHead: true } } } };
-  check('g2 report: --write accepts only a verified, clean-driver PASS; a dirty tools/herdr/ is refused (unlike G1\'s generator)', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /only a PASS run/.test(writeRefusal({ ...okRun, outcome: 'FAIL' })) && /one and the same Codex version/.test(writeRefusal({ ...okRun, scenarioData: { g2: { ...okRun.scenarioData.g2, ...V({}, false) } } })));
+  check('g2 report: --write accepts only a verified, clean-driver PASS; a dirty tools/herdr/ is refused (unlike G1\'s generator)', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /only a PASS run/.test(writeRefusal({ ...okRun, outcome: 'FAIL' })) && writeRefusal({ ...okRun, scenarioData: { g2: { ...okRun.scenarioData.g2, ...V({}, false) } } }) === null && /^VERSION WARNING: .*no fixture is added/.test(fixtureWithheld({ ...okRun, scenarioData: { g2: { ...okRun.scenarioData.g2, ...V({}, false) } } })) && fixtureWithheld(okRun) === null);
   const manifestAtHead = JSON.parse(spawnSync('git', ['show', `HEAD:${MANIFEST_PATH}`], { cwd: REPO, encoding: 'utf8', maxBuffer: 64 << 20 }).stdout);
   const sch = schemaBlockFor({ version: '0.157.1', codexCommit: 'c', manifestJson: manifestAtHead });
   const sch2 = schemaBlockFor({ version: '0.158.0', codexCommit: 'deadbeef', manifestJson: manifestAtHead });
@@ -420,7 +423,7 @@ export function g2Cases(check) {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
     check('g2 #216 daemon != CLI: the run is not stopped (the daemon field is a VERSION WARNING), the TUI launched', m.outcome !== 'NOT RUN' && m.findings.some((f) => /^VERSION WARNING \(G2\): `codex app-server daemon version` cliVersion reports 0\.999\.0/.test(f)) && r.calls.some((c) => c.argv.includes('agent')), `${m.outcome} ${m.outcomeReason}`);
-    check('g2 #216 daemon != CLI: no fixture-named capture (no single version to name), and --write refuses', g2.fixtures === null && g2.versions.verified === false && m.captures.every((c) => c.file.startsWith('unverified-')) && m.findings.some((f) => /captures stay unverified-\*/.test(f)), JSON.stringify(m.captures.map((c) => c.file)));
+    check('g2 #216 daemon != CLI: no fixture-named capture (no single version to name)', g2.fixtures === null && g2.versions.verified === false && m.captures.every((c) => c.file.startsWith('unverified-')) && m.findings.some((f) => /captures stay unverified-\*/.test(f)), JSON.stringify(m.captures.map((c) => c.file)));
   });
 
   run('g2 wire version differs from the CLI: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_WIRE_VERSION: '0.999.0' } }, (r) => {
@@ -431,9 +434,28 @@ export function g2Cases(check) {
     const root = mkdtempSync(join(tmpdir(), 'oac-g2-report-'));
     try {
       const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
-      check('g2 #216 wire != CLI: report --write refuses and writes nothing', w.status === 2 && /--write refused/.test(w.stderr) && readdirSync(root).length === 0, w.stderr);
+      const recDate = g2.date;
+      const rec = join(root, `docs/planning/gates/herdr-runs/G2-${recDate}.md`);
+      if (m.driver.toolsHerdrDirty === false) {
+        check('g2 #216 wire != CLI: --write writes the record and run manifest with a VERSION WARNING, but no fixture and no MANIFEST draft (operator decision on #216)', w.status === 0 && existsSync(rec) && existsSync(join(root, `docs/planning/gates/herdr-runs/G2-${recDate}.run-manifest.json`)) && !existsSync(join(root, FIXTURE_DIR)) && !existsSync(join(r.outDir, 'manifest-entries.draft.json')) && /No fixture written: VERSION WARNING/.test(w.stdout) && /Finding: VERSION WARNING: .*no fixture is added/.test(readFileSync(rec, 'utf8')), w.stdout + w.stderr);
+      } else {
+        check('g2 #216 wire != CLI: --write is refused only for the dirty tools/herdr/, never for the versions', w.status === 2 && /toolsHerdrDirty/.test(w.stderr) && !/same .*version/.test(w.stderr), w.stderr);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // #216 review: a malformed PINS.md Codex row never stops a run.
+  let pinsClone = null;
+  run('g2 malformed PINS.md row warns and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none' }, prepare: () => (pinsClone = cloneWithPins((t) => t.replace(/^(\| Codex CLI \/ app-server \| [^|]*\| )[^|]*/m, '$1**floating** — see "Version policy" '))) }, (r) => {
+    try {
+      const m = r.manifest;
+      const g2 = m.scenarioData.g2;
+      check('g2 #216 malformed PINS.md: PASS (exit 0), not FAIL or NOT RUN', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+      check('g2 #216 malformed PINS.md: a "could not read" VERSION WARNING; every version check warns PINS.md could not be read; captures still named', m.findings.some((f) => /^VERSION WARNING \(G2\): could not read docs\/planning\/PINS\.md "Codex CLI \/ app-server"/.test(f)) && m.findings.filter((f) => /last tested version could not be read/.test(f)).length === 5 && g2.versions.pinsLastTested === null && g2.versions.verified === true && JSON.stringify(g2.fixtures) === JSON.stringify(fixtureNames(today(), PIN)), JSON.stringify(m.findings));
+    } finally {
+      if (pinsClone) rmSync(pinsClone, { recursive: true, force: true });
     }
   });
 
@@ -465,7 +487,13 @@ export function g2Cases(check) {
     const g2 = m.scenarioData.g2;
     check('g2 mid-run move: recorded as a finding; the captures lose their fixture names (unverified-*)', g2.postRun.matches === false && g2.postRun.cli === '0.158.0' && m.findings.some((f) => /changed during the run/.test(f)) && g2.fixtures === null && g2.versions.verified === false && m.captures.length === 2 && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
     const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', join(r.base, 'nowrite')], { encoding: 'utf8', timeout: 20000 });
-    check('g2 mid-run move: report --write refuses', w.status === 2 && /--write refused/.test(w.stderr) && !existsSync(join(r.base, 'nowrite')), w.stderr);
+    const recDate = g2.date;
+    const rec = join(join(r.base, 'nowrite'), `docs/planning/gates/herdr-runs/G2-${recDate}.md`);
+    if (m.driver.toolsHerdrDirty === false) {
+      check('g2 mid-run move: --write writes the record and run manifest with a VERSION WARNING, but no fixture and no MANIFEST draft (operator decision on #216)', w.status === 0 && existsSync(rec) && existsSync(join(join(r.base, 'nowrite'), `docs/planning/gates/herdr-runs/G2-${recDate}.run-manifest.json`)) && !existsSync(join(join(r.base, 'nowrite'), FIXTURE_DIR)) && !existsSync(join(r.outDir, 'manifest-entries.draft.json')) && /No fixture written: VERSION WARNING/.test(w.stdout) && /Finding: VERSION WARNING: .*no fixture is added/.test(readFileSync(rec, 'utf8')), w.stdout + w.stderr);
+    } else {
+      check('g2 mid-run move: --write is refused only for the dirty tools/herdr/, never for the versions', w.status === 2 && /toolsHerdrDirty/.test(w.stderr) && !/same .*version/.test(w.stderr), w.stderr);
+    }
   });
 
   run('g2 human accept timeout', { args: ['--param', 'accept=human', '--param', 'humanAcceptTimeoutMs=1500', ...FAST], fakeCodex: {} }, (r) => {

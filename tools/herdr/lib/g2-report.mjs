@@ -247,7 +247,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push(`- **Accept policy:** ${g2.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g2.dialogs)} (no G2 criterion names a consent step)`);
   out.push(`- **herdr agent states seen** (scheduling only, never evidence): ${(g2.herdrStates ?? []).map((s) => `${s.state} (#${s.seq}, ${s.context})`).join(', ') || 'none'}`);
   out.push(`- **Client:** \`${g2.client?.committed ?? COMMITTED_CLIENT}\` run unmodified from a scratch copy of the blob at HEAD \`${g2.client?.headCommit ?? '?'}\`; sha256 committed \`${g2.client?.committedSha256 ?? '?'}\`, copy \`${g2.client?.copySha256 ?? '?'}\`, match: ${g2.client?.match ?? '?'}; working tree matched HEAD: ${g2.client?.workingTreeMatchesHead ?? '?'}; runs: ${(g2.clientRuns ?? []).map((r) => `${r.mode} (exit ${r.exitCode})`).join(', ') || 'none'}; divergence: ${(g2.divergence ?? []).join('; ') || 'none'}`);
-  out.push(fixtures ? `- **Fixtures:** \`${fixtures.transcript}\`, \`${fixtures.pane}\`` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
+  out.push(fixtures ? `- **Fixtures:** \`${fixtures.transcript}\`, \`${fixtures.pane}\`` : `- **Fixtures:** none (${writeRefusal(manifest) ?? fixtureWithheld(manifest) ?? 'not published'})`);
   out.push(`- **Fixture sanitizer:** ${g2.sanitizer ? `${g2.sanitizer.threadListEntriesRemoved} unrelated thread/list entr(ies) removed; serverName ${g2.sanitizer.serverNames}, installationId ${g2.sanitizer.installationIds}, plan ${g2.sanitizer.planFields}, credit ${g2.sanitizer.creditFields} field(s) replaced` : 'not run'}`);
   out.push(`- **Run manifest:** \`${runManifestName}\` (beside this file); harness config unchanged: ${manifest?.harnessConfig?.unchanged ?? '?'}; teardown clean: ${manifest?.teardown?.clean ?? '?'}`);
   out.push(`- **Baseline:** \`${baselinePath}\` and \`docs/planning/gates/G2-result.md\` (the human-run 0.157.1 re-run)`);
@@ -277,6 +277,8 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('## Findings and UNVERIFIED');
   out.push('');
   for (const f of manifest?.findings ?? []) out.push(`- Finding: ${f}`);
+  if (fixtureWithheld(manifest)) out.push(`- Finding: ${fixtureWithheld(manifest)}`);
+  out.push('- Harness versions float and are never gated (#216): a version other than PINS.md\'s last tested one, or other than the baseline run\'s, is a finding here and does not by itself disqualify this record, including as an equivalence record.');
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand (run id, outcome, reason from its run manifest).');
   out.push('- The delivered texts are the human run\'s, with "through herdr" added to injection 1; the busy and queued texts are the committed client\'s own. The operator prompt is a scenario parameter.');
   out.push('- Codex pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane capture.');
@@ -317,15 +319,26 @@ function pinsVersionsText(v) {
   return `last observed \`${v.pinsLastObserved ?? '?'}\` (commit \`${v.pinsCommit ?? '?'}\`; recorded before #216)`;
 }
 
-// Why --write must refuse this run, or null.
+// Why --write writes the record and run manifest but NO fixture, or null. Operator decision
+// on #216 (2026-10-01): when the Codex CLI, daemon and wire disagree, or a version moved mid-run, the record is
+// still written, with a VERSION WARNING; its captures stay `unverified-*` and no fixture
+// or MANIFEST.json entry is produced, because a fixture names one version.
+export function fixtureWithheld(manifest) {
+  const g2 = manifest?.scenarioData?.g2;
+  if (!g2 || versionsVerified(g2)) return null;
+  return `VERSION WARNING: the CLI (${g2.versions?.cli ?? 'none'}), the daemon (${JSON.stringify(g2.versions?.daemon ?? null)}) and the wire (${g2.versions?.wire ?? 'none'}) did not report one and the same Codex version before and after the run, so no fixture can name it; the record and run manifest are written, the captures stay unverified-* and no fixture is added (#216)`;
+}
+
+// Why --write must refuse this run, or null. Mixed versions never refuse it (fixtureWithheld).
 export function writeRefusal(manifest) {
   const g2 = manifest?.scenarioData?.g2;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g2) return 'no G2 scenario record in the run manifest';
-  if (!versionsVerified(g2)) return `the CLI (${g2.versions?.cli}), the daemon (${JSON.stringify(g2.versions?.daemon ?? null)}) and the wire (${g2.versions?.wire}) did not report one and the same Codex version before and after the run, so no fixture can name it`;
-  if (!g2.fixtures || JSON.stringify(g2.fixtures) !== JSON.stringify(g2.captureNames)) return 'captures do not carry the verified K7 fixture names';
-  for (const f of [g2.fixtures.transcript, g2.fixtures.pane]) {
-    if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
+  if (versionsVerified(g2)) {
+    if (!g2.fixtures || JSON.stringify(g2.fixtures) !== JSON.stringify(g2.captureNames)) return 'captures do not carry the verified K7 fixture names';
+    for (const f of [g2.fixtures.transcript, g2.fixtures.pane]) {
+      if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
+    }
   }
   if (g2.client?.match !== true || g2.client?.workingTreeMatchesHead !== true) return 'the client copy is not verified against the committed blob';
   if (manifest.driver?.toolsHerdrDirty !== false || !manifest.driver?.commit) return `the run's tools/herdr/ was not clean and committed (toolsHerdrDirty ${JSON.stringify(manifest.driver?.toolsHerdrDirty ?? null)}); its captures are never committed as fixtures (scripted-runs.md "Driver identity")`;
@@ -457,7 +470,8 @@ function main(argv) {
   const date = g2?.date ?? manifest.timebox?.start?.slice(0, 10) ?? 'unknown-date';
   const runManifestName = `G2-${date}.run-manifest.json`;
   const refusal = writeRefusal(manifest);
-  const report = renderReport({ manifest, evaluation, diffText, date, fixtures: !refusal ? { transcript: `${FIXTURE_DIR}/${fixtures.transcript}`, pane: `${FIXTURE_DIR}/${fixtures.pane}` } : null, runManifestName, baselinePath, reference });
+  const publish = !refusal && !fixtureWithheld(manifest);
+  const report = renderReport({ manifest, evaluation, diffText, date, fixtures: publish ? { transcript: `${FIXTURE_DIR}/${fixtures.transcript}`, pane: `${FIXTURE_DIR}/${fixtures.pane}` } : null, runManifestName, baselinePath, reference });
   if (!o.write) {
     console.log(report);
     return 0;
@@ -468,14 +482,18 @@ function main(argv) {
   const targets = [
     [join(runsDir, `G2-${date}.md`), null],
     [join(runsDir, runManifestName), join(runDir, 'run-manifest.json')],
-    [join(root, FIXTURE_DIR, fixtures.transcript), join(runDir, fixtures.transcript)],
-    [join(root, FIXTURE_DIR, fixtures.pane), join(runDir, fixtures.pane)],
+    ...(publish ? [[join(root, FIXTURE_DIR, fixtures.transcript), join(runDir, fixtures.transcript)], [join(root, FIXTURE_DIR, fixtures.pane), join(runDir, fixtures.pane)]] : []),
   ];
   const exists = targets.filter(([t]) => existsSync(t)).map(([t]) => t);
   if (exists.length) throw new ReportError(`refusing to overwrite: ${exists.join(', ')}`);
   for (const [t] of targets) mkdirSync(dirname(t), { recursive: true });
   writeFileSync(targets[0][0], `${report}\n`);
   for (const [to, from] of targets.slice(1)) copyFileSync(from, to);
+  if (!publish) {
+    console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
+    console.log(`No fixture written: ${fixtureWithheld(manifest)}`);
+    return 0;
+  }
   const git = spawnSync('git', ['log', '-1', '--format=%H', '--', 'docs/planning/PINS.md'], { cwd: REPO, encoding: 'utf8', timeout: 10000 });
   const entries = draftManifestEntries({
     manifest,

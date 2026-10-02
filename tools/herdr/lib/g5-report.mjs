@@ -266,7 +266,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
   out.push(`- **Accept policy:** ${g5.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g5.dialogs)} (no G5 criterion names a consent step)`);
   out.push(`- **herdr agent states seen** (scheduling only, never evidence): ${(g5.herdrStates ?? []).map((s) => `${s.agent} ${s.state} (#${s.seq})`).join(', ') || 'none'}`);
-  out.push(fixtures ? `- **Fixtures:** ${Object.values(fixtures).map((f) => `\`${f}\``).join(', ')}` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
+  out.push(fixtures ? `- **Fixtures:** ${Object.values(fixtures).map((f) => `\`${f}\``).join(', ')}` : `- **Fixtures:** none (${writeRefusal(manifest) ?? fixtureWithheld(manifest) ?? 'not published'})`);
   out.push(`- **Codex transcript sanitizer** (lib/g2.mjs, as the G2 runs): ${g5.sanitizer ? `${g5.sanitizer.threadListEntriesRemoved} unrelated thread/list entr(ies) removed; host ${g5.sanitizer.serverNames}, installation id ${g5.sanitizer.installationIds}, plan ${g5.sanitizer.planFields}, credit ${g5.sanitizer.creditFields} field(s) replaced` : 'not run'}`);
   out.push(`- **Run manifest:** \`${runManifestName}\` (beside this file); harness config unchanged: ${manifest?.harnessConfig?.unchanged ?? '?'}; teardown clean: ${manifest?.teardown?.clean ?? '?'}`);
   out.push(`- **Baseline:** \`${BASELINE.claude}\`, \`${BASELINE.rendered}\`, \`${BASELINE.codex}\` and \`docs/planning/gates/G5-result.md\` (produced by the uncommitted original spike programs)`);
@@ -302,6 +302,8 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('## Findings and UNVERIFIED');
   out.push('');
   for (const f of manifest?.findings ?? []) out.push(`- Finding: ${f}`);
+  if (fixtureWithheld(manifest)) out.push(`- Finding: ${fixtureWithheld(manifest)}`);
+  out.push('- Harness versions float and are never gated (#216): a version other than PINS.md\'s last tested one, or other than the baseline run\'s, is a finding here and does not by itself disqualify this record, including as an equivalence record.');
   out.push('- The server, client and case table are reconstructions (callout above); a difference may come from them, not from Claude Code or Codex.');
   out.push('- Claude rows are scored on pane text, not on the session-log render the human run used; see each row\'s reason.');
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand.');
@@ -335,13 +337,25 @@ function pinsVersionsText(p) {
   return `PINS.md last observed Claude \`${p?.claudeLastObserved ?? '?'}\`, Codex \`${p?.codexLastObserved ?? '?'}\` (recorded before #216)`;
 }
 
+// Why --write writes the record and run manifest but NO fixture, or null. Operator decision
+// on #216 (2026-10-01): when a harness's CLI, daemon and wire disagree, or a version moved mid-run, the record is
+// still written, with a VERSION WARNING; its captures stay `unverified-*` and no fixture
+// or MANIFEST.json entry is produced, because a fixture names one version.
+export function fixtureWithheld(manifest) {
+  const g5 = manifest?.scenarioData?.g5;
+  if (!g5 || versionsVerified(g5)) return null;
+  return `VERSION WARNING: the CLIs, the daemon and the wires (CLI ${JSON.stringify(g5.versions?.cli ?? null)}, daemon ${JSON.stringify(g5.versions?.daemon ?? null)}, wire ${JSON.stringify({ claude: g5.versions?.wire?.claude ?? null, codex: g5.versions?.wire?.codex ?? null })}) did not report one and the same version per harness before and after the run, so no fixture can name it; the record and run manifest are written, the captures stay unverified-* and no fixture is added (#216)`;
+}
+
+// Why --write must refuse this run, or null. Mixed versions never refuse it (fixtureWithheld).
 export function writeRefusal(manifest) {
   const g5 = manifest?.scenarioData?.g5;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g5) return 'no G5 scenario record in the run manifest';
-  if (!versionsVerified(g5)) return 'the CLIs, the daemon and the wires did not report one and the same version per harness before and after the run, so no fixture can name it';
-  if (!g5.fixtures || JSON.stringify(g5.fixtures) !== JSON.stringify(g5.captureNames)) return 'captures do not carry the verified K8 fixture names';
-  for (const f of Object.values(g5.fixtures)) if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
+  if (versionsVerified(g5)) {
+    if (!g5.fixtures || JSON.stringify(g5.fixtures) !== JSON.stringify(g5.captureNames)) return 'captures do not carry the verified K8 fixture names';
+    for (const f of Object.values(g5.fixtures)) if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
+  }
   const staged = [...(g5.server ?? []), ...(g5.client ?? [])];
   if (!staged.length || !staged.every((s) => s.match && s.workingTreeMatchesHead)) return 'a staged gate program does not match its committed source';
   if (manifest.driver?.toolsHerdrDirty !== false || !manifest.driver?.commit) return `the run's tools/herdr/ was not clean and committed (toolsHerdrDirty ${JSON.stringify(manifest.driver?.toolsHerdrDirty ?? null)}); its captures are never committed as fixtures (scripted-runs.md "Driver identity")`;
@@ -416,7 +430,8 @@ function main(argv) {
   const date = g5?.date ?? manifest.timebox?.start?.slice(0, 10) ?? 'unknown-date';
   const runManifestName = `G5-${date}.run-manifest.json`;
   const refusal = writeRefusal(manifest);
-  const report = renderReport({ manifest, evaluation, date, fixtures: !refusal ? Object.fromEntries(Object.entries(fixtures).map(([k, f]) => [k, `${FIXTURE_DIR}/${f}`])) : null, runManifestName, reference });
+  const publish = !refusal && !fixtureWithheld(manifest);
+  const report = renderReport({ manifest, evaluation, date, fixtures: publish ? Object.fromEntries(Object.entries(fixtures).map(([k, f]) => [k, `${FIXTURE_DIR}/${f}`])) : null, runManifestName, reference });
   if (!o.write) {
     console.log(report);
     return 0;
@@ -424,8 +439,13 @@ function main(argv) {
   if (refusal) throw new ReportError(`--write refused: ${refusal}. Nothing was written; print the draft without --write to inspect the run`);
   const root = o.root ? resolve(o.root) : REPO;
   const runsDir = join(root, HERDR_RUNS_DIR);
-  const targets = [[join(runsDir, `G5-${date}.md`), null], [join(runsDir, runManifestName), join(runDir, 'run-manifest.json')], ...Object.values(fixtures).map((f) => [join(root, FIXTURE_DIR, f), join(runDir, f)])];
+  const targets = [[join(runsDir, `G5-${date}.md`), null], [join(runsDir, runManifestName), join(runDir, 'run-manifest.json')], ...(publish ? Object.values(fixtures).map((f) => [join(root, FIXTURE_DIR, f), join(runDir, f)]) : [])];
   writeTargets(targets, report);
+  if (!publish) {
+    console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
+    console.log(`No fixture written: ${fixtureWithheld(manifest)}`);
+    return 0;
+  }
   const git = spawnSync('git', ['log', '-1', '--format=%H', '--', 'docs/planning/PINS.md'], { cwd: REPO, encoding: 'utf8', timeout: 10000 });
   const entries = draftManifestEntries({
     manifest,

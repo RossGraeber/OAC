@@ -13,18 +13,18 @@
 // Code: a live G1 run through herdr is evidenced only by its own local run record.
 
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { compareTranscripts, diffSequences, formatDiff, parseTranscript, selectSegment, transcriptFacts, normalizeEntries, TranscriptError, isLegacyRevision } from '../lib/compare-transcripts.mjs';
-import { parseClaudeVersions, parseClaudeCliVersion, claudeVersionWarning, compareVersions } from '../lib/pins.mjs';
+import { parseClaudeVersions, parseClaudeCliVersion, claudeVersionWarning, compareVersions, pinsReadWarning } from '../lib/pins.mjs';
 import {
   BOX_C_TRANSCRIPT, COMMITTED_SERVER, FIXTURE_DIR, G1_LAUNCH, classifyScreen, driverMayAccept, dialogMatchesBoxC, formatSection, parseSections,
   fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256, selectedOption, sameDialog, acceptHint, selectionCheck,
 } from '../lib/g1.mjs';
-import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, versionsVerified, versionMatchesLastTested } from '../lib/g1-report.mjs';
+import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, fixtureWithheld, versionsVerified, versionMatchesLastTested } from '../lib/g1-report.mjs';
 import { assertNotInjected, DEFAULT_PROMPTS, operatorProjectDir } from '../scenarios/g1-claude-wake.mjs';
 import { AGENT_START_MAX_TIMEOUT_MS, DriverError } from '../lib/herdr.mjs';
 
@@ -161,7 +161,13 @@ export function g1Unit(check) {
   const table = (cellText) => `| Surface | Stability label | Pinned version | Gates affected |\n|---|---|---|---|\n| Claude Code (Channels) | research preview | ${cellText} | G1 |\n`;
   const syn = parseClaudeVersions(table('**floating** — minimum `v2.1.200`; last tested `v2.1.300` (L9, 2026-12-01); see policy'));
   check('version: synthetic row -> minimum and last tested', syn.minimum === '2.1.200' && syn.lastTested === '2.1.300');
-  check('version: a row without a minimum or a last tested version throws', throws(() => parseClaudeVersions(table('`v2.1.274`'))) && throws(() => parseClaudeVersions(table('**floating** — last observed `v2.1.283`'))) && throws(() => parseClaudeVersions(table('**floating** — last tested `v2.1.283`'))) && throws(() => parseClaudeVersions('| Surface | Pinned version |\n|---|---|\n| zenoh | `1.10.1` |')));
+  // #216 review: the reader never throws; what it cannot read is null, with the reason.
+  const bad = [table('`v2.1.274`'), table('**floating** — last observed `v2.1.283`'), table('**floating** — last tested `v2.1.283`'), '| Surface | Pinned version |\n|---|---|\n| zenoh | `1.10.1` |', 'no table at all', '', undefined];
+  const badParsed = bad.map((t) => { try { return parseClaudeVersions(t); } catch (e) { return { threw: e.message }; } });
+  check('version (#216 review): a malformed or missing row never throws; unreadable versions are null and the problem is named', badParsed.every((p) => !p.threw && typeof p.problem === 'string' && p.problem.length > 0) && badParsed[2].lastTested === '2.1.283' && badParsed[2].minimum === null && /no "minimum/.test(badParsed[2].problem) && badParsed[0].lastTested === null && badParsed[4].cell === null, JSON.stringify(badParsed));
+  check('version (#216 review): pinsReadWarning is a VERSION WARNING naming the row and the problem (never a stop), null for a good row', /^VERSION WARNING \(G1\): could not read docs\/planning\/PINS\.md "Claude Code \(Channels\)"/.test(pinsReadWarning(badParsed[0], 'G1')) && /run continues/.test(pinsReadWarning(badParsed[0], 'G1')) && pinsReadWarning(PINNED, 'G1') === null && PINNED.problem === null);
+  const nullW = claudeVersionWarning({ observed: '2.1.285', lastTested: null, minimum: undefined, source: 'x' });
+  check('version (#216 review): a null last tested or minimum version is a "could not be read" warning, never "vundefined"/"vnull"', /last tested version could not be read/.test(nullW) && /minimum version could not be read/.test(nullW) && /records minimum unreadable, last tested unreadable/.test(nullW) && !/vundefined|vnull|undefined|null/.test(nullW), nullW);
   check('version: compareVersions orders numerically', compareVersions('2.1.10', '2.1.9') > 0 && compareVersions('2.1.282', '2.1.282') === 0 && compareVersions('0.154.0', '0.159.3') < 0);
   check('pin: claude --version output parses', parseClaudeCliVersion('2.1.283 (Claude Code)\n') === '2.1.283' && parseClaudeCliVersion('v2.1.284') === '2.1.284' && parseClaudeCliVersion('N/A (not runnable: ENOENT)') === null && parseClaudeCliVersion('2.1.283-beta (x)') === null);
   const w = claudeVersionWarning({ observed: '2.1.286', lastTested: '2.1.285', minimum: '2.1.282', source: '`claude --version`' });
@@ -376,6 +382,8 @@ export function g1Unit(check) {
   check('report: versions verified when CLI and wire report one and the same version; PINS.md is not part of it (#216)', versionsVerified(v({})) && !versionsVerified(v({ wireClientInfo: '2.1.999' })) && !versionsVerified(v({ cli: '2.1.999' })) && !versionsVerified(v({ verified: false })) && versionsVerified(v({ pinsSource: { workingTreeMatchesHead: false } })) && versionsVerified(v({ cli: '2.1.999', wireClientInfo: '2.1.999' })));
   check('report (#216): matching the last tested version is informational: a drifted version is verified but does not match', versionMatchesLastTested(v({})) && !versionMatchesLastTested(v({ cli: '2.1.999', wireClientInfo: '2.1.999' })) && !versionMatchesLastTested(v({ cli: '2.1.200', wireClientInfo: '2.1.200' })));
   check('report: --write refuses a NOT RUN outcome', /only a PASS run is written/.test(writeRefusal({ outcome: 'NOT RUN', outcomeReason: 'timed out', scenarioData: { g1: v({}) } })));
+  const mixed = { outcome: 'PASS', scenarioData: { g1: { ...v({ wireClientInfo: '2.1.999', verified: false }), server: { match: true, workingTreeMatchesHead: true } } } };
+  check('report (#216 operator decision): CLI != wire never refuses --write; the fixture is withheld with a VERSION WARNING', writeRefusal(mixed) === null && /^VERSION WARNING: .*no fixture is added/.test(fixtureWithheld(mixed)) && fixtureWithheld({ outcome: 'PASS', scenarioData: { g1: v({}) } }) === null);
 }
 
 // --- lifecycle cases (driver end to end against the fakes) --------------------------------
@@ -504,9 +512,26 @@ export function g1Cases(check) {
     const root = mkdtempSync(join(tmpdir(), 'oac-g1-report-'));
     try {
       const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
-      check('g1 #216 CLI != wire: report --write refuses (no single version to name), writes nothing', w.status === 2 && /did not report one and the same Claude Code version/.test(w.stderr) && readdirSync(root).length === 0, w.stderr);
+      const date = g1.date;
+      const fixDir = join(root, FIXTURE_DIR);
+      check('g1 #216 CLI != wire: --write writes the record and run manifest with a VERSION WARNING, but no fixture and no MANIFEST draft (operator decision)', w.status === 0 && existsSync(join(root, `docs/planning/gates/herdr-runs/G1-${date}.md`)) && existsSync(join(root, `docs/planning/gates/herdr-runs/G1-${date}.run-manifest.json`)) && !existsSync(fixDir) && !existsSync(join(r.outDir, 'manifest-entries.draft.json')) && /No fixture written: VERSION WARNING/.test(w.stdout) && /Finding: VERSION WARNING: the CLI .* no fixture is added/.test(readFileSync(join(root, `docs/planning/gates/herdr-runs/G1-${date}.md`), 'utf8')), w.stdout + w.stderr);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // #216 review: a malformed PINS.md harness row never stops a run. The driver runs from a
+  // temporary clone whose committed PINS.md has the Claude Code row's versions removed.
+  let pinsClone = null;
+  run('g1 malformed PINS.md row warns and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_STEP_MS: '1000' }, prepare: () => (pinsClone = cloneWithPins((t) => t.replace(/^(\| Claude Code \(Channels\) \| [^|]*\| )[^|]*/m, '$1**floating** — see "Version policy" '))) }, (r) => {
+    try {
+      const m = r.manifest;
+      const g1 = m.scenarioData.g1;
+      check('g1 #216 malformed PINS.md: PASS (exit 0), not FAIL or NOT RUN', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+      check('g1 #216 malformed PINS.md: a "could not read" VERSION WARNING, and the version checks warn that PINS.md could not be read', m.findings.some((f) => /^VERSION WARNING \(G1\): could not read docs\/planning\/PINS\.md "Claude Code \(Channels\)"/.test(f)) && m.findings.some((f) => /last tested version could not be read/.test(f)) && g1.versions.pinsLastTested === null && g1.versions.pinsMinimum === null && !m.findings.some((f) => /vundefined|vnull/.test(f)), JSON.stringify(m.findings));
+      check('g1 #216 malformed PINS.md: the whole run happened and the captures still name the observed version', r.prompts.length === 3 && g1.versions.verified === true && g1.versions.matchesLastTested === false && JSON.stringify(g1.fixtures) === JSON.stringify(fixtureNames(today(), TESTED)));
+    } finally {
+      if (pinsClone) rmSync(pinsClone, { recursive: true, force: true });
     }
   });
 
@@ -563,6 +588,24 @@ export function g1Cases(check) {
     check('g1 #196 stuck selection: NOT RUN after one "down", never Enter on "No, exit", nothing re-sent', r.status === 3 && /did not move/.test(m.outcomeReason) && acc.length === 1 && acc[0].argv.at(-1) === 'down', `${m.outcomeReason} ${JSON.stringify(acc.map((a) => a.argv.at(-1)))}`);
   });
   return cases;
+}
+
+// A temporary clone of this repository with the working tree's tools/herdr/ copied over it
+// and `mutate(PINS.md text)` committed, so a scenario reads a malformed PINS.md row from HEAD
+// (#216 review). Test setup only: everything happens in a fresh temp directory.
+export function cloneWithPins(mutate) {
+  const dir = mkdtempSync(join(tmpdir(), 'oac-pins-'));
+  const git = (args) => {
+    const r = spawnSync('git', ['-c', 'user.name=oac-selftest', '-c', 'user.email=selftest@invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8', timeout: 60000 });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed in the test clone: ${r.stderr}`);
+  };
+  git(['clone', '-q', '--no-hardlinks', REPO, '.']);
+  cpSync(join(REPO, 'tools', 'herdr'), join(dir, 'tools', 'herdr'), { recursive: true });
+  const pins = join(dir, 'docs', 'planning', 'PINS.md');
+  writeFileSync(pins, mutate(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')));
+  git(['add', '--', 'docs/planning/PINS.md']);
+  git(['commit', '-q', '-m', 'test: malformed PINS.md row', '--', 'docs/planning/PINS.md']);
+  return dir;
 }
 
 // A fake `claude` CLI for `claude --version` (the driver records harness versions with it).

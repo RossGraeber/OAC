@@ -87,20 +87,26 @@ function pinTableCell(pinsText, rowName, column) {
   return rows[0][header.indexOf(column)] ?? '';
 }
 
+const isVersion = (v) => typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v);
+
 // The warning for one observed harness version, or null when it equals the last tested
-// version. `display` formats a version for the message.
+// version. `display` formats a version for the message. Null-tolerant (#216 review): a
+// missing or unreadable last tested or minimum version is itself a warning, never a throw.
 function versionWarning({ harness, row, observed, lastTested, minimum, source, gate, display }) {
+  const show = (v) => (isVersion(v) ? display(v) : 'unreadable');
   const issues = [];
-  if (!observed) issues.push('no parseable version');
-  else {
-    if (minimum && compareVersions(observed, minimum) < 0) issues.push(`below the minimum ${display(minimum)}`);
-    if (observed !== lastTested) issues.push(`not the last tested ${display(lastTested)}`);
+  if (!isVersion(observed)) issues.push('no parseable version');
+  if (!isVersion(lastTested)) issues.push('PINS.md\'s last tested version could not be read');
+  if (!isVersion(minimum)) issues.push('PINS.md\'s minimum version could not be read');
+  if (isVersion(observed)) {
+    if (isVersion(minimum) && compareVersions(observed, minimum) < 0) issues.push(`below the minimum ${display(minimum)}`);
+    if (isVersion(lastTested) && observed !== lastTested) issues.push(`not the last tested ${display(lastTested)}`);
   }
   if (!issues.length) return null;
-  const seen = observed ? display(observed) : 'no parseable version';
+  const seen = isVersion(observed) ? display(observed) : 'no parseable version';
   return (
-    `VERSION WARNING (${gate}): ${source} reports ${seen}; docs/planning/PINS.md "${row}" records minimum ${minimum ? display(minimum) : '?'}, ` +
-    `last tested ${display(lastTested)} (${issues.join('; ')}). ${harness} versions float and are never gated (operator decision on #216, ` +
+    `VERSION WARNING (${gate}): ${source} reports ${seen}; docs/planning/PINS.md "${row}" records minimum ${show(minimum)}, ` +
+    `last tested ${show(lastTested)} (${issues.join('; ')}). ${harness} versions float and are never gated (operator decision on #216, ` +
     '2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit ' +
     'PINS.md; record the version as last tested there after a live run.'
   );
@@ -112,15 +118,44 @@ function versionWarning({ harness, row, observed, lastTested, minimum, source, g
 
 export const CLAUDE_PIN_ROW = 'Claude Code (Channels)';
 
-// -> { row, minimum: '2.1.282', lastTested: '2.1.285', cell }; throws when the row or
-// either version is missing.
+// Reads a harness row without ever throwing (#216 review): a missing table, a missing or
+// duplicated row, or a cell without a minimum or last tested version gives null for what
+// could not be read, and `problem` says why. A run reports `problem` through
+// pinsReadWarning() and continues; the version checks then warn that PINS.md could not be read.
+function readHarnessRow(pinsText, row, minRe, lastRe, shape) {
+  let cell = null;
+  try {
+    cell = pinTableCell(String(pinsText ?? ''), row, 'Pinned version');
+  } catch (err) {
+    return { row, minimum: null, lastTested: null, cell: null, lastIndex: -1, problem: err.message };
+  }
+  const min = minRe.exec(cell);
+  const last = lastRe.exec(cell);
+  const missing = [last ? null : `"last tested \`${shape}\`"`, min ? null : `"minimum \`${shape}\`"`].filter(Boolean);
+  return {
+    row,
+    minimum: min ? min[1] : null,
+    lastTested: last ? last[1] : null,
+    cell,
+    lastIndex: last ? last.index : -1,
+    problem: missing.length ? `PINS.md "${row}" row has no ${missing.join(' and no ')} version in its version cell` : null,
+  };
+}
+
+// The finding for a harness row that could not be read, or null. Never a stop (#216).
+export function pinsReadWarning(versions, gate) {
+  if (!versions?.problem) return null;
+  return (
+    `VERSION WARNING (${gate}): could not read docs/planning/PINS.md "${versions.row}": ${versions.problem}. Harness versions are never gated ` +
+    '(operator decision on #216, 2026-10-01): the run continues, and every version check of this harness warns that PINS.md could not be read.'
+  );
+}
+
+// -> { row, minimum: '2.1.282' | null, lastTested: '2.1.285' | null, cell, problem: string | null }.
+// Never throws.
 export function parseClaudeVersions(pinsText) {
-  const cell = pinTableCell(pinsText, CLAUDE_PIN_ROW, 'Pinned version');
-  const min = /minimum\s+`v?(\d+\.\d+\.\d+)`/i.exec(cell);
-  const last = /last[\s-]+tested\s+`v?(\d+\.\d+\.\d+)`/i.exec(cell);
-  if (!last) throw new Error(`PINS.md "${CLAUDE_PIN_ROW}" row has no "last tested \`vX.Y.Z\`" version in its version cell`);
-  if (!min) throw new Error(`PINS.md "${CLAUDE_PIN_ROW}" row has no "minimum \`vX.Y.Z\`" version in its version cell`);
-  return { row: CLAUDE_PIN_ROW, minimum: min[1], lastTested: last[1], cell };
+  const { lastIndex, ...v } = readHarnessRow(pinsText, CLAUDE_PIN_ROW, /minimum\s+`v?(\d+\.\d+\.\d+)`/i, /last[\s-]+tested\s+`v?(\d+\.\d+\.\d+)`/i, 'vX.Y.Z');
+  return v;
 }
 
 // `claude --version` prints e.g. `2.1.283 (Claude Code)` (G1-result.md "Version triple").
@@ -147,16 +182,13 @@ export function claudeVersionWarning({ observed, lastTested, minimum, source, ga
 
 export const CODEX_PIN_ROW = 'Codex CLI / app-server';
 
-// -> { row, minimum: '0.154.0', lastTested: '0.159.3', commit: '<40 hex>' | null, cell }
+// -> { row, minimum: '0.154.0' | null, lastTested: '0.159.3' | null, commit: '<40 hex>' | null,
+// cell, problem: string | null }. Never throws.
 export function parseCodexVersions(pinsText) {
-  const cell = pinTableCell(pinsText, CODEX_PIN_ROW, 'Pinned version');
-  const min = /minimum\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i.exec(cell);
-  const last = /last[\s-]+tested\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i.exec(cell);
-  if (!last) throw new Error(`PINS.md "${CODEX_PIN_ROW}" row has no "last tested \`@<scope>/codex@X.Y.Z\`" version in its version cell`);
-  if (!min) throw new Error(`PINS.md "${CODEX_PIN_ROW}" row has no "minimum \`@<scope>/codex@X.Y.Z\`" version in its version cell`);
+  const { lastIndex, ...v } = readHarnessRow(pinsText, CODEX_PIN_ROW, /minimum\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i, /last[\s-]+tested\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i, '@<scope>/codex@X.Y.Z');
   // The commit that follows the last tested version (the minimum may carry its own).
-  const c = /commit\s+`([0-9a-f]{40})`/i.exec(cell.slice(last.index));
-  return { row: CODEX_PIN_ROW, minimum: min[1], lastTested: last[1], commit: c ? c[1] : null, cell };
+  const c = lastIndex >= 0 ? /commit\s+`([0-9a-f]{40})`/i.exec(v.cell.slice(lastIndex)) : null;
+  return { ...v, commit: c ? c[1] : null };
 }
 
 // `codex --version` prints `codex-cli 0.157.1` (G2-result.md). Bare X.Y.Z, or null.

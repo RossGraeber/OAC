@@ -24,7 +24,7 @@ import {
   g5ClaudeFacts, g5CodexFacts, frameStructure, answerPart1,
 } from '../lib/g5.mjs';
 import { CriteriaDriftError } from '../lib/gate-common.mjs';
-import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, renderReport } from '../lib/g5-report.mjs';
+import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, fixtureWithheld, renderReport } from '../lib/g5-report.mjs';
 import { buildFrame, crockford128, frameCase, collides, caseBody } from '../gate-servers/g5-codex.mjs';
 import { presend, SECURITY_KEYS } from '../gate-servers/g5-channel.mjs';
 import { parseClaudeVersions, parseCodexVersions } from '../lib/pins.mjs';
@@ -160,7 +160,10 @@ export async function g5Unit(check) {
   const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, daemon: { cliVersion: XPIN, appServerVersion: XPIN, managedCodexVersion: XPIN }, pins: { claudeLastTested: CPIN, codexLastTested: XPIN, workingTreeMatchesHead: true } };
   const fx = { transcriptClaude: 'a-herdr.jsonl', transcriptCodex: 'b-herdr.jsonl', paneClaude: 'c-herdr.txt', paneCodex: 'd-herdr.txt' };
   const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: Object.values(fx).map((file) => ({ file, written: true })), scenarioData: { g5: { versions: V, postRun: { matches: true }, fixtures: fx, captureNames: fx, server: [{ match: true, workingTreeMatchesHead: true }], client: [{ match: true, workingTreeMatchesHead: true }] } } };
-  check('g5 report: --write accepts only a verified PASS from a clean, committed tools/herdr/ with the gate programs at HEAD', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /committed source/.test(writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, client: [{ match: true, workingTreeMatchesHead: false }] } } })) && /one and the same version/.test(writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: { ...V, daemon: { ...V.daemon, appServerVersion: '0.158.0' } } } } })));
+  check('g5 report: --write accepts only a verified PASS from a clean, committed tools/herdr/ with the gate programs at HEAD', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /committed source/.test(writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, client: [{ match: true, workingTreeMatchesHead: false }] } } })) );
+  const disagree = { ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: { ...V, daemon: { ...V.daemon, appServerVersion: '0.158.0' } } } } };
+  const midRun = { ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, postRun: { matches: false } } } };
+  check('g5 report (#216 operator decision): a daemon/CLI disagreement or a mid-run change never refuses --write; the fixtures are withheld with a VERSION WARNING', writeRefusal(disagree) === null && writeRefusal(midRun) === null && /^VERSION WARNING: .*no fixture is added/.test(fixtureWithheld(disagree)) && /^VERSION WARNING: .*no fixture is added/.test(fixtureWithheld(midRun)) && fixtureWithheld(okRun) === null);
   const drifted = { ...V, cli: { claude: '2.1.999', codex: '0.999.0' }, wire: { claude: '2.1.999', codex: '0.999.0' }, daemon: { cliVersion: '0.999.0', appServerVersion: '0.999.0', managedCodexVersion: '0.999.0' } };
   check('g5 report (#216): a drifted but consistent version is not refused by --write', writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: drifted } } }) === null && writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: { ...V, pins: { ...V.pins, workingTreeMatchesHead: false } } } } }) === null);
 }

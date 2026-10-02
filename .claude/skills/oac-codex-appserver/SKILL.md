@@ -89,7 +89,7 @@ fourth option:
 
 Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, with
 default `CODEX_HOME` in a non-elevated terminal). **Codex is now floating**: an auto-updater
-tracks each release, so re-verify on the version you observe (PINS.md "Floating-version policy"). `thread/queue/add` is absent from the default checked-in schema. Get its
+tracks each release; a version other than PINS.md's last tested one warns, never gates (#216, "Version policy"). `thread/queue/add` is absent from the default checked-in schema. Get its
 shape from `codex app-server generate-json-schema --experimental`; it requires `threadId`,
 `clientUserMessageId` and `input`.
 

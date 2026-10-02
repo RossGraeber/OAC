@@ -468,7 +468,10 @@ function collect(b, res) {
   };
 }
 
-function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {} }) {
+function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {}, prepare }) {
+  // prepare(): optional; returns another repository root whose run.mjs is driven instead
+  // (e.g. a temporary clone with a malformed PINS.md committed, #216 review).
+  const runFile = prepare ? join(prepare(), 'tools', 'herdr', 'run.mjs') : RUN;
   const b = makeBase(stateUnder);
   // fakeClaude: env for test/fake-claude.mjs, plus a fake `claude` CLI on PATH.
   // fakeCodex: env for test/fake-codex.mjs, installed as `codex` on PATH (K7).
@@ -483,7 +486,7 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
     extra = { ...fakeClaude, ...fakeCodexEnv(b.base, fakeCodex) };
   } else if (fakeClaude) extra = { ...fakeClaude, PATH: `${installFakeClaudeCli(b.base)}:${process.env.PATH}` };
   else if (fakeCodex) extra = fakeCodexEnv(b.base, fakeCodex);
-  const res = spawnSync(process.execPath, [...nodeArgs, RUN, '--scenario', scenario, '--herdr-bin', herdrBin, '--out', join(b.base, 'out'), ...args], {
+  const res = spawnSync(process.execPath, [...nodeArgs, runFile, '--scenario', scenario, '--herdr-bin', herdrBin, '--out', join(b.base, 'out'), ...args], {
     env: driverEnv(b, mode, { ...extra, ...caseEnv }),
     encoding: 'utf8',
     timeout: 120000,

@@ -82,7 +82,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
-import { parseClaudeVersions, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
+import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
 import { driverAcceptDialog } from '../lib/gate-common.mjs';
@@ -436,6 +436,7 @@ export default {
         ctx.finding(w);
       };
       if (!pinsFile.workingTreeMatchesHead) ctx.finding(`${PINS_PATH} has uncommitted changes; the version check read the committed PINS.md (HEAD ${pinsFile.headCommit})`);
+      warn(pinsReadWarning(pin, 'G1'));
       if (!cli && /^N\/A/.test(cliRaw ?? 'N/A')) stop(`claude --version could not be run (${cliRaw ?? 'not recorded'}); nothing launched`);
       warn(claudeVersionWarning({ observed: cli, lastTested: pin.lastTested, minimum: pin.minimum, source: '`claude --version`' }));
       // Captures get the K4 fixture names only once the CLI and the wire report the same

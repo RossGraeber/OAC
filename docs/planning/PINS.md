@@ -131,9 +131,13 @@ anything:
   drift found during this spike" field (transcript line 20); and
   `docs/planning/gates/fixtures/MANIFEST.json`, the `g1-claude-wake/transcript.jsonl`
   entry, `observed_version.claude_code` "2.1.282 (clientInfo.version, line 20 ...)".
-  Lines 1-7 of that fixture (2026-09-17) are pre-fix attempts with no real Claude client,
-  so they record no version. The B1 pin `v2.1.274` was never run against: it was read
-  from the release page, and the client that ran was already `2.1.282`. The capability
+  Lines 1-19 of that fixture come from synthetic `test` clients (`clientInfo` `{"name":
+  "test","version":"0"}` at lines 4, 12 and 16; 2026-09-17 and 2026-09-25), not Claude
+  Code. Line 20 is the first real Claude Code client. The B1 pin `v2.1.274` was never run
+  against: it was read from the release page, and the client that ran was already
+  `2.1.282`. The VS Code extension directories `anthropic.claude-code-2.1.274-win32-x64`
+  and `...-2.1.276-win32-x64` seen on disk during G1 (`G1-result.md`, "Pin drift found
+  during this spike") never ran: the connecting client reported `2.1.282`. The capability
   floors in the B1 record below (`>= v2.1.232` Channels, `>= v2.1.234` permission relay)
   are documentation facts about when the surface appeared. They are not this minimum.
   `v2.1.282` is above both floors.

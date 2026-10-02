@@ -222,7 +222,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
   out.push(`- **Accept policy:** ${g4.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g4.dialogs)} (no G4 criterion names a consent step; the dev-channels confirmation scores nothing here)`);
   out.push(`- **herdr agent states seen** (scheduling only, never evidence): ${(g4.herdrStates ?? []).map((s) => `${s.agent} ${s.state} (#${s.seq})`).join(', ') || 'none'}`);
-  out.push(fixtures ? `- **Fixtures:** ${Object.values(fixtures).map((f) => `\`${f}\``).join(', ')}` : `- **Fixtures:** none (${writeRefusal(manifest) ?? 'not published'})`);
+  out.push(fixtures ? `- **Fixtures:** ${Object.values(fixtures).map((f) => `\`${f}\``).join(', ')}` : `- **Fixtures:** none (${writeRefusal(manifest) ?? fixtureWithheld(manifest) ?? 'not published'})`);
   out.push(`- **Fixture sanitizer:** the public extension identifier \`${OAC_EXT}\` replaced by \`${OAC_EXT_PLACEHOLDER}\` before run.mjs's redaction, so identity redaction cannot rewrite it: transcript ${g4.sanitizer?.extensionIdReplaced ?? 0}, Claude pane ${g4.sanitizer?.paneClaude ?? '?'}, Codex pane ${g4.sanitizer?.paneCodex ?? '?'} time(s). --write re-counts the placeholders in each redacted capture and refuses on a mismatch or a surviving identifier fragment (a pane line wrapped mid-identifier escapes the substitution)`);
   out.push(`- **Run manifest:** \`${runManifestName}\` (beside this file); harness config unchanged: ${manifest?.harnessConfig?.unchanged ?? '?'}; teardown clean: ${manifest?.teardown?.clean ?? '?'}`);
   out.push(`- **Baseline:** \`${baselinePath}\` and \`docs/planning/gates/G4-result.md\` (the human-run 2026-09-26 re-run, verdict PASS, produced by the uncommitted original spike server)`);
@@ -252,6 +252,8 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('## Findings and UNVERIFIED');
   out.push('');
   for (const f of manifest?.findings ?? []) out.push(`- Finding: ${f}`);
+  if (fixtureWithheld(manifest)) out.push(`- Finding: ${fixtureWithheld(manifest)}`);
+  out.push('- Harness versions float and are never gated (#216): a version other than PINS.md\'s last tested one, or other than the baseline run\'s, is a finding here and does not by itself disqualify this record, including as an equivalence record.');
   out.push('- The server is a reconstruction (callout above); a difference in any criterion may come from it, not from Claude Code or Codex.');
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand (run id, outcome, reason from its run manifest).');
   out.push('- Whether Codex honors a per-invocation `-c mcp_servers.<name>.url=...` override for an HTTP server was UNVERIFIED when this scenario was written. This run\'s wire answers it only if exactly one Codex session connected (criterion 4) and the operator confirmed with `codex mcp list` (read-only) that no other Codex entry points at this run\'s port.');
@@ -282,18 +284,30 @@ function pinsVersionsText(p) {
   return `PINS.md last observed Claude \`${p?.claudeLastObserved ?? '?'}\`, Codex \`${p?.codexLastObserved ?? '?'}\` (recorded before #216)`;
 }
 
-// Why --write must refuse this run, or null.
+// Why --write writes the record and run manifest but NO fixture, or null. Operator decision
+// on #216 (2026-10-01): when a harness's CLI and wire disagree, or a version moved mid-run, the record is
+// still written, with a VERSION WARNING; its captures stay `unverified-*` and no fixture
+// or MANIFEST.json entry is produced, because a fixture names one version.
+export function fixtureWithheld(manifest) {
+  const g4 = manifest?.scenarioData?.g4;
+  if (!g4 || versionsVerified(g4)) return null;
+  return `VERSION WARNING: a harness's CLI and wire (CLI ${JSON.stringify(g4.versions?.cli ?? null)}, wire ${JSON.stringify(g4.versions?.wire ?? null)}) did not report one and the same version before and after the run, so no fixture can name it; the record and run manifest are written, the captures stay unverified-* and no fixture is added (#216)`;
+}
+
+// Why --write must refuse this run, or null. Mixed versions never refuse it (fixtureWithheld).
 // captureTexts: { transcript, paneClaude, paneCodex } as redacted, when the caller has them.
 export function writeRefusal(manifest, captureTexts = null) {
   const g4 = manifest?.scenarioData?.g4;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g4) return 'no G4 scenario record in the run manifest';
-  if (!versionsVerified(g4)) return 'a harness\'s CLI and wire did not report one and the same version before and after the run, so no fixture can name it';
-  if (!g4.fixtures || JSON.stringify(g4.fixtures) !== JSON.stringify(g4.captureNames)) return 'captures do not carry the verified K8 fixture names';
-  for (const f of Object.values(g4.fixtures)) if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
+  const publish = versionsVerified(g4);
+  if (publish) {
+    if (!g4.fixtures || JSON.stringify(g4.fixtures) !== JSON.stringify(g4.captureNames)) return 'captures do not carry the verified K8 fixture names';
+    for (const f of Object.values(g4.fixtures)) if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
+  }
   if (!(g4.server ?? []).length || !g4.server.every((s) => s.match && s.workingTreeMatchesHead)) return 'the staged gate server does not match its committed source';
   const expected = { transcript: g4.sanitizer?.extensionIdReplaced, paneClaude: g4.sanitizer?.paneClaude, paneCodex: g4.sanitizer?.paneCodex };
-  for (const k of Object.keys(expected)) {
+  for (const k of publish ? Object.keys(expected) : []) {
     if (!Number.isInteger(expected[k])) return `the extension-identifier sanitizer did not record a count for the ${k} capture`;
     if (captureTexts) {
       const pi = placeholderIntegrity(captureTexts[k], expected[k]);
@@ -394,7 +408,8 @@ function main(argv) {
   const date = g4?.date ?? manifest.timebox?.start?.slice(0, 10) ?? 'unknown-date';
   const runManifestName = `G4-${date}.run-manifest.json`;
   const refusal = writeRefusal(manifest, names ? { transcript: transcriptText, paneClaude: paneClaudeText, paneCodex: readCap(names.paneCodex) } : null);
-  const report = renderReport({ manifest, evaluation, date, fixtures: !refusal ? Object.fromEntries(Object.entries(fixtures).map(([k, f]) => [k, `${FIXTURE_DIR}/${f}`])) : null, runManifestName, baselinePath, reference });
+  const publish = !refusal && !fixtureWithheld(manifest);
+  const report = renderReport({ manifest, evaluation, date, fixtures: publish ? Object.fromEntries(Object.entries(fixtures).map(([k, f]) => [k, `${FIXTURE_DIR}/${f}`])) : null, runManifestName, baselinePath, reference });
   if (!o.write) {
     console.log(report);
     return 0;
@@ -402,8 +417,13 @@ function main(argv) {
   if (refusal) throw new ReportError(`--write refused: ${refusal}. Nothing was written; print the draft without --write to inspect the run`);
   const root = o.root ? resolve(o.root) : REPO;
   const runsDir = join(root, HERDR_RUNS_DIR);
-  const targets = [[join(runsDir, `G4-${date}.md`), null], [join(runsDir, runManifestName), join(runDir, 'run-manifest.json')], ...Object.values(fixtures).map((f) => [join(root, FIXTURE_DIR, f), join(runDir, f)])];
+  const targets = [[join(runsDir, `G4-${date}.md`), null], [join(runsDir, runManifestName), join(runDir, 'run-manifest.json')], ...(publish ? Object.values(fixtures).map((f) => [join(root, FIXTURE_DIR, f), join(runDir, f)]) : [])];
   writeTargets(targets, report);
+  if (!publish) {
+    console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
+    console.log(`No fixture written: ${fixtureWithheld(manifest)}`);
+    return 0;
+  }
   const git = spawnSync('git', ['log', '-1', '--format=%H', '--', 'docs/planning/PINS.md'], { cwd: REPO, encoding: 'utf8', timeout: 10000 });
   const entries = draftManifestEntries({
     manifest,

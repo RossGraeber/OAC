@@ -71,7 +71,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { DriverError } from '../lib/herdr.mjs';
-import { parseClaudeVersions, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
+import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof } from '../lib/g2.mjs';
@@ -224,6 +224,8 @@ export default {
         ctx.finding(w);
       };
       if (!pinsFile.workingTreeMatchesHead) ctx.finding(`${PINS_PATH} has uncommitted changes; the version checks read the committed PINS.md (HEAD ${pinsFile.headCommit})`);
+      warn(pinsReadWarning(cpin, 'G4'));
+      warn(pinsReadWarning(xpin, 'G4'));
       for (const [h, raw] of [['claude', cRaw], ['codex', xRaw]]) if (!cli[h] && /^N\/A/.test(raw ?? 'N/A')) stop(`${h} --version could not be run (${raw ?? 'not recorded'}); nothing launched`);
       warn(claudeVersionWarning({ observed: cli.claude, lastTested: cpin.lastTested, minimum: cpin.minimum, source: '`claude --version`', gate: 'G4' }));
       warn(codexVersionWarning({ observed: cli.codex, lastTested: xpin.lastTested, minimum: xpin.minimum, source: '`codex --version`', gate: 'G4' }));

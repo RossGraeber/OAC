@@ -116,7 +116,14 @@ run `NOT RUN`, never fails a CI job and never by itself invalidates a verdict. T
 not edit PINS.md: after a live run, the operator records the version there as last
 tested. Captures are named after a version only when every source of one harness reports
 the same version, so that a fixture names one version. Otherwise they stay `unverified-*`
-and the run still goes on. *Superseded text, kept as history:* "Example: G1's Claude Code
+and the run still goes on. A PINS.md harness row that cannot be read (malformed or
+missing) is a `VERSION WARNING` too (`pinsReadWarning`), never a stop.
+
+**Mixed versions within a run (operator decision on #216, 2026-10-01).** When a harness's
+CLI, wire or daemon disagree, or a version changes mid-run, the report generators'
+`--write` still writes the `herdr-runs/` record and its run manifest, with a
+`VERSION WARNING` finding. The captures stay `unverified-*`, and no fixture and no
+`MANIFEST.json` draft entry is produced, because a fixture names one version. *Superseded text, kept as history:* "Example: G1's Claude Code
 version differs from the PINS.md last-observed version. That is a pin-move trigger."
 
 A scenario that catches a timeout and returns normally is still `NOT RUN`. So is a
@@ -385,8 +392,10 @@ An operator never ticks a line that calls a driver accept their own.
     CLI and the wire (G1: `versionsVerified`). The human run it compares against is the
     verdict-bearing run of G<n> when the record was made. Since #216 a harness version
     other than that run's, or other than PINS.md's last tested one, is listed under
-    "Findings" as a `VERSION WARNING`. It does not by itself disqualify the record. (Until
-    2026-10-01 the same harness version as the human run was required.);
+    "Findings" as a `VERSION WARNING`. It does not by itself disqualify the record:
+    equivalence across harness versions is allowed, and the difference is a finding
+    (operator decision on #216, 2026-10-01). Every report lib states this in its
+    Findings. (Until 2026-10-01 the same harness version as the human run was required.);
   - every pass criterion of G<n> is scored `equivalent`: none `not equivalent`, none
     `not evaluable`, and every operator score carries its note;
   - a criterion that is a consent step (G1 criterion 5) was met by a human accept; other

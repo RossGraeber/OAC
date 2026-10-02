@@ -110,7 +110,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
-import { parseClaudeVersions, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, parseCodexDaemonVersion, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
+import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, parseCodexDaemonVersion, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
@@ -554,6 +554,7 @@ export default {
         workingTreeMatchesHead: pinsFile.workingTreeMatchesHead,
       };
       if (!pinsFile.workingTreeMatchesHead) finding(`${PINS_PATH} has uncommitted changes; the versions recorded are the committed ones`);
+      for (const w of [pinsReadWarning(cv, 'L3'), pinsReadWarning(xv, 'L3')]) if (w) finding(w);
       for (const w of [
         claudeVersionWarning({ observed: cli.claude, lastTested: cv.lastTested, minimum: cv.minimum, source: '`claude --version`', gate: 'L3' }),
         codexVersionWarning({ observed: cli.codex, lastTested: xv.lastTested, minimum: xv.minimum, source: '`codex --version`', gate: 'L3' }),

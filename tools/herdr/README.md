@@ -195,10 +195,11 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
 - Both report generators read the gate's pass criteria from the `oac-gates` reference **as
   committed at HEAD**, bound by a sha256 pin (`G4_CRITERIA_SHA256`, `G5_CRITERIA_SHA256`), and
   refuse to score if the reference was reworded or reordered. `--write` refuses anything but a
-  `PASS` run whose harness sources each reported one version, from a clean, committed
-  `tools/herdr/`, never overwrites, and writes the operator attestation unticked. A version
-  other than PINS.md's last tested one is not refused (#216): it is a `VERSION WARNING` finding
-  and the fixture entry says `version_matches_pin: false`.
+  `PASS` run from a clean, committed `tools/herdr/`, never overwrites, and writes the operator
+  attestation unticked. A version other than PINS.md's last tested one is not refused (#216):
+  it is a `VERSION WARNING` finding and the fixture entry says `version_matches_pin: false`.
+  When a harness's sources disagree or a version moves mid-run, the record and run manifest
+  are still written with a `VERSION WARNING`, but no fixture (operator decision on #216).
 
 ## L3 Beacon live leg
 

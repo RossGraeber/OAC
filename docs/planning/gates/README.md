@@ -228,12 +228,15 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
 
 - **Record.** Each scripted run that is written lands as
   `herdr-runs/G<n>-<YYYY-MM-DD>.md`, with its run manifest beside it (see "Naming
-  convention"). Only a run with outcome `PASS` is written, and only when each harness's
-  sources (CLI, wire and, for Codex, the daemon) reported one and the same version, so
-  that the fixture can name it (`g1-report.mjs --write` and the other generators refuse
-  anything else). Since #216 that version need not be PINS.md's last tested one. A
-  difference is a `VERSION WARNING` finding and makes the fixture entry
-  `version_matches_pin: false`, but it never refuses the write. The record's own header
+  convention"). Only a run with outcome `PASS` is written (`g1-report.mjs --write` and
+  the other generators refuse anything else). Since #216 the harness version need not be
+  PINS.md's last tested one. A difference is a `VERSION WARNING` finding and makes the
+  fixture entry `version_matches_pin: false`, but it never refuses the write. Fixtures
+  are written only when each harness's sources (CLI, wire and, for Codex, the daemon)
+  reported one and the same version throughout the run, so that a fixture can name it.
+  Otherwise (operator decision on #216, 2026-10-01) the record and run manifest are
+  still written, with a `VERSION WARNING`, the captures stay `unverified-*`, and no
+  fixture or `MANIFEST.json` entry is added. The record's own header
   says it is not verdict-bearing.
 - **Fixtures.** The record's captures are committed as `-herdr` fixtures, each with a
   `MANIFEST.json` entry carrying the `driver` block (see "Fixture manifest").
