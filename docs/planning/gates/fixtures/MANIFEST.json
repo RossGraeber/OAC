@@ -6104,6 +6104,181 @@
       "coverage": {
         "pane reads": "verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps"
       }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-provenance/transcript-claude-2026-10-02-2.1.285-herdr.jsonl",
+      "provider": "claude",
+      "surface": "claude-channels (reconstructed g5-channel.mjs)",
+      "observed_version": {
+        "claude_code": "2.1.285 (claude --version; wire clientInfo.version 2.1.285)",
+        "mcp_legacy_era": "2025-11-25",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at HEAD a86e620d114e4518743fccf2a95502b61c081a95 when the run started; last commit touching PINS.md at report time: 0049318fcf65f3ebe78c95ca1863b2847cf67569",
+      "version_matches_pin": false,
+      "version_matches_pin_note": "Claude Code 2.1.285 / Codex 0.160.0 are not both PINS.md's last tested versions (2.1.285 / 0.159.3); recorded as VERSION WARNING findings, not a gate (#216)",
+      "capture_date": "2026-10-02",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "a86e620d114e4518743fccf2a95502b61c081a95",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-c13-2026-10-02.run-manifest.json"
+      },
+      "notes": [
+        "C13 §11 G5 Codex-leg re-run through herdr (#220), arms 0, F and C; verdict-bearing only under the one-off E1 exception (oac-gates references/scripted-runs.md), as its herdr-runs record states. The channel server, app-server client and case table are RECONSTRUCTIONS (tools/herdr/gate-servers/) of the never-committed G5 spike programs."
+      ],
+      "capture_utc_range": "2026-10-02T16:16:28.864Z-2026-10-02T16:16:29.482Z",
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "72e8857fd0cd25b6878ac4d1b7ab8bbe296eab940cad6d1b31a20c76e4f876aa",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "initialize": "4-5"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-provenance/transcript-codex-2026-10-02-0.160.0-herdr.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server (reconstructed g5-codex.mjs)",
+      "observed_version": {
+        "codex_cli": "0.160.0 (codex --version `codex-cli 0.160.0`)",
+        "codex_daemon": "0.160.0/0.160.0/0.160.0",
+        "commit": null,
+        "node": null
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD a86e620d114e4518743fccf2a95502b61c081a95 when the run started; last commit touching PINS.md at report time: 0049318fcf65f3ebe78c95ca1863b2847cf67569",
+      "version_matches_pin": false,
+      "version_matches_pin_note": "Claude Code 2.1.285 / Codex 0.160.0 are not both PINS.md's last tested versions (2.1.285 / 0.159.3); recorded as VERSION WARNING findings, not a gate (#216)",
+      "capture_date": "2026-10-02",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "a86e620d114e4518743fccf2a95502b61c081a95",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-c13-2026-10-02.run-manifest.json"
+      },
+      "notes": [
+        "C13 §11 G5 Codex-leg re-run through herdr (#220), arms 0, F and C; verdict-bearing only under the one-off E1 exception (oac-gates references/scripted-runs.md), as its herdr-runs record states. The channel server, app-server client and case table are RECONSTRUCTIONS (tools/herdr/gate-servers/) of the never-committed G5 spike programs."
+      ],
+      "capture_utc_range": "2026-10-02T16:16:14.929Z-2026-10-02T16:26:54.629Z",
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "72e8857fd0cd25b6878ac4d1b7ab8bbe296eab940cad6d1b31a20c76e4f876aa",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "turn/start (case 0.X2.1)": "57",
+        "turn/start (case 0.X2.2)": "101",
+        "turn/start (case 0.X2.3)": "155",
+        "turn/start (case 0.X5)": "200",
+        "turn/start (case F.X1)": "267",
+        "turn/start (case F.X2.1)": "330",
+        "turn/start (case F.X2.2)": "375",
+        "turn/start (case F.X2.3)": "420",
+        "turn/start (case F.X3.1)": "474",
+        "turn/start (case F.X3.2)": "519",
+        "turn/start (case F.X3.3)": "573",
+        "turn/start (case F.X4)": null,
+        "turn/start (case F.X5b)": "704",
+        "turn/start (case F.X7.CR)": "732",
+        "turn/start (case F.X7.CRLF)": "786",
+        "turn/start (case F.X7.VT)": "840",
+        "turn/start (case F.X7.FF)": "894",
+        "turn/start (case F.X7.NEL)": "948",
+        "turn/start (case F.X7.LS)": "1002",
+        "turn/start (case F.X7.PS)": "1056",
+        "turn/start (case F.X8)": "1110",
+        "turn/start (case C.X1)": "1204",
+        "turn/start (case C.X2.1)": "1249",
+        "turn/start (case C.X2.2)": "1303",
+        "turn/start (case C.X2.3)": "1357",
+        "turn/start (case C.X3a.1)": "1411",
+        "turn/start (case C.X3a.2)": "1474",
+        "turn/start (case C.X3a.3)": "1537",
+        "turn/start (case C.X4a)": null,
+        "turn/start (case C.X9)": "1676",
+        "turn/start (case C.X6p)": "1739",
+        "thread/turns/list": "66, 75, 84, 93, 111, 120, 129, 138, 147, 165, 174, 183, 192, 210, 219, 277, 286, 295, 304, 313, 322, 340, 349, 358, 367, 385, 394, 403, 412, 430, 439, 448, 457, 466, 484, 493, 502, 511, 529, 538, 547, 556, 565, 583, 592, 601, 610, 619, 641, 650, 659, 668, 677, 686, 695, 714, 723, 742, 751, 760, 769, 778, 796, 805, 814, 823, 832, 850, 859, 868, 877, 886, 904, 913, 922, 931, 940, 958, 967, 976, 985, 994, 1012, 1021, 1030, 1039, 1048, 1066, 1075, 1084, 1093, 1102, 1120, 1129, 1138, 1147, 1156, 1214, 1223, 1232, 1241, 1259, 1268, 1277, 1286, 1295, 1313, 1322, 1331, 1340, 1349, 1367, 1376, 1385, 1394, 1403, 1421, 1430, 1439, 1448, 1457, 1466, 1484, 1493, 1502, 1511, 1520, 1529, 1547, 1556, 1565, 1574, 1583, 1592, 1614, 1623, 1632, 1641, 1650, 1659, 1668, 1686, 1695, 1704, 1713, 1722, 1731, 1749, 1758, 1767, 1776, 1785, 1794"
+      },
+      "schema": {
+        "commit": "unknown",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
+        "sha256": null,
+        "note": "Schema not regenerated at Codex 0.160.0 (no MANIFEST.json schema record for this version); regenerate and compare it (D6 procedure) before relying on this capture's message shapes.",
+        "validated_against": "not validated against a regenerated schema at this version"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-provenance/pane-claude-2026-10-02-2.1.285-herdr.txt",
+      "provider": "claude",
+      "surface": "claude-code TUI pane text (herdr agent read)",
+      "observed_version": {
+        "claude_code": "2.1.285",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at HEAD a86e620d114e4518743fccf2a95502b61c081a95 when the run started; last commit touching PINS.md at report time: 0049318fcf65f3ebe78c95ca1863b2847cf67569",
+      "version_matches_pin": false,
+      "version_matches_pin_note": "Claude Code 2.1.285 / Codex 0.160.0 are not both PINS.md's last tested versions (2.1.285 / 0.159.3); recorded as VERSION WARNING findings, not a gate (#216)",
+      "capture_date": "2026-10-02",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "a86e620d114e4518743fccf2a95502b61c081a95",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-c13-2026-10-02.run-manifest.json"
+      },
+      "notes": [
+        "C13 §11 G5 Codex-leg re-run through herdr (#220), arms 0, F and C; verdict-bearing only under the one-off E1 exception (oac-gates references/scripted-runs.md), as its herdr-runs record states. The channel server, app-server client and case table are RECONSTRUCTIONS (tools/herdr/gate-servers/) of the never-committed G5 spike programs."
+      ],
+      "capture_utc_range": null,
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "72e8857fd0cd25b6878ac4d1b7ab8bbe296eab940cad6d1b31a20c76e4f876aa",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-provenance/pane-codex-2026-10-02-0.160.0-herdr.txt",
+      "provider": "codex",
+      "surface": "codex TUI pane text (herdr agent read)",
+      "observed_version": {
+        "codex_cli": "0.160.0",
+        "node": null
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD a86e620d114e4518743fccf2a95502b61c081a95 when the run started; last commit touching PINS.md at report time: 0049318fcf65f3ebe78c95ca1863b2847cf67569",
+      "version_matches_pin": false,
+      "version_matches_pin_note": "Claude Code 2.1.285 / Codex 0.160.0 are not both PINS.md's last tested versions (2.1.285 / 0.159.3); recorded as VERSION WARNING findings, not a gate (#216)",
+      "capture_date": "2026-10-02",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "a86e620d114e4518743fccf2a95502b61c081a95",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-c13-2026-10-02.run-manifest.json"
+      },
+      "notes": [
+        "C13 §11 G5 Codex-leg re-run through herdr (#220), arms 0, F and C; verdict-bearing only under the one-off E1 exception (oac-gates references/scripted-runs.md), as its herdr-runs record states. The channel server, app-server client and case table are RECONSTRUCTIONS (tools/herdr/gate-servers/) of the never-committed G5 spike programs."
+      ],
+      "capture_utc_range": null,
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "72e8857fd0cd25b6878ac4d1b7ab8bbe296eab940cad6d1b31a20c76e4f876aa",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
+      }
     }
   ]
 }
