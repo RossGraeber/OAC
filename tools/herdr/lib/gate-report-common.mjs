@@ -106,14 +106,26 @@ export const describeDialogs = (dialogs) => (dialogs ?? []).map(describeDialog).
 export const noConsentCriterionLine = (gate, dialogs) =>
   `none — no criterion of ${gate} names a consent step. Dialogs on record: ${describeDialogs(dialogs)}; each driver accept above was the driver's, not mine.`;
 
+// The herdr hash for the attestation's herdr line (#140): the sha256 the driver recorded for
+// the herdr executable it spawned (run-manifest.json `herdr.executable`), when that was a
+// native binary and not the node-run test double; otherwise the placeholder, for the operator.
+export function herdrExecutableHash(manifest) {
+  const x = manifest?.herdr?.executable;
+  if (x?.testDouble === true) return '`<64 hex>` (the run manifest records a test-double herdr, run under node; this line cannot be ticked)';
+  if (x?.testDouble === false && /^[0-9a-f]{64}$/.test(x.sha256 ?? '') && ['elf', 'pe', 'mach-o'].includes(x.format)) {
+    return `\`${x.sha256}\` (recorded by the driver: run-manifest.json \`herdr.executable\`)`;
+  }
+  return '`<64 hex>`';
+}
+
 // The attestation block, generated unticked (oac-gates references/scripted-runs.md).
-export function attestation({ herdrVersion, harnesses, consent }) {
+export function attestation({ herdrVersion, herdrHash = '`<64 hex>`', harnesses, consent }) {
   return [
     '## Operator attestation',
     '',
     'Generated unticked. Only the operator who ran this machine ticks these lines, each only if true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation"). An unticked line means this record is neither an equivalence record nor verdict-bearing.',
     '',
-    `- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${herdrVersion ?? '?'}\`; sha256 of the executable: \`<64 hex>\``,
+    `- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${herdrVersion ?? '?'}\`; sha256 of the executable: ${herdrHash}`,
     `- [ ] **Harness:** the real, logged-in ${harnesses} ran, not test doubles.`,
     `- [ ] **Consent dialog:** ${consent}`,
     '- **Attested by:** <operator>, <YYYY-MM-DD>',

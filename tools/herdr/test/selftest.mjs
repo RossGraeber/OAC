@@ -74,6 +74,7 @@ import { g4Unit, g4Cases } from './g4-tests.mjs';
 import { g5Unit, g5Cases } from './g5-tests.mjs';
 import { l3Unit, l3ScenarioUnit, l3Cases } from './l3-tests.mjs';
 import { teardownUnit } from './teardown-tests.mjs';
+import { identityUnit } from './identity-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -661,6 +662,10 @@ async function lifecycle() {
     const cap = r.capture('pane-smoke.txt');
     check('smoke PASS: pane capture written, redacted, shows the output line', cap.split('\n').some((l) => l.trim() === 'OAC-SMOKE-READY') && !cap.includes('oac-herdr-scratch-') && cap.includes('<SCRATCH>'));
     check('smoke PASS: capture redaction report is clean', m.captures[0]?.written === true && m.captures[0].redaction.residualLeaks.length === 0 && m.captures[0].redaction.residualGenericHits.length === 0);
+    check('smoke PASS #140: manifest schemaVersion 2; capture sha256 is the hash of the bytes written', m.schemaVersion === 2 && m.captures[0]?.sha256 === sha(readFileSync(join(r.base, 'out', 'pane-smoke.txt'))), JSON.stringify(m.captures[0]?.sha256));
+    const hx = m.herdr.executable;
+    check('smoke PASS #140: the fake herdr is recorded as the node-run test double, with the sha256 of the file that ran, unchanged at teardown', hx?.testDouble === true && hx.runUnderNode === true && hx.basename === 'fake-herdr.mjs' && hx.sha256 === sha(readFileSync(FAKE)) && hx.format === 'script' && hx.unchangedAfterRun === true, JSON.stringify(hx));
+    check('smoke PASS #140: no harness executable probed when the scenario launches none', /N\/A/.test(m.harnessExecutables?.note ?? ''));
     check('smoke PASS: teardown clean', m.teardown.clean === true, JSON.stringify(m.teardown));
   });
   run('custom launch', { args: ['--launch', '["echo","CUSTOM-LAUNCH-42"]', '--param', 'expect=CUSTOM-LAUNCH-42'] }, (r) => {
@@ -678,7 +683,8 @@ async function lifecycle() {
     check('server version mismatch: NOT RUN, torn down', r.status === 3 && /server reports version/.test(r.manifest.outcomeReason) && r.manifest.teardown.clean);
   });
   run('herdr missing', { herdrBin: '/nonexistent/oac-selftest/herdr' }, (r) => {
-    check('herdr missing: NOT RUN', r.status === 3 && r.manifest.outcome === 'NOT RUN' && /could not be checked/.test(r.manifest.outcomeReason));
+    check('herdr missing: NOT RUN before anything is spawned (#140: an unresolved herdr is never spawned by name)', r.status === 3 && r.manifest.outcome === 'NOT RUN' && /herdr executable not resolved/.test(r.manifest.outcomeReason) && r.calls.length === 0 && r.manifest.commands.length === 0, r.manifest?.outcomeReason);
+    check('herdr missing #140: the herdr executable is recorded unresolved and unhashed, by basename only', r.manifest.herdr.executable?.resolved === false && r.manifest.herdr.executable.sha256 === null && r.manifest.herdr.executable.requested === 'herdr', JSON.stringify(r.manifest.herdr.executable));
   });
   run('herdr wait timeout', { mode: 'never-match', args: ['--param', 'waitMs=800'] }, (r) => {
     const m = r.manifest;
@@ -968,6 +974,7 @@ export async function runSelfTest() {
   unitRedaction();
   await unitGuards();
   await teardownUnit(check);
+  await identityUnit(check);
   await unitScratch();
   g1Unit(check);
   g2Unit(check);

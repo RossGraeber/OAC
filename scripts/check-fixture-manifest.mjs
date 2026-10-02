@@ -21,9 +21,19 @@
 // commit and `herdr --version` output as the block, and list this fixture's file name
 // among its captures as written. A `driver` block on a fixture without the suffix is a
 // violation (the suffix and the block label a herdr run together), and an
-// `unverified-*-herdr.*` capture is never committed. What is NOT checked: that the
-// fixture's bytes are the bytes that run captured (the run manifest records no capture
-// hash yet), or that a real herdr and a real harness ran (see the attestation below).
+// `unverified-*-herdr.*` capture is never committed.
+//
+// Executables and capture bytes (#140): a run manifest of schemaVersion 2 or later records
+// the herdr executable the driver spawned and the sha256 of each written capture. Such a
+// run's `-herdr` fixture is refused when the run used the node-run test-double herdr
+// (`herdr.executable.testDouble` not false), when the herdr executable is not a hashed
+// native binary (`format` elf/pe/mach-o, 64-hex `sha256`), or when the fixture's committed
+// bytes (the git index blob; the work tree only if the file is not tracked) do not hash to
+// the capture's recorded `sha256`. A schemaVersion 1 run manifest predates #140: its
+// fixtures are printed as a WARN line (nothing binds them mechanically) and rest on the
+// operator attestation. Any other schemaVersion is a violation. What is still NOT checked:
+// that the harness that ran was real (harnessExecutables is recorded, not judged), and
+// that a human accepted a consent dialog.
 //
 // Harness versions float and are never gated (operator decision on #216, 2026-10-01): a
 // `-herdr` entry with `version_matches_pin: false` (its harness version is not PINS.md's
@@ -34,11 +44,15 @@
 // G<n>-result.md whose `- **Driver:**` line names herdr, must carry an
 // `## Operator attestation` section with all four lines (real herdr with the sha256 of
 // its executable, real harness, consent dialog, attested by + date). The check proves
-// the attestation is present and complete, not that it is true.
+// the attestation is present and complete, not that it is true -- except the herdr hash of
+// an equivalence record whose run manifest (the `.run-manifest.json` beside it) is
+// schemaVersion 2 or later: that hash must equal the manifest's `herdr.executable.sha256`
+// (#140).
 //
 // Exits non-zero on any violation so CI fails loudly.
 
 import { readFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join, dirname, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +82,13 @@ const REQUIRED_KEYS = [
 ];
 const REQUIRED_REDACTION_KEYS = ['script', 'script_sha256', 'residual_scan_result'];
 const REQUIRED_DRIVER_KEYS = ['herdr_version', 'driver_commit', 'run_manifest'];
+// Run-manifest schema versions (tools/herdr/lib/manifest.mjs MANIFEST_SCHEMA_VERSION): 1
+// predates #140; 2 records the executables and capture hashes.
+const LEGACY_RUN_SCHEMA = 1;
+const IDENTITY_RUN_SCHEMA = 2;
+const NATIVE_FORMATS = ['elf', 'pe', 'mach-o'];
+const HEX64 = /^[0-9a-f]{64}$/;
+const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 // `-herdr` immediately before the extension (or at the end of an extensionless name).
 const HERDR_SUFFIX = /-herdr(?:\.[^/]*)?$/;
@@ -148,7 +169,48 @@ function schemaShapeProblem(schema) {
 // The `driver` block of a `-herdr` fixture entry (K5). Returns a list of problems.
 // The run manifest is the driver's own `run-manifest.json` (tools/herdr/run.mjs), committed
 // beside the herdr-runs record; the block must agree with it.
-function driverBlockProblems(entry, root, tracked) {
+// The committed bytes of a file: the git index blob (what CI and a clone see, whatever the
+// work tree's line endings), else the work-tree file when it is not tracked.
+function committedBytes(root, path) {
+  try {
+    return execFileSync('git', ['cat-file', 'blob', `:${path}`], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 });
+  } catch {
+    try {
+      return readFileSync(join(root, path));
+    } catch {
+      return null;
+    }
+  }
+}
+
+// #140: the herdr executable and the capture hash a schemaVersion >= 2 run manifest records.
+function identityProblems(run, entry, root, name, warn) {
+  const schema = run?.schemaVersion;
+  if (schema === LEGACY_RUN_SCHEMA) {
+    warn(`run manifest ${entry.driver.run_manifest} is schemaVersion 1 (before #140): which herdr and harness executables ran, and that this fixture is that run's capture byte for byte, rest on the operator attestation`);
+    return [];
+  }
+  if (!Number.isInteger(schema) || schema < IDENTITY_RUN_SCHEMA) return [`the run manifest's schemaVersion ${JSON.stringify(schema ?? null)} is not one this check knows (1, or 2 and later)`];
+  const out = [];
+  const x = run?.herdr?.executable;
+  if (!x || x.testDouble !== false) {
+    out.push(`the run manifest records ${x ? `herdr.executable.testDouble ${JSON.stringify(x.testDouble ?? null)}` : 'no herdr.executable'}: a test-double (or unrecorded) herdr run is never a fixture source`);
+  } else if (!NATIVE_FORMATS.includes(x.format) || !HEX64.test(x.sha256 ?? '')) {
+    out.push(`the run manifest's herdr.executable is not a hashed native binary (format ${JSON.stringify(x.format ?? null)}); a test-double run is never a fixture source`);
+  }
+  const cap = (run?.captures ?? []).find((c) => c?.file === name && c?.written === true);
+  if (cap) {
+    if (!HEX64.test(cap.sha256 ?? '')) out.push(`the run manifest records no sha256 for capture ${name}`);
+    else {
+      const bytes = committedBytes(root, entry.path);
+      if (!bytes) out.push(`cannot read the committed bytes of ${name} to check them against the run manifest's capture sha256`);
+      else if (sha256(bytes) !== cap.sha256) out.push(`the committed bytes of ${name} differ from the run manifest's capture sha256; this file is not that run's capture`);
+    }
+  }
+  return out;
+}
+
+function driverBlockProblems(entry, root, tracked, warn = () => {}) {
   const driver = entry.driver;
   if (driver === undefined) return ['is a `-herdr` fixture but has no `driver` block (herdr_version, driver_commit, run_manifest)'];
   if (!driver || typeof driver !== 'object' || Array.isArray(driver)) return ['`driver` must be an object with herdr_version, driver_commit, run_manifest'];
@@ -185,7 +247,28 @@ function driverBlockProblems(entry, root, tracked) {
   if (run?.herdr?.observedVersionOutput !== driver.herdr_version) out.push('driver.herdr_version does not match the run manifest\'s herdr.observedVersionOutput');
   const name = posix.basename(entry.path);
   if (!(run?.captures ?? []).some((c) => c?.file === name && c?.written === true)) out.push(`the run manifest does not list ${name} among its written captures`);
+  out.push(...identityProblems(run, entry, root, name, warn));
   return out;
+}
+
+// #140: an equivalence record's attested herdr hash must be the one its run manifest
+// recorded, when that manifest records one (schemaVersion >= 2).
+function attestedHashProblems(text, file, root, tracked) {
+  const rm = file.replace(/\.md$/, '.run-manifest.json');
+  if (!tracked.has(rm)) return [];
+  let run;
+  try {
+    run = JSON.parse(readFileSync(join(root, rm), 'utf8'));
+  } catch {
+    return [];
+  }
+  if (!Number.isInteger(run?.schemaVersion) || run.schemaVersion < IDENTITY_RUN_SCHEMA) return [];
+  const recorded = run?.herdr?.executable?.sha256;
+  const line = /^- \[x\] \*\*herdr:\*\* .*$/m.exec(text)?.[0] ?? '';
+  const attested = /\b([0-9a-f]{64})\b/.exec(line)?.[1];
+  if (!attested) return [];
+  if (!HEX64.test(recorded ?? '')) return [`its run manifest ${rm} records no herdr executable sha256 to back the attested one`];
+  return attested === recorded ? [] : [`the attested herdr sha256 is not the one its run manifest ${rm} recorded (herdr.executable.sha256)`];
 }
 
 function checkManifest(root) {
@@ -274,7 +357,7 @@ function checkManifest(root) {
         // #216: versions float; a version other than PINS.md's last tested one is a warning only.
         warnings.push(`${label}: VERSION WARNING: version_matches_pin is false (the harness version is not PINS.md's last tested one); versions float and are never gated (#216)${entry.version_matches_pin_note ? ` -- ${entry.version_matches_pin_note}` : ''}`);
       }
-      for (const p of driverBlockProblems(entry, root, trackedGateSet)) problems.push(`${label}: ${p}`);
+      for (const p of driverBlockProblems(entry, root, trackedGateSet, (w) => warnings.push(`${label}: ${w}`))) problems.push(`${label}: ${p}`);
     } else if ('driver' in entry) {
       problems.push(`${label}: has a \`driver\` block but its file name lacks the \`-herdr\` suffix; a herdr-driven fixture carries both`);
     }
@@ -305,6 +388,7 @@ function checkManifest(root) {
     attested += 1;
     const why = isRecord ? 'claims to be an equivalence record' : 'names herdr as its Driver';
     for (const p of attestationProblems(text)) problems.push(`${file}: ${why} but ${p}`);
+    if (isRecord) for (const p of attestedHashProblems(text, file, root, trackedGateSet)) problems.push(`${file}: ${why} but ${p}`);
   }
 
   return { problems, warnings, entries: entries.length, tracked: trackedFixtureFiles.length, herdrEntries, attested };
@@ -363,11 +447,16 @@ function baseEntry(path) {
   };
 }
 const DRIVER = { herdr_version: 'herdr 0.9.1', driver_commit: COMMIT, run_manifest: RUN_MANIFEST };
+// Every planted fixture file holds FIXTURE_BYTES, so the RUN capture hashes match it.
+const FIXTURE_BYTES = '{}\n';
+const HERDR_SHA = 'c'.repeat(64);
+const HERDR_EXE = { requested: 'herdr', resolved: true, basename: 'herdr', realBasename: 'herdr', sha256: HERDR_SHA, bytes: 1, format: 'elf', runUnderNode: false, testDouble: false };
 const RUN = {
+  schemaVersion: 2,
   outcome: 'PASS',
   driver: { commit: COMMIT, toolsHerdrDirty: false },
-  herdr: { observedVersionOutput: 'herdr 0.9.1' },
-  captures: [posix.basename(HERDR_FIXTURE), posix.basename(UNVERIFIED_FIXTURE)].map((file) => ({ file, written: true })),
+  herdr: { observedVersionOutput: 'herdr 0.9.1', executable: HERDR_EXE },
+  captures: [posix.basename(HERDR_FIXTURE), posix.basename(UNVERIFIED_FIXTURE)].map((file) => ({ file, written: true, sha256: sha256(FIXTURE_BYTES) })),
 };
 const ATTESTATION = [
   '## Operator attestation',
@@ -383,9 +472,9 @@ const withoutLine = (label) => ATTESTATION.split('\n').filter((l) => !l.includes
 
 function tree({ entries, run = RUN, record = '# G1 scripted re-run\n', result = null, extraFiles = [], untracked = {} }) {
   const files = { [manifestRelPath]: JSON.stringify({ fixtures: [baseEntry(HUMAN_FIXTURE), ...entries] }, null, 2) };
-  for (const e of entries) files[e.path] = '{}\n';
-  for (const f of extraFiles) files[f] = '{}\n';
-  files[HUMAN_FIXTURE] = '{}\n';
+  for (const e of entries) files[e.path] = FIXTURE_BYTES;
+  for (const f of extraFiles) files[f] = FIXTURE_BYTES;
+  files[HUMAN_FIXTURE] = FIXTURE_BYTES;
   if (run) files[RUN_MANIFEST] = JSON.stringify(run);
   if (record) files[RECORD] = record;
   if (result) files[RESULT] = result;
@@ -394,6 +483,8 @@ function tree({ entries, run = RUN, record = '# G1 scripted re-run\n', result = 
 const herdrEntry = (driver, path = HERDR_FIXTURE, extra = {}) => ({ ...baseEntry(path), ...(driver === undefined ? {} : { driver }), ...extra });
 const without = (k) => Object.fromEntries(Object.entries(DRIVER).filter(([key]) => key !== k));
 const runWith = (patch) => ({ ...RUN, ...patch });
+const herdrWith = (patch) => runWith({ herdr: { ...RUN.herdr, executable: { ...HERDR_EXE, ...patch } } });
+const capturesWith = (patch) => runWith({ captures: RUN.captures.map((c) => ({ ...c, ...patch })) });
 
 const SELF_TEST_CASES = [
   { name: 'control: human-run entry only, no driver block', expect: 'pass', ...tree({ entries: [], run: null, record: null }) },
@@ -413,7 +504,7 @@ const SELF_TEST_CASES = [
   { name: 'run manifest from a dirty tools/herdr/', expect: 'toolsHerdrDirty true', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ driver: { commit: COMMIT, toolsHerdrDirty: true } }) }) },
   { name: 'run manifest with toolsHerdrDirty unknown (null)', expect: 'toolsHerdrDirty null', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ driver: { commit: COMMIT, toolsHerdrDirty: null } }) }) },
   { name: 'run manifest driver commit differs', expect: 'driver_commit does not match', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ driver: { commit: 'b'.repeat(40), toolsHerdrDirty: false } }) }) },
-  { name: 'run manifest herdr version differs', expect: 'herdr_version does not match', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ herdr: { observedVersionOutput: 'herdr 0.9.2' } }) }) },
+  { name: 'run manifest herdr version differs', expect: 'herdr_version does not match', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ herdr: { ...RUN.herdr, observedVersionOutput: 'herdr 0.9.2' } }) }) },
   { name: 'fixture not among the run\'s captures', expect: 'among its written captures', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ captures: [] }) }) },
   { name: 'fixture among the run\'s captures but withheld (written: false)', expect: 'among its written captures', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ captures: [{ file: posix.basename(HERDR_FIXTURE), written: false }] }) }) },
   { name: 'control (#216): -herdr entry with version_matches_pin false passes with a VERSION WARNING', expect: 'pass', expectOutput: 'WARN  ', ...tree({ entries: [herdrEntry(DRIVER, HERDR_FIXTURE, { version_matches_pin: false, version_matches_pin_note: 'Claude Code 2.1.999 is not the last tested 2.1.285' })] }) },
@@ -428,6 +519,15 @@ const SELF_TEST_CASES = [
   { name: 'equivalence record: attestation without the Consent dialog line', expect: 'missing its Consent dialog line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${withoutLine('**Consent dialog:**')}` }) },
   { name: 'equivalence record: attestation unticked', expect: 'missing its Harness line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION.replace('- [x] **Harness:**', '- [ ] **Harness:**')}` }) },
   { name: 'equivalence record: attestation without Attested by', expect: 'missing its Attested by line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${withoutLine('**Attested by:**')}` }) },
+  { name: 'control (#140): schemaVersion 1 run manifest (before #140) passes with a WARN', expect: 'pass', expectOutput: 'is schemaVersion 1 (before #140)', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ schemaVersion: 1, herdr: { observedVersionOutput: 'herdr 0.9.1' }, captures: RUN.captures.map(({ file, written }) => ({ file, written })) }) }) },
+  { name: '#140: run manifest with an unknown schemaVersion', expect: 'is not one this check knows', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ schemaVersion: undefined }) }) },
+  { name: '#140: run from the test-double herdr (run under node)', expect: 'herdr.executable.testDouble true', ...tree({ entries: [herdrEntry(DRIVER)], run: herdrWith({ basename: 'fake-herdr.mjs', realBasename: 'fake-herdr.mjs', format: 'script', runUnderNode: true, testDouble: true }) }) },
+  { name: '#140: run manifest without herdr.executable', expect: 'no herdr.executable', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ herdr: { observedVersionOutput: 'herdr 0.9.1' } }) }) },
+  { name: '#140: herdr executable is a script, not a native binary', expect: 'is not a hashed native binary (format "script")', ...tree({ entries: [herdrEntry(DRIVER)], run: herdrWith({ format: 'script' }) }) },
+  { name: '#140: herdr executable recorded unhashed', expect: 'is not a hashed native binary', ...tree({ entries: [herdrEntry(DRIVER)], run: herdrWith({ sha256: null }) }) },
+  { name: '#140: fixture bytes differ from the recorded capture hash', expect: 'differ from the run manifest\'s capture sha256', ...tree({ entries: [herdrEntry(DRIVER)], run: capturesWith({ sha256: 'd'.repeat(64) }) }) },
+  { name: '#140: capture recorded with no sha256', expect: 'records no sha256 for capture', ...tree({ entries: [herdrEntry(DRIVER)], run: capturesWith({ sha256: null }) }) },
+  { name: '#140: equivalence record whose attested herdr hash is not the run manifest\'s', expect: 'is not the one its run manifest', ...tree({ entries: [herdrEntry(DRIVER)], run: herdrWith({ sha256: 'e'.repeat(64) }), record: `${EQUIV}\n${ATTESTATION}` }) },
   { name: 'control: gate result with Driver: human operator', expect: 'pass', ...tree({ entries: [], run: null, record: null, result: '### G1 claude-wake\n\n- **Driver:** human operator\n' }) },
   { name: 'gate result naming herdr as Driver with no attestation', expect: 'names herdr as its Driver but has no', ...tree({ entries: [], run: null, record: null, result: '### G1 claude-wake\n\n- **Driver:** herdr (`herdr 0.9.1`, PINS.md `herdr (test tooling)` v0.9.1)\n' }) },
   { name: 'control: gate result naming herdr as Driver, attested', expect: 'pass', ...tree({ entries: [], run: null, record: null, result: `### G1 claude-wake\n\n- **Driver:** herdr (\`herdr 0.9.1\`)\n\n${ATTESTATION}` }) },

@@ -57,7 +57,7 @@ import { parseSections, committedFile } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 import { schemaBlockFor } from './g2-report.mjs';
 import {
-  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, herdrExecutableHash, reconstructionCallout, describeDialogs, noConsentCriterionLine,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -309,7 +309,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G5', g5.dialogs) }));
+  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, herdrHash: herdrExecutableHash(manifest), harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G5', g5.dialogs) }));
   return out.join('\n');
 }
 

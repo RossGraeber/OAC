@@ -56,7 +56,9 @@ export function killTree(pid, signal = 'SIGKILL') {
 //
 // Result: { exitCode, signal, stdout, stderr, timedOut, killedByDriver, killUnconfirmed,
 //           spawnError, startedAt, endedAt, durationMs }
-export function runBounded(file, args, { deadlineMs, env, cwd, input, abortSignal } = {}) {
+// windowsVerbatimArguments: pass args to the child unquoted (Windows only; a cmd.exe /s /c
+// command line the caller has quoted itself, as harness `--version` probes do, #140).
+export function runBounded(file, args, { deadlineMs, env, cwd, input, abortSignal, windowsVerbatimArguments = false } = {}) {
   if (!(deadlineMs > 0)) throw new Error('runBounded: an explicit deadlineMs > 0 is required');
   const started = Date.now();
   return new Promise((resolvePromise) => {
@@ -107,6 +109,7 @@ export function runBounded(file, args, { deadlineMs, env, cwd, input, abortSigna
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: !IS_WIN, // own process group, so a deadline kill reaches the whole group
         windowsHide: true,
+        windowsVerbatimArguments,
       });
     } catch (err) {
       finish({ spawnError: err.code || String(err) });

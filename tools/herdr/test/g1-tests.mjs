@@ -428,11 +428,18 @@ export function g1Cases(check) {
     const diff = compareTranscripts(BOX_C, r.capture(names().transcript), { segment: 'last' });
     check('g1 driver accept: method-sequence diff vs Box C is only the discover probe the fake does not send', diff.summary.onlyInCandidate === 0 && diff.ops.filter((o) => o.op === '-').map((o) => o.key).join('|') === 'c->s request server/discover|s->c error -32601 (server/discover)', formatDiff(diff));
     check('g1 driver accept: committed quarantined server unchanged after the run', sha256(readFileSync(join(REPO, COMMITTED_SERVER))) === committedSha);
+    // #140: the fake `claude` on PATH and the fake herdr are recorded as what ran, and each
+    // capture's hash is the hash of the file written.
+    const cx = m.harnessExecutables?.claude;
+    check('g1 driver accept #140: the fake claude on PATH is recorded (basename, sha256 of the file that answered --version)', cx?.resolved === true && cx.basename === 'claude' && cx.format === 'script' && cx.sha256 === sha256(readFileSync(join(r.base, 'bin', 'claude'))), JSON.stringify(cx));
+    check('g1 driver accept #140: the herdr executable is the node-run test double', m.herdr.executable?.testDouble === true && m.herdr.executable.basename === 'fake-herdr.mjs');
+    check('g1 driver accept #140: each capture records the sha256 of its written bytes', m.captures.every((x) => x.sha256 === sha256(readFileSync(join(r.outDir, x.file)))));
 
     // The report CLI: draft to stdout, then --write into a temporary root (never the repo).
     const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g1-report.mjs');
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
     check('g1 report CLI: draft printed, marked not verdict-bearing, with the diff', draft.status === 0 && /Not verdict-bearing/.test(draft.stdout) && /## Method-sequence diff/.test(draft.stdout) && /\*\*not evaluable\*\*/.test(draft.stdout), draft.stderr);
+    check('g1 report CLI #140: the attestation\'s herdr line names the recorded test-double herdr and leaves the hash unfilled', /\*\*herdr:\*\* .*sha256 of the executable: `<64 hex>` \(the run manifest records a test-double herdr/.test(draft.stdout));
     const bad = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--score', '5=equivalent', '--note', '5=I watched it'], { encoding: 'utf8', timeout: 20000 });
     check('g1 report CLI: refuses an operator score for criterion 5', bad.status === 2 && /criterion 5 cannot be scored by hand/.test(bad.stderr));
     const root = mkdtempSync(join(tmpdir(), 'oac-g1-report-'));
