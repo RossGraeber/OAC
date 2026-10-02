@@ -214,6 +214,10 @@ export default {
     const serverFacts = () => g5ClaudeFacts(serverDir && existsSync(join(serverDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(serverDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
     const clientEntries = () => (clientDir && existsSync(join(clientDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(clientDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
     const clientFacts = () => g5CodexFacts(clientEntries(), { question: operator.question });
+    // The wire facts of the client lines after file line `line` only. The wire's own line numbers
+    // skip the client's delivery records, so a file line is compared by filtering, never by
+    // number (C13: deliveries come before later arms' launches).
+    const wireSince = (line) => g5CodexFacts(clientEntries().filter((e) => e.line > line), { question: operator.question }).wire;
     const lastLine = () => clientEntries().at(-1)?.line ?? 0;
 
     const once = new Set();
@@ -372,7 +376,7 @@ export default {
           handleDialog: agent.handleDialog,
           listLoaded: async () => {
             const { linesBefore } = await runClient('list', []);
-            return loadedSince(clientFacts().wire.loadedLists, linesBefore); // read after the poll: its own answer only
+            return loadedSince(wireSince(linesBefore).loadedLists, 0); // read after the poll: its own answer only
           },
           preLoaded,
           timeoutMs: num('readyTimeoutMs'),
@@ -396,7 +400,7 @@ export default {
         let found;
         for (;;) {
           await runClient('list', []);
-          found = identifyTuiThread(clientFacts().wire, { operatorPrompt: operator.threadMarker, projectDirs, sinceLine });
+          found = identifyTuiThread(wireSince(sinceLine), { operatorPrompt: operator.threadMarker, projectDirs, sinceLine: 0 });
           if (found.threadId) break;
           if (found.candidates.length > 1) throw new DriverError(`${found.why}: ${found.candidates.map((c) => c.id).join(', ')}`);
           if (Date.now() + num('listPollMs') >= attachDeadline) {
@@ -486,8 +490,9 @@ export default {
       g5.claudeCases.push({ id: 'C6', busyPrompt: bp, firstBusySeq: firstBusy.seq, triggeredAt: c6At, wire: { line: c6.notification.line, t: c6.notification.t }, readAfterPushSeq: c6r.seq, afterReadSeq: c6after.seq, ...c6qa });
 
       // --- 5. Codex cases ---------------------------------------------------------------------------
+      let turnAgent = codex; // C13: the current arm's Codex TUI
       const turnDone = (pred, what) =>
-        codex.waitFor(what, async () => {
+        turnAgent.waitFor(what, async () => {
           if (Date.now() < (turnDone.next ?? 0)) return null;
           turnDone.next = Date.now() + num('listPollMs');
           await runClient('turns', [threadId]);
@@ -498,7 +503,7 @@ export default {
       // and a refused one (nothing reached Codex). Scoring is lib/g5-report.mjs's, never here.
       for (const a of arms ?? []) {
         const { linesBefore: preLine } = await runClient('list', []);
-        const preLoaded = loadedSince(clientFacts().wire.loadedLists, preLine);
+        const preLoaded = loadedSince(wireSince(preLine).loadedLists, 0);
         if (preLoaded === null) stop(`the \`thread/loaded/list\` before arm ${a.arm} could not be read; nothing launched for it`);
         const agent = makeAgent({ ctx, g: g5, name: `g5codex${a.arm.toLowerCase()}`, label: `codex-arm-${a.arm}`, classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex, accept, num, stop });
         codexAgents.push(agent);
@@ -506,7 +511,8 @@ export default {
         if (Object.values(g5.c13.threads).some((x) => x.thread.id === t.thread.id)) throw new DriverError(`arm ${a.arm} found the thread of an earlier arm (${t.thread.id}); each arm needs a fresh thread`);
         g5.c13.threads[a.arm] = t;
         const armThread = t.thread.id;
-        threadId = armThread; // turnDone lists this arm's thread
+        threadId = armThread; // turnDone lists this arm's thread and reads this arm's pane
+        turnAgent = agent;
         for (const d of a.deliveries) {
           sendOnce(`Codex C13 delivery ${d.id} (${d.queued ? 'setup turn/start + thread/queue/add' : 'turn/start'}, client)`);
           const rec = await runClient('c13', [armThread, d.id]);

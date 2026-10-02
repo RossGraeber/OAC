@@ -437,10 +437,10 @@ export function g5Cases(check) {
   });
 
   // C13 §11 (#220): the three arms end to end, each in its own fresh Codex thread (TEST DOUBLES).
-  run('g5 C13 arms 0,F,C', { args: ['--param', 'accept=driver', '--param', 'arms=0,F,C', ...FAST] }, (r) => {
+  run('g5 C13 arms 0,F,C', { args: ['--param', 'accept=driver', '--param', 'arms=0,F,C', ...FAST], fakeCodex: {} }, (r) => {
     const m = r.manifest;
     const g5 = m.scenarioData.g5;
-    check('g5 c13: PASS (exit 0); the K8 cases X1-X6 were not sent', r.status === 0 && m.outcome === 'PASS' && !g5.injectionsSent.some((x) => /Codex case X/.test(x.what)), `${r.status} ${m.outcome} ${m.outcomeReason}`);
+    check('g5 c13: PASS (exit 0); the K8 cases X1-X6 were not sent', r.status === 0 && m.outcome === 'PASS' && !g5.injectionsSent.some((x) => /Codex case X/.test(x.what)), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.commands.filter((c) => c.exitCode).slice(-2).map((c) => [c.seq, c.argv.slice(3), c.exitCode, c.errorCode]))}`);
     const ids = Object.values(C13_ARMS).flatMap((a) => a.deliveries.map(([id]) => id));
     check('g5 c13: every §11 delivery sent once, in arm order 0, F, C', g5.c13.arms.join() === '0,F,C' && g5.c13.deliveries.map((d) => d.id).join() === ids.join() && g5.injectionsSent.filter((x) => /C13 delivery/.test(x.what)).length === ids.length);
     const th = ['0', 'F', 'C'].map((a) => g5.c13.threads[a]?.thread?.id);
