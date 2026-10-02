@@ -18,7 +18,7 @@ All under `docs/planning/v0.1/`. One line each — the job, not the content.
 | # | File | Job |
 |---|---|---|
 | 1 | `00-summary.md` | One page: what v0.1 proves, the §4 structural finding, the language and process-model decisions, top three risks. |
-| 2 | `01-capability-matrix.md` | One row per capability across Codex, Codex, MCP, Zenoh, ACP with status/version/source/date/gap. |
+| 2 | `01-capability-matrix.md` | One row per capability across Claude Code, Codex, MCP, Zenoh, ACP with status/version/source/date/gap. |
 | 3 | `02-gating-findings.md` | G1-G5 pass/fail/fallback criteria and current verdict — generated summary of `docs/planning/gates/G<n>-result.md`, not hand-authored (see `docs/planning/gates/README.md` §Reconciliation). |
 | 4 | `03-decisions-and-amendments.md` | Every §5 decision made; ADR-001-A1 onward; the resolved Appendix A conflict register. |
 | 5 | `04-architecture.md` | Components, process boundaries, inbound/outbound data and control flow per provider, deployment topologies. Diagrams in text. |
@@ -119,7 +119,7 @@ Run this checklist; fix whatever fails before closing Epic A.
 - [ ] Every §5 decision is made, not deferred, or has a gate whose result decides it.
 - [ ] Every gate G1 to G5 has pass, fail, and fallback text.
 - [ ] Every §3 fact you rely on has been re-verified against the pinned version, and every UNVERIFIED item is closed or listed as a risk.
-- [ ] No neutral interface mentions Zenoh, Codex, Codex, MCP method names, or key expressions.
+- [ ] No neutral interface mentions Zenoh, Claude, Codex, MCP method names, or key expressions.
 - [ ] No section proposes owning a harness's turn loop, holding provider credentials, or polling an inbox from an adapter that claims active inbound.
 - [ ] The naming resolution in §4 is applied consistently.
 

@@ -8,8 +8,9 @@ Source: PLANNING-PROMPT.md §4 G1, §3.1. Backlog: `docs/planning/backlog/03-tas
 
 ## What the spike proves
 
-A throwaway development-flag channel server proves the Claude wake semantics on the pinned
-Claude Code version.
+A throwaway development-flag channel server proves the Claude wake semantics on the
+observed Claude Code version — this row is floating, not pinned; record the full observed
+version triple (see "Surfaces and version pins" below).
 
 ## Pass criteria (evaluate each individually)
 
@@ -38,10 +39,19 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
 
 ## Surfaces and version pins
 
-- Claude Code Channels research preview, pinned baseline v2.1.232+ (PLANNING-PROMPT.md §3.1).
-  Permission relay (`claude/channel/permission`) needs v2.1.234+ but is out of scope for this
-  gate — it is proposed off by default in v0.1 (Decision 8 / C10, not yet decided; Epic C is
-  still open per STATUS.md).
+- Claude Code Channels research preview. Version: **floating** (`docs/planning/PINS.md`,
+  Claude Code (Channels), "Version policy", #216). There is no fixed pin: PINS.md records a
+  minimum (`v2.1.282`) and a last tested version. Record the observed CLI (`claude
+  --version`), wire `initialize` result `clientInfo.version`, and the transport user-agent
+  (when the transport carries one) in the result. A version other than the last tested one,
+  or below the minimum, is a warning, never a stop and never by itself a reason to
+  invalidate the verdict. The §3.1 facts were re-checked once, at `2.1.285` (2026-10-02,
+  #122; `oac-claude-channels` `## Pin`). Newer versions are warnings only. The capability
+  floors — channels-exist `>= v2.1.232` (unsupported, drift D6: the changelog says
+  `2.1.80`) and permission-relay `>= v2.1.234` (PLANNING-PROMPT.md §3.1) — sit below the
+  minimum; permission relay itself stays out of scope for this gate,
+  proposed off by default in v0.1 (Decision 8 / C10, not yet decided; Epic C is still open
+  per STATUS.md).
 - MCP protocol revision: legacy only (`2025-11-25` or earlier). The channel server MUST NOT
   negotiate `2026-07-28` — see G4 for the dual-era interaction.
 - Not available on Bedrock, Vertex, or Foundry (record which backend the spike ran against).
@@ -54,27 +64,38 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
 
 - Confirmed by design (must observe directly, not assume):
   - Inbound notifications wake an idle session as a user turn; notifications mid-turn are
-    queued and delivered together, in order, at the next turn.
+    queued and delivered in order, not dropped, not interleaved into an in-flight tool
+    call. **Amendment, 2026-09-28 (G1 Box C, `v2.1.283`):** do not assume "delivered
+    together, at the next turn" means batched at one boundary — Box C observed two
+    close-together mid-turn notifications delivered at two separate tool-call boundaries,
+    still in order and un-dropped. Delivery granularity (batched vs. per-boundary) is
+    UNVERIFIED as a guarantee; may depend on relative send timing. See
+    `docs/planning/gates/G1-result.md` "Re-run attempt 2 (Box C)".
   - Claude Code sends **no acknowledgement** — a resolved notification send means "written to
     transport," not "seen by the model." Record what the spike can and cannot observe about
     delivery given this.
   - `meta` keys must be identifier-safe (letters, digits, underscore) or are silently dropped
     — verify this by including a non-identifier-safe key and confirming it does not appear as
     an attribute.
-  - Loading is `--channels plugin:<name>@<marketplace>` or `--channels server:<name>`, at
-    session start only.
+  - Loading is `--channels plugin:<name>@<marketplace>` (allowlisted plugin-packaged
+    channel) or `--dangerously-load-development-channels server:<name>` (bare server), at
+    session start only. (Dated note, 2026-10-02, #122: this line previously also gave
+    `--channels server:<name>`, which is wrong — `--channels` takes `plugin:` entries
+    only; drift D4, `docs/planning/REVERIFICATION-B2.md`.)
 - UNVERIFIED items this gate is positioned to close (record whichever you actually test; if
   untested, they remain open per STATUS.md):
   - Channel behavior across `--resume`.
   - Whether one server can present more than one logical channel.
   - Whether a `CLAUDE_SESSION_ID` environment variable exists (baseline says none is
-    documented).
+    documented). (Dated note, 2026-10-02, #122: closed in B2. A differently named
+    `CLAUDE_CODE_SESSION_ID` is documented, drift D5; see `oac-claude-channels` §8.)
   - Agent SDK support for Channels (baseline presumes absent).
 
 ## Fixtures to capture (for Stage 3's fake Claude endpoint)
 
 Per D6: initialize/negotiation handshake (showing the legacy revision), the
 `notifications/claude/channel` payload and the resulting `<channel>` tag rendering, the
-mid-turn queueing sequence (two notifications, one turn boundary), and a tool-based reply.
-Capture the pinned version and date on the fixture; redact any session-identifying data before
-committing.
+mid-turn queueing sequence (two notifications, in order, not dropped — not necessarily one
+turn boundary; G1 Box C observed two separate boundaries, see the amendment above), and a
+tool-based reply. Capture the pinned version and date on the fixture; redact any
+session-identifying data before committing.
