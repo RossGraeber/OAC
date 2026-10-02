@@ -1311,7 +1311,10 @@ without an UNVERIFIED label.
   - which call yields a parent PID from a peer PID on each OS.
 
   Until it is established, the daemon does not bind a hook payload it cannot pair, so
-  this costs availability, not authority. Owner: Epic F Claude adapter work and G9. Risk
+  this costs availability, not authority. One residual depends on the same mechanism: a
+  transition payload that is dropped or unpairable cannot be attributed to a shim, so
+  the shim's old binding can survive. C4 §3 requires Stage 3/4 to close this, and
+  whether the mechanism allows it is UNVERIFIED. Owner: Epic F Claude adapter work and G9. Risk
   entry: RISK-LOCAL-IPC in `docs/planning/v0.1/11-risks.md` (traceability row 58).
 
 - **New, from the Gate S0 check (#228, 2026-10-02):** B2 rows that carried a §3 fact

@@ -408,7 +408,14 @@ list.
   Early-warning signal: the Epic F Claude adapter cannot pair a hook handler with its
   shim by ancestry. Response: name another daemon-observed key in the Stage 3/4 design.
   The variable `CLAUDE_CODE_SESSION_ID` is never an allowed substitute. Until then,
-  sessions stay unbound (fail closed). Traceability row 58.)
+  sessions stay unbound (fail closed). Traceability row 58.
+  **Residual on the same item:** a transition payload that is dropped at the end of the
+  pairing window, or is unpairable, cannot be attributed to a shim. The shim's old
+  binding can then survive and deliver into a session that has moved on. C4 §3 requires
+  the Stage 3/4 implementation to close this gap, for example by refusing that process's
+  shim until it is re-paired, if the mechanism allows. Whether it does is UNVERIFIED.
+  The early-warning signal is the same: the adapter cannot attribute a dropped payload
+  to a process.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption
