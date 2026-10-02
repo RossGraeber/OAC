@@ -240,7 +240,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('');
   out.push(`- **Driver:** herdr (\`${manifest?.herdr?.observedVersionOutput ?? '?'}\`, PINS.md \`herdr (test tooling)\` ${manifest?.herdr?.pinnedTag ?? '?'}) via \`tools/herdr/run.mjs\`, scenario \`${manifest?.scenario?.file ?? '?'}\`, driver commit \`${manifest?.driver?.commit ?? '?'}\`${manifest?.driver?.toolsHerdrDirty !== false ? ` (tools/herdr dirty: ${manifest?.driver?.toolsHerdrDirty})` : ''}`);
   out.push(`- **Run outcome:** ${manifest?.outcome ?? '?'}${manifest?.outcomeReason ? ` — ${manifest.outcomeReason}` : ''}`);
-  out.push(`- **Codex version:** \`codex --version\` = \`${v.cliOutput ?? '?'}\` (post-run \`${g2.postRun?.cliOutput ?? 'not recorded'}\`); daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${d[k] ?? '?'}\``).join(', ')}; wire \`initialize\` userAgent \`${v.wireUserAgent ?? '?'}\`; PINS.md \`${v.pinsRow ?? 'Codex CLI / app-server'}\` last observed \`${v.pinsLastObserved ?? '?'}\` (commit \`${v.pinsCommit ?? '?'}\`); version unchanged through the run: ${g2.postRun?.matches ?? '?'}`);
+  out.push(`- **Codex version:** \`codex --version\` = \`${v.cliOutput ?? '?'}\` (post-run \`${g2.postRun?.cliOutput ?? 'not recorded'}\`); daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${d[k] ?? '?'}\``).join(', ')}; wire \`initialize\` userAgent \`${v.wireUserAgent ?? '?'}\`; PINS.md \`${v.pinsRow ?? 'Codex CLI / app-server'}\` ${pinsVersionsText(v)}; version warnings: ${v.warnings?.length ?? 0} (listed under Findings; versions float and are never gated, #216); version unchanged through the run: ${g2.postRun?.matches ?? '?'}`);
   out.push(`- **Launch:** \`${(manifest?.launch?.argv ?? []).join(' ')}\` (plain; herdr-reported argv \`${JSON.stringify(manifest?.launch?.herdrReportedArgv ?? null)}\`); pane process argv ${g2.paneArgv?.[0]?.proof?.found ? `pid ${g2.paneArgv[0].proof.pid}, arguments after \`${g2.paneArgv[0].proof.codexToken}\`: ${JSON.stringify(g2.paneArgv[0].proof.argsAfterCodex)}` : 'not shown'}`);
   out.push(`- **Daemon:** \`codex app-server daemon start\` exit ${g2.daemon?.start?.exitCode ?? '?'}; left running after the run (the operator's, as in the human run)`);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
@@ -294,13 +294,27 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   return out.join('\n');
 }
 
-// Verified only when the CLI, all three daemon fields and the wire userAgent equal PINS.md's
-// committed last-observed version, and none of them moved during the run.
+// Verified when the CLI, all three daemon fields and the wire userAgent report one and the
+// same version, and none of them moved during the run, so a fixture names one version.
+// Whether that version is PINS.md's last tested one is NOT part of this: versions float
+// and are never gated (#216); a difference is a VERSION WARNING finding and shows as
+// version_matches_pin: false in the fixture manifest entry.
 export function versionsVerified(g2) {
   const v = g2?.versions;
-  if (!v || v.verified !== true || !v.cli || v.pinsSource?.workingTreeMatchesHead !== true) return false;
-  const pin = v.pinsLastObserved;
-  return v.cli === pin && v.wire === pin && CODEX_DAEMON_VERSION_FIELDS.every((k) => v.daemon?.[k] === pin) && g2.postRun?.matches === true;
+  if (!v || v.verified !== true || !v.cli) return false;
+  return v.wire === v.cli && CODEX_DAEMON_VERSION_FIELDS.every((k) => v.daemon?.[k] === v.cli) && g2.postRun?.matches === true;
+}
+
+// Whether the verified version equals PINS.md's last tested version (informational only).
+export function versionMatchesLastTested(g2) {
+  return versionsVerified(g2) && !!g2.versions.pinsLastTested && g2.versions.cli === g2.versions.pinsLastTested;
+}
+
+// PINS.md's versions as the run recorded them. A run recorded before #216 carries only the
+// then "last observed" version.
+function pinsVersionsText(v) {
+  if (v.pinsLastTested) return `minimum \`${v.pinsMinimum ?? '?'}\`, last tested \`${v.pinsLastTested}\` (commit \`${v.pinsCommit ?? '?'}\`)`;
+  return `last observed \`${v.pinsLastObserved ?? '?'}\` (commit \`${v.pinsCommit ?? '?'}\`; recorded before #216)`;
 }
 
 // Why --write must refuse this run, or null.
@@ -308,7 +322,7 @@ export function writeRefusal(manifest) {
   const g2 = manifest?.scenarioData?.g2;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g2) return 'no G2 scenario record in the run manifest';
-  if (!versionsVerified(g2)) return `Codex version not verified on the CLI (${g2.versions?.cli}), the daemon (${JSON.stringify(g2.versions?.daemon ?? null)}) and the wire (${g2.versions?.wire}) against PINS.md last observed ${g2.versions?.pinsLastObserved}, before and after the run`;
+  if (!versionsVerified(g2)) return `the CLI (${g2.versions?.cli}), the daemon (${JSON.stringify(g2.versions?.daemon ?? null)}) and the wire (${g2.versions?.wire}) did not report one and the same Codex version before and after the run, so no fixture can name it`;
   if (!g2.fixtures || JSON.stringify(g2.fixtures) !== JSON.stringify(g2.captureNames)) return 'captures do not carry the verified K7 fixture names';
   for (const f of [g2.fixtures.transcript, g2.fixtures.pane]) {
     if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
@@ -362,13 +376,14 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
     observed_version: {
       codex_cli: `${v.cli} (codex --version \`${v.cliOutput}\`)`,
       codex_daemon: `${CODEX_DAEMON_VERSION_FIELDS.map((k) => v.daemon?.[k]).join('/')} (cliVersion/appServerVersion/managedCodexVersion)`,
-      commit: v.pinsCommit,
+      commit: versionMatchesLastTested(g2) ? v.pinsCommit : null,
       node: null,
       client_visible_user_agent: `${v.wireUserAgent} (initialize result)`,
     },
     pins_row: 'Codex CLI / app-server',
     pins_as_of: `PINS.md as committed at HEAD ${v.pinsSource?.headCommit ?? '?'} when the run started (working tree matched HEAD: ${v.pinsSource?.workingTreeMatchesHead}); last commit touching PINS.md at report time: ${pinsCommit ?? 'unknown'}`,
-    version_matches_pin: versionsVerified(g2),
+    version_matches_pin: versionMatchesLastTested(g2),
+    ...(versionMatchesLastTested(g2) ? {} : { version_matches_pin_note: `Codex ${v.cli} is not PINS.md's last tested ${v.pinsLastTested ?? v.pinsLastObserved ?? '?'} (minimum ${v.pinsMinimum ?? '?'}); recorded as a VERSION WARNING finding, not a gate (#216)` }),
     capture_date: g2.date,
     capture_utc_range: f.firstT && f.lastT ? `${f.firstT}-${f.lastT}` : null,
     superseded_by: null,
@@ -395,7 +410,7 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
         'turn/completed': f.events.turnCompleted.map((x) => x.line).join(', ') || null,
         'thread/start': null,
       },
-      schema: schemaBlockFor({ version: v.cli, codexCommit: v.pinsCommit, manifestJson }),
+      schema: schemaBlockFor({ version: v.cli, codexCommit: versionMatchesLastTested(g2) ? v.pinsCommit : null, manifestJson }),
     },
     {
       path: `${FIXTURE_DIR}/${fixtures.pane}`,

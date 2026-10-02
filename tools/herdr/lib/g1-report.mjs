@@ -240,7 +240,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('');
   out.push(`- **Driver:** herdr (\`${manifest?.herdr?.observedVersionOutput ?? '?'}\`, PINS.md \`herdr (test tooling)\` ${manifest?.herdr?.pinnedTag ?? '?'}) via \`tools/herdr/run.mjs\`, scenario \`${manifest?.scenario?.file ?? '?'}\`, driver commit \`${manifest?.driver?.commit ?? '?'}\`${manifest?.driver?.toolsHerdrDirty ? ' (tools/herdr had uncommitted changes)' : ''}`);
   out.push(`- **Run outcome:** ${manifest?.outcome ?? '?'}${manifest?.outcomeReason ? ` — ${manifest.outcomeReason}` : ''}`);
-  out.push(`- **Claude Code version:** \`claude --version\` = \`${v.cliOutput ?? '?'}\` (post-run \`${g1.postRunVersion ?? 'not recorded'}\`); wire \`clientInfo.version\` = \`${v.wireClientInfo ?? '?'}\`; transport user-agent N/A (stdio); PINS.md \`${v.pinsRow ?? 'Claude Code (Channels)'}\` last observed \`${v.pinsLastObserved ?? '?'}\``);
+  out.push(`- **Claude Code version:** \`claude --version\` = \`${v.cliOutput ?? '?'}\` (post-run \`${g1.postRunVersion ?? 'not recorded'}\`); wire \`clientInfo.version\` = \`${v.wireClientInfo ?? '?'}\`; transport user-agent N/A (stdio); PINS.md \`${v.pinsRow ?? 'Claude Code (Channels)'}\` ${pinsVersionsText(v)}; version warnings: ${v.warnings?.length ?? 0} (listed under Findings; versions float and are never gated, #216)`);
   out.push(`- **Launch (verbatim):** \`${(manifest?.launch?.argv ?? []).join(' ')}\`; herdr-reported argv \`${JSON.stringify(manifest?.launch?.herdrReportedArgv ?? null)}\``);
   out.push(`- **Timebox:** ${manifest?.timebox?.budgetMs ?? '?'} ms, ${manifest?.timebox?.start ?? '?'} to ${manifest?.timebox?.end ?? '?'}; expired: ${manifest?.timebox?.expired ?? '?'}`);
   out.push(`- **Accept policy:** ${g1.acceptPolicy ?? '?'}; dialogs on record: ${describeDialogs(g1.dialogs)}`);
@@ -290,11 +290,27 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   return out.join('\n');
 }
 
-// A run's Claude Code version is verified only when the CLI and the wire clientInfo both
-// equal PINS.md's committed last-observed version and the scenario marked it verified.
+// PINS.md's versions as the run recorded them. A run recorded before #216 carries only the
+// then "last observed" version.
+function pinsVersionsText(v) {
+  if (v.pinsLastTested) return `minimum \`${v.pinsMinimum ?? '?'}\`, last tested \`${v.pinsLastTested}\``;
+  return `last observed \`${v.pinsLastObserved ?? '?'}\` (recorded before #216)`;
+}
+
+// A run's Claude Code version is verified when the CLI and the wire clientInfo report one
+// and the same version and the scenario marked it verified, so a fixture names one
+// version. Whether that version is PINS.md's last tested one is NOT part of this: versions
+// float and are never gated (#216); a difference is a VERSION WARNING finding and shows as
+// version_matches_pin: false in the fixture manifest entry.
 export function versionsVerified(g1) {
   const v = g1?.versions;
-  return !!v && v.verified === true && !!v.cli && v.cli === v.pinsLastObserved && v.wireClientInfo === v.pinsLastObserved && v.pinsSource?.workingTreeMatchesHead === true;
+  return !!v && v.verified === true && !!v.cli && v.cli === v.wireClientInfo;
+}
+
+// Whether the verified version equals PINS.md's last tested version (informational only).
+export function versionMatchesLastTested(g1) {
+  const v = g1?.versions;
+  return versionsVerified(g1) && !!v.pinsLastTested && v.cli === v.pinsLastTested;
 }
 
 // Why --write must refuse this run, or null. Only a PASS run with verified versions, the
@@ -304,7 +320,7 @@ export function writeRefusal(manifest) {
   const g1 = manifest?.scenarioData?.g1;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g1) return 'no G1 scenario record in the run manifest';
-  if (!versionsVerified(g1)) return `Claude Code version not verified on both CLI (${g1.versions?.cli}) and wire (${g1.versions?.wireClientInfo}) against PINS.md last observed ${g1.versions?.pinsLastObserved}`;
+  if (!versionsVerified(g1)) return `the CLI (${g1.versions?.cli}) and the wire (${g1.versions?.wireClientInfo}) did not report one and the same Claude Code version, so no fixture can name it`;
   if (!g1.fixtures || JSON.stringify(g1.fixtures) !== JSON.stringify(g1.captureNames)) return 'captures do not carry the verified K4 fixture names';
   for (const f of [g1.fixtures.transcript, g1.fixtures.pane]) {
     if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
@@ -328,7 +344,8 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
     observed_version: { claude_code: `${g1.versions.cli} (claude --version \`${g1.versions.cliOutput}\`; wire clientInfo.version ${g1.versions.wireClientInfo})`, mcp_protocol: `${facts.negotiatedProtocolVersion} (negotiated)`, node: null },
     pins_row: 'Claude Code (Channels)',
     pins_as_of: `PINS.md as committed at HEAD ${g1.versions.pinsSource?.headCommit ?? '?'} when the run started (working tree matched HEAD: ${g1.versions.pinsSource?.workingTreeMatchesHead}); last commit touching PINS.md at report time: ${pinsCommit ?? 'unknown'}`,
-    version_matches_pin: versionsVerified(g1),
+    version_matches_pin: versionMatchesLastTested(g1),
+    ...(versionMatchesLastTested(g1) ? {} : { version_matches_pin_note: `Claude Code ${g1.versions.cli} is not PINS.md's last tested ${g1.versions.pinsLastTested ?? g1.versions.pinsLastObserved ?? '?'} (minimum ${g1.versions.pinsMinimum ?? '?'}); recorded as a VERSION WARNING finding, not a gate (#216)` }),
     capture_date: g1.date,
     capture_utc_range: facts.firstT && facts.lastT ? `${facts.firstT}-${facts.lastT}` : null,
     superseded_by: null,

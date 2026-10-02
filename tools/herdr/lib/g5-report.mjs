@@ -258,7 +258,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('');
   out.push(`- **Driver:** herdr (\`${manifest?.herdr?.observedVersionOutput ?? '?'}\`, PINS.md \`herdr (test tooling)\` ${manifest?.herdr?.pinnedTag ?? '?'}) via \`tools/herdr/run.mjs\`, scenario \`${manifest?.scenario?.file ?? '?'}\`, driver commit \`${manifest?.driver?.commit ?? '?'}\`${manifest?.driver?.toolsHerdrDirty !== false ? ` (tools/herdr dirty: ${manifest?.driver?.toolsHerdrDirty})` : ''}`);
   out.push(`- **Run outcome:** ${manifest?.outcome ?? '?'}${manifest?.outcomeReason ? ` — ${manifest.outcomeReason}` : ''}`);
-  out.push(`- **Versions:** \`claude --version\` = \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; \`codex --version\` = \`${v.cliOutput?.codex ?? '?'}\`, daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${v.daemon?.[k] ?? '?'}\``).join(', ')}, wire userAgent \`${v.wire?.codexUserAgent ?? '?'}\`; PINS.md last observed Claude \`${v.pins?.claudeLastObserved ?? '?'}\`, Codex \`${v.pins?.codexLastObserved ?? '?'}\`; unchanged through the run: ${g5.postRun?.matches ?? '?'}`);
+  out.push(`- **Versions:** \`claude --version\` = \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; \`codex --version\` = \`${v.cliOutput?.codex ?? '?'}\`, daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${v.daemon?.[k] ?? '?'}\``).join(', ')}, wire userAgent \`${v.wire?.codexUserAgent ?? '?'}\`; ${pinsVersionsText(v.pins)}; version warnings: ${v.warnings?.length ?? 0} (listed under Findings; versions float and are never gated, #216); unchanged through the run: ${g5.postRun?.matches ?? '?'}`);
   out.push(`- **Launches:** Claude \`${(manifest?.launch?.argv ?? []).join(' ')}\` (verbatim G5 launch: ${g5.launch?.verbatim ?? '?'}); Codex plain \`codex\` attached to the shared daemon (pane argv ${g5.codexPaneArgv?.proof?.found ? `pid ${g5.codexPaneArgv.proof.pid}, plain: ${g5.codexPaneArgv.proof.plain}` : 'not shown'})`);
   out.push(`- **Gate programs:** ${[...(g5.server ?? []), ...(g5.client ?? [])].map((s) => `\`${s.path}\` sha256 \`${s.workingTreeSha256}\` (matches HEAD: ${s.workingTreeMatchesHead})`).join('; ') || 'not staged'}`);
   out.push(`- **Codex thread:** \`${g5.thread?.id ?? '?'}\` (found by the thread-marker preview, the project cwd and the loaded list); client runs: ${(g5.clientRuns ?? []).map((r) => r.mode).join(', ') || 'none'}; divergence: ${(g5.divergence ?? []).join('; ') || 'none'}`);
@@ -311,19 +311,35 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   return out.join('\n');
 }
 
+// Verified when every source reports one and the same version per harness (CLI and wire;
+// for Codex also the three daemon fields) and none moved during the run, so a fixture
+// names one version per harness. Whether those are PINS.md's last tested versions is NOT
+// part of this: versions float and are never gated (#216); a difference is a VERSION
+// WARNING finding and shows as version_matches_pin: false.
 export function versionsVerified(g5) {
   const v = g5?.versions;
-  if (!v || v.verified !== true || v.pins?.workingTreeMatchesHead !== true) return false;
-  const c = v.pins.claudeLastObserved;
-  const x = v.pins.codexLastObserved;
-  return v.cli?.claude === c && v.wire?.claude === c && v.cli?.codex === x && v.wire?.codex === x && CODEX_DAEMON_VERSION_FIELDS.every((k) => v.daemon?.[k] === x) && g5.postRun?.matches === true;
+  if (!v || v.verified !== true || !v.cli?.claude || !v.cli?.codex) return false;
+  const c = v.cli.claude;
+  const x = v.cli.codex;
+  return v.wire?.claude === c && v.wire?.codex === x && CODEX_DAEMON_VERSION_FIELDS.every((k) => v.daemon?.[k] === x) && g5.postRun?.matches === true;
+}
+
+// Whether the verified versions equal PINS.md's last tested versions (informational only).
+export function versionMatchesLastTested(g5) {
+  const p = g5?.versions?.pins;
+  return versionsVerified(g5) && !!p?.claudeLastTested && g5.versions.cli.claude === p.claudeLastTested && g5.versions.cli.codex === p.codexLastTested;
+}
+
+function pinsVersionsText(p) {
+  if (p?.claudeLastTested) return `PINS.md Claude minimum \`${p.claudeMinimum ?? '?'}\`, last tested \`${p.claudeLastTested}\`; Codex minimum \`${p.codexMinimum ?? '?'}\`, last tested \`${p.codexLastTested ?? '?'}\``;
+  return `PINS.md last observed Claude \`${p?.claudeLastObserved ?? '?'}\`, Codex \`${p?.codexLastObserved ?? '?'}\` (recorded before #216)`;
 }
 
 export function writeRefusal(manifest) {
   const g5 = manifest?.scenarioData?.g5;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g5) return 'no G5 scenario record in the run manifest';
-  if (!versionsVerified(g5)) return 'harness versions not verified on both CLIs, the daemon and both wires against PINS.md\'s committed last-observed versions, before and after the run';
+  if (!versionsVerified(g5)) return 'the CLIs, the daemon and the wires did not report one and the same version per harness before and after the run, so no fixture can name it';
   if (!g5.fixtures || JSON.stringify(g5.fixtures) !== JSON.stringify(g5.captureNames)) return 'captures do not carry the verified K8 fixture names';
   for (const f of Object.values(g5.fixtures)) if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
   const staged = [...(g5.server ?? []), ...(g5.client ?? [])];
@@ -345,7 +361,8 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, text
   };
   const common = {
     pins_as_of: `PINS.md as committed at HEAD ${v.pins?.headCommit ?? '?'} when the run started; last commit touching PINS.md at report time: ${pinsCommit ?? 'unknown'}`,
-    version_matches_pin: versionsVerified(g5),
+    version_matches_pin: versionMatchesLastTested(g5),
+    ...(versionMatchesLastTested(g5) ? {} : { version_matches_pin_note: `Claude Code ${v.cli.claude} / Codex ${v.cli.codex} are not both PINS.md's last tested versions (${v.pins?.claudeLastTested ?? v.pins?.claudeLastObserved ?? '?'} / ${v.pins?.codexLastTested ?? v.pins?.codexLastObserved ?? '?'}); recorded as VERSION WARNING findings, not a gate (#216)` }),
     capture_date: g5.date,
     superseded_by: null,
     driver: { herdr_version: manifest.herdr.observedVersionOutput, driver_commit: manifest.driver.commit, run_manifest: runManifestPath },
@@ -367,13 +384,13 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, text
       path: `${FIXTURE_DIR}/${fixtures.transcriptCodex}`,
       provider: 'codex',
       surface: 'codex-app-server (reconstructed g5-codex.mjs)',
-      observed_version: { codex_cli: `${v.cli.codex} (codex --version \`${v.cliOutput.codex}\`)`, codex_daemon: CODEX_DAEMON_VERSION_FIELDS.map((k) => v.daemon?.[k]).join('/'), commit: v.pins?.codexCommit ?? null, node: null },
+      observed_version: { codex_cli: `${v.cli.codex} (codex --version \`${v.cliOutput.codex}\`)`, codex_daemon: CODEX_DAEMON_VERSION_FIELDS.map((k) => v.daemon?.[k]).join('/'), commit: versionMatchesLastTested(g5) ? v.pins?.codexCommit ?? null : null, node: null },
       pins_row: 'Codex CLI / app-server',
       ...common,
       capture_utc_range: xf.firstT && xf.lastT ? `${xf.firstT}-${xf.lastT}` : null,
       redaction: red(fixtures.transcriptCodex),
       coverage: Object.fromEntries([...xf.cases.map((c) => [`${c.call} (case ${c.case})`, c.startLine ? String(c.startLine) : null]), ['thread/turns/list', xf.turnsLists.map((t) => t.line).join(', ') || null]]),
-      schema: schemaBlockFor({ version: v.cli.codex, codexCommit: v.pins?.codexCommit, manifestJson }),
+      schema: schemaBlockFor({ version: v.cli.codex, codexCommit: versionMatchesLastTested(g5) ? v.pins?.codexCommit : null, manifestJson }),
     },
     { path: `${FIXTURE_DIR}/${fixtures.paneClaude}`, provider: 'claude', surface: 'claude-code TUI pane text (herdr agent read)', observed_version: { claude_code: v.cli.claude, node: null }, pins_row: 'Claude Code (Channels)', ...common, capture_utc_range: null, redaction: red(fixtures.paneClaude), coverage: { 'pane reads': 'verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps' } },
     { path: `${FIXTURE_DIR}/${fixtures.paneCodex}`, provider: 'codex', surface: 'codex TUI pane text (herdr agent read)', observed_version: { codex_cli: v.cli.codex, node: null }, pins_row: 'Codex CLI / app-server', ...common, capture_utc_range: null, redaction: red(fixtures.paneCodex), coverage: { 'pane reads': 'verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps' }, schema: PANE_SCHEMA },

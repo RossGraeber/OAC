@@ -1,6 +1,6 @@
 // K7 (#130) tests, run by the driver self-test (`node tools/herdr/run.mjs --self-test`).
 //
-// Unit half: the Codex pin-move check (lib/pins.mjs), lib/g2.mjs against the REAL committed
+// Unit half: the Codex version warning (lib/pins.mjs, #216), lib/g2.mjs against the REAL committed
 // human-run G2 fixtures (the 0.157.1 re-run and the 0.154.0 baseline) and synthetic
 // variants, the fixture sanitizer, the pane-process argv proof, client staging, and the
 // scoring and write rules of lib/g2-report.mjs.
@@ -19,14 +19,14 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { parseCodexLastObserved, parseCodexCliVersion, parseCodexUserAgentVersion, parseCodexDaemonVersion, codexPinMoveTrigger } from '../lib/pins.mjs';
+import { parseCodexVersions, parseCodexCliVersion, parseCodexUserAgentVersion, parseCodexDaemonVersion, codexVersionWarning } from '../lib/pins.mjs';
 import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
   splitCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
 } from '../lib/g2.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
-import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, writeRefusal, renderReport } from '../lib/g2-report.mjs';
+import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, renderReport } from '../lib/g2-report.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -35,7 +35,8 @@ const read = (p) => readFileSync(p, 'utf8');
 // checks below fail.
 const BASELINE = read(join(REPO, BASELINE_TRANSCRIPT)).replace(/\r\n/g, '\n');
 const OLD_BASELINE = read(join(REPO, FIXTURE_DIR, 'transcript.jsonl'));
-const PIN = parseCodexLastObserved(read(join(REPO, 'docs', 'planning', 'PINS.md'))).lastObserved;
+// PINS.md's last tested Codex version: the fake Codex reports it unless a case sets another.
+const PIN = parseCodexVersions(read(join(REPO, 'docs', 'planning', 'PINS.md'))).lastTested;
 const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g2-report.mjs');
 const throws = (fn, cls, re) => {
   try {
@@ -47,19 +48,21 @@ const throws = (fn, cls, re) => {
 };
 
 export function g2Unit(check) {
-  // --- Codex pin-move check ------------------------------------------------------------------
+  // --- Codex version warning (#216: warn, never gate) -----------------------------------------
   const pins = read(join(REPO, 'docs', 'planning', 'PINS.md'));
-  const real = parseCodexLastObserved(pins);
-  check('g2 pin: PINS.md "Codex CLI / app-server" last-observed version and commit parse', /^\d+\.\d+\.\d+$/.test(real.lastObserved) && /^[0-9a-f]{40}$/.test(real.commit ?? ''), JSON.stringify({ v: real.lastObserved, c: real.commit }));
+  const real = parseCodexVersions(pins);
+  check('g2 version: PINS.md "Codex CLI / app-server" minimum (the first worked-with 0.154.0), last tested version and its commit parse', real.minimum === '0.154.0' && /^\d+\.\d+\.\d+$/.test(real.lastTested) && /^[0-9a-f]{40}$/.test(real.commit ?? ''), JSON.stringify(real));
   const table = (cell) => `| Surface | Stability label | Pinned version | Gates affected |\n|---|---|---|---|\n| Codex CLI / app-server | experimental | ${cell} | G2 |\n`;
-  check('g2 pin: synthetic floating row -> version and commit', JSON.stringify(parseCodexLastObserved(table(`**floating** — last observed \`@scope/codex@0.160.2\` (commit \`${'a'.repeat(40)}\`); see policy`))) .includes('"lastObserved":"0.160.2"'));
-  check('g2 pin: a row without a last-observed version throws', throws(() => parseCodexLastObserved(table('`0.154.0`'))));
+  const syn = parseCodexVersions(table(`**floating** — minimum \`@scope/codex@0.150.0\` (commit \`${'b'.repeat(40)}\`); last tested \`@scope/codex@0.160.2\` (commit \`${'a'.repeat(40)}\`); see policy`));
+  check('g2 version: synthetic row -> minimum, last tested, and the last tested version\'s commit (not the minimum\'s)', syn.minimum === '0.150.0' && syn.lastTested === '0.160.2' && syn.commit === 'a'.repeat(40), JSON.stringify(syn));
+  check('g2 version: a row without a minimum or a last tested version throws', throws(() => parseCodexVersions(table('`0.154.0`'))) && throws(() => parseCodexVersions(table('**floating** — last observed `@openai/codex@0.157.1`'))) && throws(() => parseCodexVersions(table('**floating** — last tested `@openai/codex@0.157.1`'))));
   check('g2 pin: codex --version, userAgent and daemon version parse', parseCodexCliVersion('codex-cli 0.157.1\n') === '0.157.1' && parseCodexCliVersion('N/A (not runnable: ENOENT)') === null && parseCodexCliVersion('0.157.1') === null &&
     parseCodexUserAgentVersion('codex-tui/0.157.1 (Windows 10.0.26200; x86_64) unknown (oac_g2_spike; 0.0.1)') === '0.157.1' && parseCodexUserAgentVersion('oac_g2_spike/0.154.0 (Windows)') === '0.154.0' && parseCodexUserAgentVersion('no version here') === null);
   const dv = parseCodexDaemonVersion('{"status":"running","pid":4,"socketPath":"/x","managedCodexVersion":"0.157.1","cliVersion":"0.157.1","appServerVersion":"0.157.1"}\n');
   check('g2 pin: daemon version keeps only status and the three version fields', JSON.stringify(dv) === '{"status":"running","cliVersion":"0.157.1","appServerVersion":"0.157.1","managedCodexVersion":"0.157.1"}' && parseCodexDaemonVersion('not json') === null);
-  const trig = codexPinMoveTrigger({ observed: '0.158.0', lastObserved: '0.157.1', source: '`codex --version`' });
-  check('g2 pin: equal -> no trigger; different -> a pin-move trigger naming both, re-verify §3.2, no PINS.md edit', codexPinMoveTrigger({ observed: '0.157.1', lastObserved: '0.157.1', source: 'x' }) === null && /^PIN-MOVE TRIGGER/.test(trig) && trig.includes('0.158.0') && trig.includes('0.157.1') && /§3\.2/.test(trig) && /does not edit PINS\.md/.test(trig) && /no parseable version/.test(codexPinMoveTrigger({ observed: null, lastObserved: '0.157.1', source: 'x' })));
+  const warn = codexVersionWarning({ observed: '0.160.0', lastTested: '0.159.3', minimum: '0.154.0', source: '`codex --version`' });
+  check('g2 version: equal -> no warning; different -> a VERSION WARNING naming both, the run continues, no PINS.md edit', codexVersionWarning({ observed: '0.159.3', lastTested: '0.159.3', minimum: '0.154.0', source: 'x' }) === null && /^VERSION WARNING \(G2\)/.test(warn) && warn.includes('0.160.0') && warn.includes('0.159.3') && /run continues/.test(warn) && /does not edit PINS\.md/.test(warn) && !/PIN-MOVE|NOT RUN/.test(warn) && /no parseable version/.test(codexVersionWarning({ observed: null, lastTested: '0.159.3', minimum: '0.154.0', source: 'x' })), warn);
+  check('g2 version: below the minimum is a warning that says so', /below the minimum 0\.154\.0/.test(codexVersionWarning({ observed: '0.153.9', lastTested: '0.159.3', minimum: '0.154.0', source: 'x' })));
 
   // --- criteria, read from the reference file ---------------------------------------------
   const { criteria: crit, reference: critRef } = readG2Criteria(REPO);
@@ -228,12 +231,13 @@ export function g2Unit(check) {
 
   // --- report rules ---------------------------------------------------------------------------
   check('g2 report: only criterion 3 takes an operator score, with a note', throws(() => parseOperatorScores([{ n: 1, score: 'equivalent', note: 'x' }]), ReportError, /mechanically/) && throws(() => parseOperatorScores([{ n: 3, score: 'equivalent', note: ' ' }]), ReportError, /note/) && parseOperatorScores([{ n: 3, score: 'not-equivalent', note: 'x' }])[3].score === SCORES.NEQ);
-  const nr = evaluateG2({ manifest: { outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER: x', scenarioData: {} }, transcriptText: null, paneText: null, baselineText: BASELINE, criteria: crit });
+  const nr = evaluateG2({ manifest: { outcome: 'NOT RUN', outcomeReason: 'timed out', scenarioData: {} }, transcriptText: null, paneText: null, baselineText: BASELINE, criteria: crit });
   check('g2 report: a NOT RUN leaves every criterion not evaluable', nr.rows.length === 4 && nr.rows.every((r) => r.score === SCORES.NE && /NOT RUN/.test(r.reason)));
-  const V = (o = {}, post = true) => ({ versions: { verified: true, cli: '0.157.1', wire: '0.157.1', daemon: { cliVersion: '0.157.1', appServerVersion: '0.157.1', managedCodexVersion: '0.157.1' }, pinsLastObserved: '0.157.1', pinsSource: { workingTreeMatchesHead: true }, ...o }, postRun: { matches: post } });
-  check('g2 report: versions verified only when CLI, all daemon fields and the wire equal the pin, before and after', versionsVerified(V()) && !versionsVerified(V({ wire: '0.158.0' })) && !versionsVerified(V({ daemon: { cliVersion: '0.157.1', appServerVersion: '0.158.0', managedCodexVersion: '0.157.1' } })) && !versionsVerified(V({}, false)) && !versionsVerified(V({ pinsSource: { workingTreeMatchesHead: false } })));
+  const V = (o = {}, post = true) => ({ versions: { verified: true, cli: '0.157.1', wire: '0.157.1', daemon: { cliVersion: '0.157.1', appServerVersion: '0.157.1', managedCodexVersion: '0.157.1' }, pinsMinimum: '0.154.0', pinsLastTested: '0.157.1', pinsSource: { workingTreeMatchesHead: true }, ...o }, postRun: { matches: post } });
+  check('g2 report: versions verified only when CLI, all daemon fields and the wire report one and the same version, before and after; PINS.md is not part of it (#216)', versionsVerified(V()) && !versionsVerified(V({ wire: '0.158.0' })) && !versionsVerified(V({ daemon: { cliVersion: '0.157.1', appServerVersion: '0.158.0', managedCodexVersion: '0.157.1' } })) && !versionsVerified(V({}, false)) && versionsVerified(V({ pinsSource: { workingTreeMatchesHead: false } })) && versionsVerified(V({ pinsLastTested: '0.159.3' })));
+  check('g2 report (#216): matching the last tested version is informational only', versionMatchesLastTested(V()) && !versionMatchesLastTested(V({ pinsLastTested: '0.159.3' })));
   const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: [{ file: 'transcript-x-herdr.jsonl', written: true }, { file: 'pane-x-herdr.txt', written: true }], scenarioData: { g2: { ...V(), fixtures: { transcript: 'transcript-x-herdr.jsonl', pane: 'pane-x-herdr.txt' }, captureNames: { transcript: 'transcript-x-herdr.jsonl', pane: 'pane-x-herdr.txt' }, client: { match: true, workingTreeMatchesHead: true } } } };
-  check('g2 report: --write accepts only a verified, clean-driver PASS; a dirty tools/herdr/ is refused (unlike G1\'s generator)', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /only a PASS run/.test(writeRefusal({ ...okRun, outcome: 'FAIL' })) && /not verified/.test(writeRefusal({ ...okRun, scenarioData: { g2: { ...okRun.scenarioData.g2, ...V({}, false) } } })));
+  check('g2 report: --write accepts only a verified, clean-driver PASS; a dirty tools/herdr/ is refused (unlike G1\'s generator)', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /only a PASS run/.test(writeRefusal({ ...okRun, outcome: 'FAIL' })) && /one and the same Codex version/.test(writeRefusal({ ...okRun, scenarioData: { g2: { ...okRun.scenarioData.g2, ...V({}, false) } } })));
   const manifestAtHead = JSON.parse(spawnSync('git', ['show', `HEAD:${MANIFEST_PATH}`], { cwd: REPO, encoding: 'utf8', maxBuffer: 64 << 20 }).stdout);
   const sch = schemaBlockFor({ version: '0.157.1', codexCommit: 'c', manifestJson: manifestAtHead });
   const sch2 = schemaBlockFor({ version: '0.158.0', codexCommit: 'deadbeef', manifestJson: manifestAtHead });
@@ -350,7 +354,7 @@ export function g2Cases(check) {
         check('g2 report CLI --write (clean tools/herdr/): report, run manifest and both fixtures written under the root', w.status === 0 && expected.every((p) => existsSync(join(root, p))), w.stdout + w.stderr);
         const entries = JSON.parse(read(join(r.outDir, 'manifest-entries.draft.json')));
         const REQUIRED = ['path', 'provider', 'surface', 'observed_version', 'pins_row', 'pins_as_of', 'version_matches_pin', 'capture_date', 'capture_utc_range', 'superseded_by', 'redaction', 'coverage'];
-        check('g2 report CLI --write: draft entries carry every required field, the driver block and a schema block', entries.length === 2 && entries.every((e) => REQUIRED.every((k) => k in e) && e.provider === 'codex' && e.version_matches_pin === true && e.driver.herdr_version === 'herdr 0.9.1' && /^[0-9a-f]{40}$/.test(e.driver.driver_commit) && e.driver.run_manifest === `docs/planning/gates/herdr-runs/G2-${date}.run-manifest.json` && e.schema) && entries[0].schema.local_generation?.cli === `codex-cli ${PIN}` && /^NOT yet validated/.test(entries[0].schema.validated_against) && entries[1].schema.applicable === false);
+        check('g2 report CLI --write: draft entries carry every required field, the driver block and a schema block', entries.length === 2 && entries.every((e) => REQUIRED.every((k) => k in e) && e.provider === 'codex' && e.version_matches_pin === true && e.driver.herdr_version === 'herdr 0.9.1' && /^[0-9a-f]{40}$/.test(e.driver.driver_commit) && e.driver.run_manifest === `docs/planning/gates/herdr-runs/G2-${date}.run-manifest.json` && e.schema) && (schemaBlockFor({ version: PIN, codexCommit: null, manifestJson: JSON.parse(read(join(REPO, MANIFEST_PATH))) }).upstream ? entries[0].schema.local_generation?.cli === `codex-cli ${PIN}` && /^NOT yet validated/.test(entries[0].schema.validated_against) : entries[0].schema.upstream === null && /not regenerated/.test(entries[0].schema.note)) && entries[1].schema.applicable === false, JSON.stringify(entries.map((e) => e.schema)));
         const again = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
         check('g2 report CLI --write: never overwrites', again.status === 2 && /refusing to overwrite/.test(again.stderr));
       } else {
@@ -395,28 +399,39 @@ export function g2Cases(check) {
     });
   }
 
-  run('g2 CLI version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_CLI_VERSION: '0.158.0' } }, (r) => {
-    const m = r.manifest;
-    check('g2 pin move (CLI): NOT RUN with a pin-move trigger naming both versions', r.status === 3 && /^PIN-MOVE TRIGGER: `codex --version` reports 0\.158\.0/.test(m.outcomeReason) && m.outcomeReason.includes(PIN) && m.findings.some((f) => /^PIN-MOVE TRIGGER/.test(f)), m.outcomeReason);
-    check('g2 pin move (CLI): nothing started -- no daemon, no workspace, no agent, no capture', !daemonStarted(r) && !r.calls.some((c) => c.argv.includes('workspace') || c.argv.includes('agent')) && m.captures.length === 0);
-  });
-
-  run('g2 daemon version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_DAEMON_VERSION: '0.158.0' } }, (r) => {
-    const m = r.manifest;
-    check('g2 pin move (daemon): NOT RUN, the trigger names the daemon field', r.status === 3 && /^PIN-MOVE TRIGGER: `codex app-server daemon version` cliVersion reports 0\.158\.0/.test(m.outcomeReason), m.outcomeReason);
-    check('g2 pin move (daemon): no launch, no client run, no fixture-named capture', !r.calls.some((c) => c.argv.includes('agent')) && m.scenarioData.g2.clientRuns.length === 0 && m.scenarioData.g2.fixtures === null && m.captures.every((c) => c.file.startsWith('unverified-')));
-  });
-
-  run('g2 wire version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_WIRE_VERSION: '0.158.0' } }, (r) => {
+  // #216: versions float. A Codex version other than PINS.md's last tested one (CLI, daemon or
+  // wire), or below the minimum, is a VERSION WARNING finding and the run proceeds.
+  run('g2 drifted version (CLI, daemon and wire) warns and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_VERSION: '0.999.0' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;
-    check('g2 pin move (wire): NOT RUN with a pin-move trigger from the initialize userAgent', r.status === 3 && /^PIN-MOVE TRIGGER: the wire initialize userAgent reports 0\.158\.0/.test(m.outcomeReason), m.outcomeReason);
-    check('g2 pin move (wire): TUI never launched, nothing delivered; captures unverified-* only', !r.calls.some((c) => c.argv.includes('agent')) && g2.injectionsSent.length === 0 && g2.fixtures === null && g2.versions.verified === false && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
+    check('g2 #216 drift: PASS (exit 0), never NOT RUN on a version', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+    check('g2 #216 drift: five VERSION WARNING findings (CLI, three daemon fields, wire), each naming the last tested version', g2.versions.warnings.length === 5 && m.findings.filter((f) => /^VERSION WARNING \(G2\)/.test(f) && f.includes('reports 0.999.0') && f.includes(`last tested ${PIN}`)).length === 5, JSON.stringify(m.findings));
+    check('g2 #216 drift: the daemon started, the TUI launched, the injections were delivered, and the captures name the observed version', daemonStarted(r) && r.calls.some((c) => c.argv.includes('agent')) && g2.injectionsSent.length > 0 && g2.versions.verified === true && g2.versions.matchesLastTested === false && JSON.stringify(g2.fixtures) === JSON.stringify(fixtureNames(today(), '0.999.0')), JSON.stringify(g2.captureNames));
+    const p = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
+    check('g2 #216 drift: the draft lists the warnings and states the policy', p.status === 0 && /Finding: VERSION WARNING \(G2\)/.test(p.stdout) && /version warnings: 5/.test(p.stdout) && /never gated, #216/.test(p.stdout), p.stderr + p.stdout.slice(0, 2000));
+  });
+
+  run('g2 below-minimum version warns and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_VERSION: '0.150.0' } }, (r) => {
+    const m = r.manifest;
+    check('g2 #216 below minimum: PASS, with VERSION WARNINGs that say "below the minimum"', r.status === 0 && m.outcome === 'PASS' && m.findings.filter((f) => /^VERSION WARNING/.test(f) && /below the minimum 0\.154\.0/.test(f)).length === 5, `${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.findings)}`);
+  });
+
+  run('g2 daemon version differs from the CLI: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_DAEMON_VERSION: '0.999.0' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    check('g2 #216 daemon != CLI: the run is not stopped (the daemon field is a VERSION WARNING), the TUI launched', m.outcome !== 'NOT RUN' && m.findings.some((f) => /^VERSION WARNING \(G2\): `codex app-server daemon version` cliVersion reports 0\.999\.0/.test(f)) && r.calls.some((c) => c.argv.includes('agent')), `${m.outcome} ${m.outcomeReason}`);
+    check('g2 #216 daemon != CLI: no fixture-named capture (no single version to name), and --write refuses', g2.fixtures === null && g2.versions.verified === false && m.captures.every((c) => c.file.startsWith('unverified-')) && m.findings.some((f) => /captures stay unverified-\*/.test(f)), JSON.stringify(m.captures.map((c) => c.file)));
+  });
+
+  run('g2 wire version differs from the CLI: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_WIRE_VERSION: '0.999.0' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    check('g2 #216 wire != CLI: not stopped on the version; the TUI launched; a wire VERSION WARNING', m.outcome !== 'NOT RUN' && r.calls.some((c) => c.argv.includes('agent')) && m.findings.some((f) => /^VERSION WARNING \(G2\): the wire initialize userAgent reports 0\.999\.0/.test(f)), `${m.outcome} ${m.outcomeReason}`);
+    check('g2 #216 wire != CLI: captures unverified-* only', g2.fixtures === null && g2.versions.verified === false && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
     const root = mkdtempSync(join(tmpdir(), 'oac-g2-report-'));
     try {
       const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
-      const p = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
-      check('g2 pin move (wire): report --write refuses and writes nothing; the draft says NOT RUN, every criterion not evaluable', w.status === 2 && /--write refused: run outcome is NOT RUN/.test(w.stderr) && readdirSync(root).length === 0 && p.status === 0 && /Run outcome:\*\* NOT RUN/.test(p.stdout) && (p.stdout.match(/\*\*not evaluable\*\* \|/g) ?? []).length === 4, w.stderr + p.stdout.slice(0, 1500));
+      check('g2 #216 wire != CLI: report --write refuses and writes nothing', w.status === 2 && /--write refused/.test(w.stderr) && readdirSync(root).length === 0, w.stderr);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

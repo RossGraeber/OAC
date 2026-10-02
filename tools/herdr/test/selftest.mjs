@@ -52,7 +52,7 @@ import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import { parseHerdrPin, readHerdrPin, versionMatches } from '../lib/pins.mjs';
+import { parseHerdrPin, readHerdrPin, versionMatches, parseClaudeVersions } from '../lib/pins.mjs';
 import { quoteCommand, regexLiteral } from '../lib/pane-shell.mjs';
 import { createRedactor, reportIsClean, parseLiteralSpec } from '../lib/redact.mjs';
 import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSessionName } from '../lib/herdr.mjs';
@@ -72,6 +72,7 @@ const RUN = join(HERE, '..', 'run.mjs');
 const FAKE = join(HERE, 'fake-herdr.mjs');
 const FAKE_RM = join(HERE, 'fake-rm-eperm.mjs');
 const BOX_C = join(REPO, 'docs', 'planning', 'gates', 'fixtures', 'g1-claude-wake', 'transcript-2026-09-28-2.1.283-boxC.jsonl');
+const CLAUDE_TESTED = parseClaudeVersions(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')).lastTested;
 
 let passed = 0;
 let failed = 0;
@@ -472,6 +473,10 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
   // fakeClaude: env for test/fake-claude.mjs, plus a fake `claude` CLI on PATH.
   // fakeCodex: env for test/fake-codex.mjs, installed as `codex` on PATH (K7).
   // Both (K8): one bin directory holding both fakes.
+  // The fake Claude reports PINS.md's last tested version unless a case sets its own, as
+  // fakeCodexEnv does for Codex (#216: any other version is a VERSION WARNING finding,
+  // never a stop; the cases that test that set it).
+  if (fakeClaude) fakeClaude = { FAKE_CLAUDE_VERSION: CLAUDE_TESTED, FAKE_CLAUDE_CLI_VERSION: CLAUDE_TESTED, ...fakeClaude };
   let extra = {};
   if (fakeClaude && fakeCodex) {
     installFakeClaudeCli(b.base);

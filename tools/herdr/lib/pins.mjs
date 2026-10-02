@@ -47,14 +47,26 @@ export function versionMatches(pin, stdout) {
   return String(stdout ?? '').trim() === pin.expectedVersionOutput;
 }
 
-// --- Claude Code (Channels): floating, last-observed version (K4) ----------------------
+// --- Harness CLIs (Claude Code, Codex): versions float; warn, never gate (#216) ----------
 //
-// PINS.md's `Claude Code (Channels)` row does not hold a fixed pin: its "Pinned version"
-// cell reads "**floating** — last observed `v2.1.283`; ..." (PINS.md "Floating-version
-// policy", operator decision 2026-09-27). Any newly observed version is a pin-move trigger
-// under that policy, so a scripted G1 run on a different version stops instead of running.
+// Operator decision on #216 (2026-10-01): "Minimum version is the first version encountered
+// while working. Document last version tested against. Allow version to float. Do not gate
+// on version, warn on version." PINS.md's `Claude Code (Channels)` and `Codex CLI /
+// app-server` rows therefore hold no pin. Their "Pinned version" cell names a **minimum**
+// version (the first one the project worked with, cited in PINS.md) and a **last tested**
+// version (updated after each live run). A scripted run compares what the harness reports
+// with both and records any difference as a VERSION WARNING finding. The warning never
+// stops a run, never makes it NOT RUN, never blocks CI and never by itself invalidates a
+// gate verdict. The herdr row above is test tooling, not a harness, and keeps its exact
+// pin: #216 covers the harness CLIs only.
 
-export const CLAUDE_PIN_ROW = 'Claude Code (Channels)';
+// Numeric X.Y.Z comparison: <0, 0 or >0. Both arguments must be X.Y.Z strings.
+export function compareVersions(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  return 0;
+}
 
 function pinTableCell(pinsText, rowName, column) {
   const table = pinsText
@@ -75,12 +87,40 @@ function pinTableCell(pinsText, rowName, column) {
   return rows[0][header.indexOf(column)] ?? '';
 }
 
-// -> { row, lastObserved: '2.1.283', cell } ; throws when the row or version is missing.
-export function parseClaudeLastObserved(pinsText) {
+// The warning for one observed harness version, or null when it equals the last tested
+// version. `display` formats a version for the message.
+function versionWarning({ harness, row, observed, lastTested, minimum, source, gate, display }) {
+  const issues = [];
+  if (!observed) issues.push('no parseable version');
+  else {
+    if (minimum && compareVersions(observed, minimum) < 0) issues.push(`below the minimum ${display(minimum)}`);
+    if (observed !== lastTested) issues.push(`not the last tested ${display(lastTested)}`);
+  }
+  if (!issues.length) return null;
+  const seen = observed ? display(observed) : 'no parseable version';
+  return (
+    `VERSION WARNING (${gate}): ${source} reports ${seen}; docs/planning/PINS.md "${row}" records minimum ${minimum ? display(minimum) : '?'}, ` +
+    `last tested ${display(lastTested)} (${issues.join('; ')}). ${harness} versions float and are never gated (operator decision on #216, ` +
+    '2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit ' +
+    'PINS.md; record the version as last tested there after a live run.'
+  );
+}
+
+// --- Claude Code (Channels) ---------------------------------------------------------------
+//
+// The cell reads "**floating** — minimum `v2.1.282`; last tested `v2.1.285` (...)".
+
+export const CLAUDE_PIN_ROW = 'Claude Code (Channels)';
+
+// -> { row, minimum: '2.1.282', lastTested: '2.1.285', cell }; throws when the row or
+// either version is missing.
+export function parseClaudeVersions(pinsText) {
   const cell = pinTableCell(pinsText, CLAUDE_PIN_ROW, 'Pinned version');
-  const m = /last[\s-]+observed\s+`v?(\d+\.\d+\.\d+)`/i.exec(cell);
-  if (!m) throw new Error(`PINS.md "${CLAUDE_PIN_ROW}" row has no "last observed \`vX.Y.Z\`" version in its version cell`);
-  return { row: CLAUDE_PIN_ROW, lastObserved: m[1], cell };
+  const min = /minimum\s+`v?(\d+\.\d+\.\d+)`/i.exec(cell);
+  const last = /last[\s-]+tested\s+`v?(\d+\.\d+\.\d+)`/i.exec(cell);
+  if (!last) throw new Error(`PINS.md "${CLAUDE_PIN_ROW}" row has no "last tested \`vX.Y.Z\`" version in its version cell`);
+  if (!min) throw new Error(`PINS.md "${CLAUDE_PIN_ROW}" row has no "minimum \`vX.Y.Z\`" version in its version cell`);
+  return { row: CLAUDE_PIN_ROW, minimum: min[1], lastTested: last[1], cell };
 }
 
 // `claude --version` prints e.g. `2.1.283 (Claude Code)` (G1-result.md "Version triple").
@@ -90,39 +130,33 @@ export function parseClaudeCliVersion(stdout) {
   return m ? m[1] : null;
 }
 
-// The pin-move-trigger check for a scripted Claude-side run. Returns null when the
-// observed version equals PINS.md's last-observed version, else a message saying why the
-// run must stop. `source` names where the observed version came from.
-export function claudePinMoveTrigger({ observed, lastObserved, source, gate = 'G1' }) {
-  if (observed && observed === lastObserved) return null;
-  const seen = observed ? `v${observed}` : 'no parseable version';
-  return (
-    `PIN-MOVE TRIGGER: ${source} reports ${seen}, but docs/planning/PINS.md "${CLAUDE_PIN_ROW}" last observed ` +
-    `v${lastObserved}. Under PINS.md's floating-version policy a newly observed Claude Code version is a ` +
-    'pin-move trigger: run the pin-move checklist (and re-verify the PLANNING-PROMPT.md §3.1 facts) before ' +
-    `re-running ${gate}. This scripted run stops here and does not edit PINS.md.`
-  );
+// null when `observed` equals PINS.md's last tested version, else a VERSION WARNING string
+// for ctx.finding. Never a reason to stop the run (#216).
+export function claudeVersionWarning({ observed, lastTested, minimum, source, gate = 'G1' }) {
+  return versionWarning({ harness: 'Claude Code', row: CLAUDE_PIN_ROW, observed, lastTested, minimum, source, gate, display: (v) => `v${v}` });
 }
 
-// --- Codex CLI / app-server: floating, last-observed version (K7) ------------------------
+// --- Codex CLI / app-server ---------------------------------------------------------------
 //
-// PINS.md's `Codex CLI / app-server` row floats too, but its cell names the npm package and
-// a commit instead of a `v`-prefixed tag: "**floating** — last observed
-// `@<scope>/codex@0.157.1` (commit `<40 hex>`); ..." (PINS.md "Floating-version policy",
-// operator decision 2026-09-26). Codex reports its version from three places that policy
-// names: the CLI (`codex --version`, e.g. `codex-cli 0.157.1`), the daemon
-// (`codex app-server daemon version`: cliVersion / appServerVersion / managedCodexVersion)
-// and the wire (the `initialize` result's `userAgent`, e.g. `codex-tui/0.157.1 (...)`).
+// The cell names the npm package and the release commit: "**floating** — minimum
+// `@openai/codex@0.154.0`; last tested `@openai/codex@0.159.3` (commit `<40 hex>`; ...)".
+// Codex reports its version from three places: the CLI (`codex --version`, e.g. `codex-cli
+// 0.157.1`), the daemon (`codex app-server daemon version`: cliVersion / appServerVersion /
+// managedCodexVersion) and the wire (the `initialize` result's `userAgent`, e.g.
+// `codex-tui/0.157.1 (...)`).
 
 export const CODEX_PIN_ROW = 'Codex CLI / app-server';
 
-// -> { row, lastObserved: '0.157.1', commit: '<40 hex>' | null, cell }
-export function parseCodexLastObserved(pinsText) {
+// -> { row, minimum: '0.154.0', lastTested: '0.159.3', commit: '<40 hex>' | null, cell }
+export function parseCodexVersions(pinsText) {
   const cell = pinTableCell(pinsText, CODEX_PIN_ROW, 'Pinned version');
-  const m = /last[\s-]+observed\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i.exec(cell);
-  if (!m) throw new Error(`PINS.md "${CODEX_PIN_ROW}" row has no "last observed \`@<scope>/codex@X.Y.Z\`" version in its version cell`);
-  const c = /commit\s+`([0-9a-f]{40})`/i.exec(cell);
-  return { row: CODEX_PIN_ROW, lastObserved: m[1], commit: c ? c[1] : null, cell };
+  const min = /minimum\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i.exec(cell);
+  const last = /last[\s-]+tested\s+`(?:@[\w.-]+\/)?codex@v?(\d+\.\d+\.\d+)`/i.exec(cell);
+  if (!last) throw new Error(`PINS.md "${CODEX_PIN_ROW}" row has no "last tested \`@<scope>/codex@X.Y.Z\`" version in its version cell`);
+  if (!min) throw new Error(`PINS.md "${CODEX_PIN_ROW}" row has no "minimum \`@<scope>/codex@X.Y.Z\`" version in its version cell`);
+  // The commit that follows the last tested version (the minimum may carry its own).
+  const c = /commit\s+`([0-9a-f]{40})`/i.exec(cell.slice(last.index));
+  return { row: CODEX_PIN_ROW, minimum: min[1], lastTested: last[1], commit: c ? c[1] : null, cell };
 }
 
 // `codex --version` prints `codex-cli 0.157.1` (G2-result.md). Bare X.Y.Z, or null.
@@ -158,15 +192,8 @@ export function parseCodexDaemonVersion(stdout) {
   return out;
 }
 
-// The pin-move-trigger check for a scripted Codex-side run: null when the observed version
-// equals PINS.md's last-observed version, else why the run must stop.
-export function codexPinMoveTrigger({ observed, lastObserved, source, gate = 'G2' }) {
-  if (observed && observed === lastObserved) return null;
-  const seen = observed ? observed : 'no parseable version';
-  return (
-    `PIN-MOVE TRIGGER: ${source} reports ${seen}, but docs/planning/PINS.md "${CODEX_PIN_ROW}" last observed ` +
-    `${lastObserved}. Under PINS.md's floating-version policy a newly observed Codex version is a pin-move ` +
-    `trigger: run the pin-move checklist (and re-verify the PLANNING-PROMPT.md §3.2 facts) before re-running ${gate}. ` +
-    'This scripted run stops here and does not edit PINS.md.'
-  );
+// null when `observed` equals PINS.md's last tested version, else a VERSION WARNING string
+// for ctx.finding. Never a reason to stop the run (#216).
+export function codexVersionWarning({ observed, lastTested, minimum, source, gate = 'G2' }) {
+  return versionWarning({ harness: 'Codex', row: CODEX_PIN_ROW, observed, lastTested, minimum, source, gate, display: (v) => v });
 }

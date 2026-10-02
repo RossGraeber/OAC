@@ -215,7 +215,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('');
   out.push(`- **Driver:** herdr (\`${manifest?.herdr?.observedVersionOutput ?? '?'}\`, PINS.md \`herdr (test tooling)\` ${manifest?.herdr?.pinnedTag ?? '?'}) via \`tools/herdr/run.mjs\`, scenario \`${manifest?.scenario?.file ?? '?'}\`, driver commit \`${manifest?.driver?.commit ?? '?'}\`${manifest?.driver?.toolsHerdrDirty !== false ? ` (tools/herdr dirty: ${manifest?.driver?.toolsHerdrDirty})` : ''}`);
   out.push(`- **Run outcome:** ${manifest?.outcome ?? '?'}${manifest?.outcomeReason ? ` — ${manifest.outcomeReason}` : ''}`);
-  out.push(`- **Versions:** \`claude --version\` = \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; \`codex --version\` = \`${v.cliOutput?.codex ?? '?'}\`, wire MCP user-agent version \`${v.wire?.codex ?? '?'}\`; PINS.md last observed Claude \`${v.pins?.claudeLastObserved ?? '?'}\`, Codex \`${v.pins?.codexLastObserved ?? '?'}\` (committed at \`${v.pins?.headCommit ?? '?'}\`); unchanged through the run: ${g4.postRun?.matches ?? '?'}`);
+  out.push(`- **Versions:** \`claude --version\` = \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; \`codex --version\` = \`${v.cliOutput?.codex ?? '?'}\`, wire MCP user-agent version \`${v.wire?.codex ?? '?'}\`; ${pinsVersionsText(v.pins)} (committed at \`${v.pins?.headCommit ?? '?'}\`); version warnings: ${v.warnings?.length ?? 0} (listed under Findings; versions float and are never gated, #216); unchanged through the run: ${g4.postRun?.matches ?? '?'}`);
   out.push(`- **Claude launch:** \`${(manifest?.launch?.argv ?? []).join(' ')}\` (verbatim G4 launch: ${g4.launch?.verbatim ?? '?'}); pane env ${JSON.stringify(g4.claudeEnv ?? {})}`);
   out.push(`- **Codex launch (per invocation):** \`${(g4.codexLaunch?.argv ?? []).join(' ')}\`; pane process argv ${g4.codexLaunch?.paneArgv?.proof?.found ? `pid ${g4.codexLaunch.paneArgv.proof.pid}, args ${JSON.stringify(g4.codexLaunch.paneArgv.proof.argsAfterCodex)}, matches the launch: ${g4.codexLaunch.paneArgv.matchesLaunch}` : 'not shown'}. **Method difference from the human run, by K8's acceptance:** the human run registered Codex's MCP connection in the operator's GLOBAL Codex config (G4-result.md, criterion 2); this run passes it per invocation, edits no Codex config and copies no Codex home. It cannot see the operator's own Codex config: a registration there pointing at this run's port would connect too, indistinguishably on the wire except as an extra session. This run saw ${codexSessions(evaluation.run ?? { httpInitialize: [] }, evaluation.re?.roles?.legacyPid).length} Codex HTTP session(s); criterion 4 requires exactly one before any Codex traffic is attributed to the per-invocation registration.`);
   out.push(`- **Server:** ${(g4.server ?? []).map((s) => `\`${s.path}\` working-tree sha256 \`${s.workingTreeSha256}\` (matches HEAD: ${s.workingTreeMatchesHead}), staged copy match: ${s.match}`).join('; ') || 'not staged'}; ports ${g4.ports?.httpPort}/${g4.ports?.modernHttpPort} free before the run: ${JSON.stringify(g4.ports?.freeBefore ?? null)}`);
@@ -261,10 +261,25 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   return out.join('\n');
 }
 
+// Verified when each harness's CLI and wire report one and the same version and neither
+// moved during the run, so a fixture names one version per harness. Whether those are
+// PINS.md's last tested versions is NOT part of this: versions float and are never gated
+// (#216); a difference is a VERSION WARNING finding and shows as version_matches_pin: false.
 export function versionsVerified(g4) {
   const v = g4?.versions;
-  if (!v || v.verified !== true || v.pins?.workingTreeMatchesHead !== true) return false;
-  return v.cli?.claude === v.pins.claudeLastObserved && v.wire?.claude === v.pins.claudeLastObserved && v.cli?.codex === v.pins.codexLastObserved && v.wire?.codex === v.pins.codexLastObserved && g4.postRun?.matches === true;
+  if (!v || v.verified !== true || !v.cli?.claude || !v.cli?.codex) return false;
+  return v.wire?.claude === v.cli.claude && v.wire?.codex === v.cli.codex && g4.postRun?.matches === true;
+}
+
+// Whether the verified versions equal PINS.md's last tested versions (informational only).
+export function versionMatchesLastTested(g4) {
+  const p = g4?.versions?.pins;
+  return versionsVerified(g4) && !!p?.claudeLastTested && g4.versions.cli.claude === p.claudeLastTested && g4.versions.cli.codex === p.codexLastTested;
+}
+
+function pinsVersionsText(p) {
+  if (p?.claudeLastTested) return `PINS.md Claude minimum \`${p.claudeMinimum ?? '?'}\`, last tested \`${p.claudeLastTested}\`; Codex minimum \`${p.codexMinimum ?? '?'}\`, last tested \`${p.codexLastTested ?? '?'}\``;
+  return `PINS.md last observed Claude \`${p?.claudeLastObserved ?? '?'}\`, Codex \`${p?.codexLastObserved ?? '?'}\` (recorded before #216)`;
 }
 
 // Why --write must refuse this run, or null.
@@ -273,7 +288,7 @@ export function writeRefusal(manifest, captureTexts = null) {
   const g4 = manifest?.scenarioData?.g4;
   if (manifest?.outcome !== 'PASS') return `run outcome is ${manifest?.outcome ?? 'missing'}${manifest?.outcomeReason ? ` (${manifest.outcomeReason})` : ''}; only a PASS run is written`;
   if (!g4) return 'no G4 scenario record in the run manifest';
-  if (!versionsVerified(g4)) return 'harness versions not verified on both CLIs and both wires against PINS.md\'s committed last-observed versions, before and after the run';
+  if (!versionsVerified(g4)) return 'a harness\'s CLI and wire did not report one and the same version before and after the run, so no fixture can name it';
   if (!g4.fixtures || JSON.stringify(g4.fixtures) !== JSON.stringify(g4.captureNames)) return 'captures do not carry the verified K8 fixture names';
   for (const f of Object.values(g4.fixtures)) if (!manifest.captures?.some((c) => c.file === f && c.written)) return `capture ${f} was not written (withheld or missing)`;
   if (!(g4.server ?? []).length || !g4.server.every((s) => s.match && s.workingTreeMatchesHead)) return 'the staged gate server does not match its committed source';
@@ -304,7 +319,8 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
   const lines = (xs) => xs.map((x) => (x.resLine ? `${x.reqLine}-${x.resLine}` : `${x.line ?? x.reqLine}`)).join(', ') || null;
   const common = {
     pins_as_of: `PINS.md as committed at HEAD ${v.pins?.headCommit ?? '?'} when the run started; last commit touching PINS.md at report time: ${pinsCommit ?? 'unknown'}`,
-    version_matches_pin: versionsVerified(g4),
+    version_matches_pin: versionMatchesLastTested(g4),
+    ...(versionMatchesLastTested(g4) ? {} : { version_matches_pin_note: `Claude Code ${v.cli.claude} / Codex ${v.cli.codex} are not both PINS.md's last tested versions (${v.pins?.claudeLastTested ?? v.pins?.claudeLastObserved ?? '?'} / ${v.pins?.codexLastTested ?? v.pins?.codexLastObserved ?? '?'}); recorded as VERSION WARNING findings, not a gate (#216)` }),
     capture_date: g4.date,
     superseded_by: null,
     driver: { herdr_version: manifest.herdr.observedVersionOutput, driver_commit: manifest.driver.commit, run_manifest: runManifestPath },

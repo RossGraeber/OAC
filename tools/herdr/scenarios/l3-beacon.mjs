@@ -110,7 +110,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
-import { parseClaudeLastObserved, parseClaudeCliVersion, parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
+import { parseClaudeVersions, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, parseCodexDaemonVersion, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
@@ -535,24 +535,30 @@ export default {
       if (!beaconManagedIsLocal(s.managed)) finding(`\`beacon endpoint status --system\` reports "Beacon Managed: ${s.managed ?? '(line not found)'}", not a recognised Local-mode value (BEACON_MANAGED_LOCAL_VALUES); hosted forwarding may be on (L1 §4 Q3: stay in Local mode)`);
     };
 
-    // --- versions and pins (drift is a finding, never a stop: L3 is not a gate) -----------------
+    // --- versions (drift is a VERSION WARNING finding, never a stop: versions float, #216) -------
     const pinsAndCli = () => {
       const pinsFile = committedFile(REPO, PINS_PATH);
       const text = pinsFile.bytes.toString('utf8');
-      const cpin = parseClaudeLastObserved(text).lastObserved;
-      const xpin = parseCodexLastObserved(text).lastObserved;
+      const cv = parseClaudeVersions(text);
+      const xv = parseCodexVersions(text);
       const cRaw = ctx.harnessVersion('claude');
       const xRaw = ctx.harnessVersion('codex');
       const cli = { claude: parseClaudeCliVersion(cRaw), codex: parseCodexCliVersion(xRaw) };
       l3.versions.claudeCli = cli.claude;
       l3.versions.codex.cli = cli.codex;
       l3.versions.cliOutput = { claude: cRaw, codex: xRaw };
-      l3.versions.pins = { claude: { row: CLAUDE_PIN_ROW, lastObserved: cpin, differs: cli.claude !== cpin }, codex: { row: CODEX_PIN_ROW, lastObserved: xpin, differs: cli.codex !== xpin }, headCommit: pinsFile.headCommit, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead };
-      if (!pinsFile.workingTreeMatchesHead) finding(`${PINS_PATH} has uncommitted changes; the pins recorded are the committed ones`);
-      for (const [h, v, pin, row] of [['claude', cli.claude, cpin, CLAUDE_PIN_ROW], ['codex', cli.codex, xpin, CODEX_PIN_ROW]]) {
-        if (v !== pin) finding(`pin drift (a finding, not a stop: L3 is not a gate; operator decision 2026-09-30 on #168): \`${h} --version\` reports ${v ? `v${v}` : 'no parseable version'}, PINS.md "${row}" last observed v${pin}. PINS.md is not edited`);
-      }
-      return { cli, cpin, xpin };
+      l3.versions.pins = {
+        claude: { row: CLAUDE_PIN_ROW, minimum: cv.minimum, lastTested: cv.lastTested, differs: cli.claude !== cv.lastTested },
+        codex: { row: CODEX_PIN_ROW, minimum: xv.minimum, lastTested: xv.lastTested, differs: cli.codex !== xv.lastTested },
+        headCommit: pinsFile.headCommit,
+        workingTreeMatchesHead: pinsFile.workingTreeMatchesHead,
+      };
+      if (!pinsFile.workingTreeMatchesHead) finding(`${PINS_PATH} has uncommitted changes; the versions recorded are the committed ones`);
+      for (const w of [
+        claudeVersionWarning({ observed: cli.claude, lastTested: cv.lastTested, minimum: cv.minimum, source: '`claude --version`', gate: 'L3' }),
+        codexVersionWarning({ observed: cli.codex, lastTested: xv.lastTested, minimum: xv.minimum, source: '`codex --version`', gate: 'L3' }),
+      ]) if (w) finding(w);
+      return { cli, cv, xv };
     };
     const configNow = () => {
       const { targets, findings } = harnessConfigTargets();
@@ -615,7 +621,7 @@ export default {
       };
 
       await requireBeaconVersion('B1');
-      const { cli, xpin } = pinsAndCli();
+      const { cli, xv } = pinsAndCli();
       if (!cli.claude || !cli.codex) stop(`a harness CLI could not be run (${JSON.stringify(l3.versions.cliOutput)}); nothing launched`);
       await beaconStatus('B1');
 
@@ -876,7 +882,10 @@ export default {
       const daemonV = parseCodexDaemonVersion(dv.r.stdout);
       l3.daemon.version = { ...dv.rec, parsed: daemonV };
       l3.versions.codex.daemon = daemonV;
-      for (const k of CODEX_DAEMON_VERSION_FIELDS) if (daemonV?.[k] !== xpin) finding(`pin drift (a finding, not a stop): \`codex app-server daemon version\` ${k} reports ${daemonV?.[k] ?? 'nothing parseable'}, PINS.md "${CODEX_PIN_ROW}" last observed ${xpin}`);
+      for (const k of CODEX_DAEMON_VERSION_FIELDS) {
+        const w = codexVersionWarning({ observed: daemonV?.[k] ?? null, lastTested: xv.lastTested, minimum: xv.minimum, source: `\`codex app-server daemon version\` ${k}`, gate: 'L3' });
+        if (w) finding(w);
+      }
       const preList = await runClient('list', []);
       // #205 review: the ready wait's baseline, from the pre-launch list's own lines; without it
       // nothing is launched (a [] fallback would count an already-loaded thread as new).
@@ -884,7 +893,8 @@ export default {
       l3.codexPreLaunchLoaded = preLoaded === null ? null : preLoaded.length;
       if (preLoaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; the Codex TUI was not launched');
       l3.versions.codex.wire = preList.userAgentVersion;
-      if (preList.userAgentVersion !== xpin) finding(`pin drift (a finding, not a stop): the Codex wire userAgent reports ${preList.userAgentVersion ?? 'nothing parseable'}, PINS.md last observed ${xpin}`);
+      const wireWarning = codexVersionWarning({ observed: preList.userAgentVersion ?? null, lastTested: xv.lastTested, minimum: xv.minimum, source: 'the Codex wire initialize userAgent', gate: 'L3' });
+      if (wireWarning) finding(wireWarning);
 
       boxCheck('before the Codex launch');
       const cws = await herdr.workspaceCreate({ cwd: codexProjectDir, label: 'oac-l3-codex' });

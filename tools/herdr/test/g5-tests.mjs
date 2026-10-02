@@ -27,7 +27,7 @@ import { CriteriaDriftError } from '../lib/gate-common.mjs';
 import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, renderReport } from '../lib/g5-report.mjs';
 import { buildFrame, crockford128, frameCase, collides, caseBody } from '../gate-servers/g5-codex.mjs';
 import { presend, SECURITY_KEYS } from '../gate-servers/g5-channel.mjs';
-import { parseClaudeLastObserved, parseCodexLastObserved } from '../lib/pins.mjs';
+import { parseClaudeVersions, parseCodexVersions } from '../lib/pins.mjs';
 import { criteriaDriftChecks, killAndWait } from './g4-tests.mjs';
 import { busyPromptFor } from '../scenarios/g5-provenance.mjs';
 
@@ -36,8 +36,9 @@ const REPO = resolve(HERE, '..', '..', '..');
 const read = (p) => readFileSync(p, 'utf8');
 const B = Object.fromEntries(Object.entries(BASELINE).map(([k, p]) => [k, read(join(REPO, p))]));
 const PINS = read(join(REPO, 'docs', 'planning', 'PINS.md'));
-const CPIN = parseClaudeLastObserved(PINS).lastObserved;
-const XPIN = parseCodexLastObserved(PINS).lastObserved;
+// PINS.md's last tested versions: the fakes report them unless a case sets others (#216).
+const CPIN = parseClaudeVersions(PINS).lastTested;
+const XPIN = parseCodexVersions(PINS).lastTested;
 const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g5-report.mjs');
 const GS = join(REPO, 'tools', 'herdr', 'gate-servers');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -152,14 +153,16 @@ export async function g5Unit(check) {
   // --- report rules ---------------------------------------------------------------------------------
   check('g5 report: the Claude rows take an operator score with a note; the Codex rows refuse one aggregate score (they are scored per case)', ROWS.join() === '1,2,3-claude,3-codex,4' && OPERATOR_ROWS.join() === '1,3-claude,4' && throws(() => parseG5OperatorScores([{ n: '5', score: 'equivalent', note: 'x' }]), ReportError) && throws(() => parseG5OperatorScores([{ n: '2', score: 'equivalent', note: 'x' }]), ReportError, /scored per case/) && throws(() => parseG5OperatorScores([{ n: '1', score: 'equivalent', note: '' }]), ReportError, /note/));
   check('g5 report: per-case results need x|f and a note per case; X5\'s criterion 2 is mechanical and X5 is not scored on criterion 3', parseCaseResults([{ key: 'X2.c2', value: 'f' }], { X2: 'part (1) names alice' }).X2.c2 === 'f' && throws(() => parseCaseResults([{ key: 'X2.c2', value: 'f' }], {}), ReportError, /needs --note X2/) && throws(() => parseCaseResults([{ key: 'X2.c2', value: 'equivalent' }], { X2: 'n' }), ReportError, /x or f/) && throws(() => parseCaseResults([{ key: 'X5.c2', value: 'f' }], { X5: 'n' }), ReportError, /mechanical/) && throws(() => parseCaseResults([{ key: 'X5.c3', value: 'f' }], { X5: 'n' }), ReportError, /not scored/));
-  const nr = evaluateG5({ manifest: { outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER: x' }, baseline: B, criteria: crit, cases });
+  const nr = evaluateG5({ manifest: { outcome: 'NOT RUN', outcomeReason: 'timed out' }, baseline: B, criteria: crit, cases });
   check('g5 report: a NOT RUN leaves every row not evaluable; the human-result column still reads x/f from G5-result.md', nr.rows.every((x) => x.score === SCORES.NE) && nr.rows.map((x) => x.human).join() === 'x,f,x,f,x' && /^f, per case X1 x, X2 f, X3 x, X4 x, X5 f /.test(nr.rows[1].baseline) && /^f, per case X1 x, X2 f, X3 x, X4 x /.test(nr.rows[3].baseline));
   const tpl = renderReport({ manifest: { outcome: 'NOT RUN', scenarioData: { g5: {} } }, evaluation: nr, date: '2026-10-01', fixtures: null, runManifestName: 'x' });
   check('g5 report: states "G5 stays FAIL" and that no score rescores it, the RECONSTRUCTION callout, attestation unticked, no equivalence callout', /G5 stays FAIL/.test(tpl) && /unchanged by it, whatever the scores/.test(tpl) && /Reconstructed gate servers/.test(tpl) && /g5-codex\.mjs/.test(tpl) && (tpl.match(/^- \[ \] \*\*(?:herdr|Harness|Consent dialog):\*\*/gm) ?? []).length === 3 && !/^- \[x\]/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl));
-  const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, daemon: { cliVersion: XPIN, appServerVersion: XPIN, managedCodexVersion: XPIN }, pins: { claudeLastObserved: CPIN, codexLastObserved: XPIN, workingTreeMatchesHead: true } };
+  const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, daemon: { cliVersion: XPIN, appServerVersion: XPIN, managedCodexVersion: XPIN }, pins: { claudeLastTested: CPIN, codexLastTested: XPIN, workingTreeMatchesHead: true } };
   const fx = { transcriptClaude: 'a-herdr.jsonl', transcriptCodex: 'b-herdr.jsonl', paneClaude: 'c-herdr.txt', paneCodex: 'd-herdr.txt' };
   const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: Object.values(fx).map((file) => ({ file, written: true })), scenarioData: { g5: { versions: V, postRun: { matches: true }, fixtures: fx, captureNames: fx, server: [{ match: true, workingTreeMatchesHead: true }], client: [{ match: true, workingTreeMatchesHead: true }] } } };
-  check('g5 report: --write accepts only a verified PASS from a clean, committed tools/herdr/ with the gate programs at HEAD', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /committed source/.test(writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, client: [{ match: true, workingTreeMatchesHead: false }] } } })) && /not verified/.test(writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: { ...V, daemon: { ...V.daemon, appServerVersion: '0.158.0' } } } } })));
+  check('g5 report: --write accepts only a verified PASS from a clean, committed tools/herdr/ with the gate programs at HEAD', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /committed source/.test(writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, client: [{ match: true, workingTreeMatchesHead: false }] } } })) && /one and the same version/.test(writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: { ...V, daemon: { ...V.daemon, appServerVersion: '0.158.0' } } } } })));
+  const drifted = { ...V, cli: { claude: '2.1.999', codex: '0.999.0' }, wire: { claude: '2.1.999', codex: '0.999.0' }, daemon: { cliVersion: '0.999.0', appServerVersion: '0.999.0', managedCodexVersion: '0.999.0' } };
+  check('g5 report (#216): a drifted but consistent version is not refused by --write', writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: drifted } } }) === null && writeRefusal({ ...okRun, scenarioData: { g5: { ...okRun.scenarioData.g5, versions: { ...V, pins: { ...V.pins, workingTreeMatchesHead: false } } } } }) === null);
 }
 
 // --- lifecycle cases ------------------------------------------------------------------------------
@@ -238,9 +241,22 @@ export function g5Cases(check) {
     }
   });
 
-  run('g5 daemon version is a pin-move trigger', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_DAEMON_VERSION: '0.158.0' } }, (r) => {
+  // #216: versions float. Versions other than PINS.md's last tested ones are VERSION WARNING
+  // findings and the run proceeds to the end; a daemon that disagrees with the CLI only keeps
+  // the captures from being named after one version.
+  run('g5 drifted versions warn and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999', FAKE_CLAUDE_VERSION: '2.1.999' }, fakeCodex: { FAKE_CODEX_VERSION: '0.999.0' } }, (r) => {
     const m = r.manifest;
-    check('g5 pin move (daemon): NOT RUN naming G5, before any launch or delivery', r.status === 3 && /^PIN-MOVE TRIGGER: `codex app-server daemon version` cliVersion reports 0\.158\.0/.test(m.outcomeReason) && /re-running G5/.test(m.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')) && m.scenarioData.g5.injectionsSent.length === 0, m.outcomeReason);
+    const g5 = m.scenarioData.g5;
+    check('g5 #216 drift: PASS (exit 0), never NOT RUN on a version', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+    check('g5 #216 drift: seven VERSION WARNING findings naming G5 (two CLIs, three daemon fields, two wires)', g5.versions.warnings.length === 7 && m.findings.filter((f) => /^VERSION WARNING \(G5\)/.test(f)).length === 7, JSON.stringify(m.findings));
+    check('g5 #216 drift: every case delivered; the captures name the observed versions', g5.injectionsSent.length > 0 && g5.versions.verified === true && g5.versions.matchesLastTested === false && JSON.stringify(g5.fixtures) === JSON.stringify(fixtureNames(today(), '2.1.999', '0.999.0')), JSON.stringify(g5.captureNames));
+  });
+
+  run('g5 daemon version differs from the CLI: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DAEMON_VERSION: '0.999.0' } }, (r) => {
+    const m = r.manifest;
+    const g5 = m.scenarioData.g5;
+    check('g5 #216 daemon != CLI: not stopped on the version; Claude and Codex launched; a daemon VERSION WARNING naming G5', m.outcome !== 'NOT RUN' && r.calls.some((c) => c.argv.includes('agent')) && m.findings.some((f) => /^VERSION WARNING \(G5\): `codex app-server daemon version` cliVersion reports 0\.999\.0/.test(f)), `${m.outcome} ${m.outcomeReason}`);
+    check('g5 #216 daemon != CLI: captures unverified-* only', g5.fixtures === null && g5.versions.verified === false && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
   });
 
   // #199: the fake Codex shows its trust dialog (the 0.159.2 text); the driver accepts it.

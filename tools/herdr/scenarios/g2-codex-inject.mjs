@@ -10,8 +10,9 @@
 // a real Codex. Every Codex pane-text pattern it relies on is a guess to be confirmed by the
 // first operator run (lib/g2.mjs).
 //
-// Operator command (a machine with herdr at the PINS.md pin and a Codex CLI at PINS.md's
-// last-observed version, already signed in the way the operator normally uses it; the
+// Operator command (a machine with herdr at the PINS.md pin and a Codex CLI, any version:
+// versions float, and one other than PINS.md's last tested version is a VERSION WARNING
+// finding, never a stop (#216); already signed in the way the operator normally uses it; the
 // launch below is the default and may be omitted):
 //
 //   node tools/herdr/run.mjs --scenario g2-codex-inject --launch '["codex"]' \
@@ -20,9 +21,10 @@
 //
 // What it does, in the human run's order:
 //   0. Preflight. The launch must be plain `codex`: no argument at all, so no config
-//      override. `codex --version` must equal the `Codex CLI / app-server` last-observed
-//      version in PINS.md AS COMMITTED at HEAD (an uncommitted PINS.md edit stops the run),
-//      or the run stops NOT RUN with a pin-move trigger (no PINS.md edit). The quarantined
+//      override. `codex --version` is compared with the `Codex CLI / app-server` minimum and
+//      last tested versions in PINS.md AS COMMITTED at HEAD (an uncommitted PINS.md edit is
+//      a finding). A difference is a VERSION WARNING finding and the run continues: versions
+//      float, warn, never gate (#216). The run never edits PINS.md. The quarantined
 //      G2 client is staged into the run's scratch directory from its blob committed at
 //      HEAD, and the copy's sha256 checked against that blob and against the sha256 the G2
 //      runs used; a working-tree file that differs from HEAD (edited, replaced, symlinked)
@@ -30,11 +32,12 @@
 //      as the human run ran it (`node client.mjs <mode> ...`).
 //   1. `codex app-server daemon start` (a driver child process, bounded; not typed into a
 //      pane), then `codex app-server daemon version`: its cliVersion, appServerVersion and
-//      managedCodexVersion must all equal the pin (else pin-move trigger, NOT RUN). The
-//      driver never stops the daemon: it is the operator's, as in the human run.
-//   2. The client's `list` before the launch: the wire `initialize` userAgent version must
-//      equal the pin too (else pin-move trigger, NOT RUN). Only then do captures get the
-//      K7 fixture names.
+//      managedCodexVersion are compared with PINS.md too (VERSION WARNING, never a stop).
+//      The driver never stops the daemon: it is the operator's, as in the human run.
+//   2. The client's `list` before the launch: the wire `initialize` userAgent version is
+//      compared too (VERSION WARNING). Captures get the K7 fixture names only when the CLI,
+//      all three daemon fields and the wire report one and the same version, so a capture
+//      names one version; otherwise they stay `unverified-*` (a finding; the run continues).
 //   3. Launch through `herdr agent start --kind codex` with nothing after it. The pane's
 //      process argv is read from the OS (never its environment) and recorded as the proof
 //      of a plain launch; any argument after `codex` stops the run. Every dialog is read
@@ -59,7 +62,7 @@
 //      while it runs -- the committed client's own texts), then `turns` (the daemon's own
 //      turn record). herdr types none of it. Pane reads are kept while each turn runs.
 //   7. Post-run: `codex --version` and the daemon's versions again (the daemon can update
-//      itself mid-run; PINS.md "Floating-version policy"); a change is a finding.
+//      itself mid-run; PINS.md "Version policy"); a change is a finding, never a stop.
 //   A client that does not work unmodified on the observed version is recorded as a
 //   divergence and the run FAILs; the client is never patched to get past it.
 //   Captures (redacted by run.mjs after the fixture sanitizer in lib/g2.mjs):
@@ -78,7 +81,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
-import { parseCodexLastObserved, parseCodexCliVersion, parseCodexDaemonVersion, codexPinMoveTrigger, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
+import { parseCodexVersions, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
@@ -413,11 +416,14 @@ export default {
       }
       const cliRaw = ctx.harnessVersion('codex');
       const pinsFile = committedFile(REPO, PINS_PATH);
-      const pin = parseCodexLastObserved(pinsFile.bytes.toString('utf8'));
+      // Versions float and are never gated (#216): every difference from PINS.md's minimum
+      // or last tested version is a VERSION WARNING finding, and the run continues.
+      const pin = parseCodexVersions(pinsFile.bytes.toString('utf8'));
       const cli = parseCodexCliVersion(cliRaw);
       g2.versions = {
         pinsRow: CODEX_PIN_ROW,
-        pinsLastObserved: pin.lastObserved,
+        pinsMinimum: pin.minimum,
+        pinsLastTested: pin.lastTested,
         pinsCommit: pin.commit,
         pinsSource: { path: PINS_PATH, headCommit: pinsFile.headCommit, committedSha256: pinsFile.committedSha256, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead },
         cliOutput: cliRaw,
@@ -425,15 +431,18 @@ export default {
         daemon: null,
         wireUserAgent: null,
         wire: null,
-        verified: false,
+        verified: false, // true once the CLI, the daemon and the wire report one and the same version
+        matchesLastTested: null,
+        warnings: [],
       };
-      if (!pinsFile.workingTreeMatchesHead) stop(`${PINS_PATH} has uncommitted changes; the Codex pin check reads the committed PINS.md, so commit or discard the edit first. Nothing launched`);
+      const warn = (w) => {
+        if (!w) return;
+        g2.versions.warnings.push(w);
+        ctx.finding(w);
+      };
+      if (!pinsFile.workingTreeMatchesHead) ctx.finding(`${PINS_PATH} has uncommitted changes; the version check read the committed PINS.md (HEAD ${pinsFile.headCommit})`);
       if (!cli && /^N\/A/.test(cliRaw ?? 'N/A')) stop(`codex --version could not be run (${cliRaw ?? 'not recorded'}); nothing launched`);
-      const cliTrigger = codexPinMoveTrigger({ observed: cli, lastObserved: pin.lastObserved, source: '`codex --version`' });
-      if (cliTrigger) {
-        ctx.finding(cliTrigger);
-        stop(cliTrigger);
-      }
+      warn(codexVersionWarning({ observed: cli, lastTested: pin.lastTested, minimum: pin.minimum, source: '`codex --version`' }));
       g2.captureNames = unverifiedNames(g2.date);
 
       clientDir = ctx.dir('g2-client');
@@ -468,11 +477,7 @@ export default {
       g2.daemon.versionBefore = { ...dv.rec, parsed: daemonV };
       g2.versions.daemon = daemonV;
       for (const k of CODEX_DAEMON_VERSION_FIELDS) {
-        const t = codexPinMoveTrigger({ observed: daemonV?.[k] ?? null, lastObserved: pin.lastObserved, source: `\`codex app-server daemon version\` ${k}` });
-        if (t) {
-          ctx.finding(t);
-          stop(t);
-        }
+        warn(codexVersionWarning({ observed: daemonV?.[k] ?? null, lastTested: pin.lastTested, minimum: pin.minimum, source: `\`codex app-server daemon version\` ${k}` }));
       }
 
       // --- 2. pre-launch list; the wire version --------------------------------------------
@@ -484,15 +489,17 @@ export default {
       if (g2.preLaunch.loaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; nothing launched');
       g2.versions.wireUserAgent = preConn.userAgent;
       g2.versions.wire = preConn.userAgentVersion;
-      const wireTrigger = codexPinMoveTrigger({ observed: preConn.userAgentVersion, lastObserved: pin.lastObserved, source: 'the wire initialize userAgent' });
-      if (wireTrigger) {
-        ctx.finding(wireTrigger);
-        stop(wireTrigger);
+      warn(codexVersionWarning({ observed: preConn.userAgentVersion, lastTested: pin.lastTested, minimum: pin.minimum, source: 'the wire initialize userAgent' }));
+      const sameVersion = !!cli && preConn.userAgentVersion === cli && CODEX_DAEMON_VERSION_FIELDS.every((k) => daemonV?.[k] === cli);
+      if (sameVersion) {
+        g2.versions.verified = true; // CLI, daemon and wire report one and the same version
+        g2.versions.matchesLastTested = cli === pin.lastTested;
+        g2.fixtures = fixtureNames(g2.date, cli);
+        g2.captureNames = g2.fixtures;
+      } else {
+        ctx.finding(`the Codex CLI (${cliRaw}), daemon (${JSON.stringify(daemonV)}) and wire (${preConn.userAgentVersion ?? 'none'}) do not report one and the same version; the run continues, but its captures stay unverified-* because they cannot name one Codex version`);
       }
-      g2.versions.verified = true; // CLI, daemon and wire all equal PINS.md's committed last-observed version
-      g2.fixtures = fixtureNames(g2.date, cli);
-      g2.captureNames = g2.fixtures;
-      const injectText = params.injectText || defaultInjectText(cli);
+      const injectText = params.injectText || defaultInjectText(cli ?? 'unknown');
       g2.params.injectText = injectText;
 
       // --- 3. launch plain codex; the pane's argv; dialogs -----------------------------------
@@ -641,11 +648,13 @@ export default {
       const dv2 = await codexCli(['app-server', 'daemon', 'version'], 'daemon version (post-run)');
       g2.daemon.versionAfter = { ...dv2.rec, parsed: parseCodexDaemonVersion(dv2.r.stdout) };
       const postCli = parseCodexCliVersion(post.codex);
-      const postDaemonOk = CODEX_DAEMON_VERSION_FIELDS.every((k) => g2.daemon.versionAfter.parsed?.[k] === pin.lastObserved);
+      // "Unchanged through the run" compares with the version the run started on, not with
+      // PINS.md: versions float (#216).
+      const postDaemonOk = CODEX_DAEMON_VERSION_FIELDS.every((k) => g2.daemon.versionAfter.parsed?.[k] === cli);
       const wireVersions = [...new Set(facts().connections.map((c) => c.userAgentVersion))];
-      g2.postRun = { cliOutput: post.codex, cli: postCli, daemon: g2.daemon.versionAfter.parsed, wireVersionsSeen: wireVersions, matches: postCli === cli && postDaemonOk && wireVersions.length === 1 && wireVersions[0] === pin.lastObserved };
+      g2.postRun = { cliOutput: post.codex, cli: postCli, daemon: g2.daemon.versionAfter.parsed, wireVersionsSeen: wireVersions, matches: !!cli && postCli === cli && postDaemonOk && wireVersions.length === 1 && wireVersions[0] === cli };
       if (!g2.postRun.matches) {
-        ctx.finding(`the Codex version changed during the run or differed between connections (CLI ${cliRaw} before, ${post.codex} after; daemon after ${JSON.stringify(g2.daemon.versionAfter.parsed)}; wire versions ${JSON.stringify(wireVersions)}); the daemon can update itself mid-run (PINS.md "Floating-version policy"). The captures lose their fixture names`);
+        ctx.finding(`the Codex version changed during the run or differed between connections (CLI ${cliRaw} before, ${post.codex} after; daemon after ${JSON.stringify(g2.daemon.versionAfter.parsed)}; wire versions ${JSON.stringify(wireVersions)}); the daemon can update itself mid-run (PINS.md "Version policy"). The run is not stopped, but the captures lose their fixture names`);
         // Evidence spanning two Codex versions is not a fixture of either: back to unverified-*.
         g2.versions.verified = false;
         g2.fixtures = null;
