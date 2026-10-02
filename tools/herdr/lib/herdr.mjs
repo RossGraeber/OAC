@@ -407,20 +407,24 @@ export class HerdrSession {
     const after = this.proc.table();
     const floor = after?.get(this.proc.selfPid)?.startKey ?? null;
     const stray = new Set();
+    const seen = new Set();
+    // Unverifiable: not killed, and (if still alive at the end) a leftover; teardown not clean.
+    const unverified = (pid, why) => t.unverifiedPids.push({ pid, why });
     const consider = (pid, recorded, what) => {
-      if (stray.has(pid) || !this.proc.isAlive(pid)) return;
+      if (seen.has(pid) || !this.proc.isAlive(pid)) return;
+      seen.add(pid);
       const now = after?.get(pid);
-      if (!after || recorded === null) {
-        t.unverifiedPids.push({ pid, why: !after ? 'process table not readable' : 'no creation time was recorded for it' });
-        return;
-      }
-      if (!now) return; // alive per signal 0 but not in the table: exited in between
+      if (!after || recorded === null) return unverified(pid, !after ? 'process table not readable' : 'no creation time was recorded for it');
+      // Alive per signal 0 but missing from the table (a partial table): unverifiable. If it
+      // really exited in between, the final liveness re-check drops it from the leftovers.
+      if (!now) return unverified(pid, 'alive but not in the process table');
       if (now.start !== recorded) {
         t.skippedReusedPids.push(pid);
         return;
       }
-      if (floor === null || now.startKey === null || now.startKey < floor) {
-        t.skippedPreexistingPids.push({ pid, why: floor === null || now.startKey === null ? 'creation time not comparable with the driver\'s' : 'created before this driver process' });
+      if (floor === null || now.startKey === null) return unverified(pid, 'creation time not comparable with the driver\'s');
+      if (now.startKey < floor) {
+        t.skippedPreexistingPids.push({ pid, why: 'created before this driver process' });
         return;
       }
       const prot = protectedReason(now);

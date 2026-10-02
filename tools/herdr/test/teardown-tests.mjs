@@ -145,6 +145,20 @@ export async function teardownUnit(check) {
     const { t, f } = await teardownCase([null, null], { alive: [101, 102] });
     check('#136 fail-safe: no readable process table -> nothing killed; herdr-reported live pids are unverified leftovers; not clean', f.kills.length === 0 && t.unverifiedPids.map((u) => u.pid).sort().join() === '101,102' && t.leftoverProcesses.slice().sort().join() === '101,102' && t.clean === false && /not readable/.test(t.processScan), JSON.stringify(t));
   }
+  for (const [shape, mk] of [['win32', () => parseWin32ProcessJson(JSON.stringify(winRows()))], ['linux', linuxTable]]) {
+    // #136 review, case A: a partial after-table omits a live tracked pid (101).
+    const partial = mk();
+    partial.delete(101);
+    const a = await teardownCase([mk(), partial]);
+    check(`#136 review ${shape}: a live tracked pid missing from the after-table is not killed, but is unverified, a leftover, and teardown is not clean`, !a.f.kills.includes(101) && a.t.unverifiedPids.some((u) => u.pid === 101 && /not in the process table/.test(u.why)) && a.t.leftoverProcesses.includes(101) && a.t.clean === false, JSON.stringify(a.t));
+    // Case B: the after-table lacks the driver's own row (50): no floor, nothing comparable.
+    const noDriver = mk();
+    noDriver.delete(50);
+    const b = await teardownCase([mk(), noDriver]);
+    const live = [101, 102, 103, 107];
+    check(`#136 review ${shape}: without the driver's row nothing is killed; live tracked pids and session carriers are unverified leftovers; not clean`, b.f.kills.length === 0 && live.every((p) => b.t.unverifiedPids.some((u) => u.pid === p && /not comparable/.test(u.why)) && b.t.leftoverProcesses.includes(p)) && b.t.skippedPreexistingPids.length === 0 && b.t.clean === false, JSON.stringify(b.t));
+    check(`#136 review ${shape}: each unverified pid is listed once`, new Set(b.t.unverifiedPids.map((u) => u.pid)).size === b.t.unverifiedPids.length, JSON.stringify(b.t.unverifiedPids));
+  }
   {
     const { t, f } = await teardownCase([linuxTable(), linuxTable()], { panes: ['w-broken'] });
     check('#136: a pane herdr cannot report is recorded as not queried; nothing guessed, only the session-name scan acts', t.panes.notQueried.length === 1 && t.panes.notQueried[0].paneId === 'w-broken' && JSON.stringify(f.kills) === JSON.stringify([107]), JSON.stringify({ panes: t.panes, kills: f.kills }));
