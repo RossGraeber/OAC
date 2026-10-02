@@ -16,7 +16,7 @@ this skill does not restate them, because they change more often than this file 
 | `docs/planning/SKILLS-MODEL.md` | How this skill tree is organized |
 | `docs/planning/STATUS.md` | Current stage, gate verdicts, pins — single source of truth |
 | `docs/planning/backlog/*.json` | Labels (`00-meta.json`), epics (`01-epics.json`), tasks |
-| `.Codex/skills/<name>/SKILL.md` | The skill bodies this table routes to |
+| `.claude/skills/<name>/SKILL.md` | The skill bodies this table routes to |
 
 ## Precedence
 
@@ -43,11 +43,11 @@ is never Epic A planning-package work).
 | Work-item label | Load |
 |---|---|
 | `type:docs` in M0, Epic A planning package — no `stage:*` or `area:agent-skills` label | `oac-planning-package`, `oac-evidence`, plus the relevant surface or area skill (for example `oac-security-work` for `area:security`, `oac-gates` for a gate item) |
-| `type:docs` with a `stage:*` label | Do not use the stage's implementation skill. Take the surface skill(s) for its `area:*` label(s), plus `oac-release` when the doc covers launch/delivery. Example: `stage:4-adapters,type:docs,area:cli` -> `oac-Codex-channels`, `oac-codex-appserver`, `oac-release`, never `oac-implementation` |
+| `type:docs` with a `stage:*` label | Do not use the stage's implementation skill. Take the surface skill(s) for its `area:*` label(s), plus `oac-release` when the doc covers launch/delivery. Example: `stage:4-adapters,type:docs,area:cli` -> `oac-claude-channels`, `oac-codex-appserver`, `oac-release`, never `oac-implementation` |
 | `type:decision` | `oac-evidence`, `oac-boundaries`, plus the relevant surface skill |
 | `stage:0-evidence` | `oac-evidence`, plus the surface skill being pinned; add `oac-gates` too if the item also carries `type:infra` (gate re-run policy) |
 | `type:spike`, `stage:1-spikes` | `oac-gates`, plus the surface skill for that gate |
-| `gate:G1-Codex-wake` (Epic D spike) | `oac-gates`, `oac-Codex-channels` |
+| `gate:G1-claude-wake` (Epic D spike) | `oac-gates`, `oac-claude-channels` |
 | `gate:G2-codex-inject` (Epic D spike) | `oac-gates`, `oac-codex-appserver` |
 | `gate:G3-zenoh-peer` (Epic D spike) | `oac-gates`, `oac-zenoh` |
 | `gate:G4-mcp-dual-era` (Epic D spike) | `oac-gates`, `oac-mcp` |
@@ -57,12 +57,12 @@ is never Epic A planning-package work).
 | `type:infra`, `area:ci` at `stage:0-evidence` | `oac-gates`, `oac-evidence` |
 | `type:infra`, `area:ci` at `stage:3-core` | `oac-implementation`, `oac-testing` |
 | `type:infra`, `area:ci` at `stage:6-release` | `oac-release` |
-| `stage:4-adapters` | `oac-implementation`, plus `oac-Codex-channels` / `oac-codex-appserver` / `oac-zenoh` for the area |
+| `stage:4-adapters` | `oac-implementation`, plus `oac-claude-channels` / `oac-codex-appserver` / `oac-zenoh` for the area |
 | `area:cli` | `oac-implementation` |
 | `type:test` | `oac-testing` |
 | `stage:5-e2e` | `oac-testing`, `oac-security-work` |
 | `area:security` | `oac-security-work` |
-| `area:adapter-Codex` | `oac-Codex-channels` |
+| `area:adapter-claude` | `oac-claude-channels` |
 | `area:adapter-codex` | `oac-codex-appserver` |
 | `area:transport-zenoh` | `oac-zenoh` |
 | `stage:6-release` | `oac-release` |
@@ -74,8 +74,8 @@ they ride alongside one of the labels above; route on that label instead.
 A bare `gate:*` label on a work item that is not itself the Epic D spike is a blocker, not
 a load instruction: check that gate's verdict in `docs/planning/STATUS.md` before
 proceeding, and do not add `oac-gates` for it. Example: `stage:4-adapters` tasks carrying
-`gate:G1-Codex-wake` route on `stage:4-adapters` (`oac-implementation` + surface skill),
-not on the `gate:G1-Codex-wake` row above.
+`gate:G1-claude-wake` route on `stage:4-adapters` (`oac-implementation` + surface skill),
+not on the `gate:G1-claude-wake` row above.
 
 ## Where the content lives
 

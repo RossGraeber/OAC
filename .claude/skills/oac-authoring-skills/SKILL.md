@@ -164,6 +164,9 @@ Stage 0 closes:
       by a label.
 - [ ] Run `node scripts/check-skills.mjs` (or wait for CI once wired) before
       calling it done.
+- [ ] After any edit under `.claude/skills/` or to `CLAUDE.md`, run
+      `node scripts/sync-agents-skills.mjs` to regenerate the Codex copy
+      (`.agents/skills/`, `AGENTS.md`); never hand-edit it. CI runs `--check`.
 
 ## 9. Checklist: reviewing an existing skill
 
@@ -188,3 +191,5 @@ Stage 0 closes:
 - Acceptance criteria for this skill and its siblings:
   `docs/planning/backlog/05-tasks-GHIJ.json` (Epic J, tasks J1-J4)
 - Budget checker: `scripts/check-skills.mjs`
+- Codex copy generator and drift check: `scripts/sync-agents-skills.mjs`
+  (`docs/planning/SKILLS-MODEL.md` "Codex copy")

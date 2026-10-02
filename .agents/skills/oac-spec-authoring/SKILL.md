@@ -46,7 +46,7 @@ every neutral interface name (core types, `ProviderAdapter`, `Transport`).
 
 `oac-boundaries` "Mechanical checks" 1-2 already grep `zenoh|zid|key[_-]?expr|liveliness` and
 the provider method names over `spec/ core/` — run those first; do not re-derive them here.
-This skill adds only the spec-specific words (bare `Codex`, `mqtt`, `nats`, `scouting`,
+This skill adds only the spec-specific words (bare `claude`, `mqtt`, `nats`, `scouting`,
 `codex`, `app[ -]server`, MCP method-name forms), the combined command, and its known gaps:
 `references/neutral-vocabulary-check.md`.
 
@@ -128,7 +128,7 @@ Each is a requirement on the author of the relevant spec section, not an open qu
   signature algorithm, the signed field set, and the verification procedure normative —
   transport-layer security (TLS/QUIC) is not an acceptable substitute for envelope signing.
 - **C6 — delivery states defined by what is knowable.** Appendix A C6: DESIGN lists `accepted`
-  as a delivery state, but PLANNING-PROMPT.md §3.1 states Codex sends no acknowledgement.
+  as a delivery state, but PLANNING-PROMPT.md §3.1 states Claude Code sends no acknowledgement.
   Requirement: task E4's delivery-state definitions MUST distinguish "accepted by adapter"
   (written to transport), "handed to harness" (delivered into the provider's native surface),
   and never claim "seen by the model" for a provider that gives no such signal.
@@ -142,7 +142,7 @@ Each is a requirement on the author of the relevant spec section, not an open qu
   convention for outbound replies (PLANNING-PROMPT.md §3.2), while DESIGN assumes symmetric
   reply/correlation. Requirement: task E4 MUST state exactly how a Codex-side reply is
   correlated back to the originating envelope's `correlation_id`/`reply_to` given that Codex
-  provides no native tagging — do not assume the Codex-side convention transfers.
+  provides no native tagging — do not assume the Claude-side convention transfers.
 
 ## 9. Exit criteria for a spec work item
 

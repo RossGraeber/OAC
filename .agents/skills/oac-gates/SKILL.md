@@ -1,6 +1,6 @@
 ---
 name: oac-gates
-description: Gate-result template, timebox policy, fixture capture procedure, and one reference per gate (G1-G5). Load for any work item labelled type:spike or any gate:* label (D1-D7 in Epic D).
+description: Gate-result template, timebox policy, fixture capture procedure, one reference per gate (G1-G5), and herdr scripted-run rules. Load for any work item labelled type:spike or any gate:* label (D1-D7 in Epic D).
 ---
 
 Stage 1 (PLANNING-PROMPT.md §8) decides five go/no-go gates through throwaway spikes before
@@ -18,28 +18,31 @@ is no fifth state, and there is no plain PASS when only the fallback path succee
 An agent that is unsure runs the spike further within the timebox, or records `NOT RUN` with
 the specific blocker — it does not write "probably passes" into the result and move on.
 
-Gates are re-run whenever a pinned provider version changes (PLANNING-PROMPT.md §4, Epic D
-body). A pin move invalidates the prior verdict: the `docs/planning/STATUS.md` row for that
-gate reverts to `NOT RUN` until the gate is re-run against the new pin.
+A move of a fixed pin (MCP revision, `rmcp`, Zenoh, Rust toolchain) invalidates the gates
+its row names: the `docs/planning/STATUS.md` row reverts to `NOT RUN` until re-run.
+**Harness versions are not pins (#216, 2026-10-01).** Claude Code and Codex (CLI, wire,
+daemon) float: PINS.md records a minimum and a last tested version. A different version, or
+one below the minimum, is a warning: it never stops a run, never makes it `NOT RUN`, never
+blocks CI and never by itself invalidates a verdict. Record the version the gate ran on.
 
 ## Gate-result template
 
 Copy this verbatim into the gate result. This is the base template; results land in
 `docs/planning/gates/G<n>-result.md`, one file per gate, each extending this template
-with three additional fields — see `docs/planning/gates/README.md` §Gate-result
-template for the extended form and the naming convention. The same change that writes
-a gate result also updates the verdict row for that gate in `docs/planning/STATUS.md`'s
-Gate verdicts table. Do not land a gate result without updating STATUS.md in the same
-change. `docs/planning/v0.1/02-gating-findings.md` (PLANNING-PROMPT.md §9 item 3) is
-not hand-authored from this template directly — it is assembled from the five
-`G<n>-result.md` files when Epic A writes the output package.
+with additional fields (`Driver:` among them) — see `docs/planning/gates/README.md`
+§Gate-result template for the extended form and the naming convention. The same change
+that writes a gate result also updates the verdict row for that gate in
+`docs/planning/STATUS.md`'s Gate verdicts table. Do not land a gate result without
+updating STATUS.md in the same change. `docs/planning/v0.1/02-gating-findings.md`
+(PLANNING-PROMPT.md §9 item 3) is not hand-authored from this template directly — it is
+assembled from the five `G<n>-result.md` files when Epic A writes the output package.
 
 ```markdown
 ### G<n> <name>
 
 - **Gate id:** G<n>
-- **Pinned version(s):** <exact versions the spike ran against, e.g. Codex v2.1.232,
-  Codex 0.154.0, Zenoh 1.10.1 — never "latest">
+- **Pinned version(s):** <exact versions the spike ran against, e.g. Claude Code v2.1.285,
+  Codex 0.159.3, Zenoh 1.10.1 — never "latest">
 - **Date:** <YYYY-MM-DD the spike ran>
 - **Timebox:** <box set> / <elapsed; expired or not>
 - **Command transcript summary:** <what was run and observed, condensed; full transcript, if
@@ -70,7 +73,7 @@ not extend it mid-spike.
 - The gate verdict becomes the honest one given what was confirmed: `FAIL` if a go/no-go
   criterion is unmet on every path attempted, `PASS (FALLBACK TAKEN)` if only the fallback
   path was confirmed within the box, `NOT RUN` if the spike could not even be executed
-  (blocked on an external dependency, missing pin, etc.), never a plain `PASS` on an
+  (blocked on an external dependency, etc.; never a harness version), never a plain `PASS` on an
   incomplete run.
 - **An expired timebox is a result, not a licence to keep going or to guess.** Extending
   "just a little more" or writing a passing verdict because the remaining criteria "should"
@@ -78,7 +81,7 @@ not extend it mid-spike.
 
 ## Fixture capture procedure
 
-Stage 1 exists partly to capture recorded protocol fixtures so Stage 3's fake Codex/Codex
+Stage 1 exists partly to capture recorded protocol fixtures so Stage 3's fake Claude/Codex
 endpoints can be built without a live provider (PLANNING-PROMPT.md §8 Stage 1, §6). Fixtures
 are captured **during** the spike, from the real harness — never reconstructed afterward from
 memory or from the spec, since a reconstructed fixture silently reintroduces the "probably."
@@ -97,6 +100,11 @@ that task for the checklist. Fixtures land wherever Stage 3 expects fakes to loa
 (no `core/`/`adapters/` tree exists yet — do not invent the path; check `docs/planning/`
 Stage 3 output or ask if it is not yet decided).
 
+Adding, renaming, or superseding a fixture updates
+`docs/planning/gates/fixtures/MANIFEST.json` (D6, issue #39 T1) in the same change — one
+entry per file, derived from the file itself, not from a result doc's prose. Run
+`node scripts/check-fixture-manifest.mjs` before calling the fixture work done.
+
 ## Throwaway rule
 
 Spike code is discarded once its gate result is written. Nothing durable is built on it:
@@ -111,16 +119,16 @@ Spike code is discarded once its gate result is written. Nothing durable is buil
 
 ## Go/no-go vs. fallback
 
-**Structural finding to hold before reading this table:** neither Codex nor Codex
+**Structural finding to hold before reading this table:** neither Claude Code nor Codex
 supports attaching an external channel to an arbitrary, already-running session process. Both
-support injection only into a session launched OAC-enabled — Codex via `--channels` at
+support injection only into a session launched OAC-enabled — Claude Code via `--channels` at
 session start, Codex via the shared app-server daemon or an OAC-owned app-server with
 `codex --remote` (PLANNING-PROMPT.md §4). Do not spike or record a FAIL against
 attach-to-arbitrary-session; it is not a supported target for any gate.
 
 | Gate | v0.1 disposition | Fallback |
 |---|---|---|
-| G1 Codex wake | **go/no-go — no fallback** | none; failure blocks the Codex adapter entirely |
+| G1 Claude wake | **go/no-go — no fallback** | none; failure blocks the Claude adapter entirely |
 | G2 Codex live inject | **go/no-go if both paths fail** | OAC owns the app-server; user runs `codex --remote ws://…` |
 | G3 Zenoh local peer | has fallback | fixed local endpoint, multicast scouting disabled |
 | G4 MCP dual-era server | has fallback | two server entry points sharing one core |
@@ -132,7 +140,7 @@ Load only the one reference file for the gate you are running — not the whole 
 
 | Gate | Reference |
 |---|---|
-| G1 Codex wake | `references/G1-Codex-wake.md` |
+| G1 Claude wake | `references/G1-claude-wake.md` |
 | G2 Codex live inject | `references/G2-codex-inject.md` |
 | G3 Zenoh local peer | `references/G3-zenoh-peer.md` |
 | G4 MCP dual-era server | `references/G4-mcp-dual-era.md` |
@@ -141,6 +149,17 @@ Load only the one reference file for the gate you are running — not the whole 
 Each reference carries, for that gate only: full pass criteria, failure criteria, the
 fallback, the surfaces and version pins, the specific PLANNING-PROMPT.md §3 facts the spike
 closes (including UNVERIFIED items), and the fixtures to capture.
+
+## Scripted runs (herdr)
+
+A gate re-run driven through herdr (Epic K, `tools/herdr/`) also loads
+`references/scripted-runs.md`: driver identity, the scripted-run timebox, timeout means
+`NOT RUN`, no automatic re-submission, herdr state never scores a criterion, verdict
+eligibility (equivalence records), and the dialog rule. Since 2026-09-30 (#196) the driver
+accepts Claude Code's trust, MCP-approval and dev-channels dialogs by default (G1 too),
+recorded as `driver`, and refuses every other dialog. A consent step a criterion names
+(G1 criterion 5, G11) is met only by a human accept (`accept=human`). A scripted run is
+non-verdict-bearing unless that file says it may carry a verdict.
 
 ## Exit criteria for a gate work item
 
@@ -163,6 +182,9 @@ closes (including UNVERIFIED items), and the fixtures to capture.
 - [ ] Any UNVERIFIED item the gate was meant to close is either closed (with evidence) or
       explicitly still open in the result.
 
+Before sending a gate result for review, check `references/writeup-pitfalls.md` — the
+recurring mistakes that cost G2 and G4 three review rounds each.
+
 ## Where the content lives
 
 - `docs/planning/PLANNING-PROMPT.md` §4 (gates), §3 (baseline facts), §8 Stage 1 (timebox,
@@ -171,5 +193,8 @@ closes (including UNVERIFIED items), and the fixtures to capture.
   criteria this skill's references are built from.
 - `docs/planning/STATUS.md` — current gate verdicts (today: all `NOT RUN`) and pins.
 - `docs/planning/gates/README.md` — the evidence-store naming convention, the extended
-  gate-result template, and the pin-move re-run/invalidation policy.
+  gate-result template, and the pin-move re-run/invalidation policy (harness rows exempt).
 - `oac-boundaries`, `oac-evidence` — guardrail content, not restated here.
+- `references/writeup-pitfalls.md` — review-round pitfalls for gate write-ups, one entry
+  per recurring mistake.
+- `references/scripted-runs.md` — rules for herdr-driven gate re-runs (Epic K).

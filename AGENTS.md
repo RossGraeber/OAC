@@ -1,6 +1,6 @@
 # OAC
 
-Provider-neutral **MCP Session Channels** so existing AI harnesses (Codex, Codex,
+Provider-neutral **MCP Session Channels** so existing AI harnesses (Claude Code, Codex,
 Cursor, ...) can push messages into each other's live sessions, without OAC becoming an
 agent harness or model router. See `docs/planning/ADR-001.md`.
 
@@ -21,7 +21,7 @@ Full detail, drift examples, and the grep/lint checks: skill `oac-boundaries`.
 A work item's own **Skills:** line is authoritative. Missing one, or working outside the
 backlog? Load skill `oac` — it holds the project map and the label -> skill routing table.
 
-When a local skill under `.Codex/skills/` covers the topic at hand, load and follow it
+When a local skill under `.claude/skills/` covers the topic at hand, load and follow it
 in preference to other internal documentation (docs/, ADRs, backlog notes, prior
 conversation memory, etc.). Skills are the maintained, authoritative source for how to do
 the work; other documentation may be stale or provide only background context.

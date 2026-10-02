@@ -1,17 +1,17 @@
 ---
 name: oac-authoring-skills
-description: How to write and maintain any OAC skill or AGENTS.md — tier model, line/token budgets, description rules, when to promote content to references/, the link-don't-copy maintenance rule. Load for area:agent-skills work items or any edit under .Codex/skills/.
+description: How to write and maintain any OAC skill or CLAUDE.md — tier model, line/token budgets, description rules, when to promote content to references/, the link-don't-copy maintenance rule. Load for area:agent-skills work items or any edit under .claude/skills/.
 ---
 
 Load for `area:agent-skills` work items (Epic J: J1-J4) or any edit touching
-`.Codex/skills/**` or `AGENTS.md`. Specification: `docs/planning/SKILLS-MODEL.md`.
+`.claude/skills/**` or `CLAUDE.md`. Specification: `docs/planning/SKILLS-MODEL.md`.
 This skill is itself bound by the rules below.
 
 ## 1. The four tiers and their cost
 
 | Tier | What | Paid |
 |---|---|---|
-| 0 | `AGENTS.md` + all skill descriptions | every turn, every session |
+| 0 | `CLAUDE.md` + all skill descriptions | every turn, every session |
 | 1 | `oac` router body | once an agent opens it |
 | 2 | guardrail + stage + surface skill bodies | once per work item |
 | 3 | `references/*.md`, fixtures, templates, transcripts | per question actually asked |
@@ -24,7 +24,7 @@ by the one agent who needed exactly that fact.
 
 | Thing | Cap | Enforced by |
 |---|---|---|
-| `AGENTS.md` | 40 lines | `node scripts/check-skills.mjs` (CI once wired) |
+| `CLAUDE.md` | 40 lines | `node scripts/check-skills.mjs` (CI once wired) |
 | `description` frontmatter field | 2 lines / 280 chars | `node scripts/check-skills.mjs` (CI once wired) |
 | `SKILL.md` body (after frontmatter) | 200 lines | `node scripts/check-skills.mjs` (CI once wired) |
 | `references/*.md` | none | not size-capped; loaded individually, never wholesale |
@@ -62,7 +62,7 @@ concrete facts, tells the router nothing it couldn't guess from the name.
 
 Tier 3 exists for exactly one reason: expensive verbatim detail that only a
 minority of visits to the skill will need. Move content to
-`.Codex/skills/<name>/references/<topic>.md` when it is:
+`.claude/skills/<name>/references/<topic>.md` when it is:
 
 - a full protocol/API transcript or fixture capture;
 - a template filled in with an example instead of just the shape;
@@ -86,7 +86,7 @@ A skill that restates the plan will drift from the plan. So:
 3. A skill links to that content by repo-relative path instead of copying it.
    If a fact changes in the plan, every skill that links to it is still
    correct; a skill that copied it is now wrong and nobody knows.
-4. **The one exception:** version-pinned third-party protocol detail (Codex
+4. **The one exception:** version-pinned third-party protocol detail (Claude
    Channels, Codex app-server, MCP, Zenoh facts). An agent cannot look this
    up anywhere else in the repository, so it is copied in — and it must carry
    its pin (version + source + retrieval date) so a version bump visibly
@@ -99,8 +99,8 @@ package: stop, link to it instead.
 ## 6. Layout convention
 
 ```
-.Codex/skills/<name>/SKILL.md
-.Codex/skills/<name>/references/*.md   (optional)
+.claude/skills/<name>/SKILL.md
+.claude/skills/<name>/references/*.md   (optional)
 ```
 
 ```yaml
@@ -125,7 +125,7 @@ description: Trigger-rich one-or-two-line summary naming what it holds and when 
 
 ## 7. Surface skills: the pin section
 
-Every surface skill (`oac-Codex-channels`, `oac-codex-appserver`, `oac-mcp`,
+Every surface skill (`oac-claude-channels`, `oac-codex-appserver`, `oac-mcp`,
 `oac-zenoh`) ends with a `## Pin` section naming the exact version the facts
 were written against, its first-party source, and the retrieval date, plus
 the instruction to re-verify per `oac-evidence` when the pin moves.
@@ -151,7 +151,7 @@ Stage 0 closes:
       in the `EXPECTED` array in `scripts/check-skills.mjs` — that array is
       the enforced authority; a directory present but missing from it fails
       the checker.
-- [ ] Create `.Codex/skills/<name>/SKILL.md` with frontmatter `name` matching
+- [ ] Create `.claude/skills/<name>/SKILL.md` with frontmatter `name` matching
       the directory.
 - [ ] Add the new skill's name to `EXPECTED` in `scripts/check-skills.mjs`,
       or the checker fails it as undeclared even though the file is correct.
@@ -164,6 +164,9 @@ Stage 0 closes:
       by a label.
 - [ ] Run `node scripts/check-skills.mjs` (or wait for CI once wired) before
       calling it done.
+- [ ] After any edit under `.claude/skills/` or to `CLAUDE.md`, run
+      `node scripts/sync-agents-skills.mjs` to regenerate the Codex copy
+      (`.agents/skills/`, `AGENTS.md`); never hand-edit it. CI runs `--check`.
 
 ## 9. Checklist: reviewing an existing skill
 
@@ -183,8 +186,10 @@ Stage 0 closes:
 ## Where the content lives
 
 - Specification: `docs/planning/SKILLS-MODEL.md`
-- Evidence/pin rules: `.Codex/skills/oac-evidence/SKILL.md`
+- Evidence/pin rules: `.claude/skills/oac-evidence/SKILL.md`
 - Current stage and pins: `docs/planning/STATUS.md`
 - Acceptance criteria for this skill and its siblings:
   `docs/planning/backlog/05-tasks-GHIJ.json` (Epic J, tasks J1-J4)
 - Budget checker: `scripts/check-skills.mjs`
+- Codex copy generator and drift check: `scripts/sync-agents-skills.mjs`
+  (`docs/planning/SKILLS-MODEL.md` "Codex copy")

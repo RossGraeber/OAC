@@ -28,9 +28,15 @@ not restated here: `oac-boundaries` (rollout-file / undocumented-RPC MUST NOTs),
   plan on it, do not let an agent "remember" it from training data. `codex mcp add`
   (registering *external* MCP servers Codex can call as tools) is the supported
   outbound surface and is unrelated to the deleted inbound one.
-- **Whether implicit daemon attach ships in released 0.154.0 is UNVERIFIED** — it
-  may exist only on `main`. This is a named G2 go/no-go item (PLANNING-PROMPT.md
-  §4); do not build the adapter's primary path as if this is settled.
+- **The daemon's control socket is WebSocket over UDS, not JSONL.**
+  `codex app-server proxy` relays raw bytes, so a client must do the HTTP Upgrade and
+  frame messages itself. A connection auto-subscribes to `turn/*`/`item/*` events for
+  a thread on `thread/start`, `thread/resume`, **or** `thread/fork` — not only
+  `thread/resume` (G2, `docs/planning/gates/G2-result.md`; source-confirmed D6/T5,
+  see `references/thread-lifecycle.md`).
+- **A thread's rollout materializes lazily, on its first user message**, not at
+  `thread/start` — `thread/resume` before any turn ran fails `-32600 "no rollout
+  found"`. See `references/thread-lifecycle.md`.
 - **`turn/steer` writes into an in-flight turn.** Treat any code path that can call
   it as a code-execution-adjacent authorization decision, not a convenience API.
 
@@ -81,9 +87,11 @@ fourth option:
 | A turn may be in flight and you want the input delivered once the thread goes idle | `thread/queue/add` | Experimental; queued until idle. |
 | A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7)** — gate any code path that can call this behind an explicit authorization check, and see `oac-security-work` before wiring it up. |
 
-Whether implicit daemon attach is enabled in released 0.154.0 versus only on
-`main` is **UNVERIFIED** and is the G2 go/no-go item (PLANNING-PROMPT.md §4, §8
-Stage 1; `docs/planning/STATUS.md` Open UNVERIFIED items).
+Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, with
+default `CODEX_HOME` in a non-elevated terminal). **Codex is now floating**: an auto-updater
+tracks each release; a version other than PINS.md's last tested one warns, never gates (#216, "Version policy"). `thread/queue/add` is absent from the default checked-in schema. Get its
+shape from `codex app-server generate-json-schema --experimental`; it requires `threadId`,
+`clientUserMessageId` and `input`.
 
 Experimental methods (`thread/queue/add` and any other method gated by
 `capabilities.experimentalApi`) must sit behind a named, version-pinned
@@ -142,7 +150,7 @@ that license. Full listing: `references/events-and-schema.md`.
 
 ## The correlation gap — an open obligation, not a solved problem
 
-Codex has no channel-tag convention for outbound replies, unlike Codex's `meta`
+Codex has no channel-tag convention for outbound replies, unlike Claude's `meta`
 echo-back pattern. PLANNING-PROMPT.md Appendix A conflict C9 records this against
 Decision 9 (§5): "Confirm [outbound-through-OAC-tools] holds for Codex through
 `codex mcp add`, and define how a Codex reply is correlated when Codex has no
@@ -164,9 +172,12 @@ criterion.
   `oac-security-work`.
 - Rollout-file and undocumented-RPC boundaries: `oac-boundaries`.
 - Event shapes, schema paths, crate/license detail:
-  `.Codex/skills/oac-codex-appserver/references/events-and-schema.md`.
+  `.claude/skills/oac-codex-appserver/references/events-and-schema.md`.
 
 ## Pin
+
+**Floating**; warn on version, never gate (#216). Minimum `0.154.0`, last tested `0.159.3`
+(PINS.md "Version policy"). Everything below was verified on 0.154.0 only (STATUS.md).
 
 **Re-verified pin (B2):** `@openai/codex@0.154.0` (published 2026-09-09T22:40:10.746Z),
 cross-checked against GitHub tag `rust-v0.154.0`, commit
@@ -179,9 +190,8 @@ is defined verbatim in `codex-rs/app-server-transport/src/transport/mod.rs`,
 attachment... otherwise the TUI starts an embedded server" branch, and a
 `codex queue` CLI subcommand exists in `codex-rs/cli/src/main.rs`. This is a
 source-level, documented close (`docs/planning/REVERIFICATION-B2.md` §3.2
-box 4) — it is **not** a runtime verdict. Whether this path actually
-executes for an ordinary invocation remains UNVERIFIED and is resolved only
-by the G2 spike, task D2. Codex Desktop's control-socket exposure in
+box 4). The G2 spike added the runtime verdict (2026-09-25): the path executes for
+an ordinary invocation on Windows (see `docs/planning/gates/G2-result.md`). Codex Desktop's control-socket exposure in
 current builds also remains UNVERIFIED — no first-party statement found
 (`REVERIFICATION-B2.md` §3.2 box 5); do not assume a Desktop-hosted thread
 is reachable via the control socket. Source: `docs/planning/PINS.md` —
@@ -189,7 +199,5 @@ is reachable via the control socket. Source: `docs/planning/PINS.md` —
 `docs/planning/REVERIFICATION-B2.md` §3.2, retrieved 2026-09-16.
 
 Detail record, sources, and constraint floors: `docs/planning/PINS.md`. Full
-re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. A version bump
-of `@openai/codex` past 0.154.0 invalidates this pin — re-verify per
-`oac-evidence` §7 before trusting it again, and update this Pin section
-(and `docs/planning/PINS.md`) when you do.
+re-verification ledger: `docs/planning/REVERIFICATION-B2.md`. Re-checking facts on a new
+version (`oac-evidence` §7) is a finding to follow up, never a gate on a run (#216).

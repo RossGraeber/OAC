@@ -3,7 +3,7 @@ name: oac-evidence
 description: Evidence standard — first-party sources, URL+version+retrieval-date citations, verbatim API naming, UNVERIFIED labelling. Load for nearly every work item: type:docs, type:decision, type:spec, type:code on a provider surface, any claim-bearing artifact.
 ---
 
-Load whenever you are about to write a claim about Codex, Codex, MCP, Zenoh,
+Load whenever you are about to write a claim about Claude Code, Codex, MCP, Zenoh,
 ACP, or Cursor behavior — which is nearly every work item. Companion guardrail:
 `oac-boundaries` (ADR-001 MUST NOTs). That skill covers boundaries; this one covers
 evidence. Do not restate its content here or vice versa.
@@ -29,9 +29,9 @@ Worked example (imitate this shape exactly):
 
 ```
 A channel is an MCP server that declares
-capabilities.experimental["Codex/channel"] = {}. Source:
-https://code.Codex.com/docs/en/channels.md, Codex v2.1.232+,
-retrieved 2026-09-15.
+capabilities.experimental["claude/channel"] = {}. Source:
+https://code.claude.com/docs/en/channels-reference.md, Claude Code v2.1.285,
+retrieved 2026-10-02.
 ```
 
 If you are citing a fact already recorded in `docs/planning/PLANNING-PROMPT.md` §3,
@@ -52,7 +52,7 @@ a first-party source you copied it from, it is invented.** Stop and go find the
 line, or mark the surrounding claim `UNVERIFIED`.
 
 Examples of the rule already applied correctly (do not deviate from this casing):
-`capabilities.experimental["Codex/channel"]`, `notifications/Codex/channel`,
+`capabilities.experimental["claude/channel"]`, `notifications/claude/channel`,
 `thread/queue/add`, `turn/steer`, `_meta["io.modelcontextprotocol/protocolVersion"]`,
 `--dangerously-load-development-channels`.
 
@@ -67,7 +67,7 @@ surface in any artifact.
   surface from the rest of OAC) and a pinned version. See `oac-boundaries` for how
   the shim boundary itself must be enforced (never restated here).
 - Do not upgrade a label based on how stable a surface "feels." Use the label the
-  source itself states (e.g. PLANNING-PROMPT.md §3.1 states Codex Channels is
+  source itself states (e.g. PLANNING-PROMPT.md §3.1 states Claude Channels is
   "research preview"; §3.2 states the Codex daemon-attach path is "experimental").
 
 ## 5. UNVERIFIED labelling
@@ -122,7 +122,9 @@ PLANNING-PROMPT.md §3 is **starting evidence, not permanent truth** — it is a
 pre-verified baseline retrieved 2026-09-15 (per `SKILLS-MODEL.md` and
 `docs/planning/STATUS.md`). Re-verify when either trigger fires:
 
-- **A pin moves** (`docs/planning/STATUS.md` Pins table changes for any surface).
+- **A pin moves** (`docs/planning/STATUS.md` Pins table changes for any surface). For
+  the floating harness rows (Claude Code, Codex) a new last tested version triggers this
+  re-check as a follow-up finding; it never gates a run or a verdict (#216).
 - **A Stage 0 task runs** (Epic B in the backlog).
 
 Procedure:
@@ -134,7 +136,7 @@ Procedure:
 4. If the fact changed: record the drift (old value, new value, source, date),
    update every skill and reference file that stated the old value, and check
    whether the drift invalidates a decision (§6).
-5. If a surface skill (`oac-Codex-channels`, `oac-codex-appserver`, `oac-mcp`,
+5. If a surface skill (`oac-claude-channels`, `oac-codex-appserver`, `oac-mcp`,
    `oac-zenoh`) carries this fact, update its `## Pin` section, not just the prose.
 6. If the fact was labelled `UNVERIFIED` and step 3 or 4 resolved it: in the same
    change, remove its entry from `docs/planning/STATUS.md`'s "Open UNVERIFIED
@@ -166,6 +168,6 @@ commit message describing behavior):
 - Precedence and amendment procedure: `docs/planning/PLANNING-PROMPT.md` §1.
 - Pre-verified baseline: `docs/planning/PLANNING-PROMPT.md` §3.
 - Conflict register seed: `docs/planning/PLANNING-PROMPT.md` Appendix A.
-- Source index (Appendix B, ellipses expanded): `.Codex/skills/oac-evidence/references/source-index.md`.
+- Source index (Appendix B, ellipses expanded): `.claude/skills/oac-evidence/references/source-index.md`.
 - Current stage, pins, and open UNVERIFIED items: `docs/planning/STATUS.md`.
 - Boundary guardrail (companion skill, not restated here): `oac-boundaries`.
