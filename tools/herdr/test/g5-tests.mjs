@@ -232,7 +232,10 @@ export function g5Cases(check) {
         const expected = [`docs/planning/gates/herdr-runs/G5-${date}.md`, `docs/planning/gates/herdr-runs/G5-${date}.run-manifest.json`, ...Object.values(names()).map((f) => `${FIXTURE_DIR}/${f}`)];
         check('g5 report CLI --write (clean tools/herdr/): report, run manifest and all four fixtures written under the root', w.status === 0 && expected.every((p) => existsSync(join(root, p))), w.stdout + w.stderr);
         const entries = JSON.parse(read(join(r.outDir, 'manifest-entries.draft.json')));
-        check('g5 report CLI --write: four draft entries with driver blocks; each Codex-touching one carries a schema block', entries.length === 4 && entries.every((e) => e.version_matches_pin === true && e.driver.run_manifest === `docs/planning/gates/herdr-runs/G5-${date}.run-manifest.json` && (!e.provider.includes('codex') || e.schema)) && entries[1].schema.local_generation?.cli === `codex-cli ${XPIN}`);
+        check('g5 report CLI --write: four draft entries with driver blocks; each Codex-touching one carries a schema block', entries.length === 4 && entries.every((e) => e.version_matches_pin === true && e.driver.run_manifest === `docs/planning/gates/herdr-runs/G5-${date}.run-manifest.json` && (!e.provider.includes('codex') || e.schema)) && (JSON.parse(readFileSync(join(REPO, 'docs', 'planning', 'gates', 'fixtures', 'MANIFEST.json'), 'utf8')).fixtures.some((x) => x.schema?.local_generation?.cli === `codex-cli ${XPIN}` && x.schema?.upstream)
+          // PINS.md's last tested Codex version may have no regenerated-schema record yet (#216: it floats).
+          ? entries[1].schema.local_generation?.cli === `codex-cli ${XPIN}`
+          : entries[1].schema.upstream === null && /not regenerated/.test(entries[1].schema.note)), JSON.stringify(entries.map((e) => e.schema ?? null)));
       } else {
         check('g5 report CLI --write (tools/herdr/ dirty or a gate program not at HEAD in this checkout): refused, nothing written', w.status === 2 && /--write refused/.test(w.stderr) && readdirSync(root).length === 0, w.stderr);
       }
