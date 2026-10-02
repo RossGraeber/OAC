@@ -74,7 +74,7 @@ import { DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
-import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof } from '../lib/g2.mjs';
+import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv } from '../lib/g2.mjs';
 import { descendants, processTable } from '../lib/proc.mjs';
 import { makeAgent, stopper, stageGateFiles, loopbackPortFree } from '../lib/gate-common.mjs';
 import {
@@ -324,9 +324,10 @@ export default {
       // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
       const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
-      const argvRecords = tree.slice(0, 32).map((pid) => processArgv(pid));
-      const proof = codexLaunchProof(argvRecords);
-      g4.codexLaunch.paneArgv = { argv: argvRecords, proof, matchesLaunch: proof.found ? JSON.stringify(proof.argsAfterCodex) === JSON.stringify(codexLaunch.slice(1)) : null };
+      // #232: argv minimized; the only arguments kept verbatim are the validated per-invocation
+      // overrides this launch asserts, compared on the full argv in memory.
+      const { argv: argvRecords, proof } = paneArgv(tree, procTable, { allow: codexLaunch.slice(1), expectArgsAfterCodex: codexLaunch.slice(1) });
+      g4.codexLaunch.paneArgv = { argv: argvRecords, proof, matchesLaunch: proof.found ? proof.matchesExpected : null };
       if (proof.found && !g4.codexLaunch.paneArgv.matchesLaunch) throw new DriverError(`the pane's codex process runs with ${JSON.stringify(proof.argsAfterCodex)}, not the validated per-invocation overrides ${JSON.stringify(codexLaunch.slice(1))}`);
       if (!proof.found) ctx.finding('the Codex pane\'s process argv could not show a `codex` process; the per-invocation launch rests on the launch parameter and herdr\'s reported argv only');
       await codex.settle('codex-startup', num('startupTimeoutMs'));

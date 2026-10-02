@@ -71,7 +71,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, processTable } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
-import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
+import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, INPUT_ROLES } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, loadCases, assertNoSpoof, fixtureNames, unverifiedNames, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
 
@@ -324,8 +324,7 @@ export default {
       // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
       const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
-      const records = tree.slice(0, 32).map((pid) => processArgv(pid));
-      g5.codexPaneArgv = { argv: records, proof: codexLaunchProof(records) };
+      g5.codexPaneArgv = paneArgv(tree, procTable); // #232: minimized; plain `codex` asserts no argument
       if (g5.codexPaneArgv.proof.found && !g5.codexPaneArgv.proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(g5.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);
       if (!g5.codexPaneArgv.proof.found) ctx.finding('the Codex pane\'s process argv could not show a `codex` process; the plain launch rests on the launch parameter and herdr\'s reported argv only');
       await codex.settle('codex-startup', num('startupTimeoutMs'));

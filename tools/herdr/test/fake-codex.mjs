@@ -56,11 +56,15 @@
 //   FAKE_BEACON_LOG            L3b (#190): the daemon appends a Beacon-shaped event (runtime.jsonl)
 //                              for every turn's user input, whatever started it (TUI, turn/start,
 //                              thread/queue/add); the event shape is this file's invention
+//   FAKE_CODEX_PLANT_SECRET_FILE #232: the TUI starts one idle child process whose argv carries
+//                              a fresh random secret of no known shape (lowercase letters, which
+//                              no redaction pattern matches), and writes that secret to this file
+//                              so the self-test can prove it never reaches a record
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 const env = process.env;
@@ -400,6 +404,12 @@ async function tui(overrides = {}) {
   const COMPOSER = '› Ask Codex to do anything\n  ? for shortcuts';
   const render = (busy) => setScreen([HEADER, '', ...history.slice(-30), '', busy ? '• Working (1s • esc to interrupt)' : COMPOSER].join('\n'));
   process.on('SIGTERM', () => process.exit(0));
+  if (env.FAKE_CODEX_PLANT_SECRET_FILE) {
+    const secret = Array.from(randomBytes(20), (b) => String.fromCharCode(97 + (b % 26))).join('');
+    writeFileSync(env.FAKE_CODEX_PLANT_SECRET_FILE, secret);
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)', secret], { stdio: 'ignore' });
+    process.on('exit', () => child.kill());
+  }
   setState('working');
   setScreen('Starting…');
 
