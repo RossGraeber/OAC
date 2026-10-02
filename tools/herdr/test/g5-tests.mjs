@@ -24,13 +24,13 @@ import {
   g5ClaudeFacts, g5CodexFacts, frameStructure, answerPart1,
 } from '../lib/g5.mjs';
 import { CriteriaDriftError } from '../lib/gate-common.mjs';
-import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, fixtureWithheld, renderReport, C13_ARMS, C13_ALLOWED_PATHS, C13_OUTCOMES, evaluateC13, parseC13CaseResults, c13TableProblems, e1PathCheck, renderC13Report } from '../lib/g5-report.mjs';
+import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, fixtureWithheld, renderReport, C13_ARMS, C13_ALLOWED_PATHS, C13_OUTCOMES, evaluateC13, parseC13CaseResults, c13TableProblems, e1PathCheck, renderC13Report, C13_SCORING_BASIS } from '../lib/g5-report.mjs';
 import { buildFrame, crockford128, frameCase, collides, caseBody, idValueOk, validateHeader, normalizeBody, quoteBody, buildQuotedFrame, quotedFrameStructure, buildAnchor, resolveC13, frameC13, messageIdFor, LINE_BREAK_CLASSES, OAC_SCOPE, ANCHOR_KEY, HEADER_FIELDS } from '../gate-servers/g5-codex.mjs';
 import { DriverError } from '../lib/herdr.mjs';
 import { presend, SECURITY_KEYS } from '../gate-servers/g5-channel.mjs';
 import { parseClaudeVersions, parseCodexVersions } from '../lib/pins.mjs';
 import { criteriaDriftChecks, killAndWait } from './g4-tests.mjs';
-import { busyPromptFor, selectArms } from '../scenarios/g5-provenance.mjs';
+import { busyPromptFor, selectArms, selectClaudeCases } from '../scenarios/g5-provenance.mjs';
 
 // --- C13 §11 (#220): a synthetic arms run for evaluateC13 (no harness, no fake) -----------------------
 //
@@ -91,7 +91,8 @@ export function synthC13Run(cases, { answer = () => 'The envelope names d5sm08qy
     const last = JSON.parse(lines.pop());
     L({ direction: 'daemon->client', payload: { id: last.payload.id, result: { data: [...turns[arm]].reverse() } } });
   }
-  const manifest = { outcome: 'PASS', scenarioData: { g5: { c13: { arms: ['0', 'F', 'C'], threads: Object.fromEntries(Object.entries(threads).map(([a, t]) => [a, { thread: { id: t, preLaunchLoaded: false } }])), deliveries: recs } } } };
+  const staged = (path) => ({ path, match: true, workingTreeMatchesHead: true });
+  const manifest = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, scenarioData: { g5: { server: [staged('g5-channel.mjs')], client: [staged('g5-codex.mjs'), staged('g5-cases.json')], c13: { arms: ['0', 'F', 'C'], threads: Object.fromEntries(Object.entries(threads).map(([a, t]) => [a, { thread: { id: t, preLaunchLoaded: false } }])), deliveries: recs } } } };
   return { manifest, codexText: `${lines.join('\n')}\n` };
 }
 
@@ -145,6 +146,7 @@ export function c13Unit(check) {
   check('c13 arm C: the anchor carries only validated or machine-set values (X5\'s reply_to on arm C is refused before any anchor is built)', frameC13({ ...r('C.X1'), header: { ...r('C.X1').header, oac_reply_to: 'a\noac_sender: b' } }, {}, draw).refused?.length === 1);
   // --- arm selection -----------------------------------------------------------------------------------------
   check('c13 selection: no arms -> the K8 cases; 0,F,C in order; a wrong order, a repeat or an unknown arm is refused', selectArms('', cases) === null && selectArms('0,F,C', cases).map((a) => `${a.arm}:${a.deliveries.length}`).join() === '0:4,F:19,C:10' && selectArms('0,F,C', cases)[2].deliveries.find((d) => d.id === 'C.X4a').queued && !selectArms('0', cases)[0].deliveries.at(-1).ask && throws(() => selectArms('F,0', cases), DriverError) && throws(() => selectArms('0,0', cases), DriverError) && throws(() => selectArms('X', cases), DriverError));
+  check('c13 selection (#220 ruling 3): arms mode runs no Claude case (claudeCases=none, the default and only value); claudeCases without arms is refused; K8 unaffected', selectClaudeCases(undefined, selectArms('0,F,C', cases)) === 'none' && selectClaudeCases('none', selectArms('0', cases)) === 'none' && selectClaudeCases(undefined, null) === null && throws(() => selectClaudeCases('all', selectArms('0', cases)), DriverError, /separate, non-verdict K8 run/) && throws(() => selectClaudeCases('none', null), DriverError, /only with --param arms/));
   // --- report: case results, the E1 path rule ----------------------------------------------------------------
   check('c13 report: per-delivery results need x|f and a note; mechanical and exploratory deliveries refuse an operator result', parseC13CaseResults([{ key: 'F.X2.1.c2', value: 'x' }, { key: 'F.X2.1.c3', value: 'x' }], { 'F.X2.1': 'n' })['F.X2.1'].c3 === 'x' && throws(() => parseC13CaseResults([{ key: 'F.X5.c2', value: 'x' }], { 'F.X5': 'n' }), ReportError, /mechanical/) && throws(() => parseC13CaseResults([{ key: 'C.X6p.c2', value: 'x' }], { 'C.X6p': 'n' }), ReportError, /exploratory/) && throws(() => parseC13CaseResults([{ key: 'F.X2.1.c2', value: 'x' }], {}), ReportError, /needs --note/) && throws(() => parseC13CaseResults([{ key: 'F.X9.c2', value: 'x' }], { 'F.X9': 'n' }), ReportError, /not a C13/));
   check('c13 report E1: only the four allowed files may change under tools/herdr/ (tools/herdr/test/ excluded)', e1PathCheck([...C13_ALLOWED_PATHS, 'tools/herdr/test/g5-tests.mjs', 'docs/x.md']).ok && !e1PathCheck(['tools/herdr/README.md']).ok && e1PathCheck(['tools/herdr/lib/g5.mjs']).outside.join() === 'tools/herdr/lib/g5.mjs' && C13_ALLOWED_PATHS.length === 4);
@@ -182,9 +184,25 @@ export function c13Unit(check) {
   sameThread.manifest.scenarioData.g5.c13.threads.C.thread.id = sameThread.manifest.scenarioData.g5.c13.threads.F.thread.id;
   check('c13 report: two arms on one thread is a failed precondition (each arm needs a fresh thread)', evaluateC13({ manifest: sameThread.manifest, codexText: sameThread.codexText, cases, caseResults: results(asControl), e1Paths: [...C13_ALLOWED_PATHS] }).outcome === C13_OUTCOMES.NE);
   const nr = evaluateC13({ manifest: { outcome: 'NOT RUN', outcomeReason: 'timed out' }, codexText: null, cases });
-  check('c13 report: a NOT RUN run is not evaluable and does not consume the exception', nr.outcome === C13_OUTCOMES.NE && nr.consumesException === false && /does not consume/.test(nr.reason));
+  const failRun = evaluateC13({ manifest: { outcome: 'FAIL', outcomeReason: 'divergence' }, codexText: null, cases });
+  check('c13 report: a run that is not PASS (NOT RUN or FAIL) is NOT RUN for C13 and does not consume the exception', nr.outcome === C13_OUTCOMES.NOT_RUN && failRun.outcome === C13_OUTCOMES.NOT_RUN && C13_OUTCOMES.NOT_RUN === 'NOT RUN' && nr.consumesException === false && failRun.consumesException === false && /does not consume/.test(nr.reason));
+  // #220 ruling 4: a refusal case never attempted (or in the wrong thread) is a tooling problem.
+  const noX5 = synthC13Run(cases, { skip: ['F.X5'] });
+  const noX5Ev = evaluateC13({ manifest: noX5.manifest, codexText: noX5.codexText, cases, caseResults: results(asControl), e1Paths: [...C13_ALLOWED_PATHS] });
+  check('c13 report (#220 ruling 4): a refusal case never attempted is unscored -> NOT EVALUABLE, never a FAIL; does not consume the exception', noX5Ev.outcome === C13_OUTCOMES.NE && noX5Ev.deliveries.find((l) => l.id === 'F.X5').result.c2 === null && noX5Ev.consumesException === false && /F\.X5: not delivered/.test(noX5Ev.reason), `${noX5Ev.outcome} ${noX5Ev.reason}`);
+  const wrongThread = synthC13Run(cases);
+  wrongThread.manifest.scenarioData.g5.c13.deliveries.find((d) => d.id === 'F.X5c').threadId = 'another-thread';
+  const wtEv = evaluateC13({ manifest: wrongThread.manifest, codexText: wrongThread.codexText, cases, caseResults: results(asControl), e1Paths: [...C13_ALLOWED_PATHS] });
+  check('c13 report (#220 ruling 4): a refusal case recorded in the wrong thread is unscored -> NOT EVALUABLE', wtEv.outcome === C13_OUTCOMES.NE && wtEv.deliveries.find((l) => l.id === 'F.X5c').result.c2 === null && !wtEv.consumesException);
+  const dirty = synthC13Run(cases);
+  dirty.manifest.driver.toolsHerdrDirty = true;
+  const offHead = synthC13Run(cases);
+  offHead.manifest.scenarioData.g5.client[0].workingTreeMatchesHead = false;
+  check('c13 report: a dirty tools/herdr/ or a staged gate program not at HEAD blocks any outcome (NOT EVALUABLE, non-consuming), in the draft too', [dirty, offHead].every((x) => { const e = evaluateC13({ manifest: x.manifest, codexText: x.codexText, cases, caseResults: results(asControl), e1Paths: [...C13_ALLOWED_PATHS] }); return e.outcome === C13_OUTCOMES.NE && !e.consumesException; }));
+  check('c13 report (#220 ruling 4): only PASS and FAIL with arm 0 reproduced consume the exception; INCONCLUSIVE, PENDING, NOT EVALUABLE and NOT RUN never do', pass.consumesException && oneF.consumesException && [noRepro, half, pend, naEv, misEv, badE1, noE1, nr].every((e) => e.consumesException === false));
+  check('c13 report (#220 ruling 2): the scoring basis of every model delivery is agent-scored, the operator attesting', /^agent-scored /.test(C13_SCORING_BASIS) && /operator attests/.test(C13_SCORING_BASIS) && pass.deliveries.filter((l) => l.kind === 'model').every((l) => l.basis === C13_SCORING_BASIS));
   const txt = renderC13Report({ manifest: { ...syn.manifest, scenarioData: { g5: { ...syn.manifest.scenarioData.g5, dialogs: [] } } }, evaluation: pass, claudeRows: [], date: '2026-10-02', fixtures: null, runManifestName: 'x' });
-  check('c13 report render: names the E1 exception and its conditions, writes no verdict, lists every delivery, attestation unticked', /E1/.test(txt) && /changes no verdict/.test(txt) && /## C13 outcome: PASS/.test(txt) && model.every((id) => txt.includes(`| ${id} |`)) && !/^- \[x\] \*\*(?:herdr|Harness)/m.test(txt) && /- \[ \] \*\*herdr:\*\*/.test(txt));
+  check('c13 report render: names the E1 exception and its conditions, writes no verdict, lists every delivery, agent-scored basis, no Claude rows, attestation unticked', /Scoring basis for Codex criteria 2 and 3: agent-scored/.test(txt) && /No Claude case ran/.test(txt) && !/## Claude rows/.test(txt) && /E1/.test(txt) && /changes no verdict/.test(txt) && /## C13 outcome: PASS/.test(txt) && model.every((id) => txt.includes(`| ${id} |`)) && !/^- \[x\] \*\*(?:herdr|Harness)/m.test(txt) && /- \[ \] \*\*herdr:\*\*/.test(txt));
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -440,20 +458,23 @@ export function g5Cases(check) {
   run('g5 C13 arms 0,F,C', { args: ['--param', 'accept=driver', '--param', 'arms=0,F,C', ...FAST], fakeCodex: {} }, (r) => {
     const m = r.manifest;
     const g5 = m.scenarioData.g5;
-    check('g5 c13: PASS (exit 0); the K8 cases X1-X6 were not sent', r.status === 0 && m.outcome === 'PASS' && !g5.injectionsSent.some((x) => /Codex case X/.test(x.what)), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.commands.filter((c) => c.exitCode).slice(-2).map((c) => [c.seq, c.argv.slice(3), c.exitCode, c.errorCode]))}`);
+    check('g5 c13: PASS (exit 0); the K8 cases X1-X6 and every Claude case were not sent (claudeCases=none by default in arms mode), though Claude launched and handshook', r.status === 0 && m.outcome === 'PASS' && !g5.injectionsSent.some((x) => /Codex case X|Claude case/.test(x.what)) && g5.claudeCases.length === 0 && g5.c13.claudeCases === 'none' && !!g5.handshake && !r.prompts.some((p) => p.text === table.operatorQuestion && p.target === 'g5claude'), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.commands.filter((c) => c.exitCode).slice(-2).map((c) => [c.seq, c.argv.slice(3), c.exitCode, c.errorCode]))}`);
     const ids = Object.values(C13_ARMS).flatMap((a) => a.deliveries.map(([id]) => id));
     check('g5 c13: every §11 delivery sent once, in arm order 0, F, C', g5.c13.arms.join() === '0,F,C' && g5.c13.deliveries.map((d) => d.id).join() === ids.join() && g5.injectionsSent.filter((x) => /C13 delivery/.test(x.what)).length === ids.length);
     const th = ['0', 'F', 'C'].map((a) => g5.c13.threads[a]?.thread?.id);
     check('g5 c13: each arm opened its own Codex TUI and found its own fresh thread', th.every(Boolean) && new Set(th).size === 3 && g5.c13.deliveries.every((d) => d.threadId === g5.c13.threads[d.arm].thread.id) && ['0', 'F', 'C'].every((a) => r.calls.some((c) => c.argv.includes('agent') && c.argv.includes('start') && c.argv.includes(`g5codex${a.toLowerCase()}`))), JSON.stringify(th));
     check('g5 c13: F.X5 and F.X5c refused by the client with no connection and no question; the mechanical deliveries were not asked', g5.c13.deliveries.filter((d) => d.refused).map((d) => d.id).join() === 'F.X5,F.X5c' && g5.c13.deliveries.filter((d) => !d.asked).map((d) => d.id).join() === '0.X5,F.X5,F.X5b,F.X5c' && g5.c13.deliveries.filter((d) => d.refused).every((d) => g5.clientRuns[d.clientRun].linesBefore === g5.clientRuns[d.clientRun].linesAfter - 1));
     const codexText = r.capture(names().transcriptCodex);
+    // A run from a dirty checkout (a work-in-progress self-test) is NOT EVALUABLE by design.
+    const clean = m.driver.toolsHerdrDirty === false && [...g5.server, ...g5.client].every((s) => s.workingTreeMatchesHead);
     const ev = evaluateC13({ manifest: m, codexText, cases: table, e1Paths: [...C13_ALLOWED_PATHS] });
-    check('g5 c13 report: every mechanical precondition met on the captured wire; refusals pass, X5b one sender, arm 0\'s X5 two; PENDING the operator', ev.outcome === C13_OUTCOMES.PENDING && ev.checks.every((x) => x.ok) && ev.deliveries.every((l) => !l.problems.length) && ev.deliveries.find((l) => l.id === 'F.X5c').result.c2 === 'x' && ev.deliveries.find((l) => l.id === '0.X5').result.c2 === 'f', JSON.stringify([ev.reason, ev.checks.filter((x) => !x.ok)]));
+    const runChecks = ev.checks.filter((x) => clean || !/clean and committed|matched its working-tree source/.test(x.name));
+    check('g5 c13 report: every mechanical precondition met on the captured wire; refusals pass, X5b one sender, arm 0\'s X5 two; PENDING the agent\'s scores (NOT EVALUABLE from a dirty checkout)', ev.outcome === (clean ? C13_OUTCOMES.PENDING : C13_OUTCOMES.NE) && runChecks.every((x) => x.ok) && ev.deliveries.every((l) => !l.problems.length) && ev.deliveries.find((l) => l.id === 'F.X5c').result.c2 === 'x' && ev.deliveries.find((l) => l.id === '0.X5').result.c2 === 'f', JSON.stringify([ev.reason, ev.checks.filter((x) => !x.ok)]));
     const anchored = parseJsonl(codexText).filter((e) => e.direction === 'client->daemon' && e.payload?.params?.additionalContext);
     check('g5 c13: exactly arm C\'s ten turn/starts (nine deliveries and X4a\'s setup) carry the oac_provenance anchor on the wire', anchored.length === 10 && anchored.every((e) => e.payload.method === 'turn/start' && e.payload.params.additionalContext.oac_provenance.kind === 'application'), String(anchored.length));
     const model = ids.filter((id) => C13_ARMS[id[0]].deliveries.find(([x]) => x === id)[1] === 'model');
     const res = parseC13CaseResults(model.flatMap((id) => ['c2', 'c3'].map((c) => ({ key: `${id}.${c}`, value: id === '0.X2.1' ? 'f' : 'x' }))), Object.fromEntries(model.map((id) => [id, 'answer read'])));
-    check('g5 c13 report: with arm 0 reproducing and every F/C trial x, the outcome is PASS', evaluateC13({ manifest: m, codexText, cases: table, caseResults: res, e1Paths: [...C13_ALLOWED_PATHS] }).outcome === C13_OUTCOMES.PASS);
+    check('g5 c13 report: with arm 0 reproducing and every F/C trial x, the outcome is PASS (from a clean checkout)', evaluateC13({ manifest: m, codexText, cases: table, caseResults: res, e1Paths: [...C13_ALLOWED_PATHS] }).outcome === (clean ? C13_OUTCOMES.PASS : C13_OUTCOMES.NE));
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--case', 'F.X2.1.c2=x', '--note', 'F.X2.1=part (1) names mallory'], { encoding: 'utf8', timeout: 20000 });
     check('g5 c13 report CLI: draft printed with the C13 outcome, the E1 conditions and the per-delivery table', draft.status === 0 && /## C13 outcome: /.test(draft.stdout) && /E1/.test(draft.stdout) && /\| F\.X2\.1 \| model \| x \| pending \|/.test(draft.stdout), draft.stderr);
   });

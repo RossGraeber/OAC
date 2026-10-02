@@ -547,6 +547,16 @@ who reads and scores the answer: herdr reading the pane, or a human.
   is final. A `NOT RUN` or inconclusive run does not consume it, and is listed under
   "Findings". A `FAIL` is not re-run under the exception.
 
+  *Note, 2026-10-02 (operator rulings on #220, from the PR #231 review).* The
+  parenthetical above is stale: `tools/herdr/` on `main` has changed since 2776e7a8. The
+  run is driven from the PR #231 branch, which is based on `74e3e64` and never merges
+  `main`. The rulings are recorded in `scripted-runs.md`'s E1 bullet:
+  1. a fresh Codex TUI per arm, refused-delivery handling and no question for mechanical
+     cases count as arm and case selection, in arms mode only;
+  2. the agent scores criteria 2 and 3 and the operator attests;
+  3. the Claude leg is skipped (a separate non-verdict K8 run re-checks it);
+  4. a run that a tooling problem leaves unscorable does not consume E1.
+
   *Cost:* it changes two rules for one run, and the scenario's first live run is also the
   verdict run (arm 0 is its calibration).
 - **E2: evidence only.** The herdr re-run is evidence.

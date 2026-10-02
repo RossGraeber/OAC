@@ -250,8 +250,9 @@ export function evaluateG5({ manifest, claudeText, codexText, paneClaudeText, pa
 // Scores a run of `--param arms=0,F,C` against docs/planning/decisions/C13-codex-provenance-
 // framing.md §11, never against the 2026-09-27 fixtures. The arm structure below is §11's,
 // fixed here; g5-cases.json supplies only the bodies and must match it.
-//   - kinds: `model` reaches the model, gets the fixed question, and is scored x|f by the
-//     operator on Codex criteria 2 AND 3 under frozen rules (a) and (b), per delivery;
+//   - kinds: `model` reaches the model, gets the fixed question, and is scored x|f on Codex
+//     criteria 2 AND 3 under frozen rules (a) and (b), per delivery. Scoring basis (#220 ruling
+//     2): AGENT-SCORED from the captures (--case/--note), and the operator attests the run;
 //     `refusal` (X5, X5c on the floor) passes only when the client logged a refusal AND no
 //     turn/start or thread/queue/add for it is on the wire; `one-sender` (X5b) passes when its
 //     frame carries exactly one oac_sender line; `two-senders` (arm 0's X5) is the control's
@@ -260,8 +261,12 @@ export function evaluateG5({ manifest, claudeText, codexText, paneClaudeText, pa
 //     and X5 showing two oac_sender lines. Otherwise the run is INCONCLUSIVE for C13.
 //   - arms F and C: every required trial must pass; one f or one failed mechanical case is a
 //     FAIL. There is no majority and no retry.
-//   - consumption (E1): a run consumes the one-off exception only when its outcome is PASS or
-//     FAIL and arm 0 reproduced. A NOT RUN or INCONCLUSIVE run does not.
+//   - consumption (E1; #220 ruling 4): a run consumes the one-off exception only when its
+//     outcome is PASS or FAIL and arm 0 reproduced. A NOT RUN, INCONCLUSIVE, NOT EVALUABLE
+//     (a tooling problem: e.g. a refusal case never attempted, a delivery in the wrong thread,
+//     a dirty tools/herdr/) or PENDING run does not.
+//   - the Claude leg is not run in arms mode (#220 ruling 3): the 2026-09-27 Claude results
+//     stand, and a separate non-verdict K8 run re-checks Claude.
 // This generator writes no verdict anywhere: G5-result.md and STATUS.md are the operator's.
 
 export const C13_EXCEPTION_BASE = '2776e7a89bc3d7f5d7c39bea791a1919dd17119a';
@@ -280,7 +285,8 @@ export const C13_ARM_IDS = Object.freeze(['0', 'F', 'C']);
 const C13_KIND = new Map(Object.values(C13_ARMS).flatMap((a) => a.deliveries));
 export const C13_CASE_KEY = /^[0FC]\.X[0-9a-zA-Z]+(?:\.[0-9A-Za-z]+)?\.c[23]$/;
 export const C13_NOTE_KEY = /^[0FC]\.X[0-9a-zA-Z]+(?:\.[0-9A-Za-z]+)?$/;
-const C13_OUTCOMES = Object.freeze({ PASS: 'PASS', FAIL: 'FAIL', INCONCLUSIVE: 'INCONCLUSIVE', PENDING: 'PENDING', NE: 'NOT EVALUABLE' });
+const C13_OUTCOMES = Object.freeze({ PASS: 'PASS', FAIL: 'FAIL', INCONCLUSIVE: 'INCONCLUSIVE', PENDING: 'PENDING', NE: 'NOT EVALUABLE', NOT_RUN: 'NOT RUN' });
+export const C13_SCORING_BASIS = 'agent-scored (frozen rules (a) and (b), from the captured answers); the operator attests the run (#220 ruling 2)';
 export { C13_OUTCOMES };
 
 // --case <delivery>.c2=x|f and --case <delivery>.c3=x|f with a --note <delivery>=... each.
@@ -290,7 +296,7 @@ export function parseC13CaseResults(pairs, notes = {}) {
     const c = key.slice(-2);
     const id = key.slice(0, -3);
     const kind = C13_KIND.get(id);
-    if (kind !== 'model') throw new ReportError(`${key}: ${kind ? `${id} is ${kind === 'exploratory' ? 'exploratory and never scored' : 'mechanical; its result comes from the wire, not the operator'}` : `${id} is not a C13 §11 delivery`}`);
+    if (kind !== 'model') throw new ReportError(`${key}: ${kind ? `${id} is ${kind === 'exploratory' ? 'exploratory and never scored' : 'mechanical; its result comes from the wire, not from a --case score'}` : `${id} is not a C13 §11 delivery`}`);
     if (!['x', 'f'].includes(value)) throw new ReportError(`${key}: a case result is x or f`);
     if (!notes[id] || !String(notes[id]).trim()) throw new ReportError(`${key}: a case result needs --note ${id}=... citing the answer it rests on`);
     out[id] = { ...(out[id] ?? {}), [c]: value, note: String(notes[id]).trim() };
@@ -342,8 +348,13 @@ export function evaluateC13({ manifest, codexText, cases, caseResults = {}, e1Pa
   const tableProblems = c13TableProblems(cases);
   const out = { outcome: C13_OUTCOMES.NE, reason: null, tableProblems, controlReproduced: null, consumesException: false, arms: {}, deliveries: [], criteria: { c2: null, c3: null }, checks: [], findings: [], e1: e1Paths ? e1PathCheck(e1Paths) : null };
   const outcome = manifest?.outcome ?? 'missing';
-  if (outcome !== 'PASS' || !g5?.c13 || !codexText) {
-    out.reason = outcome !== 'PASS' ? `run outcome ${outcome}${manifest?.outcomeReason ? `: ${manifest.outcomeReason}` : ''}; a run that is not PASS is NOT RUN for C13 and does not consume the E1 exception` : !g5?.c13 ? 'no C13 arms in the run manifest (was it run with --param arms=0,F,C?)' : 'the Codex wire transcript was not captured';
+  if (outcome !== 'PASS') {
+    out.outcome = C13_OUTCOMES.NOT_RUN;
+    out.reason = `run outcome ${outcome}${manifest?.outcomeReason ? `: ${manifest.outcomeReason}` : ''}; a run that is not PASS is NOT RUN for C13 and does not consume the E1 exception`;
+    return out;
+  }
+  if (!g5?.c13 || !codexText) {
+    out.reason = `${!g5?.c13 ? 'no C13 arms in the run manifest (was it run with --param arms=0,F,C?)' : 'the Codex wire transcript was not captured'}; NOT EVALUABLE, which does not consume the E1 exception`;
     return out;
   }
   const entries = parseJsonl(codexText);
@@ -362,6 +373,9 @@ export function evaluateC13({ manifest, codexText, cases, caseResults = {}, e1Pa
   out.checks.push(check('all three arms ran, in the order 0, F, C', armsRun.join() === C13_ARM_IDS.join(), armsRun.join() || 'none'));
   const threads = C13_ARM_IDS.map((a) => g5.c13.threads?.[a]?.thread?.id ?? null);
   out.checks.push(check('each arm ran in its own fresh thread (three distinct thread ids, none loaded before its arm\'s launch)', threads.every(Boolean) && new Set(threads).size === 3 && C13_ARM_IDS.every((a) => g5.c13.threads[a].thread.preLaunchLoaded === false), threads.join(', ')));
+  const staged = [...(g5.server ?? []), ...(g5.client ?? [])];
+  out.checks.push(check('the run\'s tools/herdr/ was clean and committed (driver commit recorded, toolsHerdrDirty false)', manifest.driver?.toolsHerdrDirty === false && /^[0-9a-f]{40}$/.test(String(manifest.driver?.commit ?? '')), `commit ${manifest.driver?.commit ?? 'none'}, toolsHerdrDirty ${JSON.stringify(manifest.driver?.toolsHerdrDirty ?? null)}`));
+  out.checks.push(check('every staged gate program matched its working-tree source and HEAD', staged.length > 0 && staged.every((x) => x.match && x.workingTreeMatchesHead), staged.map((x) => `${x.path}: match ${x.match}, HEAD ${x.workingTreeMatchesHead}`).join('; ') || 'none staged'));
   out.checks.push(check(`E1: the run's tools/herdr/ diff from ${C13_EXCEPTION_BASE.slice(0, 12)} (excluding tools/herdr/test/) is within the four allowed files`, out.e1?.ok === true, !out.e1 ? 'not computed (no driver commit, or git could not diff it)' : out.e1.outside.length ? `outside: ${out.e1.outside.join(', ')}` : `changed: ${out.e1.changed.join(', ') || 'none'}`));
 
   for (const arm of C13_ARM_IDS) {
@@ -382,7 +396,9 @@ export function evaluateC13({ manifest, codexText, cases, caseResults = {}, e1Pa
       if (kind === 'refusal') {
         const ok = !!ref && !dl && onWire.length === 0 && r?.refused === true;
         l.basis = `mechanical: refusal logged (${ref ? `line ${ref.line}, ${ref.failures.map((f) => f.field).join(', ')}` : 'none'}); frames for ${mid} on the wire: ${onWire.length}`;
-        l.result.c2 = ok ? 'x' : 'f';
+        // Never attempted, or not in this arm's thread: a tooling problem, unscored (NOT
+        // EVALUABLE), never an f that could consume E1 (#220 ruling 4).
+        l.result.c2 = l.problems.length ? null : ok ? 'x' : 'f';
         lines.push(l);
         continue;
       }
@@ -442,7 +458,7 @@ export function evaluateC13({ manifest, codexText, cases, caseResults = {}, e1Pa
         lines.push(l);
         continue;
       }
-      l.basis = 'operator, frozen rules (a) and (b)';
+      l.basis = C13_SCORING_BASIS;
       const res = caseResults[id];
       l.note = res?.note ?? null;
       if (l.problems.length === 0) l.result = { c2: res?.c2 ?? null, c3: res?.c3 ?? null };
@@ -454,13 +470,13 @@ export function evaluateC13({ manifest, codexText, cases, caseResults = {}, e1Pa
 
   // Outcome, per §11.
   const blocking = out.checks.filter((k) => !k.ok);
-  const unscorable = out.deliveries.filter((l) => l.kind !== 'exploratory' && l.problems.length && !(l.kind === 'refusal'));
+  const unscorable = out.deliveries.filter((l) => l.kind !== 'exploratory' && l.problems.length);
   const required = (arm) => out.arms[arm].filter((l) => l.kind !== 'exploratory');
   const pending = (arm) => required(arm).filter((l) => l.kind === 'model' && l.problems.length === 0 && (l.result.c2 === null || l.result.c3 === null));
   const fails = (arm, c) => required(arm).filter((l) => (c === 'c3' && l.kind !== 'model' ? false : l.result[c] === 'f'));
   if (blocking.length || unscorable.length) {
     out.outcome = C13_OUTCOMES.NE;
-    out.reason = `mechanical preconditions not met: ${[...blocking.map((k) => k.name), ...unscorable.map((l) => `${l.id}: ${l.problems.join('; ')}`)].join(' | ')}`;
+    out.reason = `NOT EVALUABLE (a tooling problem; does not consume the E1 exception): mechanical preconditions not met: ${[...blocking.map((k) => k.name), ...unscorable.map((l) => `${l.id}: ${l.problems.join('; ')}`)].join(' | ')}`;
     return out;
   }
   const allPending = C13_ARM_IDS.flatMap(pending);
@@ -479,7 +495,7 @@ export function evaluateC13({ manifest, codexText, cases, caseResults = {}, e1Pa
   }
   if (allPending.length) {
     out.outcome = C13_OUTCOMES.PENDING;
-    out.reason = `per-delivery operator results pending for ${allPending.map((l) => l.id).join(', ')} (--case <id>.c2=x|f --case <id>.c3=x|f --note <id>=...)`;
+    out.reason = `per-delivery agent scores pending for ${allPending.map((l) => l.id).join(', ')} (--case <id>.c2=x|f --case <id>.c3=x|f --note <id>=...)`;
     return out;
   }
   for (const c of ['c2', 'c3']) out.criteria[c] = ['F', 'C'].some((a) => fails(a, c).length) ? 'f' : 'x';
@@ -492,7 +508,7 @@ export function evaluateC13({ manifest, codexText, cases, caseResults = {}, e1Pa
   return out;
 }
 
-export function renderC13Report({ manifest, evaluation, claudeRows, date, fixtures, runManifestName, reference = null }) {
+export function renderC13Report({ manifest, evaluation, date, fixtures, runManifestName, reference = null }) {
   const g5 = manifest?.scenarioData?.g5 ?? {};
   const e = evaluation;
   const out = [];
@@ -503,7 +519,8 @@ export function renderC13Report({ manifest, evaluation, claudeRows, date, fixtur
   out.push('> arm 0 reproduces the 2026-09-27 FAIL; the `tools/herdr/` diff from `2776e7a8` (excluding `tools/herdr/test/`) is within the four');
   out.push('> allowed files; a complete, truthful operator attestation; and every other condition of "When a scripted run may carry a verdict".');
   out.push('> This generator changes no verdict: `G5-result.md` and `STATUS.md` are updated by the operator, in the same change, only if those hold.');
-  out.push('> The Claude results of 2026-09-27 stand (operator decision); the Claude rows below are a regression check only.');
+  out.push('> No Claude case ran (#220 ruling 3): the 2026-09-27 Claude results stand, and a separate, non-verdict K8 run re-checks Claude.');
+  out.push(`> Scoring basis for Codex criteria 2 and 3: ${C13_SCORING_BASIS}.`);
   out.push('>');
   out.push(...reconstructionCallout('G5', [...new Set([...G5_SERVER_FILES, ...G5_CLIENT_FILES])], 'docs/planning/gates/G5-result.md'));
   out.push('');
@@ -520,20 +537,16 @@ export function renderC13Report({ manifest, evaluation, claudeRows, date, fixtur
   out.push('');
   out.push('## Codex deliveries, per arm');
   out.push('');
-  out.push('| Delivery | Kind | c2 | c3 | Basis | Problems | Operator note / supporting hint |');
+  out.push('| Delivery | Kind | c2 | c3 | Basis | Problems | Score note / supporting hint |');
   out.push('|---|---|---|---|---|---|---|');
   for (const l of e.deliveries) out.push(`| ${l.id} | ${l.kind} | ${l.result.c2 ?? (l.kind === 'exploratory' ? '-' : 'pending')} | ${l.kind === 'model' ? l.result.c3 ?? 'pending' : '-'} | ${cell(l.basis)} | ${cell(l.problems.join('; ') || 'none')} | ${cell([l.note, l.hint ? `(supporting only: ${l.hint})` : null, l.firstReply ? `first reply: ${l.firstReply}` : null].filter(Boolean).join(' '))} |`);
-  out.push('');
-  out.push('## Claude rows (regression check only; the 2026-09-27 Claude results stand)');
-  out.push('');
-  for (const r of claudeRows) out.push(`- Row ${r.n}: **${r.score}** — ${r.reason ?? '—'}`);
   out.push('');
   out.push('## Findings and UNVERIFIED');
   out.push('');
   for (const f of manifest?.findings ?? []) out.push(`- Finding: ${f}`);
   for (const f of e.findings) out.push(`- Finding: ${f}`);
   if (fixtureWithheld(manifest)) out.push(`- Finding: ${fixtureWithheld(manifest)}`);
-  out.push('- If a Claude row disagrees with the 2026-09-27 Claude results, that is a finding to resolve before any verdict is written (C13 §11).');
+  out.push('- The Claude leg was not run (#220 ruling 3); a disagreement found by the separate K8 Claude regression run is a finding to resolve before any verdict is written (C13 §11).');
   out.push('- The client, server and case table are reconstructions, and this is the scenario\'s first live calibration (C13 §11): arm 0 is its calibration.');
   out.push('- Each arm\'s thread/list entries are removed from the Codex capture (the sanitizer keeps one own thread only); the thread ids are above and in the run manifest.');
   out.push('- Earlier `NOT RUN` or INCONCLUSIVE runs under the exception: none listed by this generator; add each by hand.');
@@ -739,7 +752,7 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, text
 // The paths changed under tools/herdr/ between the E1 base and `commit`, or null if git cannot say.
 export function e1ChangedPaths(commit, cwd = REPO) {
   if (!/^[0-9a-f]{40}$/.test(String(commit ?? ''))) return null;
-  const r = spawnSync('git', ['diff', '--name-only', C13_EXCEPTION_BASE, commit, '--', 'tools/herdr'], { cwd, encoding: 'utf8', timeout: 20000 });
+  const r = spawnSync('git', ['diff', '--name-only', '--no-renames', C13_EXCEPTION_BASE, commit, '--', 'tools/herdr'], { cwd, encoding: 'utf8', timeout: 20000 });
   return r.status === 0 ? r.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : null;
 }
 
@@ -750,17 +763,15 @@ function mainC13({ o, operatorScores, runDir, manifest, g5 }) {
   const written = (name) => name && manifest.captures?.some((c) => c.file === name && c.written) && existsSync(join(runDir, name));
   const readCap = (name) => (written(name) ? readFileSync(join(runDir, name), 'utf8') : null);
   const texts = { claude: names ? readCap(names.transcriptClaude) : null, codex: names ? readCap(names.transcriptCodex) : null, paneClaude: names ? readCap(names.paneClaude) : null, paneCodex: names ? readCap(names.paneCodex) : null };
-  const baseline = Object.fromEntries(Object.entries(BASELINE).map(([k, p]) => [k, readFileSync(resolve(REPO, p), 'utf8')]));
-  const { criteria, reference } = readG5Criteria(REPO);
+  if (Object.keys(operatorScores).length) throw new ReportError('a C13 arms run has no Claude rows to score (#220 ruling 3: the Claude leg is a separate K8 run)');
+  const { reference } = readG5Criteria(REPO);
   const cases = loadCases(REPO);
-  const claude = evaluateG5({ manifest, claudeText: texts.claude, codexText: texts.codex, paneClaudeText: texts.paneClaude, paneCodexText: texts.paneCodex, baseline, criteria, cases, operatorScores });
-  const claudeRows = claude.rows.filter((r) => r.provider === 'Claude');
   const evaluation = evaluateC13({ manifest, codexText: texts.codex, cases, caseResults, e1Paths: e1ChangedPaths(manifest.driver?.commit) });
   const date = g5.date ?? manifest.timebox?.start?.slice(0, 10) ?? 'unknown-date';
   const runManifestName = `G5-c13-${date}.run-manifest.json`;
   const refusal = writeRefusal(manifest);
   const publish = !refusal && !fixtureWithheld(manifest);
-  const report = renderC13Report({ manifest, evaluation, claudeRows, date, fixtures: publish ? Object.fromEntries(Object.entries(fixtures).map(([k, f]) => [k, `${FIXTURE_DIR}/${f}`])) : null, runManifestName, reference });
+  const report = renderC13Report({ manifest, evaluation, date, fixtures: publish ? Object.fromEntries(Object.entries(fixtures).map(([k, f]) => [k, `${FIXTURE_DIR}/${f}`])) : null, runManifestName, reference });
   if (!o.write) {
     console.log(report);
     return 0;
@@ -777,7 +788,7 @@ function mainC13({ o, operatorScores, runDir, manifest, g5 }) {
   }
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
   if (!publish) console.log(`No fixture written: ${fixtureWithheld(manifest)}`);
-  console.log(`C13 outcome as scored: ${evaluation.outcome}. Next: score every model delivery with --case <id>.c2=x|f --case <id>.c3=x|f --note <id>=...; the operator who ran the machine fills in the attestation; only if every E1 condition holds, record the Codex-leg verdict in G5-result.md and STATUS.md in the same change (this generator writes neither).`);
+  console.log(`C13 outcome as scored: ${evaluation.outcome}. Next: the agent scores every model delivery from the captures with --case <id>.c2=x|f --case <id>.c3=x|f --note <id>=... (agent-scored, #220 ruling 2); the operator who ran the machine fills in the attestation; only if every E1 condition holds, record the Codex-leg verdict in G5-result.md and STATUS.md in the same change (this generator writes neither).`);
   return 0;
 }
 

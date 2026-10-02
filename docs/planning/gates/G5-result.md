@@ -459,6 +459,16 @@ reproduced the old FAIL. That run's verdict is final under the exception. A `NOT
 inconclusive run does not consume it, and is listed under that run record's "Findings". A
 `FAIL` is not re-run under the exception.
 
+*Further note, 2026-10-02 (operator rulings on #220, from the PR #231 review; full text in
+the `scripted-runs.md` E1 bullet).*
+- The run is driven from the PR #231 branch, based on `74e3e64`. `tools/herdr/` on `main`
+  has changed since 2776e7a8.
+- Per-arm fresh TUIs, refused-delivery handling and no question for mechanical cases are
+  arm and case selection, in arms mode only.
+- Codex criteria 2 and 3 are agent-scored, and the operator attests.
+- The run skips the Claude leg.
+- A run that a tooling problem leaves unscorable does not consume the exception.
+
 The Claude results above stand and are not re-run. Any other change to this verdict still
 goes through the human-run procedure. **The verdict above is unchanged: G5 is `FAIL`
 until that re-run is recorded.**
