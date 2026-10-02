@@ -437,3 +437,28 @@ its Claude rows rest on pane text rather than the session-log render rule (d) us
 **never run live** (test doubles only), so no `-herdr` fixture and no
 `docs/planning/gates/herdr-runs/G5-<date>.md` record exist. This gate's verdict stays
 **FAIL**; it changes only through the human-run procedure.
+
+**Dated note, 2026-10-02 (#220, C13 route E1).** The operator approved one exception to
+the sentence above. It covers exactly one herdr run: the G5 **Codex-leg** re-run under the
+amended framing, defined in `docs/planning/decisions/C13-codex-provenance-framing.md` §11.
+That run may carry G5's Codex verdict under the one-off exception in
+`.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility". Its
+conditions are:
+
+- arm 0 (the old frame) reproduces this FAIL;
+- the `tools/herdr/` changes since commit `2776e7a89bc3d7f5d7c39bea791a1919dd17119a` are
+  limited to:
+  - the framing in `gate-servers/g5-codex.mjs`;
+  - the cases in `gate-servers/g5-cases.json`;
+  - the scoring in `lib/g5-report.mjs`;
+  - arm and case selection only in `scenarios/g5-provenance.mjs`;
+- a full operator attestation.
+
+The exception is used by the first run whose outcome is `PASS` or `FAIL` and whose arm 0
+reproduced the old FAIL. That run's verdict is final under the exception. A `NOT RUN` or
+inconclusive run does not consume it, and is listed under that run record's "Findings". A
+`FAIL` is not re-run under the exception.
+
+The Claude results above stand and are not re-run. Any other change to this verdict still
+goes through the human-run procedure. **The verdict above is unchanged: G5 is `FAIL`
+until that re-run is recorded.**

@@ -447,6 +447,44 @@ An operator never ticks a line that calls a driver accept their own.
   invalidates a gate verdict, because that row's `Gates affected` is `none`.
 - **Human runs stay authoritative.** A human-operated run of G<n> is always eligible to
   carry a verdict and needs no equivalence record.
+- **One-off exception: the C13 G5 Codex re-run (operator decision, 2026-10-02, #220,
+  route E1).** Exactly one herdr run of `g5-provenance`, the G5 Codex-leg re-run defined in
+  `docs/planning/decisions/C13-codex-provenance-framing.md` §11, may carry G5's Codex
+  verdict. It needs no G5 equivalence record, and its `tools/herdr/` diff need not be
+  empty. All of these must hold:
+  - its arm 0 (the old C6 §5 frame) reproduces the 2026-09-27 FAIL, as C13 §11 defines it.
+    Otherwise the run is inconclusive and carries no verdict;
+  - its `tools/herdr/` diff (excluding `tools/herdr/test/`) from commit
+    `2776e7a89bc3d7f5d7c39bea791a1919dd17119a` (the #217 merge on `main`; `tools/herdr/`
+    is unchanged from there to `main` as of 2026-10-02) is limited to:
+    - the approved framing in `gate-servers/g5-codex.mjs`;
+    - the new cases in `gate-servers/g5-cases.json`;
+    - the scoring in `lib/g5-report.mjs`;
+    - arm and case selection only in `scenarios/g5-provenance.mjs`;
+  - it carries a complete, truthful operator attestation;
+  - it meets every other condition of "When a scripted run may carry a verdict", except the
+    three waived here:
+    - an equivalence record exists;
+    - an empty `tools/herdr/` diff against that record's commit;
+    - the same `scenario.file`, `launch.argv` and `scenario.params` as that record's run.
+
+    The rest still apply: the box, each criterion scored individually, the closed verdict
+    vocabulary, fixtures, and `STATUS.md` in the same change.
+
+  **Which run consumes it.** The exception is used by the first run that meets both of
+  these:
+  - its outcome is `PASS` or `FAIL`;
+  - its arm 0 reproduced the old FAIL.
+
+  That run's verdict is final under the exception. A run that is `NOT RUN`, or inconclusive
+  (arm 0 did not reproduce), does not consume it; list such runs under that run record's
+  "Findings". A `FAIL` is not re-run under this exception.
+
+  It covers only the Codex leg. The G5 Claude results of 2026-09-27 stand (same decision).
+  It does not create a G5 equivalence record, does not extend to any later run, and does
+  not change the rule for any other gate. `Driver:` cites this bullet. The rationale is
+  consistency with the standing herdr-first decisions (#187, #196, #216); the record is
+  C13 §0/§11.
 
 ## Checklist: recording a scripted run
 
