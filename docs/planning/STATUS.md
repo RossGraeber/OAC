@@ -16,10 +16,17 @@ hook-stdin `session_id` stays authoritative, and `oac mcp-shim` also reads
     or unknown).
   - For `resume`, `clear`, `fork` and `compact` the variable is stale by design. That
     covers `/clear`, `--continue`, bare `--resume`, in-session `/resume`,
-    `--fork-session`, `/fork` and `/branch`. The daemon binds the hook id as a new OAC
-    id per §6 and logs a diagnostic.
-  - A duplicate value is refused for the newcomer, and existing bindings are never
-    withdrawn.
+    `--fork-session`, `/fork`, `/branch` and moving a conversation to the background.
+    The daemon binds the hook id as a new OAC id per §6 and logs a diagnostic.
+  - A newcomer whose hook id is already bound to another live shim is refused, and
+    existing bindings are never withdrawn. Duplicates are keyed on the hook id, never on
+    the variable.
+  - A launch-time hook payload that arrives before its shim is held for a bounded window
+    (an implementation parameter), then dropped with a diagnostic. A payload that cannot
+    be paired with certainty fails closed.
+  - A missing or unknown `source` failing closed is a conservative default from the
+    review, outside the operator's literal rule. `11-risks.md` RISK-CLAUDE-PREVIEW
+    carries an early-warning signal for it.
   - The variable alone is a hint that unlocks nothing and is never the sole pairing
     key. Pairing must rest on daemon-observed OS process identity.
 

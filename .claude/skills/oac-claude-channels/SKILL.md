@@ -120,14 +120,14 @@ the **authoritative** session id (C4 §3). There is no `CLAUDE_SESSION_ID`
 variable, but **`CLAUDE_CODE_SESSION_ID` is documented**: it is set in hook,
 Bash/PowerShell tool and stdio MCP server subprocesses. An MCP server keeps the
 ID it was spawned with, so the hook ID moves away from it after `/clear`,
-`--continue`/bare `--resume`, in-session `/resume`, and fork paths
-(`--fork-session`, `/fork`, `/branch`) (`env-vars.md`, `hooks.md` SessionStart
-`source`, 2026-10-02; drift D5). Per C4 §3 "Revision, 2026-10-02" (#236),
-`oac mcp-shim` reads it as a **cross-check only**. Equal → bind. A mismatch
-fails closed only at `source` `startup`. For `resume`/`clear`/`fork`/`compact`
-the daemon binds the hook ID as a new OAC id and logs a diagnostic. A duplicate
-value → refuse the newcomer. The variable alone unlocks nothing and is never
-the sole pairing key. Never prefer it.
+`--continue`/bare `--resume`, in-session `/resume`, fork paths (`--fork-session`,
+`/fork`, `/branch`) and moving a conversation to the background (`env-vars.md`,
+`hooks.md` SessionStart `source`, 2026-10-02; drift D5). Per C4 §3 "Revision,
+2026-10-02" (#236), `oac mcp-shim` reads it as a **cross-check only**. Equal →
+bind. A mismatch fails closed only at `source` `startup`. For
+`resume`/`clear`/`fork`/`compact` the daemon binds the hook ID as a new OAC id
+and logs a diagnostic. A hook ID already bound to another live shim → refuse the
+newcomer. The variable alone unlocks nothing and is never the sole pairing key.
 
 Claude Code's own cross-session messaging (`ListAgents`/`SendMessage`) is a
 **separate feature** and is **not integrated with Channels**. Do not conflate

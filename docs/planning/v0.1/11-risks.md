@@ -274,6 +274,16 @@ list.
   - D6: the `2.1.232` floor is unsupported.
 
   The `--resume` and multi-channel docs are still silent, so rows 1-2 stay open.)
+- (Dated note, 2026-10-02, #236: **`SessionStart` `source` drift.** The C4 §3 rule
+  depends on the documented `source` values `startup`, `resume`, `clear`, `compact` and
+  `fork` (`hooks.md`, retrieved 2026-10-02). A missing or unknown `source` is treated as
+  `startup` and fails closed on a mismatch. That is a conservative default from the PR
+  #238 review, outside the operator's literal rule.
+  - **Early-warning signal:** `hooks.md` documents a new `source` value, or a supported
+    Claude Code version sends a `SessionStart` payload without `source`. Either shows up
+    as case 3(b) findings whose `source` is missing or unknown.
+  - **Response:** re-decide that default in C4 §3 with the operator, and map the new
+    value to case 3 or case 4 explicitly.)
 
 ### RISK-CODEX-EXPERIMENTAL — Codex experimental live-inject surface drift
 
