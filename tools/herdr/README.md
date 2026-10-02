@@ -279,7 +279,12 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    captures; it never imports driver code into a product crate or module, and no product
    manifest (and no test manifest that a default build compiles) may reference
    `tools/herdr/`. The scenario module itself may live under `tests/integration/` and be
-   passed to `--scenario` by path.
+   passed to `--scenario` by path. `scripts/check-herdr-containment.mjs` check 9 enforces
+   this (#146): `tests/integration/` may name herdr and run the driver by path, including
+   from a script entry in its own manifest, but it fails if anything under it imports,
+   compiles in, or symlinks to driver code. It also fails if a product path reaches
+   `tests/integration/`, or a manifest outside it names it or a `tests/` glob or member.
+   The exact rules are in `oac-boundaries` `references/mechanical-checks.md`, check 9.
 3. **Opt-in and pinned.** Reached only by an explicit, separately invoked target, never the
    default `test` run; each test names its exact transport and herdr pins from
    `docs/planning/PINS.md` (`09-test-strategy.md` §4), and records the Claude Code and Codex
@@ -321,10 +326,6 @@ not resolved silently):
 - `tests/integration/` is DESIGN's *suggested* layout; `oac-testing` says the actual test
   layout is confirmed by Stage 3 output (F8/F9). Point 2 above follows K8's acceptance, ahead
   of that confirmation.
-- `scripts/check-herdr-containment.mjs` scans the product paths, not `tests/`. Nothing
-  mechanical yet stops a product crate from depending on a test under `tests/integration/`
-  that in turn drives herdr, or a default build from compiling such a test. Whether check 9
-  should grow a `tests/integration/` rule is open.
 - Point 5 means an unattended opt-in CI run of any test that shows the G11 confirmation is
   impossible under the current rule (#196 did not change G11).
 
