@@ -154,7 +154,10 @@ anything:
   invalidates a gate verdict. A gate result still records the version it actually ran
   on.
 - **Recorded verdicts stand.** G1 (PASS, `v2.1.283`), G4 (PASS, `v2.1.283`) and G5 (FAIL,
-  `v2.1.283`) keep their verdicts and the versions they ran on. The invalidation history
+  `v2.1.283`) keep their verdicts and the versions they ran on. *(Dated note, 2026-10-02,
+  #220: G5 is now PASS. Its Codex leg was re-run on Codex `0.160.0`, and its Claude leg is
+  still the `v2.1.283` run. See `docs/planning/gates/G5-result.md`. This note changes no
+  pin.)* The invalidation history
   below (G1 invalidated 2026-09-27, re-run 2026-09-28) is kept as history.
 - **§3.1 facts.** Re-checking the §3.1 facts against a newly tested version
   (`oac-evidence` §7) is still worth doing, and is still open at `v2.1.282` and later
@@ -340,7 +343,11 @@ anything:
   invalidates a gate verdict. A gate result still records the version it actually ran
   on. The daemon's auto-updater may keep moving the version; that is expected.
 - **Recorded verdicts stand.** G2 (PASS, `0.157.1`), G4 (PASS, `0.157.1`) and G5 (FAIL,
-  `0.157.1`) keep their verdicts and the versions they ran on. The 2026-09-26 invalidation
+  `0.157.1`) keep their verdicts and the versions they ran on. *(Dated note, 2026-10-02,
+  #220: G5 is now PASS, from its Codex-leg re-run on `0.160.0`. That is a `VERSION WARNING`
+  against the last tested `0.159.3`, a finding only (#216). Recording `0.160.0` as last
+  tested is a separate change, and this note changes no pin. See
+  `docs/planning/gates/G5-result.md`.)* The 2026-09-26 invalidation
   of G2 is kept as history.
 - **§3.2 facts.** Re-checking the §3.2 facts against a newly tested version
   (`oac-evidence` §7) is still worth doing. It is tracked as a finding and never gates a

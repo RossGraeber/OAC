@@ -50,7 +50,10 @@ a citation-source or pin-provenance gap.**
   fallback and no path past it. The row order
   within R1 below (G1, G2, G4, G3, G5) is presentation order, following
   `02-gating-findings.md`'s own §3-§7 sequence — it is not itself a ranking;
-  both no-fallback gates (G1, G5) carry equal weight regardless of position.
+  both no-fallback gates (G1, G5) carry equal weight regardless of position. (Dated note,
+  2026-10-02, #220: G5 is now **PASS**. Its Codex leg was re-run under C13 §11 and passed,
+  and C13 is `RESOLVED-IN-DECISION`, so the Stage 2 stop described above no longer applies
+  to Codex provenance. See RISK-G5's dated status below.)
 - **R2 — preview/experimental surface drift.** The Claude Code Channels research
   preview and the Codex experimental live-inject surface, including their
   unnamed compatibility-shim boundaries (conflict-register C11,
@@ -227,6 +230,32 @@ list.
   presently unused, machine-set-metadata carrier on Codex) as an input to consider, not
   a requirement. This status note does not change RISK-G5's own risk/invalidates/
   response text above, which stays the standing description for any future G5 re-run.
+- **Status (2026-10-02, issue #220): no longer realized at gate level; open as a design
+  risk.** G5's Codex leg was re-run under C13 §11, through herdr under the one-off E1
+  exception (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, run
+  `20261002T161612Z-4f2b53`, Codex `0.160.0`, 60-minute box not expired, operator
+  attestation `<attestation commit>`).
+  - Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27 FAIL.
+  - Every required trial of arm F (`docs/planning/decisions/C6-trust-rendering.md` §5.0's
+    floor) and arm C (the floor plus the `turn/start` anchor, Option C) was x on Codex
+    criteria 2 and 3, and every mechanical check passed: X5 and X5c were refused, and X5b
+    carried one sender line.
+  - The 2026-09-27 Claude results stand.
+  - **G5 is PASS** (`docs/planning/gates/G5-result.md`), C13 is `RESOLVED-IN-DECISION`,
+    and DESIGN acceptance criterion 6 is re-established for Codex at gate level.
+
+  The risk stays open, narrower:
+  - the PASS confirms the gate's reconstructed client, not OAC's adapter. Until the G7/F11
+    frame-builder and refusal tests exist, the mitigation in OAC is designed, not proven
+    (`oac-security-work` §1, §6);
+  - three trials per forged-block case bound the model's error rate; they do not prove it
+    zero (C13 §9);
+  - the `turn/start` anchor is an experimental field behind an unnamed shim boundary (C11).
+    The floor alone passed (arm F), so losing the field cannot reopen this risk on its
+    own.
+
+  The early-warning signal above still applies to any later G5 run. Rows 45-46 are CLOSED
+  (traceability table).
 
 ## R2 — Preview/experimental surface drift
 
@@ -738,7 +767,8 @@ literally named `source`) and 48 (`turn/start.additionalContext`) are informatio
 exploratory and are **not** tracked in STATUS.md at all, under C13 or otherwise. This
 table's own "every entry disposed of here" claim (above) is scoped to STATUS.md's "Open
 UNVERIFIED items" list specifically, which rows 45-48 are not members of — noted here
-rather than silently overclaimed. The table is therefore 56 rows: of rows 1-44 (the ones
+rather than silently overclaimed. (Dated note, 2026-10-02, #220: rows 45-46 are now CLOSED by G5's C13 §11 re-run, and row
+48's carrier is now used, as C6 §5.0's anchor.) The table is therefore 56 rows: of rows 1-44 (the ones
 that do correspond to STATUS.md's "Open UNVERIFIED items" list), 42 are still listed
 there (row 31 among them, confirmed not a risk, but kept as a correction note per that
 row's own text) and 2 are closed (rows 32, 40); rows 45-48 are additional risk-table
@@ -810,10 +840,10 @@ C4 §3 revision requires, under `RISK-LOCAL-IPC`.
 | 42 | Claude Code 2.1.283 sent a stdio `server/discover` probe with `MCP_SDK_GENERATION` confirmed empty (Box B/Box C, 2026-09-28, directory `g1-spike`), and Claude Code 2.1.283 sent it again in D6's own Box A capture (directory `d6-spike`, `_meta.mcp_sdk_generation` recorded as `"v2"` there, not confirmed empty — Box A is evidence for the `=v2` case, not the empty-var case); the same-directory (`g1-spike`) Claude Code 2.1.282 G1 run sent none -- contradicting the documented stdio default of not asking about the newer revision (from G4, reproduced identically in both runs, directory `g4-spike`; reproduced again 2026-09-28, issue #39 T4/T6/T7, across two directories that day (`d6-spike`, `g1-spike`), a third (`g4-spike`) only when counting the original G4 occurrence from a different date -- correcting an earlier draft's wrong claim that all occurrences shared one directory) | RISK-CLAUDE-PREVIEW |
 | 43 | Codex-Desktop-originated threads showed Claude Code prompt text in `thread/list` previews; import mechanism UNVERIFIED. Also: at least three times now a client reporting user-agent `codex-mcp-client/0.155.0-alpha.16.4` connected to an idle instance of this same server via the (likely shared) global `codex mcp add` registration, initialized and listed tools — twice on 2026-09-26 while the out-of-box run's server sat unused (09:08:19Z, 15:57:32Z; uncommitted archive `scratchpad/g4-spike/transcript-2026-09-26-outofbox.jsonl` lines 60-73 and 76-89), and again on 2026-09-27 at 05:17:04Z, this time also probing seven OAuth/OIDC discovery paths (all rejected/404) before an `initialize` sent as `2025-06-18` and negotiated down to legacy `2025-11-25`, then `tools/list` (uncommitted archive `scratchpad/g4-spike/transcript-pre-row41-064223.jsonl` lines 58-73, cited in `docs/planning/gates/G4-result.md` "Row-41 probe addendum"). Attribution to Codex Desktop is inferred from the user-agent string alone across all three occurrences, and the cause is UNVERIFIED (from G4, security-relevant) | RISK-CODEX-EXPERIMENTAL |
 | 44 | Claude Code does not surface a tool result's `_meta` field to the model, even though it is present on the wire; UNVERIFIED whether this is universal or specific to this tool-call path (from the G4 re-run, 2026-09-26) | RISK-CLAUDE-PREVIEW |
-| 45 | Codex header-and-delimiter framing (`docs/planning/decisions/C6-trust-rendering.md` §5) does not reliably stop the model from naming a forged block's sender when it uses a wrong-but-plausible guessed delimiter (G5 case X2, the model named the forged id in part (1) of its answer); a real delimiter replayed from an earlier delivery in the same conversation (G5 case X3) did not get the model to name the forged id, but did cost it the ability to resolve a sender at all — a narrower, related gap, not an acceptance failure. The delimiter's per-delivery unguessability holds structurally on the wire in both cases (from G5) | RISK-G5 |
-| 46 | Peer-controlled envelope field values (`oac_reply_to` at minimum) are inserted unmodified into the Codex header block, so a value containing an embedded `oac_sender:`-shaped line produces a header with two `oac_sender:` lines the model cannot resolve (G5 case X5) — needs charset/format validation before header insertion, not just before body insertion (from G5) | RISK-G5 |
+| 45 | Codex header-and-delimiter framing (`docs/planning/decisions/C6-trust-rendering.md` §5) does not reliably stop the model from naming a forged block's sender when it uses a wrong-but-plausible guessed delimiter (G5 case X2, the model named the forged id in part (1) of its answer); a real delimiter replayed from an earlier delivery in the same conversation (G5 case X3) did not get the model to name the forged id, but did cost it the ability to resolve a sender at all — a narrower, related gap, not an acceptance failure. The delimiter's per-delivery unguessability holds structurally on the wire in both cases (from G5) | **CLOSED** (2026-10-02, #220): under C6 §5.0's line-quoted body (C13 Option C), the G5 Codex-leg re-run scored every required X2×3, X3×3 and X3-anchored×3 trial x, in arms F and C, while arm 0 (the old frame) reproduced X2 f 3 of 3 (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, attested `<attestation commit>`). Residual (N=3 trials, gate client not OAC's adapter) stays under RISK-G5 |
+| 46 | Peer-controlled envelope field values (`oac_reply_to` at minimum) are inserted unmodified into the Codex header block, so a value containing an embedded `oac_sender:`-shaped line produces a header with two `oac_sender:` lines the model cannot resolve (G5 case X5) — needs charset/format validation before header insertion, not just before body insertion (from G5) | **CLOSED** (2026-10-02, #220): C6 §5.0's whole-value validation refuses the envelope. In the G5 Codex-leg re-run, X5 and X5c were refused with no frame on the wire, and X5b carried exactly one `oac_sender:` line (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`). Residual: the charset stays adapter-local until backlog E1 adopts it (C13 §14), under RISK-G5 |
 | 47 | A `meta` key literally named `source` is not stripped and renders as a second, trailing `source` attribute after the harness's own — not previously stated in `oac-claude-channels` or `docs/planning/decisions/C6-trust-rendering.md` (from G5 case C5, informational) | RISK-CLAUDE-PREVIEW |
-| 48 | `turn/start.additionalContext` (`kind: "application"`) is a second, presently unused, machine-set-metadata carrier on Codex, distinct from the header-and-delimiter framing; exploratory only, not verdict-bearing (from G5 case X6) | RISK-G5 |
+| 48 | `turn/start.additionalContext` (`kind: "application"`) is a second, presently unused, machine-set-metadata carrier on Codex, distinct from the header-and-delimiter framing; exploratory only, not verdict-bearing (from G5 case X6) | RISK-G5. *Dated note, 2026-10-02 (#220):* now used as C6 §5.0's `oac_provenance` anchor on `turn/start` (Option C). It is never load-bearing, and arm C of the G5 re-run passed with it |
 | 49 | Whether mid-turn `notifications/claude/channel` deliveries batch together at a single tool-call boundary, or can arrive at separate boundaries one at a time, is UNVERIFIED as a guarantee (may depend on send timing). Original G1 PASS (`v2.1.282`) observed two notifications delivered together, between the same pair of tool calls; G1 Box C (`v2.1.283`, issue #39, 2026-09-28) observed two notifications, sent ~1.85s apart, delivered at two separate tool-call boundaries instead. Both agree on order-preserved, nothing dropped, nothing interleaved — only the batching claim is unconfirmed. `PLANNING-PROMPT.md` §3.1, `oac-claude-channels`, `oac-gates/references/G1-claude-wake.md`, and `docs/planning/v0.1/04-architecture.md` are each amended with a dated note, not silently rewritten (from G1 Box C, `docs/planning/gates/G1-result.md`) | RISK-CLAUDE-PREVIEW |
 | 50 | Whether `turn/start` and `thread/queue/add` subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`, `thread/resume`, and `thread/fork` are source-confirmed to (`codex-rs/app-server/src/request_processors/thread_processor.rs` L1562-1580, L4009-4015, L5227), is UNVERIFIED — inferred only from the same file's request-handling structure not carrying an equivalent "Auto-attach a thread listener" call near either handler; not directly source-confirmed. From D6/T5-T7 (issue #39), `oac-codex-appserver/references/thread-lifecycle.md` | RISK-CODEX-EXPERIMENTAL |
 | 51 | herdr `v0.9.1` (Epic K test tooling) live behavior verified on Windows only (2026-09-28: go, no §8 no-go condition hit); Linux and macOS live legs NOT RUN, so K1's overall go/no-go is provisional. Windows findings for the driver: Codex reports `idle` on its trust dialog, the "`unknown` after a response" premise did not reproduce, the server inherits the launching shell's env, `agent read`/`agent send-keys` have no timeout option. Per-OS support (from K1, issue #124, `docs/planning/decisions/K1-herdr-evaluation.md`) | RISK-HERDR |
