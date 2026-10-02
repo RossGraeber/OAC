@@ -72,7 +72,7 @@ any MCP/provider-specific method name. Quoted, `[ADR-001 Boundary]`: "MUST NOT l
 Zenoh-specific concepts into the neutral protocol." Quoted, `docs/planning/DESIGN.md`
 §MCP Session Channels extension (pre-rename spelling, per this file's Naming paragraph;
 DESIGN.md predates ADR-001-A1): "The specification MUST NOT mention Zenoh keys, MQTT
-topics, NATS subjects, or provider-specific method names."
+topics, NATS subjects, or provider-specific method names." *(Dated note, 2026-10-02, #228: that `DESIGN.md` section is now headed "OAC Session Channels specification, packaged as an MCP extension".)*
 
 Provider- and transport-specific detail appears **only** in the clearly-labelled
 **binding/mapping annex** subsection of §15, and in the design-for-replacement proofs of
@@ -423,7 +423,7 @@ definition this file and its Stage 2 successor use.
 
 **Source.** `docs/planning/DESIGN.md` §MCP Session Channels extension (pre-rename
 spelling, per this file's Naming paragraph; unsupported-capability behaviour is named in
-scope); acceptance box 4 of issue #26.
+scope); acceptance box 4 of issue #26. *(Dated note, 2026-10-02, #228: the section is now headed "OAC Session Channels specification, packaged as an MCP extension".)*
 
 **Rejection, not silent handling — `TODO(fixture)`.** A peer receiving a message that
 requires a capability it did not negotiate (§5) `MUST` reject it with the

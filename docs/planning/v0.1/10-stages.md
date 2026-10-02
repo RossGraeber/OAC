@@ -217,6 +217,53 @@ artifacts within milestone M0 work, with Stage 1 onward still blocked; several
 `UNVERIFIED` items in that ledger remain open (criterion 3 is satisfied by their being
 **listed**, not by their being closed).
 
+**Dated note, 2026-10-02 (#228): Gate S0 is met.** The "Not entered" verdict above is
+history. It was written at this file's landing (2026-09-17) and was never updated while
+the Stage 1 spikes ran from 2026-09-25. Gate S0 is declared on 2026-10-02, after the fact,
+against the evidence as it stands on that date. Each criterion:
+
+1. **Every §3 surface has a pin row — holds.** The `docs/planning/PINS.md` "Pin table"
+   has a row for each §3 surface: Claude Code (Channels) for §3.1, Codex CLI /
+   app-server for §3.2, MCP current and legacy era for §3.3, Zenoh for §3.4, and ACP for
+   §3.5. Each row carries a version, a retrieved date, a first-party URL and a
+   `Gates affected` cell. The two harness rows float under #216 (2026-10-01). Their
+   version cell records a minimum and a last-tested version, and a version change warns
+   but never gates. §3.5's Cursor CLI has no row of its own. It is covered by the ACP row,
+   whose record cites `https://cursor.com/docs/cli/acp` as a cross-check; Cursor is
+   design-proof only (`docs/planning/v0.1/12-deferred.md` §3) and not a v0.1 dependency.
+2. **Every §3 fact re-verified with an allowed outcome — holds after #228.** Every row
+   in `docs/planning/REVERIFICATION-B2.md` reads HOLDS, DRIFT (drift register D1-D3), or
+   UNVERIFIED with a reason. One exception was found: rows labelled "Carried unchanged"
+   or "PARTIAL", which none of the three outcomes covers. #228 classifies them as
+   UNVERIFIED under `oac-evidence` §5's own definition, which counts a fact not
+   re-checked against the pin as UNVERIFIED. The classification is in that file's "S0
+   classification note (2026-10-02, #228)". No row is upgraded. The re-verification of
+   §3.1 facts at newer floating Claude Code versions is itself an open ledger item; under
+   #216 it is a finding and does not gate.
+3. **Every UNVERIFIED item is in the STATUS ledger — holds after #228.** The rows
+   classified under criterion 2, and the ACP literal-`protocolVersion` item from
+   `docs/planning/PINS.md`, are added to `docs/planning/STATUS.md` "Open UNVERIFIED
+   items" as one grouped entry dated 2026-10-02. The other UNVERIFIED items in `PINS.md`
+   and `REVERIFICATION-B2.md` were already listed there. This criterion is satisfied by
+   listing, not closing.
+4. **Every conflict-register entry is resolved or has a named owner — holds after
+   #228.** C1-C4 and C6-C10 are resolved (`RESOLVED-HERE`, `RESOLVED-BY-DECISION`,
+   `RESOLVED-BY-EVIDENCE` or `RESOLVED-IN-DECISION`; `docs/planning/ADR-001-AMENDMENTS.md`
+   conflict register). C12 is `RESOLVED-HERE`: #228 applied ADR-001-A1 to
+   `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open. C11 is
+   `ASSIGNED`; its module name is owned by the Epic F/G adapter implementation (#6, #7,
+   both open; `docs/planning/decisions/C4-session-identity.md` §16). C5 is `ASSIGNED`.
+   The tasks it named before (D4, C2, C3) are closed, so #228 names #65 and #70 as its
+   live owners, with a dated note on both register rows.
+5. **The re-run/invalidation policy exists and is mechanical — holds.** It is
+   `docs/planning/gates/README.md` "Re-run/invalidation policy", together with the
+   `docs/planning/PINS.md` "Pin-move checklist". A pin move invalidates the gates in that
+   row's `Gates affected` cell. The exception is the floating Claude Code and Codex rows,
+   which warn and never gate (#216).
+
+**Go/no-go: go.** Every pinned surface resolves at its pin; criterion 1's rows each cite a
+fetched source. Stage 1 is the current stage (`docs/planning/STATUS.md` "Current stage").
+
 ---
 
 ## 5. Stage 1 — Provider and transport spikes
@@ -226,8 +273,12 @@ artifacts within milestone M0 work, with Stage 1 onward still blocked; several
 **Entry criteria.**
 
 - Gate S0 met (§4).
-- The pinned harnesses are installable on the spike machine at their exact pins
-  (`docs/planning/PINS.md`).
+- The pinned harnesses are installable on the spike machine. The fixed rows install at
+  their pins. Claude Code and Codex float (#216, 2026-10-01): any installed version is
+  used, and a version other than the last tested one, or below the minimum, is a
+  `VERSION WARNING` that never gates. Each gate result records the version it actually
+  ran on (`docs/planning/PINS.md` "Version policy"). *(Dated note, 2026-10-02, #228: this
+  bullet said "installable on the spike machine at their exact pins" before #216.)*
 - Each spike's timebox is set before it starts (§3).
 
 **Prerequisite decisions.** None of decisions 1-12 is a hard prerequisite — the spikes
@@ -319,7 +370,10 @@ exit — G3's parked macOS leg is what still keeps Stage 1 from exiting (G1's re
 issue #39 T6/T7, PASSED 2026-09-28 and no longer blocks it). (Note 2026-10-02, #219: G3's
 macOS leg ran on a GitHub-hosted VM and passed; **G3 is now PASS** at gate level, on the
 primary multicast path, so the fallback above was not needed and no gate leg still keeps
-Stage 1 from exiting. See `docs/planning/gates/G3-result.md`.)
+Stage 1 from exiting. See `docs/planning/gates/G3-result.md`.) (Note 2026-10-02, #228: Gate
+S0 is now declared met (§4), so Stage 1 is recorded as entered and is the current stage.
+Its exit is D7, #40. Every gate leg has a closed verdict; G5's Codex-leg re-run under C13
+(#220) is pending.)
 
 ---
 
