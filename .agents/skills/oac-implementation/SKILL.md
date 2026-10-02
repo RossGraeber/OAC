@@ -5,7 +5,7 @@ description: Workspace conventions, module dependency direction, contract-tests-
 
 Loaded for any `type:code` work item — Stage 3 (Epic F, core and fakes) and Stage 4
 (Epic G, adapters and Zenoh transport). It holds the rules that apply to *any* module;
-it does not hold provider or Zenoh protocol detail — that is `oac-Codex-channels`,
+it does not hold provider or Zenoh protocol detail — that is `oac-claude-channels`,
 `oac-codex-appserver`, `oac-mcp`, `oac-zenoh`, loaded alongside this skill for the area
 you are touching. Boundary text lives in `oac-boundaries`; test taxonomy lives in
 `oac-testing`; both are separate loads, not restated here.
@@ -38,7 +38,7 @@ stop and route the item to the blocking decision or spike instead (`type:decisio
 | `core/` | Neutral types, policy, identity, duplicate suppression, authorization, receipts |
 | `cli/` | Config loading and supervisor wiring (verb set below) |
 | `transports/zenoh/` | The Zenoh reference transport; Zenoh types live and die here |
-| `adapters/Codex/` | Codex Channels adapter |
+| `adapters/claude/` | Claude Code Channels adapter |
 | `adapters/codex/` | Codex App Server adapter |
 | `tests/protocol/` | Envelope/spec conformance fixtures and runner |
 | `tests/security/` | Spoof/replay/duplicate/unauthorized-routing tests |
@@ -69,14 +69,14 @@ Rule an agent can check by reading imports / the module's declared dependency ma
 
 - `adapters/*` and `transports/*` may depend on `core/`. `core/` depends on neither.
 - `cli/` may depend on `core/`, on adapters, and on transports. Nothing may depend on `cli/`.
-- Nothing in `adapters/Codex/` may depend on `adapters/codex/`, or vice versa. No transport
+- Nothing in `adapters/claude/` may depend on `adapters/codex/`, or vice versa. No transport
   may depend on another transport (e.g. `transports/zenoh/` and `transports/memory/` stay
   siblings, neither depending on the other). No adapter may depend on any transport module.
   No sibling adapter/transport dependency, ever.
 - An adapter routes an outbound message through `core/` policy and security (authorization,
   signing, duplicate suppression) and only then to a `Transport`. An adapter must never call
   a transport module directly, and must never call another adapter.
-- Provider-specific types (Codex `meta` shapes, Codex JSON-RPC method payloads) stay inside
+- Provider-specific types (Claude `meta` shapes, Codex JSON-RPC method payloads) stay inside
   their own adapter module. Zenoh-specific types (key expressions, `zid`, liveliness tokens)
   stay inside `transports/zenoh/`. Neither may appear in a `core/` signature or a `spec/`
   document. If a leak is truly unavoidable, document the exception and the reason inline —
@@ -111,7 +111,7 @@ From PLANNING-PROMPT.md §6, restated as conditions any code change must satisfy
 1. Write the contract test suite for an interface (`ProviderAdapter`, `Transport`, or a
    `core/` policy surface) before the real module that implements it exists.
 2. Build the fakes the suite runs against from the Stage 1 recorded fixtures
-   (`docs/planning/backlog/04-tasks-EF.json` F8/F9 — fake Codex channel endpoint, fake
+   (`docs/planning/backlog/04-tasks-EF.json` F8/F9 — fake Claude channel endpoint, fake
    Codex app-server endpoint, replayed from D6 fixtures), in that order: fixtures before
    fakes, fakes before the real module. See `oac-testing` for fixture provenance and
    fidelity rules — not restated here.
@@ -127,14 +127,14 @@ From PLANNING-PROMPT.md §6, restated as conditions any code change must satisfy
 
 - Errors cross a module boundary only as the neutral `core/` error/result types defined by
   the frozen spec interfaces (DESIGN "Core", "Provider adapter contract", "Transport
-  contract"). No provider-specific error type (a Codex JSON-RPC error object, a Codex MCP
+  contract"). No provider-specific error type (a Codex JSON-RPC error object, a Claude MCP
   error) and no transport-specific error type (a Zenoh error) may cross out of its own
   adapter/transport module — translate at the boundary.
 - No silent failure of a delivery path. A `Transport.publish` or adapter `deliver` failure
   must surface as one of the defined delivery states, not be swallowed or logged-only.
 - Report delivery state honestly against what is actually knowable (PLANNING-PROMPT.md §5
   decision 5, Appendix A C6): a resolved "handed to transport/harness" call is reported as
-  such, never as "delivered" or "seen by the model," because several providers (Codex
+  such, never as "delivered" or "seen by the model," because several providers (Claude Code
   channels) give no acknowledgement. The authoritative delivery-state vocabulary is the
   frozen spec's set (DESIGN "Delivery semantics": `accepted`, `rejected`, `unreachable`,
   `expired`, `duplicate`, `failed` — normative, C5/Stage 2 output, implemented by F6); do
@@ -189,5 +189,5 @@ dependency without an inventory entry.
   landed.
 - `oac-boundaries` — the ADR-001 MUST NOTs and mechanical checks (not restated here).
 - `oac-testing` — test tier taxonomy, fixtures, CI-default vs. opt-in (not restated here).
-- `oac-Codex-channels`, `oac-codex-appserver`, `oac-mcp`, `oac-zenoh` — surface protocol
+- `oac-claude-channels`, `oac-codex-appserver`, `oac-mcp`, `oac-zenoh` — surface protocol
   detail for the area you are touching (not restated here).

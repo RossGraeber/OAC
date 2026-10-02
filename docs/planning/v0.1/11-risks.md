@@ -263,6 +263,15 @@ list.
   (`docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)) — no interim
   workaround is needed because the surface is already isolated by module
   boundary, only its own name is open.
+- (Dated note, 2026-10-02, #122: the §3.1 re-check at `2.1.285`
+  (`docs/planning/REVERIFICATION-B2.md`) found three documentation drifts, none of which
+  changes a gate verdict:
+  - D4: `--channels` takes `plugin:` entries only. OAC already uses the development flag.
+  - D5: a documented `CLAUDE_CODE_SESSION_ID` reaches stdio MCP servers. This is an open
+    conflict with C4 §3 in `docs/planning/STATUS.md`.
+  - D6: the `2.1.232` floor is unsupported.
+
+  The `--resume` and multi-channel docs are still silent, so rows 1-2 stay open.)
 
 ### RISK-CODEX-EXPERIMENTAL — Codex experimental live-inject surface drift
 
@@ -333,6 +342,16 @@ list.
   (`v2.1.274`)" and that `PINS.md` "keeps the actually-pinned version (`v2.1.274`) as
   the operative floor"; the Claude Code (Channels) row went floating 2026-09-27, so
   there is no fixed pin to hold that role.)
+- (Dated note, 2026-10-02, #122: **resolved as drift.** The first-party changelog
+  places "Added `--channels` (research preview)" at `2.1.80`, so `2.1.232` is not a
+  channels version (`anthropics/claude-code` `CHANGELOG.md` @
+  `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02;
+  `docs/planning/REVERIFICATION-B2.md` Drift register D6). The `>= v2.1.232` channels
+  floor text is unsupported. `2.1.232` is where https://code.claude.com/docs/en/mcp.md
+  L324 (retrieved 2026-10-02) starts the v2 MCP client runtime for sessions that fetch
+  feature flags: "uses the v2 runtime on Claude Code v2.1.232 or later". That runtime
+  adds `2026-07-28`, and the channel-negotiation constraint applies to it. The operative floor stays the minimum version `v2.1.282`, so nothing
+  this entry protects changes. Ledger row 13 is closed.)
 
 ### RISK-MCP-EXPERIMENTAL — `experimental` capability existence at `2026-07-28`
 
@@ -711,12 +730,16 @@ row 53 with live evidence (L1 §13), so no row 53-56 entry stays listed in STATU
 Like rows 32 and 40, rows 53-56 are closed and cite their own closing evidence. Row 53
 also keeps `RISK-BEACON` in its closing cell, because the capture it confirmed is still
 an open risk. Row 57 was added 2026-10-02 (#228): the grouped Gate S0 entry for the
-B2 rows classified UNVERIFIED, under `RISK-B2-CARRIED`.
+B2 rows classified UNVERIFIED, under `RISK-B2-CARRIED`. (Dated note, 2026-10-02, #122:
+rows 13 and 30 are now CLOSED, by the §3.1 re-check at Claude Code `2.1.285`, and their
+STATUS.md bullets are removed. Of rows 1-44, 40 are therefore still listed in STATUS.md,
+and 4 are closed: rows 13, 30, 32 and 40. The counts above are kept as written at the
+time.)
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
-| 1 | Claude channel behaviour across `--resume`/`--continue` | RISK-CLAUDE-PREVIEW |
-| 2 | One MCP server presenting more than one logical channel | RISK-CLAUDE-PREVIEW |
+| 1 | Claude channel behaviour across `--resume`/`--continue` (docs still silent at `2.1.285`, re-checked 2026-10-02, #122) | RISK-CLAUDE-PREVIEW |
+| 2 | One MCP server presenting more than one logical channel (docs still silent at `2.1.285`, re-checked 2026-10-02, #122) | RISK-CLAUDE-PREVIEW |
 | 3 | Implicit Codex daemon attach default at runtime: closed on Windows by G2, on `0.154.0` and again on the currently observed `0.157.1` (re-run 2026-09-26, `docs/planning/gates/G2-result.md`); still open on macOS/Linux | RISK-CODEX-EXPERIMENTAL |
 | 4 | Codex Desktop control-socket exposure | RISK-CODEX-EXPERIMENTAL |
 | 5 | Zenoh `auth.pubkey` semantics | RISK-ZENOH-AUTH |
@@ -727,7 +750,7 @@ B2 rows classified UNVERIFIED, under `RISK-B2-CARRIED`.
 | 10 | Zenoh crate version/date read from GitHub, not crates.io | RISK-ZENOH-SOURCE |
 | 11 | `codex mcp-server` deprecation/deletion dates | RISK-CODEX-MCP-DATES |
 | 12 | No SEP for agent-to-agent messaging | RISK-SEP |
-| 13 | "Research preview on Claude Code v2.1.232+" floor | RISK-FLOOR |
+| 13 | "Research preview on Claude Code v2.1.232+" floor | **CLOSED as drift** (2026-10-02, #122). The first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, so `2.1.232` is not a channels version. It is instead where `mcp.md` L324 starts the v2 MCP client runtime, the runtime the channel-negotiation constraint applies to, for sessions that fetch feature flags. The operative floor is the minimum `v2.1.282` (#216). See `docs/planning/REVERIFICATION-B2.md` Drift register D6; RISK-FLOOR keeps its history |
 | 14 | MCP `experimental` capabilities at current era `2026-07-28` | RISK-MCP-EXPERIMENTAL |
 | 15 | Zenoh default TLS stack `rustls` | RISK-ZENOH-AUTH |
 | 16 | `rmcp`-based server registering as a legacy-era live channel | RISK-G4 |
@@ -744,7 +767,7 @@ B2 rows classified UNVERIFIED, under `RISK-B2-CARRIED`.
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
-| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`). Dated note, 2026-10-01, #216: that mechanism is retired for this row; a future release is a version warning and invalidates no verdict | RISK-CLAUDE-PREVIEW |
+| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`). Dated note, 2026-10-01, #216: that mechanism is retired for this row; a future release is a version warning and invalidates no verdict | **CLOSED** (2026-10-02, #122). The one §3.1 re-check the operator decided on #122 ran at `2.1.285` (`docs/planning/REVERIFICATION-B2.md` "§3.1 re-check at Claude Code `2.1.285`"). 18 of 23 rows hold and three drifted (D4-D6); rows 1-2 of this table stay open. Newer versions are version warnings only. RISK-CLAUDE-PREVIEW stays open |
 | 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |
 | 32 | Exact wrapper text for a mid-turn-delivered channel notification (from G1) | **CLOSED** — captured verbatim by G5 case C6 at Claude Code `2.1.283` (`docs/planning/gates/G5-result.md`): the full `<system-reminder>A message arrived from … while you were working: … IMPORTANT: This is NOT from your user …</system-reminder>` wrapper text, with the real `oac_*` attributes intact inside it. |
 | 33 | G3 on physical Mac hardware (from G3). Was "G3 criteria 1-4 on macOS"; those closed PASS on a GitHub-hosted VM 2026-10-02 (#219), leaving physical hardware open | RISK-G3 |

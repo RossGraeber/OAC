@@ -4,7 +4,8 @@
 # here too. Checks 1, 2, 4-7 target paths that do not exist yet and stay manual until then.
 # Minimal on purpose: the full CI pipeline is a separate task (F12).
 # The fixture-manifest job (#142) is not a boundary check; it shares this file's triggers,
-# permissions and pinned checkout. It needs git and Node only, and no secrets.
+# permissions and pinned checkout. It needs git and Node only, and no secrets. The same
+# holds for the agents-skills-sync job (#235).
 name: boundary-lint
 
 on:
@@ -87,3 +88,19 @@ jobs:
 
       - name: Fixture manifest check (MANIFEST.json matches committed fixtures)
         run: node scripts/check-fixture-manifest.mjs
+
+  # Not a boundary check either (#235): the Codex copy (.agents/skills/, AGENTS.md) must be
+  # an unmodified mirror of .claude/skills/ and CLAUDE.md. Node only, no secrets.
+  agents-skills-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Codex skills copy self-test (each planted drift must fail)
+        run: node scripts/sync-agents-skills.mjs --self-test
+
+      - name: Codex skills copy matches its source
+        run: node scripts/sync-agents-skills.mjs --check

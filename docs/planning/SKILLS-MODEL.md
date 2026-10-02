@@ -143,6 +143,21 @@ rather than copying. The only content that lives inside a skill is version-pinne
 detail from a third party, because that is precisely what an agent cannot look up in this
 repository — and it carries its pin so staleness is visible.
 
+## Codex copy
+
+Codex discovers repository skills under `.agents/skills/`, not `.claude/skills/`
+(https://learn.chatgpt.com/docs/build-skills, redirected from
+https://developers.openai.com/codex/skills, retrieved 2026-10-02), and reads `AGENTS.md`,
+not `CLAUDE.md` ("Codex reads `AGENTS.md` files before doing any work":
+https://learn.chatgpt.com/docs/agent-configuration/agents-md, redirected from
+https://developers.openai.com/codex/guides/agents-md, retrieved 2026-10-02). Both are generated
+copies: `node scripts/sync-agents-skills.mjs` mirrors `.claude/skills/**` to
+`.agents/skills/**` and `CLAUDE.md` to `AGENTS.md`, unchanged apart from LF line endings.
+No names, URLs or paths are rewritten (#235: an earlier blind "Claude" -> "Codex" rewrite
+produced false statements and broken URLs). Never hand-edit the copy. CI runs
+`node scripts/sync-agents-skills.mjs --check`, which fails on any missing, differing or
+stray copy file.
+
 ## Build order
 
 Epic J in the backlog: J1 router and Tier 0, J2 guardrails, J3 stage skills, J4 surface

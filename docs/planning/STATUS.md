@@ -4,6 +4,45 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-02 (**Issue #122: stale G2, pin and hostname sweep; §3.1
+re-checked at Claude Code `2.1.285`.** Operator decision on #122 (2026-10-02): the §3.1
+facts get one B2-style desk re-check at the last tested version, `2.1.285`. Newer versions
+after that are version warnings only (#216). In this change:
+
+- **§3.1 re-check.** The record is `docs/planning/REVERIFICATION-B2.md` "§3.1 re-check at
+  Claude Code `2.1.285` (2026-10-02, #122)", 23 rows, retrieved 2026-10-02. 18 rows hold.
+  Three drifts are found and added to its Drift register:
+  - **D4**: `--channels` takes `plugin:` entries only; `server:<name>` is documented only
+    on `--dangerously-load-development-channels`. OAC already uses that flag.
+  - **D5**: a documented `CLAUDE_CODE_SESSION_ID` environment variable reaches stdio MCP
+    server subprocesses. This conflicts with C4 §3's "only supported surface" wording;
+    see "Open conflicts" below.
+  - **D6**: the changelog dates `--channels` to `2.1.80`, so the `>= v2.1.232` channels
+    floor is unsupported. `2.1.232` is instead where `mcp.md` L324 starts the v2 MCP
+    client runtime for sessions that fetch feature flags.
+  - Still UNVERIFIED: resume, one-server-many-channels, mid-turn batching.
+- **Ledger.** Two items are closed and removed from "Open UNVERIFIED items": the
+  `v2.1.232` floor (closed as drift D6) and the "§3.1 not re-verified since `v2.1.274`"
+  item. The resume and multi-channel items are re-dated to `2.1.285`. See "Closed by the
+  §3.1 re-check" below that list. `11-risks.md` rows 13 and 30 are marked CLOSED, and
+  RISK-FLOOR gets a dated note.
+- **Skills.** `oac-claude-channels` (§6, §8, §9, §10, `## Pin`, and its
+  `references/distribution-and-security.md`), the `oac-gates` G1 reference
+  (`references/G1-claude-wake.md`), `oac-release` and `oac-evidence`'s citation example
+  now carry the re-checked facts.
+- **Stale G2 text (#122 item 1).** `08-cli-and-deployment.md`'s caveat, its §10 heading
+  and the §10 daemon-attach bullet no longer call the Codex path unproven. G2 PASSED
+  (Windows, `0.157.1`).
+- **Pin mentions (#122 item 2).** These were already marked historical by #186, #213, #217
+  and #230. This change adds only dated notes on the remaining Claude lines in
+  `08-cli-and-deployment.md` §6 and `01-capability-matrix.md`.
+- **Hostname (#122 item 3).** The operator's hostname literal is replaced by the
+  description "the operator's hostname" in `gates/G4-result.md`, `gates/G5-result.md`
+  and the two `residual_scan_result` strings in `gates/fixtures/MANIFEST.json`. Those are
+  prose fields, so no fixture bytes or hashes change.
+
+No gate verdict or pin changes. `ADR-001.md` is unchanged and no amendment is issued.)
+
 **Last updated:** 2026-10-02 (**Issue #228: Gate S0 declared met; Stage 1 is the current
 stage; C12 closed; K6 deferred past v0.1.** In this change:
 
@@ -972,7 +1011,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 
 | Surface | Pinned version | Source |
 |---|---|---|
-| Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.285` (2026-09-29T19:27:30Z UTC; L3, 2026-10-01). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied | PINS.md — Claude Code Channels ("Version policy") |
+| Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.285` (2026-09-29T19:27:30Z UTC; L3, 2026-10-01). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied. §3.1 facts re-checked at `2.1.285` on 2026-10-02 (#122, REVERIFICATION-B2.md) | PINS.md — Claude Code Channels ("Version policy") |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
 | Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.159.3`, commit `01fc69f4026735edfdf6789820549727a4867b11` (2026-09-30T22:57:34Z UTC; L3, 2026-10-01). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
@@ -1101,6 +1140,21 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   - Full record: `docs/planning/decisions/C13-codex-provenance-framing.md`.
 
 ## Open conflicts (oac-evidence §6)
+
+- **C4 §3 "only supported surface" vs. the documented `CLAUDE_CODE_SESSION_ID` (#122,
+  2026-10-02; drift D5).** `docs/planning/decisions/C4-session-identity.md` §3 says that
+  for learning a Claude `session_id`, "the hook's own stdin/HTTP body is the only
+  supported surface". The evidence is `CLAUDE_CODE_SESSION_ID`, "Set automatically to the
+  current session ID in Bash and PowerShell tool subprocesses, hook command subprocesses,
+  and stdio MCP server subprocesses". Its caveats are that an MCP server "retains the ID it
+  was spawned with", and that on `--continue`, or `--resume` without an ID, "it may
+  receive the initial startup ID instead" (https://code.claude.com/docs/en/env-vars.md,
+  checked against Claude Code `2.1.285`, retrieved 2026-10-02;
+  `docs/planning/REVERIFICATION-B2.md` row 21 and D5). The hook path C4 chose is still
+  documented, so nothing built on C4 breaks. Open question for the Claude adapter (Epic F):
+  should `oac mcp-shim` read this variable in addition to, or instead of, the hook
+  payload? Answering it needs a C4 revision, not a silent redesign. Not an ADR-001
+  conflict, so no amendment is proposed.
 
 - **PLANNING-PROMPT.md §9 item 3 vs. the per-gate evidence store (issue #33).** §9
   item 3 states G1-G5 land in one file, `docs/planning/v0.1/02-gating-findings.md`.
@@ -1232,28 +1286,6 @@ without an UNVERIFIED label.
   one, over conflicting user-role text (UNVERIFIED — only G5's exploratory X6, one trial,
   bears on it; closed by C13 §11 arm C).
 
-- **New, from G1 (issue #34/D1):** the Claude Code Channels pin (`docs/planning/PINS.md`
-  — `v2.1.274`) is stale. The client that connected during the G1 spike (2026-09-25)
-  reported itself as `v2.1.282`; the installed surface auto-updates faster than this
-  project re-pins it. A full B2-style re-verification of every §3.1 fact against
-  `2.1.282` has NOT been done — only G1's five pass criteria were checked and passed.
-  UNVERIFIED whether any other §3.1 fact drifted between `v2.1.274` and `v2.1.282`.
-  Owner: a B2-style re-verification pass, not yet scheduled as a task. **Further drift
-  observed at G4 (2026-09-26, issue #37/D4):** the client connecting during both G4 runs
-  reported `v2.1.283`, one patch above G1's `v2.1.282` — see
-  `docs/planning/gates/G4-result.md`. The B2-style re-verification this item calls for
-  has still not been done at either observed version. **Pin now floating (2026-09-27,
-  issue #39/T0):** rather than keep tracking each patch bump as a one-off drift note, the
-  PINS.md Claude Code (Channels) row now records `v2.1.283` as its last-observed version
-  under a written floating-version policy, mirroring the Codex row. Per the pin-move
-  checklist, G1 was invalidated (`NOT RUN` for the current environment) since it had run
-  on `v2.1.282`, not the new last-observed `v2.1.283`. **Re-run and PASSED again
-  2026-09-28** (issue #39 T6/T7, Box C) — see `docs/planning/gates/G1-result.md`. This
-  does not close the re-verification gap above; the full §3.1 B2-style re-verification
-  at `v2.1.283` remains open — only G1's own five pass criteria were re-checked.
-  *Dated note, 2026-10-01 (#216):* the row now records minimum `v2.1.282` and last tested
-  `v2.1.285`. A version change warns and invalidates nothing. The §3.1 re-verification gap
-  stays open as a finding, now up to `v2.1.285`, and it gates no run.
 - **New, from G1:** the exact wire framing for Claude Code's MCP stdio transport
   (newline-delimited JSON, not `Content-Length`-prefixed) — confirmed directly during
   G1, but not previously stated in any OAC document; carried here as new evidence, not
@@ -1265,9 +1297,12 @@ without an UNVERIFIED label.
   …>…</channel>\n\nIMPORTANT: This is NOT from your user — it came from an external
   channel …\n</system-reminder>` — see `docs/planning/gates/G5-result.md`.
 - Claude channel behaviour across `--resume`/`--continue` (UNVERIFIED — docs silent at
-  v2.1.274; see REVERIFICATION-B2.md §3.1 box 1).
+  v2.1.274; see REVERIFICATION-B2.md §3.1 box 1). *Re-checked 2026-10-02 (#122) at
+  `2.1.285`: docs still silent* (REVERIFICATION-B2.md "§3.1 re-check at Claude Code
+  `2.1.285`", row 10).
 - Whether one MCP server can present more than one logical channel (UNVERIFIED — docs
-  silent at v2.1.274; see REVERIFICATION-B2.md §3.1 box 2).
+  silent at v2.1.274; see REVERIFICATION-B2.md §3.1 box 2). *Re-checked 2026-10-02
+  (#122) at `2.1.285`: docs still silent* (same section, row 12).
 - Whether Codex Desktop exposes the control socket in current builds (UNVERIFIED — no
   first-party statement found; see REVERIFICATION-B2.md §3.2 box 5. G2 observed
   Desktop-originated sessions in the daemon's `thread/list` only as `notLoaded` saved
@@ -1353,9 +1388,6 @@ without an UNVERIFIED label.
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
   item 12).
-- "Research preview on Claude Code v2.1.232+" floor (UNVERIFIED — not confirmable on
-  `channels.md` at `v2.1.274`; `2.1.232` does not appear in its fetched text; see
-  REVERIFICATION-B2.md §3.1 box 7 and PINS.md floor 1).
 - Whether MCP `experimental` capabilities still exist at the current era `2026-07-28`
   (UNVERIFIED — re-labelled from HOLDS in B2; the prior inference cited Claude Code's own
   client capability, not the `2026-07-28` schema itself, and Claude Code does not
@@ -1605,6 +1637,31 @@ CONFIRMED in both harnesses. A `notifications/claude/channel` delivery becomes
 entry is `isMeta`). Codex `turn/start` and `thread/queue/add` input becomes
 `prompt.submitted` via OTLP and the poll path. A fake secret-shaped token was stored
 unredacted (row 53, `RISK-BEACON`).
+
+**Closed by the §3.1 re-check at Claude Code `2.1.285`** (#122, 2026-10-02; removed from
+this list; citations in REVERIFICATION-B2.md "§3.1 re-check at Claude Code `2.1.285`
+(2026-10-02, #122)"):
+
+- **"§3.1 facts not re-verified since `v2.1.274`"** (from G1, issue #34/D1; widened at
+  G4, at the 2026-09-27 floating-pin move and at #216 up to `v2.1.285`). Closed by the
+  one re-check the operator decided on #122. All 23 rows were re-checked at `2.1.285`:
+  18 hold, three drifted (D4-D6) and two stay UNVERIFIED (both still listed above). Newer
+  versions are version warnings only (#216).
+- **"Research preview on Claude Code v2.1.232+" floor.** Closed as **drift D6**. The
+  first-party changelog places "Added `--channels` (research preview)" at `2.1.80`, so
+  `2.1.232` is not a channels version (`anthropics/claude-code` `CHANGELOG.md` @
+  `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02). `2.1.232` is the
+  version from which sessions that fetch feature flags use the v2 MCP client runtime.
+  That runtime adds `2026-07-28` and is the one the channel-negotiation constraint
+  applies to: "uses the v2 runtime on Claude Code v2.1.232 or later"
+  (https://code.claude.com/docs/en/mcp.md L324, retrieved 2026-10-02).
+  The operative floor is the minimum version `v2.1.282` (#216). The research-preview
+  label itself holds (`channels.md`, retrieved 2026-10-02).
+- **Correction to "Closed in B2" below, not a re-opening.** The literal fact "no
+  `CLAUDE_SESSION_ID` variable" still holds. But a documented `CLAUDE_CODE_SESSION_ID`
+  exists (`https://code.claude.com/docs/en/env-vars.md`, retrieved 2026-10-02), so
+  "`session_id` is the supported path" is no longer the only supported path (drift D5).
+  It is tracked as a conflict in "Open conflicts (oac-evidence §6)" above.
 
 **Closed in B2** (removed from this list; see REVERIFICATION-B2.md "Closed UNVERIFIED
 items" for citations): Agent SDK does not support Channels (confirmed absent from the

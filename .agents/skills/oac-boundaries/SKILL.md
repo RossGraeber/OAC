@@ -19,7 +19,7 @@ into it on this repo.
 1. **[ADR-001 Boundary]** "MUST NOT call provider model APIs as a substitute for native
    harnesses." Drift: you are writing the Codex adapter, `turn/start` returns an error you
    don't understand, and instead of filing a finding you reach for the OpenAI SDK (or the
-   Anthropic SDK for the Codex side) to get a completion so the demo "works." That is
+   Anthropic SDK for the Claude side) to get a completion so the demo "works." That is
    substituting a model API for the native harness — forbidden even as a stopgap.
 
 2. **[ADR-001 Boundary]** "MUST NOT implement inference/model routing/context management."
@@ -30,9 +30,9 @@ into it on this repo.
 
 3. **[ADR-001 Boundary]** "MUST NOT steal or reuse another harness's provider credentials."
    Drift: the Codex adapter reads `CODEX_HOME/auth.json` (or the OS keyring entry Codex
-   uses) to call the OpenAI API directly, or the Codex adapter reuses a Codex OAuth
+   uses) to call the OpenAI API directly, or the Claude adapter reuses a Claude Code OAuth
    token for a direct Anthropic API call "just for this one feature." DESIGN §Codex adapter
-   says explicitly: "Never call the OpenAI model API directly." Same rule for Codex.
+   says explicitly: "Never call the OpenAI model API directly." Same rule for Claude.
 
 4. **[ADR-001 Boundary]** "MUST NOT depend on UI/terminal scraping or undocumented private
    RPCs for supported integrations." Drift: you can't get `thread/queue/add` to behave, so
@@ -45,8 +45,8 @@ into it on this repo.
    Drift: while implementing the transport contract you add a `zenoh_key_expr` field to a
    `core/` type, or the spec text under `spec/` explains delivery in terms of Zenoh
    liveliness tokens instead of the neutral presence states. DESIGN §Zenoh transport: "Zenoh
-   types must not escape the transport module." DESIGN §MCP Session Channels extension: "The
-   specification MUST NOT mention Zenoh keys, MQTT topics, NATS subjects, or
+   types must not escape the transport module." DESIGN §OAC Session Channels specification:
+   "The specification MUST NOT mention Zenoh keys, MQTT topics, NATS subjects, or
    provider-specific method names."
 
 6. **[ADR-001 Decision]** "The reference implementation is a CLI and must not require
@@ -58,12 +58,12 @@ into it on this repo.
 
 7. **[PLANNING-PROMPT §4 / ADR-001-A2]** Neither harness supports attaching to an arbitrary,
    already-running session through a supported interface: §3.1 — "A channel cannot be
-   attached to an already-running session" (Codex); §3.2 — cross-process resume does not
+   attached to an already-running session" (Claude); §3.2 — cross-process resume does not
    attach, a second app-server process appends to a held thread's history silently without
    notifying the live process (issue #21743). ADR-001-A2 therefore redefines "existing
    session" in the Validation criterion as a session **launched OAC-enabled**, not an
    arbitrary already-running one. Drift: reading the Validation criterion literally ("an
-   existing Codex session") and concluding you need to reach into a session nobody
+   existing Claude Code session") and concluding you need to reach into a session nobody
    launched with `--channels` or the daemon — which leads straight into boundary 4's
    scraping/private-RPC territory or boundary 13's rollout-file territory. This is the most
    likely drift on this project; check it before assuming a workaround is needed.
@@ -75,14 +75,14 @@ into it on this repo.
 9. **[DESIGN Non-goals]** "Unsupported client impersonation" is out of scope. Drift: you
    spoof the Codex Desktop/TUI client identity to reach the private stdio app-server or the
    control socket Desktop does not expose (§3.2), or you present your dev channel server as
-   an allowlisted Codex channel plugin to bypass the `--dangerously-load-development-
+   an allowlisted Claude channel plugin to bypass the `--dangerously-load-development-
    channels` confirmation (§3.1). (Declaring `capabilities.experimentalApi` to call a
    documented experimental app-server method is the supported way in and is *not*
    impersonation — don't over-block that.)
 
 10. **[DESIGN Non-goals]** "Replacement provider auth" is out of scope. Drift: OAC issues its
     own session tokens and treats them as standing in for a harness's own login, instead of
-    routing through each harness's existing auth (Codex's saved CLI login, Codex's own
+    routing through each harness's existing auth (Codex's saved CLI login, Claude's own
     session).
 
 11. **[ADR-001 v0.1 scope]** Group rooms/broadcast, attachments, durable offline mailboxes,
@@ -96,6 +96,7 @@ into it on this repo.
     shared context manager, or provider-auth abstraction." Drift: a "conversation memory"
     store shared across both providers so replies can reference earlier turns from either
     harness — that is a shared context manager.
+    Beacon / external shared-memory work: `references/beacon.md`.
 
 13. **[PLANNING-PROMPT §10]** "Do not substitute model APIs, UI automation, terminal
     scraping, credential reuse, private RPCs, or rollout-file manipulation for a supported
@@ -105,7 +106,7 @@ into it on this repo.
     §3.2 states the rollout file format "is explicitly not a supported surface."
 
 14. **[DESIGN Delivery semantics / PLANNING-PROMPT §11.7]** "Application-level inbox polling
-    is not [acceptable] for adapters claiming active inbound support." Drift: the Codex
+    is not [acceptable] for adapters claiming active inbound support." Drift: the Claude
     channel notification path is flaky in testing, so the adapter adds a background loop
     that polls an MCP resource every second for new messages, while still advertising
     active-inbound support in its capabilities. Either fix real delivery, turn off the
@@ -119,12 +120,15 @@ you're doing is actually this, before treating it as a violation.
 
 ## Mechanical checks
 
-No boundary-specific lint exists in this repo yet — `scripts/check-skills.mjs` checks skill
-budgets, not boundaries. The full runnable grep set, with current pass/pending status against
-this repo, is `references/mechanical-checks.md`. Run it before every `type:code`/`type:spec`
-work item; the paths it targets (`spec/`, `core/`, `adapters/`, `cli/`, `transports/zenoh/`)
-mostly don't exist yet, so most checks report a missing-path error today — that error means
-**pending**, not passing, and the whole set must be re-run once code lands.
+`scripts/check-herdr-containment.mjs` (checks 9-10: herdr kept out of product paths, no
+credential access in the herdr driver) is the one boundary lint; CI runs it via
+`.github/workflows/boundary-lint.yml`, which also runs greps 3, 8 and 11 (11: no
+Beacon in product paths). The full runnable set, with current pass/pending
+status against this repo, is `references/mechanical-checks.md`. Run it before every
+`type:code`/`type:spec` work item; the paths it targets (`spec/`, `core/`, `adapters/`,
+`cli/`, `transports/zenoh/`) mostly don't exist yet, so most checks report a missing-path
+error (or `PENDING`) today — that means **pending**, not passing, and the whole set must be
+re-run once code lands.
 
 ## Stop, cite the boundary
 
@@ -169,4 +173,5 @@ Before declaring any work item done (PLANNING-PROMPT.md §11 items 6-7):
   items 6-7 (self-review).
 - `docs/planning/SKILLS-MODEL.md` — Tier 2a description of this skill's role.
 - `references/mechanical-checks.md` — the full grep set, status, and scope notes.
+- `references/beacon.md` — Beacon beside OAC, not inside it (#12): rule, Q1-Q5, drift.
 - `oac-evidence` — sourcing/citation standard (separate skill, not restated here).
