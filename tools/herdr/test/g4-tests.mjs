@@ -278,14 +278,22 @@ export async function g4Unit(check) {
   const wrapUsers = ['rossg', 'graeber', 'ross', 'github', 'sion', 'session', 'channels', 'tens', 'oac', 'rossgraeber'];
   const wrapMiss = [];
   let wrapCases = 0;
-  for (const nl of ['\n', '\r\n', '│\n│ ']) for (let w = 4; w <= 60; w++) for (const u of wrapUsers) {
+  // Wrap decorations a TUI or terminal may put at a soft wrap: a box border, a quote / output /
+  // bullet prefix, an SGR reset, NEL, U+2028, a zero-width space, a soft hyphen.
+  const wrapSeps = ['\n', '\r\n', '│\n│ ', '\n▌ ', '\n█', '\n| ', '\n⎿ ', '\n• ', '\n› ', '\x1b[0m\n\x1b[2m', '\u0085', ' ', '​', '­\n'];
+  for (const nl of wrapSeps) for (let w = 4; w <= 60; w++) for (const u of wrapUsers) {
     const raw = wrapAt(`  ⎿  provenance under ${OAC_EXT} ok`, w, nl);
     const sp2 = sanitizeG4Text(raw);
     const v = placeholderIntegrity(redAs(u, sp2.text), sp2.replaced);
     wrapCases++;
     if (v.ok !== (sp2.replaced === 1)) wrapMiss.push({ nl, w, u, replaced: sp2.replaced, v });
   }
-  check('g4 sanitize (#148): at every pane width 4-60, with LF, CRLF and box-border wraps, for every username matching a piece of the identifier, a split identifier fails integrity and an unsplit one passes', wrapMiss.length === 0 && wrapCases > 1500, JSON.stringify(wrapMiss.slice(0, 3)));
+  check('g4 sanitize (#148): at every pane width 4-60, with LF, CRLF, box-border, quote/output/bullet-prefix, ANSI, NEL, U+2028, zero-width-space and soft-hyphen wraps, for every username matching a piece of the identifier, a split identifier fails integrity and an unsplit one passes', wrapMiss.length === 0 && wrapCases === wrapSeps.length * 57 * wrapUsers.length, JSON.stringify(wrapMiss.slice(0, 3)));
+  // Only the near-copy match catches these (no literal anchor left); a preceding 'İ' lowercases to
+  // two UTF-16 units, which must not misalign the match.
+  const dpOnly = ['x <USER>.github.rossgraeber/oac-sess\n<USER>n-channels y', 'x io.git\nhub.rossgraeber/oac-s<USER>ion-channels y'];
+  const dotted = ['', 'İ ', 'İİ '].flatMap((pre) => dpOnly.map((t) => ({ pre, t, ok: placeholderIntegrity(pre + t, 0).ok })));
+  check('g4 sanitize (#148): a near-copy is caught with non-ASCII text before it whose lowercase is longer (İ)', dotted.every((x) => !x.ok), JSON.stringify(dotted.filter((x) => x.ok)));
   const sepSplits = ['io.', 'io.github.', 'io.github.rossgraeber/', 'io.github.rossgraeber/oac-', 'io.github.rossgraeber/oac-session-', 'io', 'io.github', 'io.github.rossgraeber', 'io.github.rossgraeber/oac', 'io.github.rossgraeber/oac-session'].flatMap((head) => ['\n', '\r\n'].flatMap((nl) => ['github', 'session', 'rossgraeber', 'oac', 'channels'].map((u) => {
     const t = `x ${head}${nl}${OAC_EXT.slice(head.length)} y`;
     return { head, nl, u, ok: placeholderIntegrity(redAs(u, sanitizeG4Text(t).text), 0).ok };
