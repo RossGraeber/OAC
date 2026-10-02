@@ -40,12 +40,15 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
 ## Surfaces and version pins
 
 - Claude Code Channels research preview. Version: **floating** (`docs/planning/PINS.md`,
-  Claude Code (Channels), "Floating-version policy"). There is no fixed pin. Record the
-  observed CLI (`claude --version`), wire `initialize` result `clientInfo.version`, and the
-  transport user-agent (when the transport carries one) in the result, and re-verify the
-  PLANNING-PROMPT.md §3.1 facts (see `oac-claude-channels`) on that version first. Both floors — channels-exist
-  `>= v2.1.232` and permission-relay `>= v2.1.234` (PLANNING-PROMPT.md §3.1) — must still
-  hold at the observed version; permission relay itself stays out of scope for this gate,
+  Claude Code (Channels), "Version policy", #216). There is no fixed pin: PINS.md records a
+  minimum (`v2.1.282`) and a last tested version. Record the observed CLI (`claude
+  --version`), wire `initialize` result `clientInfo.version`, and the transport user-agent
+  (when the transport carries one) in the result. A version other than the last tested one,
+  or below the minimum, is a warning, never a stop and never by itself a reason to
+  invalidate the verdict. §3.1 facts (see `oac-claude-channels`) not yet re-checked at the
+  observed version are a finding. The capability floors — channels-exist
+  `>= v2.1.232` and permission-relay `>= v2.1.234` (PLANNING-PROMPT.md §3.1) — sit below the
+  minimum; permission relay itself stays out of scope for this gate,
   proposed off by default in v0.1 (Decision 8 / C10, not yet decided; Epic C is still open
   per STATUS.md).
 - MCP protocol revision: legacy only (`2025-11-25` or earlier). The channel server MUST NOT

@@ -37,7 +37,9 @@ a citation-source or pin-provenance gap.**
   PASSED — `docs/planning/gates/G2-result.md`, `G4-result.md`; G1 PASSED on Claude Code
   `v2.1.282` but is now `NOT RUN` for the current environment — the Claude Code
   (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
-  `docs/planning/gates/G1-result.md`; G3 is
+  `docs/planning/gates/G1-result.md`; dated note, 2026-10-01, #216: G1 was re-run and
+  PASSED on `v2.1.283` on 2026-09-28, and harness versions now warn, never gate, so a
+  later version no longer makes it `NOT RUN`; G3 is
   partial; G5 has run and recorded **FAIL** (Codex criteria 2/3 f; Claude all criteria
   x), `docs/planning/gates/G5-result.md`); G1 and G5 have no fallback. Per
   `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1, a `FAIL` is a
@@ -230,9 +232,13 @@ list.
   one MCP server can present more than one logical channel is undocumented; and
   the compatibility-shim boundary for this surface stays unnamed (conflict-
   register C11). Since 2026-09-27 the Claude Code (Channels) row is **floating**
-  (`docs/planning/PINS.md`, "Floating-version policy"), so any further release again
-  invalidates the gates relying on it (G1, G4, G5) until each is re-run against the new
-  last-observed version — mirroring the Codex row's floating risk below.
+  (`docs/planning/PINS.md`). Since 2026-10-01 (#216) a further release no longer
+  invalidates G1, G4 or G5: PINS.md records a minimum (`v2.1.282`) and a last tested
+  version, and a different version is a warning, never a gate ("Version policy"). The
+  risk is now that a release changes behaviour while the recorded verdicts still stand,
+  so it shows up first as a warning and then as a failing or changed live run. (Superseded
+  text, kept as history: "so any further release again invalidates the gates relying on it
+  (G1, G4, G5) until each is re-run against the new last-observed version".)
 - **What it invalidates.** `docs/planning/v0.1/01-capability-matrix.md` §1's
   Claude research-preview label and its pinned-version assumption;
   `docs/planning/v0.1/07-repository-and-dependencies.md` §4(b)'s `adapters/claude/`
@@ -243,8 +249,9 @@ list.
   (`.claude/skills/oac-evidence/SKILL.md` §7 trigger). **This signal fired 2026-09-27**:
   the pin moved to floating (last observed `v2.1.283`), invalidating G1's original
   `PASS` on `v2.1.282`. **Re-run and closed 2026-09-28** (issue #39 T6/T7, Box C):
-  G1 PASSED again on `v2.1.283` — see `docs/planning/gates/G1-result.md`. The signal
-  will fire again on any further Claude Code Channels release.
+  G1 PASSED again on `v2.1.283` — see `docs/planning/gates/G1-result.md`. Since #216
+  (2026-10-01) the signal on a further release is a `VERSION WARNING` in a scripted run,
+  plus a new last tested version in PINS.md; it no longer invalidates a verdict.
 - **Response.** Re-verify per `.claude/skills/oac-evidence/SKILL.md` §7 on the
   pin move. Until the shim boundary is named, containment already holds by
   construction: every Claude-specific type stays inside `adapters/claude/`
@@ -257,10 +264,12 @@ list.
 - **Risk.** The Codex experimental live-inject surface changes. Implicit daemon attach
   at runtime was resolved on Windows by G2 on `0.154.0`
   (`docs/planning/gates/G2-result.md`), then re-confirmed on Windows on the Codex row's
-  current last-observed version, `0.157.1` (re-run 2026-09-26, same result file). Since
-  2026-09-26 the Codex version is **floating**, so any further release again invalidates
-  the gate until re-run; it remains unconfirmed on macOS and Linux at every version
-  observed so far. A design consequence: the planned git dependencies
+  then last-observed version, `0.157.1` (re-run 2026-09-26, same result file). Since
+  2026-09-26 the Codex version is **floating**. Since 2026-10-01 (#216) a further release
+  no longer invalidates the gate: PINS.md records a minimum (`0.154.0`) and a last tested
+  version (`0.159.3`), and a different version is a warning, never a gate. (Superseded
+  text: "so any further release again invalidates the gate until re-run".) It remains
+  unconfirmed on macOS and Linux at every version observed so far. A design consequence: the planned git dependencies
   `codex-app-server-{client,protocol,transport}` are pinned to the 0.154.0 commit
   (`docs/planning/decisions/C1-language-runtime.md` §10), while the runtime floats, so
   their schema can drift from the running app-server. Also still
@@ -305,12 +314,16 @@ list.
   the pinned version actually installed, not on the floor text
   (`docs/planning/v0.1/02-gating-findings.md` §3).
 - **Early-warning signal.** A re-fetch of `channels.md` at the next Claude Code
-  pin move still omits `2.1.232` (per `REVERIFICATION-B2.md` §3.1 box 7).
-- **Response.** Re-verify per `.claude/skills/oac-evidence/SKILL.md` §7 on every
-  Claude Code pin move. Until confirmed, the unconfirmed `2.1.232` text is not
-  treated as the operative floor; the B1 record in `docs/planning/PINS.md` used the
-  then-pinned `v2.1.274` for that role. Which version serves as the operative floor
-  now that the row floats is open — issue #216.
+  version change still omits `2.1.232` (per `REVERIFICATION-B2.md` §3.1 box 7).
+- **Response.** Re-verify per `.claude/skills/oac-evidence/SKILL.md` §7 when a new
+  Claude Code version is tested. Until confirmed, the unconfirmed `2.1.232` text is not
+  treated as the operative floor. **Resolved 2026-10-01 (issue #216, operator decision):**
+  the operative floor is the row's **minimum version**, `v2.1.282`, the first version the
+  project actually worked with (G1, 2026-09-25; `docs/planning/PINS.md`, Claude Code
+  Channels, "Version policy"). It lies above both capability floors. Like every harness
+  version check, it warns and never gates. (Superseded: "the B1 record in
+  `docs/planning/PINS.md` used the then-pinned `v2.1.274` for that role. Which version
+  serves as the operative floor now that the row floats is open — issue #216.")
 - (Note, 2026-10-01, issue #186: this entry previously said "at the pinned version
   (`v2.1.274`)" and that `PINS.md` "keeps the actually-pinned version (`v2.1.274`) as
   the operative floor"; the Claude Code (Channels) row went floating 2026-09-27, so
@@ -692,7 +705,7 @@ an open risk.
 | 27 | NATS capability claims | RISK-NATS |
 | 28 | MQTT capability claims | RISK-MQTT |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
-| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`) | RISK-CLAUDE-PREVIEW |
+| 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`). Dated note, 2026-10-01, #216: that mechanism is retired for this row; a future release is a version warning and invalidates no verdict | RISK-CLAUDE-PREVIEW |
 | 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |
 | 32 | Exact wrapper text for a mid-turn-delivered channel notification (from G1) | **CLOSED** — captured verbatim by G5 case C6 at Claude Code `2.1.283` (`docs/planning/gates/G5-result.md`): the full `<system-reminder>A message arrived from … while you were working: … IMPORTANT: This is NOT from your user …</system-reminder>` wrapper text, with the real `oac_*` attributes intact inside it. |
 | 33 | G3 criteria 1-4 on macOS (from G3) | RISK-G3 |

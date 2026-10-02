@@ -171,14 +171,16 @@ Per `oac-evidence` §4/§5:
   `docs/planning/STATUS.md` "Open UNVERIFIED items"), labelled **research preview**,
   version **floating** per `docs/planning/PINS.md` (Claude Code (Channels) row,
   "Floating-version policy"). (Note, 2026-10-01, issue #186: previously "pinned
-  `v2.1.274`"; that row went floating 2026-09-27.)
+  `v2.1.274`"; that row went floating 2026-09-27. Dated note, 2026-10-01, #216: the row now records minimum `v2.1.282` and last
+  tested `v2.1.285` ("Version policy"); a version change warns, never gates.)
 - `adapters/codex/` isolates the Codex app-server (UNVERIFIED — same ledger entry C11;
   not yet fixed in `DESIGN.md`), labelled **experimental, per-method gating**, CLI /
   app-server version **floating** per `docs/planning/PINS.md` (Codex CLI / app-server
   row, "Floating-version policy"); the `codex-app-server-*` git dependencies in §5 stay at
   `0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`. (Note, 2026-10-01, issue
   #186: previously "pinned `0.154.0` @ commit `6b98…`" for the surface itself; that row
-  went floating 2026-09-26.)
+  went floating 2026-09-26. Dated note, 2026-10-01, #216: the row now records minimum `0.154.0` and last tested `0.159.3`
+  ("Version policy"); a version change warns, never gates.)
 
 Cross-reference `docs/planning/v0.1/05-interfaces.md` for the adapter contract itself
 (`ProviderAdapter`'s seven members) — not restated here.

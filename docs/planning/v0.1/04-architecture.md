@@ -232,7 +232,7 @@ confirmed, batching is not. See `docs/planning/gates/G1-result.md`.
 
 **Surface label, at first mention.** Claude Code Channels is a **research preview**.
 Pinned version: **floating** — last observed `v2.1.283` (`docs/planning/PINS.md` —
-Claude Code Channels, "Floating-version policy"). Compatibility shim boundary:
+Claude Code Channels, "Floating-version policy"; Dated note, 2026-10-01, #216: the row now records minimum `v2.1.282` and last tested `v2.1.285`, "Version policy", and a version change warns, never gates). Compatibility shim boundary:
 `adapters/claude/` (UNVERIFIED — the module/interface name
 itself is not yet fixed in `DESIGN.md`; open ledger entry C11,
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4, **ASSIGNED**, not closed) — this
@@ -300,7 +300,8 @@ daemon-held client does not.
 (per-method gating)** — each method requires `capabilities.experimentalApi` and is
 documented as not durable. Pinned version: **floating** — last observed
 `@openai/codex@0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726`
-(`docs/planning/PINS.md` — Codex CLI and app-server, "Floating-version policy").
+(`docs/planning/PINS.md` — Codex CLI and app-server, "Floating-version policy"; Dated note, 2026-10-01, #216: the row now records minimum
+`0.154.0` and last tested `0.159.3`, "Version policy", and a version change warns, never gates).
 Compatibility shim boundary: `adapters/codex/` (UNVERIFIED — same ledger entry C11 as
 §7; not yet fixed in `DESIGN.md`).
 
@@ -475,7 +476,8 @@ Per `oac-evidence` §8, checked against this file:
   observed `v2.1.283` (§7; `docs/planning/PINS.md`); Codex — `adapters/codex/`
   (UNVERIFIED — same C11), **floating**, last observed
   `@openai/codex@0.157.1` @ `36650394c5b38c2990ccf2a3457165ca3e9d9726` (§9;
-  `docs/planning/PINS.md`).
+  `docs/planning/PINS.md`). (Dated note, 2026-10-01, #216: the row now records minimum and last tested versions
+  for both, `v2.1.282`/`v2.1.285` and `0.154.0`/`0.159.3`; a version change warns, never gates.)
 - Every verbatim API name (`capabilities.experimental["claude/channel"]`,
   `notifications/claude/channel`, `thread/queue/add`, `turn/steer`, `turn/start`,
   `CODEX_HOME/app-server-control/app-server-control.sock`, `codex mcp add`) is traced to

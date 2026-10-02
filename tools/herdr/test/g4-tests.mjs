@@ -28,17 +28,18 @@ import {
   modernRequests, roles, sanitizeG4Transcript, sanitizeG4Text, placeholderIntegrity, HUMAN_RUN_PORTS, DEFAULT_PORTS, codexSessions,
 } from '../lib/g4.mjs';
 import { CriteriaDriftError, parseCriteriaSection } from '../lib/gate-common.mjs';
-import { SCORES, ReportError, evaluateG4, parseG4OperatorScores, wireEvidence, writeRefusal, renderReport, draftManifestEntries } from '../lib/g4-report.mjs';
+import { SCORES, ReportError, evaluateG4, parseG4OperatorScores, wireEvidence, writeRefusal, fixtureWithheld, renderReport, draftManifestEntries, versionMatchesLastTested } from '../lib/g4-report.mjs';
 import { createRedactor } from '../lib/redact.mjs';
-import { parseClaudeLastObserved, parseCodexLastObserved } from '../lib/pins.mjs';
+import { parseClaudeVersions, parseCodexVersions } from '../lib/pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const read = (p) => readFileSync(p, 'utf8');
 const BASELINE = read(join(REPO, BASELINE_TRANSCRIPT));
 const PINS = read(join(REPO, 'docs', 'planning', 'PINS.md'));
-const CPIN = parseClaudeLastObserved(PINS).lastObserved;
-const XPIN = parseCodexLastObserved(PINS).lastObserved;
+// PINS.md's last tested versions: the fakes report them unless a case sets others (#216).
+const CPIN = parseClaudeVersions(PINS).lastTested;
+const XPIN = parseCodexVersions(PINS).lastTested;
 const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g4-report.mjs');
 const SERVER = join(REPO, 'tools', 'herdr', 'gate-servers', 'g4-server.mjs');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -276,17 +277,22 @@ export async function g4Unit(check) {
 
   // --- report rules -------------------------------------------------------------------------------
   check('g4 report: only criteria 1 and 5 take an operator score, with a note', throws(() => parseG4OperatorScores([{ n: '2', score: 'equivalent', note: 'x' }]), ReportError, /mechanically/) && throws(() => parseG4OperatorScores([{ n: '5', score: 'equivalent', note: ' ' }]), ReportError, /note/) && parseG4OperatorScores([{ n: '1', score: 'not-equivalent', note: 'x' }])['1'].score === SCORES.NEQ);
-  const nr = evaluateG4({ manifest: { outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER: x', scenarioData: {} }, transcriptText: null, baselineText: BASELINE, criteria: crit });
+  const nr = evaluateG4({ manifest: { outcome: 'NOT RUN', outcomeReason: 'timed out', scenarioData: {} }, transcriptText: null, baselineText: BASELINE, criteria: crit });
   check('g4 report: a NOT RUN leaves every criterion not evaluable', nr.rows.length === 5 && nr.rows.every((x) => x.score === SCORES.NE && /NOT RUN/.test(x.reason)));
   const tpl = renderReport({ manifest: { outcome: 'NOT RUN', scenarioData: { g4: {} } }, evaluation: nr, date: '2026-10-01', fixtures: null, runManifestName: 'x' });
   check('g4 report: not verdict-bearing, the RECONSTRUCTION stated at the top, attestation unticked, no equivalence callout', /Not verdict-bearing/.test(tpl) && /Reconstructed gate server/.test(tpl) && /never committed/.test(tpl) && /cannot be\s*\n?> verified byte-identical/.test(tpl) && (tpl.match(/^- \[ \] \*\*(?:herdr|Harness|Consent dialog):\*\*/gm) ?? []).length === 3 && !/^- \[x\]/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl));
-  const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, pins: { claudeLastObserved: CPIN, codexLastObserved: XPIN, workingTreeMatchesHead: true } };
+  const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, pins: { claudeLastTested: CPIN, codexLastTested: XPIN, workingTreeMatchesHead: true } };
   const fx = { transcript: 't-herdr.jsonl', paneClaude: 'c-herdr.txt', paneCodex: 'x-herdr.txt' };
   const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: Object.values(fx).map((file) => ({ file, written: true })), scenarioData: { g4: { versions: V, postRun: { matches: true }, fixtures: fx, captureNames: fx, server: [{ match: true, workingTreeMatchesHead: true }], sanitizer: { extensionIdReplaced: 1, paneClaude: 1, paneCodex: 0 } } } };
   const texts = { transcript: `x ${OAC_EXT_PLACEHOLDER}`, paneClaude: `y ${OAC_EXT_PLACEHOLDER}`, paneCodex: 'z' };
   const with4 = (o) => ({ ...okRun, scenarioData: { g4: { ...okRun.scenarioData.g4, ...o } } });
   check('g4 report: --write refuses a capture whose placeholders did not survive redaction, or that still holds an identifier fragment', writeRefusal(okRun, texts) === null && /paneClaude capture's extension-identifier placeholders/.test(writeRefusal(okRun, { ...texts, paneClaude: 'y <#OAC_EXT_<USER>#>' })) && /identifier fragment/.test(writeRefusal(okRun, { ...texts, paneCodex: 'io.github.<USER>aeber/oac-session-channels' })) && /did not record a count/.test(writeRefusal(with4({ sanitizer: { extensionIdReplaced: 1 } }))));
-  check('g4 report: --write accepts only a verified PASS from a clean, committed tools/herdr/ with the server at HEAD', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /only a PASS run/.test(writeRefusal({ ...okRun, outcome: 'FAIL' })) && /not verified/.test(writeRefusal(with4({ postRun: { matches: false } }))) && /committed source/.test(writeRefusal(with4({ server: [{ match: true, workingTreeMatchesHead: false }] }))) && /not verified/.test(writeRefusal(with4({ versions: { ...V, wire: { claude: CPIN, codex: '0.158.0' } } }))));
+  check('g4 report: --write accepts only a verified PASS from a clean, committed tools/herdr/ with the server at HEAD', writeRefusal(okRun) === null && /toolsHerdrDirty true/.test(writeRefusal({ ...okRun, driver: { commit: 'a'.repeat(40), toolsHerdrDirty: true } })) && /only a PASS run/.test(writeRefusal({ ...okRun, outcome: 'FAIL' })) && /committed source/.test(writeRefusal(with4({ server: [{ match: true, workingTreeMatchesHead: false }] }))));
+  const midRun = with4({ postRun: { matches: false } });
+  const disagree = with4({ versions: { ...V, wire: { claude: CPIN, codex: '0.158.0' } } });
+  check('g4 report (#216 operator decision): a mid-run version change or a CLI/wire disagreement never refuses --write; the fixtures are withheld with a VERSION WARNING', writeRefusal(midRun) === null && writeRefusal(disagree) === null && /^VERSION WARNING: .*no fixture is added/.test(fixtureWithheld(midRun)) && /^VERSION WARNING: .*no fixture is added/.test(fixtureWithheld(disagree)) && fixtureWithheld(okRun) === null && writeRefusal(with4({ versions: disagree.scenarioData.g4.versions, sanitizer: {} })) === null);
+  const drifted = { ...V, cli: { claude: '2.1.999', codex: '0.999.0' }, wire: { claude: '2.1.999', codex: '0.999.0' } };
+  check('g4 report (#216): a drifted but consistent version is not refused by --write; it only does not match the last tested versions', writeRefusal(with4({ versions: drifted })) === null && versionMatchesLastTested(okRun.scenarioData.g4) && !versionMatchesLastTested(with4({ versions: drifted }).scenarioData.g4) && writeRefusal(with4({ versions: { ...V, pins: { ...V.pins, workingTreeMatchesHead: false } } })) === null);
 }
 
 // --- lifecycle cases ------------------------------------------------------------------------------
@@ -383,18 +389,29 @@ export function g4Cases(check) {
     check('g4 launch: a launch other than G4\'s verbatim one FAILs before anything starts', r.status === 1 && /not G4's verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')));
   });
 
-  run('g4 Claude CLI version is a pin-move trigger', { args: [...FAST, ...PORTS(37478, 37480)], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
-    const m = r.manifest;
-    check('g4 pin move (Claude CLI): NOT RUN, a pin-move trigger naming G4, nothing launched, no capture', r.status === 3 && /^PIN-MOVE TRIGGER: `claude --version` reports v2\.1\.999/.test(m.outcomeReason) && /re-running G4/.test(m.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')) && m.captures.length === 0, m.outcomeReason);
-  });
-
-  run('g4 Codex MCP wire version is a pin-move trigger', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37488, 37490)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_VERSION: '0.158.0' } }, (r) => {
+  // #216: versions float. A version other than PINS.md's last tested one, on either harness's
+  // CLI or wire, is a VERSION WARNING finding and the run proceeds.
+  run('g4 drifted versions on both harnesses warn and the run proceeds', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37478, 37480)], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999', FAKE_CLAUDE_VERSION: '2.1.999' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_VERSION: '0.999.0' } }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
-    check('g4 pin move (Codex wire): NOT RUN from the MCP client user-agent; nothing typed into Codex; captures unverified-* only', r.status === 3 && /^PIN-MOVE TRIGGER: the MCP client user-agent \(codex-mcp-client\/<version>\) reports 0\.158\.0/.test(m.outcomeReason) && !r.prompts.some((p) => p.target === 'g4codex') && g4.fixtures === null && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')), m.outcomeReason);
+    check('g4 #216 drift: PASS (exit 0), never NOT RUN on a version', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+    check('g4 #216 drift: four VERSION WARNING findings naming G4 (both CLIs, both wires)', g4.versions.warnings.length === 4 && m.findings.filter((f) => /^VERSION WARNING \(G4\)/.test(f)).length === 4, JSON.stringify(m.findings));
+    check('g4 #216 drift: Codex was prompted, captures name the observed versions, matchesLastTested false', r.prompts.some((p) => p.target === 'g4codex') && g4.versions.verified === true && g4.versions.matchesLastTested === false && JSON.stringify(g4.fixtures) === JSON.stringify(fixtureNames(today(), '2.1.999', '0.999.0')), JSON.stringify(g4.captureNames));
+  });
+
+  run('g4 Codex MCP wire version differs from its CLI: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37488, 37490)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_VERSION: '0.999.0' } }, (r) => {
+    const m = r.manifest;
+    const g4 = m.scenarioData.g4;
+    check('g4 #216 Codex wire != CLI: not stopped on the version; Codex was prompted; a VERSION WARNING from the MCP client user-agent', m.outcome !== 'NOT RUN' && r.prompts.some((p) => p.target === 'g4codex') && m.findings.some((f) => /^VERSION WARNING \(G4\): the MCP client user-agent \(codex-mcp-client\/<version>\) reports 0\.999\.0/.test(f)), `${m.outcome} ${m.outcomeReason}`);
+    check('g4 #216 Codex wire != CLI: captures unverified-* only', g4.fixtures === null && g4.versions.verified === false && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
     const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', join(r.base, 'nowrite')], { encoding: 'utf8', timeout: 20000 });
-    const p = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
-    check('g4 pin move (Codex wire): report --write refuses; the draft says NOT RUN, every criterion not evaluable', w.status === 2 && /--write refused: run outcome is NOT RUN/.test(w.stderr) && !existsSync(join(r.base, 'nowrite')) && (p.stdout.match(/\*\*not evaluable\*\* \|/g) ?? []).length === 5, w.stderr);
+    const recDate = g4.date;
+    const rec = join(join(r.base, 'nowrite'), `docs/planning/gates/herdr-runs/G4-${recDate}.md`);
+    if (m.driver.toolsHerdrDirty === false) {
+      check('g4 #216 Codex wire != CLI: --write writes the record and run manifest with a VERSION WARNING, but no fixture and no MANIFEST draft (operator decision on #216)', w.status === 0 && existsSync(rec) && existsSync(join(join(r.base, 'nowrite'), `docs/planning/gates/herdr-runs/G4-${recDate}.run-manifest.json`)) && !existsSync(join(join(r.base, 'nowrite'), FIXTURE_DIR)) && !existsSync(join(r.outDir, 'manifest-entries.draft.json')) && /No fixture written: VERSION WARNING/.test(w.stdout) && /Finding: VERSION WARNING: .*no fixture is added/.test(readFileSync(rec, 'utf8')), w.stdout + w.stderr);
+    } else {
+      check('g4 #216 Codex wire != CLI: --write is refused only for the dirty tools/herdr/, never for the versions', w.status === 2 && /toolsHerdrDirty/.test(w.stderr) && !/same .*version/.test(w.stderr), w.stderr);
+    }
   });
 
   run('g4 a second Codex registration also connects', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37508, 37510), '--param', 'codexLaunch=["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37508/mcp\\"","-c","mcp_servers.leftover.url=\\"http://127.0.0.1:37508/mcp\\""]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {

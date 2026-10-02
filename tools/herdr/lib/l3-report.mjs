@@ -25,7 +25,9 @@
 // Operator decisions of 2026-09-30 on #168 (binding): B1 is recorded NOT RUN (Beacon was
 // installed before B0; no uninstall/reinstall); B5 and B6 are NOT RUN by default (Beacon steps
 // only the operator may do; an operator note replaces the default); pin drift is recorded as a
-// finding and does not stop the leg (L3 is not a gate).
+// finding and does not stop the leg (L3 is not a gate). Since #216 (2026-10-01) this holds for
+// every scripted run: harness versions float, and a difference from PINS.md's last tested (or
+// minimum) version is a VERSION WARNING finding, never a stop.
 //
 // Leak guard. Before anything is printed, the whole draft is checked: (1) no probe-marker- or
 // fake-token-shaped value, nor a prefix followed by a partial value (the report never holds the
@@ -88,6 +90,9 @@ const val = (v) => {
   if (typeof v === 'object') return Object.entries(v).map(([k, x]) => `${k} ${tick(x ?? 'null')}`).join(', ') || 'not recorded';
   return tick(v);
 };
+// PINS.md's versions as a record holds them: minimum and last tested since #216, the then
+// "last observed" version in older records.
+const pinsText = (p) => (p?.lastTested ? `PINS.md minimum ${val(p.minimum)}, last tested ${val(p.lastTested)}` : `PINS.md last observed ${val(p?.lastObserved)}`);
 const list = (a) => (a && a.length ? a.map(tick).join(', ') : 'none');
 // Zone-qualified ISO times only (`Z` or `+hh:mm`): Date.parse reads an unzoned time as local
 // time, so such a time counts as not recorded.
@@ -187,7 +192,7 @@ function b0(run) {
   const beacon = v.beacon ?? null;
   if (!beacon) findings.push('`beacon version` output not recorded (beaconCli off and not supplied)');
   else if (!BEACON_PIN_RE.test(String(beacon))) findings.push(`Beacon version differs from the L1 §2 pin ${BEACON_PIN}`);
-  for (const [k, name] of [['claude', 'Claude Code'], ['codex', 'Codex']]) if (v.pins?.[k]?.differs) findings.push(`${name} differs from its PINS.md last-observed value (pin drift, recorded as a finding; L3 is not a gate)`);
+  for (const [k, name] of [['claude', 'Claude Code'], ['codex', 'Codex']]) if (v.pins?.[k]?.differs) findings.push(`${name} differs from its PINS.md last tested version (VERSION WARNING, recorded as a finding; versions float and are never gated, #216)`);
   for (const f of r.config?.findings ?? []) findings.push(oneLine(f));
   // config.envSet (L3b #195) is the scenario's own record; older records fall back to the labels.
   const env = r.config?.envSet;
@@ -510,7 +515,7 @@ export function evaluateL3({ baseline, probe, verify = null, priors = [], notes 
   if (drift.length) findings.push(`the recorded ${drift.join(', ')} version(s) differ between phases`);
   for (const [k, name] of [['claude', 'Claude Code'], ['codex', 'Codex']]) {
     const pin = vrec?.versions?.pins?.[k];
-    if (pin?.differs) findings.push(`pin drift: ${name} installed version differs from PINS.md last-observed ${tick(pin.lastObserved ?? '?')} (recorded as a finding by the ${OPERATOR_DECISION}; PINS.md is not moved for L3)`);
+    if (pin?.differs) findings.push(`VERSION WARNING: ${name} installed version differs from PINS.md ${pin.lastTested ? `last tested ${tick(pin.lastTested)}` : `last observed ${tick(pin.lastObserved ?? '?')}`} (a finding, never a stop: ${OPERATOR_DECISION} and #216; the run does not edit PINS.md)`);
   }
   for (const p of PHASES) {
     const r = runs[p];
@@ -594,8 +599,8 @@ export function renderL3Draft(ev) {
   out.push('');
   out.push(`- **Date:** ${box.start ? box.start.slice(0, 10) : 'not recorded'} (L3 box start)`);
   out.push(`- **Beacon:** ${val(v.beacon)} (L1 §2 pin ${BEACON_PIN})`);
-  out.push(`- **Claude Code:** \`claude --version\` ${val(v.claudeCli)}; PINS.md last observed ${val(v.pins?.claude?.lastObserved)}, differs: ${v.pins?.claude?.differs ?? 'not recorded'}`);
-  out.push(`- **Codex:** CLI ${val(v.codex?.cli)}; daemon ${val(v.codex?.daemon)}; wire ${val(v.codex?.wire)}; PINS.md last observed ${val(v.pins?.codex?.lastObserved)}, differs: ${v.pins?.codex?.differs ?? 'not recorded'}`);
+  out.push(`- **Claude Code:** \`claude --version\` ${val(v.claudeCli)}; ${pinsText(v.pins?.claude)}, differs: ${v.pins?.claude?.differs ?? 'not recorded'}`);
+  out.push(`- **Codex:** CLI ${val(v.codex?.cli)}; daemon ${val(v.codex?.daemon)}; wire ${val(v.codex?.wire)}; ${pinsText(v.pins?.codex)}, differs: ${v.pins?.codex?.differs ?? 'not recorded'}`);
   for (const { phase, m } of drivers) out.push(`- **Driver (${phase}):** ${driverLine(m)}`);
   out.push(`- **L3 box:** start ${box.start ?? 'not recorded'} (${box.source}); budget ${box.budgetMs} ms (60 minutes, never extended); ends ${box.end ?? 'unknown'}`);
   for (const p of PHASES) {

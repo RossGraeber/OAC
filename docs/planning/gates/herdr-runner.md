@@ -175,7 +175,7 @@ addition to the hook.
 | herdr | Exactly the `docs/planning/PINS.md` row `herdr (test tooling)`: **`v0.9.1`** at K6 (tag `v0.9.1` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`). `herdr --version` must print `herdr 0.9.1`, or the driver ends the run `NOT RUN` before it starts a session. On `PATH` for the runner user. Never run `herdr integration install`, and do not run `herdr update`: a new herdr version is a PINS.md pin move first. |
 | Node.js | On `PATH` for the runner user. The driver uses Node built-ins only and installs nothing; the cloud self-test ran on Node v22.22.2. The workflow does not use `setup-node`, a cache action or `npm`. |
 | git | On `PATH`. The driver records `git HEAD` and whether `tools/herdr/` is dirty. |
-| Harness login | **The operator logs in by hand, once, as the runner user, outside CI.** For `g1-claude-wake`: Claude Code at the version PINS.md records as last observed for `Claude Code (Channels)`; otherwise the scenario stops the run `NOT RUN` (pin-move trigger, no PINS.md edit). Log in with Claude Code's own interactive login. The workflow never logs in, never reads, copies or uploads a credential, and never writes harness config. The driver hashes harness config before and after each run and never writes it (K3; `oac-boundaries` check 10). |
+| Harness login | **The operator logs in by hand, once, as the runner user, outside CI.** For `g1-claude-wake`: Claude Code at any version. Versions float (#216, 2026-10-01): a version other than the one PINS.md records as last tested for `Claude Code (Channels)`, or one below its minimum, is a `VERSION WARNING` finding in the run manifest. It never stops the run, never fails the job and edits nothing in PINS.md. (Until 2026-10-01 such a run stopped `NOT RUN` with a pin-move trigger.) Log in with Claude Code's own interactive login. The workflow never logs in, never reads, copies or uploads a credential, and never writes harness config. The driver hashes harness config before and after each run and never writes it (K3; `oac-boundaries` check 10). |
 | No API keys in the runner environment | Do not set a provider API key or harness token in the runner's service environment or its `.env` file. Every job step would see it, and the harness would stop being the operator's own login session. The workflow references no secret and no key. |
 | Codex | Not needed at K6 (no Codex scenario is allowlisted; K7 adds one). |
 
@@ -360,8 +360,9 @@ stage gate's own checks.
 - [ ] Runner v2.327.1 or later, registered with label `oac-harness`, on Linux and on
       Windows.
 - [ ] `herdr --version` prints `herdr 0.9.1` as the runner user. Node and git on `PATH`.
-- [ ] Claude Code at the PINS.md last-observed version, logged in interactively as the
-      runner user.
+- [ ] Claude Code installed and logged in interactively as the runner user. Any version
+      runs; one other than PINS.md's last tested version is a `VERSION WARNING`, never a
+      stop (#216).
 - [ ] No provider API key or harness token in the runner's environment.
 - [ ] First dispatch: `scenario=smoke`, `runner=linux`, then `runner=windows`. Then
       `scenario=g1-claude-wake` per runner. Since #196 it runs unattended: the driver accepts
