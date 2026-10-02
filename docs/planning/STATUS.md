@@ -15,6 +15,32 @@ physical Mac hardware; physical Mac is a new open item. `#iface=` is not enforce
 the fixtures `g3-zenoh-peer/results-macos-hosted/` (MANIFEST updated) landed with it. D7 is
 no longer blocked by any gate leg. Dated notes below and in the mirrors; no pin moves.)
 
+**Last updated:** 2026-10-01 (**Issue #216: harness versions float; warn, never gate.**
+Operator decision on #216 (2026-10-01): "Minimum version is the first version encountered
+while working. Document last version tested against. Allow version to float. Do not gate
+on version, warn on version." It applies to the harness CLIs, Claude Code and Codex, and to
+their wire and daemon versions. `docs/planning/PINS.md`'s two harness rows now record a
+**minimum version** and a **last tested version**. Claude Code: minimum `v2.1.282`, the
+first version worked with (G1, 2026-09-25: `G1-result.md` "Original run", fixture
+`g1-claude-wake/transcript.jsonl` line 20). Last tested `v2.1.285` (L3, 2026-10-01). Codex:
+minimum `@openai/codex@0.154.0`, the first version worked with (G2, 2026-09-25:
+`G2-result.md` "Re-run history", fixture `g2-codex-inject/transcript.jsonl`). Last tested
+`@openai/codex@0.159.3` (commit `01fc69f4026735edfdf6789820549727a4867b11`, L3,
+2026-10-01). The pin-move checklist and `docs/planning/gates/README.md` §a no longer apply
+to these rows. A harness version other than the last tested one, or below the minimum, is
+a `VERSION WARNING` finding. It never stops a run, never makes it `NOT RUN`, never blocks
+CI and never by itself invalidates a gate verdict. The herdr scenarios (g1, g2, g4, g5, l3),
+report libs and `scripts/check-fixture-manifest.mjs` now warn instead of gating. The
+skills (`oac-gates` and `references/scripted-runs.md`, G1/G2/G5 references,
+`oac-testing`, `oac-claude-channels`, `oac-codex-appserver`, `oac-evidence`,
+`oac-release`) and the v0.1 docs (06-security §11, 11-risks RISK-FLOOR and the two preview
+risks, 12-deferred, 09-test-strategy, 10-stages, 02-gating-findings §8) say so.
+**No gate verdict changes.** G1 PASS (`v2.1.283`), G2 PASS (`0.157.1`), G4 PASS
+(`v2.1.283` / `0.157.1`) and G5 FAIL (`v2.1.283` / `0.157.1`) stand on the versions they
+ran on. Under the old floating-row rule the L3 versions would have made them stale. Under
+#216 they do not. Earlier entries that describe a pin float invalidating a verdict are
+history, and dated notes mark them below. The herdr pin (test tooling) stays exact.)
+
 **Last updated:** 2026-10-01 (**Issue #211: PINS.md Beacon row catches up with L3.**
 `docs/planning/PINS.md`'s `Beacon (external memory service)` row and record now say no
 fact is UNVERIFIED: all four L1 items are closed (U2-U4 by L2 at `v1.3.29`, L1 §11; U1
@@ -773,7 +799,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M0 — Planning package v0.1 |
 | Stage | Pre-Stage 0. The §9 planning package is not yet written. |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`), J (agent skills) |
+| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`), J (agent skills) |
 | Blocked | Stages 2-6, and the rest of Stage 1 pending D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is no longer blocked by any gate leg: G3's macOS leg PASSED 2026-10-02 (#219) and G1's re-run PASSED 2026-09-28, so every gate has a closed verdict; separately Stage 2 cannot freeze the Codex provenance interface until the C13 design change lands). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
 ## ADR amendments
@@ -799,6 +825,10 @@ the amendments file; its body text is unchanged.
 
 ## Gate verdicts
 
+*Dated note, 2026-10-01 (#216):* harness versions now float and warn, never gate. A Claude
+Code or Codex version change no longer makes a verdict stale, so the invalidations described
+below are history. Each verdict stands on the version it records.
+
 G1 PASSED on Claude Code `v2.1.282` (2026-09-25, issue #34/D1). The Claude Code
 (Channels) pin went floating (2026-09-27, operator decision, issue #39/T0), last
 observed `v2.1.283`, one version above what G1 recorded, so per the floating-row rule
@@ -818,7 +848,9 @@ UNVERIFIED-as-a-guarantee (`docs/planning/v0.1/11-risks.md` row 49). **G1 is now
 See `docs/planning/gates/G1-result.md`. G2 PASSED on Codex `0.154.0` (2026-09-25,
 issue #35/D2), was invalidated when the Codex row went floating, and has been **re-run and
 PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
-the environment both report `0.157.1`, so the verdict is current. G3 has run on two of its three platforms
+the environment both report `0.157.1`, so the verdict is current. (Dated note, 2026-10-01,
+#216: currency no longer depends on the environment's version; the last tested Codex
+version is now `0.159.3`, and G2 stands on `0.157.1`.) G3 has run on two of its three platforms
 (2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
 gate-level verdict stays `NOT RUN` until the macOS leg runs. (Note 2026-10-02, #219: the
 macOS leg ran on a GitHub-hosted VM and passed; **G3 is now PASS** at gate level.) G4 spiked on 2026-09-25/26
@@ -855,7 +887,8 @@ lands and DESIGN acceptance criterion 6 is re-established for Codex.
 | G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
-checklist): `docs/planning/gates/README.md`.
+checklist): `docs/planning/gates/README.md`. Since #216 (2026-10-01) a Claude Code or Codex
+version change never moves a verdict back: it is a warning only.
 
 ## Pins
 
@@ -863,9 +896,9 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 
 | Surface | Pinned version | Source |
 |---|---|---|
-| Claude Code | **floating**; last observed `v2.1.283` (2026-09-25T21:50:12Z UTC). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied | PINS.md — Claude Code Channels ("Floating-version policy") |
+| Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.285` (2026-09-29T19:27:30Z UTC; L3, 2026-10-01). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied | PINS.md — Claude Code Channels ("Version policy") |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
-| Codex CLI | **floating**; last observed `@openai/codex@0.157.1`, commit `36650394c5b38c2990ccf2a3457165ca3e9d9726` (2026-09-26). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Floating-version policy") |
+| Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.159.3`, commit `01fc69f4026735edfdf6789820549727a4867b11` (2026-09-30T22:57:34Z UTC; L3, 2026-10-01). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
@@ -1069,6 +1102,9 @@ without an UNVERIFIED label.
   2026-09-28** (issue #39 T6/T7, Box C) — see `docs/planning/gates/G1-result.md`. This
   does not close the re-verification gap above; the full §3.1 B2-style re-verification
   at `v2.1.283` remains open — only G1's own five pass criteria were re-checked.
+  *Dated note, 2026-10-01 (#216):* the row now records minimum `v2.1.282` and last tested
+  `v2.1.285`. A version change warns and invalidates nothing. The §3.1 re-verification gap
+  stays open as a finding, now up to `v2.1.285`, and it gates no run.
 - **New, from G1:** the exact wire framing for Claude Code's MCP stdio transport
   (newline-delimited JSON, not `Content-Length`-prefixed) — confirmed directly during
   G1, but not previously stated in any OAC document; carried here as new evidence, not

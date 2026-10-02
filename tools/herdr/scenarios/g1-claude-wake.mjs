@@ -10,8 +10,9 @@
 // herdr or a real Claude Code. Every Claude Code pane-text pattern it relies on except the
 // dev-channels dialog is a guess to be confirmed by the first operator run (lib/g1.mjs).
 //
-// Operator command (a machine with herdr at the PINS.md pin and a logged-in Claude Code at
-// PINS.md's last-observed version; the launch below is the default and may be omitted):
+// Operator command (a machine with herdr at the PINS.md pin and a logged-in Claude Code, any
+// version: versions float, and one other than PINS.md's last tested version is a VERSION
+// WARNING finding, never a stop (#216); the launch below is the default and may be omitted):
 //
 //   node tools/herdr/run.mjs --scenario g1-claude-wake \
 //     --launch '["claude","--dangerously-load-development-channels","server:g1spike"]' \
@@ -32,10 +33,11 @@
 // persist and those dialogs do not come back; the driver never writes that trust itself.
 //
 // What it does, in Box C's order:
-//   0. Preflight. The launch must be G1's, verbatim. `claude --version` must equal the
-//      `Claude Code (Channels)` last-observed version in PINS.md AS COMMITTED at HEAD (an
-//      uncommitted PINS.md edit stops the run), or the run stops NOT RUN with a pin-move
-//      trigger (no PINS.md edit). The quarantined channel server is staged into the run's
+//   0. Preflight. The launch must be G1's, verbatim. `claude --version` is compared with the
+//      `Claude Code (Channels)` minimum and last tested versions in PINS.md AS COMMITTED at
+//      HEAD (an uncommitted PINS.md edit is a finding). A difference is a VERSION WARNING
+//      finding and the run continues: versions float, warn, never gate (#216). The run never
+//      edits PINS.md. The quarantined channel server is staged into the run's
 //      scratch directory from its blob committed at HEAD, and the copy's sha256 checked
 //      against that blob and against the sha256 Box C ran; a working-tree file that differs
 //      from HEAD (edited, replaced, symlinked) refuses the run. It is never edited or
@@ -50,8 +52,10 @@
 //      key at a time before Enter (lib/gate-common.mjs driverAcceptDialog). The accept origin
 //      is recorded. A driver-sent accept is never scored as meeting G1 criterion 5
 //      (lib/g1-report.mjs).
-//   2. Wait for the channel-server handshake on the wire; the wire clientInfo.version must
-//      equal the CLI version (else pin-move trigger, NOT RUN).
+//   2. Wait for the channel-server handshake on the wire. The wire clientInfo.version is
+//      compared with PINS.md too (a VERSION WARNING, never a stop). Captures get the K4
+//      fixture names only when the wire version equals the CLI version, so that a capture
+//      names one version; otherwise they stay `unverified-*` (a finding; the run continues).
 //   3. Idle wake: `wake.trigger` is touched (the channel server's own trigger -- herdr never
 //      types a notification) while the pane shows no work in progress.
 //   4. The `<channel>` attribute query and the non-identifier-safe `meta` key question, as
@@ -78,7 +82,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
-import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
+import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
 import { driverAcceptDialog } from '../lib/gate-common.mjs';
@@ -408,31 +412,35 @@ export default {
         throw new DriverError(`launch ${JSON.stringify(launch)} is not G1's verbatim launch ${JSON.stringify(G1_LAUNCH)}; this would not be a G1 re-run`);
       }
       const cliRaw = ctx.harnessVersion('claude');
-      // The pin check reads PINS.md as committed at HEAD, and refuses to run while the
-      // working-tree PINS.md differs: an uncommitted edit (a pin move in progress) must not
-      // silently decide whether this run proceeds.
+      // The version check reads PINS.md as committed at HEAD. Versions float and are never
+      // gated (#216): a difference from the minimum or last tested version is a VERSION
+      // WARNING finding, and an uncommitted PINS.md edit is a finding too. Neither stops the run.
       const pinsFile = committedFile(REPO, PINS_PATH);
-      const pin = parseClaudeLastObserved(pinsFile.bytes.toString('utf8'));
+      const pin = parseClaudeVersions(pinsFile.bytes.toString('utf8'));
       const cli = parseClaudeCliVersion(cliRaw);
       g1.versions = {
         pinsRow: CLAUDE_PIN_ROW,
-        pinsLastObserved: pin.lastObserved,
+        pinsMinimum: pin.minimum,
+        pinsLastTested: pin.lastTested,
         pinsSource: { path: PINS_PATH, headCommit: pinsFile.headCommit, committedSha256: pinsFile.committedSha256, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead },
         cliOutput: cliRaw,
         cli,
         wireClientInfo: null,
-        verified: false,
+        verified: false, // true once the CLI and the wire report one and the same version
+        matchesLastTested: null,
+        warnings: [],
       };
-      if (!pinsFile.workingTreeMatchesHead) stop(`${PINS_PATH} has uncommitted changes; the Claude Code pin check reads the committed PINS.md, so commit or discard the edit first. Nothing launched`);
+      const warn = (w) => {
+        if (!w) return;
+        g1.versions.warnings.push(w);
+        ctx.finding(w);
+      };
+      if (!pinsFile.workingTreeMatchesHead) ctx.finding(`${PINS_PATH} has uncommitted changes; the version check read the committed PINS.md (HEAD ${pinsFile.headCommit})`);
+      warn(pinsReadWarning(pin, 'G1'));
       if (!cli && /^N\/A/.test(cliRaw ?? 'N/A')) stop(`claude --version could not be run (${cliRaw ?? 'not recorded'}); nothing launched`);
-      const trigger = claudePinMoveTrigger({ observed: cli, lastObserved: pin.lastObserved, source: '`claude --version`' });
-      if (trigger) {
-        ctx.finding(trigger);
-        stop(trigger);
-      }
-      // Captures get the K4 fixture names only once BOTH the CLI and the wire version are
-      // verified (below); until then they are named `unverified-*` so a run that stops on
-      // a version mismatch can never produce a fixture-named file.
+      warn(claudeVersionWarning({ observed: cli, lastTested: pin.lastTested, minimum: pin.minimum, source: '`claude --version`' }));
+      // Captures get the K4 fixture names only once the CLI and the wire report the same
+      // version (below), so a fixture names one version; until then they are `unverified-*`.
       g1.captureNames = unverifiedNames(g1.date);
 
       serverDir = ctx.dir('g1-server');
@@ -490,14 +498,16 @@ export default {
         serverInstances: transcriptFacts(wire()).serverInstances,
       };
       g1.versions.wireClientInfo = hs.initialize.clientInfo.version;
-      const wireTrigger = claudePinMoveTrigger({ observed: hs.initialize.clientInfo.version, lastObserved: pin.lastObserved, source: 'the wire initialize clientInfo.version' });
-      if (wireTrigger) {
-        ctx.finding(wireTrigger);
-        stop(wireTrigger);
+      const wireV = /^\d+\.\d+\.\d+$/.test(String(g1.versions.wireClientInfo ?? '')) ? g1.versions.wireClientInfo : null;
+      warn(claudeVersionWarning({ observed: wireV, lastTested: pin.lastTested, minimum: pin.minimum, source: 'the wire initialize clientInfo.version' }));
+      if (cli && wireV === cli) {
+        g1.versions.verified = true; // CLI and wire report one and the same version
+        g1.versions.matchesLastTested = cli === pin.lastTested;
+        g1.fixtures = fixtureNames(g1.date, cli);
+        g1.captureNames = g1.fixtures;
+      } else {
+        ctx.finding(`the wire clientInfo.version (${g1.versions.wireClientInfo ?? 'none'}) differs from \`claude --version\` (${cliRaw}); the run continues, but its captures stay unverified-* because they cannot name one Claude Code version`);
       }
-      g1.versions.verified = true; // CLI and wire both equal PINS.md's committed last-observed version
-      g1.fixtures = fixtureNames(g1.date, cli);
-      g1.captureNames = g1.fixtures;
       await herdr.paneProcessInfo(ws.paneId);
       await settle('post-handshake', num('startupTimeoutMs'));
       if (!g1.devChannelsDialogSeen) ctx.finding('the dev-channels confirmation dialog was never recognized on screen before the session settled (G1 criterion 5)');

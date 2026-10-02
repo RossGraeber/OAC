@@ -16,8 +16,9 @@
 // except the dev-channels dialog, and whether Codex honors a per-invocation MCP-server `-c`
 // override for an HTTP server is itself UNVERIFIED.
 //
-// Operator command (herdr at the PINS.md pin; Claude Code and Codex at PINS.md's last-observed
-// versions, both signed in the way the operator normally uses them; ports 17458 and 17460
+// Operator command (herdr at the PINS.md pin; Claude Code and Codex at any version, since
+// versions float and a difference from PINS.md's last tested versions is a VERSION WARNING
+// finding, never a stop (#216); both signed in the way the operator normally uses them; ports 17458 and 17460
 // free on 127.0.0.1):
 //
 //   node tools/herdr/run.mjs --scenario g4-mcp-dual-era \
@@ -31,8 +32,9 @@
 //      <httpPort>/mcp"`) may carry only per-invocation `-c` overrides of MCP-server url /
 //      enabled / timeout keys and feature flags: the operator's global Codex config is never
 //      edited, no Codex config file is written, and the Codex home is never copied or
-//      redirected. `claude --version` and `codex --version` must equal PINS.md's committed
-//      last-observed versions (else NOT RUN, pin-move trigger, no PINS.md edit). Both ports
+//      redirected. `claude --version` and `codex --version` are compared with PINS.md's
+//      committed minimum and last tested versions; a difference is a VERSION WARNING
+//      finding and the run continues (versions float, warn, never gate, #216). Both ports
 //      must be free. The reconstructed server is staged into scratch; a project .mcp.json
 //      registers it three ways, as the human run's `/mcp` list shows: g4spike (legacy stdio
 //      channel), g4modern (G4_STDIO_MODERN=1, the negative case) and g4http (HTTP).
@@ -69,7 +71,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { DriverError } from '../lib/herdr.mjs';
-import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger, parseCodexLastObserved, parseCodexCliVersion, codexPinMoveTrigger, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
+import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, processArgv, codexLaunchProof } from '../lib/g2.mjs';
@@ -200,26 +202,33 @@ export default {
 
       const pinsFile = committedFile(REPO, PINS_PATH);
       const pinsText = pinsFile.bytes.toString('utf8');
-      const cpin = parseClaudeLastObserved(pinsText);
-      const xpin = parseCodexLastObserved(pinsText);
+      // Versions float and are never gated (#216): every difference from PINS.md's minimum
+      // or last tested version is a VERSION WARNING finding, and the run continues.
+      const cpin = parseClaudeVersions(pinsText);
+      const xpin = parseCodexVersions(pinsText);
       const cRaw = ctx.harnessVersion('claude');
       const xRaw = ctx.harnessVersion('codex');
       const cli = { claude: parseClaudeCliVersion(cRaw), codex: parseCodexCliVersion(xRaw) };
       g4.versions = {
-        pins: { claudeRow: CLAUDE_PIN_ROW, claudeLastObserved: cpin.lastObserved, codexRow: CODEX_PIN_ROW, codexLastObserved: xpin.lastObserved, codexCommit: xpin.commit, headCommit: pinsFile.headCommit, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead },
+        pins: { claudeRow: CLAUDE_PIN_ROW, claudeMinimum: cpin.minimum, claudeLastTested: cpin.lastTested, codexRow: CODEX_PIN_ROW, codexMinimum: xpin.minimum, codexLastTested: xpin.lastTested, codexCommit: xpin.commit, headCommit: pinsFile.headCommit, workingTreeMatchesHead: pinsFile.workingTreeMatchesHead },
         cliOutput: { claude: cRaw, codex: xRaw },
         cli,
         wire: { claude: null, codex: null },
-        verified: false,
+        verified: false, // true once each harness's CLI and wire report one and the same version
+        matchesLastTested: null,
+        warnings: [],
       };
-      if (!pinsFile.workingTreeMatchesHead) stop(`${PINS_PATH} has uncommitted changes; the pin checks read the committed PINS.md, so commit or discard the edit first. Nothing launched`);
+      const warn = (w) => {
+        if (!w) return;
+        g4.versions.warnings.push(w);
+        ctx.finding(w);
+      };
+      if (!pinsFile.workingTreeMatchesHead) ctx.finding(`${PINS_PATH} has uncommitted changes; the version checks read the committed PINS.md (HEAD ${pinsFile.headCommit})`);
+      warn(pinsReadWarning(cpin, 'G4'));
+      warn(pinsReadWarning(xpin, 'G4'));
       for (const [h, raw] of [['claude', cRaw], ['codex', xRaw]]) if (!cli[h] && /^N\/A/.test(raw ?? 'N/A')) stop(`${h} --version could not be run (${raw ?? 'not recorded'}); nothing launched`);
-      for (const t of [claudePinMoveTrigger({ observed: cli.claude, lastObserved: cpin.lastObserved, source: '`claude --version`', gate: 'G4' }), codexPinMoveTrigger({ observed: cli.codex, lastObserved: xpin.lastObserved, source: '`codex --version`', gate: 'G4' })]) {
-        if (t) {
-          ctx.finding(t);
-          stop(t);
-        }
-      }
+      warn(claudeVersionWarning({ observed: cli.claude, lastTested: cpin.lastTested, minimum: cpin.minimum, source: '`claude --version`', gate: 'G4' }));
+      warn(codexVersionWarning({ observed: cli.codex, lastTested: xpin.lastTested, minimum: xpin.minimum, source: '`codex --version`', gate: 'G4' }));
       g4.captureNames = unverifiedNames(g4.date);
 
       for (const p of [httpPort, modernHttpPort]) {
@@ -271,11 +280,7 @@ export default {
         instances: hs.f.instances,
       };
       g4.versions.wire.claude = hs.init.clientInfo?.version ?? null;
-      const wt = claudePinMoveTrigger({ observed: g4.versions.wire.claude, lastObserved: cpin.lastObserved, source: 'the wire initialize clientInfo.version', gate: 'G4' });
-      if (wt) {
-        ctx.finding(wt);
-        stop(wt);
-      }
+      warn(claudeVersionWarning({ observed: /^\d+\.\d+\.\d+$/.test(String(g4.versions.wire.claude ?? '')) ? g4.versions.wire.claude : null, lastTested: cpin.lastTested, minimum: cpin.minimum, source: 'the wire initialize clientInfo.version', gate: 'G4' }));
       await claude.settle('post-handshake', num('startupTimeoutMs'));
       g4.afterStartupReadSeq = (await claude.read('after-startup', { source: 'recent-unwrapped', lines: num('readLines') })).seq;
 
@@ -325,14 +330,15 @@ export default {
       await codex.settle('codex-startup', num('startupTimeoutMs'));
       const cinit = await codex.waitFor('Codex\'s MCP client initialize on the HTTP surface', () => facts().httpInitialize.slice(httpBefore).find((x) => x.resLine && x.codexVersion) ?? null, num('handshakeTimeoutMs'), { lbl: 'codex-mcp-wait' });
       g4.versions.wire.codex = cinit.codexVersion;
-      const xt = codexPinMoveTrigger({ observed: cinit.codexVersion, lastObserved: xpin.lastObserved, source: 'the MCP client user-agent (codex-mcp-client/<version>)', gate: 'G4' });
-      if (xt) {
-        ctx.finding(xt);
-        stop(xt);
+      warn(codexVersionWarning({ observed: cinit.codexVersion, lastTested: xpin.lastTested, minimum: xpin.minimum, source: 'the MCP client user-agent (codex-mcp-client/<version>)', gate: 'G4' }));
+      if (cli.claude && cli.codex && g4.versions.wire.claude === cli.claude && g4.versions.wire.codex === cli.codex) {
+        g4.versions.verified = true; // each harness's CLI and wire report one and the same version
+        g4.versions.matchesLastTested = cli.claude === cpin.lastTested && cli.codex === xpin.lastTested;
+        g4.fixtures = fixtureNames(g4.date, cli.claude, cli.codex);
+        g4.captureNames = g4.fixtures;
+      } else {
+        ctx.finding(`a harness's CLI and wire versions differ (CLI ${JSON.stringify(g4.versions.cliOutput)}, wire ${JSON.stringify(g4.versions.wire)}); the run continues, but its captures stay unverified-* because they cannot name one version per harness`);
       }
-      g4.versions.verified = true; // both CLIs and both wire versions equal PINS.md's committed last-observed versions
-      g4.fixtures = fixtureNames(g4.date, cli.claude, cli.codex);
-      g4.captureNames = g4.fixtures;
 
       const callsBefore = facts().toolCalls.length;
       const pushesBefore = facts().pushes.length;

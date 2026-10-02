@@ -38,11 +38,13 @@ gate result.
 
 ## Surfaces and version pins
 
-- Version: **floating** (`docs/planning/PINS.md`, "Floating-version policy"). There is no
-  fixed pin. Record the observed CLI (`codex --version`), daemon
-  (`codex app-server daemon version`) and client `clientInfo` versions in the result, and
-  re-verify the §3.2 facts on that version first. The original baseline was
-  `@openai/codex` 0.154.0 (2026-09-09), PLANNING-PROMPT.md §3.2.
+- Version: **floating** (`docs/planning/PINS.md`, Codex, "Version policy", #216). There
+  is no fixed pin: PINS.md records a minimum (`0.154.0`, the original baseline, 2026-09-09,
+  PLANNING-PROMPT.md §3.2) and a last tested version. Record the observed CLI (`codex
+  --version`), daemon (`codex app-server daemon version`) and client `clientInfo` versions
+  in the result. A version other than the last tested one, or below the minimum, is a
+  warning, never a stop and never by itself a reason to invalidate the verdict. §3.2 facts
+  not yet re-checked at the observed version are a finding.
 - `codex app-server` speaks JSON-RPC 2.0 (no header on the wire) over stdio (JSONL), WebSocket
   (`--listen ws://127.0.0.1:PORT`), or Unix socket. Handshake: `initialize` then `initialized`;
   no numeric protocol version.

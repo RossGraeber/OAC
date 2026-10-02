@@ -13,7 +13,7 @@
 //
 // herdr-driven fixtures (Epic K, K5 #128; rules in docs/planning/gates/README.md
 // "Scripted runs (herdr)"): a fixture whose file name carries the `-herdr` suffix
-// (`<kind>-<YYYY-MM-DD>-<version>-herdr.<ext>`) must carry `version_matches_pin: true`
+// (`<kind>-<YYYY-MM-DD>-<version>-herdr.<ext>`) must carry a boolean `version_matches_pin`
 // and a `driver` block with `herdr_version`, `driver_commit` (full 40-hex commit) and
 // `run_manifest` (a git-tracked `docs/planning/gates/herdr-runs/*.run-manifest.json`,
 // with its `.md` record tracked beside it). That run manifest must parse, record
@@ -24,6 +24,10 @@
 // `unverified-*-herdr.*` capture is never committed. What is NOT checked: that the
 // fixture's bytes are the bytes that run captured (the run manifest records no capture
 // hash yet), or that a real herdr and a real harness ran (see the attestation below).
+//
+// Harness versions float and are never gated (operator decision on #216, 2026-10-01): a
+// `-herdr` entry with `version_matches_pin: false` (its harness version is not PINS.md's
+// last tested one) is printed as a WARN line and does not fail the check.
 //
 // herdr-run records: a tracked herdr-runs/*.md record that claims to be an equivalence
 // record (`> **Equivalence record** for G<n> at herdr <tag>`), and a tracked
@@ -187,6 +191,7 @@ function driverBlockProblems(entry, root, tracked) {
 function checkManifest(root) {
   const manifestPath = join(root, manifestRelPath);
   const problems = [];
+  const warnings = [];
 
   if (!existsSync(manifestPath)) return { fatal: `FAIL  ${manifestRelPath}: missing` };
 
@@ -261,10 +266,13 @@ function checkManifest(root) {
     if (isHerdrFixture(entry.path)) {
       herdrEntries += 1;
       if (UNVERIFIED_PREFIX.test(posix.basename(entry.path))) {
-        problems.push(`${label}: an \`unverified-*\` herdr capture is never a fixture (its harness version was not verified against PINS.md)`);
+        problems.push(`${label}: an \`unverified-*\` herdr capture is never a fixture (its harness sources did not report one and the same version)`);
       }
-      if (entry.version_matches_pin !== true) {
-        problems.push(`${label}: a \`-herdr\` fixture needs version_matches_pin: true (its harness version verified against PINS.md)`);
+      if (typeof entry.version_matches_pin !== 'boolean') {
+        problems.push(`${label}: a \`-herdr\` fixture's version_matches_pin must be true or false`);
+      } else if (entry.version_matches_pin === false) {
+        // #216: versions float; a version other than PINS.md's last tested one is a warning only.
+        warnings.push(`${label}: VERSION WARNING: version_matches_pin is false (the harness version is not PINS.md's last tested one); versions float and are never gated (#216)${entry.version_matches_pin_note ? ` -- ${entry.version_matches_pin_note}` : ''}`);
       }
       for (const p of driverBlockProblems(entry, root, trackedGateSet)) problems.push(`${label}: ${p}`);
     } else if ('driver' in entry) {
@@ -299,7 +307,7 @@ function checkManifest(root) {
     for (const p of attestationProblems(text)) problems.push(`${file}: ${why} but ${p}`);
   }
 
-  return { problems, entries: entries.length, tracked: trackedFixtureFiles.length, herdrEntries, attested };
+  return { problems, warnings, entries: entries.length, tracked: trackedFixtureFiles.length, herdrEntries, attested };
 }
 
 function report(result) {
@@ -307,6 +315,7 @@ function report(result) {
     console.error(result.fatal);
     return 1;
   }
+  for (const w of result.warnings ?? []) console.log(`  WARN  ${w}`);
   if (result.problems.length > 0) {
     console.error(`\n${result.problems.length} fixture-manifest violation(s):`);
     for (const problem of result.problems) console.error(`  FAIL  ${problem}`);
@@ -407,7 +416,8 @@ const SELF_TEST_CASES = [
   { name: 'run manifest herdr version differs', expect: 'herdr_version does not match', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ herdr: { observedVersionOutput: 'herdr 0.9.2' } }) }) },
   { name: 'fixture not among the run\'s captures', expect: 'among its written captures', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ captures: [] }) }) },
   { name: 'fixture among the run\'s captures but withheld (written: false)', expect: 'among its written captures', ...tree({ entries: [herdrEntry(DRIVER)], run: runWith({ captures: [{ file: posix.basename(HERDR_FIXTURE), written: false }] }) }) },
-  { name: '-herdr entry with version_matches_pin false', expect: 'needs version_matches_pin: true', ...tree({ entries: [herdrEntry(DRIVER, HERDR_FIXTURE, { version_matches_pin: false })] }) },
+  { name: 'control (#216): -herdr entry with version_matches_pin false passes with a VERSION WARNING', expect: 'pass', expectOutput: 'WARN  ', ...tree({ entries: [herdrEntry(DRIVER, HERDR_FIXTURE, { version_matches_pin: false, version_matches_pin_note: 'Claude Code 2.1.999 is not the last tested 2.1.285' })] }) },
+  { name: '-herdr entry with version_matches_pin not a boolean', expect: 'must be true or false', ...tree({ entries: [herdrEntry(DRIVER, HERDR_FIXTURE, { version_matches_pin: 'yes' })] }) },
   { name: 'driver block on a fixture without the -herdr suffix', expect: 'lacks the `-herdr` suffix', ...tree({ entries: [herdrEntry(DRIVER, `${fixturesDir}/g1-claude-wake/transcript-2026-10-01-2.1.283.jsonl`)] }) },
   { name: 'unverified-* herdr capture committed as a fixture', expect: 'is never a fixture', ...tree({ entries: [herdrEntry(DRIVER, UNVERIFIED_FIXTURE)] }) },
   { name: 'committed -herdr file with no manifest entry', expect: 'has no MANIFEST.json entry', ...tree({ entries: [], extraFiles: [HERDR_FIXTURE] }) },
@@ -441,7 +451,7 @@ function runSelfTest() {
       const run = spawnSync(process.execPath, [scriptPath, '--root', dir], { encoding: 'utf8' });
       const output = `${run.stdout}${run.stderr}`;
       const failLines = output.split('\n').filter((l) => l.trim().startsWith('FAIL  ')).length;
-      const ok = tc.expect === 'pass' ? run.status === 0 : run.status === 1 && failLines === 1 && output.includes(tc.expect);
+      const ok = tc.expect === 'pass' ? run.status === 0 && (!tc.expectOutput || output.includes(tc.expectOutput)) : run.status === 1 && failLines === 1 && output.includes(tc.expect);
       if (!ok) failed += 1;
       console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${tc.name}  (exit ${run.status}${tc.expect === 'pass' ? '' : `, ${failLines} violation(s)`})`);
       if (!ok) console.log(output);

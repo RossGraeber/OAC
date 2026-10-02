@@ -333,6 +333,10 @@ here by reference, not copied:
   five `G<n>-result.md` files — it is never hand-edited per gate.
 - **ACP exemption.** The ACP pin row's `Gates affected` cell is `none`, so an ACP pin
   move invalidates no gate.
+- **Harness exemption (#216, 2026-10-01).** The Claude Code (Channels) and Codex CLI /
+  app-server rows float: PINS.md records a minimum and a last tested version for each, and
+  a change to either invalidates no gate. A harness version other than the last tested one
+  is a warning, never a gate. Verdicts above stand on the versions they record.
 
 ## 9. Sourcing discipline
 

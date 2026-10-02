@@ -365,6 +365,11 @@
   | 2026-09-25 | Codex CLI / app-server `0.154.0` (matches PINS.md); Windows only | PASS | Codex CLI / app-server pin 0.154.0 -> floating (last observed 0.157.1), 2026-09-26 |
   | 2026-09-26 | Codex CLI / app-server `0.157.1` (floating row, last observed version; matches PINS.md and the environment); Windows only | PASS | — (current) |
 
+  *Dated note, 2026-10-01 (#216):* by operator decision, harness versions now float and
+  warn, never gate. The 2026-09-26 invalidation in the first row is history. A later Codex
+  version (PINS.md last tested `0.159.3`, minimum `0.154.0`) does not invalidate the
+  current PASS, which stands on `0.157.1`. The verdict is unchanged.
+
 #### Scripted re-run through herdr (K7) — pointer only, not verdict-bearing
 
 A herdr-driven re-run of this gate's `0.157.1` re-run exists as test tooling (Epic K, K7

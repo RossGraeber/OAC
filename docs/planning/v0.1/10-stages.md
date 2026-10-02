@@ -204,7 +204,8 @@ build: no workspace exists yet.
 4. Every conflict-register entry is either resolved by a numbered amendment, resolved in
    a decision document, or recorded as explicitly open with a named owner.
 5. The gate re-run/invalidation policy exists and is mechanical: a pin-table change
-   invalidates the gates named in that row.
+   invalidates the gates named in that row (except the floating Claude Code and Codex rows,
+   whose version changes warn, never gate: #216, 2026-10-01).
 
 **Go/no-go condition.** Go when all five criteria hold. **No-go** if any pinned surface
 cannot be resolved at all at its pin — an unresolvable pin means later stages would be
@@ -719,7 +720,9 @@ rather than from crates.io (`docs/planning/v0.1/07-repository-and-dependencies.m
 1. Every gate G1-G5 has been re-run against the versions actually shipped, or the shipped
    pins are unchanged from the versions the gates last passed against. A pin move
    invalidates the gate mechanically (`docs/planning/gates/README.md` re-run policy), and
-   shipping on an invalidated gate is shipping on a `NOT RUN`.
+   shipping on an invalidated gate is shipping on a `NOT RUN`. *Dated note, 2026-10-01 (#216, operator decision):* Claude Code and
+   Codex versions float and are exempt: a harness version newer than the one a gate ran on
+   is a warning, not an invalidation; the release records the last tested versions.
 2. The license inventory covers the transitive graph and every copyleft arm is flagged and
    dispositioned — currently one: `zenoh`'s EPL-2.0 arm, with OAC electing Apache-2.0
    (`docs/planning/v0.1/07-repository-and-dependencies.md` §6).

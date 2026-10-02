@@ -122,7 +122,9 @@ PLANNING-PROMPT.md §3 is **starting evidence, not permanent truth** — it is a
 pre-verified baseline retrieved 2026-09-15 (per `SKILLS-MODEL.md` and
 `docs/planning/STATUS.md`). Re-verify when either trigger fires:
 
-- **A pin moves** (`docs/planning/STATUS.md` Pins table changes for any surface).
+- **A pin moves** (`docs/planning/STATUS.md` Pins table changes for any surface). For
+  the floating harness rows (Claude Code, Codex) a new last tested version triggers this
+  re-check as a follow-up finding; it never gates a run or a verdict (#216).
 - **A Stage 0 task runs** (Epic B in the backlog).
 
 Procedure:

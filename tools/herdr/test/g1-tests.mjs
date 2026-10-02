@@ -2,29 +2,29 @@
 //
 // Unit half: tools/herdr/lib/compare-transcripts.mjs against the REAL committed G1
 // transcripts (Box C, Box B, the original run) and synthetic variants of Box C with known
-// differences; the Claude Code pin-move check; lib/g1.mjs (dialog recognition against Box
+// differences; the Claude Code version warning (#216); lib/g1.mjs (dialog recognition against Box
 // C's recorded dialog text, mid-turn windows, pane sections, server staging); and the
 // scoring rules of lib/g1-report.mjs.
 //
 // Lifecycle half: tools/herdr/scenarios/g1-claude-wake.mjs end to end through run.mjs
 // against test/fake-herdr.mjs and test/fake-claude.mjs, both TEST DOUBLES. These prove the
 // scenario's and the driver's own behavior (staging, ordering, the accept-origin rule,
-// version stops, captures, redaction, teardown). They prove nothing about herdr or Claude
+// version warnings that never stop a run, captures, redaction, teardown). They prove nothing about herdr or Claude
 // Code: a live G1 run through herdr is evidenced only by its own local run record.
 
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { compareTranscripts, diffSequences, formatDiff, parseTranscript, selectSegment, transcriptFacts, normalizeEntries, TranscriptError, isLegacyRevision } from '../lib/compare-transcripts.mjs';
-import { parseClaudeLastObserved, parseClaudeCliVersion, claudePinMoveTrigger } from '../lib/pins.mjs';
+import { parseClaudeVersions, parseClaudeCliVersion, claudeVersionWarning, compareVersions, pinsReadWarning } from '../lib/pins.mjs';
 import {
   BOX_C_TRANSCRIPT, COMMITTED_SERVER, FIXTURE_DIR, G1_LAUNCH, classifyScreen, driverMayAccept, dialogMatchesBoxC, formatSection, parseSections,
   fixtureNames, unverifiedNames, stageServerCopy, verifyServerCopy, committedFile, sha256, midTurnWindow, COMMITTED_SERVER_SHA256, selectedOption, sameDialog, acceptHint, selectionCheck,
 } from '../lib/g1.mjs';
-import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, versionsVerified } from '../lib/g1-report.mjs';
+import { evaluateG1, parseOperatorScores, SCORES, ReportError, writeRefusal, fixtureWithheld, versionsVerified, versionMatchesLastTested } from '../lib/g1-report.mjs';
 import { assertNotInjected, DEFAULT_PROMPTS, operatorProjectDir } from '../scenarios/g1-claude-wake.mjs';
 import { AGENT_START_MAX_TIMEOUT_MS, DriverError } from '../lib/herdr.mjs';
 
@@ -35,6 +35,8 @@ const read = (p) => readFileSync(p, 'utf8');
 const BOX_C = read(join(REPO, BOX_C_TRANSCRIPT));
 const BOX_B = read(FIX('transcript-2026-09-28-2.1.283.jsonl'));
 const ORIGINAL = read(FIX('transcript.jsonl'));
+const PINNED = parseClaudeVersions(read(join(REPO, 'docs', 'planning', 'PINS.md')));
+const TESTED = PINNED.lastTested;
 const toJsonl = (entries) => `${entries.map((e) => JSON.stringify({ t: e.t, direction: e.direction, payload: e.payload })).join('\n')}\n`;
 const throws = (fn, cls, re) => {
   try {
@@ -154,16 +156,25 @@ export function g1Unit(check) {
   const cli = spawnSync(process.execPath, [join(REPO, 'tools', 'herdr', 'lib', 'compare-transcripts.mjs'), join(REPO, BOX_C_TRANSCRIPT), FIX('transcript-2026-09-28-2.1.283.jsonl'), '--segment', 'last', '--detail'], { encoding: 'utf8', timeout: 15000 });
   check('compare: CLI prints the diff and exits 1 on a difference', cli.status === 1 && cli.stdout.includes('- s->c notification notifications/claude/channel [midturn-test]') && /summary: 14 same method, \d+ of those with a different payload, 1 only in/.test(cli.stdout), cli.stdout + cli.stderr);
 
-  // --- Claude Code pin-move check ---------------------------------------------------------
-  const real = parseClaudeLastObserved(read(join(REPO, 'docs', 'planning', 'PINS.md')));
-  check('pin: PINS.md "Claude Code (Channels)" last-observed version parses', /^\d+\.\d+\.\d+$/.test(real.lastObserved), real.lastObserved);
+  // --- Claude Code version warning (#216: warn, never gate) --------------------------------
+  check('version: PINS.md "Claude Code (Channels)" minimum and last tested versions parse; the minimum is the first worked-with v2.1.282', /^\d+\.\d+\.\d+$/.test(PINNED.lastTested) && PINNED.minimum === '2.1.282' && compareVersions(PINNED.lastTested, PINNED.minimum) >= 0, JSON.stringify(PINNED));
   const table = (cellText) => `| Surface | Stability label | Pinned version | Gates affected |\n|---|---|---|---|\n| Claude Code (Channels) | research preview | ${cellText} | G1 |\n`;
-  check('pin: synthetic floating row -> last observed', parseClaudeLastObserved(table('**floating** — last observed `v2.1.300`; see policy')).lastObserved === '2.1.300');
-  check('pin: a row without a last-observed version throws', throws(() => parseClaudeLastObserved(table('`v2.1.274`'))) && throws(() => parseClaudeLastObserved('| Surface | Pinned version |\n|---|---|\n| zenoh | `1.10.1` |')));
+  const syn = parseClaudeVersions(table('**floating** — minimum `v2.1.200`; last tested `v2.1.300` (L9, 2026-12-01); see policy'));
+  check('version: synthetic row -> minimum and last tested', syn.minimum === '2.1.200' && syn.lastTested === '2.1.300');
+  // #216 review: the reader never throws; what it cannot read is null, with the reason.
+  const bad = [table('`v2.1.274`'), table('**floating** — last observed `v2.1.283`'), table('**floating** — last tested `v2.1.283`'), '| Surface | Pinned version |\n|---|---|\n| zenoh | `1.10.1` |', 'no table at all', '', undefined];
+  const badParsed = bad.map((t) => { try { return parseClaudeVersions(t); } catch (e) { return { threw: e.message }; } });
+  check('version (#216 review): a malformed or missing row never throws; unreadable versions are null and the problem is named', badParsed.every((p) => !p.threw && typeof p.problem === 'string' && p.problem.length > 0) && badParsed[2].lastTested === '2.1.283' && badParsed[2].minimum === null && /no "minimum/.test(badParsed[2].problem) && badParsed[0].lastTested === null && badParsed[4].cell === null, JSON.stringify(badParsed));
+  check('version (#216 review): pinsReadWarning is a VERSION WARNING naming the row and the problem (never a stop), null for a good row', /^VERSION WARNING \(G1\): could not read docs\/planning\/PINS\.md "Claude Code \(Channels\)"/.test(pinsReadWarning(badParsed[0], 'G1')) && /run continues/.test(pinsReadWarning(badParsed[0], 'G1')) && pinsReadWarning(PINNED, 'G1') === null && PINNED.problem === null);
+  const nullW = claudeVersionWarning({ observed: '2.1.285', lastTested: null, minimum: undefined, source: 'x' });
+  check('version (#216 review): a null last tested or minimum version is a "could not be read" warning, never "vundefined"/"vnull"', /last tested version could not be read/.test(nullW) && /minimum version could not be read/.test(nullW) && /records minimum unreadable, last tested unreadable/.test(nullW) && !/vundefined|vnull|undefined|null/.test(nullW), nullW);
+  check('version: compareVersions orders numerically', compareVersions('2.1.10', '2.1.9') > 0 && compareVersions('2.1.282', '2.1.282') === 0 && compareVersions('0.154.0', '0.159.3') < 0);
   check('pin: claude --version output parses', parseClaudeCliVersion('2.1.283 (Claude Code)\n') === '2.1.283' && parseClaudeCliVersion('v2.1.284') === '2.1.284' && parseClaudeCliVersion('N/A (not runnable: ENOENT)') === null && parseClaudeCliVersion('2.1.283-beta (x)') === null);
-  const trig = claudePinMoveTrigger({ observed: '2.1.284', lastObserved: '2.1.283', source: '`claude --version`' });
-  check('pin: equal versions -> no trigger; a different version -> a pin-move trigger naming both, no PINS.md edit', claudePinMoveTrigger({ observed: '2.1.283', lastObserved: '2.1.283', source: 'x' }) === null && /^PIN-MOVE TRIGGER/.test(trig) && trig.includes('v2.1.284') && trig.includes('v2.1.283') && /does not edit PINS\.md/.test(trig));
-  check('pin: an unparseable version is a trigger too', /no parseable version/.test(claudePinMoveTrigger({ observed: null, lastObserved: '2.1.283', source: 'x' })));
+  const w = claudeVersionWarning({ observed: '2.1.286', lastTested: '2.1.285', minimum: '2.1.282', source: '`claude --version`' });
+  check('version: equal to last tested -> no warning; a newer version -> a VERSION WARNING naming both, never a stop, no PINS.md edit', claudeVersionWarning({ observed: '2.1.285', lastTested: '2.1.285', minimum: '2.1.282', source: 'x' }) === null && /^VERSION WARNING \(G1\)/.test(w) && w.includes('v2.1.286') && w.includes('v2.1.285') && /not the last tested/.test(w) && !/below the minimum/.test(w) && /run continues/.test(w) && /does not by itself invalidate/.test(w) && /does not edit PINS\.md/.test(w) && !/PIN-MOVE|NOT RUN/.test(w), w);
+  const below = claudeVersionWarning({ observed: '2.1.281', lastTested: '2.1.285', minimum: '2.1.282', source: 'x', gate: 'G5' });
+  check('version: below the minimum is a warning too (says so), never a stop', /^VERSION WARNING \(G5\)/.test(below) && /below the minimum v2\.1\.282/.test(below) && /run continues/.test(below), below);
+  check('version: an unparseable version is a warning too', /no parseable version/.test(claudeVersionWarning({ observed: null, lastTested: '2.1.285', minimum: '2.1.282', source: 'x' })));
 
   // --- lib/g1.mjs -----------------------------------------------------------------------
   const dialog = boxCDialogFromResult();
@@ -365,11 +376,14 @@ export function g1Unit(check) {
   check('report: criterion 5 cannot take an operator score', throws(() => parseOperatorScores([{ n: 5, score: 'equivalent', note: 'x' }]), ReportError, /never scored/));
   check('report: criteria 1 and 4 cannot take an operator score', throws(() => parseOperatorScores([{ n: 1, score: 'equivalent', note: 'x' }]), ReportError, /mechanically/));
   check('report: an operator score needs a note and a valid value', throws(() => parseOperatorScores([{ n: 2, score: 'equivalent', note: '' }]), ReportError, /note/) && throws(() => parseOperatorScores([{ n: 3, score: 'probably', note: 'x' }]), ReportError));
-  const notRun = evaluateG1({ manifest: { outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER: ...', scenarioData: {} }, transcriptText: null, paneText: null, baselineText: BOX_C });
+  const notRun = evaluateG1({ manifest: { outcome: 'NOT RUN', outcomeReason: 'timed out', scenarioData: {} }, transcriptText: null, paneText: null, baselineText: BOX_C });
   check('report: a NOT RUN leaves every criterion not evaluable', notRun.rows.every((r) => r.score === SCORES.NE && /NOT RUN/.test(r.reason)));
-  const v = (o) => ({ versions: { verified: true, cli: '2.1.283', wireClientInfo: '2.1.283', pinsLastObserved: '2.1.283', pinsSource: { workingTreeMatchesHead: true }, ...o } });
-  check('report: versions verified only when CLI AND wire equal the committed last-observed version', versionsVerified(v({})) && !versionsVerified(v({ wireClientInfo: '2.1.999' })) && !versionsVerified(v({ cli: '2.1.999' })) && !versionsVerified(v({ verified: false })) && !versionsVerified(v({ pinsSource: { workingTreeMatchesHead: false } })));
-  check('report: --write refuses a NOT RUN outcome', /only a PASS run is written/.test(writeRefusal({ outcome: 'NOT RUN', outcomeReason: 'PIN-MOVE TRIGGER', scenarioData: { g1: v({}) } })));
+  const v = (o) => ({ versions: { verified: true, cli: '2.1.285', wireClientInfo: '2.1.285', pinsMinimum: '2.1.282', pinsLastTested: '2.1.285', pinsSource: { workingTreeMatchesHead: true }, ...o } });
+  check('report: versions verified when CLI and wire report one and the same version; PINS.md is not part of it (#216)', versionsVerified(v({})) && !versionsVerified(v({ wireClientInfo: '2.1.999' })) && !versionsVerified(v({ cli: '2.1.999' })) && !versionsVerified(v({ verified: false })) && versionsVerified(v({ pinsSource: { workingTreeMatchesHead: false } })) && versionsVerified(v({ cli: '2.1.999', wireClientInfo: '2.1.999' })));
+  check('report (#216): matching the last tested version is informational: a drifted version is verified but does not match', versionMatchesLastTested(v({})) && !versionMatchesLastTested(v({ cli: '2.1.999', wireClientInfo: '2.1.999' })) && !versionMatchesLastTested(v({ cli: '2.1.200', wireClientInfo: '2.1.200' })));
+  check('report: --write refuses a NOT RUN outcome', /only a PASS run is written/.test(writeRefusal({ outcome: 'NOT RUN', outcomeReason: 'timed out', scenarioData: { g1: v({}) } })));
+  const mixed = { outcome: 'PASS', scenarioData: { g1: { ...v({ wireClientInfo: '2.1.999', verified: false }), server: { match: true, workingTreeMatchesHead: true } } } };
+  check('report (#216 operator decision): CLI != wire never refuses --write; the fixture is withheld with a VERSION WARNING', writeRefusal(mixed) === null && /^VERSION WARNING: .*no fixture is added/.test(fixtureWithheld(mixed)) && fixtureWithheld({ outcome: 'PASS', scenarioData: { g1: v({}) } }) === null);
 }
 
 // --- lifecycle cases (driver end to end against the fakes) --------------------------------
@@ -382,7 +396,7 @@ export function g1Cases(check) {
   const cases = [];
   const run = (name, opts, assert) => cases.push({ name, opts: { scenario: 'g1-claude-wake', mode: 'fake-claude', ...opts }, assert });
   const committedSha = sha256(readFileSync(join(REPO, COMMITTED_SERVER)));
-  const names = () => fixtureNames(today(), '2.1.283');
+  const names = () => fixtureNames(today(), TESTED);
   const inputAfter = (m, seq) => m.commands.filter((x) => x.seq > seq && ['operator-input', 'dialog-accept'].includes(x.role));
   const evalRun = (r, operatorScores = {}) =>
     evaluateG1({ manifest: r.manifest, transcriptText: r.capture(names().transcript), paneText: r.capture(names().pane), baselineText: BOX_C, operatorScores });
@@ -393,7 +407,7 @@ export function g1Cases(check) {
     check('g1 driver accept: PASS (exit 0)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
     check('g1 driver accept: launch verbatim, passed as the launch parameter', JSON.stringify(m.launch.argv) === JSON.stringify(G1_LAUNCH) && g1.launch.verbatim === true && r.calls.some((c) => c.argv.join(' ').includes('agent start g1claude --kind claude --pane w1:p1 --timeout 20000 -- --dangerously-load-development-channels server:g1spike')));
     check('g1 driver accept: server copy sha256 matches the committed blob at HEAD, working tree clean', g1.server.match && g1.server.committedSha256 === COMMITTED_SERVER_SHA256 && g1.server.copySha256 === committedSha && g1.server.workingTreeMatchesHead === true && g1.server.copy === '<SCRATCH>/g1-server/channel-server.mjs');
-    check('g1 driver accept: versions verified on CLI and wire; PINS.md read from HEAD', g1.versions.verified === true && g1.versions.pinsSource.workingTreeMatchesHead === true && JSON.stringify(g1.fixtures) === JSON.stringify(g1.captureNames));
+    check('g1 driver accept: versions verified on CLI and wire; PINS.md read from HEAD; at the last tested version, no VERSION WARNING', g1.versions.verified === true && g1.versions.matchesLastTested === true && g1.versions.warnings.length === 0 && !m.findings.some((f) => /VERSION WARNING/.test(f)) && g1.versions.pinsSource.workingTreeMatchesHead === true && JSON.stringify(g1.fixtures) === JSON.stringify(g1.captureNames));
     const d = g1.dialogs[0];
     const acc = m.commands.find((x) => x.role === 'dialog-accept');
     check('g1 driver accept: dialog read verbatim, then accepted by the driver with no input in between', d?.kind === 'dev-channels' && d.acceptOrigin === 'driver' && acc && acc.seq === d.acceptSeq && m.commands.find((x) => x.seq === acc.seq - 1)?.argv.includes('read') && d.inputBetweenReadAndAccept === 0 && d.matchesBoxC.matches, JSON.stringify(d));
@@ -405,7 +419,7 @@ export function g1Cases(check) {
     check('g1 driver accept: both mid-turn notifications established mid-turn from wire t vs pane reads', g1.busyTurn.notifications.every((n) => n.midTurn.established), JSON.stringify(g1.busyTurn.notifications.map((n) => n.midTurn)));
     const pane = parseSections(r.capture(names().pane));
     check('g1 driver accept: the pane capture holds the dialog read verbatim, keyed to its herdr command', pane.some((s) => s.seq === d.readSeq && dialogMatchesBoxC(s.text).matches));
-    check('g1 driver accept: versions recorded (CLI, wire, PINS.md last observed)', g1.versions.cli === '2.1.283' && g1.versions.wireClientInfo === '2.1.283' && /^\d+\.\d+\.\d+$/.test(g1.versions.pinsLastObserved));
+    check('g1 driver accept: versions recorded (CLI, wire, PINS.md minimum and last tested)', g1.versions.cli === TESTED && g1.versions.wireClientInfo === TESTED && g1.versions.pinsLastTested === TESTED && g1.versions.pinsMinimum === PINNED.minimum);
     const ev = evalRun(r);
     const s = ev.rows.map((x) => x.score);
     check('g1 driver accept: report scores C1/C4 equivalent, C2/C3 pending the operator, C5 NOT scored (driver-sent accept)', s[0] === SCORES.EQ && s[3] === SCORES.EQ && s[1] === SCORES.NE && s[2] === SCORES.NE && s[4] === SCORES.NE && /driver-sent accept/.test(ev.rows[4].reason) && /operator review/.test(ev.rows[1].reason), JSON.stringify(ev.rows.map((x) => [x.score, x.reason])));
@@ -463,26 +477,61 @@ export function g1Cases(check) {
     check('g1 human accept timeout: the dialog text is still captured, under an unverified (non-fixture) name', g1.fixtures === null && g1.captureNames.pane.startsWith('unverified-') && parseSections(r.capture(g1.captureNames.pane)).some((s) => s.seq === d.readSeq && dialogMatchesBoxC(s.text).matches) && m.captures.every((c) => c.file.startsWith('unverified-')));
   });
 
-  run('g1 CLI version is a pin-move trigger', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999' } }, (r) => {
+  // #216: versions float; a version other than PINS.md's last tested one (or below the
+  // minimum) is a VERSION WARNING finding and the run proceeds to the end.
+  run('g1 drifted version warns and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_STEP_MS: '1000', FAKE_CLAUDE_CLI_VERSION: '2.1.999', FAKE_CLAUDE_VERSION: '2.1.999' } }, (r) => {
     const m = r.manifest;
-    check('g1 pin move (CLI): NOT RUN (exit 3) with a pin-move trigger naming both versions', r.status === 3 && /^PIN-MOVE TRIGGER/.test(m.outcomeReason) && m.outcomeReason.includes('v2.1.999') && m.findings.some((f) => /^PIN-MOVE TRIGGER/.test(f)), m.outcomeReason);
-    check('g1 pin move (CLI): stopped before any workspace, launch or input', !r.calls.some((c) => c.argv.includes('workspace') || c.argv.includes('agent')) && !m.commands.some((x) => ['operator-input', 'dialog-accept'].includes(x.role)) && m.captures.length === 0);
-  });
-
-  run('g1 wire version is a pin-move trigger', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_VERSION: '2.1.999' } }, (r) => {
-    const m = r.manifest;
-    check('g1 pin move (wire): NOT RUN with a pin-move trigger from clientInfo.version', r.status === 3 && /^PIN-MOVE TRIGGER: the wire initialize clientInfo\.version reports v2\.1\.999/.test(m.outcomeReason), m.outcomeReason);
-    check('g1 pin move (wire): no operator prompt was sent, no notification triggered', r.prompts.length === 0 && m.scenarioData.g1.triggers.length === 0);
     const g1 = m.scenarioData.g1;
-    check('g1 pin move (wire): no fixture-named capture; captures are unverified-*', g1.fixtures === null && g1.versions.verified === false && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')) && !readdirSync(r.outDir).some((f) => /-herdr\.(jsonl|txt)$/.test(f) && !f.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
+    check('g1 #216 drift: PASS (exit 0), never NOT RUN on a version', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+    check('g1 #216 drift: a VERSION WARNING finding for the CLI and for the wire, naming both versions', g1.versions.warnings.length === 2 && m.findings.filter((f) => /^VERSION WARNING \(G1\)/.test(f)).length === 2 && m.findings.some((f) => /`claude --version` reports v2\.1\.999/.test(f) && f.includes(`v${TESTED}`)) && m.findings.some((f) => /clientInfo\.version reports v2\.1\.999/.test(f)), JSON.stringify(m.findings));
+    check('g1 #216 drift: the whole run happened (three prompts, wake and mid-turn triggers) and the captures name the observed version', r.prompts.length === 3 && g1.triggers.length >= 3 && g1.versions.verified === true && g1.versions.matchesLastTested === false && JSON.stringify(g1.fixtures) === JSON.stringify(fixtureNames(today(), '2.1.999')), JSON.stringify(g1.captureNames));
     const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g1-report.mjs');
     const root = mkdtempSync(join(tmpdir(), 'oac-g1-report-'));
     try {
       const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
+      const entries = w.status === 0 ? JSON.parse(readFileSync(join(r.outDir, 'manifest-entries.draft.json'), 'utf8')) : [];
+      check('g1 #216 drift: report --write is not refused on version; the draft entries say version_matches_pin false with a note', w.status === 0 && entries.length === 2 && entries.every((e) => e.version_matches_pin === false && /VERSION WARNING finding, not a gate/.test(e.version_matches_pin_note)), w.stderr);
       const p = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
-      check('g1 pin move (wire): report --write refuses and writes nothing; the printed draft says NOT RUN, no fixtures', w.status === 2 && /--write refused: run outcome is NOT RUN/.test(w.stderr) && readdirSync(root).length === 0 && !existsSync(join(r.outDir, 'manifest-entries.draft.json')) && p.status === 0 && /Run outcome:\*\* NOT RUN/.test(p.stdout) && /Fixtures:\*\* none/.test(p.stdout), w.stderr + p.stdout.slice(0, 2000));
+      check('g1 #216 drift: the draft lists the warnings as findings and states the policy', p.status === 0 && /Finding: VERSION WARNING \(G1\)/.test(p.stdout) && /version warnings: 2/.test(p.stdout) && /never gated, #216/.test(p.stdout), p.stdout.slice(0, 3000));
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  run('g1 below-minimum version warns and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_STEP_MS: '1000', FAKE_CLAUDE_CLI_VERSION: '2.1.200', FAKE_CLAUDE_VERSION: '2.1.200' } }, (r) => {
+    const m = r.manifest;
+    check('g1 #216 below minimum: PASS, with VERSION WARNINGs that say "below the minimum"', r.status === 0 && m.outcome === 'PASS' && m.findings.filter((f) => /^VERSION WARNING/.test(f) && /below the minimum v2\.1\.282/.test(f)).length === 2, `${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.findings)}`);
+  });
+
+  run('g1 CLI and wire disagree: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_STEP_MS: '1000', FAKE_CLAUDE_VERSION: '2.1.999' } }, (r) => {
+    const m = r.manifest;
+    const g1 = m.scenarioData.g1;
+    check('g1 #216 CLI != wire: PASS, a wire VERSION WARNING plus a finding that the captures cannot name one version', r.status === 0 && m.outcome === 'PASS' && m.findings.some((f) => /^VERSION WARNING \(G1\): the wire initialize clientInfo\.version reports v2\.1\.999/.test(f)) && m.findings.some((f) => /captures stay unverified-\*/.test(f)), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.findings)}`);
+    check('g1 #216 CLI != wire: the run went on to the end (three prompts) but no fixture-named capture', r.prompts.length === 3 && g1.fixtures === null && g1.versions.verified === false && m.captures.length > 0 && m.captures.every((c) => c.file.startsWith('unverified-')), JSON.stringify(m.captures.map((c) => c.file)));
+    const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g1-report.mjs');
+    const root = mkdtempSync(join(tmpdir(), 'oac-g1-report-'));
+    try {
+      const w = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--write', '--root', root], { encoding: 'utf8', timeout: 20000 });
+      const date = g1.date;
+      const fixDir = join(root, FIXTURE_DIR);
+      check('g1 #216 CLI != wire: --write writes the record and run manifest with a VERSION WARNING, but no fixture and no MANIFEST draft (operator decision)', w.status === 0 && existsSync(join(root, `docs/planning/gates/herdr-runs/G1-${date}.md`)) && existsSync(join(root, `docs/planning/gates/herdr-runs/G1-${date}.run-manifest.json`)) && !existsSync(fixDir) && !existsSync(join(r.outDir, 'manifest-entries.draft.json')) && /No fixture written: VERSION WARNING/.test(w.stdout) && /Finding: VERSION WARNING: the CLI .* no fixture is added/.test(readFileSync(join(root, `docs/planning/gates/herdr-runs/G1-${date}.md`), 'utf8')), w.stdout + w.stderr);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // #216 review: a malformed PINS.md harness row never stops a run. The driver runs from a
+  // temporary clone whose committed PINS.md has the Claude Code row's versions removed.
+  let pinsClone = null;
+  run('g1 malformed PINS.md row warns and the run proceeds', { args: ['--param', 'accept=driver', ...FAST], fakeClaude: { FAKE_CLAUDE_STEP_MS: '1000' }, prepare: () => (pinsClone = cloneWithPins((t) => t.replace(/^(\| Claude Code \(Channels\) \| [^|]*\| )[^|]*/m, '$1**floating** — see "Version policy" '))) }, (r) => {
+    try {
+      const m = r.manifest;
+      const g1 = m.scenarioData.g1;
+      check('g1 #216 malformed PINS.md: PASS (exit 0), not FAIL or NOT RUN', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+      check('g1 #216 malformed PINS.md: a "could not read" VERSION WARNING, and the version checks warn that PINS.md could not be read', m.findings.some((f) => /^VERSION WARNING \(G1\): could not read docs\/planning\/PINS\.md "Claude Code \(Channels\)"/.test(f)) && m.findings.some((f) => /last tested version could not be read/.test(f)) && g1.versions.pinsLastTested === null && g1.versions.pinsMinimum === null && !m.findings.some((f) => /vundefined|vnull/.test(f)), JSON.stringify(m.findings));
+      check('g1 #216 malformed PINS.md: the whole run happened and the captures still name the observed version', r.prompts.length === 3 && g1.versions.verified === true && g1.versions.matchesLastTested === false && JSON.stringify(g1.fixtures) === JSON.stringify(fixtureNames(today(), TESTED)));
+    } finally {
+      if (pinsClone) rmSync(pinsClone, { recursive: true, force: true });
     }
   });
 
@@ -539,6 +588,24 @@ export function g1Cases(check) {
     check('g1 #196 stuck selection: NOT RUN after one "down", never Enter on "No, exit", nothing re-sent', r.status === 3 && /did not move/.test(m.outcomeReason) && acc.length === 1 && acc[0].argv.at(-1) === 'down', `${m.outcomeReason} ${JSON.stringify(acc.map((a) => a.argv.at(-1)))}`);
   });
   return cases;
+}
+
+// A temporary clone of this repository with the working tree's tools/herdr/ copied over it
+// and `mutate(PINS.md text)` committed, so a scenario reads a malformed PINS.md row from HEAD
+// (#216 review). Test setup only: everything happens in a fresh temp directory.
+export function cloneWithPins(mutate) {
+  const dir = mkdtempSync(join(tmpdir(), 'oac-pins-'));
+  const git = (args) => {
+    const r = spawnSync('git', ['-c', 'user.name=oac-selftest', '-c', 'user.email=selftest@invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8', timeout: 60000 });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed in the test clone: ${r.stderr}`);
+  };
+  git(['clone', '-q', '--no-hardlinks', REPO, '.']);
+  cpSync(join(REPO, 'tools', 'herdr'), join(dir, 'tools', 'herdr'), { recursive: true });
+  const pins = join(dir, 'docs', 'planning', 'PINS.md');
+  writeFileSync(pins, mutate(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')));
+  git(['add', '--', 'docs/planning/PINS.md']);
+  git(['commit', '-q', '-m', 'test: malformed PINS.md row', '--', 'docs/planning/PINS.md']);
+  return dir;
 }
 
 // A fake `claude` CLI for `claude --version` (the driver records harness versions with it).

@@ -23,7 +23,8 @@ verdict (G1-G5) `NOT RUN`. Per the current `docs/planning/STATUS.md` Gate verdic
 G1, G2, and G4 are now **PASS** (G1 originally PASSED on Claude Code `v2.1.282`; the
 Claude Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283`,
 invalidating that PASS; re-run and **PASSED again** 2026-09-28 on `v2.1.283` — see
-`docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
+`docs/planning/gates/G1-result.md`. Dated note, 2026-10-01, #216: harness versions now
+float and warn, never gate, so a later Claude Code version no longer invalidates it), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all
 criteria x), and G3 stays
 `NOT RUN` at gate level (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md`
@@ -243,10 +244,11 @@ From C5 §7-§9:
 ## 8. Provenance rendering per provider — Claude
 
 **Surface label: research preview**; version **floating** — see `docs/planning/PINS.md`,
-Claude Code (Channels) row and its "Floating-version policy", for the last observed
-version (C4 §16, C6 §15). (Note, 2026-10-01, issue #186: this line previously read
+Claude Code (Channels) row and its "Version policy", for the minimum and last tested
+versions (C4 §16, C6 §15). (Note, 2026-10-01, issue #186: this line previously read
 "pinned `v2.1.274`", the fixed pin C4/C6 were written against; that row went floating
-2026-09-27.)
+2026-09-27. Note, 2026-10-01, issue #216: "last observed version" became minimum and last
+tested versions; a version change warns, never gates.)
 
 A channel is an MCP server declaring `capabilities.experimental["claude/channel"] = {}`
 and sending `notifications/claude/channel` with `content` (string) and `meta`
@@ -276,9 +278,11 @@ daemon state only, and a memory reference stays inside `content` (§2; §14 rows
 
 **Surface label: experimental, per-method gating via `capabilities.experimentalApi`**,
 version **floating** — see `docs/planning/PINS.md`, Codex CLI / app-server row and its
-"Floating-version policy", for the last observed version (C4 §16, C6 §15). (Note,
+"Version policy", for the minimum and last tested versions (C4 §16, C6 §15). (Note,
 2026-10-01, issue #186: this line previously read "pinned `@openai/codex@0.154.0`", the
-fixed pin C4/C6 were written against; that row went floating 2026-09-26.)
+fixed pin C4/C6 were written against; that row went floating 2026-09-26. Note,
+2026-10-01, issue #216: "last observed version" became minimum and last tested versions;
+a version change warns, never gates.)
 
 Codex has no side-channel metadata field — provenance rides inside the one
 `{type:"text",text}` item's `text` string, in three parts: a machine-generated header
@@ -356,14 +360,17 @@ v0.1.** Three justification strands, from C6 §7:
   relay would add a second, silent grant (tool-approval authority for any allowlisted
   sender) behind the same single confirmation.
 
-**A chosen default, not an availability accident.** Every Claude Code version recorded
-for this surface — the fixed pin `v2.1.274` this decision was made against (C6 §7) and
-each later last-observed version in `docs/planning/PINS.md` (row floating since
-2026-09-27) — satisfies the `>= v2.1.234` floor for `claude/channel/permission`, so
-permission relay is *available* on the versions OAC runs against. (Note, 2026-10-01,
-issue #186: previously worded as "the pinned version (`v2.1.274`)".) This document's
-off-by-default posture is a decision made in spite of availability, not a limitation
-imposed by it (C6 §7).
+**A chosen default, not an availability accident.** The operative floor is the
+**minimum version** recorded in `docs/planning/PINS.md` for Claude Code (Channels),
+`v2.1.282`: the first version the project worked with (G1, 2026-09-25). It satisfies the
+`>= v2.1.234` floor for `claude/channel/permission`, and so do the fixed pin `v2.1.274`
+this decision was made against (C6 §7) and every later version on record, up to the last
+tested `v2.1.285`. So permission relay is *available* on the versions OAC runs against.
+(Notes: 2026-10-01, issue #186: previously worded as "the pinned version (`v2.1.274`)".
+2026-10-01, issue #216: "each later last-observed version" replaced by the minimum
+version. Versions float, and a version below the minimum warns, never gates.) This
+document's off-by-default posture is a decision made in spite of availability, not a
+limitation imposed by it (C6 §7).
 
 **Enabling it requires its own decision record.** If a deployment turns relay on, "any
 allowlisted sender for that session becomes able to approve tool use" — H2's own
