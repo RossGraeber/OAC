@@ -10,7 +10,8 @@
 //   .claude/skills/**  ->  .agents/skills/**   (Codex scans .agents/skills for SKILL.md)
 //   CLAUDE.md          ->  AGENTS.md           (Codex reads AGENTS.md as instructions)
 //
-// The transform is the identity, byte for byte after normalising line endings to LF.
+// The transform is the identity, byte for byte after normalising line endings to LF
+// (a leading UTF-8 BOM is kept, not stripped).
 // Nothing is renamed or rewritten: product names, URLs, paths and skill names stay as
 // written in the source. The skills are harness-neutral procedure, and `.claude/skills`
 // is the canonical source path every skill names, so it stays true in the copy. Never
@@ -20,8 +21,10 @@
 // differs, and a stray copy file with no source. Exits non-zero on any drift.
 // Both modes refuse (exit 1, nothing written or deleted) on any symlink or junction in
 // the source or the copy, on CLAUDE.md or AGENTS.md not being a regular file, and on a
-// source file that is not valid UTF-8 or holds a NUL. Sync unlinks a copy file before
-// rewriting it, so a hard link in the copy never carries a write outside the tree.
+// source file that is not valid UTF-8 or holds a NUL, and on a source or copy root (or a
+// directory on the way to one) that is not a directory. Sync unlinks a copy file before
+// rewriting it, so a hard link in the copy never carries a write outside the tree, and
+// removes directories a stray removal leaves empty. Unknown arguments exit 2.
 
 import {
   readFileSync,
@@ -32,9 +35,11 @@ import {
   linkSync,
   mkdirSync,
   rmSync,
+  rmdirSync,
   mkdtempSync,
 } from 'node:fs';
-import { join, dirname, resolve, relative, sep } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { join, dirname, resolve, relative, sep, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
@@ -51,25 +56,31 @@ const posixRel = (from, to) => relative(from, to).split(sep).join('/');
 
 class SyncError extends Error {}
 
-// lstat that never follows a link: null when the path does not exist.
+// lstat that never follows a link: null when the path does not exist, including when a
+// file sits where a parent directory should be (ENOTDIR on POSIX, ENOENT on Windows).
 function lstatOrNull(path) {
   try {
     return lstatSync(path);
   } catch (err) {
-    if (err.code === 'ENOENT') return null;
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return null;
     throw err;
   }
 }
 
 // Refuse any symlink (or junction) on the way to, or at, a source or copy path: following
-// one would read, write or delete outside the tree, or loop forever.
+// one would read, write or delete outside the tree, or loop forever. A non-directory on the
+// way to the path is refused too: nothing can be read from or written beneath it.
 function assertNoLink(root, rel) {
   let cur = root;
-  for (const part of rel.split('/')) {
+  const parts = rel.split('/');
+  for (const [i, part] of parts.entries()) {
     cur = join(cur, part);
     const st = lstatOrNull(cur);
     if (st === null) return;
     if (st.isSymbolicLink()) throw new SyncError(`symlink not allowed: ${posixRel(root, cur)}`);
+    if (i < parts.length - 1 && !st.isDirectory()) {
+      throw new SyncError(`not a directory: ${posixRel(root, cur)}`);
+    }
   }
 }
 
@@ -78,6 +89,7 @@ function walk(root, dir) {
   const st = lstatOrNull(dir);
   if (st === null) return out;
   if (st.isSymbolicLink()) throw new SyncError(`symlink not allowed: ${posixRel(root, dir)}`);
+  if (!st.isDirectory()) throw new SyncError(`not a directory: ${posixRel(root, dir)}`);
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     const est = lstatSync(full);
@@ -89,7 +101,8 @@ function walk(root, dir) {
   return out.sort();
 }
 
-const utf8 = new TextDecoder('utf-8', { fatal: true });
+// ignoreBOM keeps a leading BOM in the decoded text, so the copy keeps it byte for byte.
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 // Read a text file strictly: invalid UTF-8 or a NUL byte (binary) is refused, never mangled.
 function readText(root, path) {
@@ -148,6 +161,17 @@ function check(root) {
   return drift;
 }
 
+// After removing a stray copy file, remove the directories it leaves empty, up to (never
+// including) the copy root of its pair.
+function pruneEmptyDirs(root, path) {
+  const pair = PAIRS.find((p) => p.kind === 'dir' && path.startsWith(`${p.dst}/`));
+  if (!pair) return;
+  for (let dir = posix.dirname(path); dir.startsWith(`${pair.dst}/`); dir = posix.dirname(dir)) {
+    if (readdirSync(join(root, dir)).length > 0) return;
+    rmdirSync(join(root, dir));
+  }
+}
+
 function sync(root) {
   const { expected, present } = plan(root);
   let written = 0;
@@ -156,6 +180,7 @@ function sync(root) {
     if (!expected.has(path)) {
       rmSync(join(root, path));
       removed++;
+      pruneEmptyDirs(root, path);
     }
   }
   for (const [path, content] of expected) {
@@ -249,6 +274,45 @@ function selfTest() {
     ['binary (NUL byte) source is refused', ({ root }) => {
       writeFileSync(join(root, '.claude/skills/a/bin.dat'), Buffer.from([0x61, 0x00, 0x62]));
     }, 'refuse'],
+    // #240: unknown arguments exit 2 and never fall through to sync.
+    ['unknown argument exits 2 and writes nothing', ({ root, put }) => {
+      put('.agents/skills/a/SKILL.md', 'hand edit\n');
+      const runWith = (...argv) => spawnSync(process.execPath, [scriptPath, ...argv, '--root', root]).status;
+      return runWith('--chek') === 2 && runWith('extra') === 2 &&
+        runWith('--check', '--self-test') === 2 &&
+        readFileSync(join(root, '.agents/skills/a/SKILL.md'), 'utf8') === 'hand edit\n' &&
+        runWith('--check') === 1;
+    }, 'assert'],
+    // #240: a file where a directory belongs is a clean refusal or drift, never a crash.
+    ['source skills root as a file is refused', ({ root, put }) => {
+      rmSync(join(root, '.claude/skills'), { recursive: true });
+      put('.claude/skills', 'x\n');
+    }, 'refuse'],
+    ['copy skills root as a file is refused', ({ root, put }) => {
+      rmSync(join(root, '.agents/skills'), { recursive: true });
+      put('.agents/skills', 'x\n');
+    }, 'refuse'],
+    ['file on the way to the copy root is refused', ({ root, put }) => {
+      rmSync(join(root, '.agents'), { recursive: true });
+      put('.agents', 'x\n');
+    }, 'refuse'],
+    ['file at a copy subdirectory path fails and re-sync repairs it', ({ root, put }) => {
+      rmSync(join(root, '.agents/skills/a'), { recursive: true });
+      put('.agents/skills/a', 'x\n');
+    }, 'drift'],
+    // #240: a leading BOM survives into the copy byte for byte; a stripped one is drift.
+    ['leading BOM is kept byte for byte', ({ put }) => {
+      put('.claude/skills/a/SKILL.md', '﻿---\nname: a\n---\nbody\n');
+    }, 'drift', ({ root }) => {
+      const src = readFileSync(join(root, '.claude/skills/a/SKILL.md'));
+      const dst = readFileSync(join(root, '.agents/skills/a/SKILL.md'));
+      return src.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) && dst.equals(src);
+    }],
+    // #240: removing a stray file also removes the directories it leaves empty.
+    ['stray removal leaves no empty directory', ({ put }) => {
+      put('.agents/skills/zz/sub/SKILL.md', 'stray\n');
+    }, 'drift', ({ root }) => lstatOrNull(join(root, '.agents/skills/zz')) === null &&
+      lstatOrNull(join(root, '.agents/skills/a')) !== null],
   ];
   const throwsSyncError = (fn) => {
     try {
@@ -258,7 +322,7 @@ function selfTest() {
       return err instanceof SyncError;
     }
   };
-  for (const [name, mutate, expect] of cases) {
+  for (const [name, mutate, expect, verify] of cases) {
     const ctx = fresh();
     try {
       if (mutate === null) {
@@ -269,8 +333,9 @@ function selfTest() {
         results.push([name, same]);
         continue;
       }
+      let asserted;
       try {
-        mutate(ctx);
+        asserted = mutate(ctx);
       } catch (err) {
         if (err.code === 'EPERM' || err.code === 'EACCES') {
           results.push([name, 'skip']);
@@ -279,7 +344,9 @@ function selfTest() {
         throw err;
       }
       let ok;
-      if (expect === 'refuse') {
+      if (expect === 'assert') {
+        ok = asserted === true;
+      } else if (expect === 'refuse') {
         ok = throwsSyncError(() => check(ctx.root)) && throwsSyncError(() => sync(ctx.root));
       } else {
         const failed = check(ctx.root).length > 0;
@@ -289,6 +356,7 @@ function selfTest() {
           ok = check(ctx.root).length === 0; // re-sync must repair every planted drift
         }
       }
+      if (ok && verify) ok = verify(ctx) === true;
       // Every case: nothing outside the tree may change (links, hard links included).
       ok = ok && readdirSync(join(ctx.root, 'outside')).length === 1 &&
         readFileSync(join(ctx.root, 'outside/keep.md'), 'utf8') === 'outside the tree\n';
@@ -310,13 +378,31 @@ function selfTest() {
 }
 
 const USAGE = 'usage: node scripts/sync-agents-skills.mjs [--check | --self-test] [--root <dir>]';
-const args = process.argv.slice(2);
-const rootIdx = args.indexOf('--root');
-if (rootIdx >= 0 && (!args[rootIdx + 1] || args[rootIdx + 1].startsWith('--'))) {
-  console.error(`--root needs a directory argument\n${USAGE}`);
+const usageError = (message) => {
+  console.error(`${message}\n${USAGE}`);
   process.exit(2);
+};
+
+// Strict parsing: anything unrecognised exits 2 rather than falling through to sync, so a
+// typo like --chek never rewrites the copy.
+let mode = 'sync';
+let rootArg = null;
+const args = process.argv.slice(2);
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg === '--check' || arg === '--self-test') {
+    if (mode !== 'sync') usageError('--check and --self-test are mutually exclusive');
+    mode = arg.slice(2);
+  } else if (arg === '--root') {
+    const value = args[++i];
+    if (!value || value.startsWith('--')) usageError('--root needs a directory argument');
+    if (rootArg !== null) usageError('--root given more than once');
+    rootArg = value;
+  } else {
+    usageError(`unknown argument: ${arg}`);
+  }
 }
-const root = rootIdx >= 0 ? resolve(args[rootIdx + 1]) : join(dirname(scriptPath), '..');
+const root = rootArg !== null ? resolve(rootArg) : join(dirname(scriptPath), '..');
 
 // A refusal (symlink, non-UTF-8, binary, missing source) is a clean failure, not a crash.
 function run(fn) {
@@ -329,9 +415,9 @@ function run(fn) {
   }
 }
 
-if (args.includes('--self-test')) {
+if (mode === 'self-test') {
   selfTest();
-} else if (args.includes('--check')) {
+} else if (mode === 'check') {
   run(() => {
     const drift = check(root);
     if (drift.length > 0) {
