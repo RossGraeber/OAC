@@ -4,6 +4,33 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-02 (**Issue #220: C13 approved, C6 §5 amended, E1 exception
+for the G5 Codex re-run.** Operator decisions on #220 (2026-10-02):
+
+1. Option C;
+2. verdict route E1, a herdr re-run carrying G5's Codex verdict, for consistency with
+   #187/#196/#216;
+3. the Claude results of 2026-09-27 still count.
+
+In this change:
+
+- `docs/planning/decisions/C13-codex-provenance-framing.md` is now **APPROVED**.
+- `docs/planning/decisions/C6-trust-rendering.md` gains the normative **§5.0**, with the
+  original §5 kept as history, plus dated notes in §2, §6, §12, §14 and §15.
+- `.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility" gains a
+  dated, one-off exception for exactly this G5 Codex re-run. Its conditions are: the
+  control arm reproduces the old FAIL, changes are limited to framing, cases and report,
+  and a full operator attestation.
+- `docs/planning/gates/G5-result.md` gets a dated note on its "human-run procedure"
+  sentence.
+- `06-security.md` §9 gets a dated pointer.
+- The C13 register rows (`03-decisions-and-amendments.md` §4, `ADR-001-AMENDMENTS.md`)
+  read "ASSIGNED — owner #220; design decided, G5 Codex re-run pending".
+- Two C13 UNVERIFIED items are added below.
+
+**The re-run has not been run, and G5's verdict is unchanged (`FAIL`).** No pin, spec or
+ADR text changes.)
+
 **Last updated:** 2026-10-02 (**Issue #220: C13 now has an owner and a PROPOSED
 decision.** New record `docs/planning/decisions/C13-codex-provenance-framing.md`, status
 **PROPOSED — awaiting operator approval on #220**. It proposes amending C6 §5's Codex
@@ -1013,6 +1040,18 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   forwarding is enabled; scoping mismatch documented, not solved; no ADR-001 amendment.
   Full record: `docs/planning/decisions/L1-beacon-memory.md`. Not folded into
   `docs/planning/v0.1/03-decisions-and-amendments.md`.
+- **C13 — Codex provenance framing after G5's Codex FAIL** (issue #220): **decided
+  (operator, 2026-10-02); G5 Codex re-run pending.**
+  - Option C amends C6 §5 as the new normative §5.0, with three parts:
+    - whole-value validation of peer-controlled provenance values, with refusal on a
+      mismatch;
+    - a line-quoted body on every Codex path;
+    - a scoped, experimental `turn/start.additionalContext` `application` anchor that is
+      never load-bearing.
+  - Verdict route E1: a one-off herdr exception in `oac-gates`
+    `references/scripted-runs.md`.
+  - The Claude results of 2026-09-27 stand.
+  - Full record: `docs/planning/decisions/C13-codex-provenance-framing.md`.
 
 ## Open conflicts (oac-evidence §6)
 
@@ -1083,12 +1122,33 @@ states or that are inferred/stale). Closed when the named resolution lands.
   decision is `docs/planning/decisions/C13-codex-provenance-framing.md`. Until the
   operator approves it on #220, C13 stays open, and the register rows in
   `03-decisions-and-amendments.md` §4 and `ADR-001-AMENDMENTS.md` are unchanged.
+  **Dated note, 2026-10-02 (#220, approved):** the design is **decided**, and the G5 Codex
+  re-run is **pending**.
+  - The operator approved Option C, verdict route E1, and the Claude results of 2026-09-27
+    still count.
+  - C6 §5 is amended by the new normative §5.0.
+  - The E1 one-off exception landed in `oac-gates` `references/scripted-runs.md`, with a
+    dated note on `G5-result.md`.
+  - The register rows now read "ASSIGNED — owner #220; design decided, G5 Codex re-run
+    pending". C13 closes when G5's Codex-leg re-run (C13 §11) passes. G5 stays `FAIL` until
+    then.
 
 ## Open UNVERIFIED items
 
 Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 (`docs/planning/REVERIFICATION-B2.md`). Until closed, no plan or skill may rely on them
 without an UNVERIFIED label.
+
+- **New, from C13 (issue #220, 2026-10-02):** at `openai/codex` `rust-v0.159.3`, a
+  `turn/start` sent while a turn is active steers that turn (`start_or_steer_turn` →
+  `TurnInputSubmission::Steered`, `codex-rs/app-server/src/request_processors/
+  turn_processor.rs` L652-675). So C6 §5's "never `turn/steer`" is not ensured by
+  choosing `turn/start` (UNVERIFIED — source read only, not exercised live; an adjacent
+  finding for backlog G7, `docs/planning/decisions/C13-codex-provenance-framing.md` §10).
+- **New, from C13 (issue #220, 2026-10-02):** whether the live Codex model consistently
+  weighs the developer-role `oac_provenance` anchor (C6 §5.0 step 4), including a stale
+  one, over conflicting user-role text (UNVERIFIED — only G5's exploratory X6, one trial,
+  bears on it; closed by C13 §11 arm C).
 
 - **New, from G1 (issue #34/D1):** the Claude Code Channels pin (`docs/planning/PINS.md`
   — `v2.1.274`) is stale. The client that connected during the G1 spike (2026-09-25)

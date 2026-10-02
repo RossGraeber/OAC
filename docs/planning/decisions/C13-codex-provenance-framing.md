@@ -1,4 +1,4 @@
-# C13: Codex provenance framing after G5's Codex FAIL (proposed amendment to C6 §5)
+# C13: Codex provenance framing after G5's Codex FAIL (amendment to C6 §5)
 
 **Issue:** #220. **Depends on:** C6 (#19), G5 (#38/D5). **Source:**
 `docs/planning/gates/G5-result.md` (Codex cases X1-X6); `docs/planning/decisions/
@@ -7,11 +7,41 @@ C6-trust-rendering.md` §5, §6, §12, §14; conflict-register entry C13
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4); `docs/planning/v0.1/
 06-security.md` §9, §10, §14 rows 5, 17, 22.
 
-**Status:** **PROPOSED — awaiting operator approval on #220.** Nothing in this file is
-decided. `C6-trust-rendering.md` §5 is **not** changed by this change, and C13 is **not**
-resolved. §12 states the three-part question the operator answers to approve. Once approved,
-the cross-file edits in §14 land in a follow-up change, and then G5's Codex leg is re-run
-under §11.
+**Status:** **APPROVED — 2026-10-02, operator, on #220**
+(https://github.com/RossGraeber/OAC/issues/220#issuecomment-5946299656). The operator made
+three decisions:
+
+1. **Framing: Option C.** Whole-value-validated header values, refused on a mismatch; a
+   line-quoted body on every Codex delivery path; and a scoped `additionalContext`
+   `application` anchor on `turn/start` only, never load-bearing. The fallback is A if
+   §11 arm C shows anchor confusion. *Rationale:* A's floor closes all three defects on the
+   stable text item. The anchor adds a carrier separate from content, as ADR-001 asks, and
+   the verdict never depends on it (§7).
+2. **Verdict route: E1.** The herdr re-run carries G5's Codex verdict under a one-off
+   exception. *Rationale:* consistency with the standing herdr-first decisions (#187, #196,
+   #216; `oac-gates` `references/scripted-runs.md` "Who runs it"). The exception's
+   conditions are: the control arm reproduces the old FAIL, the changes are limited to
+   framing, cases and report, and a full operator attestation (§11). This differs from
+   §11's original recommendation (E3). The operator's choice governs.
+3. **Claude leg:** the 2026-09-27 Claude results still count. Only the Codex leg is
+   re-run.
+
+**Landed with this approval (same change):**
+
+- `C6-trust-rendering.md` §5.0, the normative Option C text, with the original §5 kept as
+  history, plus dated notes in §2, §6, §12, §14 and §15;
+- the E1 one-off exception in `.claude/skills/oac-gates/references/scripted-runs.md`
+  "Verdict eligibility";
+- a dated note on `G5-result.md`'s "human-run procedure" sentence;
+- `STATUS.md`, and the C13 conflict-register rows (decided, re-run pending).
+
+**Still open:**
+
+- the G5 Codex-leg re-run (§11);
+- the follow-ups still listed in §14.
+
+**G5 stays `FAIL`, and C13 stays open, until that re-run is recorded.** §1-§11 below are
+the reviewed proposal, kept as approved.
 
 **Where this record lives.** `docs/planning/decisions/` holds the C-series decisions. This
 record proposes an amendment to one of them (C6), so it sits beside it. No `ADR-001.md`
@@ -138,8 +168,8 @@ checks every value it will place in a provenance carrier (header block or anchor
   state is `failed` (C5 §9), and nothing is sent to Codex. This mirrors C6 §3: a send
   that would carry malformed provenance is a send failure.
 
-The charset is an adapter-local rule until task E1 fixes the envelope `id` format. E1 must
-adopt it, or a stricter one (§14).
+The charset is an adapter-local rule until task E1 fixes the envelope `id` format. Task E1
+must adopt it, or a stricter one (§14).
 
 F1 closes X5 by construction: no frame is ever built, so no second `oac_sender:` line can
 reach the model.
@@ -309,10 +339,11 @@ If the operator prefers fewer moving parts, **A** is the minimal acceptable choi
 without the anchor. A is also the right outcome if arm C shows stale-anchor confusion. **B and D are not recommended:** B leaves the queued path with no
 provenance, and D loses data and is unescaped.
 
-## 8. Proposed replacement text for C6 §5 (lands only on approval)
+## 8. Replacement text for C6 §5 (landed as C6 §5.0, 2026-10-02)
 
-To replace C6 §5's frame and its "unmodified" wording in §2's table on approval. Shown
-here for review. It is not applied by this change.
+This is the text the operator approved. It landed, in normative form, as
+`C6-trust-rendering.md` §5.0. C6 §2's "unmodified" wording gained a dated note for the
+Codex path. If the summary below and C6 §5.0 differ, C6 §5.0 governs.
 
 > **Codex inbound framing (amended by C13).**
 >
@@ -357,8 +388,8 @@ The required negative fixtures for the first `TODO(fixture)` are:
 
 ## 9. Threat-table impact (proposed rows, `oac-security-work` §1 template)
 
-These rows would replace `06-security.md` §14 row 17 and C6 §12 row 2, and add new rows,
-once the operator approves. Each mitigation stays **designed** until the §11 re-run and
+These rows replace `06-security.md` §14 row 17 and C6 §12 row 2, and add new rows. They
+fold into those tables when the §11 re-run is recorded (§14). Each mitigation stays **designed** until the §11 re-run and
 the named contract tests exist and pass. Until then each row is an open risk, not a closed
 mitigation.
 
@@ -401,14 +432,14 @@ to its own issue. Option C's anchor on `turn/start` neither causes it nor fixes 
 **Run conditions.**
 
 - Driver-run through herdr: `node tools/herdr/run.mjs --scenario g5-provenance ...` (the
-  operator command in the scenario header). Under E3 (below) a human operates the same
-  arms instead.
+  operator command in the scenario header). This is the approved route (E1). Under E3 a
+  human would operate the same arms instead.
 - `accept=driver`, the default since #196 (`K-196-driver-accepts-dialogs.md`). G5 names no
   consent step, so a driver accept does not affect eligibility (`oac-gates`
   `references/scripted-runs.md` "Driver-accepted dialogs").
-- Harness versions **warn, never gate**, per the #216 decision (PR #217, open on
-  2026-10-02). A herdr run must not start until #217 is merged: the current
-  `tools/herdr/lib/pins.mjs` still stops a run on drift.
+- Harness versions **warn, never gate**, per the #216 decision. PR #217 implemented it and
+  is merged on `main`: a version difference is a `VERSION WARNING` finding, never
+  `NOT RUN`.
 - Windows. Start the Codex daemon outside Claude Code's job object, by WMI process
   creation, as the L3 run did (L1 §13 finding 7).
 - Box declared before the first command: 60 minutes, as for G5.
@@ -470,57 +501,66 @@ message id.
   (`scripted-runs.md` "No automatic re-submission").
 
 **The Claude leg.** C13 changes nothing on Claude, and the scenario runs the Claude cases
-as a regression check. Whether the Claude results of 2026-09-27 still count toward a
-combined G5 verdict is an **operator call** (§12). They were scored on the session-log
-render under rule (d), which a scripted run cannot reproduce. If the re-run's Claude cases
-disagree with those results, that is a finding to resolve before any verdict is written.
+as a regression check. **Decided (operator, 2026-10-02):** the Claude results of
+2026-09-27 still count toward the combined G5 verdict, and only the Codex leg is re-run
+for a verdict. Those results were scored on the session-log render under rule (d), which a
+scripted run cannot reproduce. If the re-run's Claude cases disagree with them, that is a
+finding to resolve before any verdict is written.
 
-**Verdict eligibility: three ways forward.** Today's rules make a herdr run of G5
-non-verdict-bearing:
+**Verdict eligibility: three routes (as presented to the operator).** Before this change,
+the rules made a herdr run of G5 non-verdict-bearing:
 
-- `G5-result.md`'s K8 paragraph says the verdict "changes only through the human-run
+- `G5-result.md`'s K8 paragraph said the verdict "changes only through the human-run
   procedure".
 - `scripted-runs.md` "Verdict eligibility" requires a G5 equivalence record at the current
   herdr pin (none exists). It also requires an empty `tools/herdr/` diff against that
   record's driver commit. The new framing changes `gate-servers/`, so it is a different
   method from any record made against 2026-09-27.
 
-The three options:
+**Standing direction.** The operator has decided that herdr drives live legs: "the default
+for any live leg" and "No live leg is 'operator-typed only'" (#187, `scripted-runs.md`
+"Who runs it"). This was reaffirmed in #196 ("automation of these processes during
+development and test") and continued in #216.
 
-- **E1: a one-off herdr exception.** A K-196-style decision record that amends
-  `scripted-runs.md` "Verdict eligibility" with a one-off G5 exception, and amends
-  `G5-result.md`'s K8 pointer paragraph to match. Both edits are listed in §14. The re-run
-  may then carry G5's Codex verdict if:
+**Shared caveat, all three routes.** Whichever route is taken, the cases go through the
+same reconstructed `gate-servers/g5-codex.mjs` client and `g5-cases.json`, never the
+original spike programs. The routes differ only in who types the operator question and
+who reads and scores the answer: herdr reading the pane, or a human.
+
+- **E1: a one-off herdr exception (CHOSEN).** A dated exception in `scripted-runs.md`
+  "Verdict eligibility", and a dated note on `G5-result.md`'s K8 sentence. Both landed
+  with the approval. The re-run may then carry G5's Codex verdict if:
   - its `tools/herdr/` diff from the last reviewed driver commit is limited to the framing,
     case and report changes above;
   - arm 0 reproduces the failure;
   - it carries a full operator attestation and meets the rest of the `oac-gates`
     procedure.
-  - Cost: it changes two rules for one run, and rests on a never-live scenario and
-    reconstructed gate servers.
-- **E2: evidence only.** The herdr re-run is evidence. G5's Codex verdict waits for an
-  equivalence record and a later eligible run.
-  - Cost: the slowest path to unblocking the Stage 2 freeze.
-- **E3: a human-operated run of the same arms.** Eligible today without any exception
-  ("Human runs stay authoritative", `scripted-runs.md` "Verdict eligibility"; and
-  `G5-result.md`'s "human-run procedure").
-  - herdr may still be used to rehearse it.
-  - Cost: operator time, and the human run sends the cases through the same reconstructed
-    client unless the operator uses other tooling. The gate result says which was used.
+  - Cost: it changes two rules for one run, and the scenario's first live run is also the
+    verdict run (arm 0 is its calibration).
+- **E2: evidence only.** The herdr re-run is evidence.
+  - An equivalence record must compare against a verdict-bearing **human** run of the same
+    method (`scripted-runs.md` "Equivalence record"), and no human run exists under the
+    new framing. **E2 alone therefore never produces a verdict.** It eventually needs an
+    E3-style human run or an E1-style exception.
+- **E3: a human-operated run of the same arms.** Eligible without any exception ("Human
+  runs stay authoritative"). The scoring reads are human, so no rule change is needed.
+  herdr may still rehearse it.
+  - Cost: operator time.
+  - It departs from the standing direction that herdr drives live legs (#187,
+    `scripted-runs.md` "Who runs it"; reaffirmed in #196 and #216).
 
-**Recommendation: E3.** It needs no rule change, and the verdict does not rest on the
-first live run of a reconstructed scenario. E1 is a reasonable second choice if operator
-time is the constraint, provided the two amendments land first. E2 is the conservative
-default if neither is wanted.
+**Proposal's recommendation and the operator's decision.** The proposal recommended E3,
+because it needs no rule change. The operator chose **E1**, for consistency with the
+herdr-first decisions above. E1 is the governing route.
 
 **If the pass rule holds:**
 
-- a new `G5-result.md` re-run row (the Codex leg; the Claude leg as the operator decided);
-- the §14 cross-file edits;
+- a new `G5-result.md` re-run row (Codex leg; Claude results of 2026-09-27 carried);
+- the remaining §14 follow-ups;
 - C13 → `RESOLVED-IN-DECISION`;
 - the Stage 2 freeze unblocked for Codex provenance.
 
-## 12. The question for the operator (answer on #220)
+## 12. The question put to the operator, and the answers (#220, 2026-10-02)
 
 > **1. Framing.** Do you approve Option C as the amendment to C6 §5? Option C is:
 > whole-value-validated header values, refused on mismatch; a line-quoted body on every
@@ -532,13 +572,17 @@ default if neither is wanted.
 > - **E1**, a herdr re-run under a one-off amendment to `scripted-runs.md` and
 >   `G5-result.md`;
 > - **E2**, a herdr re-run as evidence only; or
-> - **E3**, a human-operated run of the same arms (recommended)?
+> - **E3**, a human-operated run of the same arms?
 >
 > **3. Claude leg.** Do the Claude results of 2026-09-27 still count toward the combined G5
 > verdict?
 
-"C + E3 + yes" (or "A + E3 + yes") is enough to proceed. Anything else is recorded here as
-written.
+**Answers (operator, 2026-10-02,
+https://github.com/RossGraeber/OAC/issues/220#issuecomment-5946299656):**
+
+1. **Option C** (fallback A if arm C shows anchor confusion);
+2. **E1**;
+3. **yes**: the Claude results still count, and only the Codex leg is re-run.
 
 ## 13. Surface labels and UNVERIFIED ledger
 
@@ -561,36 +605,53 @@ written.
   one, over conflicting user text is a model-behaviour question. Only X6 (one trial,
   unframed body) bears on it (UNVERIFIED — §11 arm C tests it).
 
-Both are listed in the `STATUS.md` dated note for this change. They join "Open UNVERIFIED
-items" when the record is approved, or are closed by the re-run.
+Both are recorded in `STATUS.md` "Open UNVERIFIED items" by the change that approved this
+record (2026-10-02). The re-run closes the second.
 
-## 14. What lands on approval (not in this change)
+## 14. Cross-file changes
+
+**Landed with the approval (2026-10-02, PR #223):**
 
 - `C6-trust-rendering.md`:
-  - §2: the "unmodified" wording becomes "validated (C13 F1)";
-  - §5: replaced with §8's text;
-  - §6: the Codex bullet changes accordingly;
-  - §12: row 2, as in §9;
-  - §13: Option D and the inject/instructions rejections added;
-  - §14: a note that the Codex reversal test does **not** fire as written, and that
-    `turn/start.additionalContext` is the closest analogue to `meta`, recorded;
-  - §15: the experimental field label added;
-  - a dated amendment note at the top.
-- `06-security.md` §9, §10 and §14 (row 17 replaced, new rows from §9; rows 5 and 22
-  residuals re-pointed).
+  - a dated amendment note in the Status line;
+  - **§5.0**, the new normative Codex framing (§8's text as approved), with the original §5
+    kept below it as history;
+  - dated notes in §2 (Codex values validated, not "unmodified"), §6 (the Codex meaning of
+    "structurally separate"), §12 (the Codex row superseded in mitigation; the replacement
+    rows are in §9 here), §14 (the reversal test does **not** fire as written, and
+    `turn/start.additionalContext` is the closest analogue to `meta`) and §15 (the
+    experimental field label).
+- **The E1 exception** (this record serves as the K-196-style decision record for it):
+  - `.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility": a dated,
+    one-off G5 Codex re-run exception with the conditions in §11;
+  - `docs/planning/gates/G5-result.md`: a dated note on the K8 paragraph's "changes only
+    through the human-run procedure" sentence. G5's verdict is unchanged (`FAIL`).
+- `06-security.md` §9: a dated pointer note to C6 §5.0. Its text and threat rows are not
+  rewritten yet.
 - `03-decisions-and-amendments.md` §4 and `ADR-001-AMENDMENTS.md` "New register entries":
-  C13's owner becomes #220, and its state follows the decision. **No `ADR-001-A`
-  amendment is issued.**
-- `11-risks.md` RISK-G5 and rows 45-46.
-- `STATUS.md`: the C13 bullet, "Decisions landed", and the UNVERIFIED items from §13.
+  C13's owner is #220, and its state is "design decided; G5 Codex re-run pending". It
+  stays `ASSIGNED`, because no register row is marked resolved while its resolution is an
+  unrun gate. **No `ADR-001-A` amendment is issued.**
+- `STATUS.md`:
+  - a Last-updated entry;
+  - the C13 bullet;
+  - "Decisions landed";
+  - the two UNVERIFIED items from §13.
+
+**Follow-ups (not in this change):**
+
+- **The G5 Codex-leg re-run (§11).** Before it runs, a separate change makes the
+  prerequisite `tools/herdr/` edits, limited to `g5-codex.mjs` framing, `g5-cases.json`
+  cases and `g5-report.mjs` scoring plus scenario wiring.
+- **After the re-run is recorded:**
+  - `06-security.md` §9, §10 and §14 rewritten (row 17 replaced, new rows from §9, the
+    residuals of rows 5 and 22 re-pointed);
+  - C6 §12's table folded;
+  - `11-risks.md` RISK-G5 and rows 45-46;
+  - C13 → `RESOLVED-IN-DECISION` if the pass rule holds.
 - Skills (link, don't copy): `oac-codex-appserver` (the S2-S7 facts and S10, with pins),
   `oac-security-work` §5's Codex bullet, and `oac-gates` `references/G5-provenance.md`
   (new cases).
-- **Only if E1 is chosen:** a K-196-style decision record. It amends:
-  - `.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility", with a
-    one-off G5 exception and the conditions in §11;
-  - `docs/planning/gates/G5-result.md`'s K8 pointer paragraph ("changes only through the
-    human-run procedure").
 - Backlog:
   - task E1: the id charset as a whole-value rule;
   - C5/E5: choose a device-fingerprint text encoding inside F1's charset, for example
@@ -599,9 +660,6 @@ items" when the record is approved, or are closed by the re-run.
   - G7: the frame builder, plus refusal, quoting and per-break-class fixtures;
   - F11.
 - §10's finding goes to its own issue.
-
-**This change** adds only this record and a dated `STATUS.md` note. The note says C13 now
-has an owner (#220) and a PROPOSED decision.
 
 ## 15. Boundary pass and sources
 

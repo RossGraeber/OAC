@@ -447,6 +447,28 @@ An operator never ticks a line that calls a driver accept their own.
   invalidates a gate verdict, because that row's `Gates affected` is `none`.
 - **Human runs stay authoritative.** A human-operated run of G<n> is always eligible to
   carry a verdict and needs no equivalence record.
+- **One-off exception: the C13 G5 Codex re-run (operator decision, 2026-10-02, #220,
+  route E1).** Exactly one herdr run of `g5-provenance`, the G5 Codex-leg re-run defined in
+  `docs/planning/decisions/C13-codex-provenance-framing.md` §11, may carry G5's Codex
+  verdict. It needs no G5 equivalence record, and its `tools/herdr/` diff need not be
+  empty. All of these must hold:
+  - its arm 0 (the old C6 §5 frame) reproduces the 2026-09-27 FAIL, as C13 §11 defines it.
+    Otherwise the run is inconclusive and carries no verdict;
+  - its `tools/herdr/` diff (excluding `tools/herdr/test/`) from the last reviewed driver
+    commit before the C13 changes is limited to:
+    - the approved framing in `gate-servers/g5-codex.mjs`;
+    - the new cases in `gate-servers/g5-cases.json`;
+    - the scoring in `lib/g5-report.mjs` and the scenario wiring those cases need;
+  - it carries a complete, truthful operator attestation;
+  - it meets every other condition of "When a scripted run may carry a verdict" except the
+    two waived above: the box, each criterion scored individually, the closed verdict
+    vocabulary, fixtures, and `STATUS.md` in the same change.
+
+  It covers only the Codex leg. The G5 Claude results of 2026-09-27 stand (same decision).
+  It does not create a G5 equivalence record, does not extend to any later run, and does
+  not change the rule for any other gate. `Driver:` cites this bullet. The rationale is
+  consistency with the standing herdr-first decisions (#187, #196, #216); the record is
+  C13 §0/§11.
 
 ## Checklist: recording a scripted run
 

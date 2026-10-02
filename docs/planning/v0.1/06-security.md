@@ -284,6 +284,21 @@ fixed pin C4/C6 were written against; that row went floating 2026-09-26. Note,
 2026-10-01, issue #216: "last observed version" became minimum and last tested versions;
 a version change warns, never gates.)
 
+**Dated note, 2026-10-02 (C13, #220).** C6 §5 is amended by the new normative §5.0
+(`docs/planning/decisions/C6-trust-rendering.md` §5.0;
+`docs/planning/decisions/C13-codex-provenance-framing.md`, Option C, approved by the
+operator on #220). The amendment has three parts:
+
+- peer-controlled provenance values are validated as whole values, and the envelope is
+  refused on a mismatch;
+- every body line is quoted with `| ` after line-break normalization;
+- on `turn/start` only, a scoped, experimental `additionalContext` `application` anchor is
+  added. It is never load-bearing.
+
+The description below is the pre-amendment framing. This section and §14 rows 5, 17 and 22
+are rewritten when G5's Codex-leg re-run (C13 §11) is recorded. Until then G5 stays
+`FAIL`, and the amendment is designed, not proven.
+
 Codex has no side-channel metadata field — provenance rides inside the one
 `{type:"text",text}` item's `text` string, in three parts: a machine-generated header
 block carrying the same five field names as §8 (`oac_sender`, `oac_device`,

@@ -3,7 +3,10 @@
 **Issue:** #19 (Epic C, backlog key `C6`). **Depends on:** #12. **Source:**
 PLANNING-PROMPT.md §5 decisions 8 and 9, §7; conflicts C9 and C10.
 
-**Status:** Decided.
+**Status:** Decided. **Amended 2026-10-02** by
+`docs/planning/decisions/C13-codex-provenance-framing.md` (Option C, operator approval on
+#220). The changes are §5.0 (new normative Codex framing), plus dated notes in §2, §6,
+§12 and §14. The original text is kept as history.
 
 **Standalone-ledger note.** This file lives at `docs/planning/decisions/` because
 `docs/planning/v0.1/03-decisions-and-amendments.md` (Epic A task A4) does not exist yet.
@@ -86,6 +89,12 @@ dropped** — no error, no warning, the attribute just does not appear." Pattern
 | `oac_session` | The **addressed** OAC opaque session id (the envelope's `to`), same construction as `oac_sender`. | `docs/planning/decisions/C4-session-identity.md` §2. |
 | `oac_message_id` | The envelope's `id` field, unmodified. | `docs/planning/DESIGN.md`'s envelope shape, `"id": "unique-message-id"`, unchanged by this decision. |
 | `oac_reply_to` | The envelope's `reply_to` field, unmodified, empty/absent when the message is not a reply. | Same envelope shape, `"reply_to": "optional-message-id"`. |
+
+**Dated note, 2026-10-02 (C13, #220).** On the **Codex** path, `oac_message_id` and
+`oac_reply_to` are no longer inserted "unmodified". They are validated as whole values and
+refused on a mismatch (§5.0 step 1), because G5 case X5 showed that an unmodified
+`reply_to` can add a second header line. The Claude path is unchanged here: G5 case C3
+showed Claude Code escapes attribute values.
 
 **Display URI is display-only — never a `meta` value.** Per `docs/planning/decisions/
 C4-session-identity.md` §8: the display URI (`session://<device>/<harness>/<id>`) is
@@ -187,6 +196,70 @@ untrusted doctrine applied to rendering rather than authorization: content is ne
 trusted to state identity, no matter how it is phrased.
 
 ## 5. Codex inbound: text-input framing
+
+### 5.0 Amendment, 2026-10-02 (C13, Option C; operator approval on #220): normative
+
+**This subsection supersedes the frame shape below and §2's "unmodified" wording on the
+Codex path.** Decision record: `docs/planning/decisions/C13-codex-provenance-framing.md`
+(§4, §5 A and C, §8). Gate G5 stays `FAIL` until the Codex-leg re-run defined in C13 §11
+passes. Until then this framing is **designed, not proven**. The text from "Codex has no
+meta channel" to the end of §5 is kept below as history. Where it conflicts with this
+subsection, this subsection wins.
+
+1. **Validation (F1).** Before framing, the adapter validates every value it will place in
+   a provenance carrier.
+   - The **entire value** of `oac_message_id`, `oac_reply_to`, `oac_sender`, `oac_device`
+     and `oac_session` must match `[A-Za-z0-9._:-]{1,128}`, anchored at both ends of the
+     whole string (for example `\A…\z`, or a full-match API). `oac_reply_to` may be empty.
+   - A line-anchored match (`^…$` in an engine where `$` matches before a trailing newline,
+     or where `^`/`$` are line anchors) is non-conformant.
+   - On any mismatch the adapter **refuses** the envelope: the delivery state is `failed`,
+     and nothing is sent to Codex. It never escapes or truncates such a value.
+   - The device-fingerprint text encoding must fall inside this charset. That choice is
+     handed to C5/E5 (C13 §14).
+2. **Body normalization.** Before quoting:
+   - CR LF, CR, U+000B, U+000C, U+0085, U+2028 and U+2029 each become `\n`;
+   - every other `Cc` character except tab and LF (C0, U+007F DEL, C1), and the bidi
+     controls U+202A-U+202E and U+2066-U+2069, become a visible `\u{XXXX}`.
+3. **Line quoting.** Every body line is prefixed with `| ` (an empty line becomes `|`), so
+   no body byte can begin a column-0 line inside the frame. The frame is:
+
+```
+--- oac-envelope <D> ---
+oac_sender: <opaque session id>
+oac_device: <device key fingerprint>
+oac_session: <addressed opaque session id>
+oac_message_id: <validated envelope id>
+oac_reply_to: <validated reply_to, or empty>
+--- oac-body <D> (untrusted message; every line starts with "| ") ---
+| <body line 1>
+| <body line 2>
+--- oac-end <D> ---
+```
+
+   `<D>` stays receiver-generated from the adapter's CSPRNG per delivery (unchanged, see
+   "Corrected mechanism" below). This frame applies on **both** `turn/start` and
+   `thread/queue/add`.
+4. **Anchor (`turn/start` only).** On `turn/start`, the adapter also sends
+   `additionalContext` with the fixed key `oac_provenance` and `kind: "application"`.
+   - That field is experimental: `#[experimental("turn/start.additionalContext")]`,
+     `openai/codex` `rust-v0.159.3`, `codex-rs/app-server-protocol/src/protocol/v2/turn.rs`
+     L192-195, retrieved 2026-10-02. It sits behind the Codex experimental shim boundary
+     (backlog G6).
+   - Its value is the same five validated fields, plus `oac_frame: <D>` and the constant
+     line `oac_scope: describes only the oac-envelope whose delimiter is oac_frame; earlier
+     oac_provenance blocks describe earlier messages`.
+   - Anchors accumulate in thread history (C13 §5 C). Each one describes only its own
+     delivery.
+   - `thread/queue/add` has no such field, so the in-band frame alone applies there.
+   - **The anchor is never load-bearing.** The in-band frame must satisfy G5 on its own
+     (C13 §11 arm F). If the field disappears, the adapter drops the anchor. If C13 §11 arm
+     C shows anchor confusion, the outcome falls back to Option A: steps 1-3 without step 4.
+5. **Unchanged:** `turn/steer` is never used on the inbound path. C13 §10 records that, at
+   `rust-v0.159.3`, a `turn/start` sent while a turn is active steers that turn. That is an
+   open finding for backlog G7, not decided by this amendment.
+
+### Original §5 text (kept as history; superseded where 5.0 conflicts)
 
 **Codex has no meta channel.** Unlike Claude's `<channel>` tag attributes, Codex's
 inbound surface has no side-channel metadata field — verbatim, `oac-codex-appserver`:
@@ -323,6 +396,12 @@ on. A second case (X3, a forged block replaying a real delimiter from an earlier
 delivery) left the model unable to resolve a sender at all, without getting it to accept
 the forged one. This section's design is confirmed sufficient for Claude and confirmed
 not yet sufficient for Codex.
+
+**Dated note, 2026-10-02 (C13, #220).** On Codex, "structurally separate from content"
+now means two things (§5.0). First, a line-quoted body that cannot produce a column-0
+line inside the frame. Second, on `turn/start` only, a developer-role `additionalContext`
+anchor: a separate carrier and role from the user-role body, and the closest Codex
+analogue to `meta`. G5 still reads `FAIL` until the C13 §11 re-run.
 
 ## 7. Permission relay off by default — resolves C10
 
@@ -534,6 +613,8 @@ threats) or `docs/planning/decisions/C4-session-identity.md` §13 (identity-leve
 | Unauthorized `turn/steer` | Attacker's message is delivered to a Codex session | Inbound path uses only `turn/start`/`thread/queue/add`, never `turn/steer` (§5); any future steer routing needs backlog task G7's own separate authorization gate, restated from `docs/planning/decisions/C5-envelope-auth.md` §11 | backlog task G7 (per `oac-security-work` §2's citation); gate G2 | backlog task G7 not yet built; gate G2 `NOT RUN`; this document does not itself build the steer gate, it only confirms the inbound framing path never calls `turn/steer` |
 | Cross-project disclosure via `list_sessions` | Two sessions exist under different `working_directory` values; a caller invokes `list_sessions` | Result filtered by the same `working_directory`-scoped, default-deny allowlist `docs/planning/decisions/C5-envelope-auth.md` §11 already fixes (§8) | backlog task H2 (fourth acceptance item, per `oac-security-work` §2) | backlog task H2 not yet built; same open item `docs/planning/decisions/C4-session-identity.md` §13 and `docs/planning/decisions/C5-envelope-auth.md` §13 already name for this exact threat class |
 
+**Dated note, 2026-10-02 (C13, #220).** The Codex row above ("Same, on Codex via forged header/delimiter") is superseded in mitigation by §5.0. The mitigation is now whole-value validation with refusal, a line-quoted body, and a scoped `turn/start` anchor. The proposed replacement rows, including header injection, line-break smuggling, a forged anchor and a stale anchor, are in C13 §9. They fold into this table and `06-security.md` §14 when the C13 §11 re-run is recorded. Until then the row's residual (G5 `FAIL`) stands.
+
 Every row names its proving test; none is marked mitigated without one, per
 `oac-security-work` §1's rule. Because every named test's current verdict is `NOT RUN` or
 the underlying task is not yet built, every row above describes a **designed** mitigation,
@@ -595,7 +676,7 @@ channel-tag convention — a documented field or item type on `turn/start`/
 `thread/queue/add` that carries structured metadata separate from the `text` payload, the
 Codex-side analogue of Claude's `meta`. Test: does a future `app-server` schema artifact
 (`codex-rs/app-server-protocol/schema/json`, per `oac-codex-appserver`) add such a field
-to the turn-input item shape? Not fired as of this pin (`@openai/codex@0.154.0`).
+to the turn-input item shape? Not fired as of this pin (`@openai/codex@0.154.0`). **Dated note, 2026-10-02 (C13 §7):** still not fired as written at `rust-v0.159.3`. `turn/start.additionalContext` is a params-level, experimental field, absent from the default checked-in schema, not a field on the turn-input item. It is nonetheless the closest Codex analogue to `meta`, and §5.0 uses it as a non-load-bearing anchor.
 
 **Either half.** Reverse if G5 fails on either rendering — that is, if a live run finds a
 message whose text claims a different sender is **not** rendered to the model with
@@ -615,6 +696,11 @@ Per `oac-evidence` §4, one label per surface touched by this document, at first
 |---|---|---|
 | Claude Code Channels (`notifications/claude/channel`, `claude/channel/permission`) | research preview | pinned `v2.1.274`, unchanged from `docs/planning/PINS.md`; referenced throughout §2-§4, §7 |
 | Codex app-server (`turn/start`, `thread/queue/add`, `turn/steer`) | experimental (per-method gating via `capabilities.experimentalApi`) | pinned `@openai/codex@0.154.0` / commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`, unchanged from `docs/planning/PINS.md`; referenced throughout §5, §9-§10 |
+
+**Dated note, 2026-10-02 (C13, #220):** §5.0 adds Codex `turn/start.additionalContext`,
+labelled **experimental** (`#[experimental("turn/start.additionalContext")]`). It was read
+at `rust-v0.159.3` and sits behind the same Codex experimental shim boundary. Codex now
+floats per `docs/planning/PINS.md`.
 
 **Carried, still-open shim-boundary inputs (PINS.md risk items 9 and 10):** the
 compatibility shim boundary for the Claude Channels research-preview surface and for the
