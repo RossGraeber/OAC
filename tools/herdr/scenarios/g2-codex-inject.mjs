@@ -83,7 +83,7 @@ import { fileURLToPath } from 'node:url';
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseCodexVersions, pinsReadWarning, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
-import { runBounded, spawnLongRunning, killTree, descendants, processTable, within } from '../lib/proc.mjs';
+import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
 import { driverAcceptDialog } from '../lib/gate-common.mjs';
@@ -401,10 +401,10 @@ export default {
     };
 
     const recordPaneArgv = async (paneId, context) => {
-      const info = await herdr.paneProcessInfo(paneId);
+      // One process table for the pane's whole tree, the one the driver took for its query
+      // (#136 review, #244 note D: each table is one WMI query, ~1.6 s, on Windows).
+      const { info, table: procTable } = await herdr.paneProcessSnapshot(paneId);
       const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-      // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
-      const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
       // #232: argv minimized (executable basenames, the `codex` token; plain `codex` asserts no
       // argument, so every other argument is a length placeholder); herdr's own answer is kept as

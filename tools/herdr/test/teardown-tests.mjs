@@ -13,7 +13,7 @@
 import { tmpdir } from 'node:os';
 
 import { HerdrSession } from '../lib/herdr.mjs';
-import { parseWin32ProcessJson, parsePsTable, treeFrom, carriesSession, protectedReason, processesForSession, descendants } from '../lib/proc.mjs';
+import { parseWin32ProcessJson, parsePsTable, treeFrom, carriesSession, protectedReason, processesForSession, descendants, commandTokens, splitWindowsCommandLine, UNSPLITTABLE_REASON } from '../lib/proc.mjs';
 
 const SESSION = 'oac-k-unit-20261002T000000Z-abc123';
 // The stub herdr: process-info for pane w1:p1 reports shell 101 and foreground 102.
@@ -117,6 +117,25 @@ export async function teardownUnit(check) {
   check('#136 session scan: --session <name> found in a Windows command line and a Linux argv', carriesSession(win.get(107), SESSION) && carriesSession(linuxTable().get(108), SESSION) && !carriesSession(win.get(109), SESSION) && JSON.stringify(processesForSession(SESSION, win).sort()) === JSON.stringify([107, 108]));
   check('#136 protected: the Codex app-server (daemon) is protected on both shapes; a plain codex is not', !!protectedReason(win.get(104)) && !!protectedReason(linuxTable().get(106)) && !protectedReason(win.get(102)));
 
+  // #244: commandTokens() splits a Windows command line by the Microsoft C runtime rules
+  // (lib/proc.mjs splitWindowsCommandLine, #243), the one rule set the launch proof uses too.
+  // Each row carries the platform it was read on, so the result does not depend on the host.
+  const winRow = (pid, cl) => parseWin32ProcessJson(JSON.stringify([{ p: pid, pp: 4, c: T(9), cl }])).get(pid);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  // Escaped quotes: the old naive regex paired the escaped quotes as delimiters, swallowed
+  // ` --session ` into one quoted token and missed the session; under the C runtime rules
+  // `\"` is a literal quote inside one argument.
+  const escSession = winRow(201, `"C:\\Program Files\\h\\herdr.exe" --label "a \\"b\\" c" --session "${SESSION}" server`);
+  const escInside = winRow(202, `C:\\x\\codex.exe -c "features.note=\\"app-server\\" only" --session "x\\"${SESSION}"`);
+  const escDaemon = winRow(203, 'C:\\x\\codex.exe "app-server" daemon --label "say \\"hi\\""');
+  check('#244 commandTokens: Windows rows split by the C runtime rules (escaped quotes kept inside one argument), equal to splitWindowsCommandLine', win.get(107).platform === 'win32' && mac.get(101).platform === 'darwin' && same(commandTokens(escSession), ['C:\\Program Files\\h\\herdr.exe', '--label', 'a "b" c', '--session', SESSION, 'server']) && same(commandTokens(escInside), splitWindowsCommandLine(escInside.commandLine)) && same(commandTokens(escInside).slice(1, 3), ['-c', 'features.note="app-server" only']), JSON.stringify([commandTokens(escSession), commandTokens(escInside)]));
+  check('#244 carriesSession (escaped quotes): a quoted --session after an escaped-quote argument matches; a name that is only part of a quoted argument does not', carriesSession(escSession, SESSION) && !carriesSession(escInside, SESSION));
+  check('#244 protectedReason (escaped quotes): a quoted app-server token is protected; app-server inside an escaped-quote value is not a token, so not protected', protectedReason(escDaemon) !== null && protectedReason(escDaemon) !== UNSPLITTABLE_REASON && protectedReason(escInside) === null);
+  const bad = winRow(204, `C:\\x\\herdr.exe --session ${SESSION} app-server`);
+  bad.commandLine = `C:\\x\\herdr.exe --session ${SESSION}\0 app-server`; // a NUL: no real command line carries one
+  check('#244 unsplittable command line (null tokens): carriesSession is "no match"; protectedReason is fail-safe (protected, never killed)', commandTokens(bad) === null && carriesSession(bad, SESSION) === false && protectedReason(bad) === UNSPLITTABLE_REASON);
+  check('#244 commandTokens: a row with no command line has no tokens (nothing to match); a Linux argv is used as is', same(commandTokens(win.get(4)), []) && same(commandTokens(linuxTable().get(107)), ['herdr', '--session', SESSION, 'pane', 'read', 'w1:p1']));
+
   // --- teardown against fake process operations, both platform shapes -----------------------
   for (const [shape, before, after] of [
     ['win32', parseWin32ProcessJson(JSON.stringify(winRows())), parseWin32ProcessJson(JSON.stringify(winRows()))],
@@ -140,6 +159,13 @@ export async function teardownUnit(check) {
   {
     const { t, f } = await teardownCase([parseWin32ProcessJson(JSON.stringify(winRows())), parseWin32ProcessJson(JSON.stringify(winRows({ reused: true })))]);
     check('#136 win32: a tracked pid whose creation time changed (reused) is skipped, not killed', !f.kills.includes(102) && t.skippedReusedPids.includes(102) && f.kills.includes(101), JSON.stringify(t));
+  }
+  {
+    // #244: a tracked pane descendant whose command line cannot be split is unverified: not
+    // killed, a leftover, teardown not clean (it cannot be shown not to be the app-server).
+    const rows = () => winRows().map((r) => (r.p === 103 ? { ...r, cl: 'node.exe mcp-server.js\0' } : r));
+    const { t, f } = await teardownCase([parseWin32ProcessJson(JSON.stringify(rows())), parseWin32ProcessJson(JSON.stringify(rows()))]);
+    check('#244 win32: an unsplittable command line is never killed; it is unverified, a leftover, and teardown is not clean', !f.kills.includes(103) && t.unverifiedPids.some((u) => u.pid === 103 && u.why === UNSPLITTABLE_REASON) && t.leftoverProcesses.includes(103) && !t.protectedProcesses.some((p) => p.pid === 103) && f.kills.includes(102) && t.clean === false, JSON.stringify(t));
   }
   {
     const { t, f } = await teardownCase([null, null], { alive: [101, 102] });

@@ -112,7 +112,7 @@ import { fileURLToPath } from 'node:url';
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, parseCodexDaemonVersion, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
-import { runBounded, descendants, processTable, killTree } from '../lib/proc.mjs';
+import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
@@ -903,10 +903,10 @@ export default {
       await herdr.paneProcessInfo(cws.paneId);
       const cstart = await herdr.agentStart('l3codex', { launchArgv: [...G2_LAUNCH], paneId: cws.paneId, timeoutMs: startupBound(), allowErrorCodes: ['agent_not_ready'] });
       l3.codexStart = { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] };
-      const info = await herdr.paneProcessInfo(cws.paneId);
+      // One process table for the pane's whole tree, the one the driver took for its query
+      // (#136 review, #244 note D: each table is one WMI query, ~1.6 s, on Windows).
+      const { info, table: procTable } = await herdr.paneProcessSnapshot(cws.paneId);
       const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-      // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
-      const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
       const { proof } = paneArgv(tree, procTable); // #232: argsAfterCodex minimized
       l3.codexPaneArgv = { proof };

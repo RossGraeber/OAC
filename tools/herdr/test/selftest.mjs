@@ -605,8 +605,14 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
 }
 
 // Invariants every lifecycle run must hold, whatever its outcome.
-function invariants(name, b, r, { scratchLeft = false } = {}) {
+function invariants(name, b, r, { scratchLeft = false, noManifest = false } = {}) {
   const m = r.manifest;
+  // #244: a run refused before anything was created (a scenario's validateParams) writes
+  // nothing: no output directory, no manifest, no herdr call.
+  if (noManifest) {
+    check(`${name}: refused before anything was created: no output directory, no manifest, no herdr call`, !m && !existsSync(r.outDir) && r.calls.length === 0, r.stdout + r.stderr);
+    return;
+  }
   check(`${name}: run-manifest.json written`, !!m, r.stdout + r.stderr);
   if (!m) return;
   const commands = m.commands;
@@ -889,7 +895,7 @@ async function lifecycle() {
     const { b, r } = run;
     try {
       invariants(c.name, b, r, c.invariantOpts);
-      if (r.manifest) c.assert(r);
+      if (r.manifest || c.invariantOpts?.noManifest) c.assert(r);
     } catch (err) {
       check(`${c.name}: assertions ran`, false, err.stack);
     } finally {

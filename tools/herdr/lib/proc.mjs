@@ -186,13 +186,14 @@ export function killPid(pid) {
 // --- the process table (#136) ----------------------------------------------------------
 //
 // One snapshot of every live process: Map pid -> { pid, ppid, start, startKey, argv,
-// commandLine }. Reads only pids, parent pids, creation times and argv / command lines,
+// commandLine[, platform] }. Reads only pids, parent pids, creation times and argv / command lines,
 // never process environments.
 //   start     identity string: "this pid is still the same process" while it is unchanged
 //             (Linux start time in clock ticks, macOS `ps` lstart, Windows CreationDate UTC)
 //   startKey  a number that orders processes of one snapshot by creation (null if unknown)
 //   argv      array where the OS gives one (Linux), else null; commandLine is then the
 //             OS's own string (macOS `ps` command, Windows Win32_Process.CommandLine)
+//   platform  on a commandLine row, whose rules split it ('win32' or 'darwin'; #244)
 // Returns null when the table cannot be read; callers then treat every pid as unverified
 // and kill nothing on its strength.
 
@@ -215,7 +216,7 @@ export function parseWin32ProcessJson(text) {
     if (!Number.isInteger(pid) || pid <= 0) continue;
     const start = typeof r.c === 'string' && r.c ? r.c : null;
     const key = start ? Date.parse(start) : NaN;
-    table.set(pid, { pid, ppid: Number.isInteger(Number(r.pp)) ? Number(r.pp) : null, start, startKey: Number.isFinite(key) ? key : null, argv: null, commandLine: typeof r.cl === 'string' ? r.cl : null });
+    table.set(pid, { pid, ppid: Number.isInteger(Number(r.pp)) ? Number(r.pp) : null, start, startKey: Number.isFinite(key) ? key : null, argv: null, commandLine: typeof r.cl === 'string' ? r.cl : null, platform: 'win32' });
   }
   return table;
 }
@@ -228,7 +229,7 @@ export function parsePsTable(text) {
     if (!m) continue;
     const start = m[3].replace(/\s+/g, ' ');
     const key = Date.parse(start);
-    table.set(Number(m[1]), { pid: Number(m[1]), ppid: Number(m[2]), start, startKey: Number.isFinite(key) ? key : null, argv: null, commandLine: m[4] });
+    table.set(Number(m[1]), { pid: Number(m[1]), ppid: Number(m[2]), start, startKey: Number.isFinite(key) ? key : null, argv: null, commandLine: m[4], platform: 'darwin' });
   }
   return table;
 }
@@ -299,23 +300,125 @@ export function treeFrom(table, rootPid) {
   return out;
 }
 
-// Split a command line the way the OS printed it (double quotes stripped).
-export function commandTokens(proc) {
-  if (proc?.argv) return proc.argv;
-  return [...String(proc?.commandLine ?? '').matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]);
+// Split a command line the way the OS printed it into the argv the process received. On
+// Windows (Win32_Process.CommandLine) that is the Microsoft C runtime's rule set
+// (splitWindowsCommandLine, #243). Elsewhere (macOS `ps`, which prints the arguments joined
+// by spaces with no quoting) a quoted run is kept together and quotes are stripped; good
+// enough to find the `codex` token. null for a non-string or one carrying a NUL.
+export function splitCommandLine(s, { platform = process.platform } = {}) {
+  if (platform === 'win32') return splitWindowsCommandLine(s);
+  if (typeof s !== 'string' || s.includes('\0')) return null;
+  const out = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  for (const m of s.matchAll(re)) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
 }
 
-// Does a process carry `--session <name>` (or `--session=<name>`) in its argv?
+// #243: the argv a Microsoft C runtime program (node.exe, codex.exe) builds from its command
+// line, per Microsoft's "Parsing C command-line arguments"
+// (https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments,
+// ms.date 2021-12-09, retrieved 2026-10-02):
+// - arguments are delimited by spaces or tabs;
+// - argv[0], the program name, is special: double-quoted parts keep spaces and tabs, the
+//   quotes are dropped, and none of the rules below apply (no backslash escaping);
+// - a double-quoted string is one argument and may be embedded in an argument; inside a
+//   quoted string a pair of double quotes is one literal double quote (and the string goes
+//   on); a command line that ends inside a quoted string ends the last argument there;
+// - backslashes are literal unless they immediately precede a double quote: 2n backslashes
+//   then a quote give n backslashes and the quote is a delimiter; 2n+1 backslashes then a
+//   quote give n backslashes and a literal quote.
+// Fail closed: a non-string, or one carrying a NUL (no real command line does), gives null, so
+// no launch proof can be computed from it; an empty one gives [].
+export function splitWindowsCommandLine(s) {
+  if (typeof s !== 'string' || s.includes('\0')) return null;
+  if (s === '') return [];
+  const out = [];
+  const n = s.length;
+  const blank = (c) => c === ' ' || c === '\t';
+  let i = 0;
+  // argv[0]: quotes toggle, are dropped; whitespace outside quotes ends it.
+  let arg0 = '';
+  let inQuote = false;
+  for (; i < n; i += 1) {
+    const c = s[i];
+    if (c === '"') inQuote = !inQuote;
+    else if (!inQuote && blank(c)) break;
+    else arg0 += c;
+  }
+  out.push(arg0);
+  for (;;) {
+    while (i < n && blank(s[i])) i += 1;
+    if (i >= n) break;
+    let arg = '';
+    inQuote = false;
+    for (; i < n; i += 1) {
+      const c = s[i];
+      if (c === '\\') {
+        let k = i;
+        while (k < n && s[k] === '\\') k += 1;
+        const count = k - i;
+        if (k < n && s[k] === '"') {
+          arg += '\\'.repeat(count >> 1);
+          if (count % 2 === 1) {
+            arg += '"';
+            i = k; // the escaped quote is consumed
+          } else {
+            i = k - 1; // the quote is handled as a delimiter next round
+          }
+        } else {
+          arg += '\\'.repeat(count);
+          i = k - 1;
+        }
+        continue;
+      }
+      if (c === '"') {
+        if (inQuote && s[i + 1] === '"') {
+          arg += '"'; // "" inside a quoted string: one literal quote, still quoted
+          i += 1;
+        } else {
+          inQuote = !inQuote;
+        }
+        continue;
+      }
+      if (!inQuote && blank(c)) break;
+      arg += c;
+    }
+    out.push(arg);
+  }
+  return out;
+}
+
+// #244: the tokens of a process-table row. Linux rows carry the argv itself. A Windows or macOS
+// row carries the OS's command line string, split by splitCommandLine under the rules of the
+// platform the row was read on (row.platform, set by the parsers above; the host's otherwise),
+// so teardown and the launch proof (lib/g2.mjs paneArgv) split a command line by one rule set.
+// [] when the row has no argv and no command line (nothing to match). null when the command
+// line cannot be split (a non-string or a NUL): the caller treats that process as
+// unverifiable, never as "no match, safe to kill".
+export function commandTokens(proc) {
+  if (Array.isArray(proc?.argv)) return proc.argv;
+  if (proc?.commandLine == null) return [];
+  return splitCommandLine(proc.commandLine, { platform: proc.platform ?? process.platform });
+}
+
+// Does a process carry `--session <name>` (or `--session=<name>`) in its argv? A command line
+// that cannot be split matches nothing.
 export function carriesSession(proc, name) {
   const argv = commandTokens(proc);
+  if (!argv) return false;
   return argv.some((a, i) => (a === '--session' && argv[i + 1] === name) || a === `--session=${name}`);
 }
 
 // Processes teardown must never kill, whoever started them: the Codex app-server (the
 // operator's long-lived shared daemon, #202/#203; a pane's `codex` could also have started
-// one). Matched on the argv token `app-server`; left running and recorded instead.
+// one). Matched on the argv token `app-server`; left running and recorded instead. Fail-safe
+// (#244): a command line that cannot be split cannot be shown NOT to be the daemon, so it is
+// protected as well (teardown reports such a pid as unverified before it gets here).
+export const UNSPLITTABLE_REASON = 'command line could not be split, so it cannot be shown not to be the Codex app-server';
 export function protectedReason(proc) {
-  return commandTokens(proc).includes('app-server') ? 'Codex app-server (the shared daemon is never stopped by the driver)' : null;
+  const argv = commandTokens(proc);
+  if (!argv) return UNSPLITTABLE_REASON;
+  return argv.includes('app-server') ? 'Codex app-server (the shared daemon is never stopped by the driver)' : null;
 }
 
 // PIDs of live processes whose argv contains `--session <name>`. null when the process
