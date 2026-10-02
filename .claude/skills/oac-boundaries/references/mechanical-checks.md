@@ -18,9 +18,10 @@ Status as last verified against this repo (2026-09-28): checks 1, 2, 4, 5, 6, 7 
 the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; check 10 is
 **clean** on real content (`tools/herdr/`, K3's driver: every tracked entry, 0 hits), and
 so are check 9's two workflow targets (K6: `boundary-lint.yml` and
-`herdr-provider-optin.yml`, 0 hits), while check 9's six other targets (the five product
-paths and manifests outside `tools/herdr/`) are still **pending**, so the script's last
-line reads `Result: PENDING`; its `--self-test` passes 83/83. Check 11 (added 2026-09-29)
+`herdr-provider-optin.yml`, 0 hits), while check 9's seven other targets (the five product
+paths, manifests outside `tools/herdr/`, and `tests/integration/`) are still **pending**, so
+the script's last line reads `Result: PENDING`; its `--self-test` has 96 cases (one, a
+non-UTF-8 file name, is skipped on file systems that reject it, e.g. Windows). Check 11 (added 2026-09-29)
 is **pending**: none of its product paths or root Cargo manifests has a tracked file yet.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
@@ -72,7 +73,15 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 # 9. herdr (Epic K dev/test tooling) must not reach product code: no `herdr` / `HERDR_`
 #    (case-insensitive) in any git-tracked entry under adapters/ core/ cli/ transports/
 #    spec/, and no workspace or package manifest outside tools/herdr/ referencing
-#    tools/herdr. Workflows (K6): no workflow other than
+#    tools/herdr. tests/integration/ (#146, the tools/herdr/README.md reuse contract) is
+#    opt-in provider-integration tier and MAY name and spawn herdr -- deliberately not
+#    under the herdr-token ban -- but stays a leaf: no product-path entry climbs to it
+#    (`../tests/integration`) or symlinks into it, no root manifest names it and no nested
+#    manifest climbs to it (fail-closed: a future opt-in root target needs a deliberate,
+#    self-tested exception here), and nothing under it imports or compiles in driver code
+#    (JS import/require, Python import, Rust #[path]/include!) or symlinks into
+#    tools/herdr/. A crate's own tests/integration.rs is not the top-level directory.
+#    Workflows (K6): no workflow other than
 #    .github/workflows/herdr-provider-optin.yml names tools/herdr or any label a
 #    self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm,
 #    arm64 -- a job routes to any runner holding all its runs-on labels). The opt-in
@@ -97,17 +106,20 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 #    `config set`, `login`, ...).
 #    Both scan the git index (staged blobs, what CI sees), not the work tree. An entry is
 #    matched by its path, a file by its blob, a symlink by its stored target and then by
-#    where it lands after following tracked symlinks hop by hop (chains and symlinked
-#    directories; the landed file's blob too), a submodule by its path and .gitmodules
-#    url. A tracked symlink landing outside the repository fails. Hits print path, line,
+#    where it lands after following tracked symlinks segment by segment, as realpath does
+#    (chains and symlinked directories, each expanded before a following `..`; the landed
+#    file's blob, or every tracked entry under a landed directory, cycle-safe), a
+#    submodule by its path and .gitmodules url. A tracked symlink landing outside the repository fails. Hits print path, line,
 #    and rule label only -- never matched text, a line, or a link target.
 #    --self-test plants one violation per rule in a temporary git tree, asserts each exits
 #    non-zero with exactly one hit and that planted secret strings never reach the output,
 #    plus controls that must not fail.
 #
 #    Check 10's harness-config WRITE rules (~/.claude/settings(.local).json or under
-#    $CLAUDE_CONFIG_DIR, ~/.codex/config.toml or under $CODEX_HOME, hooks.json) are
-#    heuristics; reading or hashing that config is allowed. Caught: JS writeFile/appendFile/
+#    $CLAUDE_CONFIG_DIR, ~/.codex/config.toml or under $CODEX_HOME, hooks.json directly in
+#    either directory; each name suffix-anchored, so a scratch hooks.json.sha256 or a
+#    hooks.json elsewhere is not config) are heuristics; reading or hashing that config
+#    is allowed. Caught: JS writeFile/appendFile/
 #    truncate/rm/unlink/createWriteStream on the path, copyFile/cp/link/symlink onto it,
 #    rename from or onto it, open with a write flag -- each read by call arguments, so a
 #    call split over lines counts; spawn/execFile of cp/mv/install/ln/rm/tee/truncate/sed/
@@ -115,7 +127,8 @@ rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 #    tee/truncate on it, sed -i/perl -i on it, and a `>`/`>>` redirect into it.
 #    NOT caught: a config path held in a variable or built elsewhere and then passed to a
 #    write (`const p = join(home, '.claude', 'settings.json'); writeFileSync(p, ...)`);
-#    config dirs spelled any other way; writes through another language or tool (python,
+#    config dirs spelled any other way (incl. a plugin's hooks/hooks.json deeper under
+#    ~/.claude); writes through another language or tool (python,
 #    jq, dd, `node -e`); shell commands split across lines. Keep harness config paths
 #    inline at the one read/hash site and never hand them to a write.
 node scripts/check-herdr-containment.mjs
