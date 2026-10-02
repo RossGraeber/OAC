@@ -539,6 +539,16 @@ An operator never ticks a line that calls a driver accept their own.
      thread, or a dirty `tools/herdr/`. Such a run is `NOT EVALUABLE` in the report. Only
      a real `PASS` or `FAIL` with arm 0 reproduced consumes it.
 
+  **Consumed, 2026-10-02.** Run `20261002T161612Z` used E1 up. Its C13 outcome was `PASS`,
+  and its arm 0 reproduced the old FAIL. Record: `docs/planning/gates/herdr-runs/
+  G5-c13-2026-10-02.md`.
+  - The earlier run `20261002T160321Z` ended `FAIL` on a scenario race, with C13 `NOT RUN`.
+    It did not consume E1.
+  - The rule that the run never merges `main` bound the run's driver commit, `a86e620`. The
+    branch merged `main` after the run (`078c794`), to land the record. That does not
+    affect the verdict, because the E1 path rule was checked at the driver commit.
+  - No later run may use E1.
+
 ## Checklist: recording a scripted run
 
 - [ ] Box declared before the first herdr command (scenario default or `--timebox-ms`),
