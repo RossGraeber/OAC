@@ -44,7 +44,7 @@ three decisions:
 the reviewed proposal, kept as approved.
 
 **Where this record lives.** `docs/planning/decisions/` holds the C-series decisions. This
-record proposes an amendment to one of them (C6), so it sits beside it. No `ADR-001.md`
+record amends one of them (C6), so it sits beside it. No `ADR-001.md`
 text is changed: ADR-001 states no Codex framing detail (the C13 register row already
 says so), and the recommended option stays inside `[ADR-001 Boundary]`'s MAY clause
 ("documented MCP extensions, app-server protocols, ... and translate neutral messages into
@@ -530,11 +530,22 @@ who reads and scores the answer: herdr reading the pane, or a human.
 - **E1: a one-off herdr exception (CHOSEN).** A dated exception in `scripted-runs.md`
   "Verdict eligibility", and a dated note on `G5-result.md`'s K8 sentence. Both landed
   with the approval. The re-run may then carry G5's Codex verdict if:
-  - its `tools/herdr/` diff from the last reviewed driver commit is limited to the framing,
-    case and report changes above;
+  - its `tools/herdr/` diff (excluding `tools/herdr/test/`) from commit
+    `2776e7a89bc3d7f5d7c39bea791a1919dd17119a` (the #217 merge; `tools/herdr/` is
+    unchanged from there to `main` as of 2026-10-02) is limited to:
+    - the `gate-servers/g5-codex.mjs` framing;
+    - the `gate-servers/g5-cases.json` cases;
+    - the `lib/g5-report.mjs` scoring;
+    - arm and case selection only in `scenarios/g5-provenance.mjs`;
   - arm 0 reproduces the failure;
   - it carries a full operator attestation and meets the rest of the `oac-gates`
     procedure.
+
+  The equivalence-record, empty-diff and same-`scenario.file`/`launch.argv`/
+  `scenario.params` conditions are waived. The first run whose outcome is `PASS` or
+  `FAIL`, and whose arm 0 reproduced the old FAIL, consumes the exception, and its verdict
+  is final. A `NOT RUN` or inconclusive run does not consume it, and is listed under
+  "Findings". A `FAIL` is not re-run under the exception.
   - Cost: it changes two rules for one run, and the scenario's first live run is also the
     verdict run (arm 0 is its calibration).
 - **E2: evidence only.** The herdr re-run is evidence.
@@ -641,8 +652,12 @@ record (2026-10-02). The re-run closes the second.
 **Follow-ups (not in this change):**
 
 - **The G5 Codex-leg re-run (§11).** Before it runs, a separate change makes the
-  prerequisite `tools/herdr/` edits, limited to `g5-codex.mjs` framing, `g5-cases.json`
-  cases and `g5-report.mjs` scoring plus scenario wiring.
+  prerequisite `tools/herdr/` edits. Measured from `2776e7a89bc3d7f5d7c39bea791a1919dd17119a`,
+  they are limited to:
+  - the `gate-servers/g5-codex.mjs` framing;
+  - the `gate-servers/g5-cases.json` cases;
+  - the `lib/g5-report.mjs` scoring;
+  - arm and case selection only in `scenarios/g5-provenance.mjs`.
 - **After the re-run is recorded:**
   - `06-security.md` §9, §10 and §14 rewritten (row 17 replaced, new rows from §9, the
     residuals of rows 5 and 22 re-pointed);
