@@ -45,9 +45,10 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
   --version`), wire `initialize` result `clientInfo.version`, and the transport user-agent
   (when the transport carries one) in the result. A version other than the last tested one,
   or below the minimum, is a warning, never a stop and never by itself a reason to
-  invalidate the verdict. §3.1 facts (see `oac-claude-channels`) not yet re-checked at the
-  observed version are a finding. The capability floors — channels-exist
-  `>= v2.1.232` and permission-relay `>= v2.1.234` (PLANNING-PROMPT.md §3.1) — sit below the
+  invalidate the verdict. The §3.1 facts were re-checked once, at `2.1.285` (2026-10-02,
+  #122; `oac-claude-channels` `## Pin`). Newer versions are warnings only. The capability
+  floors — channels-exist `>= v2.1.232` (unsupported, drift D6: the changelog says
+  `2.1.80`) and permission-relay `>= v2.1.234` (PLANNING-PROMPT.md §3.1) — sit below the
   minimum; permission relay itself stays out of scope for this gate,
   proposed off by default in v0.1 (Decision 8 / C10, not yet decided; Epic C is still open
   per STATUS.md).
@@ -77,13 +78,16 @@ None. PLANNING-PROMPT.md §4: "there is no supported fallback, so this is v0.1 g
     — verify this by including a non-identifier-safe key and confirming it does not appear as
     an attribute.
   - Loading is `--channels plugin:<name>@<marketplace>` or `--channels server:<name>`, at
-    session start only.
+    session start only. (Dated note, 2026-10-02, #122: `--channels` takes `plugin:`
+    entries only; a bare server loads with `--dangerously-load-development-channels
+    server:<name>` — drift D4, `docs/planning/REVERIFICATION-B2.md`.)
 - UNVERIFIED items this gate is positioned to close (record whichever you actually test; if
   untested, they remain open per STATUS.md):
   - Channel behavior across `--resume`.
   - Whether one server can present more than one logical channel.
   - Whether a `CLAUDE_SESSION_ID` environment variable exists (baseline says none is
-    documented).
+    documented). (Dated note, 2026-10-02, #122: closed in B2. A differently named
+    `CLAUDE_CODE_SESSION_ID` is documented, drift D5; see `oac-claude-channels` §8.)
   - Agent SDK support for Channels (baseline presumes absent).
 
 ## Fixtures to capture (for Stage 3's fake Claude endpoint)

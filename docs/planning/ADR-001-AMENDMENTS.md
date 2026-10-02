@@ -217,7 +217,11 @@ quoted verbatim from their sources:
   channel, `--dangerously-load-development-channels`). Source:
   PLANNING-PROMPT.md §3.1, re-verified against the `v2.1.274` pin in
   `REVERIFICATION-B2.md` §3.1 table, row "`--channels plugin:<name>@<marketplace>` and
-  `--channels server:<name>`" — HOLDS.
+  `--channels server:<name>`" — HOLDS. (Dated note, 2026-10-02, #122: the §3.1 re-check
+  at Claude Code `2.1.285` found `--channels` takes `plugin:` entries only. A bare
+  server loads with `--dangerously-load-development-channels server:<name>`, the form
+  this list already names. This is drift D4 in `REVERIFICATION-B2.md`. The amendment's
+  point, a session launched OAC-enabled, is unaffected.)
 - **Codex:** through the shared local app-server daemon (`codex app-server daemon
   start`), which the TUI attaches to automatically when launched without config
   overrides, or through an OAC-owned app-server with the TUI attached via `codex

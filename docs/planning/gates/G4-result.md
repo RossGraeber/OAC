@@ -436,7 +436,7 @@ provenance verdict and is recorded here, on G4, because it is G4's own open item
   transcript-row41-2026-09-27.jsonl` (18 lines). **Nothing in it needed redacting**: the
   server logs only protocol JSON (method names, headers, `_meta`), the same as the
   primary G4 fixture's own near-no-op redaction pass — re-scanned during this write-up
-  anyway (`rossg`, `RossG`, `DESKTOP-N8MHSJ4`, `@gmail`, `sk-`, `Bearer `,
+  anyway (`rossg`, `RossG`, the operator's hostname, `@gmail`, `sk-`, `Bearer `,
   `systemPrompt`, `prompt_snapshot`, with the public
   `io.github.rossgraeber/oac-session-channels` identifier masked first and restored) —
   zero residual hits, confirming there was nothing to redact rather than that a

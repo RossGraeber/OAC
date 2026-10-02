@@ -97,6 +97,94 @@ line 138's `## Pin` wording is corrected in this change (§"Propagated skill upd
 below) to state plainly that the floor is sourced from PLANNING-PROMPT.md §3.1 only, not
 independently confirmed on `channels.md` at `v2.1.274`.
 
+### §3.1 re-check at Claude Code `2.1.285` (2026-10-02, #122)
+
+Trigger: issue #122 item 4, and the operator decision on #122 (2026-10-02): the §3.1
+facts get **one** B2-style desk re-check at the last tested version, `2.1.285`
+(`docs/planning/PINS.md`, Claude Code Channels, "Version policy"); newer versions after
+this are version warnings only (#216). This section is the record of that pass. It
+closes the "§3.1 not re-verified since `v2.1.274`" gap (`docs/planning/v0.1/11-risks.md`
+row 30).
+
+**Method.** Retrieval date for every source below: **2026-10-02**.
+
+- Docs pages, fetched as raw Markdown with `curl` from `https://code.claude.com/docs/en/`:
+  `channels.md`, `channels-reference.md`, `mcp.md`, `hooks.md`, `env-vars.md`,
+  `cli-reference.md`, `agent-sdk/overview.md`. Line numbers below (`L<n>`) are lines of
+  those fetched files.
+- Release notes: `CHANGELOG.md` in `anthropics/claude-code` at commit
+  `52c76441cae91f6891e4712306bffb057ff6fec5` (2026-10-01T18:43:08Z), cited as
+  "changelog `<version>`". `v2.1.285` was published 2026-09-29T19:27:30Z (`gh api
+  repos/anthropics/claude-code/releases/tags/v2.1.285`).
+- Local binary: `claude --version` printed `2.1.285 (Claude Code)` on the operator's
+  Windows host; `claude --help` was run on that binary.
+
+**Version caveat.** The docs pages are not versioned. On the retrieval date the newest
+release was `v2.1.287` (2026-10-01T18:00:22Z), so the pages may describe `2.1.286` or
+`2.1.287`, not `2.1.285`. The changelog entries for `2.1.286` and `2.1.287` were read for
+anything touching channels, `MCP_PROTOCOL_NEGOTIATION`, hook `session_id` or permission
+relay. None changes a fact below. (`2.1.287` adds URL elicitation for servers on the
+`2025-11-25` protocol, changelog `2.1.287`; it does not touch channel registration.) A
+fact is therefore marked HOLDS at `2.1.285` only when the doc text and the changelog
+agree. Only the `claude --help` row was observed directly on `2.1.285`.
+
+| # | §3.1 fact | B2 (`v2.1.274`) | `2.1.285` result | Evidence (retrieved 2026-10-02) |
+|---|---|---|---|---|
+| 1 | `capabilities.experimental["claude/channel"] = {}` required; presence registers the listener | HOLDS | **HOLDS** | `channels-reference.md` L200: "Required. Always `{}`. Presence registers the notification listener." |
+| 2 | `notifications/claude/channel` carries `content` (string) + `meta` (string map) | HOLDS | **HOLDS** | `channels-reference.md` L225 ("Your server emits `notifications/claude/channel` with two params"), L230 (`meta`, `Record<string, string>`) |
+| 3 | Non-identifier `meta` keys silently dropped | HOLDS | **HOLDS** | `channels-reference.md` L230: "Keys must be identifiers: letters, digits, and underscores only. Keys containing hyphens or other characters are silently dropped." Runtime detail (ASCII-only, G5 at `2.1.283`) unchanged |
+| 4 | Idle-session wake as a user turn | HOLDS | **HOLDS** | `channels-reference.md` L256: "Events queue into the session and are processed in order." |
+| 5 | Mid-turn notifications queued, delivered in order | HOLDS | **HOLDS (doc text unchanged)** | `channels-reference.md` L256, same sentence as B2, still "delivered together on the next turn". Runtime per-boundary delivery seen at `2.1.283` stays UNVERIFIED as a guarantee (`11-risks.md` row 49); not re-run here |
+| 6 | No acknowledgement | HOLDS | **HOLDS** | `channels-reference.md` L252: "Claude Code doesn't acknowledge notifications. The `await` on `mcp.notification()` resolves when the message is written to the transport, not when Claude has processed it." |
+| 7 | Outbound via ordinary MCP tools (`reply`); correlation by convention only | HOLDS | **HOLDS** | `channels-reference.md` L24 ("Expose a reply tool"), L254 ("If you need delivery confirmation, track event state in your server and expose a reply tool") |
+| 8 | Loading: `--channels plugin:<name>@<marketplace>` **or** `--channels server:<name>` | HOLDS | **DRIFTED (D4)** | `cli-reference.md` L75: `--channels` takes a "Space-separated list of `plugin:<name>@<marketplace>` entries". L79: `--dangerously-load-development-channels` "Accepts `plugin:<name>@<marketplace>` and `server:<name>` entries". `server:<name>` is documented only on the development flag |
+| 9 | No attach to a running session | HOLDS (by omission) | **HOLDS** | `mcp.md` L396: "your server declares the `claude/channel` capability and you opt it in with the `--channels` flag at startup"; no attach mechanism on `channels.md` or `channels-reference.md` |
+| 10 | Behavior across `--resume` | UNVERIFIED | **UNVERIFIED — docs still silent** | Neither `channels.md` nor `channels-reference.md` contains `resume` or `--continue`. `env-vars.md` L365 (below) covers only the session-id variable on resume, not channel registration |
+| 11 | Multiple channels per session | HOLDS | **HOLDS** | `channels.md` L263: "You can pass several plugins to `--channels`, space-separated."; `cli-reference.md` L75 |
+| 12 | One server presenting more than one logical channel | UNVERIFIED | **UNVERIFIED — docs still silent** | `channels-reference.md` L244: the `source` attribute "is set automatically from your server's configured name"; nothing on multiple channels per server |
+| 13 | Allowlist: `claude-plugins-official`, `allowedChannelPlugins`, `channelsEnabled` | HOLDS | **HOLDS** | `channels.md` L312-313 (Enterprise controls table), L348 ("The channel plugins in claude-plugins-official ... are the default approved set") |
+| 14 | `--dangerously-load-development-channels` plus interactive confirmation | HOLDS | **HOLDS** | `channels-reference.md` L141 ("full-screen warning dialog ... Select **I am using this for local development**"); `cli-reference.md` L79 ("Prompts for confirmation") |
+| 15 | Not available on Bedrock, Vertex, Foundry | HOLDS (naming drift D3) | **HOLDS (D3 unchanged)** | `channels.md` L10: "not available on Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry" |
+| 16 | Per-channel sender allowlist bootstrapped by pairing code | HOLDS | **HOLDS** | `channels.md` L284-290 ("Every approved channel plugin maintains a sender allowlist"; "The bot replies with a pairing code") |
+| 17 | Permission relay `claude/channel/permission`, `v2.1.234+` | HOLDS | **HOLDS** | `channels-reference.md` L201, L446 ("Claude Code v2.1.234 and later sends permission requests only to servers it registered as channels for the session"); changelog `2.1.234`: "permission previews now relay only to channel servers admitted by the inbound trust gate" |
+| 18 | "Research preview on Claude Code v2.1.232+" | UNVERIFIED | **Research preview: HOLDS. `v2.1.232+`: DRIFTED (D6)** | `channels.md` L344: "Channels are a research preview feature." `2.1.232` appears on no page fetched. Changelog `2.1.80`: "Added `--channels` (research preview) — allow MCP servers to push messages into your session"; changelog `2.1.81`: "Added `--channels` permission relay" |
+| 19 | `--channels` flags absent from `claude --help` | HOLDS | **HOLDS, observed on `2.1.285`** | `claude --help` on `2.1.285`: no line contains `channel`. `channels.md` L346: "Neither `--channels` nor `--dangerously-load-development-channels` appears in `claude --help` while the feature is in preview." (Both flags are now listed on the `cli-reference.md` docs page, L75/L79. That page is not `--help`) |
+| 20 | `2026-07-28` channel servers cannot deliver; negotiate legacy, `MCP_PROTOCOL_NEGOTIATION=legacy` | HOLDS | **HOLDS, wording narrower** | `mcp.md` L398: "if you set `MCP_PROTOCOL_NEGOTIATION` to `auto` and a channel server negotiates MCP protocol revision 2026-07-28, it can't deliver channel messages, so Claude Code doesn't register it as a channel. Leaving the variable unset, or setting it to `legacy`, keeps stdio servers on the earlier handshake." The literal "`2025-11-25` or earlier" is §3.1's paraphrase. No page fetched states that revision string for channels; G1 observed `protocolVersion: "2025-11-25"` at runtime (`docs/planning/gates/G1-result.md`) |
+| 21 | `session_id` in hook input is the supported path; no `CLAUDE_SESSION_ID` env var | HOLDS | **Literal fact HOLDS; "the supported way" DRIFTED (D5)** | `hooks.md` L726: `session_id`, "Current session identifier". No `CLAUDE_SESSION_ID` on `hooks.md` or `env-vars.md`. But `env-vars.md` L365 documents **`CLAUDE_CODE_SESSION_ID`**: "Set automatically to the current session ID in Bash and PowerShell tool subprocesses, hook command subprocesses, and stdio MCP server subprocesses." It is not new. Changelog entries well before `2.1.200` add it to the Bash tool and then to stdio MCP server subprocesses. B2 searched only `hooks.md` for the `CLAUDE_SESSION_ID` spelling and missed it |
+| 22 | Cross-session messaging (`ListAgents`/`SendMessage`) is separate from Channels | not tabled | **HOLDS (by omission)** | Neither `channels.md` nor `channels-reference.md` mentions `SendMessage` or `ListAgents`; the changelog treats them as their own feature (e.g. changelog `2.1.248`: "Added cross-session messaging (`SendMessage` / `ListAgents`) between sessions on the same machine on Bedrock, Vertex, and Foundry", which is unrelated to channels) |
+| 23 | Agent SDK does not support Channels | CLOSED (negative) | **HOLDS** | `agent-sdk/overview.md` L24-37, the `## Capabilities` table, still omits channels; the page contains no `channel` string |
+
+**Drift found** (added to the Drift register below as D4-D6):
+
+- **D4, `--channels server:<name>`.** §3.1 lists `--channels server:<name>` as a loading
+  form. `cli-reference.md` gives `--channels` `plugin:` entries only; `server:<name>` is
+  documented only on `--dangerously-load-development-channels`. B2's HOLDS row cited
+  development-flag examples for it. This is no design change:
+  `docs/planning/decisions/C2-process-model.md` §6 and
+  `docs/planning/v0.1/08-cli-and-deployment.md` §7 already launch OAC with
+  `--dangerously-load-development-channels server:oac` and do not use `--channels`.
+- **D5, `CLAUDE_CODE_SESSION_ID`.** A documented environment variable gives the session id
+  to stdio MCP server subprocesses, which includes `oac mcp-shim`. `env-vars.md` L365
+  adds caveats. An MCP server "retains the ID it was spawned with". On
+  `--resume <session-id>` it "receives the resumed ID". On `--continue`, or `--resume`
+  without an ID, "it may receive the initial startup ID instead". This conflicts with
+  `docs/planning/decisions/C4-session-identity.md` §3, "the hook's own stdin/HTTP body is
+  the only supported surface". C4's hook path still works and is still documented, so
+  nothing breaks. Per `oac-evidence` §6 this is recorded as a conflict, not redesigned
+  here. It is filed in `docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)". It is
+  not an ADR-001 conflict, so no `ADR-001-A*` amendment is proposed.
+- **D6, the `v2.1.232` floor.** The first-party changelog places "Added `--channels`
+  (research preview)" at `2.1.80`, not `2.1.232`. No first-party source checked names
+  `2.1.232`. This closes the open floor-1 item as drift: the `>= v2.1.232`
+  "channels exist at all" floor in `docs/planning/PINS.md` is not supported. The project's
+  operative floor has been the minimum version `v2.1.282` since #216, and that sits above
+  both versions. No decision changes.
+
+**Still UNVERIFIED after this pass:** behavior across `--resume`/`--continue` (row 10);
+one server presenting more than one logical channel (row 12); mid-turn batching as a
+guarantee (row 5, `11-risks.md` row 49). Each stays in `docs/planning/STATUS.md` "Open
+UNVERIFIED items".
+
 ## §3.2 Codex CLI app-server
 
 Read at the pinned commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` via
@@ -492,9 +580,18 @@ ACP is not a v0.1 dependency; neither open item here blocks a gate.
 | D2 | §3.3: "Prefixes whose second label is `modelcontextprotocol` or `mcp` are reserved." | No such clause exists in SEP-2133. The only normative clause is: "the vendor prefix SHOULD be a reversed domain name that the extension author owns or controls" and "Official extensions use the `io.modelcontextprotocol` vendor prefix." | https://modelcontextprotocol.io/seps/2133-extensions, retrieved 2026-09-16 | Yes, narrowly: `oac-spec-authoring` (Epic E, not yet started) must not state or enforce a blanket reservation rule for any `*.modelcontextprotocol` / `*.mcp` second label. This is flagged rather than redesigned around, per `oac-evidence` §6 — no §5 decision currently cites this rule, so no numbered ADR amendment is required at this time. If a future spec-authoring task needs a reserved-prefix rule for OAC's own extension identifiers, it must derive one from the domain-ownership SHOULD clause actually present, not from the unconfirmed §3.3 sentence. |
 | D3 | §3.1: "Not available on Bedrock, Vertex, Foundry" | `channels.md` now reads "not available on Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry" — "Vertex" no longer appears | https://code.claude.com/docs/en/channels.md, retrieved 2026-09-16 | No: this is a surface-provider renaming in Anthropic's own prose, not a design or decision naming "Vertex" by name in ADR-001.md or DESIGN.md (checked: neither does). §3.1 prose and any future skill text citing this exclusion list must say "Google Cloud's Agent Platform," not "Vertex." |
 
+| D4 | §3.1: "channels are passed at session start with `--channels plugin:<name>@<marketplace>` or `--channels server:<name>`" | `cli-reference.md` L75: `--channels` takes "Space-separated list of `plugin:<name>@<marketplace>` entries"; L79: `--dangerously-load-development-channels` "Accepts `plugin:<name>@<marketplace>` and `server:<name>` entries" | https://code.claude.com/docs/en/cli-reference.md, retrieved 2026-10-02 (§3.1 re-check at `2.1.285`, row 8) | No. OAC already launches with the development flag (`docs/planning/decisions/C2-process-model.md` §6, `docs/planning/v0.1/08-cli-and-deployment.md` §7). Skill and prose that list `--channels server:<name>` are corrected in the same change (#122) |
+| D5 | §3.1: "hooks receive `session_id` in their input ..., which is the supported way for an external process to learn which live session it is talking to. No `CLAUDE_SESSION_ID` environment variable is documented" | The `CLAUDE_SESSION_ID` spelling is still absent, but `env-vars.md` L365 documents `CLAUDE_CODE_SESSION_ID`, "Set automatically to the current session ID in Bash and PowerShell tool subprocesses, hook command subprocesses, and stdio MCP server subprocesses", with resume caveats | https://code.claude.com/docs/en/env-vars.md, retrieved 2026-10-02 (row 21) | It conflicts with `docs/planning/decisions/C4-session-identity.md` §3's "only supported surface" sentence. It does not break C4's hook path. Recorded in `docs/planning/STATUS.md` "Open conflicts (oac-evidence §6)"; no ADR-001 amendment, since C4 is not ADR-001 text |
+| D6 | §3.1: "research preview on Claude Code v2.1.232+"; `PINS.md` floor 1, "Channels exist at all: Claude Code `>= v2.1.232`" | Changelog `2.1.80`: "Added `--channels` (research preview) — allow MCP servers to push messages into your session"; `2.1.232` is stated by no first-party source checked | `anthropics/claude-code` `CHANGELOG.md` @ `52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02 (row 18) | No. The operative floor is the minimum version `v2.1.282` (#216), above both. Closes the floor-1 UNVERIFIED item as drift |
+
 No drift item touches ADR-001, DESIGN.md, or a §5 decision directly (checked: none of
 `resources/updated`, the reserved-prefix rule, or "Vertex" is named in ADR-001.md or
 DESIGN.md), so no numbered `ADR-001-A*` amendment is proposed here.
+
+(Dated note, 2026-10-02, #122: D4 and D6 also touch none of these. D5 touches the
+session-identity decision, `docs/planning/decisions/C4-session-identity.md` §3. It is
+recorded as an open conflict in `docs/planning/STATUS.md`, not resolved here. ADR-001,
+DESIGN.md and §5's text are unchanged, so no `ADR-001-A*` amendment is proposed.)
 
 ## Closed UNVERIFIED items
 

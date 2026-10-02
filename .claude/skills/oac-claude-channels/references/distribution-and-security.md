@@ -19,18 +19,24 @@ confirmed pin.
   the Claude side until OAC is on an allowlist — the plan must not weaken or
   automate past it (PLANNING-PROMPT.md §7).
 - Team/Enterprise orgs must set `channelsEnabled`.
-- Not available on Bedrock, Vertex, or Foundry.
+- Not available on Amazon Bedrock, Google Cloud's Agent Platform (§3.1 said
+  "Vertex"; drift D3), or Microsoft Foundry.
 
-Until OAC is allowlisted, the launch command form (flags quoted verbatim
-from §3.1; task G11 requires them verbatim) is:
+Until OAC is allowlisted, the launch command form (quoted verbatim from
+`channels-reference.md`'s `server:webhook` example and `cli-reference.md`,
+retrieved 2026-10-02 at Claude Code `2.1.285`; task G11 requires it verbatim)
+is:
 
 ```
-claude --channels server:<name> --dangerously-load-development-channels
+claude --dangerously-load-development-channels server:<name>
 ```
 
-(or `--channels plugin:<name>@<marketplace>` for a plugin-packaged channel).
-Quote this verbatim in any launch doc (task G11) — do not paraphrase the flag
-names.
+(`--channels plugin:<name>@<marketplace>` is for an allowlisted plugin-packaged
+channel. `--channels` does not take `server:` entries: drift D4,
+`docs/planning/REVERIFICATION-B2.md`. The form previously given here,
+`claude --channels server:<name> --dangerously-load-development-channels`, came
+from §3.1 and was corrected 2026-10-02, #122.) Quote this verbatim in any launch
+doc (task G11) — do not paraphrase the flag names.
 
 ## Security
 

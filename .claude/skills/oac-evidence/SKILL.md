@@ -30,8 +30,8 @@ Worked example (imitate this shape exactly):
 ```
 A channel is an MCP server that declares
 capabilities.experimental["claude/channel"] = {}. Source:
-https://code.claude.com/docs/en/channels.md, Claude Code v2.1.232+,
-retrieved 2026-09-15.
+https://code.claude.com/docs/en/channels-reference.md, Claude Code v2.1.285,
+retrieved 2026-10-02.
 ```
 
 If you are citing a fact already recorded in `docs/planning/PLANNING-PROMPT.md` §3,
