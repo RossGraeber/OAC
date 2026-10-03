@@ -4,6 +4,17 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-03 (**Issue #42 (E2): spec §6, session identity, written.**
+`spec/session-channels.md` §6 now holds the session id (opaque, 26-character Crockford
+Base32, bound to one device key), the non-authoritative display form and aliases, the
+session descriptor, the capability declaration (`active_inbound`, `content_types`,
+`max_envelope_octets`), version negotiation and unsupported-capability rules, C4's
+binding, re-binding and stale-binding cases (#236) in neutral terms, send-request
+attribution (the #46 operator decision, neutral), and identity-versus-presence rules.
+Appendix A gains 75 `SC-ID` ids; 63 fixtures land under `tests/protocol/sc-id/`. No gate
+verdict, pin or ADR text changes. No UNVERIFIED item opens or closes: §6 cites the existing
+C4 pairing-mechanism item.)
+
 **Last updated:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning
 written.** The first Stage 2 spec change. In this change:
 

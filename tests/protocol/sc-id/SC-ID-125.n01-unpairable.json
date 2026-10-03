@@ -1,0 +1,35 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-125",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "unpairable signal",
+  "description": "A signal cannot be paired with certainty. Nothing is bound and a finding is recorded.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "fresh",
+      "pairing": "unpairable"
+    }
+  },
+  "expected": {
+    "result": "failed-closed",
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x"
+      }
+    ],
+    "record": "finding"
+  }
+}

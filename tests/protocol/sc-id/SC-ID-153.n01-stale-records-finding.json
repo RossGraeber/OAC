@@ -1,0 +1,54 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-153",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "stale binding after refusal",
+  "description": "B is bound to native-y and holds cross-check native-x. A fresh signal on B for native-x, bound to A, is refused; B ends unbound with a finding.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      },
+      {
+        "attachment": "B",
+        "cross_check": "native-x",
+        "binding": {
+          "native_id": "native-y",
+          "session_id": "5c8d1e4f7g0h3j6k9m2n5p8q1r"
+        }
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "B"
+    }
+  },
+  "expected": {
+    "result": "refused",
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      },
+      {
+        "attachment": "B",
+        "cross_check": "native-x"
+      }
+    ],
+    "record": "finding"
+  }
+}

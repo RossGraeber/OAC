@@ -1,0 +1,35 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-124",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "not paired within the window",
+  "description": "A signal could not be paired before the window ended. It is dropped and nothing is bound.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "fresh",
+      "pairing": "window-expired"
+    }
+  },
+  "expected": {
+    "result": "dropped",
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x"
+      }
+    ],
+    "record": "diagnostic"
+  }
+}

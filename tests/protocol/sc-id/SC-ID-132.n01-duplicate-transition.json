@@ -1,0 +1,48 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-132",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "duplicate native id",
+  "description": "N is bound to live attachment A. A transition signal for N on B is refused with a finding.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      },
+      {
+        "attachment": "B"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "transition",
+      "pairing": "paired",
+      "attachment": "B"
+    }
+  },
+  "expected": {
+    "result": "refused",
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      },
+      {
+        "attachment": "B"
+      }
+    ],
+    "record": "finding"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-150",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A is bound to native-x. A transition signal for native-y re-binds A under a new session id; the record for native-x is gone.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-y",
+      "start_kind": "transition",
+      "pairing": "paired",
+      "attachment": "A"
+    }
+  },
+  "expected": {
+    "result": "bound",
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x",
+        "binding": {
+          "native_id": "native-y",
+          "session_id": "new"
+        }
+      }
+    ],
+    "record": "diagnostic"
+  }
+}
