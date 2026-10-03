@@ -24,6 +24,9 @@ import { basename, join } from 'node:path';
 
 import { committedFile, sha256, selectedOption, normalizeDialogText, planDriverAccept, dialogOptions } from './g1.mjs';
 import { diffSequences } from './compare-transcripts.mjs';
+import { splitCommandLine, splitWindowsCommandLine } from './proc.mjs';
+
+export { splitCommandLine, splitWindowsCommandLine };
 
 // G2's launch: plain `codex`, no arguments and no config overrides (G2 criterion 1;
 // G2-result.md: "the human operator ran plain `codex` (no `-c`, no `--remote`, no flags)").
@@ -348,17 +351,22 @@ export { normalizeDialogText };
 // process environment. The FULL argv stays in memory; only paneArgv's minimized projection
 // below is ever recorded.
 
-// One pid's argv from a process-table snapshot: { pid, argv, commandLine, source }, `argv`
-// an array where the OS gives one (Linux), else null with `commandLine` as the OS prints it.
+// One pid's argv from a process-table snapshot: { pid, argv, commandLine, platform, source },
+// `argv` an array where the OS gives one (Linux), else null with `commandLine` as the OS prints
+// it. `platform` is the row's own (set by lib/proc.mjs's table parsers), or null for a row
+// without one: a consumer then splits with ITS fallback (#249), so a row's stored platform wins
+// and an untagged row really falls back. `platform` here is that fallback, used only to name
+// `source` by the platform whose rules will actually split the row.
 // Unminimized: in memory only, never put it in a record.
-export function processArgv(pid, table) {
-  if (!Number.isInteger(pid) || pid <= 0) return { pid, argv: null, commandLine: null, source: 'no pid' };
-  if (!table) return { pid, argv: null, commandLine: null, source: `process table not readable on ${process.platform}` };
+export function processArgv(pid, table, { platform: fallback = process.platform } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return { pid, argv: null, commandLine: null, platform: null, source: 'no pid' };
+  if (!table) return { pid, argv: null, commandLine: null, platform: null, source: `process table not readable on ${process.platform}` };
   const p = table.get(pid);
-  if (!p) return { pid, argv: null, commandLine: null, source: 'not in the process table (process gone?)' };
-  if (Array.isArray(p.argv)) return { pid, argv: [...p.argv], commandLine: null, source: `/proc/${pid}/cmdline (process table)` };
-  const source = process.platform === 'win32' ? 'Win32_Process.CommandLine (process table)' : 'ps command (process table)';
-  return { pid, argv: null, commandLine: typeof p.commandLine === 'string' ? p.commandLine : null, source };
+  if (!p) return { pid, argv: null, commandLine: null, platform: null, source: 'not in the process table (process gone?)' };
+  if (Array.isArray(p.argv)) return { pid, argv: [...p.argv], commandLine: null, platform: p.platform ?? null, source: `/proc/${pid}/cmdline (process table)` };
+  const used = p.platform ?? fallback;
+  const source = used === 'win32' ? 'Win32_Process.CommandLine (process table)' : used === 'linux' && p.commandLine == null ? `/proc/${pid}/cmdline not readable (process table)` : 'ps command (process table)';
+  return { pid, argv: null, commandLine: typeof p.commandLine === 'string' ? p.commandLine : null, platform: p.platform ?? null, source };
 }
 
 // --- minimized argv (#232) ------------------------------------------------------------------
@@ -375,16 +383,30 @@ export function processArgv(pid, table) {
 // (redactValue + withholdResiduals in run.mjs) on top of this.
 
 export const argPlaceholder = (value) => `<arg len=${String(value).length}>`;
+export const arg0Placeholder = (value) => `<arg0 len=${String(value).length}>`;
 const tokenBase = (t) => basename(String(t).replace(/\\/g, '/'));
 
+// #244 (PR #242 review note C): argv[0] is whatever the process put there. On Linux a process
+// can rewrite its own cmdline (node's process.title, setproctitle: `sshd: user@pts/0`), so its
+// "basename" is process-chosen text, not necessarily an executable name. argv[0] is kept (as
+// its basename) only when that basename is one of the executables a harness pane is expected
+// to run: a shell (a login shell's leading `-` allowed), the node runtime, a harness CLI, or
+// herdr, optionally with a Windows/script extension. Anything else becomes `<arg0 len=N>`.
+// Default-deny on purpose: an unknown helper only loses its name in the record; no check reads
+// an argv[0] (the launch proof runs on the full argv in memory and keeps the `codex` token
+// through CODEX_TOKEN, not through this list).
+export const EXPECTED_EXECUTABLE = /^-?(?:sh|bash|dash|zsh|fish|ksh|pwsh|powershell|cmd|node|nodejs|codex|claude|herdr)(?:\.exe|\.cmd|\.bat|\.ps1|\.js)?$/i;
+
 // tokens: a full argv. allow: exact argument strings the scenario asserts. executable: the
-// first token is the executable (kept as its basename). null in, null out.
+// first token is the executable (its basename kept when EXPECTED_EXECUTABLE, else a
+// placeholder). null in, null out.
 export function minimizeArgv(tokens, { allow = [], executable = true } = {}) {
   if (!Array.isArray(tokens)) return null;
   const allowed = new Set(allow.map(String));
   return tokens.map((t, i) => {
     const s = String(t);
-    if ((executable && i === 0) || CODEX_TOKEN.test(tokenBase(s))) return tokenBase(s);
+    if (CODEX_TOKEN.test(tokenBase(s))) return tokenBase(s);
+    if (executable && i === 0) return EXPECTED_EXECUTABLE.test(tokenBase(s)) ? tokenBase(s) : arg0Placeholder(s);
     return allowed.has(s) ? s : argPlaceholder(s);
   });
 }
@@ -393,32 +415,37 @@ export function minimizeArgv(tokens, { allow = [], executable = true } = {}) {
 // process-table snapshot, minimized, and the `codex` launch proof computed on the FULL argv
 // in memory, its argsAfterCodex minimized the same way. expectArgsAfterCodex (G4): the exact
 // arguments the launch must carry; `matchesExpected` compares them on the full argv.
-export function paneArgv(pids, table, { allow = [], expectArgsAfterCodex = null, limit = 32 } = {}) {
-  const full = pids.slice(0, limit).map((pid) => processArgv(pid, table));
-  const p = codexLaunchProof(full);
+// platform (#249): a fallback only. Each record's `commandLine` is split by the rules of the
+// platform its row was read on (record.platform, from processArgv), the same per-row rule
+// lib/proc.mjs commandTokens() applies at teardown; `platform` is used for a record without one.
+export function paneArgv(pids, table, { allow = [], expectArgsAfterCodex = null, limit = 32, platform = process.platform } = {}) {
+  const full = pids.slice(0, limit).map((pid) => processArgv(pid, table, { platform }));
+  const p = codexLaunchProof(full, { platform });
   const proof = { ...p, argsAfterCodex: minimizeArgv(p.argsAfterCodex, { allow, executable: false }) };
   if (expectArgsAfterCodex) proof.matchesExpected = p.found ? JSON.stringify(p.argsAfterCodex) === JSON.stringify(expectArgsAfterCodex) : null;
-  const argv = full.map((r) => ({ pid: r.pid, argv: minimizeArgv(r.argv ?? (r.commandLine != null ? splitCommandLine(r.commandLine) : null), { allow }), source: r.source, minimized: true }));
+  const argv = full.map((r) => ({ pid: r.pid, argv: minimizeArgv(recordTokens(r, platform), { allow }), source: r.source, minimized: true }));
   return { argv, proof };
 }
 
-// Split a command line the way the OS printed it (quotes stripped); good enough to find the
-// `codex` token and what follows it. The verbatim string is kept beside it.
-export function splitCommandLine(s) {
-  const out = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  for (const m of String(s ?? '').matchAll(re)) out.push(m[1] ?? m[2] ?? m[3]);
-  return out;
+// A record's tokens: its argv, else its command line split under the record's own platform
+// (the fallback for a record that carries none). null when there is neither.
+function recordTokens(r, platform) {
+  if (Array.isArray(r?.argv)) return r.argv;
+  return r?.commandLine != null ? splitCommandLine(r.commandLine, { platform: r.platform ?? platform }) : null;
 }
+
+// splitCommandLine / splitWindowsCommandLine (#243) live in lib/proc.mjs (#244), so teardown's
+// commandTokens() and the launch proof split a command line by one rule set; re-exported here.
 
 const CODEX_TOKEN = /^codex(?:\.js|\.exe|\.cmd|\.ps1)?$/i;
 
 // Given argv records (herdr's foreground processes first, then their descendants), find the
 // first process running `codex` and what came after the `codex` token. `plain` is true only
-// when that process has no argument after it.
-export function codexLaunchProof(records) {
+// when that process has no argument after it. A record's command line is split under its own
+// platform (record.platform; `platform` is the fallback for a record without one, #249).
+export function codexLaunchProof(records, { platform = process.platform } = {}) {
   for (const r of records) {
-    const tokens = r.argv ?? (r.commandLine ? splitCommandLine(r.commandLine) : null);
+    const tokens = recordTokens(r, platform);
     if (!tokens) continue;
     const i = tokens.findIndex((t) => CODEX_TOKEN.test(basename(String(t).replace(/\\/g, '/'))));
     if (i === -1) continue;

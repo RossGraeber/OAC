@@ -52,6 +52,11 @@
 // between an agent-level read and an accept is refused.
 // Commit or revert any edit to PINS.md's herdr row before running --self-test: every
 // lifecycle run reads the herdr pin from this checkout and refuses such an edit (#139).
+//
+// #239: OAC_HERDR_SELFTEST_ONLY=<text> runs only the lifecycle cases whose name contains
+// <text> (the unit checks and the other lifecycle blocks are skipped), so one case can be
+// looped, e.g. OAC_HERDR_SELFTEST_ONLY='selection does not move'. Unset (the default),
+// everything runs. A filter that matches no case is a failure, never an empty pass.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -84,6 +89,7 @@ const FAKE_RM = join(HERE, 'fake-rm-eperm.mjs');
 const BOX_C = join(REPO, 'docs', 'planning', 'gates', 'fixtures', 'g1-claude-wake', 'transcript-2026-09-28-2.1.283-boxC.jsonl');
 const CLAUDE_TESTED = parseClaudeVersions(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')).lastTested;
 
+const ONLY = process.env.OAC_HERDR_SELFTEST_ONLY || null;
 let passed = 0;
 let failed = 0;
 function check(name, cond, detail = '') {
@@ -578,11 +584,18 @@ function collect(b, res) {
   };
 }
 
-function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {}, prepare }) {
+function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {}, prepare, privateTmp = false }) {
   // prepare(): optional; returns another repository root whose run.mjs is driven instead
   // (e.g. a temporary clone with a malformed PINS.md committed, #216 review).
   const runFile = prepare ? join(prepare(), 'tools', 'herdr', 'run.mjs') : RUN;
   const b = makeBase(stateUnder);
+  // privateTmp (#249): the driver's os.tmpdir() is <base>/tmp, so what it creates there (its
+  // oac-herdr-scratch-* directory) is this case's alone to inspect.
+  if (privateTmp) {
+    b.tmp = join(b.base, 'tmp');
+    mkdirSync(b.tmp);
+    caseEnv = { ...caseEnv, TMPDIR: b.tmp, TEMP: b.tmp, TMP: b.tmp };
+  }
   // fakeClaude: env for test/fake-claude.mjs, plus a fake `claude` CLI on PATH.
   // fakeCodex: env for test/fake-codex.mjs, installed as `codex` on PATH (K7).
   // Both (K8): one bin directory holding both fakes.
@@ -605,8 +618,17 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
 }
 
 // Invariants every lifecycle run must hold, whatever its outcome.
-function invariants(name, b, r, { scratchLeft = false } = {}) {
+function invariants(name, b, r, { scratchLeft = false, noManifest = false } = {}) {
   const m = r.manifest;
+  // #244: a run refused before anything was created (a scenario's validateParams) writes
+  // nothing: no output directory, no manifest, no herdr call, and (#249) no scratch directory:
+  // the case runs with a private os.tmpdir() (runDriver privateTmp), which must hold no
+  // oac-herdr-scratch-* entry afterwards.
+  if (noManifest) {
+    const scratch = b.tmp && existsSync(b.tmp) ? readdirSync(b.tmp).filter((n) => n.startsWith('oac-herdr-scratch-')) : null;
+    check(`${name}: refused before anything was created: no output directory, no manifest, no herdr call, no oac-herdr-scratch-* directory`, !m && !existsSync(r.outDir) && r.calls.length === 0 && Array.isArray(scratch) && scratch.length === 0, `${r.stdout}${r.stderr} scratch=${JSON.stringify(scratch)}`);
+    return;
+  }
   check(`${name}: run-manifest.json written`, !!m, r.stdout + r.stderr);
   if (!m) return;
   const commands = m.commands;
@@ -832,6 +854,16 @@ async function lifecycle() {
     check('#136 never-queried pane: teardown queried it itself', m.teardown.panes?.created === 1 && m.teardown.panes.queried.length === 1 && m.commands.filter((c) => c.argv.includes('process-info')).length === 1 && !('paneProcessInfo' in m.scenarioData), JSON.stringify(m.teardown.panes));
     check('#136 never-queried pane: its leaked process is found, killed, recorded; FAIL', r.status === 1 && m.teardown.forcedKills.some((k) => k.pid === shellPid && /pane process/.test(k.what)) && m.teardown.leftoverProcesses.length === 0 && m.teardown.clean === false, JSON.stringify(m.teardown));
   });
+  // #239: scratch (herdr's working directory) removed under the run, with a fake Claude stuck
+  // in a dialog that ignores keys. The invariants (no pane process left running, session
+  // stopped and deleted, no --session process) are the point; before the fix all three failed.
+  run('#239 scratch removed mid-run', { scenario: T('scratch-vanishes.mjs'), mode: 'fake-claude', fakeClaude: { FAKE_CLAUDE_DIALOG: 'workspace-trust', FAKE_CLAUDE_IGNORE_KEYS: '1' } }, (r) => {
+    const m = r.manifest;
+    check('#239 scratch removed mid-run: the run FAILs on the unstartable herdr call', r.status === 1 && /could not start herdr \(ENOENT\)/.test(m.outcomeReason ?? ''), `${r.status} ${m.outcomeReason}`);
+    check('#239 scratch removed mid-run: teardown ran its herdr calls in os.tmpdir(), queried the pane, stopped and deleted the session', /gone at teardown/.test(m.teardown.cwdFallback ?? '') && m.teardown.panes?.queried.length === 1 && m.teardown.sessionStop === 'ok' && m.teardown.sessionDelete === 'ok', JSON.stringify(m.teardown));
+    check('#249 scratch removed mid-run: the cwd fallback is a run-manifest finding naming HERDR_CONFIG_PATH and real herdr\'s handling as UNVERIFIED', m.findings.some((f) => /^teardown cwd fallback \(#239\)/.test(f) && /HERDR_CONFIG_PATH/.test(f) && /UNVERIFIED/.test(f)), JSON.stringify(m.findings));
+    check('#239 scratch removed mid-run: the pane shell and the stuck fake Claude were both accounted for', m.session.panePids.length >= 2 && m.teardown.leftoverProcesses.length === 0, JSON.stringify({ panePids: m.session.panePids, teardown: m.teardown }));
+  });
   run('#136 pane never queried, server force-killed', { scenario: T('no-process-info.mjs'), mode: 'server-ignores-stop,leak-pane' }, (r) => {
     const m = r.manifest;
     check('#136 forced server kill: the herdr server was force-killed', m.teardown.forcedKills.some((k) => k.what === 'herdr server'), JSON.stringify(m.teardown));
@@ -877,19 +909,24 @@ async function lifecycle() {
   cases.push(...g4Cases(check));
   cases.push(...g5Cases(check));
 
+  if (ONLY) {
+    const picked = cases.filter((c) => c.name.includes(ONLY));
+    check(`OAC_HERDR_SELFTEST_ONLY matches at least one lifecycle case (${JSON.stringify(ONLY)})`, picked.length > 0);
+    cases.splice(0, cases.length, ...picked);
+  }
   for (const c of cases) {
     // K8: a case may hold a resource (a busy loopback port) for the length of its run.
     const undo = c.setup ? await c.setup() : null;
     let run;
     try {
-      run = runDriver(c.opts);
+      run = runDriver(c.invariantOpts?.noManifest ? { ...c.opts, privateTmp: true } : c.opts);
     } finally {
       await undo?.();
     }
     const { b, r } = run;
     try {
       invariants(c.name, b, r, c.invariantOpts);
-      if (r.manifest) c.assert(r);
+      if (r.manifest || c.invariantOpts?.noManifest) c.assert(r);
     } catch (err) {
       check(`${c.name}: assertions ran`, false, err.stack);
     } finally {
@@ -897,6 +934,7 @@ async function lifecycle() {
       rmSync(b.base, { recursive: true, force: true });
     }
   }
+  if (ONLY) return;
 
   // Operator abort: SIGINT mid-wait ends NOT RUN and still tears down.
   {
@@ -967,7 +1005,21 @@ async function lifecycle() {
   check('lifecycle: every run removed its scratch directory', leftover.length === 0, leftover.join(','));
 }
 
+// #239: only the lifecycle cases OAC_HERDR_SELFTEST_ONLY names (POSIX only, like the
+// lifecycle half).
+async function runOnly() {
+  if (process.platform === 'win32') {
+    console.log('OAC_HERDR_SELFTEST_ONLY: lifecycle cases need POSIX sh; nothing run on Windows');
+    return 1;
+  }
+  console.log(`herdr driver self-test (lifecycle cases matching ${JSON.stringify(ONLY)} only)`);
+  await lifecycle();
+  console.log(`\nself-test: ${passed}/${passed + failed} checks passed${failed ? `, ${failed} FAILED` : ''}.`);
+  return failed ? 1 : 0;
+}
+
 export async function runSelfTest() {
+  if (ONLY) return runOnly();
   console.log('herdr driver self-test (unit)');
   unitPins();
   unitQuoting();

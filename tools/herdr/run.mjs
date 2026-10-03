@@ -143,6 +143,11 @@ async function runScenarioInner(opts, state) {
   const scenario = await loadScenario(opts.scenario);
   const launch = opts.launch ?? scenario.defaults?.launch ?? [];
   const params = { ...(scenario.defaults?.params ?? {}), ...opts.params };
+  // #244: a scenario's own parameter rules run before scratch, the output directory or the
+  // manifest exist, so a refused parameter is never recorded. The scenario's reason must not
+  // echo the refused value; it is printed to the console only.
+  const paramProblem = typeof scenario.validateParams === 'function' ? scenario.validateParams({ params, launch }) : null;
+  if (paramProblem) throw new UsageError(`${scenario.name}: ${paramProblem}; refused before anything was created, nothing recorded`);
   const timeboxMs = opts.timeboxMs ?? scenario.defaults?.timeboxMs ?? 300000;
   const runId = `${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}-${randomBytes(3).toString('hex')}`;
   const graceMs = 5000;
@@ -438,6 +443,11 @@ async function runScenarioInner(opts, state) {
     } else {
       manifest.teardown = { clean: true, note: 'no herdr session was started' };
     }
+    // #249 (PR #250 review): the scratch directory was gone at teardown, so teardown's herdr
+    // calls ran in os.tmpdir() with HERDR_CONFIG_PATH still naming the run's herdr config inside
+    // that removed directory. The fake herdr tolerates that; what real herdr does with a
+    // missing config file is UNVERIFIED, so the run says so.
+    if (manifest.teardown?.cwdFallback) manifest.findings.push('teardown cwd fallback (#239): the scratch directory was gone at teardown, so teardown\'s herdr commands ran in os.tmpdir() with HERDR_CONFIG_PATH naming the run\'s herdr config inside the removed directory; how real herdr handles a missing config file is UNVERIFIED (check teardown.sessionStop / sessionDelete and the process checks before trusting this teardown)');
     manifest.session.panePids = [...herdr.panePids.keys()];
     // #140: the herdr file hashed at run start must still hash the same after the run; a
     // change (the file replaced mid-run) is a finding and the recorded hash is not the one

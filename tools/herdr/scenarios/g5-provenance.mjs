@@ -80,7 +80,7 @@ import { fileURLToPath } from 'node:url';
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
-import { runBounded, descendants, processTable } from '../lib/proc.mjs';
+import { runBounded, descendants } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
@@ -395,9 +395,10 @@ export default {
           await herdr.paneProcessInfo(cws.paneId);
           const cstart = await herdr.agentStart(agent.name, { launchArgv: [...G2_LAUNCH], paneId: cws.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
           const out = { codexStart: { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] } };
-          const info = await herdr.paneProcessInfo(cws.paneId);
+          // One process table per arm for the pane's whole tree, the one the driver took for its
+          // query, as the K8 path does (#136 review, #244 note D).
+          const { info, table: procTable } = await herdr.paneProcessSnapshot(cws.paneId);
           const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-          const procTable = processTable(); // one table per arm (#136 review)
           const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
           out.codexPaneArgv = paneArgv(tree, procTable); // #232: minimized; plain `codex` asserts no argument
           if (out.codexPaneArgv.proof.found && !out.codexPaneArgv.proof.plain) throw new DriverError(`the arm ${arm} Codex pane's process runs with arguments ${JSON.stringify(out.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);
@@ -517,10 +518,10 @@ export default {
       await herdr.paneProcessInfo(cws.paneId);
       const cstart = await herdr.agentStart('g5codex', { launchArgv: [...G2_LAUNCH], paneId: cws.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
       g5.codexStart = { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv, launch: [...G2_LAUNCH] };
-      const info = await herdr.paneProcessInfo(cws.paneId);
+      // One process table for the pane's whole tree, the one the driver took for its query
+      // (#136 review, #244 note D: each table is one WMI query, ~1.6 s, on Windows).
+      const { info, table: procTable } = await herdr.paneProcessSnapshot(cws.paneId);
       const fg = (info.foreground_processes ?? []).map((p) => p.pid).filter(Number.isInteger);
-      // One process table for the whole tree (#136 review: a table per call costs ~1.6 s on Windows).
-      const procTable = processTable();
       const tree = [...new Set([...fg, ...fg.flatMap((p) => descendants(p, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
       g5.codexPaneArgv = paneArgv(tree, procTable); // #232: minimized; plain `codex` asserts no argument
       if (g5.codexPaneArgv.proof.found && !g5.codexPaneArgv.proof.plain) throw new DriverError(`the Codex pane's process runs with arguments ${JSON.stringify(g5.codexPaneArgv.proof.argsAfterCodex)}; G5's Codex side uses plain \`codex\` attached to the shared daemon`);

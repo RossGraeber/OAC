@@ -25,7 +25,7 @@ never replaces a supported interface and it decides nothing.
 
 | Path | What |
 |---|---|
-| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). Executable identity (#140, `lib/manifest.mjs`, run-manifest `schemaVersion` 2): herdr is resolved once and spawned only by that path (unresolved: NOT RUN, nothing spawned), and re-hashed at teardown; `herdr.executable` and `harnessExecutables` record basename, sha256, format and (herdr) `testDouble`, never a directory, and each written capture records its `sha256` (`oac-gates` `references/scripted-runs.md` "Executables and capture hashes"). Teardown process accounting (#136, `lib/herdr.mjs` `teardown`, `lib/proc.mjs` `processTable`): every pane `workspaceCreate` returned is queried with `pane process-info` whether or not the scenario asked, and the pane processes' and the herdr server's descendants are recorded from one process table (Linux `/proc`, macOS `ps`, Windows `Get-CimInstance Win32_Process`: pid, parent pid, creation time, argv). After the stop a recorded pid still alive is killed, that pid only and never its tree, only if its creation time is unchanged, it is no older than the driver process, and it is not the Codex app-server (the shared daemon is never stopped). Anything it cannot verify is not killed: it is listed in `teardown.leftoverProcesses` (`unverifiedPids`), and teardown is not clean. This covers a live pid missing from the process table and a creation time that cannot be compared with the driver's. By design, `teardown.protectedProcesses` (an app-server the run's panes started, left running) does not affect `clean`; a scenario that expects no daemon checks `protectedProcesses.length === 0` itself. Known limits: the `app-server` match is UNVERIFIED against a live daemon's argv (the operator's own daemon predates the driver and is excluded before that match; if a pane-started daemon lacks the token, teardown kills that run-started daemon). A GUI process a pane started (a browser opened for a login, if none was running) is a pane descendant created after the driver and is killed, as POSIX group kills already did. The third-signal emergency exit in `run.mjs` still kills the server tree (`taskkill /T` on Windows). |
+| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). Executable identity (#140, `lib/manifest.mjs`, run-manifest `schemaVersion` 2): herdr is resolved once and spawned only by that path (unresolved: NOT RUN, nothing spawned), and re-hashed at teardown; `herdr.executable` and `harnessExecutables` record basename, sha256, format and (herdr) `testDouble`, never a directory, and each written capture records its `sha256` (`oac-gates` `references/scripted-runs.md` "Executables and capture hashes"). Teardown process accounting (#136, `lib/herdr.mjs` `teardown`, `lib/proc.mjs` `processTable`): every pane `workspaceCreate` returned is queried with `pane process-info` whether or not the scenario asked, and the pane processes' and the herdr server's descendants are recorded from one process table (Linux `/proc`, macOS `ps`, Windows `Get-CimInstance Win32_Process`: pid, parent pid, creation time, argv). After the stop a recorded pid still alive is killed, that pid only and never its tree, only if its creation time is unchanged, it is no older than the driver process, and it is not the Codex app-server (the shared daemon is never stopped). Anything it cannot verify is not killed: it is listed in `teardown.leftoverProcesses` (`unverifiedPids`), and teardown is not clean. This covers a live pid missing from the process table and a creation time that cannot be compared with the driver's. By design, `teardown.protectedProcesses` (an app-server the run's panes started, left running) does not affect `clean`; a scenario that expects no daemon checks `protectedProcesses.length === 0` itself. Known limits: the `app-server` match is UNVERIFIED against a live daemon's argv (the operator's own daemon predates the driver and is excluded before that match; if a pane-started daemon lacks the token, teardown kills that run-started daemon). A GUI process a pane started (a browser opened for a login, if none was running) is a pane descendant created after the driver and is killed, as POSIX group kills already did. The third-signal emergency exit in `run.mjs` still kills the server tree (`taskkill /T` on Windows). No teardown step throws (#239): a herdr call that cannot be started is recorded and teardown goes on to the server kill and the process checks, and if the scratch directory (herdr's working directory) was removed under the run, teardown's herdr calls run in `os.tmpdir()` (`teardown.cwdFallback`), and the run manifest carries a finding that `HERDR_CONFIG_PATH` then names a config inside the removed directory (real herdr's handling of that is UNVERIFIED, #249). A process whose command line could not be read (Windows `Win32_Process.CommandLine` null, Linux `/proc/<pid>/cmdline` unreadable) is unverified and never killed (#249). |
 | `ci.mjs`, `runner-hooks/` | The opt-in CI entry point and runner hooks (K6). |
 | `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). |
 | `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8), `l3-beacon` (L3b; the Beacon live leg, not a gate). |
@@ -180,7 +180,19 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
   17458/17460), asks the operator to check `codex mcp list` (read-only) first, records a
   finding when more than one Codex HTTP session connects, and the report's criterion 4
   requires exactly one before attributing Codex's traffic to the per-invocation
-  registration.
+  registration. The override **values** are allowlisted as well (#244), because validated
+  overrides are kept verbatim in the record: a `url` must be a quoted loopback http(s) URL
+  (host `127.0.0.1`, `[::1]` or `localhost`, any port, the path exactly `/mcp`, no
+  `user:password@`, no query, no fragment; #249: the staged G4 server answers on `/mcp` only,
+  so no other path can reach it and none, token-shaped or not, is admitted into the record),
+  `enabled` and `features.*` a boolean. A timeout must be a number in a deliberate
+  fail-closed subset of TOML (#249): `0`, or 1-9 digits with no leading zero, optionally
+  followed by `.` and 1-9 digits (e.g. `0`, `0.5`, `30`, `12.5`). Every accepted form is a
+  valid TOML number. Refused: what TOML refuses (`007`, `.5`, `0.`), and TOML forms a
+  timeout does not need (signs, exponents, `_`, hex/octal/binary, `inf`, `nan`, 10+ digits).
+  How Codex itself parses a `-c` value is UNVERIFIED; the subset is stricter either way. A
+  `codexLaunch` that breaks a rule is refused before the driver creates or records
+  anything (exit 2, no run manifest), and the reason never quotes the refused text.
 - **G5** (`g5-provenance`): Claude cases C1-C6 through the channel server's own case trigger
   (C6 mid-turn), Codex cases X1-X6 through the app-server client. **The spoofing bodies reach
   the harness only through the channel server or the app-server client**; herdr types only
@@ -313,11 +325,22 @@ contract as K8 leaves it; the open questions at the end are not settled by it.
    harness path: the Codex CLI is run through `cmd.exe` on Windows, pane process argv is read
    from the run's one process-table snapshot (`/proc` on Linux, `ps` on macOS, one
    `Win32_Process` query on Windows; #232, `lib/g2.mjs` `paneArgv`) and recorded only as a
-   minimized projection: executable basename, the `codex` token, the exact arguments the
+   minimized projection: the executable's basename when it is an expected one (a shell,
+   node, a harness CLI or herdr; otherwise `<arg0 len=N>`, since a process can rewrite its
+   own argv[0], #244), the `codex` token, the exact arguments the
    scenario asserts (none for plain `codex`, the validated `-c` overrides for G4), every other
    argument as `<arg len=N>` (length only, no hash: a hash of a short secret can be brute-forced),
    with the manifest's fail-closed redaction scan still on top, and quoting follows the
-   pane shell (`lib/pane-shell.mjs`). What is verified today is Linux only, and only against
+   pane shell (`lib/pane-shell.mjs`). A Windows command line is split by the Microsoft C
+   runtime's argv rules (#243, `lib/proc.mjs` `splitWindowsCommandLine`). Each process-table
+   row carries the platform it was read on, and both the launch proof (`paneArgv`) and
+   teardown's `--session` match and app-server protection split a row's command line by that
+   row's platform's rules, not the host's (#244, #249; the caller's `platform` is only the
+   fallback for a row that carries none); a row whose command line could not be read (a null
+   `Win32_Process.CommandLine`, an unreadable `/proc/<pid>/cmdline`) is unverified at
+   teardown and never killed (#249). The self-test's
+   Windows unit half round-trips the default G4 launch through a real child process.
+   What is verified today is Linux only, and only against
    test doubles: the self-test's lifecycle half needs POSIX `sh`, K1's live leg has not run,
    and herdr's own Windows and macOS support is its documentation's claim (K1). A Stage 4/5
    test on macOS or Windows is UNVERIFIED until it runs live there.
@@ -390,7 +413,10 @@ compares working-tree files with HEAD in git's normalized form, as `git status` 
 **3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
 shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
-self-test needs POSIX `sh` and is skipped on Windows.
+self-test needs POSIX `sh` and is skipped on Windows. To loop one lifecycle case (#239), set
+`OAC_HERDR_SELFTEST_ONLY` to part of its name, e.g.
+`OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
+the matching lifecycle cases run, and a filter that matches none fails.
 
 **4. Claude Code permission rules, when an agent runs the live steps.** Claude Code's
 permission prompts and its auto-mode classifier may refuse a command that launches a real

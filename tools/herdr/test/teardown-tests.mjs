@@ -10,10 +10,12 @@
 // The lifecycle half (POSIX only, in selftest.mjs) covers the real thing against
 // test/fake-herdr.mjs: a scenario that never calls paneProcessInfo, with a forced server kill.
 
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { HerdrSession } from '../lib/herdr.mjs';
-import { parseWin32ProcessJson, parsePsTable, treeFrom, carriesSession, protectedReason, processesForSession, descendants } from '../lib/proc.mjs';
+import { parseWin32ProcessJson, parsePsTable, treeFrom, carriesSession, protectedReason, processesForSession, descendants, commandTokens, commandLineProblem, splitWindowsCommandLine, UNSPLITTABLE_REASON, UNREADABLE_REASON } from '../lib/proc.mjs';
 
 const SESSION = 'oac-k-unit-20261002T000000Z-abc123';
 // The stub herdr: process-info for pane w1:p1 reports shell 101 and foreground 102.
@@ -45,9 +47,10 @@ function winRows({ reused = false } = {}) {
   ];
 }
 
-// Linux-shaped rows: start = clock ticks since boot (a string), argv arrays.
+// Linux-shaped rows: start = clock ticks since boot (a string), argv arrays, tagged 'linux' as
+// lib/proc.mjs's /proc parser tags them (#249).
 function linuxTable({ reused = false } = {}) {
-  const row = (pid, ppid, ticks, argv) => [pid, { pid, ppid, start: String(ticks), startKey: ticks, argv, commandLine: null }];
+  const row = (pid, ppid, ticks, argv) => [pid, { pid, ppid, start: String(ticks), startKey: ticks, argv, commandLine: null, platform: 'linux' }];
   return new Map([
     row(1, 0, 1, ['/sbin/init']),
     row(50, 1, 1000, ['node', 'tools/herdr/run.mjs']),
@@ -117,6 +120,30 @@ export async function teardownUnit(check) {
   check('#136 session scan: --session <name> found in a Windows command line and a Linux argv', carriesSession(win.get(107), SESSION) && carriesSession(linuxTable().get(108), SESSION) && !carriesSession(win.get(109), SESSION) && JSON.stringify(processesForSession(SESSION, win).sort()) === JSON.stringify([107, 108]));
   check('#136 protected: the Codex app-server (daemon) is protected on both shapes; a plain codex is not', !!protectedReason(win.get(104)) && !!protectedReason(linuxTable().get(106)) && !protectedReason(win.get(102)));
 
+  // #244: commandTokens() splits a Windows command line by the Microsoft C runtime rules
+  // (lib/proc.mjs splitWindowsCommandLine, #243), the one rule set the launch proof uses too.
+  // Each row carries the platform it was read on, so the result does not depend on the host.
+  const winRow = (pid, cl) => parseWin32ProcessJson(JSON.stringify([{ p: pid, pp: 4, c: T(9), cl }])).get(pid);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  // Escaped quotes: the old naive regex paired the escaped quotes as delimiters, swallowed
+  // ` --session ` into one quoted token and missed the session; under the C runtime rules
+  // `\"` is a literal quote inside one argument.
+  const escSession = winRow(201, `"C:\\Program Files\\h\\herdr.exe" --label "a \\"b\\" c" --session "${SESSION}" server`);
+  const escInside = winRow(202, `C:\\x\\codex.exe -c "features.note=\\"app-server\\" only" --session "x\\"${SESSION}"`);
+  const escDaemon = winRow(203, 'C:\\x\\codex.exe "app-server" daemon --label "say \\"hi\\""');
+  check('#244 commandTokens: Windows rows split by the C runtime rules (escaped quotes kept inside one argument), equal to splitWindowsCommandLine', win.get(107).platform === 'win32' && mac.get(101).platform === 'darwin' && same(commandTokens(escSession), ['C:\\Program Files\\h\\herdr.exe', '--label', 'a "b" c', '--session', SESSION, 'server']) && same(commandTokens(escInside), splitWindowsCommandLine(escInside.commandLine)) && same(commandTokens(escInside).slice(1, 3), ['-c', 'features.note="app-server" only']), JSON.stringify([commandTokens(escSession), commandTokens(escInside)]));
+  check('#244 carriesSession (escaped quotes): a quoted --session after an escaped-quote argument matches; a name that is only part of a quoted argument does not', carriesSession(escSession, SESSION) && !carriesSession(escInside, SESSION));
+  check('#244 protectedReason (escaped quotes): a quoted app-server token is protected; app-server inside an escaped-quote value is not a token, so not protected', protectedReason(escDaemon) !== null && protectedReason(escDaemon) !== UNSPLITTABLE_REASON && protectedReason(escInside) === null);
+  const bad = winRow(204, `C:\\x\\herdr.exe --session ${SESSION} app-server`);
+  bad.commandLine = `C:\\x\\herdr.exe --session ${SESSION}\0 app-server`; // a NUL: no real command line carries one
+  check('#244 unsplittable command line (null tokens): carriesSession is "no match"; protectedReason is fail-safe (protected, never killed)', commandTokens(bad) === null && carriesSession(bad, SESSION) === false && protectedReason(bad) === UNSPLITTABLE_REASON);
+  check('#244 commandTokens: an untagged (hand-built) row with no command line has no tokens (nothing to match); a Linux argv is used as is, an empty one (kernel thread) too', same(commandTokens({ pid: 9, argv: null, commandLine: null }), []) && same(commandTokens({ pid: 9, argv: [], commandLine: null, platform: 'linux' }), []) && same(commandTokens(linuxTable().get(107)), ['herdr', '--session', SESSION, 'pane', 'read', 'w1:p1']));
+  // #249 (PR #248 review 6): Win32_Process.CommandLine is null where the query may not read it.
+  check('#249 unreadable Windows command line (null): no tokens (null), no session match, protected as unreadable (never killed)', win.get(4).commandLine === null && commandTokens(win.get(4)) === null && carriesSession(win.get(4), SESSION) === false && protectedReason(win.get(4)) === UNREADABLE_REASON && commandLineProblem(win.get(4)) === UNREADABLE_REASON && commandLineProblem(bad) === UNSPLITTABLE_REASON && commandLineProblem(win.get(102)) === null);
+  // #249 (PR #251 review 2): the same rule on Linux: a /proc row whose cmdline could not be read.
+  const linNull = { pid: 9, ppid: 1, start: '5', startKey: 5, argv: null, commandLine: null, platform: 'linux' };
+  check('#249 unreadable Linux cmdline (argv null on a /proc row): no tokens (null), no session match, protected as unreadable (never killed)', commandTokens(linNull) === null && carriesSession(linNull, SESSION) === false && protectedReason(linNull) === UNREADABLE_REASON && commandLineProblem(linNull) === UNREADABLE_REASON && commandLineProblem(linuxTable().get(102)) === null);
+
   // --- teardown against fake process operations, both platform shapes -----------------------
   for (const [shape, before, after] of [
     ['win32', parseWin32ProcessJson(JSON.stringify(winRows())), parseWin32ProcessJson(JSON.stringify(winRows()))],
@@ -140,6 +167,26 @@ export async function teardownUnit(check) {
   {
     const { t, f } = await teardownCase([parseWin32ProcessJson(JSON.stringify(winRows())), parseWin32ProcessJson(JSON.stringify(winRows({ reused: true })))]);
     check('#136 win32: a tracked pid whose creation time changed (reused) is skipped, not killed', !f.kills.includes(102) && t.skippedReusedPids.includes(102) && f.kills.includes(101), JSON.stringify(t));
+  }
+  {
+    // #244: a tracked pane descendant whose command line cannot be split is unverified: not
+    // killed, a leftover, teardown not clean (it cannot be shown not to be the app-server).
+    const rows = () => winRows().map((r) => (r.p === 103 ? { ...r, cl: 'node.exe mcp-server.js\0' } : r));
+    const { t, f } = await teardownCase([parseWin32ProcessJson(JSON.stringify(rows())), parseWin32ProcessJson(JSON.stringify(rows()))]);
+    check('#244 win32: an unsplittable command line is never killed; it is unverified, a leftover, and teardown is not clean', !f.kills.includes(103) && t.unverifiedPids.some((u) => u.pid === 103 && u.why === UNSPLITTABLE_REASON) && t.leftoverProcesses.includes(103) && !t.protectedProcesses.some((p) => p.pid === 103) && f.kills.includes(102) && t.clean === false, JSON.stringify(t));
+  }
+  {
+    // #249 (PR #248 review 6): a tracked pane descendant whose command line the query could not
+    // read (Win32_Process.CommandLine null) is unverified the same way: never killed.
+    const rows = () => winRows().map((r) => (r.p === 103 ? { ...r, cl: null } : r));
+    const { t, f } = await teardownCase([parseWin32ProcessJson(JSON.stringify(rows())), parseWin32ProcessJson(JSON.stringify(rows()))]);
+    check('#249 win32: an unreadable (null) command line is never killed; it is unverified, a leftover, and teardown is not clean', !f.kills.includes(103) && t.unverifiedPids.some((u) => u.pid === 103 && u.why === UNREADABLE_REASON) && t.leftoverProcesses.includes(103) && !t.protectedProcesses.some((p) => p.pid === 103) && f.kills.includes(102) && t.clean === false, JSON.stringify(t));
+  }
+  {
+    // #249 (PR #251 review 2): the Linux twin: /proc/103/cmdline unreadable (argv null).
+    const tbl = () => { const t = linuxTable(); t.set(103, { ...t.get(103), argv: null }); return t; };
+    const { t, f } = await teardownCase([tbl(), tbl()]);
+    check('#249 linux: an unreadable /proc cmdline is never killed; it is unverified, a leftover, and teardown is not clean', !f.kills.includes(103) && t.unverifiedPids.some((u) => u.pid === 103 && u.why === UNREADABLE_REASON) && t.leftoverProcesses.includes(103) && !t.protectedProcesses.some((p) => p.pid === 103) && f.kills.includes(102) && t.clean === false, JSON.stringify(t));
   }
   {
     const { t, f } = await teardownCase([null, null], { alive: [101, 102] });
@@ -174,5 +221,50 @@ export async function teardownUnit(check) {
     s.panes.add('w1:p1');
     const t = await s.teardown();
     check('#136: when the stop took every pane process down, nothing is killed and teardown is clean', f.kills.length === 0 && t.forcedKills.length === 0 && t.leftoverProcesses.length === 0 && t.clean === true, JSON.stringify(t));
+  }
+
+  // #239: the scratch directory (herdr's working directory) removed under the run. Before the
+  // fix every teardown herdr call failed to spawn (ENOENT), the first one threw out of
+  // teardown, and the server and every pane process were left running.
+  {
+    const gone = mkdtempSync(join(tmpdir(), 'oac-herdr-unit239-'));
+    rmSync(gone, { recursive: true, force: true });
+    const f = fakeOps([linuxTable(), linuxTable()]);
+    const s = new HerdrSession({ herdrCmd: STUB, sessionName: SESSION, env: process.env, cwd: gone, timebox: { remainingMs: () => 60000 }, commands: [], procOps: f.ops });
+    s.panes.add('w1:p1');
+    // #249 (PR #250 review): a teardown that throws here (the #239 regression) is a named
+    // failing check, not an exception out of the whole unit run.
+    let t = null;
+    let threw = null;
+    try {
+      t = await s.teardown();
+    } catch (err) {
+      threw = err;
+    }
+    check('#239 scratch gone: teardown returns (no throw)', !threw, threw?.stack);
+    const killed = [...f.kills].sort((a, b) => a - b);
+    check('#239 scratch gone: teardown\'s herdr calls run in os.tmpdir(), recorded on the teardown and on each command', !!t && /gone at teardown/.test(t.cwdFallback ?? '') && s.commands.length === 3 && s.commands.every((c) => !c.spawnError && /os\.tmpdir\(\)/.test(c.cwdFallback ?? '')), JSON.stringify({ t, commands: s.commands }));
+    check('#239 scratch gone: the pane is still queried, the session stopped and deleted, and the same pane processes killed', !!t && t.panes.queried.length === 1 && t.sessionStop === 'ok' && t.sessionDelete === 'ok' && JSON.stringify(killed) === JSON.stringify([101, 102, 103, 107]), JSON.stringify({ t, killed }));
+  }
+  {
+    // herdr cannot be started at all during teardown: nothing throws; the server is still
+    // force-killed, and the unstarted calls are recorded.
+    const f = fakeOps([linuxTable(), linuxTable()]);
+    let exit;
+    const exited = new Promise((res) => (exit = res));
+    const ops = { ...f.ops, killServer: (pid, sig) => (f.serverKills.push([pid, sig]), exit({ code: null, signal: sig })) };
+    const missing = join(tmpdir(), 'oac-herdr-unit239-no-such-herdr', 'herdr');
+    const s = new HerdrSession({ herdrCmd: [missing], sessionName: SESSION, env: process.env, cwd: tmpdir(), timebox: { remainingMs: () => 60000 }, commands: [], procOps: ops });
+    s.panes.add('w1:p1');
+    s.server = { child: { pid: 4242 }, exited, exitInfo: null };
+    let t = null;
+    let threw = null;
+    try {
+      t = await s.teardown();
+    } catch (err) {
+      threw = err;
+    }
+    check('#239 herdr not startable at teardown: teardown returns (no throw) and records each unstarted call', !threw && /herdr not started/.test(t?.sessionStop ?? '') && /herdr not started/.test(t?.sessionDelete ?? '') && /herdr not started/.test(t?.panes.notQueried[0]?.why ?? '') && s.commands.every((c) => c.spawnError), threw ? threw.stack : JSON.stringify(t));
+    check('#239 herdr not startable at teardown: the herdr server is still force-killed; teardown not clean', !!t && f.serverKills.length === 1 && f.serverKills[0][0] === 4242 && t.forcedKills.some((k) => k.what === 'herdr server') && t.serverExited === true && t.clean === false, JSON.stringify({ t, serverKills: f.serverKills }));
   }
 }
