@@ -67,11 +67,11 @@ One row per gate. Every verdict below matches
 
 | Gate | Verdict | Disposition / fallback | Pins relied on | Result file |
 |---|---|---|---|---|
-| G1 Claude wake | **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; the pin float on 2026-09-27 had invalidated the original `v2.1.282` PASS, now superseded and kept as history) | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
-| G2 Codex live inject | **PASS** (`0.157.1`, re-run 2026-09-26, Windows only) | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
+| G1 Claude wake | **PASS** (re-run 2026-09-28 on Claude Code `v2.1.283`, Box C; primary path: legacy MCP negotiation, idle wake, mid-turn queueing, tool reply — the mid-turn pair landed at two separate tool-call boundaries rather than batched together at one, an observed `2.1.283` behavior change, not a criterion failure). Originally PASSED on `v2.1.282` (2026-09-25); invalidated 2026-09-27 when the Claude Code (Channels) pin went floating; that original record is kept as history. | go/no-go, no fallback | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp) | `docs/planning/gates/G1-result.md` |
+| G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | go/no-go if both paths fail; fallback: OAC owns the app-server, user runs `codex --remote ws://…` | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | **PASS** (2026-10-02, #219; primary multicast path on all three platforms, no fallback needed) — Windows 11 **PASS**, Linux (WSL2) **PASS** (2026-09-25), macOS 26.6.2 **PASS** on a GitHub-hosted VM, not physical hardware (2026-10-02, run 36968235427). Was NOT RUN at gate level 2026-09-25 to 2026-10-02 (macOS parked). | has fallback: fixed local endpoint, multicast scouting disabled | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | has fallback: two server entry points sharing one core — not needed | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
-| G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
+| G5 Provenance | **PASS** (2026-10-02, Codex-leg re-run under C13 §11, route E1: herdr-driven, agent-scored, operator-attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`; Codex `0.160.0`, 60-min timebox, not expired; arm 0 reproduced the old FAIL, arms F and C all criteria x; Claude all criteria x, carried from 2026-09-27 on `v2.1.283`; no fallback exists). Was **FAIL** (Codex criteria 2/3 f; Claude all criteria x) from 2026-09-27, kept as history. | no fallback stated; failure invalidates DESIGN acceptance criterion 6 | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 **Reason for `NOT RUN` on G3 (partially).** (Note 2026-10-02, #219: this paragraph is
 historical for G3. D3's macOS leg ran on a GitHub-hosted VM and G3 is now **PASS** at gate
@@ -113,7 +113,13 @@ Stages 2-6 stay
 blocked until Stage 0 (Epic B) and Stage 1 fully complete — Stage 1's own exit (D7) is
 separately still blocked by G3's parked macOS leg (G1's re-run, issue #39 T6/T7, PASSED
 2026-09-28 and no longer blocks D7), independent of G5's `FAIL`. (Note 2026-10-02, #219:
-G3's macOS leg PASSED on a GitHub-hosted VM, so no gate leg blocks D7 any more.)
+G3's macOS leg PASSED on a GitHub-hosted VM, so no gate leg blocks D7 any more.) (Note
+2026-10-03, #220: this paragraph's G5 account is now history. G5's Codex leg was re-run
+under C13 §11 (route E1, herdr-driven, agent-scored, operator-attested at
+`062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) against `docs/planning/decisions/C6-trust-rendering.md` §5.0's
+amended framing, and **G5 is now PASS**. C13 is `RESOLVED-IN-DECISION`, so the Stage 2
+stop for Codex provenance described above no longer applies. See §7 and
+`docs/planning/gates/G5-result.md`.)
 
 **Verdict vocabulary.** Closed: `PASS` | `PASS (FALLBACK TAKEN)` | `FAIL` | `NOT RUN`.
 No fifth value, no hedge — per `oac-gates` "never probably" rule.
@@ -273,7 +279,24 @@ whether one process can hold both simultaneously.
 
 ## 7. G5 provenance
 
-- **Verdict:** **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, box
+- **Verdict:** **PASS** (2026-10-02; `docs/planning/gates/G5-result.md`).
+  - **Codex leg.** It was re-run on 2026-10-02 under
+    `docs/planning/decisions/C13-codex-provenance-framing.md` §11, route E1: driven through
+    herdr under the one-off exception in `.claude/skills/oac-gates/references/
+    scripted-runs.md` "Verdict eligibility", and run against `C6-trust-rendering.md`
+    §5.0's amended framing. The run used Codex `0.160.0`, a 60-minute box from 16:16:12Z to
+    16:27:00Z, not expired. Criteria 2 and 3 were agent-scored under frozen rules (a) and
+    (b), and the operator attested the run at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
+    - Arm 0, the old C6 §5 frame, reproduced the 2026-09-27 FAIL (X2 f in 3 of 3 trials;
+      X5 put two `oac_sender:` lines in the header).
+    - Every required trial of arm F (the floor) and arm C (Option C, the floor plus the
+      `turn/start` anchor) was x on criteria 2 and 3. X5 and X5c were refused, and X5b
+      carried one sender line.
+    - Record: `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`.
+  - **Claude leg.** The 2026-09-27 human-run results stand: criteria 1, 3 and 4 x. A
+    separate, non-verdict K8 run found no Claude disagreement.
+  - No fallback exists for G5. C13 is `RESOLVED-IN-DECISION`, and Option C stands.
+- **Superseded verdict, kept as history:** **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, box
   declared 06:08:53Z/60 min, closed 06:38:46Z, ~29m53s elapsed, not expired). Claude
   PASSED every criterion evaluated for it (1, 3, 4). Codex FAILED criterion 2 (evidence:
   X2, X5) and criterion 3 (evidence: X2): case X2 (a forged nested envelope using a

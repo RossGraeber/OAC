@@ -50,7 +50,10 @@ a citation-source or pin-provenance gap.**
   fallback and no path past it. The row order
   within R1 below (G1, G2, G4, G3, G5) is presentation order, following
   `02-gating-findings.md`'s own §3-§7 sequence — it is not itself a ranking;
-  both no-fallback gates (G1, G5) carry equal weight regardless of position.
+  both no-fallback gates (G1, G5) carry equal weight regardless of position. (Dated note,
+  2026-10-03, #220: G5 is now **PASS**. Its Codex leg was re-run under C13 §11 and passed,
+  and C13 is `RESOLVED-IN-DECISION`, so the Stage 2 stop described above no longer applies
+  to Codex provenance. See RISK-G5's dated status below.)
 - **R2 — preview/experimental surface drift.** The Claude Code Channels research
   preview and the Codex experimental live-inject surface, including their
   unnamed compatibility-shim boundaries (conflict-register C11,
@@ -227,6 +230,39 @@ list.
   presently unused, machine-set-metadata carrier on Codex) as an input to consider, not
   a requirement. This status note does not change RISK-G5's own risk/invalidates/
   response text above, which stays the standing description for any future G5 re-run.
+- **Status (2026-10-03, issue #220): no longer realized at gate level; open as a design
+  risk.** G5's Codex leg was re-run under C13 §11, through herdr under the one-off E1
+  exception (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, run
+  `20261002T161612Z-4f2b53`, Codex `0.160.0`, 60-minute box not expired, operator
+  attestation `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`).
+  - Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27 FAIL.
+  - Every required trial of arm F (`docs/planning/decisions/C6-trust-rendering.md` §5.0's
+    floor) and arm C (the floor plus the `turn/start` anchor, Option C) was x on Codex
+    criteria 2 and 3, and every mechanical check passed: X5 and X5c were refused, and X5b
+    carried one sender line.
+  - The 2026-09-27 Claude results stand.
+  - **G5 is PASS** (`docs/planning/gates/G5-result.md`), C13 is `RESOLVED-IN-DECISION`,
+    and DESIGN acceptance criterion 6 is re-established for Codex at gate level.
+
+  The risk stays open, narrower:
+  - the PASS confirms the gate's reconstructed client, not OAC's adapter. Until the G7/F11
+    frame-builder and refusal tests exist, the mitigation in OAC is designed, not proven
+    (`oac-security-work` §1, §6);
+  - three trials per forged-block case bound the model's error rate; they do not prove it
+    zero (C13 §9). Added 2026-10-03: the old frame's X2 failure was not reproduced
+    across runs. The K8 run scored X2 x with 2026-09-27's frame, model and X1-then-X2
+    thread, but on Codex `0.160.0` rather than 2026-09-27's `0.157.1`. Arm 0 scored f on
+    `0.160.0` in a fresh thread. The cause is UNVERIFIED: model variance, or the Codex
+    version combined with the shared-thread history (C13 §9 dated note;
+    `G5-c13-2026-10-02.md` findings; row 59). If it is model variance, the control fails
+    at an unmeasured rate. Arms F and C's three x per case would then separate the new
+    frame from the old less sharply than a control that always fails;
+  - the `turn/start` anchor is an experimental field behind an unnamed shim boundary (C11).
+    The floor alone passed (arm F), so losing the field cannot reopen this risk on its
+    own.
+
+  The early-warning signal above still applies to any later G5 run. Rows 45-46 are CLOSED
+  (traceability table).
 
 ## R2 — Preview/experimental surface drift
 
@@ -650,6 +686,13 @@ list.
   only. Response: install the hook and observe it refuse and allow a job on each runner
   before any harness run, per `docs/planning/gates/herdr-runner.md` §1 and §7. If that
   cannot be done, do not register the runners and keep scripted runs local (row 52).
+- **Addition, 2026-10-03 (#220).** The driver hashes the harness config files only at
+  run start and at teardown (`tools/herdr/run.mjs`). For the four October 2 G5 runs, the
+  hashes show `~/.codex/config.toml` byte-identical at all eight snapshots. They cannot
+  exclude a write that was reverted to the same bytes inside a run (UNVERIFIED — no
+  in-run file monitor; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings;
+  row 60). Response: none needed for v0.1. If a run must prove the files were never
+  written, it needs an in-run monitor, not endpoint hashes.
 
 ### RISK-BEACON — Beacon external memory service: fast-moving upstream, older MCP revision, one fact unverified
 
@@ -738,7 +781,8 @@ literally named `source`) and 48 (`turn/start.additionalContext`) are informatio
 exploratory and are **not** tracked in STATUS.md at all, under C13 or otherwise. This
 table's own "every entry disposed of here" claim (above) is scoped to STATUS.md's "Open
 UNVERIFIED items" list specifically, which rows 45-48 are not members of — noted here
-rather than silently overclaimed. The table is therefore 56 rows: of rows 1-44 (the ones
+rather than silently overclaimed. (Dated note, 2026-10-03, #220: rows 45-46 are now CLOSED by G5's C13 §11 re-run, and row
+48's carrier is now used, as C6 §5.0's anchor.) The table is therefore 56 rows: of rows 1-44 (the ones
 that do correspond to STATUS.md's "Open UNVERIFIED items" list), 42 are still listed
 there (row 31 among them, confirmed not a risk, but kept as a correction note per that
 row's own text) and 2 are closed (rows 32, 40); rows 45-48 are additional risk-table
@@ -762,7 +806,9 @@ rows 13 and 30 are now CLOSED, by the §3.1 re-check at Claude Code `2.1.285`, a
 STATUS.md bullets are removed. Of rows 1-44, 40 are therefore still listed in STATUS.md,
 and 4 are closed: rows 13, 30, 32 and 40. The counts above are kept as written at the
 time.) Row 58 was added 2026-10-02 (#236): the hook-to-shim pairing mechanism that the
-C4 §3 revision requires, under `RISK-LOCAL-IPC`.
+C4 §3 revision requires, under `RISK-LOCAL-IPC`. Rows 59-60 were added 2026-10-03 (#220),
+from verifying the G5 E1 findings: the old frame's X2 result not reproducing across runs,
+under `RISK-G5`, and the endpoint-only harness config hashes, under `RISK-HERDR`.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -810,10 +856,10 @@ C4 §3 revision requires, under `RISK-LOCAL-IPC`.
 | 42 | Claude Code 2.1.283 sent a stdio `server/discover` probe with `MCP_SDK_GENERATION` confirmed empty (Box B/Box C, 2026-09-28, directory `g1-spike`), and Claude Code 2.1.283 sent it again in D6's own Box A capture (directory `d6-spike`, `_meta.mcp_sdk_generation` recorded as `"v2"` there, not confirmed empty — Box A is evidence for the `=v2` case, not the empty-var case); the same-directory (`g1-spike`) Claude Code 2.1.282 G1 run sent none -- contradicting the documented stdio default of not asking about the newer revision (from G4, reproduced identically in both runs, directory `g4-spike`; reproduced again 2026-09-28, issue #39 T4/T6/T7, across two directories that day (`d6-spike`, `g1-spike`), a third (`g4-spike`) only when counting the original G4 occurrence from a different date -- correcting an earlier draft's wrong claim that all occurrences shared one directory) | RISK-CLAUDE-PREVIEW |
 | 43 | Codex-Desktop-originated threads showed Claude Code prompt text in `thread/list` previews; import mechanism UNVERIFIED. Also: at least three times now a client reporting user-agent `codex-mcp-client/0.155.0-alpha.16.4` connected to an idle instance of this same server via the (likely shared) global `codex mcp add` registration, initialized and listed tools — twice on 2026-09-26 while the out-of-box run's server sat unused (09:08:19Z, 15:57:32Z; uncommitted archive `scratchpad/g4-spike/transcript-2026-09-26-outofbox.jsonl` lines 60-73 and 76-89), and again on 2026-09-27 at 05:17:04Z, this time also probing seven OAuth/OIDC discovery paths (all rejected/404) before an `initialize` sent as `2025-06-18` and negotiated down to legacy `2025-11-25`, then `tools/list` (uncommitted archive `scratchpad/g4-spike/transcript-pre-row41-064223.jsonl` lines 58-73, cited in `docs/planning/gates/G4-result.md` "Row-41 probe addendum"). Attribution to Codex Desktop is inferred from the user-agent string alone across all three occurrences, and the cause is UNVERIFIED (from G4, security-relevant) | RISK-CODEX-EXPERIMENTAL |
 | 44 | Claude Code does not surface a tool result's `_meta` field to the model, even though it is present on the wire; UNVERIFIED whether this is universal or specific to this tool-call path (from the G4 re-run, 2026-09-26) | RISK-CLAUDE-PREVIEW |
-| 45 | Codex header-and-delimiter framing (`docs/planning/decisions/C6-trust-rendering.md` §5) does not reliably stop the model from naming a forged block's sender when it uses a wrong-but-plausible guessed delimiter (G5 case X2, the model named the forged id in part (1) of its answer); a real delimiter replayed from an earlier delivery in the same conversation (G5 case X3) did not get the model to name the forged id, but did cost it the ability to resolve a sender at all — a narrower, related gap, not an acceptance failure. The delimiter's per-delivery unguessability holds structurally on the wire in both cases (from G5) | RISK-G5 |
-| 46 | Peer-controlled envelope field values (`oac_reply_to` at minimum) are inserted unmodified into the Codex header block, so a value containing an embedded `oac_sender:`-shaped line produces a header with two `oac_sender:` lines the model cannot resolve (G5 case X5) — needs charset/format validation before header insertion, not just before body insertion (from G5) | RISK-G5 |
+| 45 | Codex header-and-delimiter framing (`docs/planning/decisions/C6-trust-rendering.md` §5) does not reliably stop the model from naming a forged block's sender when it uses a wrong-but-plausible guessed delimiter (G5 case X2, the model named the forged id in part (1) of its answer); a real delimiter replayed from an earlier delivery in the same conversation (G5 case X3) did not get the model to name the forged id, but did cost it the ability to resolve a sender at all — a narrower, related gap, not an acceptance failure. The delimiter's per-delivery unguessability holds structurally on the wire in both cases (from G5) | **CLOSED** (2026-10-03, #220): under C6 §5.0's line-quoted body (C13 Option C), the G5 Codex-leg re-run scored every required X2×3, X3×3 and X3-anchored×3 trial x, in arms F and C, while arm 0 (the old frame) reproduced X2 f 3 of 3 (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, attested `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`). Residual (N=3 trials, gate client not OAC's adapter) stays under RISK-G5 |
+| 46 | Peer-controlled envelope field values (`oac_reply_to` at minimum) are inserted unmodified into the Codex header block, so a value containing an embedded `oac_sender:`-shaped line produces a header with two `oac_sender:` lines the model cannot resolve (G5 case X5) — needs charset/format validation before header insertion, not just before body insertion (from G5) | **CLOSED** (2026-10-03, #220): C6 §5.0's whole-value validation refuses the envelope. In the G5 Codex-leg re-run, X5 and X5c were refused with no frame on the wire, and X5b carried exactly one `oac_sender:` line (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`). Residual: the charset stays adapter-local until backlog E1 adopts it (C13 §14), under RISK-G5 |
 | 47 | A `meta` key literally named `source` is not stripped and renders as a second, trailing `source` attribute after the harness's own — not previously stated in `oac-claude-channels` or `docs/planning/decisions/C6-trust-rendering.md` (from G5 case C5, informational) | RISK-CLAUDE-PREVIEW |
-| 48 | `turn/start.additionalContext` (`kind: "application"`) is a second, presently unused, machine-set-metadata carrier on Codex, distinct from the header-and-delimiter framing; exploratory only, not verdict-bearing (from G5 case X6) | RISK-G5 |
+| 48 | `turn/start.additionalContext` (`kind: "application"`) is a second, presently unused, machine-set-metadata carrier on Codex, distinct from the header-and-delimiter framing; exploratory only, not verdict-bearing (from G5 case X6) | RISK-G5. *Dated note, 2026-10-03 (#220):* now used as C6 §5.0's `oac_provenance` anchor on `turn/start` (Option C). It is never load-bearing, and arm C of the G5 re-run passed with it |
 | 49 | Whether mid-turn `notifications/claude/channel` deliveries batch together at a single tool-call boundary, or can arrive at separate boundaries one at a time, is UNVERIFIED as a guarantee (may depend on send timing). Original G1 PASS (`v2.1.282`) observed two notifications delivered together, between the same pair of tool calls; G1 Box C (`v2.1.283`, issue #39, 2026-09-28) observed two notifications, sent ~1.85s apart, delivered at two separate tool-call boundaries instead. Both agree on order-preserved, nothing dropped, nothing interleaved — only the batching claim is unconfirmed. `PLANNING-PROMPT.md` §3.1, `oac-claude-channels`, `oac-gates/references/G1-claude-wake.md`, and `docs/planning/v0.1/04-architecture.md` are each amended with a dated note, not silently rewritten (from G1 Box C, `docs/planning/gates/G1-result.md`) | RISK-CLAUDE-PREVIEW |
 | 50 | Whether `turn/start` and `thread/queue/add` subscribe the calling connection to `turn/*`/`item/*` events, the way `thread/start`, `thread/resume`, and `thread/fork` are source-confirmed to (`codex-rs/app-server/src/request_processors/thread_processor.rs` L1562-1580, L4009-4015, L5227), is UNVERIFIED — inferred only from the same file's request-handling structure not carrying an equivalent "Auto-attach a thread listener" call near either handler; not directly source-confirmed. From D6/T5-T7 (issue #39), `oac-codex-appserver/references/thread-lifecycle.md` | RISK-CODEX-EXPERIMENTAL |
 | 51 | herdr `v0.9.1` (Epic K test tooling) live behavior verified on Windows only (2026-09-28: go, no §8 no-go condition hit); Linux and macOS live legs NOT RUN, so K1's overall go/no-go is provisional. Windows findings for the driver: Codex reports `idle` on its trust dialog, the "`unknown` after a response" premise did not reproduce, the server inherits the launching shell's env, `agent read`/`agent send-keys` have no timeout option. Per-OS support (from K1, issue #124, `docs/planning/decisions/K1-herdr-evaluation.md`) | RISK-HERDR |
@@ -824,6 +870,8 @@ C4 §3 revision requires, under `RISK-LOCAL-IPC`.
 | 56 | Whether Beacon's Codex integration (`beacon endpoint install` writes OTLP exporter tables to `~/.codex/config.toml`; hooks to `~/.codex/hooks.json`; `beacon mcp connect` edits one `beacon-managed` entry) conflicts with OAC's Codex adapter launch (from L1, issue #166, L1 §6 U4) | **CLOSED** — REFUTED by L2 (issue #167, 2026-09-29, L1 §11 item 4): Beacon replaces only `[otel]` / `[otel.*]` in `config.toml` and copies every other recognised table through (`cli/beacon/internal/endpoint/harness/harness.go@v1.3.29` L464-503); edge case: its line merge recognises a header only when the trimmed line starts with `[` and ends with `]` (L471-485), so a header with a trailing comment (e.g. `[mcp_servers.oac] # x`) directly after an `[otel]` section is dropped with its keys — not OAC's planned path, which registers `oac` with `codex mcp add` rather than by hand (not source-checked against Codex; L1 §12 B1 checks it), writes only `env` keys and its own hooks in Claude `settings.json` (same file L359-397; `cli/beacon/internal/endpoint/hooks/settings_hooks.go@v1.3.29` L191-205), and names its servers `beacon` / `beacon-managed`; no write touches a server named `oac` or the `--dangerously-load-development-channels` launch. Side effect recorded: user-level `log_user_prompt = true` also applies to OAC-launched Codex (feeds row 53). Retrieved 2026-09-29. **L3 live check (issue #192, 2026-10-01, L1 §13):** no collision seen. With Beacon `1.3.29` installed, the Claude development-channel launch connected its server, and Codex `0.159.3` took `turn/start` and `thread/queue/add` input on a daemon-loaded thread. The operator's `config.toml` had no trailing-comment headers. B1 itself was NOT RUN (operator decision on #168). The only B0-to-B7 config differences were Codex's own folder-trust entry in `config.toml` (`[projects.…]`, section diff) and a `~/.claude.json` change attributed, by inference, to Claude Code's own trust write (#206; content not read, and the orchestrating Claude Code session also writes that file); neither is a Beacon write |
 | 57 | B2 rows carried from §3 without a re-check against the pin ("Carried unchanged" or "PARTIAL"), classified UNVERIFIED for Gate S0 (#228, 2026-10-02; `docs/planning/REVERIFICATION-B2.md` "S0 classification note"). Listed in STATUS.md as one grouped entry | RISK-B2-CARRIED |
 | 58 | Hook-to-shim pairing by OS-reported peer PID and process ancestry: whether a Claude Code hook subprocess and its stdio MCP server subprocess share an OS-observable common ancestor on every OS, and which calls yield the peer PID (macOS) and parent PID (#236, 2026-10-02; `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement") | RISK-LOCAL-IPC |
+| 59 | The old C6 §5 frame's G5 X2 failure did not reproduce across runs. It was f on 2026-09-27 (Codex `0.157.1`) and in E1 arm 0 (`0.160.0`, fresh thread), and x in K8 (`0.160.0`, X1-then-X2 thread). Cause UNVERIFIED: model variance, or the Codex version combined with the shared-thread history (#220, 2026-10-03; C13 §9 dated note; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings) | RISK-G5 |
+| 60 | Whether a herdr run writes a harness config file and reverts it to the same bytes. The driver hashes `~/.codex/config.toml` and the other files only at run start and teardown (#220, 2026-10-03; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings) | RISK-HERDR |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

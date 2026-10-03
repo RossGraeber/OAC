@@ -89,7 +89,11 @@ opening caveat:
   `docs/planning/decisions/C6-trust-rendering.md` each carry this updated caveat: Claude's
   `meta`-attribute rendering is confirmed unforgeable from content; Codex's header-and-
   delimiter framing is confirmed not yet sufficient against a forged nested envelope or a
-  replayed delimiter (conflict-register entry C13).
+  replayed delimiter (conflict-register entry C13). *(Dated note, 2026-10-03, #220: G5 is
+  now **PASS**. Its Codex leg was re-run under C13 §11 against C6 §5.0's amended framing
+  and passed, with the operator attestation at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. The Claude results
+  of 2026-09-27 stand, and C13 is `RESOLVED-IN-DECISION`. The `FAIL` above is history. The
+  PASS confirms the gate client's framing, not OAC's adapter, which is not built.)*
 - **Decision 10 (transport mapping)** — gate **G3 (Zenoh local peer) is `NOT RUN`**
   (note 2026-10-02, #219: G3 is now **PASS** at gate level on all three platforms, macOS
   on a GitHub-hosted VM; this decision's transport mapping is still not proven end to end,
@@ -288,7 +292,9 @@ independently exercised, carried UNVERIFIED, not fired.
 (2026-09-27, `docs/planning/gates/G5-result.md`) — this decision's envelope-authenticity
 mechanism is a separate layer from what G5 tests (the rendering layer,
 `docs/planning/decisions/C6-trust-rendering.md` §2-§5 and `oac-security-work` §5); G5's
-result bears on that rendering layer, not on signature verification itself.
+result bears on that rendering layer, not on signature verification itself. *(Dated note,
+2026-10-03, #220: G5 is now **PASS**, after its Codex-leg re-run under C13 §11; the `FAIL`
+is history. See this file's §1 note and `docs/planning/gates/G5-result.md`.)*
 
 ### Decision 6 — Pairing and authorization
 
@@ -320,7 +326,8 @@ signing mechanism shares. The v0.1 posture (no online key rotation, manual re-pa
 is a deliberate scope limit (C5 §4), not an open reversal test.
 
 **Gate dependency.** Gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
-(2026-09-27) — the same caveat as decision 5.
+(2026-09-27) — the same caveat as decision 5. *(Dated note, 2026-10-03, #220: G5 is now
+**PASS**; see decision 5's note.)*
 
 ### Decision 7 — Key storage
 
@@ -390,7 +397,9 @@ the real Claude
 rendering this design assumes; gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f;
 Claude all criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`), exercised whether forged-sender
 content is actually shown contradicted by machine-set provenance — confirmed on Claude,
-not yet sufficient on Codex.
+not yet sufficient on Codex. *(Dated note, 2026-10-03, #220: G5 is now **PASS**. Codex was
+re-run under C13 §11 against C6 §5.0's amended framing (Option C) and passed. C13 is
+`RESOLVED-IN-DECISION`; see `docs/planning/gates/G5-result.md`.)*
 
 ### Decision 9 — Outbound symmetry
 
@@ -426,7 +435,8 @@ channel-tag convention — a documented structured-metadata field on `turn/start
 
 **Gate dependency.** Gate **G2 (Codex live inject)**, **PASS** (`0.157.1`, re-run
 2026-09-26, Windows only); gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
-(2026-09-27, `docs/planning/gates/G5-result.md`).
+(2026-09-27, `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-03, #220: G5 is now
+**PASS**, after its Codex-leg re-run under C13 §11; the `FAIL` is history.)*
 
 ### Decision 10 — Transport mapping
 
@@ -804,13 +814,14 @@ status-note update to an already-`ASSIGNED` row, not a new decision.
 All three remain **open** — none is closed by this file, consistent with `docs/planning/
 ADR-001-AMENDMENTS.md`'s own statement that none is closed there either. *(Dated note,
 2026-10-02, #228: C12 is now closed — `DESIGN.md` renamed in place. C11 and C13 stay
-open.)*
+open.)* *(Dated note, 2026-10-03, #220: C13 is now closed, `RESOLVED-IN-DECISION`, after
+G5's Codex-leg re-run passed. Only C11 stays open.)*
 
 | # | Conflict (short) | Status | Resolution lives in | Evidence |
 |---|---|---|---|---|
 | C11 | Compatibility shim boundary is UNNAMED for both the Claude Code Channels research-preview surface and the Codex experimental live-inject surface (both surfaces) | **ASSIGNED** | A C-series decision or a `DESIGN.md` update naming the module/interface; narrowed but not closed by `docs/planning/decisions/C4-session-identity.md` §16 (harness-native-id capture is fixed as daemon-owned-only, reached only via the hook/JSON-RPC surfaces C4 §3-§4 name — the module name/path itself stays owned by Epic F/G adapter implementation) | `docs/planning/STATUS.md` "Open UNVERIFIED items" |
 | C12 | `DESIGN.md` still carries retired names (`sessionchannels`, "Session Channels", "MCP Session Channels extension") after ADR-001-A1 | **RESOLVED-HERE — applied 2026-10-02 (#228).** ADR-001-A1 decided the names; #228 applied them to `DESIGN.md` in place. *(Original status: "**ASSIGNED**, owner Epic A task A9 plus a `DESIGN.md` edit". A9 closed without the `DESIGN.md` edit.)* | The four `DESIGN.md` legacy-name sites below, renamed by #228; the pre-rename text is kept in `DESIGN.md`'s "Naming note (2026-10-02, #228)" | `docs/planning/ADR-001-AMENDMENTS.md` "Carried to later tasks" |
-| C13 | G5 (2026-09-27, issue #38/D5) FAILED Codex on criteria 2/3: `docs/planning/decisions/C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name the forged id as the sender in part (1) of its answer against a forged block using a wrong-but-plausible, guessed delimiter (case X2); a real delimiter replayed from an earlier delivery in the same conversation (case X3) did not get the model to name the forged sender, but did leave it unable to resolve a sender at all — a related, narrower finding, not itself failing evidence; separately, a peer-controlled `oac_reply_to` value is inserted unmodified into the header block, producing a header with two `oac_sender:` lines the model cannot resolve (case X5) | **ASSIGNED — owner #220; design decided, G5 Codex re-run pending** (dated 2026-10-02). The operator approved Option C on #220. `docs/planning/decisions/C13-codex-provenance-framing.md` is the decision record, and its normative text landed as `C6-trust-rendering.md` §5.0. This row stays `ASSIGNED`, not `RESOLVED-IN-DECISION`, because its resolution is an unrun gate: G5's Codex-leg re-run (C13 §11, route E1). It closes when that re-run passes. *(Original text: "owner unassigned. No existing backlog task owns amending `C6-trust-rendering.md` itself (the C-series decisions were one-off issues #13-#20, not backlog tasks, and none is still open). The nearest downstream consumer is task **E5** ... E5 is blocked by C13, not its owner.")* | a C6 amendment covering (1) charset/format validation on peer-controlled envelope field values before header insertion, not only body insertion, and (2) a Codex framing that survives a fence-break/delimiter-replay reading by the model — not designed here; `turn/start.additionalContext` (case X6, exploratory, non-verdict-bearing) is recorded as a candidate input, not a solution. **No `ADR-001.md` text needs correction — ADR-001 states no Codex framing detail this finding contradicts — so no new numbered ADR-001 amendment is proposed** (`oac-evidence` §6 step 4; same disposition as C4/C8/C9/C10 above) | `docs/planning/gates/G5-result.md` (Codex cases X2, X3, X5); `docs/planning/v0.1/11-risks.md` rows 45-46, RISK-G5 |
+| C13 | G5 (2026-09-27, issue #38/D5) FAILED Codex on criteria 2/3: `docs/planning/decisions/C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name the forged id as the sender in part (1) of its answer against a forged block using a wrong-but-plausible, guessed delimiter (case X2); a real delimiter replayed from an earlier delivery in the same conversation (case X3) did not get the model to name the forged sender, but did leave it unable to resolve a sender at all — a related, narrower finding, not itself failing evidence; separately, a peer-controlled `oac_reply_to` value is inserted unmodified into the header block, producing a header with two `oac_sender:` lines the model cannot resolve (case X5) | **RESOLVED-IN-DECISION — 2026-10-03 (#220).** `docs/planning/decisions/C13-codex-provenance-framing.md`, normative text `C6-trust-rendering.md` §5.0 (Option C). G5's Codex-leg re-run (C13 §11, route E1, run `20261002T161612Z-4f2b53`, attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) passed, and G5 is `PASS` (`docs/planning/gates/G5-result.md`). No `ADR-001.md` text needs correction, so no amendment is issued. *(Status until the re-run, kept as history:)* **ASSIGNED — owner #220; design decided, G5 Codex re-run pending** (dated 2026-10-02). The operator approved Option C on #220. `docs/planning/decisions/C13-codex-provenance-framing.md` is the decision record, and its normative text landed as `C6-trust-rendering.md` §5.0. This row stays `ASSIGNED`, not `RESOLVED-IN-DECISION`, because its resolution is an unrun gate: G5's Codex-leg re-run (C13 §11, route E1). It closes when that re-run passes. *(Original text: "owner unassigned. No existing backlog task owns amending `C6-trust-rendering.md` itself (the C-series decisions were one-off issues #13-#20, not backlog tasks, and none is still open). The nearest downstream consumer is task **E5** ... E5 is blocked by C13, not its owner.")* | a C6 amendment covering (1) charset/format validation on peer-controlled envelope field values before header insertion, not only body insertion, and (2) a Codex framing that survives a fence-break/delimiter-replay reading by the model — not designed here; `turn/start.additionalContext` (case X6, exploratory, non-verdict-bearing) is recorded as a candidate input, not a solution. **No `ADR-001.md` text needs correction — ADR-001 states no Codex framing detail this finding contradicts — so no new numbered ADR-001 amendment is proposed** (`oac-evidence` §6 step 4; same disposition as C4/C8/C9/C10 above) | `docs/planning/gates/G5-result.md` (Codex cases X2, X3, X5); `docs/planning/v0.1/11-risks.md` rows 45-46, RISK-G5 |
 
 **The four `DESIGN.md` legacy-name sites, carried verbatim from `docs/planning/
 ADR-001-AMENDMENTS.md` "Carried to later tasks":**
@@ -954,7 +965,8 @@ sections.
       statement (top of §2) confirms A1-A3 are the only numbers allocated and A4 is next.
 - [x] **Acceptance box 3 — the conflict register reproduced with status, resolution
       location, and evidence, each checked to still exist and point correctly.** §3 (C1-
-      C10, with C5 kept `ASSIGNED`, not upgraded) and §4 (C11-C13, all kept open — C13
+      C10, with C5 kept `ASSIGNED`, not upgraded) and §4 (C11-C13, all kept open — dated
+      notes: C12 closed 2026-10-02 by #228, and C13 closed 2026-10-03 by #220, see §4 — C13
       added 2026-09-27 per G5/issue #38/D5, after this box was originally ticked; the
       box's own substance — every entry present, checked, and correctly stated — still
       holds against the file's current content).
