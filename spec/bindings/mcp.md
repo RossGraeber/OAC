@@ -367,6 +367,12 @@ is bound (§8.1). It does refuse Codex's outbound tool calls on both eras until 
 pairing is designed and documented; that design is owned by #69 (backlog: Codex adapter
 outbound tool surface and reply correlation).
 
+*Dated note, 2026-10-03: operator decision on #46 (https://github.com/RossGraeber/OAC/issues/46#issuecomment-5973893128, also recorded on #69).* Until
+a documented pairing ties an MCP tool call to exactly one Codex conversation (#69), Codex's
+outbound tool calls are refused on both MCP eras, as 4.4.2 states. Codex sessions can still
+receive OAC messages; sending from Codex waits for #69. Codex's self-reported
+`x-codex-turn-metadata` ids are not used for pairing.
+
 > **Reference implementation note:** the v0.1 shim binds a Claude channel-path stdio
 > connection to one harness session through the hook-to-shim pairing in C4 §3. No
 > equivalent pairing exists yet for a Codex connection, which is why its tool calls are
@@ -662,6 +668,7 @@ task by #228 (2026-10-02). It is resolved here as follows.
    bound today. If Codex's default client moves to `2026-07-28` before a binding signal
    exists, Codex's outbound calls are refused (fail-closed) on that era as on the legacy
    one. That stays tracked under RISK-G4 row 41, and the Codex pairing design under #69.
+   *Dated note, 2026-10-03: the operator confirmed this refusal on #46 (https://github.com/RossGraeber/OAC/issues/46#issuecomment-5973893128); see §4.4.*
 4. **What stays open is verification, not conflict.** Two items remain, each with an
    owner, and neither can reopen the design question in point 1:
    - an `rmcp`-based server registering as a legacy-era channel against live Claude Code
