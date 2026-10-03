@@ -17,7 +17,7 @@ verdicts table, **gate G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude
 criteria x) (2026-09-27,
 `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-02, #220: G5 is now **PASS**.
 Its Codex leg was re-run under C13 §11 against C6 §5.0's amended framing and passed, with
-the operator attestation at `<attestation commit>`, and the 2026-09-27 Claude results
+the operator attestation at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`, and the 2026-09-27 Claude results
 stand. The `FAIL` is history. This changes nothing below: G5 still tests the rendering
 layer, not signature verification.)* This document designs the envelope-authenticity
 mechanism G5 exercises; envelope-authenticity itself (signature verification) is not what

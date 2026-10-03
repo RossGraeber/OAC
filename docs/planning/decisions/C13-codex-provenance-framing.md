@@ -10,7 +10,7 @@ C6-trust-rendering.md` §5, §6, §12, §14; conflict-register entry C13
 **Status:** **RESOLVED-IN-DECISION — 2026-10-02 (#220).** The §11 pass rule held. The G5
 Codex-leg re-run under route E1 (run `20261002T161612Z-4f2b53`, record
 `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, operator attestation
-`<attestation commit>`) reported C13 outcome `PASS`:
+`062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) reported C13 outcome `PASS`:
 
 - arm 0 (the old C6 §5 frame) reproduced the 2026-09-27 FAIL (X2 f in 3 of 3 trials, X5
   two `oac_sender:` lines), so the run was conclusive and consumed E1;
@@ -610,7 +610,7 @@ herdr-first decisions above. E1 is the governing route.
 
 *Dated note, 2026-10-02: the pass rule held* (run `20261002T161612Z-4f2b53`,
 `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, attested at
-`<attestation commit>`). In the verdict change:
+`062a67c27b7d5a332dedfe3cb392f9ccfe77393a`). In the verdict change:
 
 - `G5-result.md` gained the 2026-10-02 Codex-leg row, with the Claude results of 2026-09-27
   carried, and reads `PASS`;

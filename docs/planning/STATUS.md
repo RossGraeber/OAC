@@ -4,12 +4,12 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-10-02 (**Issue #220: G5 is PASS; C13 resolved.** G5's Codex-leg
+**Last updated:** 2026-10-03 (**Issue #220: G5 is PASS; C13 resolved.** G5's Codex-leg
 re-run under C13 §11 ran through herdr under the one-off E1 exception
 (`.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility"). Run
 `20261002T161612Z-4f2b53`, record `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`,
 Codex `0.160.0`, 60-minute box not expired. The operator attested it at
-`<attestation commit>`.
+`062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
 
 - **The run.** Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27 FAIL: X2 f in 3 of 3
   trials, and X5 put two `oac_sender:` lines in the header. That makes the run conclusive,
@@ -996,7 +996,7 @@ amendments A1-A3 issued)
 | | |
 |---|---|
 | Milestone | M2 — Stage 1 gate spikes (Epic D). *(Dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
-| Stage | **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-02, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `<attestation commit>`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
+| Stage | **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-02, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
 | Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **PASS** (2026-10-02, #220: Codex leg re-run under C13 §11, route E1, on Codex `0.160.0`; Claude leg PASS, carried from 2026-09-27; was **FAIL** on Codex from 2026-09-27) — see `docs/planning/gates/G5-result.md`; C13 `RESOLVED-IN-DECISION` 2026-10-02), J (agent skills) |
 | Blocked | Stages 2-6, and the rest of Stage 1 pending D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is no longer blocked by any gate leg: G3's macOS leg PASSED 2026-10-02 (#219) and G1's re-run PASSED 2026-09-28, so every gate has a closed verdict; separately Stage 2 cannot freeze the Codex provenance interface until C13 closes. The C13 design is decided (C6 §5.0, 2026-10-02, #220), and C13 closes when G5's Codex-leg re-run under C13 §11 passes; that re-run is pending. *Dated note, 2026-10-02, #220: the re-run passed and C13 is closed, so the Codex provenance freeze is no longer blocked; G5 is PASS*). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
@@ -1073,7 +1073,7 @@ neither id — so it is not failing evidence for either criterion. No fallback e
 G5. See `docs/planning/gates/G5-result.md`. **G5's Codex leg was re-run on 2026-10-02 under
 C13 §11 (route E1) and G5 is now PASS.** The run was herdr-driven and Codex-only, on
 `0.160.0`; it is recorded in `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` and was
-attested at `<attestation commit>`. Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27
+attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27
 FAIL, which is E1's calibration. Every required trial of arm F (C6 §5.0's floor) and arm C
 (the floor plus the anchor, Option C) scored x on Codex criteria 2 and 3, agent-scored under
 frozen rules (a) and (b), with every mechanical check met. The Claude results of 2026-09-27
@@ -1099,7 +1099,7 @@ on Stage 1's exit, D7.)
 | G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | **PASS** (2026-10-02, #219; primary multicast path on all three platforms, no fallback needed) — Windows 11 **PASS**, Linux (WSL2) **PASS** (2026-09-25), macOS 26.6.2 **PASS** on a GitHub-hosted VM, not physical hardware (2026-10-02, run 36968235427). Was NOT RUN at gate level 2026-09-25 to 2026-10-02 (macOS parked). | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
-| G5 Provenance | **PASS** (2026-10-02, Codex-leg re-run under C13 §11, route E1: herdr-driven, agent-scored, operator-attested at `<attestation commit>`; Codex `0.160.0`, 60-min timebox, not expired; arm 0 reproduced the old FAIL, arms F and C all criteria x; Claude all criteria x, carried from 2026-09-27 on `v2.1.283`; no fallback exists). Was **FAIL** (Codex criteria 2/3 f; Claude all criteria x) from 2026-09-27, kept as history. | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
+| G5 Provenance | **PASS** (2026-10-02, Codex-leg re-run under C13 §11, route E1: herdr-driven, agent-scored, operator-attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`; Codex `0.160.0`, 60-min timebox, not expired; arm 0 reproduced the old FAIL, arms F and C all criteria x; Claude all criteria x, carried from 2026-09-27 on `v2.1.283`; no fallback exists). Was **FAIL** (Codex criteria 2/3 f; Claude all criteria x) from 2026-09-27, kept as history. | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
 checklist): `docs/planning/gates/README.md`. Since #216 (2026-10-01) a Claude Code or Codex
@@ -1230,7 +1230,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   (operator, 2026-10-02); resolved, `RESOLVED-IN-DECISION`, 2026-10-02.** *(Until the
   re-run was recorded this read "G5 Codex re-run pending".)*
   - The G5 Codex-leg re-run (C13 §11, route E1, run `20261002T161612Z-4f2b53`, attested
-    at `<attestation commit>`) passed. Arm 0 reproduced the old FAIL, and every required
+    at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) passed. Arm 0 reproduced the old FAIL, and every required
     trial of arms F and C was x. G5 is PASS.
   - Arm C showed no anchor confusion, so Option C stands and the Option A fallback is not
     taken.
@@ -1358,7 +1358,7 @@ states or that are inferred/stale). Closed when the named resolution lands.
   **Dated note, 2026-10-02 (#220): closed, `RESOLVED-IN-DECISION`.**
   - The G5 Codex-leg re-run passed. It ran under route E1, run `20261002T161612Z-4f2b53`,
     record `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, and the operator attested
-    it at `<attestation commit>`.
+    it at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
   - Arm 0 reproduced the 2026-09-27 FAIL. Every required trial of arm F (the floor) and
     arm C (Option C) was x on Codex criteria 2 and 3, and every mechanical check was met.
   - G5 is now PASS (`docs/planning/gates/G5-result.md`). Option C stands.
@@ -1436,7 +1436,7 @@ without an UNVERIFIED label.
   `20261002T161612Z-4f2b53` on Codex `0.160.0`, X3-anchored×3, X4-after-anchor and X9
   were all x on criteria 2 and 3, and X6′'s first reply did not obey the body
   (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, "Codex deliveries, per arm",
-  retrieved 2026-10-02; attested at `<attestation commit>`). Residual: three trials per
+  retrieved 2026-10-02; attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`). Residual: three trials per
   case on one Codex version, so the error rate is bounded, not shown to be zero (C13 §9).
   No pin row changes: Codex floats (#216).
 

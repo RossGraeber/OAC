@@ -16,7 +16,7 @@
 - **Scoring basis (Codex criteria 2 and 3):** agent-scored from the captured answers under
   frozen rules (a) and (b), unchanged from 2026-09-27 (E1 ruling 2); mechanical for X5,
   X5b and X5c (C13 §11 "Pass rule"). The operator attests the run: `## Operator
-  attestation` at the end of this file, ticked in the record at `<attestation commit>`.
+  attestation` at the end of this file, ticked in the record at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
 - **Pinned version(s):**
   - **Codex leg (2026-10-02):** `codex --version` `codex-cli 0.160.0`; daemon
     `cliVersion`, `appServerVersion` and `managedCodexVersion` all `0.160.0`; wire
@@ -647,7 +647,7 @@ until that re-run is recorded.**
 **Dated note, 2026-10-02 (#220, verdict written).** The E1 exception above was consumed by
 run `20261002T161612Z-4f2b53` (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`):
 outcome `PASS`, arm 0 reproduced the 2026-09-27 FAIL, every required trial of arms F and C
-passed. The operator attested it at `<attestation commit>`. G5's verdict is now **PASS**
+passed. The operator attested it at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. G5's verdict is now **PASS**
 (top of this file). The headings and sentences above that say G5 stays `FAIL`, and the
 statement that the scenario has never run live and no `herdr-runs/` record exists, are
 history. Two G5 records now exist: the E1 run above, and the non-verdict K8 Claude
@@ -657,18 +657,12 @@ or a new, recorded operator decision; E1 does not extend to any later run.
 
 ## Operator attestation
 
-<!-- VERDICT-CHANGE PLACEHOLDER: replace the four lines below with the four lines of
-docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md "## Operator attestation", copied
-verbatim AFTER the operator who ran the machine has ticked them there at <attestation commit>.
-Never tick them here first. The herdr line needs the executable's sha256 (64 hex): the run
-manifest is schemaVersion 1, so the operator takes it by hand (scripted-runs.md "Operator
-attestation"). Until this section is complete, node scripts/check-fixture-manifest.mjs fails
-this file, because its Driver: line names herdr. That failure is the intended gate. -->
+Copied verbatim from `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` "## Operator
+attestation", as ticked by the operator who ran the machine in commit `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. It covers
+the Codex-leg run named in `Driver:`. The Claude leg is the human run of 2026-09-27 and
+needs no attestation.
 
-This section covers the Codex-leg run named in `Driver:`. The Claude leg is the human run
-of 2026-09-27 and needs no attestation.
-
-- [ ] **herdr:** the real herdr binary ran, not a test double. `herdr --version`: `herdr 0.9.1`; sha256 of the executable: `<64 hex>`
-- [ ] **Harness:** the real, logged-in Claude Code CLI (`claude --version`: `2.1.285 (Claude Code)`) and Codex CLI (`codex --version`: `codex-cli 0.160.0`) ran, not test doubles.
-- [ ] **Consent dialog:** none — no criterion of G5 names a consent step. Dialogs on record: claude workspace-trust (read #12; accepted by the DRIVER (herdr dialog-accept: down #13, enter #15)); claude mcp-server-approval (read #18; accepted by the DRIVER (herdr dialog-accept: up #19, up #21, enter #23)); claude dev-channels (read #26; accepted by the DRIVER (herdr dialog-accept: enter #27)); each driver accept above was the driver's, not mine.
-- **Attested by:** <operator>, <YYYY-MM-DD>
+- [x] **herdr:** the real herdr binary ran, not a test double. `herdr --version`: `herdr 0.9.1`; sha256 of the executable: `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6`
+- [x] **Harness:** the real, logged-in Claude Code CLI (`claude --version`: `2.1.285 (Claude Code)`) and Codex CLI (`codex --version`: `codex-cli 0.160.0`) ran, not test doubles.
+- [x] **Consent dialog:** none — no criterion of G5 names a consent step. Dialogs on record: claude workspace-trust (read #12; accepted by the DRIVER (herdr dialog-accept: down #13, enter #15)); claude mcp-server-approval (read #18; accepted by the DRIVER (herdr dialog-accept: up #19, up #21, enter #23)); claude dev-channels (read #26; accepted by the DRIVER (herdr dialog-accept: enter #27)); each driver accept above was the driver's, not mine.
+- **Attested by:** Ross Graeber, 2026-10-03

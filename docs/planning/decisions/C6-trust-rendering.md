@@ -20,7 +20,7 @@ verdicts table, **gate G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude
 criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-02,
 #220: G5 is now **PASS**. Its Codex leg was re-run under C13 §11 against §5.0's framing
 and passed: arm F (the floor) and arm C (the floor plus the anchor) were x on every
-required trial. The operator attested the run at `<attestation commit>`, and the
+required trial. The operator attested the run at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`, and the
 2026-09-27 Claude results stand. The `FAIL`, and this paragraph's Codex findings, are
 history. §5.0 is now gate-confirmed for the gate's reconstructed client, not for OAC's
 adapter, which is not built.)* This document designs the
