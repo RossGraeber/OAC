@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 
 import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd } from '../lib/manifest.mjs';
 import { herdrVerification } from '../lib/gate-report-common.mjs';
-import { checkHerdrExecutable, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
+import { checkHerdrExecutable, herdrCheckDecision, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -125,7 +125,7 @@ export async function identityUnit(check) {
     // and the record's herdr line is VERIFIED only on a recorded match, citing the fields.
     const hex = 'a'.repeat(64);
     const otherHex = 'b'.repeat(64);
-    const expected = [{ platform: 'linux-x64', sha256: hex, basis: 'release asset digest' }];
+    const expected = [{ platform: 'linux-x64', sha256: hex, firstParty: true, basis: 'release asset digest' }, { platform: 'win32-x64', sha256: hex, firstParty: false, basis: 'installed binary' }];
     const exe = (x) => ({ basename: 'herdr', sha256: hex, format: 'elf', testDouble: false, unchangedAfterRun: true, ...x });
     const xc = (x, platform = 'linux-x64') => checkHerdrExecutable(exe(x), expected, platform);
     check('#252 check: the expected hash for the platform is a match', xc({}).result === 'match' && xc({}).expectedSha256 === hex && xc({}).basis === 'release asset digest');
@@ -139,6 +139,14 @@ export async function identityUnit(check) {
     check('#252 verification: a mismatch, a test double, a changed executable or a missing check is UNVERIFIED', [man({ sha256: otherHex }), man({ testDouble: true, format: 'script' }), man({ unchangedAfterRun: false }), { herdr: { ...man({}).herdr, executableCheck: null } }].every((m) => !hv(m).verified && /^UNVERIFIED — /.test(hv(m).text)));
     check('#252 verification: a schemaVersion 1 manifest (no herdr.executable) is UNVERIFIED', !hv({ herdr: { observedVersionOutput: 'herdr 0.9.1', expectedVersionOutput: 'herdr 0.9.1' } }).verified);
     check('#252 verification: a version off the pin is UNVERIFIED', !hv({ herdr: { ...man({}).herdr, observedVersionOutput: 'herdr 0.9.2' } }).verified);
+    check('#252 check: a match on a locally observed (not first-party) row says so', xc({}, 'win32-x64').result === 'match' && xc({}, 'win32-x64').firstParty === false && /first-party source UNVERIFIED/.test(xc({}, 'win32-x64').detail) && xc({}).firstParty === true);
+    check('#252 verification: a match on a locally observed value is UNVERIFIED, worded as such', (() => { const v = hv(man({}, xc({}, 'win32-x64'))); return !v.verified && /matches the locally observed value .*first-party source UNVERIFIED/.test(v.text); })());
+    // herdrCheckDecision: what run.mjs does with each result (NOT RUN before spawn, or a finding).
+    const dec = (x, platform) => herdrCheckDecision(xc(x, platform));
+    check('#252 decision: mismatch and unhashed are NOT RUN, with no finding', /Refusing to run \(#252\)/.test(dec({ sha256: otherHex }).notRun ?? '') && /Refusing to run/.test(dec({ sha256: null }).notRun ?? '') && dec({ sha256: otherHex }).finding === null);
+    check('#252 decision: no expected value is a finding, not a stop', dec({}, 'darwin-arm64').notRun === null && /herdr identity UNVERIFIED \(#252\)/.test(dec({}, 'darwin-arm64').finding ?? ''));
+    check('#252 decision: a first-party match is neither; a locally observed match is a finding; a test double is neither', (() => { const a = dec({}); const b = dec({}, 'win32-x64'); const c = dec({ testDouble: true, format: 'script' }); return a.notRun === null && a.finding === null && b.notRun === null && /first-party/.test(b.finding ?? '') && c.notRun === null && c.finding === null; })());
+    check('#252 PINS.md: the First-party column parses (yes/no)', (() => { const t = parseHerdrExpectedExecutables(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')); return t.find((r) => r.platform === 'linux-x64')?.firstParty === true && t.find((r) => r.platform === 'win32-x64')?.firstParty === false; })());
     check('#252 PINS.md: the committed expected-executable table parses, one row per platform, a 64-hex hash each', (() => { const t = parseHerdrExpectedExecutables(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')); return t.length >= 1 && t.every((r) => /^[a-z0-9]+-[a-z0-9]+$/.test(r.platform) && /^[0-9a-f]{64}$/.test(r.sha256)) && new Set(t.map((r) => r.platform)).size === t.length; })());
     const tbl = (rows) => ['| Platform | Release asset | Expected executable sha256 | Basis |', '|---|---|---|---|', ...rows].join('\n');
     const throwsT = (t) => { try { parseHerdrExpectedExecutables(t); return false; } catch { return true; } };

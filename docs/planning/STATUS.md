@@ -1763,7 +1763,11 @@ without an UNVERIFIED label.
   *Dated note, 2026-10-03 (#252):* that attestation is history, not verification. The run
   manifest is `schemaVersion` 1, so the driver recorded no herdr executable hash for this
   run. The record's herdr identity beyond `herdr.observedVersionOutput` is UNVERIFIED.
-  New records carry a `## Verification` section instead.
+  So under #252 it is **not a current equivalence record**: it stays on record, marked
+  with a `Pre-#252 attestation (history)` callout, until a G1 run under the #252 driver
+  re-establishes equivalence. G1's verdict rests on the human-run Box C
+  (`gates/G1-result.md`) and is unaffected. New records carry a `## Verification` section
+  instead.
 - **New, from K6 (issue #129, 2026-09-28):** the opt-in CI workflow
   `.github/workflows/herdr-provider-optin.yml` and its entry point `tools/herdr/ci.mjs`
   are built but have **never run on GitHub Actions**. No self-hosted runner with label

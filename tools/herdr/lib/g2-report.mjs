@@ -288,7 +288,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
     manifest,
     harness: harnessVerification(manifest, {
       verified: versionsVerified(g2),
-      versions: `Codex: CLI \`${v.cliOutput ?? '?'}\` (\`scenarioData.g2.versions.cli\`), daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${d[k] ?? '?'}\``).join(', ')} (\`scenarioData.g2.versions.daemon\`), wire \`initialize\` userAgent \`${v.wireUserAgent ?? '?'}\` (\`scenarioData.g2.versions.wire\`), post-run \`${g2.postRun?.cliOutput ?? 'not recorded'}\` (\`scenarioData.g2.postRun\`)`,
+      versions: `Codex: CLI \`${v.cliOutput ?? '?'}\` (\`scenarioData.g2.versions.cliOutput\`, parsed \`${v.cli ?? '?'}\` in \`scenarioData.g2.versions.cli\`), daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${d[k] ?? '?'}\``).join(', ')} (\`scenarioData.g2.versions.daemon\`), wire \`initialize\` userAgent \`${v.wireUserAgent ?? '?'}\` (\`scenarioData.g2.versions.wireUserAgent\`, parsed \`${v.wire ?? '?'}\` in \`scenarioData.g2.versions.wire\`), post-run \`${g2.postRun?.cliOutput ?? 'not recorded'}\` (\`scenarioData.g2.postRun.cliOutput\`)`,
     }),
     dialogs: g2.dialogs,
     dialogsField: 'scenarioData.g2.dialogs',

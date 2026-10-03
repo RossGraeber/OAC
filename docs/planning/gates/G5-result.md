@@ -692,6 +692,11 @@ regression run, `docs/planning/gates/herdr-runs/G5-2026-10-02.md`. Neither is a 
 equivalence record. Any later change to this verdict goes through the human-run procedure
 or a new, recorded operator decision; E1 does not extend to any later run.
 
+> **Pre-#252 attestation (history).** Dated note, 2026-10-03 (#252): the attestation below
+> is not the basis for this verdict. The Codex-leg scoring rests on the committed wire
+> captures. The E1 run's herdr identity is stated, with its evidence and what stays
+> UNVERIFIED, under "UNVERIFIED items" above. The section is kept unchanged as history.
+
 ## Operator attestation
 
 Copied verbatim from `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` "## Operator

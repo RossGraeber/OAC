@@ -56,6 +56,7 @@ export function readHerdrPin(pinsPath) {
 // row for its platform (checkHerdrExecutable). No table, or no row for this platform, is
 // not an error: the comparison is then `no-expected-value`, and the herdr identity UNVERIFIED.
 export const EXPECTED_HASH_COLUMN = 'Expected executable sha256';
+export const FIRST_PARTY_COLUMN = 'First-party';
 
 export function parseHerdrExpectedExecutables(pinsText) {
   const lines = pinsText.split(/\r?\n/);
@@ -72,7 +73,10 @@ export function parseHerdrExpectedExecutables(pinsText) {
     const sha256 = (/`([0-9a-f]{64})`/.exec(row[col(EXPECTED_HASH_COLUMN)] ?? '') ?? [])[1];
     if (!platform || !sha256) throw new Error(`PINS.md "${PIN_ROW}" expected-executable row has no backticked platform or 64-hex sha256: ${line.trim()}`);
     if (out.some((e) => e.platform === platform)) throw new Error(`PINS.md "${PIN_ROW}" expected-executable table lists ${platform} twice`);
-    out.push({ platform, sha256, basis: col('Basis') === -1 ? null : row[col('Basis')] ?? null });
+    // First-party: `yes` only when the expected value comes from a first-party source (the
+    // release's own digest or provenance attestation), not from a locally observed binary.
+    const fp = col(FIRST_PARTY_COLUMN) === -1 ? '' : String(row[col(FIRST_PARTY_COLUMN)] ?? '').toLowerCase();
+    out.push({ platform, sha256, firstParty: /^\**yes\b/.test(fp), basis: col('Basis') === -1 ? null : row[col('Basis')] ?? null });
   }
   return out;
 }
@@ -81,17 +85,29 @@ export const herdrPlatform = (platform = process.platform, arch = process.arch) 
 
 // Compare the herdr executable the driver resolved and hashed (manifest.mjs herdrIdentity)
 // with PINS.md's expected sha256 for this platform. -> { result, platform, expectedSha256,
-// basis, detail }. result: `match`; `mismatch` and `unhashed` (run.mjs: NOT RUN, nothing
-// else spawned); `no-expected-value` (a finding; the run goes on, its herdr UNVERIFIED);
-// `test-double` (the node-run self-test herdr: never compared, never verified).
+// firstParty, basis, detail }. result: `match`; `mismatch` and `unhashed` (run.mjs: NOT RUN,
+// nothing else spawned); `no-expected-value` (a finding; the run goes on, its herdr
+// UNVERIFIED); `test-double` (the node-run self-test herdr: never compared, never verified).
+// A `match` against a row whose firstParty is false shows only that the binary is the one
+// observed locally; the record states herdr UNVERIFIED (first-party source UNVERIFIED).
 export function checkHerdrExecutable(executable, expected, platform = herdrPlatform()) {
   const row = (expected ?? []).find((e) => e.platform === platform) ?? null;
-  const base = { platform, expectedSha256: row?.sha256 ?? null, basis: row?.basis ?? null };
+  const base = { platform, expectedSha256: row?.sha256 ?? null, firstParty: row ? row.firstParty === true : null, basis: row?.basis ?? null };
   if (executable?.testDouble !== false) return { ...base, result: 'test-double', detail: 'the node-run test-double herdr is never compared with an expected value' };
   if (!/^[0-9a-f]{64}$/.test(executable.sha256 ?? '')) return { ...base, result: 'unhashed', detail: 'the herdr executable could not be hashed, so it cannot be compared with an expected value' };
   if (!row) return { ...base, result: 'no-expected-value', detail: `PINS.md "${PIN_ROW}" has no expected executable sha256 for ${platform}` };
   if (executable.sha256 !== row.sha256) return { ...base, result: 'mismatch', detail: `herdr executable sha256 ${executable.sha256} is not PINS.md's expected ${row.sha256} for ${platform}` };
-  return { ...base, result: 'match', detail: `herdr executable sha256 equals PINS.md's expected value for ${platform}` };
+  return { ...base, result: 'match', detail: `herdr executable sha256 equals PINS.md's expected value for ${platform}${row.firstParty ? '' : ' (a locally observed value; first-party source UNVERIFIED)'}` };
+}
+
+// What run.mjs does with a check (#252), kept here so it is unit-tested: -> { notRun, finding }.
+// `notRun` is the NOT RUN reason (mismatch, unhashed), thrown before herdr is spawned;
+// `finding` is recorded and the run goes on (no expected value, or a non-first-party match).
+export function herdrCheckDecision(check) {
+  if (check?.result === 'mismatch' || check?.result === 'unhashed') return { notRun: `${check.detail}. Refusing to run (#252).`, finding: null };
+  if (check?.result === 'no-expected-value') return { notRun: null, finding: `herdr identity UNVERIFIED (#252): ${check.detail}; the executable was hashed (herdr.executable.sha256) but compared with nothing` };
+  if (check?.result === 'match' && check.firstParty !== true) return { notRun: null, finding: `herdr identity UNVERIFIED as first-party (#252): ${check.detail}` };
+  return { notRun: null, finding: null };
 }
 
 export const PINS_REL_PATH = 'docs/planning/PINS.md';

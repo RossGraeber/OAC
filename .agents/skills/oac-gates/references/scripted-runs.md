@@ -407,8 +407,15 @@ signature settles.
   `herdr.executableCheck` (`tools/herdr/lib/pins.mjs` `checkHerdrExecutable`): `match`;
   `mismatch` or `unhashed`, which end the run `NOT RUN` (see "Timeout means NOT RUN");
   `no-expected-value`, a finding, after which the run goes on with herdr UNVERIFIED; or
-  `test-double`, never compared and never verified. The table is read from PINS.md at HEAD,
-  like the tag. The executable is re-hashed at teardown (`unchangedAfterRun`).
+  `test-double`, never compared and never verified. What `run.mjs` does with each result is
+  `herdrCheckDecision` in the same file. It is unit-tested, and the self-test drives
+  `run.mjs` with a native non-herdr binary to check the mismatch, match and
+  no-expected-value paths. A `match` counts as VERIFIED only on a row whose `First-party`
+  cell is `yes` (`executableCheck.firstParty`). A match on a locally observed value (the
+  Windows row) shows only that the binary is that one: the record states herdr
+  UNVERIFIED, first-party source UNVERIFIED. The table is read from PINS.md at HEAD, like
+  the tag. The run manifest is `schemaVersion` 3. The executable is re-hashed at teardown
+  (`unchangedAfterRun`).
 - **Harness versions** from every source the scenario reads (CLI, wire, the Codex daemon,
   post-run), and the hash of each harness executable that answered `--version`
   (`harnessExecutables`).
@@ -454,19 +461,37 @@ who did it. Nothing else in the record is signed.
   the equivalence callout, and a tracked `G<n>-result.md` whose `- **Driver:**` line
   starts with `herdr`, unless this section is complete: herdr VERIFIED with a 64-hex hash,
   Harness VERIFIED, the Dialogs, Human actions and dated Verified by lines, and no
-  `<TO FILL` left. For an equivalence record with its run manifest beside it, the stated
-  herdr hash must be the manifest's, and the manifest must record a `match`. It refuses a
-  `-herdr` fixture from a run whose `herdr.executableCheck` is not `match`. The script
-  proves completeness and those bindings. The rest is the recording agent's check, from
-  the citations.
+  `<TO FILL` left. Every such file must be tied to a committed run manifest that parses:
+  - an equivalence record, to its own run manifest;
+  - a gate result, to the run manifest beside the `herdr-runs/` record its Driver line
+    names.
+
+  For a verified file, that manifest must be the #252 driver's (`schemaVersion` 3, or
+  carrying `herdr.executableCheck`). It must record a first-party `match`, and its
+  expected value must equal PINS.md's committed row for the platform, and the row at the
+  run's driver commit when that commit is in the repository. The stated herdr hash must
+  be the manifest's. The script refuses a `-herdr` fixture from a run whose
+  `herdr.executableCheck` is not `match`, or from a `schemaVersion` 3 manifest without
+  one. It proves completeness and those bindings. The rest is the recording agent's
+  check, from the citations.
 - **History.** Records made before #252 carry the `## Operator attestation` of their time:
   `herdr-runs/G1-2026-09-29.md`, `G5-2026-10-02.md`, `G5-c13-2026-10-02.md` and
-  `G5-result.md`. They stay as written, and the checker still accepts a complete one, but
-  not on a run whose manifest the #252 driver wrote. An attested line in them is history,
-  not verification. `G1-2026-09-29` and `G5-c13-2026-10-02` have `schemaVersion` 1 run
-  manifests, so their herdr hash was taken by hand, not recorded by the driver. The same
-  hash is the one the driver recorded in `G5-2026-10-02` on the same machine, and the
-  expected Windows value in PINS.md.
+  `G5-result.md`. They stay as written. The checker accepts a complete attestation only
+  when all of these hold:
+  - the run manifest is pre-#252 (`schemaVersion` <= 2, no `executableCheck`);
+  - the record is dated no later than 2026-10-03;
+  - the file carries the callout `> **Pre-#252 attestation (history).**`, which says it is
+    not a current basis.
+
+  An attested line is history, not verification. `G1-2026-09-29` and `G5-c13-2026-10-02`
+  have `schemaVersion` 1 run manifests, so their herdr hash was taken by hand, not recorded
+  by the driver. Their herdr identity beyond `herdr --version` is UNVERIFIED (dated notes
+  in each, 2026-10-03).
+- **G1-2026-09-29 is not a current equivalence record (2026-10-03).** Under this rule an
+  equivalence record needs herdr VERIFIED, and this one cannot be. It stays on record with
+  its callouts. A G1 run under the #252 driver must re-establish G1 equivalence before
+  any scripted G1 run can carry a verdict. G1's verdict rests on the human-run Box C and
+  is unaffected.
 
 *Superseded #140/#196 text (kept for history; not in force since 2026-10-03):* "every
 equivalence record, and every `G<n>-result.md` whose `Driver:` names herdr, carries this
@@ -486,7 +511,7 @@ the operator who signed it."
   whose run meets all of these:
   - run outcome `PASS`;
   - `herdr.observedVersionOutput` equals the current PINS.md `herdr (test tooling)` pin,
-    and `herdr.executableCheck.result` is `match` (#252);
+    and `herdr.executableCheck` is a first-party `match` (#252);
   - `driver.toolsHerdrDirty` is `false`;
   - it records the harness version(s) it ran on, each verified as one version across the
     CLI and the wire (G1: `versionsVerified`). The human run it compares against is the
@@ -511,7 +536,7 @@ the operator who signed it."
   it calibrates the method against the human run. (Before #252 the operator added the
   callout.)
 - **When a scripted run may carry a verdict.** All of these must hold:
-  - an equivalence record for G<n> exists at the current herdr pin and is not invalidated;
+  - an equivalence record for G<n> exists at the current herdr pin and is not invalidated, and is current under #252 (not marked `Pre-#252 attestation (history)`);
   - `git diff <record's driver commit> <run's driver commit> -- tools/herdr/
     ':!tools/herdr/test/'` is empty, so the driver and scenario code are unchanged;
   - the run used the same `scenario.file`, `launch.argv` and `scenario.params` as the
@@ -635,8 +660,8 @@ the operator who signed it."
 - [ ] Pane-text scores (G1 criteria 2 and 3) carry a note citing pane lines.
 - [ ] Every finding and judgment cites its evidence or says UNVERIFIED. Nothing rests on
       "the operator confirms". Evidence that disagrees with anyone's account is a finding.
-- [ ] `herdr.executableCheck.result` read: `match`, or the herdr line is UNVERIFIED (and a
-      `no-expected-value` is under Findings).
+- [ ] `herdr.executableCheck` read: a first-party `match`, or the herdr line is UNVERIFIED
+      (a `no-expected-value`, or a match on a locally observed value, is under Findings).
 - [ ] Criterion 5 or the G11 confirmation: human accept only, named under "Human actions"
       with who did it. A driver-sent accept is recorded and left `not evaluable`.
 - [ ] Every other dialog accept is rendered as the manifest records it: `driver` with

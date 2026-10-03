@@ -50,7 +50,7 @@ import { fileURLToPath } from 'node:url';
 
 import { L3_RECORD_VERSION, MARKER_SHAPE, TOKEN_SHAPE, sha256, compareSections, neutralizePlaceholders, assertNoMarkerLeak } from './l3.mjs';
 import { createRedactor } from './redact.mjs';
-import { TO_FILL, describeDialogs, harnessVerification, verification } from './gate-report-common.mjs';
+import { TO_FILL, describeDialogs, harnessVerification, herdrVerificationAll, verification } from './gate-report-common.mjs';
 
 export class L3ReportError extends Error {}
 export class L3LeakAbort extends Error {}
@@ -655,7 +655,7 @@ export function renderL3Draft(ev) {
   out.push('');
   out.push(!pr ? '- no probe record' : missing.length ? `- ${missing.join('; ')}.` : '- nothing: the probe record carries every field this draft uses.');
   out.push('');
-  // #252: verified from the first phase run's manifest and the L3 record, with citations, or
+  // #252: herdr verified from every phase run's manifest, the rest from the L3 record, with citations, or
   // UNVERIFIED; no operator attestation. L3 names no consent step, so no human action is
   // asked for beyond any sign-in or credential a person supplied.
   const daemonV = v.codex?.daemon && typeof v.codex.daemon === 'object' ? Object.values(v.codex.daemon) : [v.codex?.daemon];
@@ -664,6 +664,7 @@ export function renderL3Draft(ev) {
   const probeAccept = runs.probe ? acceptBy.probe : null;
   out.push(...verification({
     manifest: drivers[0]?.m,
+    herdr: herdrVerificationAll(drivers.map(({ phase, m }) => ({ label: `${phase} run`, manifest: m }))),
     heading: '### Verification',
     harness: harnessVerification(drivers[0]?.m, { verified: harnessOk, versions: `Claude Code: CLI ${val(v.claudeCli)}; Codex: CLI ${val(v.codex?.cli)}, daemon ${val(v.codex?.daemon)}, wire ${val(v.codex?.wire)} (L3 record \`versions\`)` }),
     extra: [`- **Beacon:** ${beaconOk ? 'VERIFIED' : 'UNVERIFIED'} — \`beacon version\` ${val(v.beacon)} ${beaconOk ? 'carries' : 'does not carry'} the L1 §2 pin ${BEACON_PIN} (L3 record \`versions.beacon\`). That it ran in Local mode rests on the Evidence above, not on an attestation.`],

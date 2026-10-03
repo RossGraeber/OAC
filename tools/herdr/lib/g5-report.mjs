@@ -253,7 +253,7 @@ export function evaluateG5({ manifest, claudeText, codexText, paneClaudeText, pa
 // fixed here; g5-cases.json supplies only the bodies and must match it.
 //   - kinds: `model` reaches the model, gets the fixed question, and is scored x|f on Codex
 //     criteria 2 AND 3 under frozen rules (a) and (b), per delivery. Scoring basis (#220 ruling
-//     2): AGENT-SCORED from the captures (--case/--note), and the operator attests the run;
+//     2): AGENT-SCORED from the captures (--case/--note), and the run is verified from its evidence (#252);
 //     `refusal` (X5, X5c on the floor) passes only when the client logged a refusal AND no
 //     turn/start or thread/queue/add for it is on the wire; `one-sender` (X5b) passes when its
 //     frame carries exactly one oac_sender line; `two-senders` (arm 0's X5) is the control's
@@ -287,7 +287,7 @@ const C13_KIND = new Map(Object.values(C13_ARMS).flatMap((a) => a.deliveries));
 export const C13_CASE_KEY = /^[0FC]\.X[0-9a-zA-Z]+(?:\.[0-9A-Za-z]+)?\.c[23]$/;
 export const C13_NOTE_KEY = /^[0FC]\.X[0-9a-zA-Z]+(?:\.[0-9A-Za-z]+)?$/;
 const C13_OUTCOMES = Object.freeze({ PASS: 'PASS', FAIL: 'FAIL', INCONCLUSIVE: 'INCONCLUSIVE', PENDING: 'PENDING', NE: 'NOT EVALUABLE', NOT_RUN: 'NOT RUN' });
-export const C13_SCORING_BASIS = 'agent-scored (frozen rules (a) and (b), from the captured answers); the operator attests the run (#220 ruling 2)';
+export const C13_SCORING_BASIS = 'agent-scored (frozen rules (a) and (b), from the captured answers, each score citing them); the run is verified from its evidence (#252; #220 ruling 2)';
 export { C13_OUTCOMES };
 
 // --case <delivery>.c2=x|f and --case <delivery>.c3=x|f with a --note <delivery>=... each.
@@ -518,7 +518,7 @@ export function renderC13Report({ manifest, evaluation, date, fixtures, runManif
   out.push('> **C13 §11 re-run of the G5 Codex leg** (#220; `docs/planning/decisions/C13-codex-provenance-framing.md`). It may carry G5\'s Codex');
   out.push('> verdict ONLY under the one-off E1 exception (`.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility"):');
   out.push('> arm 0 reproduces the 2026-09-27 FAIL; the `tools/herdr/` diff from `2776e7a8` (excluding `tools/herdr/test/`) is within the four');
-  out.push('> allowed files; a complete, truthful operator attestation; and every other condition of "When a scripted run may carry a verdict".');
+  out.push('> allowed files; a complete Verification section (#252; the E1 run itself carried the operator attestation of its time); and every other condition of "When a scripted run may carry a verdict".');
   out.push('> This generator changes no verdict: `G5-result.md` and `STATUS.md` are updated by the operator, in the same change, only if those hold.');
   out.push('> No Claude case ran (#220 ruling 3): the 2026-09-27 Claude results stand, and a separate, non-verdict K8 run re-checks Claude.');
   out.push(`> Scoring basis for Codex criteria 2 and 3: ${C13_SCORING_BASIS}.`);
@@ -561,7 +561,7 @@ function g5Verification(manifest, g5) {
   const v = g5.versions ?? {};
   return verification({
     manifest,
-    harness: harnessVerification(manifest, { verified: versionsVerified(g5), versions: `Claude Code: CLI \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; Codex: CLI \`${v.cliOutput?.codex ?? '?'}\`, daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${v.daemon?.[k] ?? '?'}\``).join(', ')}, wire userAgent \`${v.wire?.codexUserAgent ?? '?'}\` (\`scenarioData.g5.versions\`; post-run \`scenarioData.g5.postRun\`)` }),
+    harness: harnessVerification(manifest, { verified: versionsVerified(g5), versions: `Claude Code: CLI \`${v.cliOutput?.claude ?? '?'}\` (\`scenarioData.g5.versions.cliOutput.claude\`), wire clientInfo \`${v.wire?.claude ?? '?'}\` (\`scenarioData.g5.versions.wire.claude\`); Codex: CLI \`${v.cliOutput?.codex ?? '?'}\` (\`scenarioData.g5.versions.cliOutput.codex\`), daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${v.daemon?.[k] ?? '?'}\``).join(', ')} (\`scenarioData.g5.versions.daemon\`), wire userAgent \`${v.wire?.codexUserAgent ?? '?'}\` (\`scenarioData.g5.versions.wire.codexUserAgent\`); post-run match \`${g5.postRun?.matches ?? 'not recorded'}\` (\`scenarioData.g5.postRun.matches\`)` }),
     dialogs: g5.dialogs,
     dialogsField: 'scenarioData.g5.dialogs',
     humanActions: noConsentCriterionLine('G5'),

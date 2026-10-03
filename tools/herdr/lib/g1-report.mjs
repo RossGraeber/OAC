@@ -293,7 +293,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
       : `the dev-channels dialog accept, G1 criterion 5's consent step (read #${dev.readSeq}; the driver sent no keystroke, so the record cannot show who pressed the key): accepted at the keyboard by ${TO_FILL}: the person who accepted it>.`;
   out.push(...verification({
     manifest,
-    harness: harnessVerification(manifest, { verified: versionsVerified(g1), versions: `Claude Code: CLI \`${v.cliOutput ?? '?'}\` (\`scenarioData.g1.versions.cli\`), wire \`clientInfo.version\` \`${v.wireClientInfo ?? '?'}\` (\`scenarioData.g1.versions.wireClientInfo\`), post-run \`${g1.postRunVersion ?? 'not recorded'}\`` }),
+    harness: harnessVerification(manifest, { verified: versionsVerified(g1), versions: `Claude Code: CLI \`${v.cliOutput ?? '?'}\` (\`scenarioData.g1.versions.cliOutput\`, parsed \`${v.cli ?? '?'}\` in \`scenarioData.g1.versions.cli\`), wire \`clientInfo.version\` \`${v.wireClientInfo ?? '?'}\` (\`scenarioData.g1.versions.wireClientInfo\`), post-run \`${g1.postRunVersion ?? 'not recorded'}\` (\`scenarioData.g1.postRunVersion\`)` }),
     dialogs: g1.dialogs,
     dialogsField: 'scenarioData.g1.dialogs',
     humanActions,

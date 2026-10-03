@@ -132,12 +132,22 @@ export function herdrVerification(manifest) {
   }
   if (!c) why.push('the run manifest records no herdr.executableCheck (a driver before #252): the hash was compared with nothing');
   else if (c.result !== 'match') why.push(`herdr.executableCheck.result is \`${c.result}\` (${c.detail ?? 'no detail'})`);
+  else if (c.firstParty !== true) why.push(`the executable matches the locally observed value PINS.md records for \`${c.platform}\` (first-party source UNVERIFIED; \`herdr.executableCheck.firstParty\` ${JSON.stringify(c.firstParty ?? null)})`);
   const hash = /^[0-9a-f]{64}$/.test(x?.sha256 ?? '') ? `\`${x.sha256}\`` : 'none recorded';
   if (why.length) return { verified: false, text: `UNVERIFIED — ${why.join('; ')}. Executable sha256: ${hash}.` };
   return {
     verified: true,
-    text: `VERIFIED — \`herdr --version\` \`${h.observedVersionOutput}\` equals the PINS.md pin (\`herdr.observedVersionOutput\`, \`herdr.expectedVersionOutput\`); executable \`${x.basename ?? '?'}\` (${x.format}, not the test double) sha256 ${hash} equals PINS.md's expected sha256 for \`${c.platform}\` (\`herdr.executable.sha256\`, \`herdr.executableCheck\`; basis: ${c.basis ?? 'not recorded'}); unchanged at teardown: ${x.unchangedAfterRun ?? 'not recorded'} (\`herdr.executable.unchangedAfterRun\`).`,
+    text: `VERIFIED — \`herdr --version\` \`${h.observedVersionOutput}\` equals the PINS.md pin (\`herdr.observedVersionOutput\`, \`herdr.expectedVersionOutput\`); executable \`${x.basename ?? '?'}\` (${x.format}, not the test double) sha256 ${hash} equals PINS.md's first-party expected sha256 for \`${c.platform}\` (\`herdr.executable.sha256\`, \`herdr.executableCheck\`; basis: ${c.basis ?? 'not recorded'}); unchanged at teardown: ${x.unchangedAfterRun ?? 'not recorded'} (\`herdr.executable.unchangedAfterRun\`).`,
   };
+}
+
+// The herdr line for a record built from several runs (L3: one run per phase): VERIFIED only
+// when every run's herdr is, each phase cited. -> { verified, text }.
+export function herdrVerificationAll(runs) {
+  const each = runs.map(({ label, manifest }) => ({ label, ...herdrVerification(manifest) }));
+  if (!each.length) return { verified: false, text: 'UNVERIFIED — no run manifest.' };
+  const verified = each.every((e) => e.verified);
+  return { verified, text: `${verified ? 'VERIFIED' : 'UNVERIFIED'} — ${each.map((e) => `${e.label}: ${e.text}`).join(' ')}` };
 }
 
 // The harness line. `verified` is the report's own versionsVerified(): every source it
@@ -153,8 +163,7 @@ export function harnessVerification(manifest, { verified, versions }) {
 
 // The verification block. `humanActions`: the steps a person did that the agent could not,
 // each naming who (a `<TO FILL: ...>` slot where only the person can say).
-export function verification({ manifest, harness, dialogs, dialogsField, humanActions, heading = '## Verification', extra = [] }) {
-  const herdr = herdrVerification(manifest);
+export function verification({ manifest, harness, dialogs, dialogsField, humanActions, heading = '## Verification', extra = [], herdr = herdrVerification(manifest) }) {
   return [
     heading,
     '',

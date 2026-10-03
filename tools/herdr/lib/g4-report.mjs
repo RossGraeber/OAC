@@ -261,7 +261,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('');
   out.push(...verification({
     manifest,
-    harness: harnessVerification(manifest, { verified: versionsVerified(g4), versions: `Claude Code: CLI \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; Codex: CLI \`${v.cliOutput?.codex ?? '?'}\`, wire MCP user-agent \`${v.wire?.codex ?? '?'}\` (\`scenarioData.g4.versions\`; post-run \`scenarioData.g4.postRun\`)` }),
+    harness: harnessVerification(manifest, { verified: versionsVerified(g4), versions: `Claude Code: CLI \`${v.cliOutput?.claude ?? '?'}\` (\`scenarioData.g4.versions.cliOutput.claude\`), wire clientInfo \`${v.wire?.claude ?? '?'}\` (\`scenarioData.g4.versions.wire.claude\`); Codex: CLI \`${v.cliOutput?.codex ?? '?'}\` (\`scenarioData.g4.versions.cliOutput.codex\`), wire MCP user-agent \`${v.wire?.codex ?? '?'}\` (\`scenarioData.g4.versions.wire.codex\`); post-run match \`${g4.postRun?.matches ?? 'not recorded'}\` (\`scenarioData.g4.postRun.matches\`)` }),
     dialogs: g4.dialogs,
     dialogsField: 'scenarioData.g4.dialogs',
     humanActions: noConsentCriterionLine('G4'),

@@ -80,17 +80,27 @@ spawned and the sha256 of every capture it wrote, and the script uses both. It r
 `-herdr` fixture whose run used the node-run test-double herdr or a herdr that is not a
 hashed native binary, and one whose committed bytes (the git index blob) do not hash to
 the capture's recorded `sha256`. Since #252 (2026-10-03) the driver also compares that
-herdr hash with PINS.md's expected one for its platform (`herdr.executableCheck`), and the
-script refuses a fixture from a run where they did not match. For an equivalence record it
-requires the herdr sha256 the record states to equal the one the run manifest recorded,
-and for a verified record a recorded `match`. A `schemaVersion` 1 run manifest predates
+herdr hash with PINS.md's expected one for its platform (`herdr.executableCheck`, run
+manifest `schemaVersion` 3). The script refuses a fixture from a run where they did not
+match, or from a `schemaVersion` 3 manifest with no check. It ties every claiming
+record to a committed, parseable run manifest: an equivalence record its own, and a
+`G<n>-result.md` whose Driver names herdr the one beside the `herdr-runs/` record its
+Driver line names. A verified record needs, in that manifest:
+- a first-party `match`;
+- an expected value equal to PINS.md's committed row for the platform, and to the row at
+  the run's driver commit when that commit is present;
+- the herdr sha256 the record states.
+
+A `schemaVersion` 1 run manifest predates
 #140: its fixtures print a WARN line, as `G1-2026-09-29`'s do, because nothing binds them
 mechanically. The script still cannot tell a real, logged-in harness from a test double
 (the manifest records `harnessExecutables`, it does not judge them), nor who pressed a
 key. The record states those from the evidence, or as UNVERIFIED, and names any human
 action and who did it (`oac-gates` `references/scripted-runs.md` "Verification"). The
 script checks that the verification section is present and complete wherever one is
-required (an operator attestation from before #252 is accepted as history).
+required. An operator attestation from before #252 is accepted as history only on a
+pre-#252 run manifest, from a record dated no later than 2026-10-03, and with the
+`> **Pre-#252 attestation (history).**` callout.
 `node scripts/check-fixture-manifest.mjs --self-test` plants one violation per rule.
 
 ## Gate-result template
@@ -279,8 +289,15 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   evaluable`) and refuses every other dialog. Each driver accept is recorded as the
   driver's. A verdict-bearing scripted `G<n>-result.md` carries the same section. The
   definition is in `references/scripted-runs.md` "Verification" and "Verdict
-  eligibility". `herdr-runs/G1-2026-09-29.md` is the one equivalence record on record; it
-  and `G5-result.md` carry the `## Operator attestation` of their time, kept as history.
+  eligibility". *Dated note, 2026-10-03 (#252):* no current equivalence record exists.
+  `herdr-runs/G1-2026-09-29.md` carries the callout, but it is not a current equivalence
+  record: its schemaVersion 1 run manifest records no herdr hash, so its herdr identity is
+  UNVERIFIED. It stays on record with a `> **Pre-#252 attestation (history).**` callout
+  until a G1 run under the #252 driver re-establishes equivalence. G1's verdict rests on
+  the human-run Box C and is unaffected. That record and `G5-result.md` keep the
+  `## Operator attestation` of their time as history. `node
+  scripts/check-fixture-manifest.mjs` accepts such a section only with that callout, on a
+  pre-#252 run manifest, from a record dated no later than 2026-10-03.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers
@@ -305,7 +322,7 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   directory. Committing one of its runs follows the same record, fixture and verification
   rules as any other scripted run.
 - **Status.** *Dated note, 2026-10-03 (#252):* scripted runs have run live, and
-  `herdr-runs/` holds them: `G1-2026-09-29` (an equivalence record), `G5-2026-10-02` (the
+  `herdr-runs/` holds them: `G1-2026-09-29` (marked as an equivalence record, not a current one under #252), `G5-2026-10-02` (the
   K8 run) and `G5-c13-2026-10-02` (the E1 run that carries G5's Codex verdict). Each has
   its run manifest beside it. All three carry pre-#252 operator attestations, kept as
   history. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED

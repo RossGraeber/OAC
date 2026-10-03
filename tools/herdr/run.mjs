@@ -43,7 +43,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
-import { readCommittedHerdrPin, versionMatches, checkHerdrExecutable, PIN_ROW } from './lib/pins.mjs';
+import { readCommittedHerdrPin, versionMatches, checkHerdrExecutable, herdrCheckDecision, PIN_ROW } from './lib/pins.mjs';
 import { HerdrSession, NotRunError, DriverError, makeSessionName } from './lib/herdr.mjs';
 import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
@@ -370,9 +370,9 @@ async function runScenarioInner(opts, state) {
     // different or unhashable native herdr is NOT RUN, like a version off the pin; no
     // expected value for this platform is a finding, and the record states herdr UNVERIFIED.
     manifest.herdr.executableCheck = checkHerdrExecutable(manifest.herdr.executable, expectedExecutables);
-    const xc = manifest.herdr.executableCheck;
-    if (xc.result === 'mismatch' || xc.result === 'unhashed') throw new NotRunError(`${xc.detail}. Refusing to run (#252).`);
-    if (xc.result === 'no-expected-value') manifest.findings.push(`herdr identity UNVERIFIED (#252): ${xc.detail}; the executable was hashed (herdr.executable.sha256) but compared with nothing`);
+    const xd = herdrCheckDecision(manifest.herdr.executableCheck);
+    if (xd.notRun) throw new NotRunError(xd.notRun);
+    if (xd.finding) manifest.findings.push(xd.finding);
     let observed;
     try {
       observed = await herdr.version();

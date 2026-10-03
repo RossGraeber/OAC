@@ -751,17 +751,27 @@ semver, and are recorded verbatim — never reformatted.
   (`process.platform`-`process.arch`) before it spawns herdr (`tools/herdr/lib/pins.mjs`
   `checkHerdrExecutable`, run manifest `herdr.executableCheck`). A different hash is
   `NOT RUN`. A platform with no row is a finding, and the run's herdr identity is UNVERIFIED.
+  A match counts as VERIFIED only on a row whose `First-party` cell is `yes`. A match on a
+  `no` row shows only that the binary is the locally observed one, so the record states
+  herdr UNVERIFIED (first-party source UNVERIFIED).
   The table is read from HEAD, like the tag. A pin move updates it in the same change.
-  Asset digests: the GitHub release API `digest` field for tag `v0.9.1`
-  (`gh api repos/herdrdev/herdr/releases/tags/v0.9.1`), retrieved 2026-10-03.
+  Sources, all retrieved 2026-10-03:
+  - Asset digests: the GitHub release API `digest` field for tag `v0.9.1`
+    (`gh api repos/herdrdev/herdr/releases/tags/v0.9.1`).
+  - Provenance attestations: `gh api repos/herdrdev/herdr/attestations/sha256:<digest>`
+    returns one attestation for each of the five asset digests. That an attestation exists
+    was checked; its signature was not verified.
+  - Windows: `gh attestation verify <installed herdr.exe> --repo herdrdev/herdr` failed with
+    `HTTP 404: Not Found` for `sha256:007781…9b6`. The release attests the zip, not the
+    `herdr.exe` inside it. No binary was downloaded.
 
-| Platform | Release asset | Asset digest (sha256) | Expected executable sha256 | Basis |
-|---|---|---|---|---|
-| `win32-x64` | `herdr-windows-x86_64.zip` | `04ce380cac5af27bfcf75d0951ac49b7afe4c984aee8852985806d4f71f93a6e` | `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` | Taken from the installed binary, not from a first-party source. It is the sha256 of `herdr.exe` (25562624 bytes) in the standalone package `0.9.1-x86_64-pc-windows-msvc` installed on the operator's Windows machine, hashed 2026-10-03. It matches the hash the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`) and the live smoke run of 2026-10-03. A first-party source is UNVERIFIED: the release zip was not downloaded, extracted or hashed, and its release attestation was not checked. |
-| `linux-x64` | `herdr-linux-x86_64` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | The asset name has no archive extension, so it is taken to be the bare executable and its digest the expected hash. UNVERIFIED until a run hashes an installed herdr on this platform: a mismatch then is `NOT RUN` and a finding to look into. |
-| `linux-arm64` | `herdr-linux-aarch64` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | As `linux-x64`. |
-| `darwin-x64` | `herdr-macos-x86_64` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | As `linux-x64`. |
-| `darwin-arm64` | `herdr-macos-aarch64` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | As `linux-x64`. |
+| Platform | Release asset | Asset digest (sha256) | Expected executable sha256 | First-party | Basis |
+|---|---|---|---|---|---|
+| `win32-x64` | `herdr-windows-x86_64.zip` | `04ce380cac5af27bfcf75d0951ac49b7afe4c984aee8852985806d4f71f93a6e` | `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` | no | Taken from the installed binary: the sha256 of `herdr.exe` (25562624 bytes) in the standalone package `0.9.1-x86_64-pc-windows-msvc` on the operator's Windows machine, hashed 2026-10-03. It equals the hash the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`). A first-party source is UNVERIFIED: `gh attestation verify` finds no attestation for this digest, and the release zip was not downloaded, extracted or hashed. |
+| `linux-x64` | `herdr-linux-x86_64` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | yes | The release's own asset digest. The asset name has no archive extension, so it is taken to be the bare executable. No run has yet hashed an installed herdr on this platform; a mismatch there is `NOT RUN` and a finding to look into. |
+| `linux-arm64` | `herdr-linux-aarch64` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | yes | As `linux-x64`. |
+| `darwin-x64` | `herdr-macos-x86_64` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | yes | As `linux-x64`. |
+| `darwin-arm64` | `herdr-macos-aarch64` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | yes | As `linux-x64`. |
 
 ### Beacon (external memory service)
 
