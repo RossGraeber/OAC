@@ -28,7 +28,8 @@ Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283`, invalida
 PASS; re-run and **PASSED again** 2026-09-28 on `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all criteria x)
-(`docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per
+(`docs/planning/gates/G5-result.md`) (dated note, 2026-10-03, #220: G5 is now **PASS**
+after its Codex-leg re-run under C13 §11), and G3 stays `NOT RUN` at gate level (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per
 `docs/planning/STATUS.md` "Current stage," the project is still at **Pre-Stage 0** — no
 E8/F8-F12/H1-H5 test exists yet. This file is the **design** these tasks build against,
 not a report of tests that pass; a gate result is not one of the test tiers this file
@@ -472,7 +473,9 @@ currently passing proving test is an explicit v0.1 gap, per §14's row content a
 `v2.1.282`, invalidated when the pin went floating 2026-09-27, re-run and PASSED again
 2026-09-28 on `v2.1.283`, see `docs/planning/gates/G1-result.md`), gate G2 `PASS` (row 17), and
 gate G5 **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (rows 5, 16, 17 — `docs/planning/gates/
-G5-result.md`). A gate result is not one of this file's test tiers, so it does not by
+G5-result.md`; dated note, 2026-10-03, #220: G5 is now **PASS** after its Codex-leg
+re-run under C13 §11, so the "G5 FAIL" citations in the table below are history, and C13
+is `RESOLVED-IN-DECISION`). A gate result is not one of this file's test tiers, so it does not by
 itself close a row; see §14 rows 5, 16, 17 (`06-security.md`) for what each gate
 actually confirmed. Rows 21-23 (L4, issue #169) cover an external memory service beside
 OAC (`docs/planning/decisions/L1-beacon-memory.md`); rows 21-22's scenario is L10, an

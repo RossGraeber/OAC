@@ -10,8 +10,9 @@
 // docs/next/website/src/content/docs/cli-reference.mdx), cited in
 // docs/planning/decisions/K1-herdr-evaluation.md §5.
 
-import { openSync, closeSync } from 'node:fs';
-import { runBounded, spawnLongRunning, killTree, killPid, isAlive, within, sleep, processTable, treeFrom, carriesSession, protectedReason } from './proc.mjs';
+import { openSync, closeSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { runBounded, spawnLongRunning, killTree, killPid, isAlive, within, sleep, processTable, treeFrom, carriesSession, protectedReason, commandLineProblem } from './proc.mjs';
 
 const IS_WIN = process.platform === 'win32';
 // The OS operations teardown needs; the self-test substitutes fakes (#136).
@@ -104,8 +105,12 @@ export class HerdrSession {
   // herdrCmd: [file, ...prefixArgs] -- normally ['herdr'].
   // timebox: { remainingMs(): number } ; commands: array the manifest records into.
   // procOps: the OS process operations teardown uses (#136); the self-test passes fakes.
-  constructor({ herdrCmd, sessionName, env, cwd, timebox, commands, abortSignal, graceMs = 5000, defaultDeadlineMs = 15000, procOps = PROC_OPS }) {
+  // fallbackCwd: where teardown commands run when cwd (the run's scratch directory) no longer
+  // exists (#239): herdr cannot even be spawned in a missing directory.
+  constructor({ herdrCmd, sessionName, env, cwd, timebox, commands, abortSignal, graceMs = 5000, defaultDeadlineMs = 15000, procOps = PROC_OPS, fallbackCwd = tmpdir() }) {
     this.proc = procOps;
+    this.fallbackCwd = fallbackCwd;
+    this.teardownCwdFallback = false;
     this.herdrCmd = herdrCmd;
     this.name = sessionName;
     this.env = env;
@@ -186,10 +191,18 @@ export class HerdrSession {
 
     const full = session ? ['--session', this.name, ...argv] : argv;
     const [file, ...prefix] = this.herdrCmd;
+    // #239: teardown must stop what the run started even if the scratch directory (herdr's
+    // working directory) was removed under the run; every spawn there fails ENOENT.
+    let cwd = this.cwd;
+    const cwdFallback = teardown && typeof cwd === 'string' && !existsSync(cwd);
+    if (cwdFallback) {
+      cwd = this.fallbackCwd;
+      this.teardownCwdFallback = true;
+    }
     const res = await runBounded(file, [...prefix, ...full], {
       deadlineMs: bound.driverDeadlineMs,
       env: this.env,
-      cwd: this.cwd,
+      cwd,
       abortSignal: teardown ? undefined : this.abortSignal,
     });
 
@@ -213,6 +226,7 @@ export class HerdrSession {
       killedByDriver: res.killedByDriver,
       killUnconfirmed: res.killUnconfirmed,
       spawnError: res.spawnError,
+      ...(cwdFallback ? { cwdFallback: 'working directory gone at teardown; ran in os.tmpdir()' } : {}),
       stdoutBytes: Buffer.byteLength(res.stdout),
       stderrBytes: Buffer.byteLength(res.stderr),
     };
@@ -224,7 +238,12 @@ export class HerdrSession {
     if (guardKey) this.lastRoleByTarget.delete(guardKey);
     else if (input || INPUT_ROLES.has(role)) this.lastRoleByTarget.clear();
 
-    if (res.spawnError) throw new DriverError(`could not start herdr (${res.spawnError})`);
+    if (res.spawnError) {
+      // #239: a teardown step that cannot start herdr is recorded, never thrown: the steps
+      // after it (the server kill, the pane-process accounting) must still run.
+      if (teardown) return { ...res, errorCode, entry, json: null };
+      throw new DriverError(`could not start herdr (${res.spawnError})`);
+    }
     if (aborted) {
       this.inputHalted ??= this.abortReason();
       throw new NotRunError(this.abortReason());
@@ -284,7 +303,7 @@ export class HerdrSession {
   // Ask herdr which processes a pane runs and track them (no tree walk).
   async queryPane(paneId, { teardown = false } = {}) {
     const r = await this.exec('read', ['pane', 'process-info', '--pane', paneId], { target: paneId, json: true, teardown, deadlineMs: teardown ? 10000 : null });
-    if (r.exitCode !== 0 || !r.json) return { ok: false, why: r.entry?.timedOut ? 'timed out' : `exit ${r.exitCode}${r.errorCode ? ` ${r.errorCode}` : ''}` };
+    if (r.exitCode !== 0 || !r.json) return { ok: false, why: r.spawnError ? `herdr not started (${r.spawnError})` : r.entry?.timedOut ? 'timed out' : `exit ${r.exitCode}${r.errorCode ? ` ${r.errorCode}` : ''}` };
     const info = r.json?.result?.process_info ?? {};
     const pids = [info.shell_pid, ...(info.foreground_processes ?? []).map((p) => p?.pid)].filter((p) => Number.isInteger(p));
     return { ok: true, info, pids };
@@ -351,9 +370,14 @@ export class HerdrSession {
   // (that pid only, never its tree) only when ALL hold:
   //   - its creation time still matches the recorded one (not a reused pid),
   //   - it was created no earlier than this driver process (nothing older is the run's),
+  //   - its command line was read and splits (#244/#249: commandLineProblem; an unsplittable
+  //     one, or one that could not be read, is unverified),
   //   - it is not a protected process (protectedReason: the Codex app-server daemon).
   // Anything that cannot be verified (no table, no recorded identity) is never killed; if it
   // is still alive it is reported in leftoverProcesses and the teardown is not clean.
+  // #239: no step throws. A herdr call that cannot even be started is recorded and teardown
+  // goes on (the server kill and the process checks still run), and if the scratch directory
+  // was removed under the run, teardown's herdr calls run in os.tmpdir() (t.cwdFallback).
   async teardown() {
     const t = {
       sessionStop: null,
@@ -387,7 +411,7 @@ export class HerdrSession {
     this.trackPaneTrees(before);
 
     const stop = await this.exec('lifecycle', ['session', 'stop', this.name, '--json'], { session: false, teardown: true, deadlineMs: 25000 });
-    t.sessionStop = stop.exitCode === 0 ? 'ok' : `exit ${stop.exitCode}${stop.errorCode ? ` ${stop.errorCode}` : ''}${stop.entry.timedOut ? ' (timed out)' : ''}`;
+    t.sessionStop = stop.exitCode === 0 ? 'ok' : stop.spawnError ? `herdr not started (${stop.spawnError})` : `exit ${stop.exitCode}${stop.errorCode ? ` ${stop.errorCode}` : ''}${stop.entry.timedOut ? ' (timed out)' : ''}`;
 
     const serverPid = this.server?.child.pid;
     if (this.server) {
@@ -427,6 +451,11 @@ export class HerdrSession {
         t.skippedPreexistingPids.push({ pid, why: 'created before this driver process' });
         return;
       }
+      // #244: a command line that cannot be split, or (#249) one that could not be read
+      // (Win32_Process.CommandLine null, /proc/<pid>/cmdline unreadable), cannot be shown not
+      // to be the app-server.
+      const clProblem = commandLineProblem(now);
+      if (clProblem) return unverified(pid, clProblem);
       const prot = protectedReason(now);
       if (prot) {
         t.protectedProcesses.push({ pid, why: prot });
@@ -447,7 +476,11 @@ export class HerdrSession {
     for (const pid of new Set([serverPid, ...stray, ...unverifiedAlive])) if (pid && this.proc.isAlive(pid)) t.leftoverProcesses.push(pid);
 
     const del = await this.exec('lifecycle', ['session', 'delete', this.name, '--json'], { session: false, teardown: true, deadlineMs: 15000 });
-    t.sessionDelete = del.exitCode === 0 ? 'ok' : `exit ${del.exitCode}${del.errorCode ? ` ${del.errorCode}` : ''}`;
+    t.sessionDelete = del.exitCode === 0 ? 'ok' : del.spawnError ? `herdr not started (${del.spawnError})` : `exit ${del.exitCode}${del.errorCode ? ` ${del.errorCode}` : ''}`;
+    // #239: the scratch directory was gone by teardown (removed under the run), so teardown's
+    // herdr calls ran in os.tmpdir() instead. Recorded; it does not by itself make teardown
+    // unclean -- what teardown stopped and verified decides that.
+    if (this.teardownCwdFallback) t.cwdFallback = 'the scratch directory (herdr\'s working directory) was gone at teardown; teardown\'s herdr commands ran in os.tmpdir()';
     t.clean = t.sessionStop === 'ok' && t.serverExited !== false && t.forcedKills.length === 0 && t.leftoverProcesses.length === 0 && t.sessionDelete === 'ok';
     return t;
   }
@@ -474,11 +507,18 @@ export class HerdrSession {
   }
 
   async paneProcessInfo(paneId) {
+    return (await this.paneProcessSnapshot(paneId)).info;
+  }
+
+  // herdr's answer for a pane and the ONE process-table snapshot the driver took for it
+  // (#244, PR #242 review note D): a scenario that reads the pane's argv uses this `table`
+  // rather than taking a second one (each is ~1-2 s, one WMI query, on Windows).
+  async paneProcessSnapshot(paneId) {
     const q = await this.queryPane(paneId);
     const table = this.proc.table();
     for (const pid of q.pids ?? []) this.trackPid(pid, table, 'pane process (herdr pane process-info)');
     this.trackPaneTrees(table);
-    return q.info ?? {};
+    return { info: q.info ?? {}, table };
   }
 
   // --- panes -------------------------------------------------------------------------

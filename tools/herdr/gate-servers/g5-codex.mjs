@@ -24,9 +24,17 @@
 //   node g5-codex.mjs x4 <threadId>               X4: a setup turn/start, then, ~3 s later
 //                                                 while it runs, thread/queue/add
 //   node g5-codex.mjs turns <threadId>            thread/turns/list (itemsView full)
+//   node g5-codex.mjs c13 <threadId> <delivery>   one C13 §11 delivery (g5-cases.json "c13"):
+//                                                 framed per its arm (0: the original C6 §5
+//                                                 frame; F: Option A; C: Option A plus the
+//                                                 turn/start anchor), then turn/start, or a
+//                                                 setup turn/start and thread/queue/add as x4.
+//                                                 A header that fails whole-value validation
+//                                                 is REFUSED: logged, nothing sent, no
+//                                                 connection opened, `[refused] <id>`, exit 0.
 // Case bodies come only from g5-cases.json beside this file; nothing on the command line can
 // carry one. The delimiter X1 was delivered with is kept in delivered.json beside this file,
-// so X3 can replay it.
+// so X3 can replay it (in C13, the X1 of the same arm).
 //
 // Credentials: none. It never reads anything under the Codex home directory; the daemon serves
 // every model turn from its own sign-in. It never answers a server->client request (the TUI
@@ -84,6 +92,128 @@ export function frameCase(c, delivered, draw = () => crockford128()) {
   let D = draw();
   while (collides(body, D)) D = draw();
   return { D, text: buildFrame(D, c.header, body) };
+}
+
+// --- C13 Option C framing (C6-trust-rendering.md §5.0, normative; C13 §4, §5 A and C, §8) ------------
+//
+// Arm 0 of the C13 §11 re-run keeps the original frame above (buildFrame, header values
+// unmodified) as the control. Arms F and C use the functions below:
+//   1. validateHeader: every provenance value must match [A-Za-z0-9._:-]{1,128} as a WHOLE
+//      value (oac_reply_to may be empty); on any mismatch the delivery is REFUSED, never
+//      escaped or truncated, and nothing is sent.
+//   2. normalizeBody: the closed line-break list becomes \n; every other Cc character except
+//      tab and LF, and the bidi controls, become a visible \u{XXXX}.
+//   3. quoteBody: every body line is prefixed with "| " (an empty line becomes "|"), and the
+//      body fence states that rule.
+//   4. buildAnchor (arm C, turn/start only): additionalContext.oac_provenance, kind
+//      "application", with the five validated fields, oac_frame and the constant oac_scope line.
+//      The anchor is never load-bearing: arm F runs the same frame without it.
+
+// Whole-value match. In JavaScript, `^` and `$` without the `m` flag anchor at the start and
+// end of the whole input (`$` does NOT also match before a trailing newline, unlike Python's
+// `re`), so this is a full match, not a line-anchored one. X5c (a value whose only defect is a
+// trailing "\n") is the regression case for exactly that; test/g5-tests.mjs checks it.
+const ID_WHOLE_VALUE = /^[A-Za-z0-9._:-]{1,128}$/;
+export const idValueOk = (v, { allowEmpty = false } = {}) => typeof v === 'string' && ((allowEmpty && v === '') || ID_WHOLE_VALUE.test(v));
+
+// -> { ok, failures: [{ field, value }] } over all five header fields.
+export function validateHeader(header) {
+  const failures = HEADER_FIELDS.filter((k) => !idValueOk(header?.[k], { allowEmpty: k === 'oac_reply_to' })).map((field) => ({ field, value: header?.[field] ?? null }));
+  return { ok: failures.length === 0, failures };
+}
+
+// The UAX #14 mandatory breaks other than LF: CR LF, CR, VT, FF, NEL, LS, PS (closed list).
+export const LINE_BREAK_CLASSES = Object.freeze({ CR: '\r', CRLF: '\r\n', VT: '\u000b', FF: '\u000c', NEL: '\u0085', LS: '\u2028', PS: '\u2029' });
+const BREAKS = /\r\n|[\r\u000b\u000c\u0085\u2028\u2029]/g;
+// Every other Cc (C0 except tab and LF, DEL, C1) and the bidi controls U+202A-U+202E, U+2066-U+2069.
+const ESCAPED = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
+export const escapeCodePoint = (ch) => `\\u{${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}}`;
+export const normalizeBody = (body) => String(body).replace(BREAKS, '\n').replace(ESCAPED, escapeCodePoint);
+export const quoteBody = (body) => body.split('\n').map((l) => (l === '' ? '|' : `| ${l}`)).join('\n');
+
+export const BODY_RULE = 'untrusted message; every line starts with "| "';
+export const quotedBodyFence = (D) => `--- oac-body ${D} (${BODY_RULE}) ---`;
+
+// Option A frame: the validated header, then the normalized, line-quoted body.
+export function buildQuotedFrame(D, header, body) {
+  return [`--- oac-envelope ${D} ---`, ...HEADER_FIELDS.map((k) => `${k}: ${header[k]}`), quotedBodyFence(D), quoteBody(normalizeBody(body)), `--- oac-end ${D} ---`].join('\n');
+}
+
+export const ANCHOR_KEY = 'oac_provenance';
+export const OAC_SCOPE = 'describes only the oac-envelope whose delimiter is oac_frame; earlier oac_provenance blocks describe earlier messages';
+// Option C anchor: turn/start.additionalContext (experimental: #[experimental("turn/start.additionalContext")],
+// cited in C6-trust-rendering.md §5.0 step 4 and C13 §3 S2).
+export function buildAnchor(D, header) {
+  return { [ANCHOR_KEY]: { kind: 'application', value: [...HEADER_FIELDS.map((k) => `${k}: ${header[k]}`), `oac_frame: ${D}`, `oac_scope: ${OAC_SCOPE}`].join('\n') } };
+}
+
+// Parse an Option A frame back, for the report and the tests. -> structure facts.
+const RAW_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u2028\u2029]/;
+export function quotedFrameStructure(text, D) {
+  const lines = String(text ?? '').split('\n');
+  const open = `--- oac-envelope ${D} ---`;
+  const fence = quotedBodyFence(D);
+  const end = `--- oac-end ${D} ---`;
+  const fenceAt = lines.indexOf(fence);
+  const headerLines = fenceAt > 0 ? lines.slice(1, fenceAt) : null;
+  const bodyLines = fenceAt > 0 ? lines.slice(fenceAt + 1, -1) : null;
+  const senders = (headerLines ?? []).filter((l) => /^oac_sender: /.test(l)).map((l) => l.slice('oac_sender: '.length));
+  const headerExact = !!headerLines && headerLines.length === HEADER_FIELDS.length && headerLines.every((l, i) => l.startsWith(`${HEADER_FIELDS[i]}: `));
+  const unquoted = (bodyLines ?? []).filter((l) => !(l === '|' || l.startsWith('| ')));
+  const rawControls = (bodyLines ?? []).some((l) => RAW_CONTROL.test(l));
+  const frameLines = lines.filter((l) => l === fence || l === open || l === end).length;
+  const wellFormed = lines[0] === open && fenceAt > 0 && lines.at(-1) === end && frameLines === 3 && headerExact && unquoted.length === 0 && !rawControls;
+  return { wellFormed, headerExact, headerLines, headerSenderLines: headerLines ? senders.length : null, headerSender: senders[0] ?? null, bodyLines, unquotedBodyLines: unquoted, rawControls };
+}
+
+// --- C13 deliveries (g5-cases.json "c13") -------------------------------------------------------------
+
+export const messageIdFor = (id) => `g5-${String(id).toLowerCase().replace(/\./g, '-')}`;
+
+// Resolve one C13 delivery id against the case table -> everything the client needs to send it.
+export function resolveC13(table, id) {
+  const c13 = table?.c13;
+  if (!c13) throw new Error('the case table has no c13 section');
+  const armKey = Object.keys(c13.arms).find((a) => c13.arms[a].deliveries.some((d) => d.id === id));
+  if (!armKey) throw new Error(`unknown C13 delivery ${JSON.stringify(id)}`);
+  const arm = c13.arms[armKey];
+  const entry = arm.deliveries.find((d) => d.id === id);
+  const t = c13.templates[entry.template];
+  if (!t) throw new Error(`C13 delivery ${id} names an unknown template ${entry.template}`);
+  const ident = (name = 'mallory') => {
+    const i = c13.identities?.[name] ?? table.identities?.[name];
+    if (!i) throw new Error(`C13 delivery ${id} names an unknown identity ${name}`);
+    return i;
+  };
+  const header = (name, mid, replyTo = '') => ({ oac_sender: ident(name).oac_sender, oac_device: ident(name).oac_device, oac_session: c13.session, oac_message_id: mid, oac_reply_to: replyTo });
+  const mid = messageIdFor(id);
+  const call = t.call ?? 'turn/start';
+  let setup = null;
+  if (t.setup) setup = typeof t.setup.text === 'string' ? { text: t.setup.text } : { header: header(t.setup.identity, `${mid}-setup`), body: t.setup.body };
+  return { id, arm: armKey, framing: arm.framing, template: entry.template, ask: entry.ask !== false, call, header: header(t.identity, mid, t.replyTo ?? ''), body: t.body, setup, replayOf: `${armKey}.X1` };
+}
+
+// -> { refused: [{ field, value }] } or { D, text, additionalContext } for one C13 delivery.
+// `d` is resolveC13's result (or its setup, with header/body/call/framing).
+export function frameC13(d, delivered, draw = () => crockford128()) {
+  let body = String(d.body);
+  if (body.includes('{{X1_DELIMITER}}')) {
+    const x1 = delivered?.[d.replayOf];
+    if (!x1) throw new Error(`${d.id} replays ${d.replayOf}'s delimiter, but ${d.replayOf} has not been delivered by this client`);
+    body = body.split('{{X1_DELIMITER}}').join(x1);
+  }
+  if (d.framing === 'c6') {
+    let D = draw();
+    while (collides(body, D)) D = draw();
+    return { D, text: buildFrame(D, d.header, body), additionalContext: null };
+  }
+  if (!['option-a', 'option-c'].includes(d.framing)) throw new Error(`unknown framing ${JSON.stringify(d.framing)}`);
+  const v = validateHeader(d.header);
+  if (!v.ok) return { refused: v.failures };
+  let D = draw();
+  while (collides(body, D)) D = draw();
+  const additionalContext = d.framing === 'option-c' && d.call === 'turn/start' ? buildAnchor(D, d.header) : null;
+  return { D, text: buildQuotedFrame(D, d.header, body), additionalContext };
 }
 
 // --- transport (as the committed G2 client) -------------------------------------------------------
@@ -229,6 +359,33 @@ async function main() {
       append({ spike: 'delivery', case: c.id, D: f.D, text: f.text });
       writeFileSync(DELIVERED, JSON.stringify({ ...delivered, [c.id]: f.D }));
     }
+  } else if (mode === 'c13') {
+    let d;
+    let f;
+    let setup = null;
+    try {
+      d = resolveC13(table, caseId);
+      if (d.setup?.header) {
+        // Arm C's X4-after-anchor: the setup is itself a framed (and, on arm C, anchored) delivery.
+        setup = frameC13({ ...d, id: `${d.id} setup`, header: d.setup.header, body: d.setup.body, call: 'turn/start' }, delivered);
+        if (setup.refused) throw new Error(`the setup delivery of ${d.id} failed header validation`);
+      }
+      f = frameC13(d, delivered);
+    } catch (err) {
+      console.error(err.message);
+      process.exit(2);
+    }
+    if (f.refused) {
+      // C6 §5.0 step 1: refused, never escaped or truncated; nothing is sent to Codex.
+      append({ spike: 'refused', case: d.id, arm: d.arm, framing: d.framing, call: d.call, failures: f.refused });
+      console.log(`[refused] ${d.id}`);
+      return;
+    }
+    plan = { c13: d, setup, ...f };
+    if (setup) append({ spike: 'setup-turn', case: d.id, arm: d.arm, framing: d.framing, D: setup.D, text: setup.text, additionalContext: setup.additionalContext });
+    else if (d.setup) append({ spike: 'setup-turn', case: d.id, arm: d.arm, text: d.setup.text });
+    append({ spike: 'delivery', case: d.id, arm: d.arm, framing: d.framing, call: d.call, D: f.D, text: f.text, additionalContext: f.additionalContext });
+    writeFileSync(DELIVERED, JSON.stringify({ ...delivered, [d.id]: f.D }));
   } else {
     console.error(`unknown mode ${mode}`);
     process.exit(2);
@@ -255,6 +412,28 @@ async function main() {
     return ws.close(r.error ? 1 : 0);
   }
   const input = (text) => [{ type: 'text', text }];
+  if (mode === 'c13') {
+    const d = plan.c13;
+    if (d.call === 'thread/queue/add') {
+      const setupText = plan.setup ? plan.setup.text : d.setup.text;
+      const sp = { threadId, input: input(setupText) };
+      if (plan.setup?.additionalContext) sp.additionalContext = plan.setup.additionalContext;
+      const t = await ws.request('turn/start', sp);
+      if (t.error) {
+        console.log('[error] turn/start');
+        return ws.close(1);
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+      const q = await ws.request('thread/queue/add', { threadId, clientUserMessageId: randomUUID(), input: input(plan.text) });
+      console.log(q.error ? '[error] thread/queue/add' : `[done] c13 ${d.id}`);
+      return ws.close(q.error ? 1 : 0);
+    }
+    const p = { threadId, input: input(plan.text) };
+    if (plan.additionalContext) p.additionalContext = plan.additionalContext;
+    const r = await ws.request('turn/start', p);
+    console.log(r.error ? '[error] turn/start' : `[done] c13 ${d.id}`);
+    return ws.close(r.error ? 1 : 0);
+  }
   if (mode === 'x4') {
     append({ spike: 'setup-turn', case: 'X4', text: plan.c.setupText });
     const t = await ws.request('turn/start', { threadId, input: input(plan.c.setupText) });

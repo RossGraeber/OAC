@@ -40,7 +40,8 @@ verdict was `NOT RUN` and the project was at Pre-Stage 0. Per the current
 `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code (Channels)
 pin went floating 2026-09-27, last observed `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
-criteria 2/3 f; Claude all criteria x), and G3 stays `NOT RUN` at gate level
+criteria 2/3 f; Claude all criteria x) (dated note, 2026-10-03, #220: G5 is now **PASS**
+after its Codex-leg re-run under C13 §11 — see `docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level
 (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md` "Current stage," the
 project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
 exited. This file is not re-authored per gate result; only this caveat's own currency is
@@ -251,7 +252,9 @@ against the evidence as it stands on that date. Each criterion:
    #228.** C1-C4 and C6-C10 are resolved (`RESOLVED-HERE`, `RESOLVED-BY-DECISION`,
    `RESOLVED-BY-EVIDENCE` or `RESOLVED-IN-DECISION`; `docs/planning/ADR-001-AMENDMENTS.md`
    conflict register). C12 is `RESOLVED-HERE`: #228 applied ADR-001-A1 to
-   `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open. C11 is
+   `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open (dated note,
+   2026-10-03, #220: C13 is now `RESOLVED-IN-DECISION`, after G5's Codex-leg re-run
+   passed). C11 is
    `ASSIGNED`; its module name is owned by the Epic F/G adapter implementation (#6, #7,
    both open; `docs/planning/decisions/C4-session-identity.md` §16). C5 is `ASSIGNED`.
    The tasks it named before (D4, C2, C3) are closed, so #228 names live owners, with a
@@ -358,16 +361,18 @@ Pass, fail, and fallback text for each is `docs/planning/v0.1/02-gating-findings
 - **G3 or G4 `FAIL` → take the named fallback and proceed**, recording
   `PASS (FALLBACK TAKEN)`. Neither stops v0.1 on its own.
 
-**Current verdict (2026-10-02, #40, D7): Gate S1 is met. Go: Stage 1 exits and Stage 2
+**Current verdict (2026-10-03, #40, D7): Gate S1 is met. Go: Stage 1 exits and Stage 2
 opens.** The exit decision, with evidence per criterion, is
 `docs/planning/decisions/D7-stage1-exit.md`. Each gate's result file stays authoritative
 for its verdict.
 
 - G1, G2, G3 and G4 are **PASS**, each on its primary path.
-- G5 is <pending #231 merge: G5 Codex verdict>. Claude PASSED on 2026-09-27 (#220 ruling
-  3). The Codex leg was re-run under C13 §11 (E1), with Option C framing (C6 §5.0).
+- G5 is **PASS** (`docs/planning/gates/G5-result.md`, "Verdict"). The Claude leg is carried
+  from 2026-09-27. The Codex leg was re-run on 2026-10-02 under C13 §11 (route E1) with
+  Option C framing (C6 §5.0), and the verdict was written on 2026-10-03 (#220).
 - **No fallback was taken.** No verdict reads `PASS (FALLBACK TAKEN)`. C13 is the design
-  change that this section's G5 go/no-go bullet requires, not a fallback.
+  change that this section's G5 go/no-go bullet requires, not a fallback. C13's own
+  Option A fallback was not needed.
 - **The five Gate S1 criteria all hold:**
   - closed verdicts;
   - criteria evaluated individually;
@@ -376,18 +381,18 @@ for its verdict.
   - no spike code on a later-stage path. The 15 `*.throwaway-quarantined` files sit
     under `docs/planning/gates/fixtures/`, and `tools/herdr/gate-servers/` is the one
     documented exception, contained by `oac-boundaries` check 9.
-- With the G5 Codex leg passing, **C13 closes**. DESIGN acceptance criterion 6 is
-  re-established for Codex, and the block on Stage 2's interface freeze for Codex
-  provenance framing is lifted.
+- **C13 and DESIGN criterion 6.** C13 is `RESOLVED-IN-DECISION`. DESIGN acceptance
+  criterion 6 is re-established for Codex at gate level, which lifts the block on Stage
+  2's interface freeze for Codex provenance framing. The PASS covers the reconstructed
+  gate client, not OAC's own adapter. The caveats in `G5-result.md` "Consequence" and
+  "UNVERIFIED items" carry forward.
 - §6's entry criterion on G5 design changes is met. C6 §5.0 landed before any Stage 2
   work.
-- The herdr re-runs that are still open (#130, #131, #124) and the herdr tooling fixes
-  (#239, #244, #246) continue alongside Stage 2 (operator decision on #40). They cannot
-  change a verdict. #243 is done (PR #245).
-- This paragraph lands after #231's G5 verdict change. That change syncs every file
-  stating G5's verdict and regenerates `02-gating-findings.md`.
+- **Continuing alongside Stage 2** (operator decision on #40): the herdr re-runs (#130,
+  #131, #124) and the open items #246, #253, #252 and #224. None of them can change a
+  verdict.
 
-*History (pre-D7), kept unedited:* At this document's own landing, all five gates were
+*History (pre-D7), kept as history:* At this document's own landing, all five gates were
 `NOT RUN` and Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and
 `docs/planning/v0.1/02-gating-findings.md` §2: G2 and G4 are **PASS**; G1 PASSED on
 Claude Code `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code
@@ -405,7 +410,11 @@ primary multicast path, so the fallback above was not needed and no gate leg sti
 Stage 1 from exiting. See `docs/planning/gates/G3-result.md`.) (Note 2026-10-02, #228: Gate
 S0 is now declared met (§4), so Stage 1 is recorded as entered and is the current stage.
 Its exit is D7, #40. Every gate leg has a closed verdict; G5's Codex-leg re-run under C13
-(#220) is pending.)
+(#220) is pending.) (Note 2026-10-03, #220: the re-run under C13 §11 passed, route E1,
+attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. **G5 is now PASS**, so every gate G1-G5 reads `PASS`.
+C13 is `RESOLVED-IN-DECISION`, so the go/no-go condition above no longer stops the pipeline
+at Stage 2's interface freeze for Codex provenance. Stage 2 still waits on Stage 1's exit,
+D7. See `docs/planning/gates/G5-result.md`.)
 
 ---
 

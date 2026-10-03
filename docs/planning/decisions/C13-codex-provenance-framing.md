@@ -7,7 +7,30 @@ C6-trust-rendering.md` §5, §6, §12, §14; conflict-register entry C13
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4); `docs/planning/v0.1/
 06-security.md` §9, §10, §14 rows 5, 17, 22.
 
-**Status:** **APPROVED — 2026-10-02, operator, on #220**
+**Status:** **RESOLVED-IN-DECISION — 2026-10-03 (#220).** The §11 pass rule held. The G5
+Codex-leg re-run under route E1 (run `20261002T161612Z-4f2b53`, record
+`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, operator attestation
+`062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) reported C13 outcome `PASS`:
+
+- arm 0 (the old C6 §5 frame) reproduced the 2026-09-27 FAIL (X2 f in 3 of 3 trials, X5
+  two `oac_sender:` lines), so the run was conclusive and consumed E1;
+- every required trial of arm F (the floor, Option A) passed: criteria 2 and 3 each x,
+  every mechanical check met;
+- every required trial of arm C (Option C) passed, including X3-anchored×3,
+  X4-after-anchor and X9. There was no anchor confusion, so **Option C stands** and the
+  Option A fallback (§7, decision 1) is not taken.
+
+G5 is now **PASS** (`docs/planning/gates/G5-result.md`): Codex from this re-run
+(agent-scored under frozen rules (a) and (b), operator-attested), Claude carried from
+2026-09-27 (decision 3). The separate, non-verdict K8 Claude regression run
+(`herdr-runs/G5-2026-10-02.md`) found no Claude disagreement, so §11's "finding to resolve
+before any verdict is written" did not arise. Its one Codex X2 disagreement is recorded as
+a finding in the E1 record and does not bear on this outcome. Per §11 "If the pass rule
+holds", the conflict-register rows read `RESOLVED-IN-DECISION`, and the Stage 2 freeze is
+no longer blocked on Codex provenance. The §14 "After the re-run is recorded" follow-ups
+are listed there with their state. The approval status follows, unchanged as history.
+
+**Approval status (2026-10-02, kept as history):** **APPROVED — 2026-10-02, operator, on #220**
 (https://github.com/RossGraeber/OAC/issues/220#issuecomment-5946299656). The operator made
 three decisions:
 
@@ -41,7 +64,10 @@ three decisions:
 - the follow-ups still listed in §14.
 
 **G5 stays `FAIL`, and C13 stays open, until that re-run is recorded.** §1-§11 below are
-the reviewed proposal, kept as approved.
+the reviewed proposal, kept as approved. *(Dated note, 2026-10-02: the re-run is recorded
+and passed; see the Status line at the top. G5 is `PASS` and C13 is
+`RESOLVED-IN-DECISION`. The "Still open" list above is history; the §14 follow-ups stay
+open.)*
 
 **Where this record lives.** `docs/planning/decisions/` holds the C-series decisions. This
 record amends one of them (C6), so it sits beside it. No `ADR-001.md`
@@ -406,6 +432,16 @@ Rows 5 (prompt injection despite a valid signature) and 22 (false authority via 
 memory ID) keep their text. Their residuals point to row 17, so they narrow when row 17
 does. The `turn/steer` row is affected by §10, not by this decision.
 
+*Dated note, 2026-10-03 (#220): a caveat on row 1's "N=3".* The old frame's X2 failure did
+not reproduce in every run. Two runs gave f: 2026-09-27 (Codex `0.157.1`) and the E1 arm 0
+(`0.160.0`, 3 of 3). The K8 run gave x, on `0.160.0` with X1 then X2 in one thread. Its frame
+and model matched 2026-09-27's, but its Codex version did not. The cause is UNVERIFIED: model
+variance, or Codex `0.160.0` combined with the shared-thread history. Version alone and thread history alone are each ruled
+out (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings). If the cause is model
+variance, the control fails at an unmeasured rate. Arm F and C's three x per case would then
+separate the new frame from the old one less sharply than a control that always fails. The
+§11 pass rule's result does not change.
+
 ## 10. Adjacent finding (out of scope): `turn/start` can steer
 
 S10: at `rust-v0.159.3`, a `turn/start` that arrives while a turn is active **steers** it.
@@ -547,6 +583,16 @@ who reads and scores the answer: herdr reading the pane, or a human.
   is final. A `NOT RUN` or inconclusive run does not consume it, and is listed under
   "Findings". A `FAIL` is not re-run under the exception.
 
+  *Note, 2026-10-02 (operator rulings on #220, from the PR #231 review).* The
+  parenthetical above is stale: `tools/herdr/` on `main` has changed since 2776e7a8. The
+  run is driven from the PR #231 branch, which is based on `74e3e64` and never merges
+  `main`. The rulings are recorded in `scripted-runs.md`'s E1 bullet:
+  1. a fresh Codex TUI per arm, refused-delivery handling and no question for mechanical
+     cases count as arm and case selection, in arms mode only;
+  2. the agent scores criteria 2 and 3 and the operator attests;
+  3. the Claude leg is skipped (a separate non-verdict K8 run re-checks it);
+  4. a run that a tooling problem leaves unscorable does not consume E1.
+
   *Cost:* it changes two rules for one run, and the scenario's first live run is also the
   verdict run (arm 0 is its calibration).
 - **E2: evidence only.** The herdr re-run is evidence.
@@ -571,6 +617,18 @@ herdr-first decisions above. E1 is the governing route.
 - the remaining §14 follow-ups;
 - C13 → `RESOLVED-IN-DECISION`;
 - the Stage 2 freeze unblocked for Codex provenance.
+
+*Dated note, 2026-10-03: the pass rule held* (run `20261002T161612Z-4f2b53`,
+`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, attested at
+`062a67c27b7d5a332dedfe3cb392f9ccfe77393a`). In the verdict change:
+
+- `G5-result.md` gained the 2026-10-02 Codex-leg row, with the Claude results of 2026-09-27
+  carried, and reads `PASS`;
+- C13 is `RESOLVED-IN-DECISION` in both register tables and in `STATUS.md`;
+- Stage 2's freeze no longer waits on Codex provenance. Stage 2 still waits on Stage 1's
+  exit, D7.
+
+The §14 follow-ups are not part of that change; §14 lists their state.
 
 ## 12. The question put to the operator, and the answers (#220, 2026-10-02)
 
@@ -620,6 +678,18 @@ https://github.com/RossGraeber/OAC/issues/220#issuecomment-5946299656):**
 Both are recorded in `STATUS.md` "Open UNVERIFIED items" by the change that approved this
 record (2026-10-02). The re-run closes the second.
 
+*Dated note, 2026-10-02 (re-run recorded):*
+
+- **The second item is closed.** Arm C's X3-anchored×3, X4-after-anchor and X9 were all
+  **x** on Codex `0.160.0`, and X6′'s first reply did not obey the body
+  (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, "Codex deliveries, per arm").
+  It is removed from `STATUS.md` "Open UNVERIFIED items" in the verdict change. Residual:
+  three trials per case on one Codex version (§9's N=3 limit).
+- **The first item (S10) stays open.** Arm 0's first X2 delivery `turn/start` joined the
+  still-`inProgress` marker turn (same record, "Findings and UNVERIFIED"). That is one live
+  observation at `0.160.0` of the behaviour S10 reads from source. The item stays in the
+  ledger with a dated note and belongs to #224 and backlog G7, outside C13 (§10).
+
 ## 14. Cross-file changes
 
 **Landed with the approval (2026-10-02, PR #223):**
@@ -665,6 +735,15 @@ record (2026-10-02). The re-run closes the second.
   - C6 §12's table folded;
   - `11-risks.md` RISK-G5 and rows 45-46;
   - C13 → `RESOLVED-IN-DECISION` if the pass rule holds.
+
+  *State, 2026-10-02 (verdict change):*
+  - **Done in the verdict change:** C13 → `RESOLVED-IN-DECISION`; `11-risks.md` RISK-G5 (a
+    dated status) and rows 45-46 (CLOSED); dated verdict notes in `06-security.md` and C6.
+  - **Still open:**
+    - the `06-security.md` §9, §10 and §14 rewrite, and C6 §12's fold. These rows stay
+      **designed** until their named proving tests exist (G7, F11, E5;
+      `oac-security-work` §1), so folding them is threat-table work, not a verdict edit;
+    - the skills, backlog and §10 items below.
 - Skills (link, don't copy): `oac-codex-appserver` (the S2-S7 facts and S10, with pins),
   `oac-security-work` §5's Codex bullet, and `oac-gates` `references/G5-provenance.md`
   (new cases).
