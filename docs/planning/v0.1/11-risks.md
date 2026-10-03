@@ -158,11 +158,16 @@ list.
 - **Dated status, 2026-10-03 (#46).** `spec/bindings/mcp.md` §9 closes conflict-register
   row C5: the tool surface no longer depends on which era Codex negotiates. Two new
   UNVERIFIED items from that binding sit under this risk and in `docs/planning/STATUS.md`:
-  (a) no known per-request signal lets a modern-era client's tool call be attributed to
-  one of its sessions, so the modern-era tool path refuses calls (§4.4) — this matters if
-  Codex's default ever moves to `2026-07-28`; (b) whether legacy clients other than Codex
-  `0.157.1`, Claude Code's channel path included, accept an `extensions` member in an
-  `initialize` result (§4.3.8).
+  (a) whether a documented per-request session signal exists that OAC can bind to a
+  paired session. Codex's `_meta["x-codex-turn-metadata"]` does carry `session_id`,
+  `thread_id` and `turn_id` (G4 fixtures), but it is undocumented and client-asserted, so
+  it cannot pair alone. Until resolved, calls on any connection not bound by a documented
+  pairing are refused (interim, §4.4). No Codex connection is bound yet, so Codex outbound
+  calls are refused on both eras, including if Codex's default moves to `2026-07-28`;
+  (b) whether one Codex legacy-era connection carries several threads' calls (owner #69);
+  (c) whether legacy clients other than Codex `0.157.1`, Claude Code's channel path
+  included, accept an `extensions` member in an `initialize` result (§4.3.8, tested in
+  #65).
 
 ### RISK-G3 — Zenoh loopback discovery fails
 

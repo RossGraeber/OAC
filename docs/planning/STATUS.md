@@ -14,15 +14,22 @@ verdict, or when a pin moves.
   `mechanical-checks.md`, `oac-mcp` Pin, `oac-claude-channels` §4; mirror re-synced.
 - **C5: `CLOSED`** by the binding's §9 (dual-era server, legacy-only channel path, an
   era-invariant tool surface). Both register rows and RISK-G4 carry dated notes. #65 and
-  RISK-G4 row 41 stay open as verification.
+  RISK-G4 row 41 stay open as verification. Caveat: a tool call is served only on a
+  connection bound by a documented pairing (§4.4, interim). No Codex connection is bound
+  yet (#69), so Codex outbound calls are refused on both eras, including if Codex's
+  default moves to `2026-07-28` first.
 - **Ledger.** Closed: "`experimental` at `2026-07-28`" (present in the schema at commit
-  `271ecc9`, lines 720/797; RISK-MCP-EXPERIMENTAL dated note). Added: modern-era caller
-  attribution; legacy clients accepting `extensions` in `initialize`.
+  `271ecc9`, lines 720/797; RISK-MCP-EXPERIMENTAL dated note). Added: a documented
+  per-request session signal OAC can bind; Codex legacy-era multi-thread connections
+  (#69); legacy clients accepting `extensions` in `initialize`. `G4-result.md` gets a
+  dated correction: Codex's `x-codex-turn-metadata` does carry session, thread and turn
+  ids.
 - **Drift.** B2 D2 ("no reserved-prefix rule") holds for SEP-2133's text only. The MCP
   base spec reserves `_meta` prefixes whose second label is `modelcontextprotocol` or
   `mcp` at both revisions, and at `2026-07-28` extension identifiers follow those rules.
-  `oac-mcp` is corrected. C3 §4, `PINS.md` and `REVERIFICATION-B2.md` still carry the
-  narrower wording; the identifier itself is unaffected (second label `github`).
+  `oac-mcp` is corrected. C3 §4, `PINS.md`, `REVERIFICATION-B2.md` and G4-result.md
+  criterion 2 still carry the narrower wording; #257 corrects them. The identifier itself
+  is unaffected (second label `github`).
 - **Cross-dependency.** The binding cites `spec/session-channels.md` (#41) sections by
   planned name.
 
@@ -1377,7 +1384,8 @@ states or that are inferred/stale). Closed when the named resolution lands.
   RISK-G4 (`docs/planning/v0.1/11-risks.md` row 41).
   **Dated note, 2026-10-03 (#46): closed.** `spec/bindings/mcp.md` §9 resolves it; both
   register rows read `CLOSED (2026-10-03, #46)`. #65 and RISK-G4 row 41 stay open as
-  verification items, not as a conflict.
+  verification items, not as a conflict. Caveat: Codex outbound calls are refused
+  (interim, fail-closed) on both eras until a Codex pairing exists (#69).
 - C13 (new, from G5, issue #38/D5, 2026-09-27): `docs/planning/decisions/
   C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name
   the forged id as the sender in part (1) of its answer against a forged block using a
@@ -1613,12 +1621,18 @@ without an UNVERIFIED label.
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
   item 12).
-- **New, from E6 (#46, 2026-10-03):** whether a modern-era (`2026-07-28`) MCP client sends
-  any per-request signal that attributes a tool call to one of its own sessions
-  (UNVERIFIED — MCP `2026-07-28` forbids treating the connection or process as the
-  session; G4's row-41 probe saw only `codex_version` and `model` in Codex's
-  `x-codex-turn-metadata`). Until found, the modern-era tool path refuses calls
+- **New, from E6 (#46, 2026-10-03):** whether a documented per-request session signal
+  exists that OAC can bind to a paired session (UNVERIFIED — Codex sends
+  `_meta["x-codex-turn-metadata"]` with `session_id`, `thread_id` and `turn_id` on both
+  eras, G4 fixtures `transcript-2026-09-26.jsonl` lines 48/50 and
+  `transcript-row41-2026-09-27.jsonl` line 17, but it is in no first-party doc we cite and
+  is client-asserted, so it cannot pair alone). Until resolved, tool calls on any
+  connection not bound by a documented pairing are refused, interim
   (`spec/bindings/mcp.md` §4.4).
+- **New, from E6 (#46, 2026-10-03):** whether one Codex legacy-era MCP connection carries
+  calls from several threads (UNVERIFIED — a thread id is sent per call; C4 §4 defines no
+  outbound attribution). Owner: #69. Until a Codex pairing exists, Codex outbound calls
+  are refused on both eras (`spec/bindings/mcp.md` §4.4, §8.2).
 - **New, from E6 (#46, 2026-10-03):** whether legacy clients other than Codex `0.157.1`,
   Claude Code's channel path included, accept an `extensions` member in an `initialize`
   result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` §4.3.8,
