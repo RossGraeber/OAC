@@ -1,5 +1,5 @@
 {
-  "fixture_format": "oac-conformance-fixture/1",
+  "fixture_format": "oac-mcpb-fixture/1",
   "requirement": "MCPB-META-007",
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",

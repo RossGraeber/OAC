@@ -472,7 +472,10 @@ code, spelled exactly as the taxonomy spells it, in its `text` content.
 a stub E4 (#44) fills. This document therefore names errors by role only: the *authorization-failure
 error* ([MCPB-ATT-002]), the *malformed-input error* ([MCPB-TOOL-005]) and the *unknown-destination error*
 ([MCPB-TOOL-011]). Each role is re-pointed to the taxonomy's exact code when E4 lands; until then no
-fixture can assert a spelling.
+fixture can assert a spelling. Once #44 lands, these roles map to the codes in
+`spec/session-channels.md` §8.3.1 as proposed in PR #261: authorization failure →
+`unauthorized`, malformed input → `invalid-request`, unknown destination →
+`unknown-destination`.
 
 [MCPB-TOOL-012] An OAC server MUST NOT return an OAC taxonomy
 error as a JSON-RPC error object.
@@ -731,9 +734,13 @@ MCP-defined code, and it does not collide with `SC` or `SEC`. Its areas are: `DL
 
 ### 12.2 Fixture profile
 
-Fixtures follow `spec/session-channels.md` §3.3, with three binding-specific values,
-because that section's `input` kinds and `result` values are envelope-stage ones:
+Fixtures follow the shape of `spec/session-channels.md` §3.3 under their own format
+string, `oac-mcpb-fixture/1`. The core format `oac-conformance-fixture/1` stays unchanged;
+a runner dispatches on `fixture_format`. The binding format differs from the core one
+only as follows, because the core `input` kinds and `result` values are envelope-stage
+ones:
 
+- `fixture_format` is `oac-mcpb-fixture/1`.
 - `stage` is `mcp-binding`.
 - `context` holds `era` (`legacy` or `modern`), `server_role` (`channel-path` or
   `general`, §4.3) and, where a requirement needs them, `legacy_initialized` (whether the
