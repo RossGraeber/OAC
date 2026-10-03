@@ -752,22 +752,37 @@ semver, and are recorded verbatim — never reformatted.
   `checkHerdrExecutable`, run manifest `herdr.executableCheck`). A different hash is
   `NOT RUN`. A platform with no row is a finding, and the run's herdr identity is UNVERIFIED.
   A match counts as VERIFIED only on a row whose `First-party` cell is `yes`. A match on a
-  `no` row shows only that the binary is the locally observed one, so the record states
-  herdr UNVERIFIED (first-party source UNVERIFIED).
+  `no` row (none at present) would show only that the binary is a locally observed one, so
+  the record would state herdr UNVERIFIED (first-party source UNVERIFIED).
   The table is read from HEAD, like the tag. A pin move updates it in the same change.
   Sources, all retrieved 2026-10-03:
   - Asset digests: the GitHub release API `digest` field for tag `v0.9.1`
     (`gh api repos/herdrdev/herdr/releases/tags/v0.9.1`).
-  - Provenance attestations: `gh api repos/herdrdev/herdr/attestations/sha256:<digest>`
-    returns one attestation for each of the five asset digests. That an attestation exists
-    was checked; its signature was not verified.
-  - Windows: `gh attestation verify <installed herdr.exe> --repo herdrdev/herdr` failed with
-    `HTTP 404: Not Found` for `sha256:007781…9b6`. The release attests the zip, not the
-    `herdr.exe` inside it. No binary was downloaded.
+  - Release attestation: herdr publishes a *release* attestation, an in-toto Statement over
+    the release's assets. It does not publish SLSA build provenance. So
+    `gh release verify-asset v0.9.1 <file> --repo herdrdev/herdr` is the check that applies.
+    `gh attestation verify` looks for build provenance by digest, and for herdr it returns
+    `HTTP 404: Not Found`, as it did for the installed `herdr.exe` on 2026-10-03. That 404
+    means there is no build-provenance attestation. It says nothing about the release
+    attestation. `gh api repos/herdrdev/herdr/attestations/sha256:<digest>` returns one
+    attestation for each of the five asset digests.
+  - Windows (verified 2026-10-03 by the orchestrator, with the operator's permission; the
+    downloaded files were deleted afterwards):
+    1. `gh release download v0.9.1 --repo herdrdev/herdr --pattern herdr-windows-x86_64.zip`
+       gave a zip with sha256 `04ce380c…a6e`, equal to the API asset digest.
+    2. `gh release verify-asset v0.9.1 herdr-windows-x86_64.zip --repo herdrdev/herdr`
+       printed "Verification succeeded! herdr-windows-x86_64.zip is present in release
+       v0.9.1". That is the release attestation; the tag `v0.9.1` is sha1
+       `8544776216a8d28088db59a5344ea21ee2d05d2b`.
+    3. `herdr.exe` inside the zip hashes to `007781…9b6`, byte-identical to the installed
+       binary.
+  - Linux and macOS: the expected value is the API asset digest, and each digest has a
+    release attestation. `gh release verify-asset` on each downloaded asset would confirm
+    that the asset is the release's, as for Windows. That has not been run (UNVERIFIED).
 
 | Platform | Release asset | Asset digest (sha256) | Expected executable sha256 | First-party | Basis |
 |---|---|---|---|---|---|
-| `win32-x64` | `herdr-windows-x86_64.zip` | `04ce380cac5af27bfcf75d0951ac49b7afe4c984aee8852985806d4f71f93a6e` | `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` | no | Taken from the installed binary: the sha256 of `herdr.exe` (25562624 bytes) in the standalone package `0.9.1-x86_64-pc-windows-msvc` on the operator's Windows machine, hashed 2026-10-03. It equals the hash the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`). A first-party source is UNVERIFIED: `gh attestation verify` finds no attestation for this digest, and the release zip was not downloaded, extracted or hashed. |
+| `win32-x64` | `herdr-windows-x86_64.zip` | `04ce380cac5af27bfcf75d0951ac49b7afe4c984aee8852985806d4f71f93a6e` | `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` | yes | First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`). |
 | `linux-x64` | `herdr-linux-x86_64` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | yes | The release's own asset digest. The asset name has no archive extension, so it is taken to be the bare executable. No run has yet hashed an installed herdr on this platform; a mismatch there is `NOT RUN` and a finding to look into. |
 | `linux-arm64` | `herdr-linux-aarch64` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | yes | As `linux-x64`. |
 | `darwin-x64` | `herdr-macos-x86_64` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | yes | As `linux-x64`. |

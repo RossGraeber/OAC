@@ -411,9 +411,10 @@ signature settles.
   `herdrCheckDecision` in the same file. It is unit-tested, and the self-test drives
   `run.mjs` with a native non-herdr binary to check the mismatch, match and
   no-expected-value paths. A `match` counts as VERIFIED only on a row whose `First-party`
-  cell is `yes` (`executableCheck.firstParty`). A match on a locally observed value (the
-  Windows row) shows only that the binary is that one: the record states herdr
-  UNVERIFIED, first-party source UNVERIFIED. The table is read from PINS.md at HEAD, like
+  cell is `yes` (`executableCheck.firstParty`). A match on a locally observed value (a `no` row)
+  shows only that the binary is that one: the record states herdr UNVERIFIED, first-party
+  source UNVERIFIED. All five rows are first-party since 2026-10-03. The Windows row was
+  checked with `gh release verify-asset` (PINS.md, "Expected herdr executable"). The table is read from PINS.md at HEAD, like
   the tag. The run manifest is `schemaVersion` 3. The executable is re-hashed at teardown
   (`unchangedAfterRun`).
 - **Harness versions** from every source the scenario reads (CLI, wire, the Codex daemon,
