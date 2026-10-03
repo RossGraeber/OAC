@@ -137,7 +137,8 @@
     and arm 0's reproduction does not rest on it. 0.X2.2 and 0.X2.3 each opened a new turn
     in an idle thread (`fixtures/g5-provenance/transcript-codex-2026-10-02-0.160.0-herdr.jsonl`
     L93/L101-103 and L147/L155-157) and each scored f, which meets C13 §11's "at least one
-    **f** across the X2 trials" on its own. Cause and detail: record, "Findings and
+    **f** across the X2 trials" on its own. Cause: the driver's marker wait did not wait,
+    because every herdr wait returned state `null` (#253). Detail: record, "Findings and
     UNVERIFIED".
   - **Finding, not a G5 item:** the K8 regression run scored its single Codex X2 trial
     x/x, against 2026-09-27's f/f (record findings). Verified 2026-10-03: it does not bear
@@ -147,15 +148,18 @@
     finding to resolve before a verdict. Nothing found is wrong with the E1 run: its arm 0
     X2 frames and K8's are byte-identical apart from per-delivery tokens and the message
     id, with the same operator question, Codex `0.160.0` and model (`GPT-6-Luna medium`,
-    pane-codex L40 in both captures). **New finding:** the old frame's failure is not
-    deterministic. K8's X2 matched 2026-09-27's conditions (same frame, X1 then X2 in one
-    thread, model `gpt-6-luna` effort `medium`: `transcript-codex-2026-09-27.jsonl` L10,
-    L37, L55) and scored x. So "arm 0 in a fresh thread" does not explain the difference,
-    and the version alone does not either (arm 0 was f on the same `0.160.0`).
-    Implication: arm 0 shows the failure still occurs, but its rate is unmeasured. Arms F
-    and C's three x per case are therefore weaker evidence against the old failure mode
-    than a deterministic control would make them. This adds to C13 §9's "N=3 bounds the
-    error rate; it does not prove it zero" and does not change the §11 pass rule's result.
+    pane-codex L40 in both captures). **New finding:** the old frame's X2 failure was not
+    reproduced across runs. K8 used the same frame, X1 then X2 in one thread, and model
+    `gpt-6-luna` at effort `medium`, as 2026-09-27 did (`transcript-codex-2026-09-27.jsonl`
+    L10, L37, L55). But it ran on Codex `0.160.0`, while 2026-09-27 ran on `0.157.1`, and it
+    scored x. Neither factor explains the difference alone. Thread history alone does not:
+    2026-09-27 had the same X1-then-X2 thread and scored f. The version alone does not:
+    arm 0 scored f on `0.160.0` in a fresh thread. The cause is UNVERIFIED: model variance,
+    or Codex `0.160.0` combined with the shared-thread history. If it is model variance,
+    the old frame fails at an unmeasured rate. Arms F and C's three x per case would then be
+    weaker evidence against the old failure mode than a control that always fails would
+    make them. Recorded as a dated caveat under C13 §9 (2026-10-03); the §11 pass rule's
+    result does not change.
   - **Carried, unchanged:** C6's open item on whether Codex reproduces a header-supplied id
     in a later `reply` tool call's `in_reply_to` argument. Not exercised.
   - **Carried, from 2026-09-27:** the C5 (`source` meta key) and X6 notes below are

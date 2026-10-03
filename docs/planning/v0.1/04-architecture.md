@@ -17,7 +17,7 @@ Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer
 liveliness, local/LAN security profiles — is a **designed** mechanism this file diagrams,
 not a **proven** one. Gate **G5 (Provenance)** has since run and recorded **FAIL**
 (Codex criteria 2/3 f; Claude all criteria x) (`docs/planning/gates/G5-result.md`) (dated
-note, 2026-10-02, #220: G5 is now **PASS** after its Codex-leg re-run under C13 §11; the
+note, 2026-10-03, #220: G5 is now **PASS** after its Codex-leg re-run under C13 §11; the
 `FAIL` and the Codex half of what follows are history, and the "OAC mitigation still
 designed" point still holds) —
 **harness behaviour confirmed by G5; OAC mitigation still designed**: G5's spike server

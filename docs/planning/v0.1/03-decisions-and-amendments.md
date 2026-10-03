@@ -293,7 +293,7 @@ independently exercised, carried UNVERIFIED, not fired.
 mechanism is a separate layer from what G5 tests (the rendering layer,
 `docs/planning/decisions/C6-trust-rendering.md` §2-§5 and `oac-security-work` §5); G5's
 result bears on that rendering layer, not on signature verification itself. *(Dated note,
-2026-10-02, #220: G5 is now **PASS**, after its Codex-leg re-run under C13 §11; the `FAIL`
+2026-10-03, #220: G5 is now **PASS**, after its Codex-leg re-run under C13 §11; the `FAIL`
 is history. See this file's §1 note and `docs/planning/gates/G5-result.md`.)*
 
 ### Decision 6 — Pairing and authorization
@@ -326,7 +326,7 @@ signing mechanism shares. The v0.1 posture (no online key rotation, manual re-pa
 is a deliberate scope limit (C5 §4), not an open reversal test.
 
 **Gate dependency.** Gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
-(2026-09-27) — the same caveat as decision 5. *(Dated note, 2026-10-02, #220: G5 is now
+(2026-09-27) — the same caveat as decision 5. *(Dated note, 2026-10-03, #220: G5 is now
 **PASS**; see decision 5's note.)*
 
 ### Decision 7 — Key storage
@@ -397,7 +397,7 @@ the real Claude
 rendering this design assumes; gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f;
 Claude all criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`), exercised whether forged-sender
 content is actually shown contradicted by machine-set provenance — confirmed on Claude,
-not yet sufficient on Codex. *(Dated note, 2026-10-02, #220: G5 is now **PASS**. Codex was
+not yet sufficient on Codex. *(Dated note, 2026-10-03, #220: G5 is now **PASS**. Codex was
 re-run under C13 §11 against C6 §5.0's amended framing (Option C) and passed. C13 is
 `RESOLVED-IN-DECISION`; see `docs/planning/gates/G5-result.md`.)*
 
@@ -435,7 +435,7 @@ channel-tag convention — a documented structured-metadata field on `turn/start
 
 **Gate dependency.** Gate **G2 (Codex live inject)**, **PASS** (`0.157.1`, re-run
 2026-09-26, Windows only); gate **G5 (Provenance)**, **FAIL** (Codex criteria 2/3 f; Claude all criteria x)
-(2026-09-27, `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-02, #220: G5 is now
+(2026-09-27, `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-03, #220: G5 is now
 **PASS**, after its Codex-leg re-run under C13 §11; the `FAIL` is history.)*
 
 ### Decision 10 — Transport mapping
@@ -814,7 +814,7 @@ status-note update to an already-`ASSIGNED` row, not a new decision.
 All three remain **open** — none is closed by this file, consistent with `docs/planning/
 ADR-001-AMENDMENTS.md`'s own statement that none is closed there either. *(Dated note,
 2026-10-02, #228: C12 is now closed — `DESIGN.md` renamed in place. C11 and C13 stay
-open.)* *(Dated note, 2026-10-02, #220: C13 is now closed, `RESOLVED-IN-DECISION`, after
+open.)* *(Dated note, 2026-10-03, #220: C13 is now closed, `RESOLVED-IN-DECISION`, after
 G5's Codex-leg re-run passed. Only C11 stays open.)*
 
 | # | Conflict (short) | Status | Resolution lives in | Evidence |

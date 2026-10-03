@@ -830,7 +830,7 @@ row above describes a **designed** mitigation, matching the caveat stated at the
 this document and the identical precedent `docs/planning/decisions/
 C4-session-identity.md` §13 sets.
 
-*Dated note, 2026-10-02 (#220):* the prompt-injection row's "G5 **FAIL**" is history. G5 is
+*Dated note, 2026-10-03 (#220):* the prompt-injection row's "G5 **FAIL**" is history. G5 is
 now **PASS** after its Codex-leg re-run under C13 §11 (`docs/planning/gates/G5-result.md`).
 The row's mitigation stays doctrine, and F11 stays `NOT RUN`, so the row is unchanged in
 substance.

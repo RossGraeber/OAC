@@ -427,7 +427,7 @@ is closed by this file.
 *Dated note, 2026-10-02 (#228):* C12 is now closed (`RESOLVED-HERE`, applied by #228). C11
 and C13 stay open, and C5's open legs now have live owners (see the C5 row's dated note).
 
-*Dated note, 2026-10-02 (#220):* C13 is now closed, `RESOLVED-IN-DECISION`, after G5's
+*Dated note, 2026-10-03 (#220):* C13 is now closed, `RESOLVED-IN-DECISION`, after G5's
 Codex-leg re-run passed (see the C13 row). G5 is `PASS`. C11 stays open.
 
 ## Carried to later tasks

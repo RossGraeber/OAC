@@ -40,7 +40,7 @@ verdict was `NOT RUN` and the project was at Pre-Stage 0. Per the current
 `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code (Channels)
 pin went floating 2026-09-27, last observed `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
-criteria 2/3 f; Claude all criteria x) (dated note, 2026-10-02, #220: G5 is now **PASS**
+criteria 2/3 f; Claude all criteria x) (dated note, 2026-10-03, #220: G5 is now **PASS**
 after its Codex-leg re-run under C13 §11 — see `docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level
 (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md` "Current stage," the
 project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
@@ -253,7 +253,7 @@ against the evidence as it stands on that date. Each criterion:
    `RESOLVED-BY-EVIDENCE` or `RESOLVED-IN-DECISION`; `docs/planning/ADR-001-AMENDMENTS.md`
    conflict register). C12 is `RESOLVED-HERE`: #228 applied ADR-001-A1 to
    `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open (dated note,
-   2026-10-02, #220: C13 is now `RESOLVED-IN-DECISION`, after G5's Codex-leg re-run
+   2026-10-03, #220: C13 is now `RESOLVED-IN-DECISION`, after G5's Codex-leg re-run
    passed). C11 is
    `ASSIGNED`; its module name is owned by the Epic F/G adapter implementation (#6, #7,
    both open; `docs/planning/decisions/C4-session-identity.md` §16). C5 is `ASSIGNED`.
