@@ -44,7 +44,8 @@
 //     `not evaluable`. C5 (informational) and X6 (exploratory) are listed, never scored.
 //
 // --write refuses anything but a PASS run with verified versions from a clean, committed
-// tools/herdr/, and never overwrites. The attestation is generated UNTICKED.
+// tools/herdr/, and never overwrites. Its Verification section (#252) is generated from the
+// run manifest for the recording agent to re-check.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -61,7 +62,7 @@ import { parseSections, committedFile } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 import { schemaBlockFor } from './g2-report.mjs';
 import {
-  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, herdrExecutableHash, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -551,8 +552,20 @@ export function renderC13Report({ manifest, evaluation, date, fixtures, runManif
   out.push('- Each arm\'s thread/list entries are removed from the Codex capture (the sanitizer keeps one own thread only); the thread ids are above and in the run manifest.');
   out.push('- Earlier `NOT RUN` or INCONCLUSIVE runs under the exception: none listed by this generator; add each by hand.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${g5.versions?.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${g5.versions?.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G5', g5.dialogs) }));
+  out.push(...g5Verification(manifest, g5));
   return out.join('\n');
+}
+
+// #252: the Verification section of both G5 renderers.
+function g5Verification(manifest, g5) {
+  const v = g5.versions ?? {};
+  return verification({
+    manifest,
+    harness: harnessVerification(manifest, { verified: versionsVerified(g5), versions: `Claude Code: CLI \`${v.cliOutput?.claude ?? '?'}\`, wire clientInfo \`${v.wire?.claude ?? '?'}\`; Codex: CLI \`${v.cliOutput?.codex ?? '?'}\`, daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${v.daemon?.[k] ?? '?'}\``).join(', ')}, wire userAgent \`${v.wire?.codexUserAgent ?? '?'}\` (\`scenarioData.g5.versions\`; post-run \`scenarioData.g5.postRun\`)` }),
+    dialogs: g5.dialogs,
+    dialogsField: 'scenarioData.g5.dialogs',
+    humanActions: noConsentCriterionLine('G5'),
+  });
 }
 
 function runFactLines({ manifest, g5, fixtures, runManifestName, reference }) {
@@ -585,9 +598,9 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('> **Not verdict-bearing. G5 stays FAIL.** Epic K, K8 #131. This record compares a herdr-driven run of G5 against');
   out.push('> the human run. G5\'s verdict (`docs/planning/gates/G5-result.md`: **FAIL**, Codex criteria 2 and 3) and');
   out.push('> `docs/planning/STATUS.md` are unchanged by it, whatever the scores below say: a score only says whether this run');
-  out.push('> reproduced the human run\'s recorded result for that criterion and provider. The operator attestation below is');
-  out.push('> unticked as generated; until the operator who ran the machine ticks it, this is neither an equivalence record nor');
-  out.push('> verdict-bearing.');
+  out.push('> reproduced the human run\'s recorded result for that criterion and provider. Its Verification section is generated');
+  out.push('> from the run manifest; until the recording agent has re-checked it and filled its slots, this is neither an');
+  out.push('> equivalence record nor verdict-bearing.');
   out.push('>');
   out.push(...reconstructionCallout('G5', [...new Set([...G5_SERVER_FILES, ...G5_CLIENT_FILES])], 'docs/planning/gates/G5-result.md'));
   out.push('');
@@ -644,7 +657,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, herdrHash: herdrExecutableHash(manifest), harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G5', g5.dialogs) }));
+  out.push(...g5Verification(manifest, g5));
   return out.join('\n');
 }
 
@@ -788,7 +801,7 @@ function mainC13({ o, operatorScores, runDir, manifest, g5 }) {
   }
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
   if (!publish) console.log(`No fixture written: ${fixtureWithheld(manifest)}`);
-  console.log(`C13 outcome as scored: ${evaluation.outcome}. Next: the agent scores every model delivery from the captures with --case <id>.c2=x|f --case <id>.c3=x|f --note <id>=... (agent-scored, #220 ruling 2); the operator who ran the machine fills in the attestation; only if every E1 condition holds, record the Codex-leg verdict in G5-result.md and STATUS.md in the same change (this generator writes neither).`);
+  console.log(`C13 outcome as scored: ${evaluation.outcome}. Next: the agent scores every model delivery from the captures with --case <id>.c2=x|f --case <id>.c3=x|f --note <id>=... (agent-scored, #220 ruling 2); the recording agent re-checks the Verification section and fills its slots; only if every E1 condition holds, record the Codex-leg verdict in G5-result.md and STATUS.md in the same change (this generator writes neither).`);
   return 0;
 }
 
@@ -841,7 +854,7 @@ function main(argv) {
   });
   writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
-  console.log('Next: review the draft; score rows 1, 3-claude and 4 from the pane text, and each Codex case with --case (rule (b)); the operator who ran the machine fills in the attestation; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the Codex transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G5-result.md. G5 stays FAIL.');
+  console.log('Next: review the draft; score rows 1, 3-claude and 4 from the pane text, and each Codex case with --case (rule (b)); the recording agent re-checks the Verification section and fills its slots; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the Codex transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G5-result.md. G5 stays FAIL.');
   return 0;
 }
 

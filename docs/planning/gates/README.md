@@ -79,14 +79,18 @@ Since #140 (run manifest `schemaVersion` 2) the driver records the herdr executa
 spawned and the sha256 of every capture it wrote, and the script uses both. It refuses a
 `-herdr` fixture whose run used the node-run test-double herdr or a herdr that is not a
 hashed native binary, and one whose committed bytes (the git index blob) do not hash to
-the capture's recorded `sha256`. For an equivalence record it also requires the attested
-herdr sha256 to equal the one the run manifest recorded. A `schemaVersion` 1 run manifest
-predates #140: its fixtures print a WARN line and rest on the operator attestation, as
-`G1-2026-09-29` does. The script still cannot tell a real, logged-in harness from a test
-double (the manifest records `harnessExecutables`, it does not judge them), nor who
-pressed a key; those rest on the operator attestation (`oac-gates`
-`references/scripted-runs.md`). The script checks that an attestation is present and
-complete wherever one is required.
+the capture's recorded `sha256`. Since #252 (2026-10-03) the driver also compares that
+herdr hash with PINS.md's expected one for its platform (`herdr.executableCheck`), and the
+script refuses a fixture from a run where they did not match. For an equivalence record it
+requires the herdr sha256 the record states to equal the one the run manifest recorded,
+and for a verified record a recorded `match`. A `schemaVersion` 1 run manifest predates
+#140: its fixtures print a WARN line, as `G1-2026-09-29`'s do, because nothing binds them
+mechanically. The script still cannot tell a real, logged-in harness from a test double
+(the manifest records `harnessExecutables`, it does not judge them), nor who pressed a
+key. The record states those from the evidence, or as UNVERIFIED, and names any human
+action and who did it (`oac-gates` `references/scripted-runs.md` "Verification"). The
+script checks that the verification section is present and complete wherever one is
+required (an operator attestation from before #252 is accepted as history).
 `node scripts/check-fixture-manifest.mjs --self-test` plants one violation per rule.
 
 ## Gate-result template
@@ -107,15 +111,21 @@ extended form is maintained):
 - **Command transcript summary:** <what was run and observed, condensed; full transcript, if
   kept, lives with the fixtures, not inline here>
 - **Pass criteria evaluated:**
-  - [x|f] <criterion 1, verbatim from the gate's reference file> — <observed result>
-  - [x|f] <criterion 2> — <observed result>
+  - [x|f] <criterion 1, verbatim from the gate's reference file> — <observed result, citing
+    the evidence it rests on>
   - ...
 - **Verdict:** PASS | PASS (FALLBACK TAKEN) | FAIL | NOT RUN
 - **Fallback taken:** <name it, or "none — not needed" or "none — no fallback exists">
 - **UNVERIFIED items:** <each item this gate was positioned to close — closed with evidence,
   or still open>
 - **Fixtures captured:** <path(s) under the fixtures location, or "none">
+- **Human actions:** <each step the agent could not do (consent step, sign-in), and who; or "none">
 ```
+
+Since #252 (operator decision, 2026-10-03), every finding and judgment in a result rests on
+cited evidence or is marked UNVERIFIED. "The operator confirms" is never a basis. A person
+signs off only on the human actions: steps the agent could not do itself. Results written
+before #252 are not rewritten.
 
 Added fields (B4, this evidence store only):
 
@@ -133,9 +143,10 @@ Added field (K5, issue #128):
   For a herdr-driven run: the line `tools/herdr/lib/g1-report.mjs` renders — the
   `herdr --version` output, the PINS.md `herdr (test tooling)` tag,
   `tools/herdr/run.mjs`, the scenario file, and the driver commit. A verdict-bearing
-  scripted run also names the equivalence record it relies on, and carries an
-  `## Operator attestation` section (the run manifest records which herdr and harness
-  executables ran, by hash, but cannot tell a real, logged-in harness from a test double).
+  scripted run also names the equivalence record it relies on, and carries a
+  `## Verification` section (#252): herdr, the harness versions and every dialog accept,
+  each verified from the run manifest with the field cited or marked UNVERIFIED, plus any
+  human action and who did it (an `## Operator attestation` before #252).
   Every `herdr-runs/`
   record carries the same line. The rules behind it are `oac-gates`
   `references/scripted-runs.md` "Driver identity". Every result on record when K5
@@ -256,16 +267,20 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
 - **Equivalence record.** This is a `herdr-runs/` record that shows a scripted run of
   G<n> equivalent to the human run on every criterion, at the current herdr pin. It is
   marked by the callout `> **Equivalence record** for G<n> at herdr <tag>` at its top,
-  and it carries an `## Operator attestation` section. In that section the operator
-  attests to a real herdr (with the sha256 of its executable, which since #140 must equal
-  the run manifest's `herdr.executable.sha256`), a real harness, and who accepted each
-  dialog. In an equivalence record, a consent step that a criterion names
-  (G1 criterion 5) needs a human accept. Since 2026-09-30 (#196) the driver accepts Claude
-  Code's three recorded dialogs by default (G1 included, where criterion 5 is then `not
-  evaluable`) and refuses every other dialog. Each driver accept is recorded and attested as
-  the driver's. A verdict-bearing scripted `G<n>-result.md` carries
-  the same section. The definition is in `references/scripted-runs.md` "Operator
-  attestation" and "Verdict eligibility". None exists yet.
+  and it carries a `## Verification` section (#252, 2026-10-03). That section states herdr
+  VERIFIED (its sha256, equal to the run manifest's `herdr.executable.sha256` and matched
+  against PINS.md's expected value), the harness VERIFIED (one version per harness from
+  every source), who accepted each dialog as the run manifest records it, and the human
+  actions with who did them. The recording agent checks each line from the cited evidence;
+  the operator's word is not the basis. In an equivalence record, a consent step that a
+  criterion names (G1 criterion 5) needs a human accept, and that accept is a human action
+  the person who did it names. Since 2026-09-30 (#196) the driver accepts Claude Code's
+  three recorded dialogs by default (G1 included, where criterion 5 is then `not
+  evaluable`) and refuses every other dialog. Each driver accept is recorded as the
+  driver's. A verdict-bearing scripted `G<n>-result.md` carries the same section. The
+  definition is in `references/scripted-runs.md` "Verification" and "Verdict
+  eligibility". `herdr-runs/G1-2026-09-29.md` is the one equivalence record on record; it
+  and `G5-result.md` carry the `## Operator attestation` of their time, kept as history.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers
@@ -287,8 +302,8 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   self-hosted runners that `.github/workflows/herdr-provider-optin.yml` runs on: their
   prerequisites, the upload gate, the threat table, and the first-dispatch record. A CI
   run uploads redacted evidence as a workflow artifact only. It writes nothing into this
-  directory. Committing one of its runs follows the same record, fixture and operator
-  attestation rules as any other scripted run.
+  directory. Committing one of its runs follows the same record, fixture and verification
+  rules as any other scripted run.
 - **Status.** No scripted run has run live yet, so `herdr-runs/` does not exist yet
   (`docs/planning/STATUS.md` "Open UNVERIFIED items", K4 and K6 entries).
 

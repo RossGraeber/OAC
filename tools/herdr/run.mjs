@@ -22,7 +22,9 @@
 // Outcome and exit code: PASS 0, FAIL 1, usage error 2, NOT RUN 3. A timeout, an expired
 // timebox, an operator abort, or a herdr version other than the PINS.md pin is NOT RUN --
 // never a failure and never a fabricated pass. The pin is read from PINS.md as committed at
-// HEAD; an uncommitted edit to its herdr row is NOT RUN too, never applied (#139).
+// HEAD; an uncommitted edit to its herdr row is NOT RUN too, never applied (#139). So is a
+// native herdr whose sha256 is not PINS.md's expected one for this platform (#252,
+// herdr.executableCheck); no expected value for the platform is a finding only.
 //
 // The manifest records which executables ran (#140): herdr.executable and
 // harnessExecutables (basename, sha256, format; never a directory), and each written
@@ -41,7 +43,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
-import { readCommittedHerdrPin, versionMatches, PIN_ROW } from './lib/pins.mjs';
+import { readCommittedHerdrPin, versionMatches, checkHerdrExecutable, PIN_ROW } from './lib/pins.mjs';
 import { HerdrSession, NotRunError, DriverError, makeSessionName } from './lib/herdr.mjs';
 import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
@@ -209,6 +211,7 @@ async function runScenarioInner(opts, state) {
       herdr: {
         pinRow: PIN_ROW,
         executable: null,
+        executableCheck: null,
         pinnedTag: null,
         pinsSource: null,
         expectedVersionOutput: null,
@@ -349,9 +352,11 @@ async function runScenarioInner(opts, state) {
     // edit to the herdr row refuses the run; any other uncommitted PINS.md edit is a finding
     // only (#139; harness versions are never gated, #216).
     let pin;
+    let expectedExecutables;
     try {
       const committed = readCommittedHerdrPin(REPO_ROOT);
       pin = committed.pin;
+      expectedExecutables = committed.expectedExecutables;
       manifest.herdr.pinsSource = committed.source;
       if (committed.finding) manifest.findings.push(committed.finding);
     } catch (err) {
@@ -360,6 +365,14 @@ async function runScenarioInner(opts, state) {
     }
     manifest.herdr.pinnedTag = pin.tag;
     manifest.herdr.expectedVersionOutput = pin.expectedVersionOutput;
+    // #252: which herdr runs is verified here, not attested. The hash taken above is compared
+    // with PINS.md's expected sha256 for this platform before herdr is spawned at all. A
+    // different or unhashable native herdr is NOT RUN, like a version off the pin; no
+    // expected value for this platform is a finding, and the record states herdr UNVERIFIED.
+    manifest.herdr.executableCheck = checkHerdrExecutable(manifest.herdr.executable, expectedExecutables);
+    const xc = manifest.herdr.executableCheck;
+    if (xc.result === 'mismatch' || xc.result === 'unhashed') throw new NotRunError(`${xc.detail}. Refusing to run (#252).`);
+    if (xc.result === 'no-expected-value') manifest.findings.push(`herdr identity UNVERIFIED (#252): ${xc.detail}; the executable was hashed (herdr.executable.sha256) but compared with nothing`);
     let observed;
     try {
       observed = await herdr.version();

@@ -170,6 +170,15 @@ function unitPins() {
     check('pins #139: a staged but uncommitted herdr tag change is refused too', refused(attempt()));
     git('commit', '-q', '-m', 'pin move');
     check('pins #139: once committed, the edit is the pin', readCommittedHerdrPin(dir).pin.tag === 'v9.9.9');
+    // #252: the expected herdr executable table is part of the pin, read from HEAD only.
+    check('pins #252: no expected-executable table at HEAD reads as none', readCommittedHerdrPin(dir).expectedExecutables.length === 0);
+    const withTable = (h) => writeFileSync(pinsFile, `${table(['| herdr (test tooling) | supported | `v9.9.9` | none |', HARNESS])}\n\n| Platform | Expected executable sha256 | Basis |\n|---|---|---|\n| \`linux-x64\` | \`${h}\` | test |\n`);
+    withTable('a'.repeat(64));
+    a = attempt();
+    check('pins #252: an uncommitted expected-executable table change is refused, never applied', refused(a) && /expected executable sha256 table differs/.test(a.err.message), a.err?.message ?? JSON.stringify(a.got));
+    git('add', '--', 'docs/planning/PINS.md');
+    git('commit', '-q', '-m', 'expected herdr');
+    check('pins #252: once committed, the table is read from HEAD', readCommittedHerdrPin(dir).expectedExecutables[0]?.sha256 === 'a'.repeat(64));
     rmSync(pinsFile);
     a = attempt();
     check('pins #139: a deleted working-tree PINS.md is refused', refused(a) && /missing/.test(a.err.message), a.err?.message);

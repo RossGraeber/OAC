@@ -1,6 +1,6 @@
 // Shared pieces of the K8 (#131) report generators, lib/g4-report.mjs and lib/g5-report.mjs:
-// score vocabulary, check rows, CLI argument parsing, the never-overwrite writer, the unticked
-// operator attestation, and the reconstruction callout every G4/G5 comparison carries.
+// score vocabulary, check rows, CLI argument parsing, the never-overwrite writer, the
+// verification block (#252), and the reconstruction callout every G4/G5 comparison carries.
 
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -101,34 +101,71 @@ export function describeDialog(d) {
 
 export const describeDialogs = (dialogs) => (dialogs ?? []).map(describeDialog).join('; ') || 'none';
 
-// The attestation's consent line for a gate none of whose criteria names a consent step: it
-// says so, and lists the dialog accepts truthfully (driver or human) for the operator to check.
-export const noConsentCriterionLine = (gate, dialogs) =>
-  `none — no criterion of ${gate} names a consent step. Dialogs on record: ${describeDialogs(dialogs)}; each driver accept above was the driver's, not mine.`;
+// --- Verification (#252) -------------------------------------------------------------------
+//
+// Operator decision on #252 (2026-10-03): a record's findings rest on verification from the
+// evidence, with citations, or are UNVERIFIED; the operator's attestation is not the basis.
+// The generator derives each line from the run manifest and cites the field; the recording
+// agent re-checks every citation and fills the `<TO FILL: ...>` slots, which
+// scripts/check-fixture-manifest.mjs refuses to see left in a record that claims eligibility.
+// A person signs off only on the human actions: steps the agent could not do (a consent step a
+// criterion names, an interactive sign-in, credentials).
+export const TO_FILL = '<TO FILL';
 
-// The herdr hash for the attestation's herdr line (#140): the sha256 the driver recorded for
-// the herdr executable it spawned (run-manifest.json `herdr.executable`), when that was a
-// native binary and not the node-run test double; otherwise the placeholder, for the operator.
-export function herdrExecutableHash(manifest) {
-  const x = manifest?.herdr?.executable;
-  if (x?.testDouble === true) return '`<64 hex>` (the run manifest records a test-double herdr, run under node; this line cannot be ticked)';
-  if (x?.testDouble === false && /^[0-9a-f]{64}$/.test(x.sha256 ?? '') && ['elf', 'pe', 'mach-o'].includes(x.format)) {
-    return `\`${x.sha256}\` (recorded by the driver: run-manifest.json \`herdr.executable\`)`;
+// A consent-free gate's human-actions line: no criterion of it names a consent step.
+export const noConsentCriterionLine = (gate) => `none required by a criterion: no criterion of ${gate} names a consent step, and every dialog accept above is the driver's or recorded as human.`;
+
+// The herdr line: the version against the pin, the executable hash against PINS.md's expected
+// value for the platform (herdr.executableCheck, #252), native and not the test double, and
+// unchanged at teardown. -> { verified, text }.
+export function herdrVerification(manifest) {
+  const h = manifest?.herdr ?? {};
+  const x = h.executable;
+  const c = h.executableCheck;
+  const why = [];
+  if (!h.observedVersionOutput || h.observedVersionOutput !== h.expectedVersionOutput) why.push(`\`herdr --version\` ${JSON.stringify(h.observedVersionOutput ?? null)} is not the pin's ${JSON.stringify(h.expectedVersionOutput ?? null)}`);
+  if (!x) why.push('the run manifest records no herdr.executable (schemaVersion 1, before #140)');
+  else {
+    if (x.testDouble !== false) why.push(`herdr.executable.testDouble is ${JSON.stringify(x.testDouble ?? null)} (the node-run test double)`);
+    else if (!['elf', 'pe', 'mach-o'].includes(x.format) || !/^[0-9a-f]{64}$/.test(x.sha256 ?? '')) why.push(`herdr.executable is not a hashed native binary (format ${JSON.stringify(x.format ?? null)})`);
+    if (x.unchangedAfterRun === false) why.push('the executable changed during the run (herdr.executable.unchangedAfterRun false)');
   }
-  return '`<64 hex>`';
+  if (!c) why.push('the run manifest records no herdr.executableCheck (a driver before #252): the hash was compared with nothing');
+  else if (c.result !== 'match') why.push(`herdr.executableCheck.result is \`${c.result}\` (${c.detail ?? 'no detail'})`);
+  const hash = /^[0-9a-f]{64}$/.test(x?.sha256 ?? '') ? `\`${x.sha256}\`` : 'none recorded';
+  if (why.length) return { verified: false, text: `UNVERIFIED — ${why.join('; ')}. Executable sha256: ${hash}.` };
+  return {
+    verified: true,
+    text: `VERIFIED — \`herdr --version\` \`${h.observedVersionOutput}\` equals the PINS.md pin (\`herdr.observedVersionOutput\`, \`herdr.expectedVersionOutput\`); executable \`${x.basename ?? '?'}\` (${x.format}, not the test double) sha256 ${hash} equals PINS.md's expected sha256 for \`${c.platform}\` (\`herdr.executable.sha256\`, \`herdr.executableCheck\`; basis: ${c.basis ?? 'not recorded'}); unchanged at teardown: ${x.unchangedAfterRun ?? 'not recorded'} (\`herdr.executable.unchangedAfterRun\`).`,
+  };
 }
 
-// The attestation block, generated unticked (oac-gates references/scripted-runs.md).
-export function attestation({ herdrVersion, herdrHash = '`<64 hex>`', harnesses, consent }) {
+// The harness line. `verified` is the report's own versionsVerified(): every source it
+// checks (CLI, wire, daemon; post-run where the gate records one) reported one version.
+// `versions` names those sources and their fields; the executables are cited by hash.
+export function harnessVerification(manifest, { verified, versions }) {
+  const ex = Object.entries(manifest?.harnessExecutables ?? {}).filter(([, e]) => e && typeof e === 'object');
+  const exe = ex.map(([k, e]) => `\`${k}\` → \`${e.basename ?? '?'}\` sha256 ${/^[0-9a-f]{64}$/.test(e.sha256 ?? '') ? `\`${e.sha256}\`` : 'not recorded'} (\`harnessExecutables.${k}\`)`).join(', ') || 'not recorded';
+  return verified
+    ? `VERIFIED — ${versions}: one and the same version per harness from every source listed (the report's versionsVerified). Executables that answered \`--version\`: ${exe}. Not shown by the record: that the pane ran these files (its shell resolves PATH itself; scripted-runs.md "What the record cannot show").`
+    : `UNVERIFIED — ${versions}: the sources did not report one and the same version per harness, or were not recorded (see Findings). Executables that answered \`--version\`: ${exe}.`;
+}
+
+// The verification block. `humanActions`: the steps a person did that the agent could not,
+// each naming who (a `<TO FILL: ...>` slot where only the person can say).
+export function verification({ manifest, harness, dialogs, dialogsField, humanActions, heading = '## Verification', extra = [] }) {
+  const herdr = herdrVerification(manifest);
   return [
-    '## Operator attestation',
+    heading,
     '',
-    'Generated unticked. Only the operator who ran this machine ticks these lines, each only if true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation"). An unticked line means this record is neither an equivalence record nor verdict-bearing.',
+    'Each line is checked from the evidence it cites (run-manifest.json fields beside this record), or marked UNVERIFIED with the reason (`.claude/skills/oac-gates/references/scripted-runs.md` "Verification"). Generated from the run manifest; the recording agent re-checks every citation and fills each `<TO FILL: ...>` slot. A herdr or Harness line that is UNVERIFIED means this record is neither an equivalence record nor verdict-bearing.',
     '',
-    `- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${herdrVersion ?? '?'}\`; sha256 of the executable: ${herdrHash}`,
-    `- [ ] **Harness:** the real, logged-in ${harnesses} ran, not test doubles.`,
-    `- [ ] **Consent dialog:** ${consent}`,
-    '- **Attested by:** <operator>, <YYYY-MM-DD>',
+    `- **herdr:** ${herdr.text}`,
+    `- **Harness:** ${harness}`,
+    ...extra,
+    `- **Dialogs:** ${describeDialogs(dialogs)} (\`${dialogsField}\`; each driver key is a \`dialog-accept\` command in \`commands\`)`,
+    `- **Human actions:** ${humanActions} Sign-ins or credentials a person supplied for this run: ${TO_FILL}: none, or each action and who did it>.`,
+    `- **Verified by:** ${TO_FILL}: recording agent>, ${TO_FILL}: YYYY-MM-DD>`,
     '',
   ];
 }

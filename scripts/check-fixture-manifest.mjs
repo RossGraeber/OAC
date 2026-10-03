@@ -29,11 +29,12 @@
 // (`herdr.executable.testDouble` not false), when the herdr executable is not a hashed
 // native binary (`format` elf/pe/mach-o, 64-hex `sha256`), or when the fixture's committed
 // bytes (the git index blob; the work tree only if the file is not tracked) do not hash to
-// the capture's recorded `sha256`. A schemaVersion 1 run manifest predates #140: its
-// fixtures are printed as a WARN line (nothing binds them mechanically) and rest on the
-// operator attestation. Any other schemaVersion is a violation. What is still NOT checked:
-// that the harness that ran was real (harnessExecutables is recorded, not judged), and
-// that a human accepted a consent dialog.
+// the capture's recorded `sha256`, or (#252) when the driver compared the herdr hash with
+// PINS.md's expected one (`herdr.executableCheck`) and it did not match. A schemaVersion 1
+// run manifest predates #140: its fixtures are printed as a WARN line (nothing binds them
+// mechanically). Any other schemaVersion is a violation. What is still NOT checked: that the
+// harness that ran was real (harnessExecutables is recorded, not judged), and that a human
+// accepted a consent dialog (a human action the record names; scripted-runs.md).
 //
 // Harness versions float and are never gated (operator decision on #216, 2026-10-01): a
 // `-herdr` entry with `version_matches_pin: false` (its harness version is not PINS.md's
@@ -41,13 +42,17 @@
 //
 // herdr-run records: a tracked herdr-runs/*.md record that claims to be an equivalence
 // record (`> **Equivalence record** for G<n> at herdr <tag>`), and a tracked
-// G<n>-result.md whose `- **Driver:**` line names herdr, must carry an
-// `## Operator attestation` section with all four lines (real herdr with the sha256 of
-// its executable, real harness, consent dialog, attested by + date). The check proves
-// the attestation is present and complete, not that it is true -- except the herdr hash of
-// an equivalence record whose run manifest (the `.run-manifest.json` beside it) is
-// schemaVersion 2 or later: that hash must equal the manifest's `herdr.executable.sha256`
-// (#140).
+// G<n>-result.md whose `- **Driver:**` line names herdr, must carry a complete
+// `## Verification` section (#252, verification completeness): herdr VERIFIED with its
+// executable sha256, Harness VERIFIED, Dialogs, Human actions, Verified by + date, and no
+// `<TO FILL` slot left. A record made before #252 may instead carry the complete
+// `## Operator attestation` of that time (four lines; kept valid as history), but not when
+// its run manifest was written by the #252 driver (`herdr.executableCheck` present). For an
+// equivalence record whose run manifest (the `.run-manifest.json` beside it) is
+// schemaVersion 2 or later, the stated herdr hash must equal the manifest's
+// `herdr.executable.sha256` (#140); a verified record's manifest must also record
+// `herdr.executableCheck.result` "match" against that hash (#252). The rest of each line is
+// checked by the recording agent from the citations, not by this script.
 //
 // Exits non-zero on any violation so CI fails loudly.
 
@@ -94,10 +99,21 @@ const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const HERDR_SUFFIX = /-herdr(?:\.[^/]*)?$/;
 const UNVERIFIED_PREFIX = /^unverified-/;
 
-// The operator attestation an equivalence record or a verdict-bearing scripted run must
-// carry (.claude/skills/oac-gates/references/scripted-runs.md "Operator attestation").
+// The verification an equivalence record or a verdict-bearing scripted run must carry
+// (.claude/skills/oac-gates/references/scripted-runs.md "Verification"; operator decision
+// on #252, 2026-10-03: verification from the evidence, not attestation). A record made
+// before #252 may instead carry the complete `## Operator attestation` of that time; it
+// stays valid history, but not for a run whose manifest the #252 driver wrote.
 const EQUIVALENCE_CALLOUT = /^> \*\*Equivalence record\*\* for G\d+ at herdr /m;
 const HERDR_DRIVER_LINE = /^- \*\*Driver:\*\* herdr\b/m;
+const VERIFICATION_LINES = [
+  ['herdr line (VERIFIED, with the executable sha256)', /^- \*\*herdr:\*\* VERIFIED\b.*\b[0-9a-f]{64}\b/m],
+  ['Harness line (VERIFIED)', /^- \*\*Harness:\*\* VERIFIED\b/m],
+  ['Dialogs line', /^- \*\*Dialogs:\*\* \S/m],
+  ['Human actions line', /^- \*\*Human actions:\*\* \S/m],
+  ['Verified by line (who, YYYY-MM-DD)', /^- \*\*Verified by:\*\* \S.*\b\d{4}-\d{2}-\d{2}\b/m],
+];
+const UNFILLED = '<TO FILL';
 const ATTESTATION_LINES = [
   ['herdr line (real herdr, sha256 of its executable)', /^- \[x\] \*\*herdr:\*\* .*\b[0-9a-f]{64}\b/m],
   ['Harness line (real, logged-in harness)', /^- \[x\] \*\*Harness:\*\* \S/m],
@@ -105,13 +121,26 @@ const ATTESTATION_LINES = [
   ['Attested by line (who, YYYY-MM-DD)', /^- \*\*Attested by:\*\* \S.*\b\d{4}-\d{2}-\d{2}\b/m],
 ];
 
-function attestationProblems(text) {
-  const m = /^## Operator attestation[ \t]*$/m.exec(text);
-  if (!m) return ['has no `## Operator attestation` section'];
+// The body of a `## <heading>` section (up to the next `## `), or null when absent.
+function sectionOf(text, heading) {
+  const m = new RegExp(`^## ${heading}[ \\t]*$`, 'm').exec(text);
+  if (!m) return null;
   const rest = text.slice(m.index + m[0].length);
   const next = /^## /m.exec(rest);
-  const section = next ? rest.slice(0, next.index) : rest;
-  return ATTESTATION_LINES.filter(([, re]) => !re.test(section)).map(([name]) => `operator attestation is missing its ${name}`);
+  return next ? rest.slice(0, next.index) : rest;
+}
+
+// -> { form: 'verification' | 'attestation' | null, problems }.
+function verificationProblems(text) {
+  const v = sectionOf(text, 'Verification');
+  if (v !== null) {
+    const problems = VERIFICATION_LINES.filter(([, re]) => !re.test(v)).map(([name]) => `verification is missing its ${name}`);
+    if (v.includes(UNFILLED)) problems.push('verification still has an unfilled `<TO FILL: ...>` slot');
+    return { form: 'verification', problems };
+  }
+  const a = sectionOf(text, 'Operator attestation');
+  if (a !== null) return { form: 'attestation', problems: ATTESTATION_LINES.filter(([, re]) => !re.test(a)).map(([name]) => `operator attestation is missing its ${name}`) };
+  return { form: null, problems: ['has no `## Verification` section (#252; a record made before #252 may carry a complete `## Operator attestation` instead)'] };
 }
 
 function isHerdrFixture(path) {
@@ -187,7 +216,7 @@ function committedBytes(root, path) {
 function identityProblems(run, entry, root, name, warn) {
   const schema = run?.schemaVersion;
   if (schema === LEGACY_RUN_SCHEMA) {
-    warn(`run manifest ${entry.driver.run_manifest} is schemaVersion 1 (before #140): which herdr and harness executables ran, and that this fixture is that run's capture byte for byte, rest on the operator attestation`);
+    warn(`run manifest ${entry.driver.run_manifest} is schemaVersion 1 (before #140): which herdr and harness executables ran, and that this fixture is that run's capture byte for byte, are not recorded by the driver (UNVERIFIED; that record's operator attestation is pre-#252 history)`);
     return [];
   }
   if (!Number.isInteger(schema) || schema < IDENTITY_RUN_SCHEMA) return [`the run manifest's schemaVersion ${JSON.stringify(schema ?? null)} is not one this check knows (1, or 2 and later)`];
@@ -197,6 +226,9 @@ function identityProblems(run, entry, root, name, warn) {
     out.push(`the run manifest records ${x ? `herdr.executable.testDouble ${JSON.stringify(x.testDouble ?? null)}` : 'no herdr.executable'}: a test-double (or unrecorded) herdr run is never a fixture source`);
   } else if (!NATIVE_FORMATS.includes(x.format) || !HEX64.test(x.sha256 ?? '')) {
     out.push(`the run manifest's herdr.executable is not a hashed native binary (format ${JSON.stringify(x.format ?? null)}); a test-double run is never a fixture source`);
+  } else if (run?.herdr?.executableCheck && run.herdr.executableCheck.result !== 'match') {
+    // #252: a driver that compared the hash with PINS.md's expected one must have matched it.
+    out.push(`the run manifest's herdr.executableCheck.result is ${JSON.stringify(run.herdr.executableCheck.result ?? null)}, not "match": a run whose herdr identity is UNVERIFIED is never a fixture source`);
   }
   const cap = (run?.captures ?? []).find((c) => c?.file === name && c?.written === true);
   if (cap) {
@@ -251,9 +283,11 @@ function driverBlockProblems(entry, root, tracked, warn = () => {}) {
   return out;
 }
 
-// #140: an equivalence record's attested herdr hash must be the one its run manifest
-// recorded, when that manifest records one (schemaVersion >= 2).
-function attestedHashProblems(text, file, root, tracked) {
+// #140, #252: an equivalence record's herdr hash must be the one its run manifest recorded,
+// when that manifest records one (schemaVersion >= 2). A verified record's run manifest must
+// also record the driver's comparison with PINS.md's expected hash as a match
+// (herdr.executableCheck, #252). An attestation is accepted only from a driver before #252.
+function recordedHashProblems(text, file, root, tracked, form) {
   const rm = file.replace(/\.md$/, '.run-manifest.json');
   if (!tracked.has(rm)) return [];
   let run;
@@ -262,13 +296,21 @@ function attestedHashProblems(text, file, root, tracked) {
   } catch {
     return [];
   }
-  if (!Number.isInteger(run?.schemaVersion) || run.schemaVersion < IDENTITY_RUN_SCHEMA) return [];
+  const check = run?.herdr?.executableCheck;
+  if (form === 'attestation' && check) return [`its run manifest ${rm} was written by the #252 driver (herdr.executableCheck), so it carries a \`## Verification\` section, not an operator attestation`];
   const recorded = run?.herdr?.executable?.sha256;
-  const line = /^- \[x\] \*\*herdr:\*\* .*$/m.exec(text)?.[0] ?? '';
-  const attested = /\b([0-9a-f]{64})\b/.exec(line)?.[1];
-  if (!attested) return [];
-  if (!HEX64.test(recorded ?? '')) return [`its run manifest ${rm} records no herdr executable sha256 to back the attested one`];
-  return attested === recorded ? [] : [`the attested herdr sha256 is not the one its run manifest ${rm} recorded (herdr.executable.sha256)`];
+  const out = [];
+  if (form === 'verification' && (check?.result !== 'match' || !HEX64.test(recorded ?? '') || check?.expectedSha256 !== recorded)) {
+    out.push(`its run manifest ${rm} records no herdr.executableCheck match with PINS.md's expected sha256 (result ${JSON.stringify(check?.result ?? null)}), so herdr cannot be VERIFIED`);
+  }
+  if (!Number.isInteger(run?.schemaVersion) || run.schemaVersion < IDENTITY_RUN_SCHEMA) return out;
+  const lineRe = form === 'verification' ? /^- \*\*herdr:\*\* VERIFIED\b.*$/m : /^- \[x\] \*\*herdr:\*\* .*$/m;
+  const line = lineRe.exec(text)?.[0] ?? '';
+  const stated = /\b([0-9a-f]{64})\b/.exec(line)?.[1];
+  if (!stated) return out;
+  if (!HEX64.test(recorded ?? '')) return [...out, `its run manifest ${rm} records no herdr executable sha256 to back the stated one`];
+  if (stated !== recorded) out.push(`the herdr sha256 it states is not the one its run manifest ${rm} recorded (herdr.executable.sha256)`);
+  return out;
 }
 
 function checkManifest(root) {
@@ -371,8 +413,8 @@ function checkManifest(root) {
     }
   }
 
-  // herdr-run records and gate results that claim what only an attested run may claim.
-  let attested = 0;
+  // herdr-run records and gate results that claim what only a verified run may claim.
+  let verified = 0;
   for (const file of trackedGates) {
     const isRecord = file.startsWith(`${herdrRunsDir}/`) && file.endsWith('.md');
     const isResult = /^docs\/planning\/gates\/G\d+-result\.md$/.test(file);
@@ -385,13 +427,14 @@ function checkManifest(root) {
     }
     const claims = isRecord ? EQUIVALENCE_CALLOUT.test(text) : HERDR_DRIVER_LINE.test(text);
     if (!claims) continue;
-    attested += 1;
+    verified += 1;
     const why = isRecord ? 'claims to be an equivalence record' : 'names herdr as its Driver';
-    for (const p of attestationProblems(text)) problems.push(`${file}: ${why} but ${p}`);
-    if (isRecord) for (const p of attestedHashProblems(text, file, root, trackedGateSet)) problems.push(`${file}: ${why} but ${p}`);
+    const v = verificationProblems(text);
+    for (const p of v.problems) problems.push(`${file}: ${why} but ${p}`);
+    if (isRecord && v.form) for (const p of recordedHashProblems(text, file, root, trackedGateSet, v.form)) problems.push(`${file}: ${why} but ${p}`);
   }
 
-  return { problems, warnings, entries: entries.length, tracked: trackedFixtureFiles.length, herdrEntries, attested };
+  return { problems, warnings, entries: entries.length, tracked: trackedFixtureFiles.length, herdrEntries, verified };
 }
 
 function report(result) {
@@ -408,7 +451,7 @@ function report(result) {
   console.log(
     `All ${result.entries} MANIFEST.json entries match the ${result.tracked} other committed fixture file(s)` +
       ` (${result.herdrEntries} \`-herdr\` entr${result.herdrEntries === 1 ? 'y' : 'ies'}, each with a checked \`driver\` block;` +
-      ` ${result.attested} herdr-run record(s) or gate result(s) needing an operator attestation, each complete).`,
+      ` ${result.verified} herdr-run record(s) or gate result(s) needing a verification section, each complete).`,
   );
   return 0;
 }
@@ -469,6 +512,22 @@ const ATTESTATION = [
 ].join('\n');
 const EQUIV = '> **Equivalence record** for G1 at herdr `v0.9.1`\n\n# G1 scripted re-run\n';
 const withoutLine = (label) => ATTESTATION.split('\n').filter((l) => !l.includes(label)).join('\n');
+// #252: the verification a record made by the #252 driver carries, and that driver's run
+// manifest (herdr.executableCheck records the comparison with PINS.md's expected hash).
+const VERIFICATION = [
+  '## Verification',
+  '',
+  `- **herdr:** VERIFIED — \`herdr --version\` \`herdr 0.9.1\` equals the PINS.md pin; executable sha256 \`${HERDR_SHA}\` equals PINS.md's expected sha256 for \`linux-x64\` (\`herdr.executableCheck\`).`,
+  '- **Harness:** VERIFIED — Claude Code: CLI `2.1.283`, wire `2.1.283` (`scenarioData.g1.versions`).',
+  '- **Dialogs:** dev-channels (read #4; accepted outside the driver (recorded as human))',
+  '- **Human actions:** the dev-channels dialog accept, G1 criterion 5: accepted at the keyboard by self-test operator. Sign-ins: none.',
+  '- **Verified by:** self-test agent, 2026-10-03',
+  '',
+].join('\n');
+const CHECK_MATCH = { result: 'match', platform: 'linux-x64', expectedSha256: HERDR_SHA, basis: 'self-test', detail: 'equal' };
+const RUN_252 = { ...RUN, herdr: { ...RUN.herdr, executableCheck: CHECK_MATCH } };
+const run252With = (check, exe = {}) => ({ ...RUN_252, herdr: { ...RUN_252.herdr, executable: { ...HERDR_EXE, ...exe }, executableCheck: check } });
+const verificationWith = (from, to) => VERIFICATION.replace(from, to);
 
 function tree({ entries, run = RUN, record = '# G1 scripted re-run\n', result = null, extraFiles = [], untracked = {} }) {
   const files = { [manifestRelPath]: JSON.stringify({ fixtures: [baseEntry(HUMAN_FIXTURE), ...entries] }, null, 2) };
@@ -512,8 +571,20 @@ const SELF_TEST_CASES = [
   { name: 'driver block on a fixture without the -herdr suffix', expect: 'lacks the `-herdr` suffix', ...tree({ entries: [herdrEntry(DRIVER, `${fixturesDir}/g1-claude-wake/transcript-2026-10-01-2.1.283.jsonl`)] }) },
   { name: 'unverified-* herdr capture committed as a fixture', expect: 'is never a fixture', ...tree({ entries: [herdrEntry(DRIVER, UNVERIFIED_FIXTURE)] }) },
   { name: 'committed -herdr file with no manifest entry', expect: 'has no MANIFEST.json entry', ...tree({ entries: [], extraFiles: [HERDR_FIXTURE] }) },
-  { name: 'control: equivalence record with a complete operator attestation', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION}` }) },
-  { name: 'equivalence record with no operator attestation', expect: 'has no `## Operator attestation` section', ...tree({ entries: [herdrEntry(DRIVER)], record: EQUIV }) },
+  { name: 'control (history): pre-#252 equivalence record with a complete operator attestation', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: 'equivalence record with neither a verification nor an attestation', expect: 'has no `## Verification` section', ...tree({ entries: [herdrEntry(DRIVER)], record: EQUIV }) },
+  { name: 'control (#252): equivalence record with a complete verification, its run manifest recording a match', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: '#252: verification with an unfilled slot', expect: 'unfilled `<TO FILL', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('Sign-ins: none.', 'Sign-ins: <TO FILL: none, or each action>.')}` }) },
+  { name: '#252: verification whose herdr line is UNVERIFIED', expect: 'missing its herdr line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('**herdr:** VERIFIED', '**herdr:** UNVERIFIED')}` }) },
+  { name: '#252: verification whose Harness line is UNVERIFIED', expect: 'missing its Harness line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('**Harness:** VERIFIED', '**Harness:** UNVERIFIED')}` }) },
+  { name: '#252: verification without the Human actions line', expect: 'missing its Human actions line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${VERIFICATION.split('\n').filter((l) => !l.includes('**Human actions:**')).join('\n')}` }) },
+  { name: '#252: verification without a Verified by date', expect: 'missing its Verified by line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('self-test agent, 2026-10-03', 'self-test agent')}` }) },
+  { name: '#252: verification whose run manifest records no executable check (a driver before #252)', expect: 'records no herdr.executableCheck match', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: '#252: verification whose run manifest records no expected value for the platform', expect: 'records no herdr.executableCheck match', ...tree({ entries: [], run: run252With({ ...CHECK_MATCH, result: 'no-expected-value', expectedSha256: null }), record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: '#252: verification stating a herdr sha256 other than the run manifest\'s', expect: 'is not the one its run manifest', ...tree({ entries: [], run: run252With({ ...CHECK_MATCH, expectedSha256: 'e'.repeat(64) }, { sha256: 'e'.repeat(64) }), record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: '#252: an operator attestation on a run the #252 driver recorded', expect: 'carries a `## Verification` section, not an operator attestation', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: '#252: a fixture from a run whose herdr matched no expected value', expect: 'is never a fixture source', ...tree({ entries: [herdrEntry(DRIVER)], run: run252With({ ...CHECK_MATCH, result: 'no-expected-value', expectedSha256: null }) }) },
+  { name: 'control (#252): gate result naming herdr as Driver, verified', expect: 'pass', ...tree({ entries: [], run: null, record: null, result: `### G1 claude-wake\n\n- **Driver:** herdr (\`herdr 0.9.1\`)\n\n${VERIFICATION}` }) },
   { name: 'equivalence record: attestation without the herdr sha256', expect: 'missing its herdr line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION.replace('c'.repeat(64), '<sha256>')}` }) },
   { name: 'equivalence record: attestation without the Harness line', expect: 'missing its Harness line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${withoutLine('**Harness:**')}` }) },
   { name: 'equivalence record: attestation without the Consent dialog line', expect: 'missing its Consent dialog line', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${withoutLine('**Consent dialog:**')}` }) },

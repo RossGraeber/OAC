@@ -4,13 +4,17 @@
 // hashed or run, and no harness config directory is read (CLAUDE_CONFIG_DIR and CODEX_HOME
 // point into the temp directory).
 
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd } from '../lib/manifest.mjs';
-import { herdrExecutableHash } from '../lib/gate-report-common.mjs';
+import { herdrVerification } from '../lib/gate-report-common.mjs';
+import { checkHerdrExecutable, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 // A credential file's name, spelled so the containment lint (check 10) does not read this
@@ -117,12 +121,28 @@ export async function identityUnit(check) {
 
     check('#140 capture hash: sha256 of the UTF-8 bytes written', sha256Text('a\u00e9\n') === sha(Buffer.from('a\u00e9\n', 'utf8')));
 
-    // The attestation's herdr hash is filled from the manifest only for a hashed native herdr.
-    const m = (x) => ({ herdr: { executable: x } });
+    // #252: the driver compares the herdr hash with PINS.md's expected value for its platform,
+    // and the record's herdr line is VERIFIED only on a recorded match, citing the fields.
     const hex = 'a'.repeat(64);
-    check('#140 attestation: hash filled from herdr.executable for a native, non-test-double herdr', herdrExecutableHash(m({ sha256: hex, format: 'elf', testDouble: false })).startsWith(`\`${hex}\``));
-    check('#140 attestation: a test-double herdr leaves the placeholder and says so', /^`<64 hex>` \(the run manifest records a test-double herdr/.test(herdrExecutableHash(m({ sha256: hex, format: 'script', testDouble: true }))));
-    check('#140 attestation: a schemaVersion 1 manifest (no herdr.executable) leaves the placeholder', herdrExecutableHash({ herdr: {} }) === '`<64 hex>`' && herdrExecutableHash(m({ sha256: hex, format: 'script', testDouble: false })) === '`<64 hex>`');
+    const otherHex = 'b'.repeat(64);
+    const expected = [{ platform: 'linux-x64', sha256: hex, basis: 'release asset digest' }];
+    const exe = (x) => ({ basename: 'herdr', sha256: hex, format: 'elf', testDouble: false, unchangedAfterRun: true, ...x });
+    const xc = (x, platform = 'linux-x64') => checkHerdrExecutable(exe(x), expected, platform);
+    check('#252 check: the expected hash for the platform is a match', xc({}).result === 'match' && xc({}).expectedSha256 === hex && xc({}).basis === 'release asset digest');
+    check('#252 check: another hash is a mismatch (run.mjs: NOT RUN)', xc({ sha256: otherHex }).result === 'mismatch' && xc({ sha256: otherHex }).detail.includes(otherHex));
+    check('#252 check: a platform with no row is no-expected-value (a finding)', xc({}, 'darwin-arm64').result === 'no-expected-value');
+    check('#252 check: the node-run test double is never compared', xc({ testDouble: true, format: 'script' }).result === 'test-double');
+    check('#252 check: an unhashed native herdr is unhashed (run.mjs: NOT RUN)', xc({ sha256: null }).result === 'unhashed');
+    const man = (x, check = xc(x)) => ({ herdr: { observedVersionOutput: 'herdr 0.9.1', expectedVersionOutput: 'herdr 0.9.1', executable: exe(x), executableCheck: check } });
+    const hv = (m) => herdrVerification(m);
+    check('#252 verification: a recorded match is VERIFIED, citing the manifest fields and the hash', hv(man({})).verified && /^VERIFIED — /.test(hv(man({})).text) && hv(man({})).text.includes(hex) && hv(man({})).text.includes('herdr.executableCheck'));
+    check('#252 verification: a mismatch, a test double, a changed executable or a missing check is UNVERIFIED', [man({ sha256: otherHex }), man({ testDouble: true, format: 'script' }), man({ unchangedAfterRun: false }), { herdr: { ...man({}).herdr, executableCheck: null } }].every((m) => !hv(m).verified && /^UNVERIFIED — /.test(hv(m).text)));
+    check('#252 verification: a schemaVersion 1 manifest (no herdr.executable) is UNVERIFIED', !hv({ herdr: { observedVersionOutput: 'herdr 0.9.1', expectedVersionOutput: 'herdr 0.9.1' } }).verified);
+    check('#252 verification: a version off the pin is UNVERIFIED', !hv({ herdr: { ...man({}).herdr, observedVersionOutput: 'herdr 0.9.2' } }).verified);
+    check('#252 PINS.md: the committed expected-executable table parses, one row per platform, a 64-hex hash each', (() => { const t = parseHerdrExpectedExecutables(readFileSync(join(REPO, 'docs', 'planning', 'PINS.md'), 'utf8')); return t.length >= 1 && t.every((r) => /^[a-z0-9]+-[a-z0-9]+$/.test(r.platform) && /^[0-9a-f]{64}$/.test(r.sha256)) && new Set(t.map((r) => r.platform)).size === t.length; })());
+    const tbl = (rows) => ['| Platform | Release asset | Expected executable sha256 | Basis |', '|---|---|---|---|', ...rows].join('\n');
+    const throwsT = (t) => { try { parseHerdrExpectedExecutables(t); return false; } catch { return true; } };
+    check('#252 PINS.md: no table is no expected values; a row without a hash or a duplicate platform throws', parseHerdrExpectedExecutables('no table').length === 0 && throwsT(tbl(['| `linux-x64` | a | none | b |'])) && throwsT(tbl([`| \`linux-x64\` | a | \`${hex}\` | b |`, `| \`linux-x64\` | a | \`${otherHex}\` | b |`])));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
