@@ -4,6 +4,30 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-03 (**Issue #46 (E6): the MCP binding lands at
+`spec/bindings/mcp.md`; C5 closed.** In this change:
+
+- **Path.** `spec/bindings/mcp.md`, the task-scoped exemption from the neutral-vocabulary
+  rule. Mechanical check 2 and the spec zero-hits group exempt that exact path; check 1
+  (transport vocabulary) and CI checks 3, 8, 11 are unchanged. Skills updated:
+  `oac-spec-authoring` (+ `neutral-vocabulary-check.md`), `oac-boundaries`
+  `mechanical-checks.md`, `oac-mcp` Pin, `oac-claude-channels` §4; mirror re-synced.
+- **C5: `CLOSED`** by the binding's §9 (dual-era server, legacy-only channel path, an
+  era-invariant tool surface). Both register rows and RISK-G4 carry dated notes. #65 and
+  RISK-G4 row 41 stay open as verification.
+- **Ledger.** Closed: "`experimental` at `2026-07-28`" (present in the schema at commit
+  `271ecc9`, lines 720/797; RISK-MCP-EXPERIMENTAL dated note). Added: modern-era caller
+  attribution; legacy clients accepting `extensions` in `initialize`.
+- **Drift.** B2 D2 ("no reserved-prefix rule") holds for SEP-2133's text only. The MCP
+  base spec reserves `_meta` prefixes whose second label is `modelcontextprotocol` or
+  `mcp` at both revisions, and at `2026-07-28` extension identifiers follow those rules.
+  `oac-mcp` is corrected. C3 §4, `PINS.md` and `REVERIFICATION-B2.md` still carry the
+  narrower wording; the identifier itself is unaffected (second label `github`).
+- **Cross-dependency.** The binding cites `spec/session-channels.md` (#41) sections by
+  planned name.
+
+No gate verdict, pin or `ADR-001.md` text changes.)
+
 **Last updated:** 2026-10-03 (**Issue #40 (D7): Stage 1 exits, and Stage 2 opens.**
 Operator decision on #40 (2026-10-02): D7 proceeds once the C13 G5 Codex re-run is
 recorded. It does not wait for the remaining herdr re-runs (#130, #131, #124), which check
@@ -1351,6 +1375,9 @@ states or that are inferred/stale). Closed when the named resolution lands.
   with the G4 result cited) for the resolution, and #65 (G4) for the first `rmcp`-based
   legacy-era channel run against real Claude Code. Codex's default client era stays under
   RISK-G4 (`docs/planning/v0.1/11-risks.md` row 41).
+  **Dated note, 2026-10-03 (#46): closed.** `spec/bindings/mcp.md` §9 resolves it; both
+  register rows read `CLOSED (2026-10-03, #46)`. #65 and RISK-G4 row 41 stay open as
+  verification items, not as a conflict.
 - C13 (new, from G5, issue #38/D5, 2026-09-27): `docs/planning/decisions/
   C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name
   the forged id as the sender in part (1) of its answer against a forged block using a
@@ -1586,11 +1613,16 @@ without an UNVERIFIED label.
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
   item 12).
-- Whether MCP `experimental` capabilities still exist at the current era `2026-07-28`
-  (UNVERIFIED — re-labelled from HOLDS in B2; the prior inference cited Claude Code's own
-  client capability, not the `2026-07-28` schema itself, and Claude Code does not
-  register a channel server negotiating `2026-07-28`; see REVERIFICATION-B2.md §3.3
-  table and "Carried to 11-risks.md" item 13).
+- **New, from E6 (#46, 2026-10-03):** whether a modern-era (`2026-07-28`) MCP client sends
+  any per-request signal that attributes a tool call to one of its own sessions
+  (UNVERIFIED — MCP `2026-07-28` forbids treating the connection or process as the
+  session; G4's row-41 probe saw only `codex_version` and `model` in Codex's
+  `x-codex-turn-metadata`). Until found, the modern-era tool path refuses calls
+  (`spec/bindings/mcp.md` §4.4).
+- **New, from E6 (#46, 2026-10-03):** whether legacy clients other than Codex `0.157.1`,
+  Claude Code's channel path included, accept an `extensions` member in an `initialize`
+  result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` §4.3.8,
+  hook H13).
 
 - Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
   from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own

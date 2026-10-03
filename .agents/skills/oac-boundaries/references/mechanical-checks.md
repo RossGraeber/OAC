@@ -6,8 +6,8 @@ Checks 1-8 have no script: this file **is** the check — run the whole list as 
 budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 3, 8, 9,
 10 and 11 on every push and pull request; checks 1, 2, 4-7 are not wired to CI and stay manual.
 
-All commands are Git Bash / ripgrep syntax. `spec/`, `core/`, `adapters/`, `cli/`, and
-`transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
+All commands are Git Bash / ripgrep syntax. `spec/` exists since E6 (#46, 2026-10-03);
+`core/`, `adapters/`, `cli/`, and `transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
 sketch, not built) — ripgrep errors "cannot find the file specified" on a missing path.
 That error is the expected, correct state today; it means the check is **pending**, not
 passing. Re-run the whole list once code lands at those paths and treat any real match as a
@@ -34,8 +34,10 @@ violation exits 1 with `Result: FAIL`.
 # 1. Zenoh vocabulary must not appear in the neutral spec or core types.
 rg -n --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' spec/ core/
 
-# 2. Provider-specific method names must not appear in neutral interfaces.
-rg -n --glob '!target' \
+# 2. Provider-specific method names must not appear in neutral interfaces. The one
+#    exemption is the E6 MCP binding document, by exact path (oac-spec-authoring §3);
+#    check 1 has no exemption.
+rg -n --glob '!target' --glob '!spec/bindings/mcp.md' \
   'claude/channel|thread/queue/add|turn/steer|turn/start|thread/start|thread/resume|notifications/claude/channel' \
   spec/ core/
 
