@@ -4,7 +4,19 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning
+**Last updated:** 2026-10-03 (**Issue #44 (E4): receipts, replies, correlation and the
+error taxonomy written.** `spec/session-channels.md` §8 now holds the delivery-state set
+(DESIGN's `accepted` split into `accepted-by-adapter`, `handed-to-harness` and `unknown`, per
+C5 §9; no state claims a model saw a message), the receipt format, the reply rule for a
+harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
+precedence, and the retransmission and retry rules. Requirement area `RCP`: 48 ids in
+Appendix A. New fixtures: 42 under `tests/protocol/sc-rcp/`; every negative fixture under
+`sc-env/` and `sc-ver/` gains `expected.error`. Two operator questions are open on #44 (are
+receipts across implementations promised; should an "inferred" reply mark exist), each
+marked in §8 with a dated note. No gate verdict, pin or ADR text changes, and no UNVERIFIED
+item opens or closes.)
+
+**Previously:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning
 written.** The first Stage 2 spec change. In this change:
 
 - **New:** `spec/session-channels.md`, the normative OAC Session Channels document.

@@ -35,6 +35,7 @@
     }
   },
   "expected": {
-    "result": "rejected"
+    "result": "rejected",
+    "error": "malformed-envelope"
   }
 }

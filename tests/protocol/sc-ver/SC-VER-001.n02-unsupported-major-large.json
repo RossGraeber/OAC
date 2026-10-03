@@ -36,6 +36,7 @@
     }
   },
   "expected": {
-    "result": "rejected"
+    "result": "rejected",
+    "error": "unsupported-version"
   }
 }

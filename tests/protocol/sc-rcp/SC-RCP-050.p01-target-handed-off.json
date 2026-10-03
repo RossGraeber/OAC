@@ -1,0 +1,31 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-050",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "Bob replies to Alice and names msg-a1, which the implementation handed off to Bob from Alice.",
+  "stage": "reply",
+  "context": {
+    "handed_off": [
+      {
+        "id": "msg-a1",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      }
+    ]
+  },
+  "input": {
+    "reply_request": {
+      "from": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "to": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "requested_target": "msg-a1"
+    }
+  },
+  "expected": {
+    "reply_headers": {
+      "reply_to": "msg-a1"
+    },
+    "correlation": "correlated"
+  }
+}
