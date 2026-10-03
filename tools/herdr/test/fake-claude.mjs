@@ -58,7 +58,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MODERN = '2026-07-28';
 const PV = 'io.modelcontextprotocol/protocolVersion';
 
-const setState = (s) => writeFileSync(join(dir, 'state'), s);
+// herdr AgentInfo.state_change_seq (#253): bumped on every state change, with its time, so
+// fake-herdr can report it (and its linger-working mode can tell how recently it changed).
+let stateSeq = 0;
+let lastState = null;
+const setState = (s) => {
+  if (s !== lastState) {
+    lastState = s;
+    writeFileSync(join(dir, 'state-seq'), `${++stateSeq} ${Date.now()}`);
+  }
+  writeFileSync(join(dir, 'state'), s);
+};
 const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
 const hist = (s) => appendFileSync(buf, `${s}\n`);
 const IDLE_SCREEN = '╭──────────────────────────────╮\n│ >                            │\n╰──────────────────────────────╯\n  ? for shortcuts';

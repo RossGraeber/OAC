@@ -396,7 +396,16 @@ async function tui(overrides = {}) {
     console.error('fake-codex: the TUI needs FAKE_CODEX_AGENT_DIR and FAKE_CODEX_PANE_BUF (set by fake-herdr)');
     process.exit(2);
   }
-  const setState = (s) => writeFileSync(join(dir, 'state'), s);
+  // herdr AgentInfo.state_change_seq (#253), as in fake-claude.mjs.
+  let stateSeq = 0;
+  let lastState = null;
+  const setState = (s) => {
+    if (s !== lastState) {
+      lastState = s;
+      writeFileSync(join(dir, 'state-seq'), `${++stateSeq} ${Date.now()}`);
+    }
+    writeFileSync(join(dir, 'state'), s);
+  };
   const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
   const hist = (s) => appendFileSync(buf, `${s}\n`);
   const history = [];

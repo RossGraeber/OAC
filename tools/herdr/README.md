@@ -147,6 +147,35 @@ new entry per project directory. The driver never writes, edits or prunes these 
 Rules: `.claude/skills/oac-gates/references/scripted-runs.md` "Side effect: trust entries
 accumulate in operator config".
 
+## Waits, settles and turn ordering (#253, #246)
+
+herdr's state is a scheduling signal only, never evidence; these rules make it a safe one.
+
+- **herdr reports the state as `agent_status`.** Every agent response carries an AgentInfo
+  under `result.agent`, its state in `agent_status` (herdr v0.9.1
+  `src/api/schema/agents.rs`). Before #253 the driver read a `state` field that does not
+  exist, so every wait of the 2026-10-02 runs recorded `null` (`lib/herdr.mjs`
+  `agentStatusOf`). A wait whose answer names no documented state now ends the run
+  **NOT RUN** with a finding (`lib/gate-common.mjs` `recordWaitState`); it is never settled.
+- **A wait right after a prompt proves nothing.** herdr: "Standalone `agent wait` returns
+  immediately when the current status matches" (`cli-reference.mdx`), so a wait issued before
+  the agent picked the prompt up returns the state from before it (the 2026-10-02 C13 run's
+  marker wait, 75 ms). A settle after a prompt (`settle(..., { since: prompt })`) also needs
+  the prompt's turn to have begun: herdr's `state_change_seq` past the one in the prompt's own
+  response (herdr's own `agent prompt --wait` rule, `src/api/wait.rs`), a busy screen, or a
+  wire-level signal. `unknown` is not settled unless the wire shows the turn over.
+- **"Turn finished" comes from the wire where one exists.** Codex: `thread/turns/list`
+  showing no turn `inProgress` (`lib/g5.mjs` `threadIdleOnWire`), taken after the thread
+  marker and before every delivery (G5 both paths, L3); G2 already waits for the thread's
+  `idle` status on its watch stream. Claude: the channel-server transcript (the
+  notification, the reply tool call) plus the settle above.
+- **Every full read after a turn is a settled read.** herdr refuses `agent read --lines N` of
+  a full-screen agent's history with `agent_not_idle` while it is working, blocked or
+  unknown. `settledRead` settles first, and on a refusal settles again and retries the read
+  (at most three refusals, then NOT RUN); only reads are retried, nothing is re-sent. If herdr
+  stays `unknown` while the wire shows the turn over, the read falls back to the visible
+  screen (herdr's documented alternative), with a finding.
+
 ## Scripted gate re-runs
 
 Each gate scenario replays the human-run gate spike through herdr and records the run; its
@@ -197,8 +226,11 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
   (C6 mid-turn), Codex cases X1-X6 through the app-server client. **The spoofing bodies reach
   the harness only through the channel server or the app-server client**; herdr types only
   the thread marker, a busy prompt and the fixed question, each checked to carry no body,
-  frame marker or case identity. G5's verdict is FAIL and stays FAIL: the report only says
-  whether a scripted run reproduced the human run's results. The Codex rows are scored per
+  frame marker or case identity. G5's verdict is PASS (2026-10-03, `G5-result.md`: the Codex
+  leg from the C13 E1 re-run of 2026-10-02); a K8 run never changes it: the report only says
+  whether a scripted run reproduced the human run of 2026-09-27's results. The scored answer
+  is always the answer to the question herdr asked; an answer the model volunteers in its
+  reply to a delivery is supporting text only (#246, `lib/g5.mjs` UNPROMPTED_ANSWER_POLICY). The Codex rows are scored per
   case (`--case X2.c2=f`), never as one judgement: X2 is the harness-dependent case, and X5's
   criterion-2 failure is set by the reconstructed client's framing, so it reproduces by
   construction and cannot stand in for the model's behavior. Claude's criteria

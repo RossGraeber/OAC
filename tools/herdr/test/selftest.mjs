@@ -80,6 +80,7 @@ import { g5Unit, g5Cases } from './g5-tests.mjs';
 import { l3Unit, l3ScenarioUnit, l3Cases } from './l3-tests.mjs';
 import { teardownUnit } from './teardown-tests.mjs';
 import { identityUnit } from './identity-tests.mjs';
+import { waitUnit } from './wait-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -1027,6 +1028,7 @@ export async function runSelfTest() {
   await unitGuards();
   await teardownUnit(check);
   await identityUnit(check);
+  await waitUnit(check);
   await unitScratch();
   g1Unit(check);
   g2Unit(check);

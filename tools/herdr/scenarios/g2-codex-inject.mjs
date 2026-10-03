@@ -86,7 +86,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
-import { driverAcceptDialog } from '../lib/gate-common.mjs';
+import { driverAcceptDialog, recordWaitState } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, paneArgv, parseG2Transcript,
@@ -341,15 +341,16 @@ export default {
     // herdr agent state: recorded, and used only to decide when to read next. `unknown` is
     // requested explicitly (K1 §5 item 5) so a wait cannot hang on it, and it never leads
     // to anything being sent again.
+    // #253: a wait whose answer carries no agent_status ends the run NOT RUN (recordWaitState).
     const waitState = async (context, timeoutMs) => {
       const w = await herdr.agentWait(AGENT, { until: ['idle', 'done', 'blocked', 'unknown'], timeoutMs: Math.max(1000, timeoutMs) });
-      const state = w.json?.result?.agent?.state ?? null;
-      g2.herdrStates.push({ context, seq: w.entry.seq, state });
-      return state;
+      return recordWaitState({ g: g2, context, w, ctx, stop });
     };
 
-    // Wait until the pane shows neither a dialog nor work in progress.
-    const settle = async (context, timeoutMs) => {
+    // Wait until the pane shows neither a dialog nor work in progress. `done` (#253) is the
+    // wire-level "turn finished" signal when the scenario has one: with it, a herdr `unknown`
+    // counts as settled (recorded with a finding); without it, `unknown` is never settled.
+    const settle = async (context, timeoutMs, { done = null } = {}) => {
       await sleep(num('settleMs'));
       const deadline = deadlineFor(timeoutMs);
       const waited0 = humanWaitMs;
@@ -357,8 +358,13 @@ export default {
       for (;;) {
         const left = leftUntil(deadline, waited0);
         if (left <= 0) stop(`${context}: the pane did not settle within ${timeoutMs} ms`);
-        const state = await waitState(context, left);
+        const st = await waitState(context, left);
+        const state = st.state;
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
+        if (state === 'unknown' && !(done && done())) {
+          await sleep(pollMs);
+          continue;
+        }
         if (!r.screen.dialog && state === 'blocked') {
           if (++blockedUnseen < 3) {
             await sleep(pollMs);
@@ -375,6 +381,29 @@ export default {
           continue;
         }
         return { read: r, state };
+      }
+    };
+
+    // #246: a full read after a turn the wire showed completed: settle first, retry the read
+    // after another settle if herdr refuses it (agent_not_idle), never re-send anything. If
+    // herdr reports `unknown` throughout, fall back to the visible screen (herdr's documented
+    // alternative), with a finding.
+    const settledRead = async (label, { source = 'recent-unwrapped', lines }, context) => {
+      for (let refusals = 0; ; ) {
+        const s = await settle(context, num('turnTimeoutMs'), { done: () => true });
+        const res = await herdr.agentReadResult(AGENT, { source, lines, deadlineMs: 15000, allowErrorCodes: ['agent_not_idle'] });
+        const e = res.entry;
+        if (res.errorCode !== 'agent_not_idle') {
+          const sec = { seq: e.seq, label, source, startedAt: e.startedAt, endedAt: e.endedAt };
+          keepSection(sec, res.text);
+          return { ...sec, text: res.text, screen: classifyCodexScreen(res.text, { busyIndicator }) };
+        }
+        g2.notIdleRefusals = [...(g2.notIdleRefusals ?? []), { context, seq: e.seq, settledState: s.state }];
+        if (s.state === 'unknown') {
+          ctx.finding(`herdr refused the ${source} read (${context}, herdr command #${e.seq}, agent_not_idle) while it reported \`unknown\` and the wire showed the turn completed; the read fell back to the visible screen, so this capture holds less history`);
+          return { ...(await read(label)), fellBackToVisible: true };
+        }
+        if (++refusals >= 3) stop(`${context}: herdr refused the ${source} read ${refusals} times (agent_not_idle, last #${e.seq}) after the pane settled; nothing more sent`);
       }
     };
 
@@ -548,7 +577,11 @@ export default {
       const res = await herdr.agentPrompt(AGENT, operatorPrompt);
       g2.operatorInput = { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text: operatorPrompt };
       const listFrom = lineCount();
-      const after = await waitState('operator-turn', num('turnTimeoutMs'));
+      // This wait only schedules the next read: it can return at once, with the state from
+      // before the prompt was picked up (#253). The operator's turn being over is established
+      // on the wire below (the watch stream's thread/resume status or thread/status/changed
+      // idle) before anything is delivered.
+      const after = (await waitState('operator-turn', num('turnTimeoutMs'))).state;
       const afterRead = await read('after-operator-turn');
       if (after === 'unknown') ctx.finding(`herdr reported agent state \`unknown\` after the operator's turn (herdr command #${g2.herdrStates.at(-1).seq}); recorded, nothing re-sent (K1 §5 item 5)`);
       if (afterRead.screen.dialog) await handleDialog(afterRead, 'operator-turn');
@@ -601,7 +634,7 @@ export default {
       if (!injTurn?.turnId) diverge('`turn`: turn/start returned no turn id');
       const injDone = await waitWire('turn/completed for the delivered turn', (f) => onWatch(f, f.events.turnCompleted).find((x) => x.turnId === injTurn.turnId) ?? null, num('turnTimeoutMs'), { label: 'inject-turn', bail: watchExited });
       if (injDone.bailed) diverge(`\`watch\`: ${injDone.bailed}`);
-      const injRead = await read('after-inject', { source: 'recent-unwrapped', lines: num('readLines') });
+      const injRead = await settledRead('after-inject', { source: 'recent-unwrapped', lines: num('readLines') }, 'inject-turn'); // #246
       g2.inject = { text: injectText, run: g2.clientRuns.length - 1, turnId: injTurn.turnId, startLine: injTurn.reqLine, completedLine: injDone.line, completedStatus: injDone.status, agentMessages: injDone.agentMessages, afterReadSeq: injRead.seq };
 
       // --- 6b. injections 2 and 3: a long turn, then thread/queue/add while it runs --------
@@ -630,7 +663,7 @@ export default {
       if (!bqResult || bqResult.timedOut) stop(`the client's \`busyqueue\` run did not end within ${num('busyQueueTimeoutMs')} ms; nothing re-sent`);
       bqRec.problems = clientProblems(bqRec).problems;
       if (bqRec.problems.length) diverge(`\`busyqueue\`: ${bqRec.problems.join('; ')}`);
-      const busyRead = await read('after-busy-and-queued', { source: 'recent-unwrapped', lines: num('readLines') });
+      const busyRead = await settledRead('after-busy-and-queued', { source: 'recent-unwrapped', lines: num('readLines') }, 'busy-and-queued-turns'); // #246
       g2.busyQueue = {
         run: g2.clientRuns.length - 1,
         busyTurnId: bqStart.turnId,

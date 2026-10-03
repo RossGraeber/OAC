@@ -246,25 +246,44 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     }
   };
 
+  // herdr's agent state, recorded, failing closed (#253): a wait whose response names no
+  // state herdr documents ends the run NOT RUN, since nothing after it could be ordered on it.
+  const unknownNoted = new Set();
   const waitState = async (context, timeoutMs) => {
     const w = await herdr.agentWait(name, { until: ['idle', 'done', 'blocked', 'unknown'], timeoutMs: Math.max(1000, timeoutMs) });
-    const state = w.json?.result?.agent?.state ?? null;
-    g.herdrStates.push({ agent: label, context, seq: w.entry.seq, state });
-    if (state === 'unknown') ctx.finding(`herdr reported agent state \`unknown\` for ${label} (${context}, herdr command #${w.entry.seq}); recorded, nothing re-sent (K1 §5 item 5)`);
-    return state;
+    const st = recordWaitState({ g, agent: label, context, w, ctx, stop });
+    if (st.state === 'unknown' && !unknownNoted.has(context)) {
+      unknownNoted.add(context);
+      ctx.finding(`herdr reported agent state \`unknown\` for ${label} (${context}, herdr command #${w.entry.seq}); recorded, nothing re-sent (K1 §5 item 5)`);
+    }
+    return st;
   };
 
-  const settle = async (context, timeoutMs) => {
+  // Wait until the pane shows neither a dialog nor work in progress, and herdr reports the
+  // agent idle/done (#253). `since` is the record of a prompt herdr typed (prompt() below): the
+  // settle then also requires that prompt's turn to have begun, by herdr's state_change_seq
+  // moving past the prompt's (herdr's own --wait rule), by a busy screen seen in this settle,
+  // or by `done()`, a wire-level check the scenario passes (Codex: thread/turns/list shows the
+  // turn completed). Without one of those a wait that returned at once (herdr: "Standalone
+  // `agent wait` returns immediately when the current status matches") only shows the state
+  // from before the prompt was picked up. An `unknown` state is not settled unless `done()`
+  // says the turn is over on the wire.
+  const settle = async (context, timeoutMs, { since = null, done = null } = {}) => {
+    if (since && since.stateChangeSeq == null && !done) stop(`${label} ${context}: herdr's prompt response (#${since.seq}) carried no state_change_seq, so the end of its turn cannot be told from the state before it (#253); nothing more sent`);
     await sleep(num('settleMs'));
     const deadline = deadlineFor(timeoutMs);
     const waited0 = humanWaitMs;
     let blockedUnseen = 0;
+    let busySeen = false;
+    let doneSeen = false;
+    const wireDone = async () => (doneSeen ||= !!(done && (await done())));
     for (;;) {
       const left = leftUntil(deadline, waited0);
       if (left <= 0) stop(`${label} ${context}: the pane did not settle within ${timeoutMs} ms`);
-      const state = await waitState(context, left);
+      const st = await waitState(context, left);
       const r = await read(`${context}-settled?`, { keep: 'on-change' });
-      if (!r.screen.dialog && state === 'blocked') {
+      if (r.screen.busy) busySeen = true;
+      if (!r.screen.dialog && st.state === 'blocked') {
         if (++blockedUnseen < 3) {
           await sleep(num('pollMs'));
           continue;
@@ -279,7 +298,38 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
         await sleep(num('pollMs'));
         continue;
       }
+      const begun = promptTurnBegun({ since, stateChangeSeq: st.stateChangeSeq, busySeen }) || (await wireDone());
+      if (!begun || (st.state === 'unknown' && !(await wireDone()))) {
+        await sleep(num('pollMs'));
+        continue;
+      }
+      r.settled = { state: st.state, waitSeq: st.seq, stateChangeSeq: st.stateChangeSeq, by: !since ? 'state' : busySeen ? 'busy screen seen' : doneSeen ? 'wire' : 'state_change_seq' };
       return r;
+    }
+  };
+
+  // A full read (recent / recent-unwrapped with --lines) after a turn: settle first (#246), and
+  // if herdr still refuses it with agent_not_idle (the agent went busy again between the settle
+  // and the read), settle again and retry, a bounded number of times. Only reads are retried:
+  // nothing is ever re-sent. If herdr keeps reporting `unknown` while the wire says the turn is
+  // over, the read falls back to the visible screen, as herdr's docs advise, with a finding.
+  const settledRead = async (lbl, { source = 'recent-unwrapped', lines } = {}, { context = lbl, timeoutMs, since = null, done = null, maxRefusals = 3 } = {}) => {
+    for (let refusals = 0; ; ) {
+      const s = await settle(context, timeoutMs, { since, done });
+      const res = await herdr.agentReadResult(name, { source, lines, deadlineMs: 15000, allowErrorCodes: ['agent_not_idle'] });
+      const e = res.entry;
+      if (res.errorCode !== 'agent_not_idle') {
+        const sec = { seq: e.seq, label: `${label}:${lbl}`, source, startedAt: e.startedAt, endedAt: e.endedAt };
+        keep(sec, res.text);
+        return { ...sec, text: res.text, screen: classify(res.text), settledSeq: s.seq };
+      }
+      g.notIdleRefusals = [...(g.notIdleRefusals ?? []), { agent: label, context, seq: e.seq, afterSettleSeq: s.seq, settledState: s.settled?.state ?? null }];
+      if (s.settled?.state === 'unknown') {
+        ctx.finding(`herdr refused the ${source} read for ${label} (${context}, herdr command #${e.seq}, agent_not_idle) while it reported \`unknown\` and the wire showed the turn over; the read fell back to the visible screen (herdr's documented alternative), so this capture holds less history`);
+        const v = await read(lbl, { source: 'visible' });
+        return { ...v, settledSeq: s.seq, fellBackToVisible: true };
+      }
+      if (++refusals >= maxRefusals) stop(`${label} ${context}: herdr refused the ${source} read ${refusals} times (agent_not_idle, last #${e.seq}) after the pane settled; nothing more sent`);
     }
   };
 
@@ -304,12 +354,35 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     }
   };
 
+  // stateChangeSeq: the baseline settle({ since }) compares against (#253).
   const prompt = async (text) => {
     const res = await herdr.agentPrompt(name, text);
-    return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text };
+    return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text, stateChangeSeq: res.stateChangeSeq };
   };
 
-  return { name, label, sections, read, keep, handleDialog, waitState, settle, waitFor, prompt };
+  return { name, label, sections, read, keep, handleDialog, waitState, settle, settledRead, waitFor, prompt };
+}
+
+// Record one `herdr agent wait` and fail closed on it (#253). A response whose agent_status
+// herdr does not document (lib/herdr.mjs agentStatusOf: null) cannot establish the agent's
+// state: it is a finding and the run ends NOT RUN, never "settled". Shared by makeAgent and
+// the g1/g2 scenarios' own settle loops.
+export function recordWaitState({ g, agent = null, context, w, ctx, stop }) {
+  const rec = { ...(agent ? { agent } : {}), context, seq: w.entry.seq, state: w.state ?? null, stateChangeSeq: w.stateChangeSeq ?? null, durationMs: w.entry.durationMs ?? null };
+  g.herdrStates.push(rec);
+  if (rec.state === null) {
+    ctx.finding(`herdr \`agent wait\` (herdr command #${rec.seq}${agent ? `, ${agent}` : ''}, ${context}) answered with no agent_status herdr documents, so the driver could not establish the agent's state; the run stops rather than proceed on it (#253)`);
+    stop(`${agent ? `${agent} ` : ''}${context}: herdr agent wait #${rec.seq} did not report the agent's state; nothing more sent`);
+  }
+  return rec;
+}
+
+// Whether the turn a prompt started has begun, from what one settle saw (#253): herdr's
+// state_change_seq moved past the prompt's (herdr's own `agent prompt --wait` rule,
+// src/api/wait.rs at v0.9.1), or the screen showed work in progress, or the wire said so.
+export function promptTurnBegun({ since, stateChangeSeq, busySeen = false, wireDone = false }) {
+  if (!since) return true;
+  return busySeen || wireDone || (stateChangeSeq != null && since.stateChangeSeq != null && stateChangeSeq > since.stateChangeSeq);
 }
 
 export const stopper = (herdr, g) => (reason) => {

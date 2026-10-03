@@ -85,7 +85,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
-import { driverAcceptDialog } from '../lib/gate-common.mjs';
+import { driverAcceptDialog, recordWaitState, promptTurnBegun } from '../lib/gate-common.mjs';
 import {
   G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
   formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText, sameDialog, acceptHint,
@@ -218,6 +218,7 @@ export default {
       captureNames: null,
       agentStart: null,
       dialogs: [],
+      herdrStates: [], // #253: every herdr agent wait, its agent_status and state_change_seq
       devChannelsDialogSeen: false,
       handshake: null,
       triggers: [],
@@ -335,21 +336,28 @@ export default {
     };
 
     // Wait until the pane shows neither a dialog nor work in progress. herdr agent state
-    // only schedules the next read; the read decides.
-    const settle = async (context, timeoutMs) => {
+    // only schedules the next read; the read decides. #253: a wait whose answer carries no
+    // agent_status ends the run NOT RUN (recordWaitState), and after a prompt (`since`, the
+    // prompt's record) the settle also needs that prompt's turn to have begun: herdr's
+    // state_change_seq past the prompt's, a busy screen, or `done()` (the wire).
+    const settle = async (context, timeoutMs, { since = null, done = null } = {}) => {
+      if (since && since.stateChangeSeq == null && !done) stop(`${context}: herdr's prompt response (#${since.seq}) carried no state_change_seq, so the end of its turn cannot be told from the state before it (#253); nothing more sent`);
       await sleep(num('settleMs'));
       const deadline = deadlineFor(timeoutMs);
       const waited0 = humanWaitMs;
       let blockedUnseen = 0;
+      let busySeen = false;
       for (;;) {
         const left = leftUntil(deadline, waited0);
         if (left <= 0) stop(`${context}: the pane did not settle within ${timeoutMs} ms`);
         const w = await herdr.agentWait(AGENT, { until: ['idle', 'done', 'blocked'], timeoutMs: Math.max(1000, left) });
+        const st = recordWaitState({ g: g1, context, w, ctx, stop });
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
+        if (r.screen.busy) busySeen = true;
         // herdr saying `blocked` while the screen shows no dialog the driver can name: herdr
         // state may lag the screen, so look again; if it persists, treat it as an
         // unrecognized dialog -- the conservative reading (never accepted by the driver).
-        if (!r.screen.dialog && w.json?.result?.agent?.state === 'blocked') {
+        if (!r.screen.dialog && st.state === 'blocked') {
           if (++blockedUnseen < 3) {
             await sleep(pollMs);
             continue;
@@ -361,6 +369,10 @@ export default {
           continue;
         }
         if (r.screen.busy) {
+          await sleep(pollMs);
+          continue;
+        }
+        if (!promptTurnBegun({ since, stateChangeSeq: st.stateChangeSeq, busySeen, wireDone: !!(done && done()) })) {
           await sleep(pollMs);
           continue;
         }
@@ -402,7 +414,7 @@ export default {
     const prompt = async (label, text) => {
       assertNotInjected(label, text);
       const res = await herdr.agentPrompt(AGENT, text);
-      return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt };
+      return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, stateChangeSeq: res.stateChangeSeq };
     };
 
     try {
@@ -546,7 +558,7 @@ export default {
 
       // --- 4. attribute query and the dropped meta key -------------------------------------
       const aq = await prompt('attributePrompt', prompts.attributePrompt);
-      await settle('attribute-query', num('turnTimeoutMs'));
+      await settle('attribute-query', num('turnTimeoutMs'), { since: aq });
       const aqRead = await read('after-attribute-query', { source: 'recent-unwrapped', lines: readLines });
       g1.attributeQuery = { prompt: aq, answerReadSeq: aqRead.seq };
 
@@ -597,7 +609,7 @@ export default {
         num('turnTimeoutMs'),
         { label: 'reply-wait' },
       );
-      await settle('reply-turn', num('turnTimeoutMs'));
+      await settle('reply-turn', num('turnTimeoutMs'), { since: rp, done: () => true }); // the reply call is on the wire
       const replyRead = await read('after-reply', { source: 'recent-unwrapped', lines: readLines });
       g1.reply = { prompt: rp, wire: call, afterReadSeq: replyRead.seq };
 

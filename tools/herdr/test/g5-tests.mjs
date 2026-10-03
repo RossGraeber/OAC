@@ -6,7 +6,7 @@
 // whose every response, pre-send record and notification must equal the fixture's; the
 // reconstructed client's framing (g5-codex.mjs) reproducing the fixture's delivered frames
 // byte for byte from the fixture's own delimiters; the facts against the fixtures; and the
-// report's rules, including that nothing here can rescore G5's FAIL.
+// report's rules, including that nothing here can rescore G5's verdict.
 //
 // Lifecycle half: scenarios/g5-provenance.mjs end to end through run.mjs against the fake
 // herdr, the fake Claude Code and the fake Codex (TEST DOUBLES), one case traced. These prove
@@ -330,7 +330,7 @@ export async function g5Unit(check) {
   const nr = evaluateG5({ manifest: { outcome: 'NOT RUN', outcomeReason: 'timed out' }, baseline: B, criteria: crit, cases });
   check('g5 report: a NOT RUN leaves every row not evaluable; the human-result column still reads x/f from G5-result.md', nr.rows.every((x) => x.score === SCORES.NE) && nr.rows.map((x) => x.human).join() === 'x,f,x,f,x' && /^f, per case X1 x, X2 f, X3 x, X4 x, X5 f /.test(nr.rows[1].baseline) && /^f, per case X1 x, X2 f, X3 x, X4 x /.test(nr.rows[3].baseline));
   const tpl = renderReport({ manifest: { outcome: 'NOT RUN', scenarioData: { g5: {} } }, evaluation: nr, date: '2026-10-01', fixtures: null, runManifestName: 'x' });
-  check('g5 report: states "G5 stays FAIL" and that no score rescores it, the RECONSTRUCTION callout, attestation unticked, no equivalence callout', /G5 stays FAIL/.test(tpl) && /unchanged by it, whatever the scores/.test(tpl) && /Reconstructed gate servers/.test(tpl) && /g5-codex\.mjs/.test(tpl) && (tpl.match(/^- \[ \] \*\*(?:herdr|Harness|Consent dialog):\*\*/gm) ?? []).length === 3 && !/^- \[x\]/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl));
+  check('g5 report: states that G5\'s verdict (PASS, 2026-10-03) is unchanged and that no score rescores it, the RECONSTRUCTION callout, attestation unticked, no equivalence callout', /G5's verdict \(PASS, 2026-10-03\) is unchanged by it/.test(tpl) && !/G5 stays FAIL/.test(tpl) && /unchanged by it, whatever the scores/.test(tpl) && /Reconstructed gate servers/.test(tpl) && /g5-codex\.mjs/.test(tpl) && (tpl.match(/^- \[ \] \*\*(?:herdr|Harness|Consent dialog):\*\*/gm) ?? []).length === 3 && !/^- \[x\]/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl));
   const V = { verified: true, cli: { claude: CPIN, codex: XPIN }, wire: { claude: CPIN, codex: XPIN }, daemon: { cliVersion: XPIN, appServerVersion: XPIN, managedCodexVersion: XPIN }, pins: { claudeLastTested: CPIN, codexLastTested: XPIN, workingTreeMatchesHead: true } };
   const fx = { transcriptClaude: 'a-herdr.jsonl', transcriptCodex: 'b-herdr.jsonl', paneClaude: 'c-herdr.txt', paneCodex: 'd-herdr.txt' };
   const okRun = { outcome: 'PASS', driver: { commit: 'a'.repeat(40), toolsHerdrDirty: false }, captures: Object.values(fx).map((file) => ({ file, written: true })), scenarioData: { g5: { versions: V, postRun: { matches: true }, fixtures: fx, captureNames: fx, server: [{ match: true, workingTreeMatchesHead: true }], client: [{ match: true, workingTreeMatchesHead: true }] } } };
@@ -400,7 +400,7 @@ export function g5Cases(check) {
     check('g5 trace: the client started only `codex app-server proxy`; the server started nothing', client.filter((t) => t.kind === 'spawn').every((t) => t.file === 'codex' && JSON.stringify(t.args) === '["app-server","proxy"]') && client.some((t) => t.kind === 'spawn') && server.every((t) => t.kind !== 'spawn'));
 
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
-    check('g5 report CLI: draft printed; G5 stays FAIL; the reconstruction and the render-basis difference stated', draft.status === 0 && /G5 stays FAIL/.test(draft.stdout) && /Reconstructed gate servers/.test(draft.stdout) && /BASIS DIFFERS/.test(draft.stdout) && new RegExp(`Criteria source:.*G5-provenance\\.md.*${G5_CRITERIA_SHA256}`).test(draft.stdout), draft.stderr);
+    check('g5 report CLI: draft printed; G5\'s PASS verdict unchanged; the reconstruction and the render-basis difference stated', draft.status === 0 && /G5's verdict \(PASS, 2026-10-03\) is unchanged by it/.test(draft.stdout) && /Reconstructed gate servers/.test(draft.stdout) && /BASIS DIFFERS/.test(draft.stdout) && new RegExp(`Criteria source:.*G5-provenance\\.md.*${G5_CRITERIA_SHA256}`).test(draft.stdout), draft.stderr);
     const agg = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--score', '2=equivalent', '--note', '2=all of it'], { encoding: 'utf8', timeout: 20000 });
     const perCase = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--case', 'X2.c2=x', '--note', 'X2=part (1) names mallory'], { encoding: 'utf8', timeout: 20000 });
     check('g5 report CLI: an aggregate score for Codex row 2 is refused; a per-case result is accepted and rendered in the per-case table', agg.status === 2 && /scored per case/.test(agg.stderr) && perCase.status === 0 && /\| X2 \| c2 \| f \| x \| operator, rule \(b\): the harness-dependent case \| part \(1\) names mallory \|/.test(perCase.stdout) && /\| X5 \| c2 \| f \| f \| mechanical/.test(perCase.stdout), agg.stderr + perCase.stderr);
@@ -479,8 +479,28 @@ export function g5Cases(check) {
     check('g5 c13 report CLI: draft printed with the C13 outcome, the E1 conditions and the per-delivery table', draft.status === 0 && /## C13 outcome: /.test(draft.stdout) && /E1/.test(draft.stdout) && /\| F\.X2\.1 \| model \| x \| pending \|/.test(draft.stdout), draft.stderr);
   });
 
+  // #253/#246: the TUI still busy just after the wire turn completed (fake-herdr linger-working),
+  // which on 2026-10-02 failed a run with agent_not_idle at the after-delivery read; and herdr's
+  // state read from agent_status, the marker's turn waited for, the thread idle on the wire.
+  run('g5 C13 arm 0, TUI busy after the wire turn (#246, #253)', { mode: 'fake-claude,fake-codex,linger-working=800', args: ['--param', 'accept=driver', '--param', 'arms=0', ...FAST], fakeCodex: {} }, (r) => {
+    const m = r.manifest;
+    const g5 = m.scenarioData.g5;
+    const t0 = g5.c13?.threads?.['0']?.thread;
+    const asked = (g5.c13?.deliveries ?? []).filter((d) => !d.refused);
+    check('g5 #246: PASS although herdr says working after each wire turn; no read was refused (each full read waited for idle)', r.status === 0 && m.outcome === 'PASS' && !(g5.notIdleRefusals ?? []).length && !m.commands.some((c) => c.errorCode === 'agent_not_idle'), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(g5.notIdleRefusals)}`);
+    check('g5 #253: every herdr wait recorded a state (agent_status), none null', g5.herdrStates.length > 0 && g5.herdrStates.every((s) => s.state !== null && Number.isInteger(s.stateChangeSeq)), JSON.stringify(g5.herdrStates.filter((s) => s.state === null)));
+    check('g5 #253: the marker settle waited for the marker\'s own turn, and the wire showed it completed before the first delivery', !!t0 && ['state_change_seq', 'busy screen seen'].includes(t0.markerSettledBy) && !!t0.markerIdle?.markerTurnId && asked.every((d) => d.idleBefore?.listLine), JSON.stringify(t0));
+    const waitBefore = (seq) => [...m.commands].reverse().find((c) => c.seq < seq && c.argv.includes('wait') && c.argv.includes('agent'));
+    check('g5 #246: every after-delivery and after-question read came after a herdr wait in the same settle', asked.every((d) => waitBefore(d.afterReadSeq) && (!d.asked || waitBefore(d.answerReadSeq))));
+  });
+
+  run('g5 herdr wait without agent_status: NOT RUN, nothing typed (#253)', { mode: 'fake-claude,fake-codex,wait-no-status', args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+    const m = r.manifest;
+    check('g5 #253: a wait that cannot establish the agent\'s state ends the run NOT RUN with a finding; no prompt was typed', m.outcome === 'NOT RUN' && /did not report the agent's state/.test(m.outcomeReason) && m.findings.some((f) => /#253/.test(f)) && r.prompts.length === 0, `${m.outcome} ${m.outcomeReason}`);
+  });
+
   run('g5 launch not verbatim', { args: [...FAST, '--launch', '["claude"]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
-    check('g5 launch: a launch other than G5\'s verbatim one FAILs before anything starts', r.status === 1 && /not G5's verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent') || c.argv.includes('workspace')));
+    check('g5 launch: a launch other than G5\'s verbatim one FAILs before anything starts', r.status === 1 && /not G5\x27s verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent') || c.argv.includes('workspace')));
   });
   return cases;
 }

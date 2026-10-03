@@ -288,8 +288,8 @@ export default {
       };
       g4.versions.wire.claude = hs.init.clientInfo?.version ?? null;
       warn(claudeVersionWarning({ observed: /^\d+\.\d+\.\d+$/.test(String(g4.versions.wire.claude ?? '')) ? g4.versions.wire.claude : null, lastTested: cpin.lastTested, minimum: cpin.minimum, source: 'the wire initialize clientInfo.version', gate: 'G4' }));
-      await claude.settle('post-handshake', num('startupTimeoutMs'));
-      g4.afterStartupReadSeq = (await claude.read('after-startup', { source: 'recent-unwrapped', lines: num('readLines') })).seq;
+      // #246/#253: every full read after a turn is a settled read (gate-common settledRead).
+      g4.afterStartupReadSeq = (await claude.settledRead('after-startup', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'post-handshake', timeoutMs: num('startupTimeoutMs') })).seq;
 
       const wake = async (n) => {
         const pre = await claude.read(`pre-wake-${n}-idle-check`);
@@ -301,16 +301,15 @@ export default {
           return p.some((x) => x.pid === g4.handshake.legacyPid) && p.some((x) => x.pid === g4.handshake.modernPid) ? p : null;
         }, num('wireTimeoutMs'), { lbl: `wake-${n}-wait` });
         await sleep(num('settleMs'));
-        await claude.settle(`wake-${n}-turn`, num('turnTimeoutMs'));
-        const r = await claude.read(`after-wake-${n}`, { source: 'recent-unwrapped', lines: num('readLines') });
+        const r = await claude.settledRead(`after-wake-${n}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `wake-${n}-turn`, timeoutMs: num('turnTimeoutMs') });
         g4.wakes.push({ n, trigger: trig, preReadSeq: pre.seq, pushes: pushes.map((x) => ({ pid: x.pid, era: x.era, line: x.line, t: x.t, id: x.meta.oac_message_id })), afterReadSeq: r.seq });
       };
       const claudeEcho = async (key, label, text) => {
         const before = facts().toolCalls.length;
         const p = await prompt(claude, label, text);
         const call = await claude.waitFor(`Claude's modern tools/call (${label})`, () => facts().toolCalls.slice(before).find((c) => c.era === 'modern' && c.name === 'g4_echo' && c.resLine) ?? null, num('turnTimeoutMs'), { lbl: `${label}-wait` });
-        await claude.settle(label, num('turnTimeoutMs'));
-        const r = await claude.read(`after-${label}`, { source: 'recent-unwrapped', lines: num('readLines') });
+        // #253: the prompt's own turn (since); the tools/call on the wire shows it began.
+        const r = await claude.settledRead(`after-${label}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: label, timeoutMs: num('turnTimeoutMs'), since: p, done: () => true });
         g4[key] = { prompt: p, call: { reqLine: call.reqLine, resLine: call.resLine, pid: call.pid, text: call.text }, afterReadSeq: r.seq };
       };
 
@@ -361,10 +360,8 @@ export default {
         const push = f.pushes.slice(pushesBefore).find((x) => x.meta.relay_from);
         return echo && relay && push ? { echo, relay, push } : null;
       }, num('turnTimeoutMs'), { lbl: 'codex-tools-wait' });
-      await codex.settle('codex-tools', num('turnTimeoutMs'));
-      const cr = await codex.read('after-codex-tools', { source: 'recent-unwrapped', lines: num('readLines') });
-      await claude.settle('relay-turn', num('turnTimeoutMs'));
-      const rr = await claude.read('after-relay', { source: 'recent-unwrapped', lines: num('readLines') });
+      const cr = await codex.settledRead('after-codex-tools', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'codex-tools', timeoutMs: num('turnTimeoutMs'), since: cp, done: () => true });
+      const rr = await claude.settledRead('after-relay', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'relay-turn', timeoutMs: num('turnTimeoutMs') });
       const sessions = codexSessions(facts(), g4.handshake.legacyPid);
       if (sessions.length !== 1) ctx.finding(`${sessions.length} Codex HTTP MCP sessions reached the server (initialize at lines ${sessions.map((x) => x.reqLine).join(', ')}); only one per-invocation registration was passed, so another Codex registration (for example a leftover entry in the operator's own Codex config) also connected, and the Codex traffic cannot be attributed to the per-invocation registration alone`);
       g4.codex = {

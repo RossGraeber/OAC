@@ -117,7 +117,7 @@ import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
-import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
+import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts, threadIdleOnWire } from '../lib/g5.mjs';
 import {
   L3_RECORD_VERSION, makeProbeMarkers, markerRecords, augmentCaseTable, scanRuntimeLog, redactedExcerpt, harnessConfigTargets, hashConfig, compareSections,
   assertNoMarkerLeak, findMarkerLeaks, sha256, L3_CLAUDE_CASE, L3_CODEX_CASE, PLACEHOLDER_RE,
@@ -828,8 +828,8 @@ export default {
       }, num('wireTimeoutMs'), { lbl: 'L3C-wait' });
       if (w.refused) stop(`the channel server refused case ${L3_CLAUDE_CASE} before sending it (pre-send check)`);
       await sleep(num('settleMs'));
-      await claude.settle('L3C-turn', num('turnTimeoutMs'));
-      const afterB2 = await claude.read('after-L3C', { source: 'recent-unwrapped', lines: num('readLines') });
+      // #246/#253: every full read after a turn is a settled read (gate-common settledRead).
+      const afterB2 = await claude.settledRead('after-L3C', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'L3C-turn', timeoutMs: num('turnTimeoutMs') });
       const b2Log = await pollLog('claude-channel', 'B2');
       l3.steps.B2 = { status: 'recorded', wire: { line: w.notification.line, t: w.notification.t }, afterReadSeq: afterB2.seq, dialogs: l3.dialogs.filter((d) => d.agent === 'claude').map((d) => ({ kind: d.kind, acceptOrigin: d.acceptOrigin, acceptKeys: (d.acceptKeys ?? []).map((k) => k.key) })), log: b2Log };
       l3.beacon.sync.B2 = await syncHits('claudeSync', 'B2');
@@ -838,8 +838,8 @@ export default {
       boxCheck('B3 prompt');
       const repliesBefore = serverFacts().replyCalls.length;
       const q = await claude.prompt(operator.replyPrompt);
-      await claude.settle('B3-turn', num('turnTimeoutMs'));
-      const afterB3 = await claude.read('after-B3', { source: 'recent-unwrapped', lines: num('readLines') });
+      // #253: settle on the prompt's own turn (since), not on the state from before it.
+      const afterB3 = await claude.settledRead('after-B3', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'B3-turn', timeoutMs: num('turnTimeoutMs'), since: q });
       const replies = serverFacts().replyCalls.slice(repliesBefore);
       const cm = markers.find((m) => m.id === 'claude-channel');
       const b3Log = await pollLog('claude-channel', 'B3', { actions: TOOL_INVOKED_ACTIONS });
@@ -949,9 +949,9 @@ export default {
       l3.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) finding(multipleNewThreadsFinding(ready.newThreads.length));
       const tm = await codex.prompt(operator.threadMarker);
-      await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));
-      const mr = await codex.read('after-thread-marker');
-      if (mr.screen.dialog) await codex.handleDialog(mr, 'thread-marker');
+      // #253: settle on the marker's own turn (state_change_seq past the prompt's), never on a
+      // wait that returns at once with the state from before the prompt.
+      const mr = await codex.settle('thread-marker-turn', num('turnTimeoutMs'), { since: tm });
       const projectDirs = [...new Set([codexProjectDir, realpathSync(codexProjectDir)])];
       const attachDeadline = Date.now() + Math.min(num('attachTimeoutMs'), Math.max(0, remaining()));
       let found;
@@ -967,7 +967,18 @@ export default {
         await sleep(num('listPollMs'));
       }
       threadId = found.threadId;
-      l3.thread = { id: threadId, markerPromptSeq: tm.seq };
+      l3.thread = { id: threadId, markerPromptSeq: tm.seq, markerSettledSeq: mr.seq, markerSettledBy: mr.settled?.by ?? null };
+      // #253: the marker's turn must be over on the wire (thread/turns/list: no turn in
+      // progress, the marker's turn completed) before B4's turn/start, or it joins that turn.
+      {
+        let next = 0;
+        l3.thread.markerIdle = await codex.waitFor('the thread-marker turn to complete (thread/turns/list)', async () => {
+          if (Date.now() < next) return null;
+          next = Date.now() + num('listPollMs');
+          const { linesBefore } = await runClient('turns', [threadId]);
+          return threadIdleOnWire(clientFacts(), threadId, { marker: operator.threadMarker, sinceLine: linesBefore });
+        }, num('turnTimeoutMs'), { lbl: 'codex-idle-wait' });
+      }
       const turnDone = (caseId, what) => {
         let next = 0;
         return codex.waitFor(what, async () => {
@@ -986,8 +997,7 @@ export default {
       sendOnce('Codex case X4 (setup turn/start + thread/queue/add, client)');
       await runClient('x4', [threadId]);
       const t2 = await turnDone('X4', 'the queued X4 input\'s turn to complete (thread/turns/list)');
-      await codex.settle('B4-turns', num('turnTimeoutMs'));
-      const afterB4 = await codex.read('after-B4', { source: 'recent-unwrapped', lines: num('readLines') });
+      const afterB4 = await codex.settledRead('after-B4', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'B4-turns', timeoutMs: num('turnTimeoutMs'), done: () => true });
       const b4Log = await pollLog('codex-queue-add', 'B4');
       l3.steps.B4 = { status: 'recorded', turnStart: { turnId: t1.turnId, status: t1.turnStatus, recordedByteIdentical: t1.recordedByteIdentical }, queueAdd: { turnId: t2.turnId, status: t2.turnStatus, recordedByteIdentical: t2.recordedByteIdentical }, afterReadSeq: afterB4.seq, log: b4Log };
       l3.beacon.sync.B4 = await syncHits('codexSync', 'B4');
