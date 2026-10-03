@@ -361,8 +361,39 @@ Pass, fail, and fallback text for each is `docs/planning/v0.1/02-gating-findings
 - **G3 or G4 `FAIL` → take the named fallback and proceed**, recording
   `PASS (FALLBACK TAKEN)`. Neither stops v0.1 on its own.
 
-**Current verdict.** At this document's own landing, all five gates were `NOT RUN` and
-Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and
+**Current verdict (2026-10-03, #40, D7): Gate S1 is met. Go: Stage 1 exits and Stage 2
+opens.** The exit decision, with evidence per criterion, is
+`docs/planning/decisions/D7-stage1-exit.md`. Each gate's result file stays authoritative
+for its verdict.
+
+- G1, G2, G3 and G4 are **PASS**, each on its primary path.
+- G5 is **PASS** (`docs/planning/gates/G5-result.md`, "Verdict"). The Claude leg is carried
+  from 2026-09-27. The Codex leg was re-run on 2026-10-02 under C13 §11 (route E1) with
+  Option C framing (C6 §5.0), and the verdict was written on 2026-10-03 (#220).
+- **No fallback was taken.** No verdict reads `PASS (FALLBACK TAKEN)`. C13 is the design
+  change that this section's G5 go/no-go bullet requires, not a fallback. C13's own
+  Option A fallback was not needed.
+- **The five Gate S1 criteria all hold:**
+  - closed verdicts;
+  - criteria evaluated individually;
+  - no fallback, so criterion 3 holds vacuously;
+  - the D6 fixtures are on record, and `check-fixture-manifest` passes;
+  - no spike code on a later-stage path. The 15 `*.throwaway-quarantined` files sit
+    under `docs/planning/gates/fixtures/`, and `tools/herdr/gate-servers/` is the one
+    documented exception, contained by `oac-boundaries` check 9.
+- **C13 and DESIGN criterion 6.** C13 is `RESOLVED-IN-DECISION`. DESIGN acceptance
+  criterion 6 is re-established for Codex at gate level, which lifts the block on Stage
+  2's interface freeze for Codex provenance framing. The PASS covers the reconstructed
+  gate client, not OAC's own adapter. The caveats in `G5-result.md` "Consequence" and
+  "UNVERIFIED items" carry forward.
+- §6's entry criterion on G5 design changes is met. C6 §5.0 landed before any Stage 2
+  work.
+- **Continuing alongside Stage 2** (operator decision on #40): the herdr re-runs (#130,
+  #131, #124) and the open items #246, #253, #252 and #224. None of them can change a
+  verdict.
+
+*History (pre-D7), kept as history:* At this document's own landing, all five gates were
+`NOT RUN` and Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and
 `docs/planning/v0.1/02-gating-findings.md` §2: G2 and G4 are **PASS**; G1 PASSED on
 Claude Code `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code
 (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see

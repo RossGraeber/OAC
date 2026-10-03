@@ -4,6 +4,31 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-03 (**Issue #40 (D7): Stage 1 exits, and Stage 2 opens.**
+Operator decision on #40 (2026-10-02): D7 proceeds once the C13 G5 Codex re-run is
+recorded. It does not wait for the remaining herdr re-runs (#130, #131, #124), which check
+test tooling and cannot change a verdict. The G5 verdict change (#231, merged at
+`691aef6`, entry below) landed first. It synced every file stating G5's verdict and
+regenerated `02-gating-findings.md`. In this change:
+
+- **New record:** `docs/planning/decisions/D7-stage1-exit.md`. It holds:
+  - the Gate S1 checklist, with evidence for each criterion;
+  - the inventory of the 15 quarantined `*.throwaway-quarantined` files, and the
+    `tools/herdr/gate-servers/` exception;
+  - the "no fallback taken" statement and the Stage 2 go/no-go;
+  - the continuing and deferred items.
+- **Verdicts:** G1-G5 are all **PASS**, and none took a fallback. For G5, see
+  `docs/planning/gates/G5-result.md` L103 at `691aef6`.
+- **"Current stage"** below now reads Stage 2, entered. The "Open epics" and "Blocked"
+  cells are rewritten to match. `10-stages.md` §5 "Current verdict" gets the Gate S1
+  verdict.
+- **Done since the draft:** #232 (PR #242), #243 (PR #245), #244 (PR #248), #239
+  (PR #250) and #249 (PR #251).
+- **Continuing, not exit blockers:** #246, #253, #252, #224, #130, #131 and #124. K6 is
+  deferred past v0.1 (#129).
+
+No pin, spec or ADR text changes. This change opens and closes no UNVERIFIED item.)
+
 **Last updated:** 2026-10-03 (**Issue #220: G5 is PASS; C13 resolved.** G5's Codex-leg
 re-run under C13 §11 ran through herdr under the one-off E1 exception
 (`.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility"). Run
@@ -995,10 +1020,10 @@ amendments A1-A3 issued)
 
 | | |
 |---|---|
-| Milestone | M2 — Stage 1 gate spikes (Epic D). *(Dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
-| Stage | **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **PASS** (2026-10-02, #220: Codex leg re-run under C13 §11, route E1, on Codex `0.160.0`; Claude leg PASS, carried from 2026-09-27; was **FAIL** on Codex from 2026-09-27) — see `docs/planning/gates/G5-result.md`; C13 `RESOLVED-IN-DECISION` 2026-10-02), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is no longer blocked by any gate leg: G3's macOS leg PASSED 2026-10-02 (#219) and G1's re-run PASSED 2026-09-28, so every gate has a closed verdict; separately Stage 2 cannot freeze the Codex provenance interface until C13 closes. The C13 design is decided (C6 §5.0, 2026-10-02, #220), and C13 closes when G5's Codex-leg re-run under C13 §11 passes; that re-run is pending. *Dated note, 2026-10-03, #220: the re-run passed and C13 is closed, so the Codex provenance freeze is no longer blocked; G5 is PASS*). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Milestone | M3 — Stage 2 normative spec (Epic E, #5). *(Dated note, 2026-10-03, #40: was "M2 — Stage 1 gate spikes (Epic D)" until D7. Earlier dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
+| Stage | **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
+| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
+| Blocked | Stages 3-6. Stage 3 starts only after Gate S2, Stage 2's exit (`docs/planning/v0.1/10-stages.md` §6), and each later stage after its own gate. Stage 0 (Gate S0, #228) and Stage 1 (Gate S1, D7 #40) are complete. That meets the rule that no substantial core or transport code starts before both complete. The risk-first ordering (`10-stages.md` §2) still applies. No gate verdict blocks Stage 2: G5 is PASS and C13 is closed. *(Dated note, 2026-10-03, #40: until D7 this cell read "Stages 2-6, and the rest of Stage 1 pending D7"; C13 had closed on 2026-10-02, #220.)* |
 
 ## ADR amendments
 
