@@ -42,7 +42,7 @@
 // L3b also adds, in multi mode: a prompt asking for the reply tool calls the channel server's
 // `reply` tool with the probe code found in the last channel message (test double behavior).
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -66,8 +66,12 @@ const setState = (s) => {
   if (s !== lastState) {
     lastState = s;
     writeFileSync(join(dir, 'state-seq'), `${++stateSeq} ${Date.now()}`);
+    appendFileSync(join(dir, 'state-log'), `${stateSeq} ${s}\n`); // every transition, as herdr's event stream sees it
   }
   writeFileSync(join(dir, 'state'), s);
+  // One atomic snapshot (state, seq, time) for fake-herdr: herdr's AgentInfo is never torn.
+  writeFileSync(join(dir, 'status.tmp'), `${s} ${stateSeq} ${Date.now()}`);
+  renameSync(join(dir, 'status.tmp'), join(dir, 'status'));
 };
 const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
 const hist = (s) => appendFileSync(buf, `${s}\n`);

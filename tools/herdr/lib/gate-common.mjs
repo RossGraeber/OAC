@@ -434,13 +434,18 @@ export async function armActivityWatch({ herdr, name, base, timeoutMs, armMs = 0
   return h;
 }
 
-// The state_change_seq the settled state must pass for `since` to be over, and how the turn
-// was shown to begin; { floor: null } when there is no input to wait out.
+// The lowest state_change_seq a settled answer may carry for `since` to be over (`floor`), and
+// how the turn was shown to begin; { floor: null } when there is no input to wait out.
+//   - prompt --wait: the settled state herdr returned after it observed the activity;
+//   - a watch: the seq of herdr's activity answer. herdr reports a transient it caught with the
+//     agent's CURRENT state_change_seq (src/api/wait.rs wait_for_resolved_agent), so a settled
+//     state at that very seq is already past the activity; a working state there is not settled;
+//   - a push into a running turn: past the baseline (the running turn's end).
 export async function turnFloor({ since, g, agent = null, context, ctx, stop }) {
   if (!since) return { floor: null, by: null };
-  if (since.kind === 'prompt-wait') return { floor: since.baseline.stateChangeSeq, by: `herdr agent prompt --wait (#${since.seq}) observed the prompt's activity` };
+  if (since.kind === 'prompt-wait') return { floor: since.settledAtReturn.stateChangeSeq, by: `herdr agent prompt --wait (#${since.seq}) observed the prompt's activity` };
   if (since.kind !== 'watch') stop(`${agent ?? 'agent'} ${context}: the input this settle waits out has no herdr-observed start (#253); nothing more sent`);
-  if (since.running) return { floor: since.base.stateChangeSeq, by: `herdr reported ${since.base.state} at the baseline (#${since.base.seq}); that turn must end` };
+  if (since.running) return { floor: since.base.stateChangeSeq + 1, by: `herdr reported ${since.base.state} at the baseline (#${since.base.seq}); that turn must end` };
   await since.promise;
   if (since.error) {
     ctx.finding(`herdr observed no working or blocked state for ${agent ?? 'the agent'} after ${context} (activity watch from the baseline, herdr command #${since.base.seq}: ${since.error.message}); the turn could not be shown to begin, and the run stops (#253)`);
@@ -453,9 +458,9 @@ export async function turnFloor({ since, g, agent = null, context, ctx, stop }) 
   return { floor: rec.stateChangeSeq, by: `herdr observed ${rec.state} (#${rec.seq}) past the baseline (#${since.base.seq})` };
 }
 
-// Whether a settled answer is past the turn floor.
+// Whether a settled answer is at or past the turn floor.
 export function pastFloor(st, floor) {
-  return floor?.floor == null || (st.stateChangeSeq != null && st.stateChangeSeq > floor.floor);
+  return floor?.floor == null || (st.stateChangeSeq != null && st.stateChangeSeq >= floor.floor);
 }
 
 export const stopper = (herdr, g) => (reason) => {

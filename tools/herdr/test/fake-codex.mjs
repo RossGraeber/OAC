@@ -61,7 +61,7 @@
 //                              no redaction pattern matches), and writes that secret to this file
 //                              so the self-test can prove it never reaches a record
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -403,8 +403,12 @@ async function tui(overrides = {}) {
     if (s !== lastState) {
       lastState = s;
       writeFileSync(join(dir, 'state-seq'), `${++stateSeq} ${Date.now()}`);
+      appendFileSync(join(dir, 'state-log'), `${stateSeq} ${s}\n`); // every transition, as herdr's event stream sees it
     }
     writeFileSync(join(dir, 'state'), s);
+    // One atomic snapshot (state, seq, time) for fake-herdr: herdr's AgentInfo is never torn.
+    writeFileSync(join(dir, 'status.tmp'), `${s} ${stateSeq} ${Date.now()}`);
+    renameSync(join(dir, 'status.tmp'), join(dir, 'status'));
   };
   const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
   const hist = (s) => appendFileSync(buf, `${s}\n`);

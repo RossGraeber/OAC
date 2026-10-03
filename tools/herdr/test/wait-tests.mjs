@@ -16,7 +16,7 @@
 //   - fake-herdr imitates herdr's agent_not_idle refusal, the agent_status shape and
 //     `agent prompt --wait`'s activity gate.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,8 +109,12 @@ function fakeSession(mode, { state = 'idle', seq = 3, at = 0 } = {}) {
   writeFileSync(join(sdir, 'agents', 'a.json'), JSON.stringify({ pane: 'w1:p1', pid: null, dir: adir }));
   writeFileSync(join(adir, 'screen.txt'), 'visible screen\n');
   const setAgent = (s, n, t = 0) => {
+    // As the harness doubles do: the transition logged, then one atomic snapshot.
+    appendFileSync(join(adir, 'state-log'), `${n} ${s}\n`);
     writeFileSync(join(adir, 'state'), s);
     writeFileSync(join(adir, 'state-seq'), `${n} ${t}`);
+    writeFileSync(join(adir, 'status.tmp'), `${s} ${n} ${t}`);
+    renameSync(join(adir, 'status.tmp'), join(adir, 'status'));
   };
   setAgent(state, seq, at);
   const herdr = new HerdrSession({ herdrCmd: [process.execPath, FAKE], sessionName: name, env: { ...process.env, FAKE_HERDR_STATE: root, FAKE_HERDR_MODE: mode }, cwd: root, timebox: { remainingMs: () => 60000 }, commands: [], defaultDeadlineMs: 15000 });
@@ -159,19 +163,19 @@ export async function waitUnit(check) {
     const notActivity = { kind: 'watch', base: { seq: 1, state: 'idle', stateChangeSeq: 5 }, running: false, promise: Promise.resolve(), result: { entry: { seq: 2 }, state: 'idle', stateChangeSeq: 7 }, error: null };
     check('#253 turnFloor: an activity answer that is not working/blocked past the baseline is not a turn (NOT RUN)', await rejectsWith(() => turnFloor({ since: notActivity, g: g2, context: 'x', ctx: { finding: (f) => findings2.push(f) }, stop: (r) => { throw new NotRunError(r); } }), /is not activity past the baseline/));
     check('#253 turnFloor: a plain prompt record (no herdr-observed start) is refused as `since`', await rejectsWith(() => turnFloor({ since: { seq: 3, stateChangeSeq: 5 }, g: g2, context: 'x', ctx: { finding: () => {} }, stop: (r) => { throw new NotRunError(r); } }), /no herdr-observed start/));
-    check('#253 pastFloor: only a state_change_seq past the floor ends the turn', pastFloor({ stateChangeSeq: 7 }, { floor: 6 }) && !pastFloor({ stateChangeSeq: 6 }, { floor: 6 }) && !pastFloor({ stateChangeSeq: null }, { floor: 6 }) && pastFloor({ stateChangeSeq: null }, { floor: null }));
+    check('#253 pastFloor: only a settled state at or past the floor ends the turn', pastFloor({ stateChangeSeq: 7 }, { floor: 6 }) && pastFloor({ stateChangeSeq: 6 }, { floor: 6 }) && !pastFloor({ stateChangeSeq: 5 }, { floor: 6 }) && !pastFloor({ stateChangeSeq: null }, { floor: 6 }) && pastFloor({ stateChangeSeq: null }, { floor: null }));
   }
   {
     // A push-started turn still running holds the next prompt back: the watch saw working@6;
-    // herdr's settled answers idle@5 (from before) and done@6 are not past it; idle@8 is. The
+    // herdr's settled answer idle@5 (from before the push) is not past it; idle@8 is. The
     // prompt (the operator question) is typed only after that.
-    const h = stubHerdr({ gets: [{ state: 'idle', stateChangeSeq: 5 }, { state: 'idle', stateChangeSeq: 8 }], watch: { state: 'working', stateChangeSeq: 6 }, waits: [{ state: 'idle', stateChangeSeq: 5 }, { state: 'done', stateChangeSeq: 6 }, { state: 'idle', stateChangeSeq: 8 }], prompted: { state: 'idle', stateChangeSeq: 10 } });
+    const h = stubHerdr({ gets: [{ state: 'idle', stateChangeSeq: 5 }, { state: 'idle', stateChangeSeq: 8 }], watch: { state: 'working', stateChangeSeq: 6 }, waits: [{ state: 'idle', stateChangeSeq: 5 }, { state: 'idle', stateChangeSeq: 5 }, { state: 'idle', stateChangeSeq: 8 }], prompted: { state: 'idle', stateChangeSeq: 10 } });
     const { agent, g } = agentWith(h);
     const w = await agent.watch('C2-push');
     const r = await agent.settledRead('after-C2', { lines: 50 }, { context: 'C2-turn', timeoutMs: 5000, since: w });
     await agent.prompt('the question', { wait: true });
     const firstPrompt = h.log.indexOf('prompt --wait');
-    check('#253 settle(since watch): the push\'s turn still running (settled answers not past the observed working@6) holds the next prompt back until idle@8', r.settled?.stateChangeSeq === 8 && r.settled?.floor === 6 && /observed working/.test(r.settled?.turnBegunBy ?? '') && firstPrompt > h.log.lastIndexOf('full-read:recent-unwrapped') && g.herdrStates.filter((s) => s.context === 'C2-turn').length === 3, h.log.join());
+    check('#253 settle(since watch): the push\'s turn still running (settled answers from before the observed working@6) holds the next prompt back until idle@8', r.settled?.stateChangeSeq === 8 && r.settled?.floor === 6 && /observed working/.test(r.settled?.turnBegunBy ?? '') && firstPrompt > h.log.lastIndexOf('full-read:recent-unwrapped') && g.herdrStates.filter((s) => s.context === 'C2-turn').length === 3, h.log.join());
     const h2 = stubHerdr({ gets: [{ state: 'working', stateChangeSeq: 9 }] });
     const a2 = agentWith(h2).agent;
     check('#253 prompt(wait): a prompt is never typed while herdr reports the agent working (NOT RUN, nothing sent)', (await rejectsWith(() => a2.prompt('q', { wait: true }), /never typed into a running turn/)) && !h2.log.some((x) => x.startsWith('prompt')));
@@ -258,7 +262,14 @@ export async function waitUnit(check) {
       f.setAgent('idle', 6);
       const p = await pending;
       check('#253 fake-herdr prompt --wait: an unknown flicker does not count; it returns the settled state after an observed working past the queued seq', p.state === 'idle' && p.stateChangeSeq === 6, JSON.stringify([p.state, p.stateChangeSeq]));
-      f.setAgent('idle', 6);
+      // A working state too short for any poll: herdr's event stream still carries it.
+      const watch = f.herdr.agentWait('a', { until: ['working', 'blocked'], timeoutMs: 8000, background: true });
+      await new Promise((r) => setTimeout(r, 400));
+      f.setAgent('working', 7);
+      f.setAgent('idle', 8);
+      const wr = await watch;
+      check('#253 fake-herdr agent wait: a transient working after the request is matched (as herdr\'s event-driven wait does), reported with the current state_change_seq', wr.state === 'working' && wr.stateChangeSeq === 8, JSON.stringify([wr.state, wr.stateChangeSeq]));
+      f.setAgent('idle', 9);
       check('#253 fake-herdr prompt --wait: no working or blocked within 5 s is agent_prompt_stalled (the run ends NOT RUN)', await rejectsWith(() => f.herdr.agentPrompt('a', 'q2', { wait: { until: ['idle'], timeoutMs: 8000 } }), /agent_prompt_stalled/));
     } finally {
       f.cleanup();

@@ -111,15 +111,29 @@ const agentRec = (target) => {
 const agentState = (a) => (a?.dir && existsSync(join(a.dir, 'state')) ? readFileSync(join(a.dir, 'state'), 'utf8').trim() : 'idle');
 // The state herdr would report, and its state_change_seq (#253, #246).
 const agentStatus = (a) => {
-  const st = agentState(a);
+  // The harness doubles' atomic snapshot (state, seq, time; written by rename), so a state is
+  // never paired with another state's seq; without one, the separate files.
+  const snap = a?.dir && existsSync(join(a.dir, 'status')) ? readFileSync(join(a.dir, 'status'), 'utf8').trim().split(' ') : null;
+  const st = snap?.length === 3 ? snap[0] : agentState(a);
   const f = a?.dir ? join(a.dir, 'state-seq') : null;
-  const [seq, at] = f && existsSync(f) ? readFileSync(f, 'utf8').trim().split(' ').map(Number) : [0, 0];
+  const [seq, at] = snap?.length === 3 ? [Number(snap[1]), Number(snap[2])] : f && existsSync(f) ? readFileSync(f, 'utf8').trim().split(' ').map(Number) : [0, 0];
   const linger = Number(modeVal('linger-working') ?? 0);
   if (linger > 0 && ['idle', 'done'].includes(st) && Date.now() - at < linger) return { state: 'working', seq: Math.max(0, seq - 1) };
   return { state: st, seq };
 };
-const agentInfo = (name, a) => {
-  const s = agentStatus(a);
+// The transitions herdr's event stream would have carried after state_change_seq `after`
+// (the harness doubles log each one to state-log), so a wait catches a short-lived state as
+// herdr's event-driven waits do. A transition still hidden by linger-working is not seen yet.
+const transitionsAfter = (a, after, cur = agentStatus(a)) => {
+  const f = a?.dir ? join(a.dir, 'state-log') : null;
+  if (!f || !existsSync(f)) return [];
+  return readFileSync(f, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => ({ seq: Number(l.split(' ')[0]), state: l.split(' ')[1] }))
+    .filter((t) => t.seq > after && t.seq <= cur.seq);
+};
+const agentInfo = (name, a, s = agentStatus(a)) => {
   return { name, terminal_id: `term_${name}`, pane_id: a?.pane ?? null, agent_status: s.state, state_change_seq: s.seq };
 };
 
@@ -339,9 +353,10 @@ if (c0 === 'server' && c1 === undefined) {
       const elapsed = Date.now() - start;
       if (!active) {
         if (['working', 'blocked'].includes(s.state) && s.seq > before.state_change_seq) active = true;
+        else if (transitionsAfter(pa, before.state_change_seq, s).some((t) => ['working', 'blocked'].includes(t.state))) active = true;
         else if (elapsed >= Math.min(5000, timeout)) fail(timeout <= 5000 ? 'timeout' : 'agent_prompt_stalled', `no working or blocked state observed for ${c2} after the prompt`);
       }
-      if (active && settled.includes(s.state)) out({ type: 'agent_prompted', agent: agentInfo(c2, pa) });
+      if (active && settled.includes(s.state)) out({ type: 'agent_prompted', agent: agentInfo(c2, pa, s) });
       if (elapsed >= timeout) fail('timeout', `timed out after ${timeout}ms waiting for ${settled.join('|')}`);
       sleepSync(20);
     }
@@ -353,12 +368,17 @@ if (c0 === 'server' && c1 === undefined) {
   const until = optAll('--until');
   const timeout = opt('--timeout') ? Number(opt('--timeout')) : Infinity;
   const start = Date.now();
+  const wanted = until.length ? until : ['idle', 'done', 'blocked']; // herdr: "Without --until, matches idle, done, or blocked."
+  const startSeq = agentStatus(a).seq;
   for (;;) {
-    const st = agentStatus(a).state;
-    // herdr: "Without --until, matches idle, done, or blocked."
-    if (!until.length ? ['idle', 'done', 'blocked'].includes(st) : until.includes(st)) {
+    const snap = agentStatus(a);
+    const st = snap.state;
+    // herdr (src/api/wait.rs wait_for_agent): the current state first, then any state the event
+    // stream carried after the request (accept_transient_status), reported with that state.
+    const transient = wanted.includes(st) ? null : transitionsAfter(a, startSeq, snap).find((t) => wanted.includes(t.state));
+    if (wanted.includes(st) || transient) {
       if (MODES.has('wait-no-status')) out({ type: 'agent_info', agent: { name: c2, terminal_id: `term_${c2}` } });
-      out({ type: 'agent_info', agent: agentInfo(c2, a) });
+      out({ type: 'agent_info', agent: { ...agentInfo(c2, a, snap), ...(transient ? { agent_status: transient.state } : {}) } });
     }
     if (Date.now() - start >= timeout) fail('timeout', `timed out after ${timeout}ms waiting for ${until.join('|')}`);
     sleepSync(50);
