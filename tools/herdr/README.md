@@ -157,18 +157,33 @@ herdr's state is a scheduling signal only, never evidence; these rules make it a
   exist, so every wait of the 2026-10-02 runs recorded `null` (`lib/herdr.mjs`
   `agentStatusOf`). A wait whose answer names no documented state now ends the run
   **NOT RUN** with a finding (`lib/gate-common.mjs` `recordWaitState`); it is never settled.
-- **A wait right after a prompt proves nothing.** herdr: "Standalone `agent wait` returns
+- **A wait right after input proves nothing.** herdr: "Standalone `agent wait` returns
   immediately when the current status matches" (`cli-reference.mdx`), so a wait issued before
-  the agent picked the prompt up returns the state from before it (the 2026-10-02 C13 run's
-  marker wait, 75 ms). A settle after a prompt (`settle(..., { since: prompt })`) also needs
-  the prompt's turn to have begun: herdr's `state_change_seq` past the one in the prompt's own
-  response (herdr's own `agent prompt --wait` rule, `src/api/wait.rs`), a busy screen, or a
-  wire-level signal. `unknown` is not settled unless the wire shows the turn over.
+  the agent picked the input up returns the state from before it (the 2026-10-02 C13 run's
+  marker wait, 75 ms). The driver applies herdr's own rule for "the input took effect": an
+  OBSERVED `working` or `blocked` state with `state_change_seq` past the baseline
+  (`src/api/wait.rs` `prompt_agent` L249-275, `prompt_activity_statuses` L515-520, at
+  v0.9.1). Any other change past the baseline (an idle/unknown flicker) is not a turn.
+  - Prompts the driver types go through `herdr agent prompt --wait`, typed only into an agent
+    `agent get` reports idle, done or unknown (never into a running turn), so herdr observes
+    the activity itself, atomically with the submission (`agent_prompt_stalled` ends the run
+    NOT RUN).
+  - Turns a channel push starts (the G5 Claude cases and C6, the G4 wakes and relay turn, L3's
+    probe, G1's wake) get a baseline (`agent get`) and an event-driven
+    `agent wait --until working --until blocked` armed before the push, running beside the
+    scenario (`lib/gate-common.mjs` `armActivityWatch`). If herdr observes no activity, the run
+    ends NOT RUN. A push into a turn already running (C6) needs no watch: that turn's end is
+    the floor.
+  - The settle then needs a settled state whose `state_change_seq` is past the observed
+    activity (`turnFloor`), so a question is never typed while the push's turn still runs.
+  - Wire evidence comes in two kinds. `begun` (a tool call on the wire) only shows that a
+    turn started. `done` (the turn completed on the wire) shows that it is over, and only
+    `done` lets herdr's `unknown` count as settled.
 - **"Turn finished" comes from the wire where one exists.** Codex: `thread/turns/list`
   showing no turn `inProgress` (`lib/g5.mjs` `threadIdleOnWire`), taken after the thread
   marker and before every delivery (G5 both paths, L3); G2 already waits for the thread's
-  `idle` status on its watch stream. Claude: the channel-server transcript (the
-  notification, the reply tool call) plus the settle above.
+  `idle` status on its watch stream. Claude has no wire turn-end event: the herdr-observed
+  activity and the settle above.
 - **Every full read after a turn is a settled read.** herdr refuses `agent read --lines N` of
   a full-screen agent's history with `agent_not_idle` while it is working, blocked or
   unknown. `settledRead` settles first, and on a refusal settles again and retries the read

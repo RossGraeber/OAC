@@ -314,15 +314,36 @@ const render = (source, n) => {
   const content = MULTI ? String(n.params.content).replace(/<\/channel>/g, '<\\/channel>') : n.params.content;
   return `⏺ <channel source="${source}" ${meta.map(([k, v]) => `${k}="${MULTI ? esc(v) : v}"`).join(' ')}>${content}</channel>`;
 };
+// A push into an idle session starts a turn (#253): working for FAKE_CLAUDE_PUSH_TURN_MS (default
+// 600) with the busy screen, then idle; pushes arriving meanwhile are taken in the same turn,
+// and a prompt typed meanwhile waits for it (main loop).
+const PUSH_TURN_MS = Number(env.FAKE_CLAUDE_PUSH_TURN_MS || 600);
+const received = (source, n) => {
+  const tag = render(source, n);
+  return [tag, `Received channel message ${lastChannel.oac_message_id} as a new turn.`];
+};
 function onChannel(source, n) {
   if (n.method !== 'notifications/claude/channel') return;
   if (state === 'working') queued.push([source, n]);
   else {
-    const tag = render(source, n);
-    const said = `Received channel message ${lastChannel.oac_message_id} as a new turn.`;
+    const [tag, said] = received(source, n);
+    state = 'working';
+    setState('working');
     hist(tag);
     hist(said);
-    setScreen(`${tag}\n${said}\n${IDLE_SCREEN}`);
+    setScreen(`${tag}\n${said}\n\n✻ Working… (esc to interrupt)`);
+    setTimeout(() => {
+      let shown = `${tag}\n${said}`;
+      while (queued.length) {
+        const [t2, s2] = received(...queued.shift());
+        hist(t2);
+        hist(s2);
+        shown = `${t2}\n${s2}`;
+      }
+      state = 'idle';
+      setState('idle');
+      setScreen(`${shown}\n${IDLE_SCREEN}`);
+    }, PUSH_TURN_MS);
   }
 }
 
@@ -395,7 +416,7 @@ async function main() {
   for (;;) {
     const f = join(dir, 'inbox.log');
     const lines = existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];
-    if (lines.length > promptsSeen) await turn(JSON.parse(lines[promptsSeen++]).text);
+    if (state !== 'working' && lines.length > promptsSeen) await turn(JSON.parse(lines[promptsSeen++]).text);
     else await sleep(50);
   }
 }

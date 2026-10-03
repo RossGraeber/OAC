@@ -367,6 +367,19 @@ export function g5Cases(check) {
     const m = r.manifest;
     const g5 = m.scenarioData.g5;
     check('g5 human: PASS (exit 0)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
+    // #253: each idle Claude case's push turn was seen by herdr (an activity watch armed before
+    // the push answered working/blocked past the baseline), and the question herdr then typed
+    // went through `agent prompt --wait` only after that turn settled past it.
+    const st = g5.herdrStates ?? [];
+    const activity = (id) => st.find((s) => s.context === `${id}-turn:activity`);
+    const ids = ['C1', 'C2', 'C3', 'C4', 'C4b', 'C5'];
+    check('g5 human #253: every idle Claude case\'s push turn was observed working/blocked past its baseline, and settled past it before the question', ids.every((id) => {
+      const a = activity(id);
+      const base = st.find((s) => s.context === `${id}-push:baseline (agent get)`);
+      const settledPast = st.some((s) => s.context === `${id}-turn` && s.stateChangeSeq > (a?.stateChangeSeq ?? Infinity));
+      const c = g5.claudeCases.find((x) => x.id === id);
+      return a && base && ['working', 'blocked'].includes(a.state) && a.stateChangeSeq > base.stateChangeSeq && settledPast && c?.prompt?.kind === 'prompt-wait' && c.prompt.seq > c.afterReadSeq;
+    }), JSON.stringify(st.filter((s) => /^C/.test(s.context)).slice(0, 12)));
     check('g5 human: every herdr prompt is the thread marker, the busy prompt or the fixed question; no body, frame or identity was ever typed', r.prompts.every((p) => [table.operatorQuestion, table.codexThreadMarker, g5.params.busyPrompt].includes(p.text)) && m.commands.every((x) => !x.argv.some((a) => SPOOF.test(a))) && r.prompts.filter((p) => p.text === table.operatorQuestion).length === 13);
     const cf = g5ClaudeFacts(parseJsonl(r.capture(names().transcriptClaude)));
     check('g5 human: all seven Claude cases went out through the channel server, as the table holds them, each once', cf.notifications.map((n) => n.case).join() === 'C1,C2,C3,C4,C4b,C5,C6' && cf.notifications.every((n) => { const c = table.claude.find((x) => x.id === n.case); return n.content === c.content && JSON.stringify(n.meta) === JSON.stringify(c.meta); }));
@@ -491,7 +504,7 @@ export function g5Cases(check) {
     const asked = (g5.c13?.deliveries ?? []).filter((d) => !d.refused);
     check('g5 #246: PASS although herdr says working after each wire turn; no read was refused (each full read waited for idle)', r.status === 0 && m.outcome === 'PASS' && !(g5.notIdleRefusals ?? []).length && !m.commands.some((c) => c.errorCode === 'agent_not_idle'), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(g5.notIdleRefusals)}`);
     check('g5 #253: every herdr wait recorded a state (agent_status), none null', g5.herdrStates.length > 0 && g5.herdrStates.every((s) => s.state !== null && Number.isInteger(s.stateChangeSeq)), JSON.stringify(g5.herdrStates.filter((s) => s.state === null)));
-    check('g5 #253: the marker settle waited for the marker\'s own turn, and the wire showed it completed before the first delivery', !!t0 && ['state_change_seq', 'busy screen seen'].includes(t0.markerSettledBy) && !!t0.markerIdle?.markerTurnId && asked.every((d) => d.idleBefore?.listLine), JSON.stringify(t0));
+    check('g5 #253: the marker settle waited for the marker\'s own turn, and the wire showed it completed before the first delivery', !!t0 && /prompt --wait/.test(t0.markerSettledBy ?? '') && !!t0.markerIdle?.markerTurnId && asked.every((d) => d.idleBefore?.listLine), JSON.stringify(t0));
     const waitBefore = (seq) => [...m.commands].reverse().find((c) => c.seq < seq && c.argv.includes('wait') && c.argv.includes('agent'));
     check('g5 #246: every after-delivery and after-question read came after a herdr wait in the same settle', asked.every((d) => waitBefore(d.afterReadSeq) && (!d.asked || waitBefore(d.answerReadSeq))));
   });

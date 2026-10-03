@@ -101,9 +101,12 @@ export function agentStatusOf(json) {
   return AGENT_STATUSES.includes(s) ? s : null;
 }
 // AgentInfo.state_change_seq: herdr's counter of the agent's state changes. herdr's own
-// `agent prompt --wait` takes the prompt response's value as its baseline and only counts a
-// state as the prompt's effect when `state_change_seq > baseline` (src/api/wait.rs
-// prompt_agent / agent_wait_matches at v0.9.1); the driver uses it the same way (#253).
+// `agent prompt --wait` takes the prompt response's value as its baseline and counts the
+// prompt as having taken effect only on an OBSERVED `working` or `blocked` state with
+// `state_change_seq > baseline` (src/api/wait.rs prompt_agent L249-275,
+// prompt_activity_statuses L515-520, agent_wait_matches, at v0.9.1); any other state change
+// past the baseline (an idle/unknown flicker) is not activity. The driver applies the same
+// rule (lib/gate-common.mjs, #253).
 export function stateChangeSeqOf(json) {
   const n = json?.result?.agent?.state_change_seq;
   return Number.isSafeInteger(n) && n >= 0 ? n : null;
@@ -167,7 +170,7 @@ export class HerdrSession {
   // --- the one choke point -------------------------------------------------------------
 
   async exec(role, args, opts = {}) {
-    const { herdrTimeoutMs = null, deadlineMs = null, target = null, allowErrorCodes = [], session = true, teardown = false, json = false, screenRead = false } = opts;
+    const { herdrTimeoutMs = null, deadlineMs = null, target = null, allowErrorCodes = [], session = true, teardown = false, json = false, screenRead = false, background = false } = opts;
     if (!ROLES.includes(role)) throw new DriverError(`unknown herdr command role "${role}"`);
     const input = isInputCommand(args);
     if (input && !INPUT_ROLES.has(role)) {
@@ -255,7 +258,9 @@ export class HerdrSession {
     // A target's last role is updated only by a command that succeeded: a failed read must
     // not unlock dialogAccept. Keyed per pane (#139). Input with no target could have reached
     // any pane, so it resets every guard.
-    const guardKey = target ? this.guardKey(target) : null;
+    // A background wait (#253: an activity watch running beside the scenario) never touches the
+    // read guard: it completes at an unrelated moment and must not void a dialog read.
+    const guardKey = target && !background ? this.guardKey(target) : null;
     if (guardKey) this.lastRoleByTarget.delete(guardKey);
     else if (input || INPUT_ROLES.has(role)) this.lastRoleByTarget.clear();
 
@@ -618,16 +623,16 @@ export class HerdrSession {
   // Waits request states explicitly; herdr state is a scheduling signal only, never evidence.
   // `state` is the reported agent_status, or null when the response carries none herdr
   // documents (#253): the caller must treat null as not established, never as settled.
-  async agentWait(target, { until = [], timeoutMs }) {
+  async agentWait(target, { until = [], timeoutMs, background = false }) {
     const args = ['agent', 'wait', target];
     for (const s of until) args.push('--until', s);
-    const r = await this.exec('wait', args, { target, herdrTimeoutMs: timeoutMs, json: true, allowErrorCodes: [] });
+    const r = await this.exec('wait', args, { target, herdrTimeoutMs: timeoutMs, json: true, allowErrorCodes: [], background });
     return { ...r, state: agentStatusOf(r.json), stateChangeSeq: stateChangeSeqOf(r.json) };
   }
 
-  // `stateChangeSeq` is the agent's state_change_seq as herdr reported it in the prompt's own
-  // response: the baseline a later wait compares against to tell this prompt's turn from the
-  // state before it (#253; herdr's `--wait` does the same, src/api/wait.rs at v0.9.1).
+  // `state` / `stateChangeSeq`: the AgentInfo in herdr's answer. Without --wait that is the
+  // agent as it was when the prompt was queued (src/app/api/agents.rs at v0.9.1); with --wait
+  // it is the settled state herdr matched after it observed the prompt's activity.
   async agentPrompt(target, text, { wait = null, deadlineMs } = {}) {
     const args = ['agent', 'prompt', target, text];
     if (wait) {
@@ -641,6 +646,12 @@ export class HerdrSession {
   async agentGet(target) {
     const r = await this.exec('read', ['agent', 'get', target], { target, json: true });
     return r.json?.result?.agent ?? null;
+  }
+
+  // `agent get` as a state sample (#253): the agent_status and state_change_seq right now.
+  async agentGetState(target) {
+    const r = await this.exec('read', ['agent', 'get', target], { target, json: true });
+    return { ...r, state: agentStatusOf(r.json), stateChangeSeq: stateChangeSeqOf(r.json) };
   }
 
   async agentExplain(target) {

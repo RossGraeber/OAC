@@ -388,9 +388,10 @@ export default {
     // after another settle if herdr refuses it (agent_not_idle), never re-send anything. If
     // herdr reports `unknown` throughout, fall back to the visible screen (herdr's documented
     // alternative), with a finding.
-    const settledRead = async (label, { source = 'recent-unwrapped', lines }, context) => {
+    // doneEvidence: the watch-stream event that showed the turn over (named in any finding).
+    const settledRead = async (label, { source = 'recent-unwrapped', lines }, context, doneEvidence) => {
       for (let refusals = 0; ; ) {
-        const s = await settle(context, num('turnTimeoutMs'), { done: () => true });
+        const s = await settle(context, num('turnTimeoutMs'), { done: () => doneEvidence });
         const res = await herdr.agentReadResult(AGENT, { source, lines, deadlineMs: 15000, allowErrorCodes: ['agent_not_idle'] });
         const e = res.entry;
         if (res.errorCode !== 'agent_not_idle') {
@@ -400,7 +401,7 @@ export default {
         }
         g2.notIdleRefusals = [...(g2.notIdleRefusals ?? []), { context, seq: e.seq, settledState: s.state }];
         if (s.state === 'unknown') {
-          ctx.finding(`herdr refused the ${source} read (${context}, herdr command #${e.seq}, agent_not_idle) while it reported \`unknown\` and the wire showed the turn completed; the read fell back to the visible screen, so this capture holds less history`);
+          ctx.finding(`herdr refused the ${source} read (${context}, herdr command #${e.seq}, agent_not_idle) while it reported \`unknown\`; the turn was over by ${doneEvidence}. The read fell back to the visible screen, so this capture holds less history`);
           return { ...(await read(label)), fellBackToVisible: true };
         }
         if (++refusals >= 3) stop(`${context}: herdr refused the ${source} read ${refusals} times (agent_not_idle, last #${e.seq}) after the pane settled; nothing more sent`);
@@ -634,7 +635,7 @@ export default {
       if (!injTurn?.turnId) diverge('`turn`: turn/start returned no turn id');
       const injDone = await waitWire('turn/completed for the delivered turn', (f) => onWatch(f, f.events.turnCompleted).find((x) => x.turnId === injTurn.turnId) ?? null, num('turnTimeoutMs'), { label: 'inject-turn', bail: watchExited });
       if (injDone.bailed) diverge(`\`watch\`: ${injDone.bailed}`);
-      const injRead = await settledRead('after-inject', { source: 'recent-unwrapped', lines: num('readLines') }, 'inject-turn'); // #246
+      const injRead = await settledRead('after-inject', { source: 'recent-unwrapped', lines: num('readLines') }, 'inject-turn', `turn/completed for the delivered turn ${injTurn.turnId} on the watch stream (transcript line ${injDone.line})`); // #246
       g2.inject = { text: injectText, run: g2.clientRuns.length - 1, turnId: injTurn.turnId, startLine: injTurn.reqLine, completedLine: injDone.line, completedStatus: injDone.status, agentMessages: injDone.agentMessages, afterReadSeq: injRead.seq };
 
       // --- 6b. injections 2 and 3: a long turn, then thread/queue/add while it runs --------
@@ -663,7 +664,7 @@ export default {
       if (!bqResult || bqResult.timedOut) stop(`the client's \`busyqueue\` run did not end within ${num('busyQueueTimeoutMs')} ms; nothing re-sent`);
       bqRec.problems = clientProblems(bqRec).problems;
       if (bqRec.problems.length) diverge(`\`busyqueue\`: ${bqRec.problems.join('; ')}`);
-      const busyRead = await settledRead('after-busy-and-queued', { source: 'recent-unwrapped', lines: num('readLines') }, 'busy-and-queued-turns'); // #246
+      const busyRead = await settledRead('after-busy-and-queued', { source: 'recent-unwrapped', lines: num('readLines') }, 'busy-and-queued-turns', `turn/completed for the queued turn ${queuedTurn.turnId} on the watch stream (transcript line ${queuedDone.line})`); // #246
       g2.busyQueue = {
         run: g2.clientRuns.length - 1,
         busyTurnId: bqStart.turnId,

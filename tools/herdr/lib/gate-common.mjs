@@ -260,29 +260,27 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
   };
 
   // Wait until the pane shows neither a dialog nor work in progress, and herdr reports the
-  // agent idle/done (#253). `since` is the record of a prompt herdr typed (prompt() below): the
-  // settle then also requires that prompt's turn to have begun, by herdr's state_change_seq
-  // moving past the prompt's (herdr's own --wait rule), by a busy screen seen in this settle,
-  // or by `done()`, a wire-level check the scenario passes (Codex: thread/turns/list shows the
-  // turn completed). Without one of those a wait that returned at once (herdr: "Standalone
-  // `agent wait` returns immediately when the current status matches") only shows the state
-  // from before the prompt was picked up. An `unknown` state is not settled unless `done()`
-  // says the turn is over on the wire.
-  const settle = async (context, timeoutMs, { since = null, done = null } = {}) => {
-    if (since && since.stateChangeSeq == null && !done) stop(`${label} ${context}: herdr's prompt response (#${since.seq}) carried no state_change_seq, so the end of its turn cannot be told from the state before it (#253); nothing more sent`);
-    await sleep(num('settleMs'));
+  // agent idle/done (#253). `since` is the input this settle waits out, so that a wait which
+  // returns at once (herdr: "Standalone `agent wait` returns immediately when the current status
+  // matches") cannot stand for a turn that has not begun: a prompt typed with prompt(text,
+  // { wait: true }) (herdr's own `agent prompt --wait` observed its activity), or an activity
+  // watch armed before a channel push (watch()). See turnFloor. `begun` is wire evidence that a
+  // turn began (a tool call on the wire): recorded only; it never lets `unknown` count as
+  // settled. `done` is wire evidence that the turn is over (Codex: thread/turns/list shows it
+  // completed); it returns a description of that evidence, and only it lets `unknown` settle.
+  const settle = async (context, timeoutMs, { since = null, begun = null, done = null } = {}) => {
     const deadline = deadlineFor(timeoutMs);
     const waited0 = humanWaitMs;
+    const floor = await turnFloor({ since, g, agent: label, context, ctx, stop });
+    if (!since) await sleep(num('settleMs'));
     let blockedUnseen = 0;
-    let busySeen = false;
-    let doneSeen = false;
-    const wireDone = async () => (doneSeen ||= !!(done && (await done())));
+    let doneEvidence = null;
+    const wireDone = async () => (doneEvidence ??= (done && (await done())) || null);
     for (;;) {
       const left = leftUntil(deadline, waited0);
       if (left <= 0) stop(`${label} ${context}: the pane did not settle within ${timeoutMs} ms`);
       const st = await waitState(context, left);
       const r = await read(`${context}-settled?`, { keep: 'on-change' });
-      if (r.screen.busy) busySeen = true;
       if (!r.screen.dialog && st.state === 'blocked') {
         if (++blockedUnseen < 3) {
           await sleep(num('pollMs'));
@@ -294,16 +292,12 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
         await handleDialog(r, context);
         continue;
       }
-      if (r.screen.busy) {
+      if (r.screen.busy || !pastFloor(st, floor) || (st.state === 'unknown' && !(await wireDone()))) {
         await sleep(num('pollMs'));
         continue;
       }
-      const begun = promptTurnBegun({ since, stateChangeSeq: st.stateChangeSeq, busySeen }) || (await wireDone());
-      if (!begun || (st.state === 'unknown' && !(await wireDone()))) {
-        await sleep(num('pollMs'));
-        continue;
-      }
-      r.settled = { state: st.state, waitSeq: st.seq, stateChangeSeq: st.stateChangeSeq, by: !since ? 'state' : busySeen ? 'busy screen seen' : doneSeen ? 'wire' : 'state_change_seq' };
+      const begunEvidence = begun ? (await begun()) || null : null;
+      r.settled = { state: st.state, waitSeq: st.seq, stateChangeSeq: st.stateChangeSeq, floor: floor.floor, turnBegunBy: floor.by, ...(begunEvidence ? { begunEvidence } : {}), ...(doneEvidence ? { doneEvidence } : {}) };
       return r;
     }
   };
@@ -311,26 +305,36 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
   // A full read (recent / recent-unwrapped with --lines) after a turn: settle first (#246), and
   // if herdr still refuses it with agent_not_idle (the agent went busy again between the settle
   // and the read), settle again and retry, a bounded number of times. Only reads are retried:
-  // nothing is ever re-sent. If herdr keeps reporting `unknown` while the wire says the turn is
-  // over, the read falls back to the visible screen, as herdr's docs advise, with a finding.
-  const settledRead = async (lbl, { source = 'recent-unwrapped', lines } = {}, { context = lbl, timeoutMs, since = null, done = null, maxRefusals = 3 } = {}) => {
+  // nothing is ever re-sent. If herdr keeps reporting `unknown` while the wire showed the turn
+  // over (`done`), the read falls back to the visible screen, as herdr's docs advise, with a
+  // finding that names that wire evidence.
+  const settledRead = async (lbl, { source = 'recent-unwrapped', lines } = {}, { context = lbl, timeoutMs, since = null, begun = null, done = null, maxRefusals = 3 } = {}) => {
     for (let refusals = 0; ; ) {
-      const s = await settle(context, timeoutMs, { since, done });
+      // The first settle waits out `since`; a retry only waits for the agent to settle again.
+      const s = await settle(context, timeoutMs, { since: refusals ? null : since, begun, done });
       const res = await herdr.agentReadResult(name, { source, lines, deadlineMs: 15000, allowErrorCodes: ['agent_not_idle'] });
       const e = res.entry;
       if (res.errorCode !== 'agent_not_idle') {
         const sec = { seq: e.seq, label: `${label}:${lbl}`, source, startedAt: e.startedAt, endedAt: e.endedAt };
         keep(sec, res.text);
-        return { ...sec, text: res.text, screen: classify(res.text), settledSeq: s.seq };
+        return { ...sec, text: res.text, screen: classify(res.text), settledSeq: s.seq, settled: s.settled };
       }
       g.notIdleRefusals = [...(g.notIdleRefusals ?? []), { agent: label, context, seq: e.seq, afterSettleSeq: s.seq, settledState: s.settled?.state ?? null }];
       if (s.settled?.state === 'unknown') {
-        ctx.finding(`herdr refused the ${source} read for ${label} (${context}, herdr command #${e.seq}, agent_not_idle) while it reported \`unknown\` and the wire showed the turn over; the read fell back to the visible screen (herdr's documented alternative), so this capture holds less history`);
+        ctx.finding(`herdr refused the ${source} read for ${label} (${context}, herdr command #${e.seq}, agent_not_idle) while it reported \`unknown\` (herdr command #${s.settled.waitSeq}); the turn was over by ${s.settled.doneEvidence}. The read fell back to the visible screen (herdr's documented alternative), so this capture holds less history`);
         const v = await read(lbl, { source: 'visible' });
-        return { ...v, settledSeq: s.seq, fellBackToVisible: true };
+        return { ...v, settledSeq: s.seq, settled: s.settled, fellBackToVisible: true };
       }
       if (++refusals >= maxRefusals) stop(`${label} ${context}: herdr refused the ${source} read ${refusals} times (agent_not_idle, last #${e.seq}) after the pane settled; nothing more sent`);
     }
+  };
+
+  // Before input that starts a turn the driver does not type (a channel push): a baseline
+  // (`agent get`) and, unless the agent is already working, an activity watch (#253; see
+  // armActivityWatch). Pass the result to settle/settledRead as `since`.
+  const watch = async (context, { timeoutMs = num('turnTimeoutMs') } = {}) => {
+    const base = await takeBaseline({ herdr, name, g, agent: label, context, ctx, stop });
+    return armActivityWatch({ herdr, name, base, timeoutMs, armMs: num('pollMs'), sleep });
   };
 
   // Poll a predicate while reading this pane every pollMs (kept on change), handling dialogs.
@@ -354,35 +358,104 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     }
   };
 
-  // stateChangeSeq: the baseline settle({ since }) compares against (#253).
-  const prompt = async (text) => {
-    const res = await herdr.agentPrompt(name, text);
-    return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text, stateChangeSeq: res.stateChangeSeq };
+  // A prompt herdr types. With { wait: true } (#253) it is typed only into an agent herdr
+  // reports idle, done or unknown (`agent get` first; a working or blocked agent is a stop,
+  // nothing typed), and through `herdr agent prompt --wait`, so that herdr itself observes the
+  // prompt's activity (working or blocked past the queued state's state_change_seq; without it
+  // within 5 s herdr answers agent_prompt_stalled and the run ends NOT RUN) before it waits for
+  // a settled state. Pass the record to settle({ since }). Without wait: the busy-turn prompts,
+  // which the scenario watches itself; herdr's answer (the agent as queued) is recorded.
+  const prompt = async (text, { wait = false } = {}) => {
+    if (!wait) {
+      const res = await herdr.agentPrompt(name, text);
+      return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text, queued: { state: res.state, stateChangeSeq: res.stateChangeSeq } };
+    }
+    const base = await takeBaseline({ herdr, name, g, agent: label, context: 'prompt', ctx, stop });
+    if (ACTIVITY_STATES.includes(base.state)) stop(`${label}: herdr reported ${base.state} (herdr command #${base.seq}) just before a prompt; a prompt is never typed into a running turn (#253); nothing sent`);
+    const res = await herdr.agentPrompt(name, text, { wait: { until: ['idle', 'done', 'blocked', 'unknown'], timeoutMs: num('turnTimeoutMs') } });
+    const after = recordWaitState({ g, agent: label, context: 'prompt --wait', w: res, ctx, stop });
+    return { kind: 'prompt-wait', seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text, baseline: base, settledAtReturn: { state: after.state, stateChangeSeq: after.stateChangeSeq } };
   };
 
-  return { name, label, sections, read, keep, handleDialog, waitState, settle, settledRead, waitFor, prompt };
+  return { name, label, sections, read, keep, handleDialog, waitState, settle, settledRead, waitFor, prompt, watch };
 }
 
-// Record one `herdr agent wait` and fail closed on it (#253). A response whose agent_status
-// herdr does not document (lib/herdr.mjs agentStatusOf: null) cannot establish the agent's
-// state: it is a finding and the run ends NOT RUN, never "settled". Shared by makeAgent and
-// the g1/g2 scenarios' own settle loops.
+// Record one herdr agent state answer (`agent wait`, `agent get`, `agent prompt --wait`) and
+// fail closed on it (#253). A response whose agent_status herdr does not document
+// (lib/herdr.mjs agentStatusOf: null) cannot establish the agent's state: it is a finding and
+// the run ends NOT RUN, never "settled". Shared by makeAgent and the g1/g2 scenarios.
 export function recordWaitState({ g, agent = null, context, w, ctx, stop }) {
-  const rec = { ...(agent ? { agent } : {}), context, seq: w.entry.seq, state: w.state ?? null, stateChangeSeq: w.stateChangeSeq ?? null, durationMs: w.entry.durationMs ?? null };
+  const cmd = (w.entry.argv ?? []).slice(3, 5).join(' ') || 'agent wait';
+  const rec = { ...(agent ? { agent } : {}), context, seq: w.entry.seq, command: cmd, state: w.state ?? null, stateChangeSeq: w.stateChangeSeq ?? null, durationMs: w.entry.durationMs ?? null };
   g.herdrStates.push(rec);
   if (rec.state === null) {
-    ctx.finding(`herdr \`agent wait\` (herdr command #${rec.seq}${agent ? `, ${agent}` : ''}, ${context}) answered with no agent_status herdr documents, so the driver could not establish the agent's state; the run stops rather than proceed on it (#253)`);
-    stop(`${agent ? `${agent} ` : ''}${context}: herdr agent wait #${rec.seq} did not report the agent's state; nothing more sent`);
+    ctx.finding(`herdr \`${cmd}\` (herdr command #${rec.seq}${agent ? `, ${agent}` : ''}, ${context}) answered with no agent_status herdr documents, so the driver could not establish the agent's state; the run stops rather than proceed on it (#253)`);
+    stop(`${agent ? `${agent} ` : ''}${context}: herdr ${cmd} #${rec.seq} did not report the agent's state; nothing more sent`);
   }
   return rec;
 }
 
-// Whether the turn a prompt started has begun, from what one settle saw (#253): herdr's
-// state_change_seq moved past the prompt's (herdr's own `agent prompt --wait` rule,
-// src/api/wait.rs at v0.9.1), or the screen showed work in progress, or the wire said so.
-export function promptTurnBegun({ since, stateChangeSeq, busySeen = false, wireDone = false }) {
-  if (!since) return true;
-  return busySeen || wireDone || (stateChangeSeq != null && since.stateChangeSeq != null && stateChangeSeq > since.stateChangeSeq);
+// --- turn tracking (#253) -----------------------------------------------------------------
+// herdr's own rule for "a prompt took effect" (src/api/wait.rs prompt_agent L249-275,
+// prompt_activity_statuses L515-520, at v0.9.1, commit 065ef9d6): an OBSERVED `working` or
+// `blocked` state with state_change_seq past the baseline. Any other change past the baseline
+// (an idle/unknown flicker) is not activity. The driver applies that rule in two ways:
+//   - prompts it types: `herdr agent prompt --wait` (makeAgent prompt(text, { wait: true })),
+//     herdr observing the activity itself, atomically with the submission;
+//   - turns a channel push starts: a baseline (`agent get`) and an event-driven
+//     `agent wait --until working --until blocked` armed before the push (armActivityWatch),
+//     so that herdr catches even a short-lived working state.
+// The settled state that ends the turn must then have a state_change_seq past that activity.
+export const ACTIVITY_STATES = Object.freeze(['working', 'blocked']);
+
+// `agent get` as a baseline, recorded and failing closed like a wait.
+export async function takeBaseline({ herdr, name, g, agent = null, context, ctx, stop }) {
+  const r = await herdr.agentGetState(name);
+  return recordWaitState({ g, agent, context: `${context}:baseline (agent get)`, w: r, ctx, stop });
+}
+
+// Arm the activity watch: started BEFORE the push, given armMs to reach the server (herdr
+// takes its event position when the request arrives), running beside the scenario. A
+// baseline already working or blocked (a push into a running turn, G5 C6) needs no watch:
+// that turn's end is a settled state past the baseline. A watch that times out is herdr's
+// `timeout`: recorded, and the run ends NOT RUN (turnFloor).
+export async function armActivityWatch({ herdr, name, base, timeoutMs, armMs = 0, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  const h = { kind: 'watch', base, running: ACTIVITY_STATES.includes(base.state), result: null, error: null };
+  if (h.running) return h;
+  h.promise = herdr.agentWait(name, { until: [...ACTIVITY_STATES], timeoutMs: Math.max(1000, timeoutMs), background: true }).then(
+    (w) => {
+      h.result = w;
+    },
+    (err) => {
+      h.error = err;
+    },
+  );
+  await sleep(armMs);
+  return h;
+}
+
+// The state_change_seq the settled state must pass for `since` to be over, and how the turn
+// was shown to begin; { floor: null } when there is no input to wait out.
+export async function turnFloor({ since, g, agent = null, context, ctx, stop }) {
+  if (!since) return { floor: null, by: null };
+  if (since.kind === 'prompt-wait') return { floor: since.baseline.stateChangeSeq, by: `herdr agent prompt --wait (#${since.seq}) observed the prompt's activity` };
+  if (since.kind !== 'watch') stop(`${agent ?? 'agent'} ${context}: the input this settle waits out has no herdr-observed start (#253); nothing more sent`);
+  if (since.running) return { floor: since.base.stateChangeSeq, by: `herdr reported ${since.base.state} at the baseline (#${since.base.seq}); that turn must end` };
+  await since.promise;
+  if (since.error) {
+    ctx.finding(`herdr observed no working or blocked state for ${agent ?? 'the agent'} after ${context} (activity watch from the baseline, herdr command #${since.base.seq}: ${since.error.message}); the turn could not be shown to begin, and the run stops (#253)`);
+    throw since.error instanceof NotRunError ? since.error : new NotRunError(since.error.message);
+  }
+  const rec = recordWaitState({ g, agent, context: `${context}:activity`, w: since.result, ctx, stop });
+  if (!ACTIVITY_STATES.includes(rec.state) || !(since.base.stateChangeSeq != null && rec.stateChangeSeq > since.base.stateChangeSeq)) {
+    stop(`${agent ?? 'agent'} ${context}: herdr's activity answer (#${rec.seq}: ${rec.state}, state_change_seq ${rec.stateChangeSeq}) is not activity past the baseline (#${since.base.seq}, ${since.base.stateChangeSeq}); nothing more sent`);
+  }
+  return { floor: rec.stateChangeSeq, by: `herdr observed ${rec.state} (#${rec.seq}) past the baseline (#${since.base.seq})` };
+}
+
+// Whether a settled answer is past the turn floor.
+export function pastFloor(st, floor) {
+  return floor?.floor == null || (st.stateChangeSeq != null && st.stateChangeSeq > floor.floor);
 }
 
 export const stopper = (herdr, g) => (reason) => {

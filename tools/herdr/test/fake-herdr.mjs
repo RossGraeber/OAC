@@ -324,6 +324,28 @@ if (c0 === 'server' && c1 === undefined) {
     sleepSync(Number(opt('--timeout') ?? 1000));
     fail('timeout', 'timed out waiting for the agent');
   }
+  if (args.includes('--wait')) {
+    // herdr v0.9.1 `agent prompt --wait` (src/api/wait.rs prompt_agent): unless the agent was
+    // already working, an observed working/blocked state with state_change_seq past the
+    // queued state's within 5000 ms (else agent_prompt_stalled, or `timeout` when the caller's
+    // timeout is the shorter), then the first requested settled state.
+    const until = optAll('--until');
+    const settled = until.length ? until : ['idle', 'done', 'blocked'];
+    const timeout = opt('--timeout') ? Number(opt('--timeout')) : Infinity;
+    const start = Date.now();
+    let active = before.agent_status === 'working';
+    for (;;) {
+      const s = agentStatus(pa);
+      const elapsed = Date.now() - start;
+      if (!active) {
+        if (['working', 'blocked'].includes(s.state) && s.seq > before.state_change_seq) active = true;
+        else if (elapsed >= Math.min(5000, timeout)) fail(timeout <= 5000 ? 'timeout' : 'agent_prompt_stalled', `no working or blocked state observed for ${c2} after the prompt`);
+      }
+      if (active && settled.includes(s.state)) out({ type: 'agent_prompted', agent: agentInfo(c2, pa) });
+      if (elapsed >= timeout) fail('timeout', `timed out after ${timeout}ms waiting for ${settled.join('|')}`);
+      sleepSync(20);
+    }
+  }
   out({ type: 'agent_prompted', agent: before });
 } else if (c0 === 'agent' && c1 === 'wait') {
   needsServer();

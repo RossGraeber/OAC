@@ -818,6 +818,8 @@ export default {
       boxCheck('B2 trigger');
       const pre = await claude.read('pre-L3C-idle-check');
       if (pre.screen.busy || pre.screen.dialog) stop('the Claude session was not visibly idle before the probe case');
+      // #253: a baseline and an activity watch before the push (the settle waits for its turn).
+      const pushTurn = await claude.watch('L3C-push');
       sendOnce(`Claude case ${L3_CLAUDE_CASE} (case.trigger)`);
       writeFileSync(join(serverDir, 'case.trigger'), `${L3_CLAUDE_CASE}\n`);
       const w = await claude.waitFor(`case ${L3_CLAUDE_CASE} on the wire`, () => {
@@ -827,9 +829,8 @@ export default {
         return n ? { notification: n } : r ? { refused: r } : null;
       }, num('wireTimeoutMs'), { lbl: 'L3C-wait' });
       if (w.refused) stop(`the channel server refused case ${L3_CLAUDE_CASE} before sending it (pre-send check)`);
-      await sleep(num('settleMs'));
       // #246/#253: every full read after a turn is a settled read (gate-common settledRead).
-      const afterB2 = await claude.settledRead('after-L3C', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'L3C-turn', timeoutMs: num('turnTimeoutMs') });
+      const afterB2 = await claude.settledRead('after-L3C', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'L3C-turn', timeoutMs: num('turnTimeoutMs'), since: pushTurn });
       const b2Log = await pollLog('claude-channel', 'B2');
       l3.steps.B2 = { status: 'recorded', wire: { line: w.notification.line, t: w.notification.t }, afterReadSeq: afterB2.seq, dialogs: l3.dialogs.filter((d) => d.agent === 'claude').map((d) => ({ kind: d.kind, acceptOrigin: d.acceptOrigin, acceptKeys: (d.acceptKeys ?? []).map((k) => k.key) })), log: b2Log };
       l3.beacon.sync.B2 = await syncHits('claudeSync', 'B2');
@@ -837,8 +838,8 @@ export default {
       // 6. B3: Claude answers through the reply tool. The typed text carries no probe value.
       boxCheck('B3 prompt');
       const repliesBefore = serverFacts().replyCalls.length;
-      const q = await claude.prompt(operator.replyPrompt);
-      // #253: settle on the prompt's own turn (since), not on the state from before it.
+      const q = await claude.prompt(operator.replyPrompt, { wait: true });
+      // #253: typed with `herdr agent prompt --wait` (herdr observed the prompt's own turn).
       const afterB3 = await claude.settledRead('after-B3', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'B3-turn', timeoutMs: num('turnTimeoutMs'), since: q });
       const replies = serverFacts().replyCalls.slice(repliesBefore);
       const cm = markers.find((m) => m.id === 'claude-channel');
@@ -948,9 +949,9 @@ export default {
       }
       l3.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) finding(multipleNewThreadsFinding(ready.newThreads.length));
-      const tm = await codex.prompt(operator.threadMarker);
-      // #253: settle on the marker's own turn (state_change_seq past the prompt's), never on a
-      // wait that returns at once with the state from before the prompt.
+      const tm = await codex.prompt(operator.threadMarker, { wait: true });
+      // #253: typed with `herdr agent prompt --wait`, so herdr observed the marker's own turn;
+      // never a wait that returns at once with the state from before the prompt.
       const mr = await codex.settle('thread-marker-turn', num('turnTimeoutMs'), { since: tm });
       const projectDirs = [...new Set([codexProjectDir, realpathSync(codexProjectDir)])];
       const attachDeadline = Date.now() + Math.min(num('attachTimeoutMs'), Math.max(0, remaining()));
@@ -967,7 +968,7 @@ export default {
         await sleep(num('listPollMs'));
       }
       threadId = found.threadId;
-      l3.thread = { id: threadId, markerPromptSeq: tm.seq, markerSettledSeq: mr.seq, markerSettledBy: mr.settled?.by ?? null };
+      l3.thread = { id: threadId, markerPromptSeq: tm.seq, markerSettledSeq: mr.seq, markerSettledBy: mr.settled?.turnBegunBy ?? null };
       // #253: the marker's turn must be over on the wire (thread/turns/list: no turn in
       // progress, the marker's turn completed) before B4's turn/start, or it joins that turn.
       {
@@ -997,7 +998,7 @@ export default {
       sendOnce('Codex case X4 (setup turn/start + thread/queue/add, client)');
       await runClient('x4', [threadId]);
       const t2 = await turnDone('X4', 'the queued X4 input\'s turn to complete (thread/turns/list)');
-      const afterB4 = await codex.settledRead('after-B4', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'B4-turns', timeoutMs: num('turnTimeoutMs'), done: () => true });
+      const afterB4 = await codex.settledRead('after-B4', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'B4-turns', timeoutMs: num('turnTimeoutMs'), done: async () => `the X4 queued turn ${t2.turnId} completed on the wire (thread/turns/list)` });
       const b4Log = await pollLog('codex-queue-add', 'B4');
       l3.steps.B4 = { status: 'recorded', turnStart: { turnId: t1.turnId, status: t1.turnStatus, recordedByteIdentical: t1.recordedByteIdentical }, queueAdd: { turnId: t2.turnId, status: t2.turnStatus, recordedByteIdentical: t2.recordedByteIdentical }, afterReadSeq: afterB4.seq, log: b4Log };
       l3.beacon.sync.B4 = await syncHits('codexSync', 'B4');
