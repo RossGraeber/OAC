@@ -304,8 +304,13 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   run uploads redacted evidence as a workflow artifact only. It writes nothing into this
   directory. Committing one of its runs follows the same record, fixture and verification
   rules as any other scripted run.
-- **Status.** No scripted run has run live yet, so `herdr-runs/` does not exist yet
-  (`docs/planning/STATUS.md` "Open UNVERIFIED items", K4 and K6 entries).
+- **Status.** *Dated note, 2026-10-03 (#252):* scripted runs have run live, and
+  `herdr-runs/` holds them: `G1-2026-09-29` (an equivalence record), `G5-2026-10-02` (the
+  K8 run) and `G5-c13-2026-10-02` (the E1 run that carries G5's Codex verdict). Each has
+  its run manifest beside it. All three carry pre-#252 operator attestations, kept as
+  history. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
+  items", K6 entry. *Superseded text, kept as history:* "No scripted run has
+  run live yet, so `herdr-runs/` does not exist yet."
 
 ## Volatility note — the two preview surfaces most likely to move
 

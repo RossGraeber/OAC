@@ -10,6 +10,13 @@ re-run under C13 §11 ran through herdr under the one-off E1 exception
 `20261002T161612Z-4f2b53`, record `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`,
 Codex `0.160.0`, 60-minute box not expired. The operator attested it at
 `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
+*Dated note, 2026-10-03 (#252):* the operator's attestation is not the basis for findings
+or verdicts. They rest on cited evidence, or are UNVERIFIED (`oac-gates`
+`references/scripted-runs.md` "Verification"). The attestation above is history. For this
+run, the evidence is the record's findings and captures. Its herdr identity rests on the
+run manifest's `herdr 0.9.1`, the same-day K8 run's driver-recorded sha256, and PINS.md's
+expected `win32-x64` value. Beyond that it is UNVERIFIED (note in `G5-result.md` "UNVERIFIED
+items"). G5's verdict is unchanged.
 
 - **The run.** Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27 FAIL: X2 f in 3 of 3
   trials, and X5 put two `oac_sender:` lines in the header. That makes the run conclusive,
@@ -1753,6 +1760,10 @@ without an UNVERIFIED label.
   `docs/planning/gates/herdr-runs/G1-2026-09-29.md`, with its run manifest beside it, the
   operator attestation (commit `0bcdf75`) and the `-herdr` fixtures it names. #127 closed
   2026-10-02. The record is not verdict-bearing, so G1's verdict is unchanged.
+  *Dated note, 2026-10-03 (#252):* that attestation is history, not verification. The run
+  manifest is `schemaVersion` 1, so the driver recorded no herdr executable hash for this
+  run. The record's herdr identity beyond `herdr.observedVersionOutput` is UNVERIFIED.
+  New records carry a `## Verification` section instead.
 - **New, from K6 (issue #129, 2026-09-28):** the opt-in CI workflow
   `.github/workflows/herdr-provider-optin.yml` and its entry point `tools/herdr/ci.mjs`
   are built but have **never run on GitHub Actions**. No self-hosted runner with label
