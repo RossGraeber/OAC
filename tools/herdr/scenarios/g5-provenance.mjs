@@ -271,7 +271,14 @@ export default {
     // #253: wait until thread/turns/list shows `threadId` with no turn in progress (and, with
     // `marker`, the marker's turn completed): the wire-level "turn finished" signal, taken
     // before every delivery. herdr's pane state alone never establishes it.
-    const wireIdle = async (agent, threadId, { marker = null, what }) => {
+    // `afterLine`: the client-transcript line after the last input to the thread; a
+    // thread/turns/list answer taken after it that already shows the thread idle is used as
+    // is (no second client run).
+    const wireIdle = async (agent, threadId, { marker = null, what, afterLine = null }) => {
+      if (afterLine !== null) {
+        const fresh = threadIdleOnWire(clientFacts(), threadId, { marker, sinceLine: afterLine });
+        if (fresh) return { ...fresh, reused: true };
+      }
       let next = 0;
       return agent.waitFor(what, async () => {
         if (Date.now() < next) return null;
@@ -487,14 +494,16 @@ export default {
               return pred(clientFacts()) ?? null;
             }, num('turnTimeoutMs'), { lbl: 'codex-turn-wait' });
           const wireDone = async () => true; // the wire already showed the turn completed
+          let inputLine = t.thread.markerFromLine; // the client line after the last input to the thread
           for (const d of a.deliveries) {
             // #253: deliver only into a thread the wire shows idle (no turn in progress).
-            const idleBefore = await wireIdle(agent, armThread, { what: `arm ${a.arm}'s thread to be idle before ${d.id} (thread/turns/list)` });
+            const idleBefore = await wireIdle(agent, armThread, { what: `arm ${a.arm}'s thread to be idle before ${d.id} (thread/turns/list)`, afterLine: inputLine });
             sendOnce(`Codex C13 delivery ${d.id} (${d.queued ? 'setup turn/start + thread/queue/add' : 'turn/start'}, client)`);
             const rec = await c13Client(armThread, d.id);
             const drec = { id: d.id, arm: a.arm, threadId: armThread, idleBefore, clientRun: g5.clientRuns.indexOf(rec), refused: rec.refused, asked: false };
             g5.c13.deliveries.push(drec);
             if (rec.refused) continue; // nothing reached Codex: no turn to wait for, no question
+            inputLine = rec.linesAfter;
             const delivered = await turnDone((f) => {
               const c = f.cases.find((x) => x.case === d.id);
               return c?.turnId && c.turnStatus === 'completed' ? c : null;
@@ -507,6 +516,7 @@ export default {
             if (!d.ask) continue; // mechanically scored: no question
             drec.asked = true;
             drec.question = await agent.prompt(operator.question);
+            inputLine = lastLine();
             const answered = await turnDone((f) => {
               const c = f.cases.find((x) => x.case === d.id);
               return c?.questionTurnId && c.questionStatus === 'completed' ? c : null;
@@ -664,11 +674,13 @@ export default {
           return pred(clientFacts()) ?? null;
         }, num('turnTimeoutMs'), { lbl: 'codex-turn-wait' });
       const wireDone = async () => true; // the wire already showed the turn completed
+      let inputLine = markerFrom; // the client line after the last input to the thread
       for (const id of codexCaseIds) {
         // #253: deliver only into a thread the wire shows idle (no turn in progress).
-        const idleBefore = await wireIdle(codex, threadId, { what: `the Codex thread to be idle before ${id} (thread/turns/list)` });
+        const idleBefore = await wireIdle(codex, threadId, { what: `the Codex thread to be idle before ${id} (thread/turns/list)`, afterLine: inputLine });
         sendOnce(`Codex case ${id} (${id === 'X4' ? 'turn/start + thread/queue/add' : 'turn/start'}, client)`);
         const rec = id === 'X4' ? await runClient('x4', [threadId]) : await runClient('deliver', [threadId, id]);
+        inputLine = rec.linesAfter;
         const delivered = await turnDone((f) => {
           const c = f.cases.find((x) => x.case === id);
           return c?.turnId && c.turnStatus === 'completed' ? c : null;
@@ -676,6 +688,7 @@ export default {
         // #246: settle before the after-delivery read, as in the arms path.
         const r1 = await codex.settledRead(`after-${id}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `${id}-turn`, timeoutMs: num('turnTimeoutMs'), done: wireDone });
         const q = await codex.prompt(operator.question);
+        inputLine = lastLine();
         const answered = await turnDone((f) => {
           const c = f.cases.find((x) => x.case === id);
           return c?.questionTurnId && c.questionStatus === 'completed' ? c : null;

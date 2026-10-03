@@ -455,7 +455,9 @@ export function g5Cases(check) {
   });
 
   // C13 §11 (#220): the three arms end to end, each in its own fresh Codex thread (TEST DOUBLES).
-  run('g5 C13 arms 0,F,C', { args: ['--param', 'accept=driver', '--param', 'arms=0,F,C', ...FAST], fakeCodex: {} }, (r) => {
+  // 33 deliveries, each now behind a wire idle check and a settled read (#253, #246): more than
+  // the default 120 s case bound.
+  run('g5 C13 arms 0,F,C', { caseTimeoutMs: 300000, args: ['--param', 'accept=driver', '--param', 'arms=0,F,C', ...FAST], fakeCodex: {} }, (r) => {
     const m = r.manifest;
     const g5 = m.scenarioData.g5;
     check('g5 c13: PASS (exit 0); the K8 cases X1-X6 and every Claude case were not sent (claudeCases=none by default in arms mode), though Claude launched and handshook', r.status === 0 && m.outcome === 'PASS' && !g5.injectionsSent.some((x) => /Codex case X|Claude case/.test(x.what)) && g5.claudeCases.length === 0 && g5.c13.claudeCases === 'none' && !!g5.handshake && !r.prompts.some((p) => p.text === table.operatorQuestion && p.target === 'g5claude'), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.commands.filter((c) => c.exitCode).slice(-2).map((c) => [c.seq, c.argv.slice(3), c.exitCode, c.errorCode]))}`);
