@@ -3,8 +3,8 @@
 # plus the zero-hits group of
 # .claude/skills/oac-spec-authoring/references/neutral-vocabulary-check.md over spec/.
 # Those files are the source of truth for every check; if a command changes there, change it
-# here too. Checks 1-2 run over whichever of spec/ and core/ exists (#41: spec/ exists, core/
-# does not yet). Checks 4-7 target paths that do not exist yet and stay manual until then.
+# here too. Checks 1-2 run over spec/ (mandatory since #41: a missing spec/ fails) and over
+# core/ once it exists. Checks 4-7 target paths that do not exist yet and stay manual until then.
 # Minimal on purpose: the full CI pipeline is a separate task (F12).
 # The fixture-manifest job (#142) is not a boundary check; it shares this file's triggers,
 # permissions and pinned checkout. It needs git and Node only, and no secrets. The same
@@ -58,29 +58,27 @@ jobs:
           echo "check 8 failed (rg exit $status): stop and cite the boundary (oac-boundaries)"
           exit 1
 
-      # Checks 1-2 over the neutral paths that exist, then the spec neutral-vocabulary
-      # zero-hits group over spec/. The binding-document glob is the placeholder that
-      # neutral-vocabulary-check.md names for the task E6 document. A missing path is skipped
-      # here instead of failing rg; no path at all prints PENDING (not a pass).
+      # Checks 1-2 over spec/ (mandatory: missing fails) and core/ (once it exists), then the
+      # spec neutral-vocabulary zero-hits group over spec/. Check 2 and the zero-hits group
+      # exempt exactly spec/bindings/mcp.md, the task E6 binding document; check 1 exempts
+      # nothing. --hidden keeps dot-files in scope (rg skips them by default).
       - name: Checks 1-2 and spec neutral vocabulary - no transport or provider names in spec/ core/
         run: |
           set +e
-          paths=()
-          for p in spec core; do [ -d "$p" ] && paths+=("$p/"); done
-          if [ "${#paths[@]}" -eq 0 ]; then echo "checks 1-2 PENDING: neither spec/ nor core/ exists"; exit 0; fi
+          if [ ! -d spec ]; then echo "checks 1-2 failed: spec/ is missing (mandatory since #41)"; exit 1; fi
+          paths=(spec/)
+          [ -d core ] && paths+=(core/)
           fail=0
-          rg -n --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' "${paths[@]}"
+          rg -n --hidden --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' "${paths[@]}"
           s=$?; [ "$s" -eq 1 ] || { echo "check 1 failed (rg exit $s)"; fail=1; }
-          rg -n --glob '!target' \
+          rg -n --hidden --glob '!target' --glob '!spec/bindings/mcp.md' \
             'claude/channel|thread/queue/add|turn/steer|turn/start|thread/start|thread/resume|notifications/claude/channel' \
             "${paths[@]}"
           s=$?; [ "$s" -eq 1 ] || { echo "check 2 failed (rg exit $s)"; fail=1; }
-          if [ -d spec ]; then
-            rg -n --glob '!target' --glob '!spec/mcp-binding.md' -i \
-              '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness|scouting|\bmqtt\b|\bnats\b|\bclaude\b|\bcodex\b|app[ -]server|claude/channel|--channels|--dangerously-load-development-channels|thread/(queue/add|start|resume|loaded/list)|turn/(steer|start)|tools/call|prompts/get|resources/read|notifications/[a-z]+/' \
-              spec/
-            s=$?; [ "$s" -eq 1 ] || { echo "spec neutral-vocabulary check failed (rg exit $s)"; fail=1; }
-          fi
+          rg -n --hidden --glob '!target' --glob '!spec/bindings/mcp.md' -i \
+            '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness|scouting|\bmqtt\b|\bnats\b|\bclaude\b|\bcodex\b|app[ -]server|claude/channel|--channels|--dangerously-load-development-channels|thread/(queue/add|start|resume|loaded/list)|turn/(steer|start)|tools/call|prompts/get|resources/read|notifications/[a-z]+/' \
+            spec/
+          s=$?; [ "$s" -eq 1 ] || { echo "spec neutral-vocabulary check failed (rg exit $s)"; fail=1; }
           [ "$fail" -eq 0 ] && { echo "checks 1-2 and spec neutral vocabulary clean (${paths[*]})"; exit 0; }
           echo "stop and cite the boundary (oac-boundaries, oac-spec-authoring section 3)"
           exit 1

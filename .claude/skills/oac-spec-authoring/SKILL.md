@@ -53,7 +53,7 @@ This skill adds only the spec-specific words (bare `claude`, `mqtt`, `nats`, `sc
 Any hit in normative text or a neutral interface signature is a boundary violation — stop and
 follow the `oac-boundaries` "Stop, cite the boundary" protocol, citing `[ADR-001 Boundary]` or
 `[DESIGN §MCP Session Channels extension]`. The one exemption is task-scoped, not
-filename-scoped: the task E6 binding document (path not yet fixed) may quote MCP and provider
+filename-scoped: the task E6 binding document, `spec/bindings/mcp.md`, may quote MCP and provider
 identifiers by design, since it carries provider-facing binding detail out of the neutral
 spec — the neutral spec and frozen interfaces (§7) stay clean.
 

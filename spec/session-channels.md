@@ -186,6 +186,9 @@ octets unless the addressed session has advertised a larger limit (§6.4). A sen
 sends a larger envelope without that advertisement deviates. Such an envelope is liable
 to be rejected.
 
+*Dated note, 2026-10-03 (#41): the 65536-octet default in [SC-ENV-004] and [SC-ENV-005] is
+an operator decision recorded on #41.*
+
 ### 4.2 Members
 
 The envelope has eleven defined top-level members. The table is a summary. The
@@ -274,8 +277,10 @@ this document that it implements.
 [SC-ENV-023] A sender MUST give every envelope it creates an `id` it has not used on any
 earlier envelope sent from the same `from` session.
 
-A receiver never relies on `id` being unique across different senders. Duplicate
-suppression keys on values defined in `spec/security.md`, not on `id`
+[SC-ENV-027] A receiver MUST NOT treat `id` as unique across envelopes from different
+`from` sessions.
+
+Duplicate suppression keys on values defined in `spec/security.md`, not on `id`
 (`docs/planning/decisions/C5-envelope-auth.md` §7).
 
 [SC-ENV-024] A sender SHOULD generate each `id` with at least 122 bits of output from a
@@ -351,6 +356,8 @@ mailboxes are out of scope (`docs/planning/ADR-001.md`, "v0.1 scope"), so a long
 validity period has no meaning. The bound also keeps `created_at + ttl_ms` exact in
 every common number representation.
 
+*Dated note, 2026-10-03 (#41): the 24-hour cap is an operator decision recorded on #41.*
+
 ### 4.5 Content model
 
 `content` carries the message body. It is the only member of an envelope that carries
@@ -401,6 +408,10 @@ the receiver does not support.
 A part type is not ignorable. Silently dropping a part would hand the harness a different
 message from the one the sender signed. Rejection makes the mismatch visible instead
 (§8.3, E4).
+
+*Dated note, 2026-10-03 (#41): rejecting the whole envelope, rather than dropping the
+unsupported part, is an operator decision recorded on #41. It supersedes the "ignore the
+entry" rule of the M0 draft, `docs/planning/v0.1/05-interfaces.md` §3.*
 
 [SC-ENV-066] A sender MUST NOT send a content part whose `type` is anything other than
 `text` unless the addressed session has advertised support for that type (§6.4).
@@ -501,12 +512,23 @@ the replay window of `spec/security.md`, which bounds `created_at` against the r
 own clock whatever `ttl_ms` says (`docs/planning/decisions/C5-envelope-auth.md` §7). An
 envelope that passes one check is still subject to the other.
 
-[SC-ENV-102] A sender MUST NOT change `ttl_ms` or `created_at` when it retransmits an
-envelope.
+A **retransmission** resends an envelope that was already signed, octet for octet: the same
+`id`, `created_at`, `ttl_ms`, `security.nonce` and signature. A **retry** sends the same
+message content again as a new envelope. A receiver that already accepted the original
+treats a retransmission as a duplicate (`spec/security.md`).
 
-A sender that wants a new validity period creates a new envelope, with a new `id`
-([SC-ENV-023]). Both members are inside the signed scope, so a change by an intermediary
-makes the signature fail.
+[SC-ENV-102] A sender that retransmits an envelope MUST send it unchanged.
+
+[SC-ENV-103] A sender that retries a message MUST give the new envelope a new `id`.
+
+[SC-ENV-104] A sender that retries a message MUST give the new envelope a new
+`security.nonce`.
+
+Requirements [SC-ENV-103] and [SC-ENV-104] follow
+`docs/planning/decisions/C5-envelope-auth.md` §7: "a retry is a new envelope with a new
+`id` and a new `nonce`". A sender that wants a new validity period retries. Every member
+of the envelope is inside the signed scope, so a change by an intermediary makes the
+signature fail.
 
 ---
 
@@ -534,6 +556,10 @@ a breaking revision. This adopts the extension-identifier rule recorded in
 
 The prefix derivation and its ownership evidence are in
 `docs/planning/decisions/C3-spec-packaging.md` §2-§3.
+
+*Dated note, 2026-10-03 (#41): naming the identifier in this document, and not only in the
+binding document (E6), is a ruling recorded on #41. The identifier names no provider or
+transport.*
 
 The rules of §5.2 and §5.3 apply from revision 0.1 onward. A major version of 0 does not
 mean that breaking changes are allowed within it.
@@ -589,8 +615,11 @@ supports.
 [SC-VER-002] A receiver MUST NOT reject an envelope solely because its minor version is
 higher than the minor version the receiver implements.
 
-An envelope with a higher minor version contains only additions that §5.2 permits, so a
-receiver applies its own revision's rules to it and ignores what it does not recognize.
+[SC-VER-003] A receiver MUST validate an envelope whose minor version is higher than its
+own against the rules of the revision the receiver implements.
+
+A higher minor version contains only additions that §5.2 permits. Those additions are
+members the receiver ignores (§4.8) or part types it rejects ([SC-ENV-065]).
 
 ### 5.5 Version and extension negotiation
 
@@ -737,8 +766,8 @@ no conformance fixture yet, and names the task expected to supply the test.
 | Id | Level | Section | Fixtures |
 |---|---|---|---|
 | SC-ENV-001 | MUST | 4.1 | `sc-env/SC-ENV-001.p01`, `.n01` |
-| SC-ENV-002 | MUST | 4.1 | `sc-env/SC-ENV-002.n01`, `.n02`, `.n03`, `.n04` |
-| SC-ENV-003 | MUST NOT | 4.1 | `sc-env/SC-ENV-003.n01`, `.n02` |
+| SC-ENV-002 | MUST | 4.1 | `sc-env/SC-ENV-002.n01` to `.n06` |
+| SC-ENV-003 | MUST NOT | 4.1 | `sc-env/SC-ENV-003.n01` to `.n04` |
 | SC-ENV-004 | SHOULD | 4.1 | none (SHOULD) |
 | SC-ENV-005 | SHOULD NOT | 4.1 | none (SHOULD NOT) |
 | SC-ENV-010 | MUST | 4.3 | `sc-env/SC-ENV-010.p01`, `.p02`, `.n01` to `.n08` |
@@ -750,6 +779,7 @@ no conformance fixture yet, and names the task expected to supply the test.
 | SC-ENV-024 | SHOULD | 4.4.2 | none (SHOULD) |
 | SC-ENV-025 | MUST | 4.4.3 | `sc-env/SC-ENV-025.n01` |
 | SC-ENV-026 | MUST | 4.4.3 | `sc-env/SC-ENV-026.n01` |
+| SC-ENV-027 | MUST NOT | 4.4.2 | TODO(fixture): receiver bookkeeping; E4 correlation, F4 duplicate suppression |
 | SC-ENV-030 | MUST NOT | 4.4.5 | `sc-env/SC-ENV-030.p01` |
 | SC-ENV-031 | MAY | 4.4.5 | none (MAY) |
 | SC-ENV-040 | MUST | 4.4.6 | `sc-env/SC-ENV-040.n01` |
@@ -763,11 +793,11 @@ no conformance fixture yet, and names the task expected to supply the test.
 | SC-ENV-064 | MUST | 4.5.1 | TODO(fixture): hand-off behaviour; F10 adapter contract suite |
 | SC-ENV-065 | MUST | 4.5.2 | `sc-env/SC-ENV-065.n01`, `.n02`, `.n03` |
 | SC-ENV-066 | MUST NOT | 4.5.2 | TODO(fixture): needs the §6.4 capability model; E2, E8 |
-| SC-ENV-070 | MUST | 4.6 | `sc-env/SC-ENV-070.n01`, `.n02` |
+| SC-ENV-070 | MUST | 4.6 | `sc-env/SC-ENV-070.n01`, `.n02`, `.n03` |
 | SC-ENV-071 | MUST | 4.6 | `sc-env/SC-ENV-071.n01` |
 | SC-ENV-072 | MUST | 4.6 | `sc-env/SC-ENV-072.n01` |
 | SC-ENV-073 | MUST NOT | 4.6 | `sc-env/SC-ENV-073.n01` |
-| SC-ENV-080 | MUST | 4.7 | `sc-env/SC-ENV-080.p01`, `.n01` |
+| SC-ENV-080 | MUST | 4.7 | `sc-env/SC-ENV-080.p01` |
 | SC-ENV-081 | MUST NOT | 4.7 | TODO(fixture): sender-side, by construction; F2 |
 | SC-ENV-082 | MUST NOT | 4.7 | TODO(fixture): provenance rendering; E5, F11 |
 | SC-ENV-083 | MUST NOT | 4.7 | TODO(fixture): verification order; E5 signature vectors |
@@ -776,9 +806,12 @@ no conformance fixture yet, and names the task expected to supply the test.
 | SC-ENV-092 | MUST NOT | 4.8 | TODO(fixture): provenance rendering; E5, F11 |
 | SC-ENV-100 | MUST NOT | 4.9 | `sc-env/SC-ENV-100.p01`, `.n01`, `.n02` |
 | SC-ENV-101 | MUST | 4.9 | TODO(fixture): held-envelope timing; F6 receipt state machine |
-| SC-ENV-102 | MUST NOT | 4.9 | TODO(fixture): sender-side behaviour; F2 |
+| SC-ENV-102 | MUST | 4.9 | TODO(fixture): sender-side behaviour; F2 |
+| SC-ENV-103 | MUST | 4.9 | TODO(fixture): sender-side behaviour; F2 |
+| SC-ENV-104 | MUST | 4.9 | TODO(fixture): sender-side behaviour; F2, E5 |
 | SC-VER-001 | MUST | 5.4 | `sc-ver/SC-VER-001.n01`, `.n02` |
 | SC-VER-002 | MUST NOT | 5.4 | `sc-ver/SC-VER-002.p01` |
+| SC-VER-003 | MUST | 5.4 | `sc-ver/SC-VER-003.n01` |
 
 Retired ids: none.
 
@@ -786,4 +819,4 @@ Retired ids: none.
 
 | Revision | Date | Change |
 |---|---|---|
-| 0.1 (draft) | 2026-10-03 | E1 (#41): document skeleton for sections 1-10; sections 4 (envelope) and 5 (versioning) written; requirement-id scheme and fixture format (§3); envelope-stage fixtures under `tests/protocol/sc-env/` and `tests/protocol/sc-ver/`. |
+| 0.1 (draft) | 2026-10-03 | E1 (#41): document skeleton for sections 1-10; sections 4 (envelope) and 5 (versioning) written; requirement-id scheme and fixture format (§3); envelope-stage fixtures under `tests/protocol/sc-env/` and `tests/protocol/sc-ver/`. Review of #258: SC-ENV-027, SC-ENV-103, SC-ENV-104 and SC-VER-003 added (retransmission and retry defined); dated notes for the operator decisions on #41. |

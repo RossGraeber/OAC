@@ -26,9 +26,10 @@ mentions Zenoh, Claude, Codex, MCP method names, or key expressions").
 
 `spec/` exists since 2026-10-03 (#41), and CI runs the zero-hits group below
 (`.github/workflows/boundary-lint.yml`). The
-`--glob '!…'` exclusion names the task E6 MCP extension binding document; its filename is
-not yet fixed (task E6 output), so update the glob to the real path once E6 lands — the
-exemption is task-scoped (§3 of `SKILL.md`), this glob is only today's placeholder for it.
+`--glob '!…'` exclusion names the task E6 MCP binding document, `spec/bindings/mcp.md`.
+The exemption is task-scoped (§3 of `SKILL.md`) and names that one exact path, not a
+directory: any other file under `spec/bindings/` is scanned like the rest of `spec/`.
+`--hidden` keeps dot-files in scope; ripgrep skips them by default.
 
 Two groups, like `oac-boundaries` "Mechanical checks" 6: a **zero-hits group**, where any hit
 is a violation, and a **read-the-hit group**, where a hit must be read before it is treated as
@@ -36,7 +37,7 @@ guilty, because the pattern also matches ordinary English.
 
 ```bash
 # Zero-hits group: any hit here is a boundary violation.
-rg -n --glob '!target' --glob '!spec/mcp-binding.md' -i \
+rg -n --hidden --glob '!target' --glob '!spec/bindings/mcp.md' -i \
   '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness|scouting|\bmqtt\b|\bnats\b|\bclaude\b|\bcodex\b|app[ -]server|claude/channel|--channels|--dangerously-load-development-channels|thread/(queue/add|start|resume|loaded/list)|turn/(steer|start)|tools/call|prompts/get|resources/read|notifications/[a-z]+/' \
   spec/
 
@@ -44,7 +45,7 @@ rg -n --glob '!target' --glob '!spec/mcp-binding.md' -i \
 # alone both appear in ordinary normative prose (e.g. "MUST initialize the session",
 # "Presence notifications/ are delivered actively"), the same way oac-boundaries treats a
 # hit on its polling-loop check (Mechanical checks 6) as read, not assumed guilty.
-rg -n --glob '!target' --glob '!spec/mcp-binding.md' -i '\binitialize\b|notifications/' spec/
+rg -n --hidden --glob '!target' --glob '!spec/bindings/mcp.md' -i '\binitialize\b|notifications/' spec/
 ```
 
 A clean run is zero hits from the first command. Any hit there, in normative text or a

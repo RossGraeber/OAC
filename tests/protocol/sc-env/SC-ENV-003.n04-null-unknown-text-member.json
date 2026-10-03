@@ -1,10 +1,11 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SC-VER-002",
+  "requirement": "SC-ENV-003",
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
-  "kind": "positive",
-  "description": "The envelope declares minor version 7 of major 0; a receiver implementing 0.1 accepts it.",
+  "kind": "negative",
+  "failure_mode": "null in an unrecognized text-part member",
+  "description": "A text part carries an undefined member `lang` with the value null. Only the null rule rejects it; an undefined text-part member is otherwise ignored.",
   "stage": "envelope",
   "context": {
     "receiver_time": "2026-10-03T12:00:01.000Z",
@@ -14,7 +15,7 @@
   },
   "input": {
     "envelope": {
-      "version": "0.7",
+      "version": "0.1",
       "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
       "from": "01harn7x9k2m4p6q8r0s2t4v6w",
       "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
@@ -23,7 +24,8 @@
       "content": [
         {
           "type": "text",
-          "text": "Please review the scheduler module."
+          "text": "Hello.",
+          "lang": null
         }
       ],
       "security": {
@@ -35,6 +37,6 @@
     }
   },
   "expected": {
-    "result": "valid"
+    "result": "rejected"
   }
 }

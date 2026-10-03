@@ -1,11 +1,11 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SC-ENV-080",
+  "requirement": "SC-ENV-003",
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
   "kind": "negative",
-  "failure_mode": "security metadata only inside content",
-  "description": "The top-level `security` member is absent and a text part carries one instead; it is not taken as trusted metadata.",
+  "failure_mode": "null in an unrecognized top-level member",
+  "description": "An unrecognized top-level member `priority` has the value null. Only the null rule rejects it; an unrecognized member is otherwise ignored.",
   "stage": "envelope",
   "context": {
     "receiver_time": "2026-10-03T12:00:01.000Z",
@@ -24,15 +24,16 @@
       "content": [
         {
           "type": "text",
-          "text": "Hello.",
-          "security": {
-            "principal": "fixture-placeholder-principal",
-            "key_id": "fixture-placeholder-key-id",
-            "nonce": "fixture-placeholder-nonce",
-            "signature": "fixture-placeholder-signature"
-          }
+          "text": "Please review the scheduler module."
         }
-      ]
+      ],
+      "security": {
+        "principal": "fixture-placeholder-principal",
+        "key_id": "fixture-placeholder-key-id",
+        "nonce": "fixture-placeholder-nonce",
+        "signature": "fixture-placeholder-signature"
+      },
+      "priority": null
     }
   },
   "expected": {

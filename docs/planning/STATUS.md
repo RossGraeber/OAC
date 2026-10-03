@@ -12,21 +12,26 @@ written.** The first Stage 2 spec change. In this change:
     (E2, #42), §7 (E3, #43) and §8 (E4, #44) are titled stubs those tasks fill without
     renumbering. Security stays in `spec/security.md` (E5, #45, not yet written).
   - §3 fixes the requirement-id scheme (`SC-ENV-010` form) and the conformance-fixture
-    format. Appendix A indexes 43 requirement ids: 27 `MUST`/`MUST NOT` with fixtures, 11
+    format. Appendix A indexes 47 requirement ids: 28 `MUST`/`MUST NOT` with fixtures, 14
     marked `TODO(fixture)` with the task named, and 5 `SHOULD`/`SHOULD NOT`/`MAY`.
-- **New:** 71 envelope-stage fixtures under `tests/protocol/sc-env/` and
+- **New:** 76 envelope-stage fixtures under `tests/protocol/sc-env/` and
   `tests/protocol/sc-ver/`, including the "unknown version" negative case E8 requires.
 - **Design choices** (details in the spec):
   - the C13 whole-value charset is now an envelope rule (§4.3), closing C13 §14's E1
     item and `11-risks.md` row 46's residual in the spec;
   - an unsupported content-part type is rejected, not ignored (§4.5.2). This supersedes
     `05-interfaces.md` §3's M0 draft, which said ignore;
+  - operator decisions on #41, each marked in the spec with a dated note: the 64 KB size
+    default, the 24-hour `ttl_ms` cap, and rejecting the whole message on an unsupported
+    part type. Orchestrator ruling: the extension identifier stays in the core spec;
   - the `security` object is closed; unrecognized top-level members are ignored;
   - `null` is never a value; `created_at` is UTC `Z` only; `ttl_ms` is 1 to 86400000;
   - `version` is `"<major>.<minor>"`. A major maps one-to-one to an extension
     identifier; major 0 is `io.github.rossgraeber/oac-session-channels` (C3 §8).
 - **CI:** boundary checks 1-2 and the spec neutral-vocabulary zero-hits group now run in
-  `boundary-lint.yml` over `spec/`. `core/` is still pending. Checks 9 and 11 now see
+  `boundary-lint.yml` over `spec/`, which is mandatory (a missing `spec/` fails); `core/` is
+  still pending. `--hidden` keeps dot-files in scope. Check 2 and the zero-hits group exempt
+  exactly `spec/bindings/mcp.md`, the path #46 (PR #255) uses for the E6 binding. Checks 9 and 11 now see
   `spec/` too, and it is clean. The `oac-boundaries` and `oac-spec-authoring` references
   are updated to match and re-synced to `.agents/skills/`.
 

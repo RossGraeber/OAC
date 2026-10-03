@@ -4,10 +4,12 @@ The one boundary lint script is `scripts/check-herdr-containment.mjs` (checks 9 
 Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
 budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 1, 2, 3, 8, 9,
-10 and 11 on every push and pull request. Checks 1-2 run over whichever of `spec/` and
-`core/` exists, together with the zero-hits group of `oac-spec-authoring`
-`references/neutral-vocabulary-check.md` over `spec/` (#41). Checks 4-7 are not wired to CI
-and stay manual.
+10 and 11 on every push and pull request. Checks 1-2 run over `spec/`, which is mandatory
+(a missing `spec/` fails), and over `core/` once it exists, together with the zero-hits group
+of `oac-spec-authoring` `references/neutral-vocabulary-check.md` over `spec/` (#41). Check 2
+and that group exempt exactly `spec/bindings/mcp.md` (the task E6 binding document); check 1
+exempts nothing. `--hidden` keeps dot-files in scope. Checks 4-7 are not wired to CI and stay
+manual.
 
 All commands are Git Bash / ripgrep syntax. `spec/` exists since 2026-10-03 (#41).
 `core/`, `adapters/`, `cli/`, and `transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
@@ -38,10 +40,11 @@ violation exits 1 with `Result: FAIL`.
 
 ```bash
 # 1. Zenoh vocabulary must not appear in the neutral spec or core types.
-rg -n --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' spec/ core/
+rg -n --hidden --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' spec/ core/
 
-# 2. Provider-specific method names must not appear in neutral interfaces.
-rg -n --glob '!target' \
+# 2. Provider-specific method names must not appear in neutral interfaces. The task E6
+#    binding document, spec/bindings/mcp.md (that exact path only), is exempt.
+rg -n --hidden --glob '!target' --glob '!spec/bindings/mcp.md' \
   'claude/channel|thread/queue/add|turn/steer|turn/start|thread/start|thread/resume|notifications/claude/channel' \
   spec/ core/
 
