@@ -966,7 +966,7 @@ sections.
 - [x] **Acceptance box 3 — the conflict register reproduced with status, resolution
       location, and evidence, each checked to still exist and point correctly.** §3 (C1-
       C10, with C5 kept `ASSIGNED`, not upgraded) and §4 (C11-C13, all kept open — dated
-      note 2026-10-02: C12 closed by #228 and C13 by #220, see §4 — C13
+      notes: C12 closed 2026-10-02 by #228, and C13 closed 2026-10-03 by #220, see §4 — C13
       added 2026-09-27 per G5/issue #38/D5, after this box was originally ticked; the
       box's own substance — every entry present, checked, and correctly stated — still
       holds against the file's current content).

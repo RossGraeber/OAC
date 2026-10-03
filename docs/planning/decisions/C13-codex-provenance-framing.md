@@ -436,7 +436,7 @@ does. The `turn/steer` row is affected by §10, not by this decision.
 not reproduce in every run. Two runs gave f: 2026-09-27 (Codex `0.157.1`) and the E1 arm 0
 (`0.160.0`, 3 of 3). The K8 run gave x, on `0.160.0` with X1 then X2 in one thread. Its frame
 and model matched 2026-09-27's, but its Codex version did not. The cause is UNVERIFIED: model
-variance, or Codex `0.160.0` combined with the shared-thread history. Either one alone is ruled
+variance, or Codex `0.160.0` combined with the shared-thread history. Version alone and thread history alone are each ruled
 out (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings). If the cause is model
 variance, the control fails at an unmeasured rate. Arm F and C's three x per case would then
 separate the new frame from the old one less sharply than a control that always fails. The
