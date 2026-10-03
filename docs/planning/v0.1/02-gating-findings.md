@@ -114,7 +114,7 @@ blocked until Stage 0 (Epic B) and Stage 1 fully complete — Stage 1's own exit
 separately still blocked by G3's parked macOS leg (G1's re-run, issue #39 T6/T7, PASSED
 2026-09-28 and no longer blocks D7), independent of G5's `FAIL`. (Note 2026-10-02, #219:
 G3's macOS leg PASSED on a GitHub-hosted VM, so no gate leg blocks D7 any more.) (Note
-2026-10-02, #220: this paragraph's G5 account is now history. G5's Codex leg was re-run
+2026-10-03, #220: this paragraph's G5 account is now history. G5's Codex leg was re-run
 under C13 §11 (route E1, herdr-driven, agent-scored, operator-attested at
 `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) against `docs/planning/decisions/C6-trust-rendering.md` §5.0's
 amended framing, and **G5 is now PASS**. C13 is `RESOLVED-IN-DECISION`, so the Stage 2

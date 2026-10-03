@@ -7,7 +7,7 @@ C6-trust-rendering.md` §5, §6, §12, §14; conflict-register entry C13
 `docs/planning/v0.1/03-decisions-and-amendments.md` §4); `docs/planning/v0.1/
 06-security.md` §9, §10, §14 rows 5, 17, 22.
 
-**Status:** **RESOLVED-IN-DECISION — 2026-10-02 (#220).** The §11 pass rule held. The G5
+**Status:** **RESOLVED-IN-DECISION — 2026-10-03 (#220).** The §11 pass rule held. The G5
 Codex-leg re-run under route E1 (run `20261002T161612Z-4f2b53`, record
 `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, operator attestation
 `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) reported C13 outcome `PASS`:
@@ -608,7 +608,7 @@ herdr-first decisions above. E1 is the governing route.
 - C13 → `RESOLVED-IN-DECISION`;
 - the Stage 2 freeze unblocked for Codex provenance.
 
-*Dated note, 2026-10-02: the pass rule held* (run `20261002T161612Z-4f2b53`,
+*Dated note, 2026-10-03: the pass rule held* (run `20261002T161612Z-4f2b53`,
 `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, attested at
 `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`). In the verdict change:
 

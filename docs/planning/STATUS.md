@@ -996,7 +996,7 @@ amendments A1-A3 issued)
 | | |
 |---|---|
 | Milestone | M2 — Stage 1 gate spikes (Epic D). *(Dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
-| Stage | **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-02, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
+| Stage | **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
 | Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **PASS** (2026-10-02, #220: Codex leg re-run under C13 §11, route E1, on Codex `0.160.0`; Claude leg PASS, carried from 2026-09-27; was **FAIL** on Codex from 2026-09-27) — see `docs/planning/gates/G5-result.md`; C13 `RESOLVED-IN-DECISION` 2026-10-02), J (agent skills) |
 | Blocked | Stages 2-6, and the rest of Stage 1 pending D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is no longer blocked by any gate leg: G3's macOS leg PASSED 2026-10-02 (#219) and G1's re-run PASSED 2026-09-28, so every gate has a closed verdict; separately Stage 2 cannot freeze the Codex provenance interface until C13 closes. The C13 design is decided (C6 §5.0, 2026-10-02, #220), and C13 closes when G5's Codex-leg re-run under C13 §11 passes; that re-run is pending. *Dated note, 2026-10-02, #220: the re-run passed and C13 is closed, so the Codex provenance freeze is no longer blocked; G5 is PASS*). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
 
@@ -1227,7 +1227,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   Full record: `docs/planning/decisions/L1-beacon-memory.md`. Not folded into
   `docs/planning/v0.1/03-decisions-and-amendments.md`.
 - **C13 — Codex provenance framing after G5's Codex FAIL** (issue #220): **decided
-  (operator, 2026-10-02); resolved, `RESOLVED-IN-DECISION`, 2026-10-02.** *(Until the
+  (operator, 2026-10-02); resolved, `RESOLVED-IN-DECISION`, 2026-10-03.** *(Until the
   re-run was recorded this read "G5 Codex re-run pending".)*
   - The G5 Codex-leg re-run (C13 §11, route E1, run `20261002T161612Z-4f2b53`, attested
     at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) passed. Arm 0 reproduced the old FAIL, and every required
@@ -1355,7 +1355,7 @@ states or that are inferred/stale). Closed when the named resolution lands.
   - The register rows now read "ASSIGNED — owner #220; design decided, G5 Codex re-run
     pending". C13 closes when G5's Codex-leg re-run (C13 §11) passes. G5 stays `FAIL` until
     then.
-  **Dated note, 2026-10-02 (#220): closed, `RESOLVED-IN-DECISION`.**
+  **Dated note, 2026-10-03 (#220): closed, `RESOLVED-IN-DECISION`.**
   - The G5 Codex-leg re-run passed. It ran under route E1, run `20261002T161612Z-4f2b53`,
     record `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, and the operator attested
     it at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
@@ -1428,6 +1428,23 @@ without an UNVERIFIED label.
   `transcript-codex-2026-10-02-0.160.0-herdr.jsonl` L58, L66). One observation does not
   settle the behaviour across versions or timings, so the item stays open. Owner: #224 and
   backlog G7.
+
+- **New, from verifying the G5 E1 findings (#220, 2026-10-03):**
+  - The old C6 §5 frame's X2 failure rate is unmeasured, and the failure is not
+    deterministic. The K8 run k8-20261002T184542Z scored X2 x. Its conditions matched
+    2026-09-27's f: the same frame apart from per-delivery tokens, X1 then X2 in one
+    thread, and `gpt-6-luna` effort `medium`. The E1 arm 0 scored f three times on the
+    same Codex `0.160.0`. Which factor explains the difference is UNVERIFIED (model
+    variance is the remaining candidate, untested). Effect: arms F and C's three x per
+    case discriminate less than a deterministic control would make them. This does not
+    change the C13 §11 pass rule's result
+    (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings; RISK-G5 in
+    `docs/planning/v0.1/11-risks.md`).
+  - The October 2 G5 runs' hashes cannot exclude a write to `~/.codex/config.toml` that
+    was reverted to the same bytes inside one run (UNVERIFIED — the driver hashes the
+    file only at run start and teardown). The same sha256 was recorded at all eight
+    snapshots of the four runs (16:03:22Z-18:51:47Z), and no Codex dialog was seen or
+    accepted (`G5-c13-2026-10-02.md` findings). This gates nothing.
 
 - **Closed by the G5 Codex-leg re-run (C13 §11, 2026-10-02, #220):** whether the live
   Codex model consistently weighs the developer-role `oac_provenance` anchor (C6 §5.0

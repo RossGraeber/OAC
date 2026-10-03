@@ -17,7 +17,7 @@ opening paragraph) and `docs/planning/decisions/C5-envelope-auth.md`'s identical
 
 **Provenance-proof caveat, stated once up front.** Per `docs/planning/STATUS.md`'s Gate
 verdicts table, **gate G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude all
-criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-02,
+criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-03,
 #220: G5 is now **PASS**. Its Codex leg was re-run under C13 §11 against §5.0's framing
 and passed: arm F (the floor) and arm C (the floor plus the anchor) were x on every
 required trial. The operator attested the run at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`, and the

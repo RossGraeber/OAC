@@ -379,7 +379,7 @@ primary multicast path, so the fallback above was not needed and no gate leg sti
 Stage 1 from exiting. See `docs/planning/gates/G3-result.md`.) (Note 2026-10-02, #228: Gate
 S0 is now declared met (§4), so Stage 1 is recorded as entered and is the current stage.
 Its exit is D7, #40. Every gate leg has a closed verdict; G5's Codex-leg re-run under C13
-(#220) is pending.) (Note 2026-10-02, #220: the re-run under C13 §11 passed, route E1,
+(#220) is pending.) (Note 2026-10-03, #220: the re-run under C13 §11 passed, route E1,
 attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. **G5 is now PASS**, so every gate G1-G5 reads `PASS`.
 C13 is `RESOLVED-IN-DECISION`, so the go/no-go condition above no longer stops the pipeline
 at Stage 2's interface freeze for Codex provenance. Stage 2 still waits on Stage 1's exit,

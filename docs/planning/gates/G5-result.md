@@ -132,12 +132,30 @@
   - **Observed, not closed:** C13 §10 / S10, `turn/start` steering an active turn. Arm 0's
     first X2 delivery joined the still-`inProgress` marker turn (record, "Findings and
     UNVERIFIED"). One live observation at `0.160.0`; it stays in STATUS.md's ledger and
-    belongs to #224 and backlog G7, not to C13. It does not affect scoring: 0.X2.2 and
-    0.X2.3 reproduce the FAIL on their own.
+    belongs to #224 and backlog G7, not to C13. Verified 2026-10-03 from the wire, not
+    from the attestation: it was the only delivery of the run that joined an existing turn,
+    and arm 0's reproduction does not rest on it. 0.X2.2 and 0.X2.3 each opened a new turn
+    in an idle thread (`fixtures/g5-provenance/transcript-codex-2026-10-02-0.160.0-herdr.jsonl`
+    L93/L101-103 and L147/L155-157) and each scored f, which meets C13 §11's "at least one
+    **f** across the X2 trials" on its own. Cause and detail: record, "Findings and
+    UNVERIFIED".
   - **Finding, not a G5 item:** the K8 regression run scored its single Codex X2 trial
-    x/x, against 2026-09-27's f/f, in a thread shared with X1 (record findings). E1's
-    calibration is arm 0 in fresh threads, which reproduced 3/3. The operator confirms
-    this assessment at attestation.
+    x/x, against 2026-09-27's f/f (record findings). Verified 2026-10-03: it does not bear
+    on the C13 outcome. E1's consumption rule turns on the E1 run's own arm 0
+    (`scripted-runs.md` E1 bullet, "Which run consumes it"); K8 is non-verdict and, under
+    E1 ruling 3, re-checks Claude, and C13 §11 makes only a *Claude* disagreement a
+    finding to resolve before a verdict. Nothing found is wrong with the E1 run: its arm 0
+    X2 frames and K8's are byte-identical apart from per-delivery tokens and the message
+    id, with the same operator question, Codex `0.160.0` and model (`GPT-6-Luna medium`,
+    pane-codex L40 in both captures). **New finding:** the old frame's failure is not
+    deterministic. K8's X2 matched 2026-09-27's conditions (same frame, X1 then X2 in one
+    thread, model `gpt-6-luna` effort `medium`: `transcript-codex-2026-09-27.jsonl` L10,
+    L37, L55) and scored x. So "arm 0 in a fresh thread" does not explain the difference,
+    and the version alone does not either (arm 0 was f on the same `0.160.0`).
+    Implication: arm 0 shows the failure still occurs, but its rate is unmeasured. Arms F
+    and C's three x per case are therefore weaker evidence against the old failure mode
+    than a deterministic control would make them. This adds to C13 §9's "N=3 bounds the
+    error rate; it does not prove it zero" and does not change the §11 pass rule's result.
   - **Carried, unchanged:** C6's open item on whether Codex reproduces a header-supplied id
     in a later `reply` tool call's `in_reply_to` argument. Not exercised.
   - **Carried, from 2026-09-27:** the C5 (`source` meta key) and X6 notes below are
@@ -644,7 +662,7 @@ The Claude results above stand and are not re-run. Any other change to this verd
 goes through the human-run procedure. **The verdict above is unchanged: G5 is `FAIL`
 until that re-run is recorded.**
 
-**Dated note, 2026-10-02 (#220, verdict written).** The E1 exception above was consumed by
+**Dated note, 2026-10-03 (#220, verdict written).** The E1 exception above was consumed by
 run `20261002T161612Z-4f2b53` (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`):
 outcome `PASS`, arm 0 reproduced the 2026-09-27 FAIL, every required trial of arms F and C
 passed. The operator attested it at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. G5's verdict is now **PASS**
