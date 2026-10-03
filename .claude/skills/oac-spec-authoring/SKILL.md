@@ -83,7 +83,7 @@ A fixture is a data file, not code, proving exactly one normative requirement, r
 second independent implementation (task E8 acceptance). Fixtures live under `tests/protocol/`
 (DESIGN §Suggested repository shape); a conformance runner (Stage 3, task F12) executes them
 in CI. Content shape, the required negative-fixture set, and the requirement-id scheme (fixed
-by task E1 — no fixture cites an id before E1 lands): `references/conformance-fixtures.md`.
+by task E1 in `spec/session-channels.md` §3): `references/conformance-fixtures.md`.
 
 **The rule, restated from §1:** a `MUST` with no fixture is not yet specified. Treat a missing
 fixture as a blocking gap in the same change that adds the `MUST` — mark it `TODO(fixture)`.

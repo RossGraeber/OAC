@@ -24,7 +24,8 @@ mentions Zenoh, Claude, Codex, MCP method names, or key expressions").
 
 ## Combined command (Git Bash / ripgrep)
 
-`spec/` does not exist yet. This is the command that is correct once it does. The
+`spec/` exists since 2026-10-03 (#41), and CI runs the zero-hits group below
+(`.github/workflows/boundary-lint.yml`). The
 `--glob '!…'` exclusion names the task E6 MCP extension binding document; its filename is
 not yet fixed (task E6 output), so update the glob to the real path once E6 lands — the
 exemption is task-scoped (§3 of `SKILL.md`), this glob is only today's placeholder for it.
@@ -54,8 +55,11 @@ ordinary use of "initialize" or "notifications" as English words is not.
 
 ## What "no such path" actually looks like
 
-`spec/` does not exist yet (DESIGN §Suggested repository shape is a sketch, not built). Until
-it does, this command does not return zero hits — ripgrep exits non-zero (code 2) with an I/O
+*Dated note, 2026-10-03 (#41): `spec/` now exists, so this section is history for `spec/`.
+It still describes any other path a check names before that path is built.*
+
+Before `spec/` existed (DESIGN §Suggested repository shape was a sketch, not built), this
+command did not return zero hits — ripgrep exits non-zero (code 2) with an I/O
 error such as "cannot find the file specified" (verified: ripgrep 15.2.0, Git Bash). That
 error is expected pre-Stage-2 and is **not** a pass; it is not evidence the check ran clean.
 Re-run the command for real once `spec/` exists, as part of every `type:spec` work item, per

@@ -28,9 +28,8 @@ runner, built in Stage 3 (task F12 wiring), executes them in CI.
 
 ## Requirement-id scheme
 
-Not yet defined. Task E1 fixes the envelope and versioning spec first, and the requirement-id
-scheme is part of that freeze — it is the natural place to assign stable ids to every `MUST`
-across the spec surface, since it also defines what a breaking change to those ids would mean
-(§6 of `SKILL.md`). Until task E1 lands: no fixture may cite a requirement id, because there
-is no scheme yet to cite one against. A fixture written before E1 lands is incomplete — hold
-it as a draft, not as a landed conformance fixture, until it can name a real id.
+Defined by task E1 (#41) in `spec/session-channels.md` §3.2 (`<DOC>-<AREA>-<NNN>`, e.g.
+`SC-ENV-010`; never renumbered or reused; a change of meaning gets a new id). The fixture
+file layout and JSON members are in §3.3, and the id-to-fixture index is its Appendix A.
+Read them there; they are not restated here. A spec task adds its ids to Appendix A and its
+fixtures under `tests/protocol/<doc>-<area>/` in the same change.

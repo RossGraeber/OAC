@@ -1,0 +1,41 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ENV-041",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "leap second",
+  "description": "`created_at` uses second 60.",
+  "stage": "envelope",
+  "context": {
+    "receiver_time": "2026-10-03T12:00:01.000Z",
+    "supported_major_versions": [
+      0
+    ]
+  },
+  "input": {
+    "envelope": {
+      "version": "0.1",
+      "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+      "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "created_at": "2026-12-31T23:59:60Z",
+      "ttl_ms": 300000,
+      "content": [
+        {
+          "type": "text",
+          "text": "Please review the scheduler module."
+        }
+      ],
+      "security": {
+        "principal": "fixture-placeholder-principal",
+        "key_id": "fixture-placeholder-key-id",
+        "nonce": "fixture-placeholder-nonce",
+        "signature": "fixture-placeholder-signature"
+      }
+    }
+  },
+  "expected": {
+    "result": "rejected"
+  }
+}

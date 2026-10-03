@@ -3,27 +3,33 @@
 The one boundary lint script is `scripts/check-herdr-containment.mjs` (checks 9 and 10).
 Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
-budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 3, 8, 9,
-10 and 11 on every push and pull request; checks 1, 2, 4-7 are not wired to CI and stay manual.
+budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 1, 2, 3, 8, 9,
+10 and 11 on every push and pull request. Checks 1-2 run over whichever of `spec/` and
+`core/` exists, together with the zero-hits group of `oac-spec-authoring`
+`references/neutral-vocabulary-check.md` over `spec/` (#41). Checks 4-7 are not wired to CI
+and stay manual.
 
-All commands are Git Bash / ripgrep syntax. `spec/`, `core/`, `adapters/`, `cli/`, and
-`transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
+All commands are Git Bash / ripgrep syntax. `spec/` exists since 2026-10-03 (#41).
+`core/`, `adapters/`, `cli/`, and `transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
 sketch, not built) — ripgrep errors "cannot find the file specified" on a missing path.
 That error is the expected, correct state today; it means the check is **pending**, not
 passing. Re-run the whole list once code lands at those paths and treat any real match as a
 stop-and-cite event, not a pending-path error.
 
-Status as last verified against this repo (2026-09-28): checks 1, 2, 4, 5, 6, 7 are
-**pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
+Status as last verified against this repo (2026-09-28; checks 1, 2, 9 and 11 re-verified
+2026-10-03, #41): checks 1 and 2 are **clean** on `spec/` (zero hits) and **pending** on
+`core/`; checks 4, 5, 6, 7 are **pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
 the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; check 10 is
 **clean** on real content (`tools/herdr/`, K3's driver: every tracked entry, 0 hits), and
 so are check 9's three workflow targets (K6: `boundary-lint.yml` and
 `herdr-provider-optin.yml`; since 2026-10-02, #219, also `g3-macos-hosted.yml`; 0 hits),
-while check 9's seven other targets (the five product paths, manifests outside
-`tools/herdr/`, and `tests/integration/`) are still **pending**, so the script's last line
+while check 9's other targets (four of the five product paths, manifests outside
+`tools/herdr/`, and `tests/integration/`) are still **pending** (`spec/` is clean since
+#41), so the script's last line
 reads `Result: PENDING`; its `--self-test` has 103 cases (one, a non-UTF-8 file name, is
 skipped on file systems that reject it, e.g. Windows). Check 11 (added 2026-09-29)
-is **pending**: none of its product paths or root Cargo manifests has a tracked file yet.
+is **clean** on `spec/` (since #41) and pending on its other product paths and root Cargo
+manifests.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code
@@ -160,6 +166,7 @@ if [ "${#files[@]}" -eq 0 ]; then echo "check 11 PENDING"; else
 fi
 ```
 
-A clean run is zero hits on checks 3 and 8 today, `Result: PENDING` (zero violations) on
-checks 9 and 10, and `check 11 PENDING` on check 11; checks 1, 2, 4, 5, 6 and 7 report the
+A clean run is zero hits on checks 1 and 2 (on `spec/`; `core/` still errors as missing), 3
+and 8 today, `Result: PENDING` (zero violations) on checks 9 and 10, and `check 11 clean` on
+check 11; checks 4, 5, 6 and 7 report the
 missing-path error until the corresponding tree exists, at which point zero hits (and `Result: CLEAN`) is the bar.
