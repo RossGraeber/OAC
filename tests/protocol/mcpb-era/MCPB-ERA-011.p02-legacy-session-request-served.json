@@ -1,0 +1,34 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "MCPB-ERA-011",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The same request inside an initialized legacy connection is legitimate and served.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/list",
+        "params": {}
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "tools": []
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

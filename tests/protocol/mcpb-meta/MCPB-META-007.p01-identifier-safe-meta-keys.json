@@ -1,0 +1,32 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "MCPB-META-007",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "Channel meta keys are identifier-safe oac_* keys (C6 §2).",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "channel-path",
+    "legacy_initialized": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "server_message": {
+        "jsonrpc": "2.0",
+        "method": "notifications/claude/channel",
+        "params": {
+          "content": "Please review the scheduler module.",
+          "meta": {
+            "oac_sender": "01harn7x9k2m4p6q8r0s2t4v6w",
+            "oac_message_id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

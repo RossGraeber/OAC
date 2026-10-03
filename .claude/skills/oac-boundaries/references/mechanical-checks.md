@@ -3,27 +3,39 @@
 The one boundary lint script is `scripts/check-herdr-containment.mjs` (checks 9 and 10).
 Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
-budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 3, 8, 9,
-10 and 11 on every push and pull request; checks 1, 2, 4-7 are not wired to CI and stay manual.
+budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 1, 2, 3, 8, 9,
+10 and 11 on every push and pull request. Checks 1-2 run over `spec/`, which is mandatory
+(a missing `spec/` fails), and over `core/` once it exists, together with the zero-hits group
+of `oac-spec-authoring` `references/neutral-vocabulary-check.md` over `spec/` (#41). Check 2
+and that group exempt exactly `spec/bindings/mcp.md` (the task E6 binding document); check 1
+exempts nothing. `--hidden` keeps dot-files in scope, and `--no-ignore` stops a committed
+`.ignore`, `.rgignore` or `.gitignore` from switching a check off (checks 3 and 8 carry it
+too). In CI the spec checks run on an explicit `find` list of every regular file under
+`spec/` (and `core/`), so the exemption is that one regular file and nothing else: a
+non-regular `spec/bindings/mcp.md`, or any symlink under `spec/`, fails the step. The
+commands below are the manual equivalents. Checks 4-7 are not wired to CI and stay manual.
 
-All commands are Git Bash / ripgrep syntax. `spec/` exists since E6 (#46, 2026-10-03);
+All commands are Git Bash / ripgrep syntax. `spec/` exists since 2026-10-03 (#41).
 `core/`, `adapters/`, `cli/`, and `transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
 sketch, not built) — ripgrep errors "cannot find the file specified" on a missing path.
 That error is the expected, correct state today; it means the check is **pending**, not
 passing. Re-run the whole list once code lands at those paths and treat any real match as a
 stop-and-cite event, not a pending-path error.
 
-Status as last verified against this repo (2026-09-28): checks 1, 2, 4, 5, 6, 7 are
-**pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
+Status as last verified against this repo (2026-09-28; checks 1, 2, 9 and 11 re-verified
+2026-10-03, #41): checks 1 and 2 are **clean** on `spec/` (zero hits) and **pending** on
+`core/`; checks 4, 5, 6, 7 are **pending** (target paths do not exist yet); checks 3 and 8 are **clean** (zero hits) against
 the current tree, which is docs/backlog plus `scripts/` and `tools/herdr/`; check 10 is
 **clean** on real content (`tools/herdr/`, K3's driver: every tracked entry, 0 hits), and
 so are check 9's three workflow targets (K6: `boundary-lint.yml` and
 `herdr-provider-optin.yml`; since 2026-10-02, #219, also `g3-macos-hosted.yml`; 0 hits),
-while check 9's seven other targets (the five product paths, manifests outside
-`tools/herdr/`, and `tests/integration/`) are still **pending**, so the script's last line
+while check 9's other targets (four of the five product paths, manifests outside
+`tools/herdr/`, and `tests/integration/`) are still **pending** (`spec/` is clean since
+#41), so the script's last line
 reads `Result: PENDING`; its `--self-test` has 103 cases (one, a non-UTF-8 file name, is
 skipped on file systems that reject it, e.g. Windows). Check 11 (added 2026-09-29)
-is **pending**: none of its product paths or root Cargo manifests has a tracked file yet.
+is **clean** on `spec/` (since #41) and pending on its other product paths and root Cargo
+manifests.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code
@@ -32,12 +44,11 @@ violation exits 1 with `Result: FAIL`.
 
 ```bash
 # 1. Zenoh vocabulary must not appear in the neutral spec or core types.
-rg -n --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' spec/ core/
+rg -n --hidden --no-ignore --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' spec/ core/
 
-# 2. Provider-specific method names must not appear in neutral interfaces. The one
-#    exemption is the E6 MCP binding document, by exact path (oac-spec-authoring §3);
-#    check 1 has no exemption.
-rg -n --glob '!target' --glob '!spec/bindings/mcp.md' \
+# 2. Provider-specific method names must not appear in neutral interfaces. The task E6
+#    binding document, spec/bindings/mcp.md (that exact path only), is exempt.
+rg -n --hidden --no-ignore --glob '!target' --glob '!spec/bindings/mcp.md' \
   'claude/channel|thread/queue/add|turn/steer|turn/start|thread/start|thread/resume|notifications/claude/channel' \
   spec/ core/
 
@@ -45,7 +56,7 @@ rg -n --glob '!target' --glob '!spec/bindings/mcp.md' \
 #    IPC, not model APIs). Excludes docs/ and backlog JSON, which legitimately discuss these
 #    names; language is still an open §5 decision, so cover Rust, Python, TS/JS, Go, and
 #    manifest files rather than assuming one toolchain.
-rg -n --glob '!target' --glob '!docs/**' -i \
+rg -n --no-ignore --glob '!target' --glob '!docs/**' -i \
   '\bopenai\b|\banthropic\b|@anthropic-ai|from openai|import openai' \
   --glob '*.rs' --glob '*.py' --glob '*.ts' --glob '*.toml' \
   --glob '*.js' --glob '*.mjs' --glob '*.go' --glob '*.json' .
@@ -71,7 +82,7 @@ rg -n --glob '!target' 'auth\.json|Keychain|CredentialManager|Secret Service' ad
 # 8. The CLI/local-deployment path must not require a separately administered server.
 #    zenohd (the Zenoh router) is allowed only as part of an optional non-local/LAN path,
 #    never a required piece of normal local use.
-rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
+rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 
 # 9. herdr (Epic K dev/test tooling) must not reach product code: no `herdr` / `HERDR_`
 #    (case-insensitive) in any git-tracked entry under adapters/ core/ cli/ transports/
@@ -162,6 +173,7 @@ if [ "${#files[@]}" -eq 0 ]; then echo "check 11 PENDING"; else
 fi
 ```
 
-A clean run is zero hits on checks 3 and 8 today, `Result: PENDING` (zero violations) on
-checks 9 and 10, and `check 11 PENDING` on check 11; checks 1, 2, 4, 5, 6 and 7 report the
+A clean run is zero hits on checks 1 and 2 (on `spec/`; `core/` still errors as missing), 3
+and 8 today, `Result: PENDING` (zero violations) on checks 9 and 10, and `check 11 clean` on
+check 11; checks 4, 5, 6 and 7 report the
 missing-path error until the corresponding tree exists, at which point zero hits (and `Result: CLEAN`) is the bar.

@@ -1,0 +1,35 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "MCPB-ERA-011",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A request with no protocolVersion, on a connection with no initialize, is rejected with -32602.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general",
+    "legacy_initialized": false
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/list",
+        "params": {}
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "error": {
+          "code": -32602,
+          "message": "Invalid params: missing io.modelcontextprotocol/protocolVersion"
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

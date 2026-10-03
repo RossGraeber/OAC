@@ -1,0 +1,51 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "MCPB-META-001",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "provenance not under the identifier",
+  "description": "Provenance is carried under an OAC-prefixed key other than the identifier.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {
+          "name": "whoami",
+          "arguments": {},
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": {
+          "resultType": "complete",
+          "content": [
+            {
+              "type": "text",
+              "text": "session 01harn7x9k2m4p6q8r0s2t4v6w"
+            }
+          ],
+          "isError": false,
+          "_meta": {
+            "io.github.rossgraeber/oac-provenance": {}
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

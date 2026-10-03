@@ -1,0 +1,42 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "MCPB-TOOL-013",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "undefined code in -32020..-32099",
+  "description": "The server emits -32050, a code in the MCP-reserved range that MCP does not define.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {
+          "name": "whoami",
+          "arguments": {},
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "error": {
+          "code": -32050,
+          "message": "session not found"
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

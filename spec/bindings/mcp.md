@@ -2,8 +2,8 @@
 
 - **Document:** the MCP binding for OAC Session Channels (backlog task E6, issue #46).
 - **Status:** Stage 2 draft, normative once Gate S2 freezes the spec surface
-  (`docs/planning/v0.1/10-stages.md` §6). Every `MUST`/`MUST NOT` below is marked
-  `TODO(fixture)` until its conformance fixture lands (§12).
+  (`docs/planning/v0.1/10-stages.md` §6). Every requirement carries an `MCPB` id; the index
+  in §12 lists its fixtures or marks it `TODO(fixture)`.
 - **Binding revision:** `0.1-draft`.
 - **Extension identifier:** `io.github.rossgraeber/oac-session-channels`
   (`docs/planning/decisions/C3-spec-packaging.md` §1-§3).
@@ -34,12 +34,11 @@ disagree, the neutral document governs (C3 §1: "the standalone document under `
 governs"). This document adds no requirement on message semantics. It says only how
 those semantics are carried over MCP.
 
-**Cross-dependency.** `spec/session-channels.md` is being written in parallel (issue #41,
-E1, with the skeleton for E2-E4). This document cites its sections by their planned
-names, in quotation marks, for example `spec/session-channels.md` "Session identity,
-addressing, and capability/extension negotiation". Those names follow `oac-spec-authoring` §4. When #41 lands, each
-such reference is re-pointed to the real heading. Error names are likewise placeholders
-by role, pending the closed taxonomy from E4 (#44); see §5.4.
+**Cross-dependency.** This document cites `spec/session-channels.md` (revision 0.1,
+landed by #41) by section number. Sections 4 and 5 of that document are written. Its §6
+(E2, #42), §7 (E3, #43) and §8 (E4, #44) are titled stubs, so a citation of them names a
+section whose content is still to come. Error names here are placeholders by role,
+pending the closed taxonomy of its §8.3 (E4, #44); see §5.4.
 
 ## 1. Conventions
 
@@ -49,10 +48,10 @@ interpreted as described in BCP 14 (RFC 2119, RFC 8174) when, and only when, the
 appear in all capitals, as shown here.
 
 - One requirement per sentence (`oac-spec-authoring` §1).
-- Every `MUST`/`MUST NOT` carries `TODO(fixture)` and a fixture hook `H<n>` (§12). A hook
-  is a placeholder for the fixture, not a requirement id. Requirement ids come from the
-  scheme task E1 fixes (`oac-spec-authoring` `references/conformance-fixtures.md`);
-  until then no fixture cites an id.
+- Each normative sentence starts with a requirement id `[MCPB-<AREA>-<NNN>]`, under the
+  scheme of `spec/session-channels.md` §3.2; §12.1 registers the `MCPB` prefix and its
+  areas. §12.3 lists every id with its fixtures, or `TODO(fixture)` with the planned
+  input and expected outcome.
 - A **reference implementation note** is a labelled blockquote. It binds no other
   implementation and contains no BCP 14 keyword (`oac-spec-authoring` §2).
 - `UNVERIFIED` marks a claim no first-party source states directly
@@ -82,15 +81,15 @@ streams such as `subscriptions/listen` "remain request/response". Source:
 https://modelcontextprotocol.io/specification/2026-07-28/basic, section "Statelessness",
 revision `2026-07-28`, retrieved 2026-10-03.
 
-**2.1 — `TODO(fixture)`, hook H1.** An OAC server MUST NOT advertise, document or report
+[MCPB-DLV-001] An OAC server MUST NOT advertise, document or report
 an MCP message as the mechanism that turns an OAC message into input for a live session.
 
-**2.2 — `TODO(fixture)`, hook H2.** An OAC server MUST NOT offer an MCP resource, prompt
+[MCPB-DLV-002] An OAC server MUST NOT offer an MCP resource, prompt
 or subscription that a session is expected to read repeatedly in order to receive OAC
 messages, while the session's capabilities claim active inbound delivery.
 
-2.2 is the MCP form of the no-polling rule in `spec/session-channels.md` "Active-delivery
-semantics and the no-polling rule" (`oac-boundaries` boundary 14).
+Requirement MCPB-DLV-002 is the MCP form of the no-polling rule in `spec/session-channels.md` §7.1
+(E3) (`oac-boundaries` boundary 14).
 
 **2.3 — what does deliver.** Inbound delivery into a live session happens through a
 provider-native surface, named in the provider profiles (§8):
@@ -131,35 +130,36 @@ corrects them.
 | Second label is not `modelcontextprotocol` or `mcp` (reserved) | second label `github` | not reserved |
 | Name begins and ends with an alphanumeric; interior may hold `-`, `_`, `.` | `oac-session-channels` | yes |
 
-**3.3 — `TODO(fixture)`, hook H3.** An OAC server MUST use exactly the string
+[MCPB-EXT-001] An OAC server MUST use exactly the string
 `io.github.rossgraeber/oac-session-channels` wherever this document requires the
 extension identifier.
 
 **3.4 — breaking changes.** "Breaking changes MUST use a new identifier" (SEP-2133,
 above). What counts as breaking for OAC is defined once, in `spec/session-channels.md`
-"Versioning and unsupported-capability behaviour" (planned; E1 acceptance box 5). A
-breaking change moves to `io.github.rossgraeber/oac-session-channels-v2` or later
+§5.3. A breaking change is a new major version, and it moves to `io.github.rossgraeber/oac-session-channels-v2` or later
 (C3 §8).
 
-**3.5 — `TODO(fixture)`, hook H4.** An OAC server MUST NOT advertise the identifier above
-for a spec revision that `spec/session-channels.md` classifies as breaking against the
-revision the identifier was frozen with.
+[MCPB-EXT-002] An OAC server MUST NOT advertise the identifier above for a protocol
+version whose major version is not 0.
+
+Major version 0 maps one-to-one to this identifier (`spec/session-channels.md` §5.1
+table).
 
 **3.6 — the settings object.** MCP maps each extension identifier to "per-extension
 settings objects", and "an empty object indicates support with no additional settings"
 (MCP versioning page, above).
 
-- **3.6.1 — `TODO(fixture)`, hook H5.** The value an OAC server places under the
+- [MCPB-EXT-003] The value an OAC server places under the
   identifier MUST be a JSON object.
-- **3.6.2 — `TODO(fixture)`, hook H6.** A receiver MUST ignore a settings member it does
+- [MCPB-EXT-004] A receiver MUST ignore a settings member it does
   not recognize.
 - The members of the settings object (for example the spec revision and the OAC
-  capability set) are defined by `spec/session-channels.md` "Session identity,
-  addressing, and capability/extension negotiation" (planned, task E2). This binding defines none. Until E2 lands, an OAC
-  server that has nothing to declare sends `{}`.
+  capability set) are defined by `spec/session-channels.md` §6.4 and §6.5 (E2,
+  #42). This binding defines none. Until E2 fills those sections, an OAC server that has
+  nothing to declare sends `{}`.
 
-3.6.2 is the MCP form of the forward-compatibility rule in `spec/session-channels.md`
-"Versioning and unsupported-capability behaviour" (planned).
+Requirement MCPB-EXT-004 is the MCP form of the forward-compatibility rule in `spec/session-channels.md`
+§4.8 (unrecognized members are ignored).
 
 ## 4. Era handling — the dual-era server
 
@@ -221,55 +221,55 @@ against live Claude Code is UNVERIFIED and owned by issue #65 (backlog G4).
 ### 4.3 Requirements
 
 **Scope.** A *channel-path server* is an OAC server process started over stdio for the
-Claude Code channel path (§8.1). It is legacy-only by design (8.1.3). Requirements 4.3.4,
-4.3.5, 4.3.7 and 4.3.9 apply to every OAC server except a channel-path server. Every other
+Claude Code channel path (§8.1). It is legacy-only by design ([MCPB-CLD-003]). Requirements [MCPB-ERA-004],
+[MCPB-ERA-005], [MCPB-ERA-007] and [MCPB-ERA-009] apply to every OAC server except a channel-path server. Every other
 requirement in this document applies to all OAC servers.
 
 > **Reference implementation note:** the shim learns that it is a channel-path server from
 > the command line its harness configuration starts it with, not from anything on the MCP
 > wire.
 
-**4.3.1 — `TODO(fixture)`, hook H7.** An OAC server MUST accept a legacy-era `initialize`
+[MCPB-ERA-001] An OAC server MUST accept a legacy-era `initialize`
 request.
 
-**4.3.2 — `TODO(fixture)`, hook H8.** An OAC server MUST support the legacy revision
+[MCPB-ERA-002] An OAC server MUST support the legacy revision
 `2025-11-25`.
 
-**4.3.3 — `TODO(fixture)`, hook H9.** When an `initialize` request names a legacy
+[MCPB-ERA-003] When an `initialize` request names a legacy
 revision the OAC server does not support, the server MUST answer with `2025-11-25`.
 
-4.3.3 follows the legacy rule "Otherwise, the server **MUST** respond with another
+Requirement MCPB-ERA-003 follows the legacy rule "Otherwise, the server **MUST** respond with another
 protocol version it supports" (https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle,
 "Version Negotiation", retrieved 2026-10-03). G4 fact 7 shows Codex `0.157.1` accepts
 this answer to its `2025-06-18` request.
 
-**4.3.4 — `TODO(fixture)`, hook H10.** An OAC server MUST serve modern-era requests at
+[MCPB-ERA-004] An OAC server MUST serve modern-era requests at
 `2026-07-28`.
 
-**4.3.5 — `TODO(fixture)`, hook H11.** An OAC server MUST answer `server/discover` with a
+[MCPB-ERA-005] An OAC server MUST answer `server/discover` with a
 `supportedVersions` list that contains both `2026-07-28` and `2025-11-25`.
 
 G4 fact 1 shows a one-process server answering this way on HTTP (line 11). On stdio,
 G4 also observed Claude Code probing `server/discover` before falling back to
 `initialize` (lines 6, 8, 14). A stdio server that answered that probe as modern would
 keep Claude Code on the modern era, and Claude Code would then not register it as a
-channel (G4 fact 3). That is why a channel-path server is out of 4.3.5's scope.
+channel (G4 fact 3). That is why a channel-path server is out of [MCPB-ERA-005]'s scope.
 
-**4.3.6 — `MAY`.** An OAC server MAY serve both eras concurrently in one process. A
+[MCPB-ERA-006] An OAC server MAY serve both eras concurrently in one process. A
 server that serves them from separate processes still meets every other requirement in
 §4, and both processes present the same tool surface (§5). G4 fact 1 shows the
 one-process topology works, so the two-process fallback is not needed.
 
-**4.3.7 — `TODO(fixture)`, hook H12.** An OAC server MUST present the same tool surface
+[MCPB-ERA-007] An OAC server MUST present the same tool surface
 on both eras: the same tool names, `inputSchema`, result shape and `tools/list` listing (§5).
 
-4.3.7 covers the tool *surface* only. Whether a given call is served also depends on caller
+Requirement MCPB-ERA-007 covers the tool *surface* only. Whether a given call is served also depends on caller
 attribution (§4.4), which today is satisfied only on a connection bound by a documented
 pairing. In particular, if Codex's default client moves to `2026-07-28` before a Codex
-binding signal exists, its outbound tool calls are refused (fail-closed, 4.4.2) until one
+binding signal exists, its outbound tool calls are refused (fail-closed, [MCPB-ATT-002]) until one
 does. That stays tracked under `docs/planning/v0.1/11-risks.md` row 41 (RISK-G4).
 
-**4.3.8 — `TODO(fixture)`, hook H13.** An OAC server MUST declare the extension
+[MCPB-ERA-008] An OAC server MUST declare the extension
 identifier (§3) in `capabilities.extensions` of every `initialize` result it returns.
 
 The `2025-11-25` schema defines no `extensions` member, but its `ServerCapabilities` is
@@ -282,12 +282,12 @@ identifier this way in its legacy `initialize` results to Codex `0.157.1` (fixtu
 client ignores a capability member it does not know is shown for Codex in that run; for
 other legacy clients it is UNVERIFIED. That includes Claude Code on the channel path:
 G4's channel server did not declare the member in its legacy `initialize` result
-(line 15), so H13 against live Claude Code is the first test of it. That test is part of
+(line 15), so [MCPB-ERA-008] against live Claude Code is the first test of it. That test is part of
 #65. **Reversal condition:** if #65 shows that Claude Code refuses or ignores channel
-registration when `extensions` is present in the `initialize` result, 4.3.8 is scoped
+registration when `extensions` is present in the `initialize` result, [MCPB-ERA-008] is scoped
 to servers other than a channel-path server, and a channel-path server omits the member.
 
-**4.3.9 — `TODO(fixture)`, hook H14.** An OAC server MUST declare the extension
+[MCPB-ERA-009] An OAC server MUST declare the extension
 identifier (§3) in `capabilities.extensions` of every `server/discover` result it
 returns.
 
@@ -298,18 +298,18 @@ https://github.com/modelcontextprotocol/modelcontextprotocol/blob/271ecc9accafdd
 `ServerCapabilities`, line 882, retrieved 2026-10-03. G4's server declared it in its
 modern `server/discover` result (fixture line 11).
 
-**4.3.10 — `SHOULD`.** An OAC server SHOULD include
+[MCPB-ERA-010] An OAC server SHOULD include
 `_meta["io.modelcontextprotocol/serverInfo"]` in every modern-era result. This repeats the
 MCP recommendation ("Servers **SHOULD** include the following `io.modelcontextprotocol/*`
 field in every result's `_meta`", MCP basic page, "Per-response protocol fields",
 retrieved 2026-10-03). A server deviates by omitting it, which costs only diagnostics.
 
-**4.3.11 — `TODO(fixture)`, hook H15.** An OAC server MUST reject with JSON-RPC error
+[MCPB-ERA-011] An OAC server MUST reject with JSON-RPC error
 `-32602` a request that lacks `_meta["io.modelcontextprotocol/protocolVersion"]` and does
 not belong to a legacy-era connection (no `initialize` on that stdio process or HTTP
 session).
 
-4.3.11 repeats an MCP `2026-07-28` requirement ("A request missing any required field is
+Requirement MCPB-ERA-011 repeats an MCP `2026-07-28` requirement ("A request missing any required field is
 malformed; the server **MUST** reject it with JSON-RPC error code `-32602`", MCP basic
 page, "Per-request protocol fields", retrieved 2026-10-03) so that a fixture can hold the
 OAC server to it. A request inside an established legacy-era connection carries no
@@ -337,15 +337,15 @@ Codex connection is bound on either era.
   (`transcript-2026-09-26.jsonl` lines 48, 50), which suggests one Codex MCP client
   connection can carry calls from several threads. Whether it does is UNVERIFIED (§10).
 
-**4.4.1 — `TODO(fixture)`, hook H16.** On a connection that is not bound, an OAC server
+[MCPB-ATT-001] On a connection that is not bound, an OAC server
 MUST NOT attribute a tool call to an OAC session using only the identity of the
 connection or process that carried it.
 
-**4.4.2 — `TODO(fixture)`, hook H17.** When an OAC server cannot attribute a tool call
+[MCPB-ATT-002] When an OAC server cannot attribute a tool call
 on a connection that is not bound to exactly one OAC session, it MUST refuse the call with
 the error taxonomy's authorization-failure error (§5.4).
 
-**The refusal in 4.4.2 is interim.** It holds until a documented per-request signal
+**The refusal in [MCPB-ATT-002] is interim.** It holds until a documented per-request signal
 exists that OAC can bind to a paired session. Codex does send a per-request candidate:
 `_meta["x-codex-turn-metadata"]` carries `session_id`, `thread_id` and `turn_id`
 (plus `codex_version`, `model` and other fields) on the legacy calls at
@@ -369,7 +369,7 @@ outbound tool surface and reply correlation).
 
 *Dated note, 2026-10-03: operator decision on #46 (https://github.com/RossGraeber/OAC/issues/46#issuecomment-5973893128, also recorded on #69).* Until
 a documented pairing ties an MCP tool call to exactly one Codex conversation (#69), Codex's
-outbound tool calls are refused on both MCP eras, as 4.4.2 states. Codex sessions can still
+outbound tool calls are refused on both MCP eras, as [MCPB-ATT-002] states. Codex sessions can still
 receive OAC messages; sending from Codex waits for #69. Codex's self-reported
 `x-codex-turn-metadata` ids are not used for pairing.
 
@@ -382,9 +382,9 @@ receive OAC messages; sending from Codex waits for #69. Codex's self-reported
 
 The tool surface is the outbound half of OAC over MCP. Both harnesses send through the
 same four OAC tools, and inbound stays provider-native (PLANNING-PROMPT.md §5 decision 9;
-C6 §8). Argument and result semantics belong to `spec/session-channels.md` "Replies and
-correlation", "Delivery states" and "Session identity, addressing, and capability/extension
-negotiation" (planned). This section fixes only how they are carried.
+C6 §8). Argument and result semantics belong to `spec/session-channels.md` §8.2 (replies and
+correlation), §8.1 (delivery states) and §6 (session identity and addressing), all
+filled by E2 and E4. This section fixes only how they are carried.
 
 ### 5.1 Tools
 
@@ -401,25 +401,26 @@ ASCII letters, digits, underscore, hyphen and dot
 retrieved 2026-10-03; the same at `2026-07-28`). The four names use a subset of those
 characters: lowercase letters and underscore.
 
-**5.1.1 — `TODO(fixture)`, hook H18.** An OAC server MUST list the four tools above in
+[MCPB-TOOL-001] An OAC server MUST list the four tools above in
 `tools/list` under exactly those names.
 
-**5.1.2 — `TODO(fixture)`, hook H19.** An OAC server MUST present the same tool names,
+[MCPB-TOOL-002] An OAC server MUST present the same tool names,
 the same `inputSchema` and the same result shape on a legacy-era connection as on a
 modern-era request.
 
-5.1.2 is C6 §9's "the four tool schemas in §8 are era-invariant", restated as a testable
+Requirement MCPB-TOOL-002 is C6 §9's "the four tool schemas in §8 are era-invariant", restated as a testable
 requirement.
 
-**5.1.3 — `TODO(fixture)`, hook H20.** An OAC server MUST present the same tool names,
+[MCPB-TOOL-003] An OAC server MUST present the same tool names,
 `inputSchema` and result shape to every harness.
 
 ### 5.2 Arguments
 
-**5.2.1 — `TODO(fixture)`, hook H21.** Each tool's `inputSchema` MUST be a JSON Schema
-object whose properties are the tool's arguments as `spec/session-channels.md` names them.
+[MCPB-TOOL-004] Each tool's `inputSchema` MUST be a JSON Schema
+object whose properties are the tool's arguments as `spec/session-channels.md` §4.4 and
+§8.2 name them.
 
-**5.2.2 — `TODO(fixture)`, hook H22.** A `tools/call` that fails its tool's `inputSchema`
+[MCPB-TOOL-005] A `tools/call` that fails its tool's `inputSchema`
 MUST return a tool execution error (§5.4) carrying the error taxonomy's malformed-input
 error.
 
@@ -428,26 +429,27 @@ error.
 G4 fact 6 shows that a result's `_meta` may never reach the model. Anything the model
 needs in order to act therefore travels in `content`.
 
-**5.3.1 — `TODO(fixture)`, hook H23.** A tool result MUST carry, in a `text` content
+[MCPB-TOOL-006] A tool result MUST carry, in a `text` content
 block, every value the calling model needs to act on: for `send` and `reply` the
 assigned message id and the initial delivery state, for `list_sessions` the session
 list, and for `whoami` the caller's own session id and device fingerprint.
 
-**5.3.2 — `SHOULD`.** A tool result SHOULD also carry the same values in
+[MCPB-TOOL-007] A tool result SHOULD also carry the same values in
 `structuredContent`. MCP recommends the pairing in the other direction ("a tool that
 returns structured content SHOULD also return the serialized JSON in a TextContent
 block", MCP `2025-11-25` tools page, "Structured Content", retrieved 2026-10-03). A server
 deviates by sending text only, which loses machine-readable results for clients that
 use them.
 
-**5.3.3 — `TODO(fixture)`, hook H24.** A `send` or `reply` result MUST NOT report a
+[MCPB-TOOL-008] A `send` or `reply` result MUST NOT report a
 delivery state beyond `accepted-by-adapter`.
 
 The tool call returns before the receiving harness has the message. The states after
-`accepted-by-adapter` are defined in `spec/session-channels.md` "Delivery states"
-(planned, E4) and decided in C5 §9.
+`accepted-by-adapter` are decided in C5 §9 and are to be defined in
+`spec/session-channels.md` §8.1 (E4). The name `accepted-by-adapter` is C5 §9's; it is
+re-pointed when §8.1 lands.
 
-**5.3.4 — `TODO(fixture)`, hook H25.** A `whoami` result MUST NOT contain a private key,
+[MCPB-TOOL-009] A `whoami` result MUST NOT contain a private key,
 bearer token or any other value that authenticates its holder as the caller (C6 §8).
 
 ### 5.4 Errors
@@ -459,26 +461,26 @@ requests ..., Server errors") from tool execution errors ("Reported in tool resu
 the `2025-11-25` and `2026-07-28` schemas (lines 1129 and 1837 of the schema files cited
 in §4.3).
 
-**5.4.1 — `TODO(fixture)`, hook H26.** An OAC error from the closed taxonomy in
-`spec/session-channels.md` "Error taxonomy" (planned, E4) MUST be returned as a tool
+[MCPB-TOOL-010] An OAC error from the closed taxonomy in
+`spec/session-channels.md` §8.3 (E4) MUST be returned as a tool
 execution error with `isError: true`.
 
-**5.4.2 — `TODO(fixture)`, hook H27.** A tool execution error MUST carry the OAC error
+[MCPB-TOOL-011] A tool execution error MUST carry the OAC error
 code, spelled exactly as the taxonomy spells it, in its `text` content.
 
-**Error names are placeholders.** The closed taxonomy belongs to E4 (#44), which has not
-landed. This document therefore names errors by role only: the *authorization-failure
-error* (4.4.2), the *malformed-input error* (5.2.2) and the *unknown-destination error*
-(H27). Each role is re-pointed to the taxonomy's exact code when E4 lands; until then no
+**Error names are placeholders.** The closed taxonomy is `spec/session-channels.md` §8.3,
+a stub E4 (#44) fills. This document therefore names errors by role only: the *authorization-failure
+error* ([MCPB-ATT-002]), the *malformed-input error* ([MCPB-TOOL-005]) and the *unknown-destination error*
+([MCPB-TOOL-011]). Each role is re-pointed to the taxonomy's exact code when E4 lands; until then no
 fixture can assert a spelling.
 
-**5.4.3 — `TODO(fixture)`, hook H28.** An OAC server MUST NOT return an OAC taxonomy
+[MCPB-TOOL-012] An OAC server MUST NOT return an OAC taxonomy
 error as a JSON-RPC error object.
 
-**5.4.4 — `TODO(fixture)`, hook H29.** An OAC server MUST NOT emit a JSON-RPC error code
+[MCPB-TOOL-013] An OAC server MUST NOT emit a JSON-RPC error code
 in the range `-32020` to `-32099` that the MCP specification does not define.
 
-5.4.4 repeats the MCP `2026-07-28` reservation of that range ("Implementations **MUST
+Requirement MCPB-TOOL-013 repeats the MCP `2026-07-28` reservation of that range ("Implementations **MUST
 NOT** emit any code from this sub-range that is not defined by this specification", MCP
 basic page, "Error Codes", retrieved 2026-10-03).
 
@@ -507,24 +509,24 @@ documentation for OAC.
 
 ### 6.2 The OAC key
 
-**6.2.1 — `TODO(fixture)`, hook H30.** OAC provenance in `_meta` MUST be carried under
+[MCPB-META-001] OAC provenance in `_meta` MUST be carried under
 the single key `io.github.rossgraeber/oac-session-channels`.
 
 The key is the extension identifier itself, checked against §6.1 in §3.2. G4 fact 5 shows
 this key on the wire.
 
-**6.2.2 — `TODO(fixture)`, hook H31.** The value under that key MUST be a JSON object.
+[MCPB-META-002] The value under that key MUST be a JSON object.
 
-**6.2.3 — `TODO(fixture)`, hook H32.** Every `_meta` key an OAC server writes MUST either
+[MCPB-META-003] Every `_meta` key an OAC server writes MUST either
 use the prefix `io.github.rossgraeber/` or be a key the MCP specification itself defines.
 
-**6.2.4 — `TODO(fixture)`, hook H33.** An OAC server MUST NOT write a `_meta` key whose
+[MCPB-META-004] An OAC server MUST NOT write a `_meta` key whose
 prefix has `modelcontextprotocol` or `mcp` as its second label, except a key the MCP
 specification defines for the role the server is playing.
 
 **6.2.5 — members.** The members of the provenance object are copies of envelope and
-receipt fields. They are named in `spec/session-channels.md` "Message envelope and content
-model" and "Delivery states" (planned, E1 and E4). This binding defines none of them.
+receipt fields. They are named in `spec/session-channels.md` §4.2 (envelope members) and
+§8.1 (delivery states, E4). This binding defines none of them.
 
 > **Reference implementation note:** the expected members are the message id, the
 > conversation and correlation ids, the delivery state, and the spec revision. G4's spike
@@ -533,7 +535,7 @@ model" and "Delivery states" (planned, E1 and E4). This binding defines none of 
 
 ### 6.3 What `_meta` provenance is not
 
-**6.3.1 — `TODO(fixture)`, hook H34.** A receiver MUST NOT use a value read from `_meta`
+[MCPB-META-005] A receiver MUST NOT use a value read from `_meta`
 as evidence of a message's authenticity or sender.
 
 Authenticity comes from the envelope signature (`spec/security.md`, planned, E5; C5 §2-§6).
@@ -542,8 +544,8 @@ SHOULD treat any new fields or data introduced as part of an extension as untrus
 (https://modelcontextprotocol.io/seps/2133-extensions, "Security Implications", retrieved
 2026-10-03).
 
-**6.3.2 — `TODO(fixture)`, hook H35.** An OAC server MUST NOT place a value only in
-`_meta` when the calling model needs that value (see 5.3.1).
+[MCPB-META-006] An OAC server MUST NOT place a value only in
+`_meta` when the calling model needs that value (see [MCPB-TOOL-006]).
 
 **6.3.3 — not the channel `meta`.** The Claude Code channel notification has its own
 `meta` map (no underscore). Its keys become attributes on the `<channel>` tag, must be
@@ -552,7 +554,7 @@ identifier-safe (letters, digits, underscore), and are dropped silently otherwis
 rules. A prefixed key such as `io.github.rossgraeber/oac-session-channels` contains `.`,
 `/` and `-`, so Claude Code would drop it from a channel `meta` map.
 
-**6.3.4 — `TODO(fixture)`, hook H36.** An OAC server MUST NOT put a `_meta`-style
+[MCPB-META-007] An OAC server MUST NOT put a `_meta`-style
 prefixed key into a Claude Code channel `meta` map.
 
 ## 7. Unsupported extension
@@ -563,7 +565,7 @@ appropriate error. Extensions **SHOULD** document their expected fallback behavi
 Source: MCP versioning page, "Extension Negotiation", revision `2026-07-28`, retrieved
 2026-10-03. This section is OAC's fallback documentation.
 
-**7.1 — `TODO(fixture)`, hook H37.** An OAC server MUST serve the tool surface (§5) to a
+[MCPB-FBK-001] An OAC server MUST serve the tool surface (§5) to a
 client that does not declare the OAC extension identifier.
 
 Neither Claude Code nor Codex declares the identifier in the G4 fixtures: every
@@ -572,7 +574,7 @@ lines 7, 11, 27, 32; `transcript-row41-2026-09-27.jsonl` lines 2, 4). Requiring 
 cut off both harnesses. The OAC tools are ordinary MCP tools and need no client-side
 extension support.
 
-**7.2 — `SHOULD`.** A client that does understand the identifier SHOULD declare it in
+[MCPB-FBK-002] A client that does understand the identifier SHOULD declare it in
 its own `capabilities.extensions`. A client deviates by not declaring it; the server
 still serves it under 7.1.
 
@@ -589,38 +591,38 @@ restate them. Each provider surface carries one label (`oac-evidence` §4).
 - **Inbound:** the provider-native `notifications/claude/channel` notification, with
   `content` and `meta` (`oac-claude-channels` §1). Claude Code sends no acknowledgement,
   so the strongest delivery state an OAC server can report for it is `handed-to-harness`
-  (C5 §9; `spec/session-channels.md` "Delivery states", planned).
+  (C5 §9; `spec/session-channels.md` §8.1, E4).
 - **Era:** "A channel server that negotiates MCP protocol `2026-07-28` cannot deliver
   channel messages and is not registered as a channel" (`oac-claude-channels` §4; G4
   fact 3).
 - **Outbound:** the four tools of §5.
 
-**8.1.1 — `TODO(fixture)`, hook H38.** An OAC server MUST declare
+[MCPB-CLD-001] An OAC server MUST declare
 `capabilities.experimental["claude/channel"]` only in an `initialize` result that
 negotiates a legacy revision.
 
-**8.1.2 — `TODO(fixture)`, hook H39.** An OAC server MUST NOT send
+[MCPB-CLD-002] An OAC server MUST NOT send
 `notifications/claude/channel` on a connection that has not negotiated a legacy revision.
 
-**8.1.3 — `TODO(fixture)`, hook H40.** A stdio OAC server started for the Claude channel
+[MCPB-CLD-003] A stdio OAC server started for the Claude channel
 path MUST answer a `server/discover` probe with a JSON-RPC error that is not a recognized
 modern error.
 
-8.1.3 is how a stdio channel server stays on the legacy era. Under MCP `2026-07-28`, a
+Requirement MCPB-CLD-003 is how a stdio channel server stays on the legacy era. Under MCP `2026-07-28`, a
 dual-era stdio client "probe[s] with `server/discover` and fall[s] back on any error that
 is not a recognized modern error" (MCP versioning page, "Backward Compatibility",
 retrieved 2026-10-03). G4's channel server did exactly this, with `-32601 Method not
 found` (lines 6, 8), and Claude Code fell back to `initialize` (line 14). It is the one
-exception to 4.3.5: a Claude-channel stdio process is legacy-only, by design.
+exception to [MCPB-ERA-005]: a Claude-channel stdio process is legacy-only, by design.
 `MCP_PROTOCOL_NEGOTIATION=legacy` can force the same result from the client side
-(`oac-claude-channels` §4); 8.1.3 does not depend on the operator setting it.
+(`oac-claude-channels` §4); [MCPB-CLD-003] does not depend on the operator setting it.
 
 The 2026-07-28 schema still defines `experimental` on both `ClientCapabilities` and
 `ServerCapabilities` (schema at commit `271ecc9`, lines 720 and 797, cited in §4.3), so
-8.1.1 restricts where the capability is declared, not whether the member exists.
+Requirement MCPB-CLD-001 restricts where the capability is declared, not whether the member exists.
 
 > **Reference implementation note:** the Claude adapter's shim is a stdio process
-> spawned by Claude Code (C2 §1). It therefore runs as the legacy-only exception in 8.1.3,
+> spawned by Claude Code (C2 §1). It therefore runs as the legacy-only exception in [MCPB-CLD-003],
 > and it serves the §5 tools over the same legacy connection.
 
 ### 8.2 Codex — tool path (MCP: supported; app-server inbound: experimental)
@@ -633,14 +635,14 @@ The 2026-07-28 schema still defines `experimental` on both `ClientCapabilities` 
   `codex mcp-server` is deleted and is not a path (C6 §9).
 - **Outbound:** Codex calls the four tools of §5 on an OAC server registered with
   `codex mcp add` (C2 §6). No Codex connection is bound today, so these calls are refused
-  under the interim rule in 4.4.2 until the Codex pairing (#69) is designed and documented.
+  under the interim rule in [MCPB-ATT-002] until the Codex pairing (#69) is designed and documented.
 - **Era:** legacy by default, modern only behind `mcp_2026_07_28` and only on HTTP
   registrations in the one run observed (G4 facts 7 and 8).
 
-**8.2.1 — `TODO(fixture)`, hook H41.** An OAC server MUST NOT send any notification to a
+[MCPB-CDX-001] An OAC server MUST NOT send any notification to a
 Codex MCP client as a way of delivering an OAC message.
 
-8.2.1 holds on both eras: Codex has no MCP surface that turns a notification into session
+Requirement MCPB-CDX-001 holds on both eras: Codex has no MCP surface that turns a notification into session
 input, so such a notification could only mislead (§2.1). G4 recorded one such push with
 no consumer (line 56).
 
@@ -653,17 +655,17 @@ task by #228 (2026-10-02). It is resolved here as follows.
 
 1. **The conflict was a design question: can one OAC server serve both needs?** It
    can. §4 requires every OAC server other than a channel-path server to be dual-era
-   (4.3.1-4.3.5), and the MCP specification permits a dual-era server to serve both eras
+   ([MCPB-ERA-001] to [MCPB-ERA-005]), and the MCP specification permits a dual-era server to serve both eras
    in one process (§4.1). G4 showed that topology working with real clients, alongside a
    legacy channel in the same process (§4.2 facts 1-4).
 2. **The Claude half is fixed by requirement, not by hope.** The channel capability is
-   declared only on legacy connections (8.1.1), channel notifications are sent only
-   there (8.1.2), and a Claude-channel stdio process refuses the modern probe so that the
-   client falls back (8.1.3).
+   declared only on legacy connections ([MCPB-CLD-001]), channel notifications are sent only
+   there ([MCPB-CLD-002]), and a Claude-channel stdio process refuses the modern probe so that the
+   client falls back ([MCPB-CLD-003]).
 3. **The Codex half no longer needs to be true.** "Codex tool path *may* negotiate current
    MCP" was an open element because OAC's design seemed to depend on it. Under this
    binding the tool *contract* does not: the tool surface is identical in both eras
-   (4.3.7, 5.1.2). The honest consequence is about calls, not the contract: whether a
+   ([MCPB-ERA-007], [MCPB-TOOL-002]). The honest consequence is about calls, not the contract: whether a
    Codex call is served depends on caller attribution (§4.4), and no Codex connection is
    bound today. If Codex's default client moves to `2026-07-28` before a binding signal
    exists, Codex's outbound calls are refused (fail-closed) on that era as on the legacy
@@ -697,14 +699,14 @@ rows record the closure with a dated note in the same change.
 | Codex default client negotiates `2026-07-28` | UNVERIFIED (never observed) | already in `docs/planning/STATUS.md`; `11-risks.md` row 41 |
 | A documented per-request session signal exists that OAC can bind to a paired session (Codex's `x-codex-turn-metadata` carries `session_id`/`thread_id`/`turn_id` but is undocumented and client-asserted) | UNVERIFIED (new, §4.4) | added to `docs/planning/STATUS.md` and `11-risks.md` RISK-G4 in this change |
 | One Codex legacy-era MCP connection carries calls from several threads (a thread id is sent per call) | UNVERIFIED (new, §4.4); owner #69 | added to `docs/planning/STATUS.md` and `11-risks.md` RISK-G4 in this change |
-| A legacy client other than Codex `0.157.1` ignores an `extensions` member in an `initialize` result | UNVERIFIED (new, §4.3.8) | added to `docs/planning/STATUS.md` in this change |
+| A legacy client other than Codex `0.157.1` ignores an `extensions` member in an `initialize` result | UNVERIFIED (new, [MCPB-ERA-008]) | added to `docs/planning/STATUS.md` in this change |
 
 ## 11. Boundary self-check (`oac-boundaries`)
 
 - **Delivery.** No section makes MCP the delivery mechanism. §2 forbids the claim, and
   §8 names each provider's native path.
-- **Polling.** 2.2 forbids an MCP polling surface while active inbound is claimed.
-- **Credentials.** `whoami` never returns a credential (5.3.4). Nothing here reads or
+- **Polling.** [MCPB-DLV-002] forbids an MCP polling surface while active inbound is claimed.
+- **Credentials.** `whoami` never returns a credential ([MCPB-TOOL-009]). Nothing here reads or
   reuses a provider credential.
 - **Private RPCs.** Every provider surface named is documented and labelled (§8). No
   scraping, rollout file or deleted `codex mcp-server` path is used.
@@ -716,58 +718,88 @@ rows record the closure with a dated note in the same change.
   exact path (`oac-boundaries` `references/mechanical-checks.md`;
   `oac-spec-authoring` `references/neutral-vocabulary-check.md`).
 
-## 12. Conformance fixture hooks
+## 12. Requirement index and conformance fixtures
 
-Each hook names the fixture that will prove one requirement. Fixtures land under
-`tests/protocol/` (task E8) once E1 fixes the requirement-id scheme; until then every
-row is `TODO(fixture)`. The input is MCP JSON-RPC traffic, and the expected outcome is
-an accept, a reject or an emitted shape. A second implementation can run each one without
-any provider installed.
+### 12.1 Ids
 
-| Hook | Requirement | Input | Expected outcome |
-|---|---|---|---|
-| H1 | 2.1 | `server/discover` and `initialize` results, `tools/list`, `resources/list`, `prompts/list` | exposed capability keys are exactly `tools`, `extensions` (holding only the §3 identifier) and, on a legacy channel-path connection only, `experimental["claude/channel"]`; tool names are exactly §5.1's four; no resource or prompt is listed |
-| H2 | 2.2 | `resources/list`, `prompts/list`, `subscriptions/listen` while active inbound is declared | no inbox-shaped resource, prompt or subscription offered |
-| H3 | 3.3 | `initialize` result; `server/discover` result | identifier string byte-equal to `io.github.rossgraeber/oac-session-channels` |
-| H4 | 3.5 | the spec revision a server declares under the identifier (settings member, E2) | the revision is in `spec/session-channels.md`'s non-breaking list for the frozen identifier; any other value fails |
-| H5 | 3.6.1 | settings value under the identifier | a JSON object |
-| H6 | 3.6.2 | client capabilities with an unknown settings member | request served normally |
-| H7 | 4.3.1 | legacy `initialize` | result returned |
-| H8 | 4.3.2 | `initialize` with `protocolVersion: "2025-11-25"` | answered `2025-11-25` |
-| H9 | 4.3.3 | `initialize` with `protocolVersion: "2025-06-18"` (from G4 line 26) | answered `2025-11-25` |
-| H10 | 4.3.4 | modern `tools/list` with `protocolVersion` `2026-07-28` | served |
-| H11 | 4.3.5 | modern `server/discover` on a non-channel surface | `supportedVersions` contains both revisions |
-| H12 | 4.3.7 | `tools/list` on a legacy-era connection and as a modern-era request | identical names, `inputSchema` and declared result shape |
-| H13 | 4.3.8 | legacy `initialize` | `capabilities.extensions` holds the identifier |
-| H14 | 4.3.9 | `server/discover` | `capabilities.extensions` holds the identifier |
-| H15 | 4.3.11 | (a) request with no `initialize` on its stdio process or HTTP session and no `protocolVersion` (negative); (b) request without `protocolVersion` inside an initialized legacy connection | (a) JSON-RPC `-32602`; (b) served |
-| H16 | 4.4.1 | two tool calls on one unbound connection carrying different client-asserted session ids (negative) | neither attributed by connection alone; both refused per H17 |
-| H17 | 4.4.2 | `send`, `list_sessions` and `whoami` on an unbound connection, legacy and modern (negative) | `isError: true` result carrying the authorization-failure error for each (code pending E4) |
-| H18 | 5.1.1 | `tools/list` | exactly `send`, `reply`, `list_sessions`, `whoami` present |
-| H19 | 5.1.2 | `tools/list` on each era | identical names, schemas and result shapes |
-| H20 | 5.1.3 | `tools/list` as two different clients | identical |
-| H21 | 5.2.1 | each `inputSchema` | valid JSON Schema object; property names match the neutral spec |
-| H22 | 5.2.2 | `send` missing a required argument, on a bound connection (negative) | `isError: true`, the malformed-input error (code pending E4) |
-| H23 | 5.3.1 | each tool's result | required values present in a `text` block |
-| H24 | 5.3.3 | `send` result | state is `accepted-by-adapter` or an error |
-| H25 | 5.3.4 | `whoami` result | no key material or token |
-| H26 | 5.4.1 | `send` to an unknown session, on a bound connection (negative) | `isError: true` result, not a JSON-RPC error |
-| H27 | 5.4.2 | same | `text` contains the unknown-destination error's exact code (pending E4) |
-| H28 | 5.4.3 | every OAC error case | never a JSON-RPC error object |
-| H29 | 5.4.4 | all server errors | no undefined code in `-32020`..`-32099` |
-| H30 | 6.2.1 | any result carrying OAC provenance | under `io.github.rossgraeber/oac-session-channels` only |
-| H31 | 6.2.2 | same | value is a JSON object |
-| H32 | 6.2.3 | every `_meta` the server writes | prefix `io.github.rossgraeber/` or MCP-defined |
-| H33 | 6.2.4 | every `_meta` key the server writes in a scripted session on both eras | no key matches `^[A-Za-z][A-Za-z0-9-]*\.(modelcontextprotocol\|mcp)[./]` except the keys MCP defines for a server's role (e.g. `io.modelcontextprotocol/serverInfo`, `io.modelcontextprotocol/subscriptionId`) |
-| H34 | 6.3.1 | envelope whose `_meta` names a sender different from the signed `from` (negative) | sender taken from the verified envelope only |
-| H35 | 6.3.2 | each tool's result | no model-needed value present only in `_meta` |
-| H36 | 6.3.4 | each channel notification | every `meta` key matches `^[A-Za-z0-9_]+$` |
-| H37 | 7.1 | `tools/list` from a client declaring no extensions; `tools/call` from such a client on a bound connection | both served |
-| H38 | 8.1.1 | modern `server/discover` result (negative) | no `experimental["claude/channel"]` |
-| H39 | 8.1.2 | modern-era traffic on a channel server (negative) | no `notifications/claude/channel` sent |
-| H40 | 8.1.3 | stdio `server/discover` on a channel server | JSON-RPC error that is not a recognized modern error |
-| H41 | 8.2.1 | a delivery to a Codex session | no MCP notification emitted toward the Codex client |
+This document registers the requirement-id prefix `MCPB` ("MCP binding") under
+`spec/session-channels.md` §3.2, which lets a binding document register its own `<DOC>`.
+`MCPB` names this document rather than the protocol it binds, so it cannot be read as an
+MCP-defined code, and it does not collide with `SC` or `SEC`. Its areas are: `DLV` (§2),
+`EXT` (§3), `ERA` (§4.3), `ATT` (§4.4), `TOOL` (§5), `META` (§6), `FBK` (§7), `CLD`
+(§8.1) and `CDX` (§8.2). The stability rules of `spec/session-channels.md` §3.2 apply unchanged.
 
-G4's committed transcripts are the first source of inputs for H7-H15, H38 and H40. They
+### 12.2 Fixture profile
+
+Fixtures follow `spec/session-channels.md` §3.3, with three binding-specific values,
+because that section's `input` kinds and `result` values are envelope-stage ones:
+
+- `stage` is `mcp-binding`.
+- `context` holds `era` (`legacy` or `modern`), `server_role` (`channel-path` or
+  `general`, §4.3) and, where a requirement needs them, `legacy_initialized` (whether the
+  stdio process or HTTP session has completed `initialize`) and
+  `supported_legacy_revisions`.
+- `input` is `mcp_exchange`: an object with an optional `request` (the client's
+  JSON-RPC message) and a required `server_message` (the server's response or
+  notification).
+- `expected.result` is `conformant` or `nonconformant`: whether `server_message` meets
+  the requirement, given `request` and `context`.
+
+Fixtures live in `tests/protocol/mcpb-<area>/`, named as `spec/session-channels.md` §3.3 says. A requirement that a
+single exchange cannot decide (a whole session, a comparison across eras, or a value a
+later task defines) stays `TODO(fixture)`, with the planned input and expected outcome.
+
+### 12.3 Index
+
+| Id | Keyword | Fixtures |
+|---|---|---|
+| MCPB-DLV-001 | MUST NOT | TODO(fixture): `server/discover` and `initialize` results, `tools/list`, `resources/list`, `prompts/list` → exposed capability keys are exactly `tools`, `extensions` (holding only the §3 identifier) and, on a legacy channel-path connection only, `experimental["claude/channel"]`; tool names are exactly §5.1's four; no resource or prompt is listed |
+| MCPB-DLV-002 | MUST NOT | TODO(fixture): `resources/list`, `prompts/list`, `subscriptions/listen` while active inbound is declared → no inbox-shaped resource, prompt or subscription offered |
+| MCPB-EXT-001 | MUST | `tests/protocol/mcpb-ext/MCPB-EXT-001.p01-initialize-exact-identifier.json`, `tests/protocol/mcpb-ext/MCPB-EXT-001.n01-identifier-wrong-case.json` |
+| MCPB-EXT-002 | MUST NOT | TODO(fixture), needs the version member of `spec/session-channels.md` §6.5 (E2): a settings object declaring version `1.0` under the identifier (negative) → nonconformant |
+| MCPB-EXT-003 | MUST | `tests/protocol/mcpb-ext/MCPB-EXT-003.n01-settings-not-object.json` |
+| MCPB-EXT-004 | MUST | TODO(fixture): client capabilities with an unknown settings member → request served normally |
+| MCPB-ERA-001 | MUST | TODO(fixture): legacy `initialize` → result returned |
+| MCPB-ERA-002 | MUST | TODO(fixture): `initialize` with `protocolVersion: "2025-11-25"` → answered `2025-11-25` |
+| MCPB-ERA-003 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-003.p01-older-legacy-answered-2025-11-25.json`, `tests/protocol/mcpb-era/MCPB-ERA-003.n01-echoes-unsupported-revision.json` |
+| MCPB-ERA-004 | MUST | TODO(fixture): modern `tools/list` with `protocolVersion` `2026-07-28` → served |
+| MCPB-ERA-005 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-005.p01-discover-lists-both-eras.json`, `tests/protocol/mcpb-era/MCPB-ERA-005.n01-discover-modern-only.json` |
+| MCPB-ERA-006 | MAY | none (not a `MUST`) |
+| MCPB-ERA-007 | MUST | TODO(fixture): `tools/list` on a legacy-era connection and as a modern-era request → identical names, `inputSchema` and declared result shape |
+| MCPB-ERA-008 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-008.p01-initialize-declares-extension.json`, `tests/protocol/mcpb-era/MCPB-ERA-008.n01-initialize-no-extensions.json` |
+| MCPB-ERA-009 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-009.p01-discover-declares-extension.json`, `tests/protocol/mcpb-era/MCPB-ERA-009.n01-discover-no-extensions.json` |
+| MCPB-ERA-010 | SHOULD | none (not a `MUST`) |
+| MCPB-ERA-011 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-011.p01-uninitialized-missing-version-rejected.json`, `tests/protocol/mcpb-era/MCPB-ERA-011.p02-legacy-session-request-served.json`, `tests/protocol/mcpb-era/MCPB-ERA-011.n01-uninitialized-missing-version-served.json` |
+| MCPB-ATT-001 | MUST NOT | TODO(fixture): two tool calls on one unbound connection carrying different client-asserted session ids (negative) → neither attributed by connection alone; both refused per H17 |
+| MCPB-ATT-002 | MUST | TODO(fixture): `send`, `list_sessions` and `whoami` on an unbound connection, legacy and modern (negative) → `isError: true` result carrying the authorization-failure error for each (code pending E4) |
+| MCPB-TOOL-001 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-001.p01-four-tools-listed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-001.n01-whoami-missing.json` |
+| MCPB-TOOL-002 | MUST | TODO(fixture): `tools/list` on each era → identical names, schemas and result shapes |
+| MCPB-TOOL-003 | MUST | TODO(fixture): `tools/list` as two different clients → identical |
+| MCPB-TOOL-004 | MUST | TODO(fixture): each `inputSchema` → valid JSON Schema object; property names match the neutral spec |
+| MCPB-TOOL-005 | MUST | TODO(fixture): `send` missing a required argument, on a bound connection (negative) → `isError: true`, the malformed-input error (code pending E4) |
+| MCPB-TOOL-006 | MUST | TODO(fixture): each tool's result → required values present in a `text` block |
+| MCPB-TOOL-007 | SHOULD | none (not a `MUST`) |
+| MCPB-TOOL-008 | MUST NOT | TODO(fixture): `send` result → state is `accepted-by-adapter` or an error |
+| MCPB-TOOL-009 | MUST NOT | TODO(fixture): `whoami` result → no key material or token |
+| MCPB-TOOL-010 | MUST | TODO(fixture): `send` to an unknown session, on a bound connection (negative) → `isError: true` result, not a JSON-RPC error |
+| MCPB-TOOL-011 | MUST | TODO(fixture): same → `text` contains the unknown-destination error's exact code (pending E4) |
+| MCPB-TOOL-012 | MUST NOT | TODO(fixture): every OAC error case → never a JSON-RPC error object |
+| MCPB-TOOL-013 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-013.n01-undefined-reserved-code.json` |
+| MCPB-META-001 | MUST | `tests/protocol/mcpb-meta/MCPB-META-001.p01-provenance-under-identifier.json`, `tests/protocol/mcpb-meta/MCPB-META-001.n01-provenance-under-other-key.json` |
+| MCPB-META-002 | MUST | `tests/protocol/mcpb-meta/MCPB-META-002.n01-provenance-not-object.json` |
+| MCPB-META-003 | MUST | `tests/protocol/mcpb-meta/MCPB-META-003.p01-mcp-defined-key-allowed.json`, `tests/protocol/mcpb-meta/MCPB-META-003.n01-unprefixed-key.json` |
+| MCPB-META-004 | MUST NOT | `tests/protocol/mcpb-meta/MCPB-META-004.n01-invented-reserved-key.json` |
+| MCPB-META-005 | MUST NOT | TODO(fixture): envelope whose `_meta` names a sender different from the signed `from` (negative) → sender taken from the verified envelope only |
+| MCPB-META-006 | MUST NOT | TODO(fixture): each tool's result → no model-needed value present only in `_meta` |
+| MCPB-META-007 | MUST NOT | `tests/protocol/mcpb-meta/MCPB-META-007.p01-identifier-safe-meta-keys.json`, `tests/protocol/mcpb-meta/MCPB-META-007.n01-prefixed-key-in-channel-meta.json` |
+| MCPB-FBK-001 | MUST | TODO(fixture): `tools/list` from a client declaring no extensions; `tools/call` from such a client on a bound connection → both served |
+| MCPB-FBK-002 | SHOULD | none (not a `MUST`) |
+| MCPB-CLD-001 | MUST | `tests/protocol/mcpb-cld/MCPB-CLD-001.p01-channel-capability-on-legacy.json`, `tests/protocol/mcpb-cld/MCPB-CLD-001.n01-channel-capability-on-modern.json` |
+| MCPB-CLD-002 | MUST NOT | TODO(fixture): modern-era traffic on a channel server (negative) → no `notifications/claude/channel` sent |
+| MCPB-CLD-003 | MUST | TODO(fixture): stdio `server/discover` on a channel server → JSON-RPC error that is not a recognized modern error |
+| MCPB-CDX-001 | MUST NOT | TODO(fixture): a delivery to a Codex session → no MCP notification emitted toward the Codex client |
+
+G4's committed transcripts are the first source of inputs for the `ERA` and `CLD`
+fixtures; several fixtures above reproduce a G4 line's shape. They
 are gate evidence, not conformance fixtures, so each fixture is re-captured in the E8
 format rather than copied.

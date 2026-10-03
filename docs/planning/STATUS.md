@@ -8,10 +8,11 @@ verdict, or when a pin moves.
 `spec/bindings/mcp.md`; C5 closed.** In this change:
 
 - **Path.** `spec/bindings/mcp.md`, the task-scoped exemption from the neutral-vocabulary
-  rule. Mechanical check 2 and the spec zero-hits group exempt that exact path; check 1
-  (transport vocabulary) and CI checks 3, 8, 11 are unchanged. Skills updated:
-  `oac-spec-authoring` (+ `neutral-vocabulary-check.md`), `oac-boundaries`
-  `mechanical-checks.md`, `oac-mcp` Pin, `oac-claude-channels` §4; mirror re-synced.
+  rule. The CI step and skill text exempting exactly that regular file from check 2 and the
+  spec zero-hits group came with #41 (PR #258, entry below); check 1 has no exemption.
+  Skills updated here: `oac-mcp` Pin, `oac-claude-channels` §4; mirror re-synced.
+- **Ids.** The binding uses #41 §3 ids with document prefix `MCPB` (`MCPB-<AREA>-<NNN>`)
+  and cites `spec/session-channels.md` by its real headings.
 - **C5: `CLOSED`** by the binding's §9 (dual-era server, legacy-only channel path, an
   era-invariant tool surface). Both register rows and RISK-G4 carry dated notes. #65 and
   RISK-G4 row 41 stay open as verification. Caveat: a tool call is served only on a
@@ -34,6 +35,42 @@ verdict, or when a pin moves.
   planned name.
 
 No gate verdict, pin or `ADR-001.md` text changes.)
+
+**Last updated:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning
+written.** The first Stage 2 spec change. In this change:
+
+- **New:** `spec/session-channels.md`, the normative OAC Session Channels document.
+  - It has the full section skeleton. §4 (envelope) and §5 (versioning) are written. §6
+    (E2, #42), §7 (E3, #43) and §8 (E4, #44) are titled stubs those tasks fill without
+    renumbering. Security stays in `spec/security.md` (E5, #45, not yet written).
+  - §3 fixes the requirement-id scheme (`SC-ENV-010` form) and the conformance-fixture
+    format. Appendix A indexes 47 requirement ids: 28 `MUST`/`MUST NOT` with fixtures, 14
+    marked `TODO(fixture)` with the task named, and 5 `SHOULD`/`SHOULD NOT`/`MAY`.
+- **New:** 76 envelope-stage fixtures under `tests/protocol/sc-env/` and
+  `tests/protocol/sc-ver/`, including the "unknown version" negative case E8 requires.
+- **Design choices** (details in the spec):
+  - the C13 whole-value charset is now an envelope rule (§4.3), closing C13 §14's E1
+    item and `11-risks.md` row 46's residual in the spec;
+  - an unsupported content-part type is rejected, not ignored (§4.5.2). This supersedes
+    `05-interfaces.md` §3's M0 draft, which said ignore;
+  - operator decisions on #41, each marked in the spec with a dated note: the 64 KB size
+    default, the 24-hour `ttl_ms` cap, and rejecting the whole message on an unsupported
+    part type. Orchestrator ruling: the extension identifier stays in the core spec;
+  - the `security` object is closed; unrecognized top-level members are ignored;
+  - `null` is never a value; `created_at` is UTC `Z` only; `ttl_ms` is 1 to 86400000;
+  - `version` is `"<major>.<minor>"`. A major maps one-to-one to an extension
+    identifier; major 0 is `io.github.rossgraeber/oac-session-channels` (C3 §8).
+- **CI:** boundary checks 1-2 and the spec neutral-vocabulary zero-hits group now run in
+  `boundary-lint.yml` over `spec/`, which is mandatory (a missing `spec/` fails); `core/` is
+  still pending. The step scans an explicit list of every regular file under `spec/`, so
+  dot-files and ignore files cannot hide one, and a symlink fails. Check 2 and the
+  zero-hits group exempt exactly the regular file `spec/bindings/mcp.md`, the path #46
+  (PR #255) uses for the E6 binding. Checks 3 and 8 gain `--no-ignore`. Checks 9 and 11 now see
+  `spec/` too, and it is clean. The `oac-boundaries` and `oac-spec-authoring` references
+  are updated to match and re-synced to `.agents/skills/`.
+
+No gate verdict, pin or ADR text changes. This change opens and closes no UNVERIFIED item:
+it makes no harness or transport claim.)
 
 **Last updated:** 2026-10-03 (**Issue #40 (D7): Stage 1 exits, and Stage 2 opens.**
 Operator decision on #40 (2026-10-02): D7 proceeds once the C13 G5 Codex re-run is
@@ -1053,7 +1090,7 @@ amendments A1-A3 issued)
 |---|---|
 | Milestone | M3 — Stage 2 normative spec (Epic E, #5). *(Dated note, 2026-10-03, #40: was "M2 — Stage 1 gate spikes (Epic D)" until D7. Earlier dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
 | Stage | **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
-| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
+| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. Progress: E1 (#41) in review, `spec/session-channels.md` with §4-§5 written and the §6-§8 stubs E2-E4 fill (2026-10-03); E2-E9 open. D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
 | Blocked | Stages 3-6. Stage 3 starts only after Gate S2, Stage 2's exit (`docs/planning/v0.1/10-stages.md` §6), and each later stage after its own gate. Stage 0 (Gate S0, #228) and Stage 1 (Gate S1, D7 #40) are complete. That meets the rule that no substantial core or transport code starts before both complete. The risk-first ordering (`10-stages.md` §2) still applies. No gate verdict blocks Stage 2: G5 is PASS and C13 is closed. *(Dated note, 2026-10-03, #40: until D7 this cell read "Stages 2-6, and the rest of Stage 1 pending D7"; C13 had closed on 2026-10-02, #220.)* |
 
 ## ADR amendments

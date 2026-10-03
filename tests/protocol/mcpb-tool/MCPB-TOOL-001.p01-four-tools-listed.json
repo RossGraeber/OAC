@@ -1,0 +1,63 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "MCPB-TOOL-001",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "tools/list returns the four OAC tools under their exact names.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/list",
+        "params": {}
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": {
+          "tools": [
+            {
+              "name": "send",
+              "description": "OAC send",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "reply",
+              "description": "OAC reply",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "list_sessions",
+              "description": "OAC list_sessions",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "whoami",
+              "description": "OAC whoami",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}
