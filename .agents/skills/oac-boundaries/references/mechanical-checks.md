@@ -8,8 +8,12 @@ budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs che
 (a missing `spec/` fails), and over `core/` once it exists, together with the zero-hits group
 of `oac-spec-authoring` `references/neutral-vocabulary-check.md` over `spec/` (#41). Check 2
 and that group exempt exactly `spec/bindings/mcp.md` (the task E6 binding document); check 1
-exempts nothing. `--hidden` keeps dot-files in scope. Checks 4-7 are not wired to CI and stay
-manual.
+exempts nothing. `--hidden` keeps dot-files in scope, and `--no-ignore` stops a committed
+`.ignore`, `.rgignore` or `.gitignore` from switching a check off (checks 3 and 8 carry it
+too). In CI the spec checks run on an explicit `find` list of every regular file under
+`spec/` (and `core/`), so the exemption is that one regular file and nothing else: a
+non-regular `spec/bindings/mcp.md`, or any symlink under `spec/`, fails the step. The
+commands below are the manual equivalents. Checks 4-7 are not wired to CI and stay manual.
 
 All commands are Git Bash / ripgrep syntax. `spec/` exists since 2026-10-03 (#41).
 `core/`, `adapters/`, `cli/`, and `transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
@@ -40,11 +44,11 @@ violation exits 1 with `Result: FAIL`.
 
 ```bash
 # 1. Zenoh vocabulary must not appear in the neutral spec or core types.
-rg -n --hidden --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' spec/ core/
+rg -n --hidden --no-ignore --glob '!target' -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' spec/ core/
 
 # 2. Provider-specific method names must not appear in neutral interfaces. The task E6
 #    binding document, spec/bindings/mcp.md (that exact path only), is exempt.
-rg -n --hidden --glob '!target' --glob '!spec/bindings/mcp.md' \
+rg -n --hidden --no-ignore --glob '!target' --glob '!spec/bindings/mcp.md' \
   'claude/channel|thread/queue/add|turn/steer|turn/start|thread/start|thread/resume|notifications/claude/channel' \
   spec/ core/
 
@@ -52,7 +56,7 @@ rg -n --hidden --glob '!target' --glob '!spec/bindings/mcp.md' \
 #    IPC, not model APIs). Excludes docs/ and backlog JSON, which legitimately discuss these
 #    names; language is still an open §5 decision, so cover Rust, Python, TS/JS, Go, and
 #    manifest files rather than assuming one toolchain.
-rg -n --glob '!target' --glob '!docs/**' -i \
+rg -n --no-ignore --glob '!target' --glob '!docs/**' -i \
   '\bopenai\b|\banthropic\b|@anthropic-ai|from openai|import openai' \
   --glob '*.rs' --glob '*.py' --glob '*.ts' --glob '*.toml' \
   --glob '*.js' --glob '*.mjs' --glob '*.go' --glob '*.json' .
@@ -78,7 +82,7 @@ rg -n --glob '!target' 'auth\.json|Keychain|CredentialManager|Secret Service' ad
 # 8. The CLI/local-deployment path must not require a separately administered server.
 #    zenohd (the Zenoh router) is allowed only as part of an optional non-local/LAN path,
 #    never a required piece of normal local use.
-rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
+rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
 
 # 9. herdr (Epic K dev/test tooling) must not reach product code: no `herdr` / `HERDR_`
 #    (case-insensitive) in any git-tracked entry under adapters/ core/ cli/ transports/

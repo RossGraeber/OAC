@@ -30,8 +30,10 @@ written.** The first Stage 2 spec change. In this change:
     identifier; major 0 is `io.github.rossgraeber/oac-session-channels` (C3 §8).
 - **CI:** boundary checks 1-2 and the spec neutral-vocabulary zero-hits group now run in
   `boundary-lint.yml` over `spec/`, which is mandatory (a missing `spec/` fails); `core/` is
-  still pending. `--hidden` keeps dot-files in scope. Check 2 and the zero-hits group exempt
-  exactly `spec/bindings/mcp.md`, the path #46 (PR #255) uses for the E6 binding. Checks 9 and 11 now see
+  still pending. The step scans an explicit list of every regular file under `spec/`, so
+  dot-files and ignore files cannot hide one, and a symlink fails. Check 2 and the
+  zero-hits group exempt exactly the regular file `spec/bindings/mcp.md`, the path #46
+  (PR #255) uses for the E6 binding. Checks 3 and 8 gain `--no-ignore`. Checks 9 and 11 now see
   `spec/` too, and it is clean. The `oac-boundaries` and `oac-spec-authoring` references
   are updated to match and re-synced to `.agents/skills/`.
 
