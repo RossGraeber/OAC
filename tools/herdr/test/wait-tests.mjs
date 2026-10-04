@@ -16,7 +16,7 @@
 //   - fake-herdr imitates herdr's agent_not_idle refusal, the agent_status shape and
 //     `agent prompt --wait`'s activity gate.
 
-import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,9 +116,20 @@ function fakeSession(mode, { state = 'idle', seq = 3, at = 0 } = {}) {
     writeFileSync(join(adir, 'status.tmp'), `${s} ${n} ${t}`);
     renameSync(join(adir, 'status.tmp'), join(adir, 'status'));
   };
+  // A transition herdr's event stream carries but no snapshot ever shows (shorter than any poll).
+  const logOnly = (s, n) => appendFileSync(join(adir, 'state-log'), `${n} ${s}\n`);
+  // Resolves once fake-herdr's `agent wait` has taken its event position (waits.log).
+  const waitArmed = async (count) => {
+    for (let i = 0; i < 400; i++) {
+      const f = join(root, 'waits.log');
+      if (existsSync(f) && readFileSync(f, 'utf8').split('\n').filter(Boolean).length >= count) return true;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return false;
+  };
   setAgent(state, seq, at);
   const herdr = new HerdrSession({ herdrCmd: [process.execPath, FAKE], sessionName: name, env: { ...process.env, FAKE_HERDR_STATE: root, FAKE_HERDR_MODE: mode }, cwd: root, timebox: { remainingMs: () => 60000 }, commands: [], defaultDeadlineMs: 15000 });
-  return { herdr, setAgent, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { herdr, setAgent, logOnly, waitArmed, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 export async function waitUnit(check) {
@@ -253,23 +264,33 @@ export async function waitUnit(check) {
   {
     const f = fakeSession('');
     try {
+      // Each state change lands only after the fake has taken its baseline (waits.log), never on a
+      // timer: whatever the polls happen to see, the answer is the same.
       const pending = f.herdr.agentPrompt('a', 'q', { wait: { until: ['idle', 'done', 'blocked', 'unknown'], timeoutMs: 8000 } });
-      await new Promise((r) => setTimeout(r, 400));
+      const armed0 = await f.waitArmed(1);
       f.setAgent('unknown', 4); // a flicker past the baseline: not activity
-      await new Promise((r) => setTimeout(r, 300));
       f.setAgent('working', 5);
-      await new Promise((r) => setTimeout(r, 300));
       f.setAgent('idle', 6);
       const p = await pending;
-      check('#253 fake-herdr prompt --wait: an unknown flicker does not count; it returns the settled state after an observed working past the queued seq', p.state === 'idle' && p.stateChangeSeq === 6, JSON.stringify([p.state, p.stateChangeSeq]));
-      // A working state too short for any poll: herdr's event stream still carries it.
+      check('#253 fake-herdr prompt --wait: an unknown flicker does not count; it returns the settled state after an observed working past the queued seq', armed0 && p.state === 'idle' && p.stateChangeSeq === 6, JSON.stringify([armed0, p.state, p.stateChangeSeq]));
+      // A working state too short for any poll: herdr's event stream still carries it. The
+      // transition is logged only (no snapshot ever shows it), and only after the wait has
+      // taken its event position, so the match can come from the event stream alone; herdr then
+      // reports it with the agent's state_change_seq at the match (here the idle@8 after it).
       const watch = f.herdr.agentWait('a', { until: ['working', 'blocked'], timeoutMs: 8000, background: true });
-      await new Promise((r) => setTimeout(r, 400));
-      f.setAgent('working', 7);
+      const armed = await f.waitArmed(2);
+      f.logOnly('working', 7);
       f.setAgent('idle', 8);
       const wr = await watch;
-      check('#253 fake-herdr agent wait: a transient working after the request is matched (as herdr\'s event-driven wait does), reported with the current state_change_seq', wr.state === 'working' && wr.stateChangeSeq === 8, JSON.stringify([wr.state, wr.stateChangeSeq]));
-      f.setAgent('idle', 9);
+      check('#253 fake-herdr agent wait: a transient working after the request (never a current state) is matched, as herdr\'s event-driven wait does, reported with the then-current state_change_seq', armed && wr.state === 'working' && wr.stateChangeSeq === 8, JSON.stringify([armed, wr.state, wr.stateChangeSeq]));
+      // A working state that may also be seen current: matched either way, its seq at least the transition's.
+      const watch2 = f.herdr.agentWait('a', { until: ['working', 'blocked'], timeoutMs: 8000, background: true });
+      const armed2 = await f.waitArmed(3);
+      f.setAgent('working', 9);
+      f.setAgent('idle', 10);
+      const wr2 = await watch2;
+      check('#253 fake-herdr agent wait: a working state after the request is matched whether a poll saw it current or only in the event stream, with state_change_seq >= the transition\'s', armed2 && wr2.state === 'working' && wr2.stateChangeSeq >= 9 && wr2.stateChangeSeq <= 10, JSON.stringify([armed2, wr2.state, wr2.stateChangeSeq]));
+      f.setAgent('idle', 11);
       check('#253 fake-herdr prompt --wait: no working or blocked within 5 s is agent_prompt_stalled (the run ends NOT RUN)', await rejectsWith(() => f.herdr.agentPrompt('a', 'q2', { wait: { until: ['idle'], timeoutMs: 8000 } }), /agent_prompt_stalled/));
     } finally {
       f.cleanup();

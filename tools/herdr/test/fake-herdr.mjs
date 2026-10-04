@@ -333,6 +333,7 @@ if (c0 === 'server' && c1 === undefined) {
   // The agent as it was when the prompt was submitted (#253): taken before the harness double
   // can pick the prompt up, so a fast fake turn cannot already be inside the baseline.
   const before = agentInfo(c2, pa);
+  if (args.includes('--wait')) appendFileSync(join(STATE, 'waits.log'), `${JSON.stringify({ target: c2, prompt: true, baselineSeq: before.state_change_seq })}\n`);
   if (pa?.dir) appendFileSync(join(pa.dir, 'inbox.log'), `${JSON.stringify({ text: args[3] })}\n`);
   if (args.includes('--wait') && MODES.has('prompt-timeout')) {
     sleepSync(Number(opt('--timeout') ?? 1000));
@@ -370,6 +371,9 @@ if (c0 === 'server' && c1 === undefined) {
   const start = Date.now();
   const wanted = until.length ? until : ['idle', 'done', 'blocked']; // herdr: "Without --until, matches idle, done, or blocked."
   const startSeq = agentStatus(a).seq;
+  // The request's event position is now taken (herdr: when the request arrives); a test can
+  // wait for this line instead of guessing how long the process takes to start.
+  appendFileSync(join(STATE, 'waits.log'), `${JSON.stringify({ target: c2, until, startSeq })}\n`);
   for (;;) {
     const snap = agentStatus(a);
     const st = snap.state;
