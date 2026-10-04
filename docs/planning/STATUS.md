@@ -24,7 +24,31 @@ presence and discovery are same-install only. Two constraints are recorded for E
 presence-record replay across a consumer restart, and define a publishable session-id
 binding proof that reveals neither the working directory nor the harness-native id. No
 gate verdict, pin or ADR text changes. Two UNVERIFIED items are added below and as
-`docs/planning/v0.1/11-risks.md` rows 61-62.)
+`docs/planning/v0.1/11-risks.md` rows 61-62. Reconciled with E4 (#44): presence is step 2 of
+§8.3.3's sender refusal order (SC-RCP-090), and a send with no declaration held now carries
+`unknown-destination` instead of `unsupported-capability`.)
+
+**Last updated:** 2026-10-03 (**Issue #44 (E4): receipts, replies, correlation and the
+error taxonomy written.** `spec/session-channels.md` §8 now holds the delivery-state set
+(DESIGN's `accepted` split into `accepted-by-adapter`, `handed-to-harness` and `unknown`, as
+C5 §9 requires; no state claims a model saw a message), the receipt format, the reply rule
+for a harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
+precedence, and the retransmission and retry rules, including how receipts for several
+copies of one envelope combine (a retry on the implementation's own initiative only after the
+hand-off deadline plus the replay-window clock-skew allowance, by the sender's clock), and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
+code. A receiver re-checks the whole hand-off deadline (expiry and replay window) immediately
+before hand-off (SC-RCP-091/092). Requirement area `RCP`: 58 ids in Appendix A. New fixtures: 72 under
+`tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture
+under `sc-env/`, `sc-ver/` and `sc-id/`, and to the six refusing `send`-stage fixtures in
+`sc-id/`. Follow-up for `spec/bindings/mcp.md` (#46): drop its "placeholders by role"
+wording and cite the codes and §8.1 directly.
+- **Departure from C5 §9, recorded:** C5 §9 defines `accepted-by-adapter` as the receiving
+  side's acceptance after verification; §8.1.2 adopts C6 §8's reading instead (the sending
+  implementation passed the envelope to a transport), because that is what `send` returns
+  and what a sender can observe. A dated forward note is added at the end of C5 §9.
+- **Operator decisions on #44**, each a dated note in §8: far-side receipts are optional
+  (MAY) for v0.1; no inferred reply links in v0.1.
+- No gate verdict, pin or ADR text changes, and no UNVERIFIED item opens or closes.)
 
 **Last updated:** 2026-10-03 (**Issue #42 (E2): spec §6, session identity, written.**
 `spec/session-channels.md` §6 now holds the session id (opaque, 26-character Crockford

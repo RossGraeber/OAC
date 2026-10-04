@@ -1,0 +1,24 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-030",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A `duplicate` receipt with an unrecognized code keeps its state.",
+  "stage": "receipt",
+  "context": {},
+  "input": {
+    "receipt": {
+      "envelope_id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+      "envelope_from": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "state": "duplicate",
+      "observer": "receiver",
+      "observed_at": "2026-10-03T12:00:01.250Z",
+      "error": "future-duplicate-kind"
+    }
+  },
+  "expected": {
+    "result": "valid",
+    "effective_state": "duplicate"
+  }
+}

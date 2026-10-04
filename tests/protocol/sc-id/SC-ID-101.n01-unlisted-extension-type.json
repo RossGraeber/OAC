@@ -46,6 +46,7 @@
     }
   },
   "expected": {
-    "result": "refused"
+    "result": "refused",
+    "error": "unsupported-content-type"
   }
 }

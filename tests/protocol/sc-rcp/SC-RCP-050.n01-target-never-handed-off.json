@@ -1,0 +1,30 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-050",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "requested target without a hand-off record",
+  "description": "The requested target names no envelope the implementation handed off. The reply is sent uncorrelated.",
+  "stage": "reply",
+  "context": {
+    "handed_off": [
+      {
+        "id": "msg-a1",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      }
+    ]
+  },
+  "input": {
+    "reply_request": {
+      "from": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "to": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "requested_target": "msg-zz9"
+    }
+  },
+  "expected": {
+    "reply_headers": {},
+    "correlation": "uncorrelated"
+  }
+}

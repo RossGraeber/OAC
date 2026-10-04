@@ -39,6 +39,7 @@
     }
   },
   "expected": {
-    "result": "refused"
+    "result": "refused",
+    "error": "unknown-destination"
   }
 }
