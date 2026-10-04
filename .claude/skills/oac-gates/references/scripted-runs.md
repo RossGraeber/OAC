@@ -469,9 +469,11 @@ who did it. Nothing else in the record is signed.
 
   For a verified file, that manifest must be the #252 driver's (`schemaVersion` 3, or
   carrying `herdr.executableCheck`). It must record a first-party `match`, and its
-  expected value must equal PINS.md's committed row for the platform, and the row at the
-  run's driver commit when that commit is in the repository (CI checks out full history,
-  `fetch-depth: 0`, so it runs there too). The stated herdr hash must
+  expected value must equal PINS.md's committed row for the platform, and also the row in
+  PINS.md at the run's `driver.commit`. That commit must resolve in the checkout or the file
+  is refused: a shallow clone must fetch full history first. The CI fixture-manifest job
+  uses `fetch-depth: 0` for this reason. The check applies only to Verification-form
+  files; pre-#252 attestations are not affected. The stated herdr hash must
   be the manifest's. The script refuses a `-herdr` fixture from a run whose
   `herdr.executableCheck` is not `match`, or from a `schemaVersion` 3 manifest without
   one. It proves completeness and those bindings. The rest is the recording agent's

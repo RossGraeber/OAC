@@ -294,8 +294,8 @@ function driverBlockProblems(entry, root, tracked, warn = () => {}) {
 //  - Verification form: the manifest must be a #252 driver's (schemaVersion 3, or carrying
 //    herdr.executableCheck), record a `match` against a first-party expected value, and that
 //    value must be PINS.md's committed row for the platform (in the index, and at the run's
-//    driver commit when that commit is in the repository). The stated herdr sha256 must be
-//    the manifest's.
+//    driver.commit, which must resolve in this repository or the file is refused; fetch full
+//    history in a shallow clone). The stated herdr sha256 must be the manifest's.
 //  - Attestation form (pre-#252 history): accepted only on a pre-#252 manifest (schemaVersion
 //    <= 2 and no executableCheck), from a run the driver dated (timebox.start) no later than the #252 cut-off, and
 //    only with the `> **Pre-#252 attestation (history).**` callout saying it is not a current
@@ -364,16 +364,18 @@ function evidenceProblems(text, file, root, tracked, form, isRecord) {
     if (!PRE252_CALLOUT.test(text)) out.push('it carries a pre-#252 operator attestation without the `> **Pre-#252 attestation (history).**` callout that says it is not a current basis (#252)');
   } else {
     if (!by252) return [`its run manifest ${rm} predates #252 (no herdr.executableCheck), so herdr cannot be VERIFIED`];
+    // The driver commit must be resolvable here, so PINS.md as the driver read it can be
+    // checked; a shallow clone must fetch full history (the CI job uses fetch-depth: 0).
+    const dc = run?.driver?.commit;
+    if (!/^[0-9a-f]{40}$/.test(dc ?? '')) return [`its run manifest ${rm} records no full driver.commit, so PINS.md at the driver commit cannot be checked`];
+    if (pinsRowsAt(root, dc) === undefined) return [`its run manifest's driver.commit ${dc} is not in this repository, so PINS.md at the driver commit cannot be checked; fetch full history (git fetch --unshallow) and re-run`];
     if (check?.result !== 'match' || !HEX64.test(recorded ?? '') || check?.expectedSha256 !== recorded) {
       out.push(`its run manifest ${rm} records no herdr.executableCheck match (result ${JSON.stringify(check?.result ?? null)}), so herdr cannot be VERIFIED`);
     } else if (check.firstParty !== true) {
       out.push(`its run manifest ${rm} records a match against a value that is not first-party (herdr.executableCheck.firstParty ${JSON.stringify(check.firstParty ?? null)}), so herdr cannot be VERIFIED`);
     } else {
-      const revs = [['committed', null]];
-      if (/^[0-9a-f]{40}$/.test(run?.driver?.commit ?? '')) revs.push([`at driver commit ${run.driver.commit}`, run.driver.commit]);
-      for (const [label, rev] of revs) {
+      for (const [label, rev] of [['committed', null], [`at driver commit ${dc}`, dc]]) {
         const rows = pinsRowsAt(root, rev);
-        if (rows === undefined) continue;
         const row = (rows ?? []).find((r) => r.platform === check.platform);
         if (!row || row.sha256 !== check.expectedSha256 || row.firstParty !== true) {
           out.push(`its run manifest's expected herdr sha256 for ${check.platform} is not PINS.md's first-party row (${label})`);
@@ -606,7 +608,11 @@ const VERIFICATION = [
   '',
 ].join('\n');
 const CHECK_MATCH = { result: 'match', platform: 'linux-x64', expectedSha256: HERDR_SHA, firstParty: true, basis: 'self-test', detail: 'equal' };
-const RUN_252 = { ...RUN, schemaVersion: 3, herdr: { ...RUN.herdr, executableCheck: CHECK_MATCH } };
+// A #252 run's driver commit is the self-test repository's real first commit (runSelfTest
+// replaces this placeholder with its sha), so PINS.md at the driver commit is checked for real.
+const DRIVER_COMMIT = 'd0'.repeat(20);
+const DRIVER_252 = { ...DRIVER, driver_commit: DRIVER_COMMIT };
+const RUN_252 = { ...RUN, schemaVersion: 3, driver: { commit: DRIVER_COMMIT, toolsHerdrDirty: false }, herdr: { ...RUN.herdr, executableCheck: CHECK_MATCH } };
 const run252With = (check, exe = {}) => ({ ...RUN_252, herdr: { ...RUN_252.herdr, executable: { ...HERDR_EXE, ...exe }, executableCheck: check } });
 const verificationWith = (from, to) => VERIFICATION.replace(from, to);
 const pinsText = ({ sha = HERDR_SHA, firstParty = 'yes' } = {}) => [
@@ -617,7 +623,7 @@ const pinsText = ({ sha = HERDR_SHA, firstParty = 'yes' } = {}) => [
 ].join('\n');
 const RESULT_DRIVER = (record = RECORD) => `### G1 claude-wake\n\n- **Driver:** herdr (\`herdr 0.9.1\`) via \`tools/herdr/run.mjs\`, record \`${record}\`\n- **Gate id:** G1\n\n`;
 
-function tree({ entries, run = RUN, runText = null, record = '# G1 scripted re-run\n', recordPath = RECORD, result = null, pins = pinsText(), extraFiles = [], untracked = {} }) {
+function tree({ entries, run = RUN, runText = null, record = '# G1 scripted re-run\n', recordPath = RECORD, result = null, pins = pinsText(), extraFiles = [], untracked = {}, driverCommitPins = null }) {
   const files = { [manifestRelPath]: JSON.stringify({ fixtures: [baseEntry(HUMAN_FIXTURE), ...entries] }, null, 2) };
   for (const e of entries) files[e.path] = FIXTURE_BYTES;
   for (const f of extraFiles) files[f] = FIXTURE_BYTES;
@@ -628,7 +634,7 @@ function tree({ entries, run = RUN, runText = null, record = '# G1 scripted re-r
   if (record) files[recordPath] = record;
   if (result) files[RESULT] = result;
   if (pins) files[PINS_PATH] = pins;
-  return { files, untracked };
+  return { files, untracked, ...(driverCommitPins ? { driverCommitPins } : {}) };
 }
 const herdrEntry = (driver, path = HERDR_FIXTURE, extra = {}) => ({ ...baseEntry(path), ...(driver === undefined ? {} : { driver }), ...extra });
 const without = (k) => Object.fromEntries(Object.entries(DRIVER).filter(([key]) => key !== k));
@@ -668,24 +674,26 @@ const SELF_TEST_CASES = [
   { name: '#252: an operator attestation on a backdated record name whose run started after #252', expect: 'after #252 (2026-10-03)', ...tree({ entries: [], recordPath: `${herdrRunsDir}/G1-2026-09-01.md`, run: runWith({ timebox: { start: '2026-10-05T09:00:00.000Z' } }), record: `${EQUIV}\n${ATTESTATION}` }) },
   { name: '#252: an operator attestation on an undated record name whose run manifest records no timebox.start', expect: 'records no timebox.start', ...tree({ entries: [], recordPath: `${herdrRunsDir}/G1-undated.md`, run: runWith({ timebox: undefined }), record: `${EQUIV}\n${ATTESTATION}` }) },
   { name: 'control (#252): an operator attestation on an undated record name whose run started before #252', expect: 'pass', ...tree({ entries: [], recordPath: `${herdrRunsDir}/G1-undated.md`, record: `${EQUIV}\n${ATTESTATION}` }) },
-  { name: '#252: an operator attestation on a run the #252 driver recorded', expect: 'carries a `## Verification` section, not an operator attestation', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: '#252: an operator attestation on a run the #252 driver recorded', expect: 'carries a `## Verification` section, not an operator attestation', ...tree({ entries: [herdrEntry(DRIVER_252)], run: RUN_252, record: `${EQUIV}\n${ATTESTATION}` }) },
   { name: 'equivalence record with neither a verification nor an attestation', expect: 'has no `## Verification` section', ...tree({ entries: [herdrEntry(DRIVER)], record: EQUIV }) },
-  { name: 'control (#252): equivalence record with a complete verification, its schemaVersion 3 run manifest recording a first-party match that PINS.md agrees with', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: 'control (#252): equivalence record with a complete verification, its schemaVersion 3 run manifest recording a first-party match that PINS.md agrees with', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER_252)], run: RUN_252, record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: '#252: verification whose expected hash is PINS.md\'s committed row but not the row at the driver commit (a real two-commit repository)', expect: 'is not PINS.md\'s first-party row (at driver commit', ...tree({ entries: [], run: RUN_252, driverCommitPins: pinsText({ sha: 'e'.repeat(64) }), record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: '#252: verification whose run manifest\'s driver.commit is not in the repository', expect: 'is not in this repository', ...tree({ entries: [], run: { ...RUN_252, driver: { commit: 'b'.repeat(40), toolsHerdrDirty: false } }, record: `${EQUIV}\n${VERIFICATION}` }) },
   { name: '#252: verification with no committed run manifest', expect: 'is not committed, so nothing backs what it states', ...tree({ entries: [], run: null, record: `${EQUIV}\n${VERIFICATION}` }) },
   { name: '#252: verification with a run manifest that does not parse', expect: 'does not parse as JSON', ...tree({ entries: [], runText: '{ not json', record: `${EQUIV}\n${VERIFICATION}` }) },
-  { name: '#252: verification with an unfilled slot', expect: 'unfilled `<TO FILL', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('Sign-ins: none.', 'Sign-ins: <TO FILL: none, or each action>.')}` }) },
-  { name: '#252: verification whose herdr line is UNVERIFIED', expect: 'missing its herdr line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('**herdr:** VERIFIED', '**herdr:** UNVERIFIED')}` }) },
-  { name: '#252: verification whose Harness line is UNVERIFIED', expect: 'missing its Harness line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('**Harness:** VERIFIED', '**Harness:** UNVERIFIED')}` }) },
-  { name: '#252: verification without the Human actions line', expect: 'missing its Human actions line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${VERIFICATION.split('\n').filter((l) => !l.includes('**Human actions:**')).join('\n')}` }) },
-  { name: '#252: verification without a Verified by date', expect: 'missing its Verified by line', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${verificationWith('self-test agent, 2026-10-03', 'self-test agent')}` }) },
+  { name: '#252: verification with an unfilled slot', expect: 'unfilled `<TO FILL', ...tree({ entries: [herdrEntry(DRIVER_252)], run: RUN_252, record: `${EQUIV}\n${verificationWith('Sign-ins: none.', 'Sign-ins: <TO FILL: none, or each action>.')}` }) },
+  { name: '#252: verification whose herdr line is UNVERIFIED', expect: 'missing its herdr line', ...tree({ entries: [herdrEntry(DRIVER_252)], run: RUN_252, record: `${EQUIV}\n${verificationWith('**herdr:** VERIFIED', '**herdr:** UNVERIFIED')}` }) },
+  { name: '#252: verification whose Harness line is UNVERIFIED', expect: 'missing its Harness line', ...tree({ entries: [herdrEntry(DRIVER_252)], run: RUN_252, record: `${EQUIV}\n${verificationWith('**Harness:** VERIFIED', '**Harness:** UNVERIFIED')}` }) },
+  { name: '#252: verification without the Human actions line', expect: 'missing its Human actions line', ...tree({ entries: [herdrEntry(DRIVER_252)], run: RUN_252, record: `${EQUIV}\n${VERIFICATION.split('\n').filter((l) => !l.includes('**Human actions:**')).join('\n')}` }) },
+  { name: '#252: verification without a Verified by date', expect: 'missing its Verified by line', ...tree({ entries: [herdrEntry(DRIVER_252)], run: RUN_252, record: `${EQUIV}\n${verificationWith('self-test agent, 2026-10-03', 'self-test agent')}` }) },
   { name: '#252: verification on a pre-#252 run manifest (schemaVersion 2, no executable check)', expect: 'predates #252', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${VERIFICATION}` }) },
   { name: '#252: verification on a schemaVersion 3 run manifest with its executable check deleted', expect: 'records no herdr.executableCheck match', ...tree({ entries: [], run: { ...RUN_252, herdr: { ...RUN.herdr } }, record: `${EQUIV}\n${VERIFICATION}` }) },
   { name: '#252: verification whose run manifest records no expected value for the platform', expect: 'records no herdr.executableCheck match', ...tree({ entries: [], run: run252With({ ...CHECK_MATCH, result: 'no-expected-value', expectedSha256: null, firstParty: null }), record: `${EQUIV}\n${VERIFICATION}` }) },
   { name: '#252: verification on a match against a locally observed (not first-party) value', expect: 'is not first-party', ...tree({ entries: [], run: run252With({ ...CHECK_MATCH, firstParty: false }), record: `${EQUIV}\n${VERIFICATION}` }) },
-  { name: '#252: verification whose manifest\'s expected hash is not PINS.md\'s committed row', expect: 'is not PINS.md\'s first-party row (committed)', ...tree({ entries: [], run: run252With({ ...CHECK_MATCH, expectedSha256: 'e'.repeat(64) }, { sha256: 'e'.repeat(64) }), record: `${EQUIV}\n${verificationWith(HERDR_SHA, 'e'.repeat(64))}` }) },
-  { name: '#252: verification where PINS.md\'s committed row is not first-party', expect: 'is not PINS.md\'s first-party row (committed)', ...tree({ entries: [], run: RUN_252, pins: pinsText({ firstParty: 'no' }), record: `${EQUIV}\n${VERIFICATION}` }) },
+  { name: '#252: verification whose manifest\'s expected hash is not PINS.md\'s committed row', expect: 'is not PINS.md\'s first-party row (committed)', ...tree({ entries: [], driverCommitPins: pinsText({ sha: 'e'.repeat(64) }), run: run252With({ ...CHECK_MATCH, expectedSha256: 'e'.repeat(64) }, { sha256: 'e'.repeat(64) }), record: `${EQUIV}\n${verificationWith(HERDR_SHA, 'e'.repeat(64))}` }) },
+  { name: '#252: verification where PINS.md\'s committed row is not first-party', expect: 'is not PINS.md\'s first-party row (committed)', ...tree({ entries: [], driverCommitPins: pinsText(), run: RUN_252, pins: pinsText({ firstParty: 'no' }), record: `${EQUIV}\n${VERIFICATION}` }) },
   { name: '#252: verification stating a herdr sha256 other than the run manifest\'s', expect: 'is not the one its run manifest', ...tree({ entries: [], run: RUN_252, record: `${EQUIV}\n${verificationWith(HERDR_SHA, 'e'.repeat(64))}` }) },
-  { name: '#252: a fixture from a run whose herdr matched no expected value', expect: 'is never a fixture source', ...tree({ entries: [herdrEntry(DRIVER)], run: run252With({ ...CHECK_MATCH, result: 'no-expected-value', expectedSha256: null }) }) },
+  { name: '#252: a fixture from a run whose herdr matched no expected value', expect: 'is never a fixture source', ...tree({ entries: [herdrEntry(DRIVER_252)], run: run252With({ ...CHECK_MATCH, result: 'no-expected-value', expectedSha256: null }) }) },
   { name: '#252: a fixture from a schemaVersion 3 run manifest with no executable check', expect: 'is never a fixture source', ...tree({ entries: [herdrEntry(DRIVER)], run: { ...RUN, schemaVersion: 3 } }) },
   { name: 'control (#252): gate result naming herdr as Driver and its record, verified', expect: 'pass', ...tree({ entries: [], run: RUN_252, result: `${RESULT_DRIVER()}${VERIFICATION}` }) },
   { name: '#252: gate result naming herdr as Driver, verified, but naming no record', expect: 'names no docs/planning/gates/herdr-runs/<record>.md', ...tree({ entries: [], run: RUN_252, result: `### G1 claude-wake\n\n- **Driver:** herdr (\`herdr 0.9.1\`)\n\n${VERIFICATION}` }) },
@@ -721,9 +729,19 @@ function runSelfTest() {
           writeFileSync(join(dir, rel), content);
         }
       };
-      put(tc.files);
-      execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
-      execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+      // A real first commit (#252), the "driver commit": it holds PINS.md as the driver read it
+      // (tc.driverCommitPins, else the case's own PINS.md). Its sha replaces DRIVER_COMMIT in
+      // every planted file; the case's files are then staged on top, so the index is "committed".
+      const git = (...a) => execFileSync('git', ['-c', 'user.name=oac-selftest', '-c', 'user.email=selftest@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...a], { cwd: dir, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
+      git('init', '-q');
+      const c1Pins = tc.driverCommitPins ?? tc.files[PINS_PATH];
+      if (c1Pins) put({ [PINS_PATH]: c1Pins });
+      git('add', '-A');
+      git('commit', '-q', '--allow-empty', '-m', 'driver commit');
+      const c1 = git('rev-parse', 'HEAD').trim();
+      put(Object.fromEntries(Object.entries(tc.files).map(([k, v]) => [k, v.replaceAll(DRIVER_COMMIT, c1)])));
+      if (!tc.files[PINS_PATH] && c1Pins) rmSync(join(dir, PINS_PATH));
+      git('add', '-A');
       put(tc.untracked ?? {});
       const run = spawnSync(process.execPath, [scriptPath, '--root', dir], { encoding: 'utf8' });
       const output = `${run.stdout}${run.stderr}`;

@@ -88,7 +88,9 @@ record to a committed, parseable run manifest: an equivalence record its own, an
 Driver line names. A verified record needs, in that manifest:
 - a first-party `match`;
 - an expected value equal to PINS.md's committed row for the platform, and to the row at
-  the run's driver commit when that commit is present (CI fetches full history, so it is);
+  the run's `driver.commit`. That commit must resolve in the checkout or the record is
+  refused, so a shallow clone must fetch full history first (the CI job uses
+  `fetch-depth: 0`). Pre-#252 attestations are not affected;
 - the herdr sha256 the record states.
 
 A `schemaVersion` 1 run manifest predates
