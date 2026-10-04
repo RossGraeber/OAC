@@ -86,7 +86,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
-import { driverAcceptDialog, recordWaitState, settleAfterObservation, pastFloor } from '../lib/gate-common.mjs';
+import { driverAcceptDialog, recordWaitState, settleAfterObservation, pastFloor, refuseRunningTurn } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, paneArgv, parseG2Transcript,
@@ -586,8 +586,10 @@ export default {
       });
 
       // --- 4. the operator's own message; find the TUI's thread on the wire ----------------
+      // #253 (#282 review): never typed into a running turn; an `agent get` baseline first.
+      const promptBase = await refuseRunningTurn({ herdr, name: AGENT, g: g2, context: 'operator-prompt', ctx, stop });
       const res = await herdr.agentPrompt(AGENT, operatorPrompt);
-      g2.operatorInput = { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text: operatorPrompt };
+      g2.operatorInput = { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text: operatorPrompt, baseline: { seq: promptBase.seq, state: promptBase.state, stateChangeSeq: promptBase.stateChangeSeq } };
       const listFrom = lineCount();
       // This wait only schedules the next read: it can return at once, with the state from
       // before the prompt was picked up (#253). The operator's turn being over is established

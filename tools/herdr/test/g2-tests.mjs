@@ -632,6 +632,16 @@ export function g2Cases(check) {
     check('g2 #204 draft: the message was typed once, only after the ready read; nothing was held as "Waiting for startup"', r.prompts.length === 1 && promptSeq(m) > ready.readSeq && !/Waiting for startup/.test(r.capture(names().pane)), String(promptSeq(m)));
   });
 
+  // #282: the session is loaded on the wire (and the composer idle) while herdr still reports
+  // Codex working: the startup settle waits it out, re-checks, and only then is the message typed
+  // (after its own #253 baseline).
+  run('g2 #282 working after the session is ready: settled, then typed', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_STARTUP_MS: '2500', FAKE_CODEX_READY_WORKING_MS: '5000' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    const s = g2.codexStartupSettle;
+    check('g2 #282: PASS; herdr reported Codex working once its session was ready, the driver settled it (idle past that, re-checked), then took an idle #253 baseline and typed once', r.status === 0 && s?.outcome === 'settled' && s.observed.state === 'working' && s.settled.stateChangeSeq > s.observed.stateChangeSeq && g2.operatorInput?.baseline?.state === 'idle' && g2.operatorInput.baseline.seq > s.settled.recheckSeq && promptSeq(m) > g2.operatorInput.baseline.seq && r.prompts.length === 1, `${r.status} ${m.outcomeReason} ${JSON.stringify(s)}`);
+  });
+
   run('g2 #204 hook review: NOT RUN naming it; nothing typed, no key sent to it', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_STARTUP_MS: '500', FAKE_CODEX_HOOKS_REVIEW: '1' } }, (r) => {
     const m = r.manifest;
     const g2 = m.scenarioData.g2;

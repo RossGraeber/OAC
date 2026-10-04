@@ -64,6 +64,8 @@
 //                              reports `working` (busy screen) while its startup finishes
 //   FAKE_CODEX_POST_CONNECT_MS #282: how long that `working` lasts before the TUI goes idle
 //   FAKE_CODEX_POST_CONNECT_HANG #282: 1 = that `working` never ends (nothing is ever typed)
+//   FAKE_CODEX_READY_WORKING_MS #282 (daemon-attached TUI): once its session is loaded and the
+//                              idle composer shown, the TUI still reports `working` for N ms
 //   FAKE_CODEX_HOOKS_REVIEW    1 = the startup hook review (seen live on 0.159.2, #204) follows
 //                              the draft and holds the session start until answered (esc);
 //                              FAKE_CODEX_SELF_ACCEPT_MS also answers it (stands in for the operator)
@@ -730,6 +732,13 @@ async function tui(overrides = {}) {
   }
   if (sock) sock.write(`${JSON.stringify({ op: 'threadStart' })}\n`);
   render(false);
+  // #282: the session is loaded and the idle composer is on screen, but the TUI reports
+  // `working` for N ms more (its startup finishing); a prompt typed then is not read until after.
+  if (Number(env.FAKE_CODEX_READY_WORKING_MS || 0) > 0) {
+    setState('working');
+    await sleep(Number(env.FAKE_CODEX_READY_WORKING_MS));
+    setState('idle');
+  }
   if (held !== null) {
     hist(`[session started: held draft "${held}" submitted]`);
     if (sock) sock.write(`${JSON.stringify({ op: 'userTurn', text: held })}\n`);

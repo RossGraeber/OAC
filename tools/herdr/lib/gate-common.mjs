@@ -467,6 +467,15 @@ export async function takeBaseline({ herdr, name, g, agent = null, context, ctx,
   return recordWaitState({ g, agent, context: `${context}:baseline (agent get)`, w: r, ctx, stop });
 }
 
+// #253 for a prompt typed WITHOUT `--wait` (G2's operator message, #282 review): an `agent get`
+// baseline right before it; herdr reporting working or blocked is a stop, nothing typed. The
+// same refusal makeAgent's prompt(text, { wait: true }) applies.
+export async function refuseRunningTurn({ herdr, name, g, agent = null, context, ctx, stop }) {
+  const base = await takeBaseline({ herdr, name, g, agent, context, ctx, stop });
+  if (ACTIVITY_STATES.includes(base.state)) stop(`${agent ?? name}: herdr reported ${base.state} (herdr command #${base.seq}) just before a prompt; a prompt is never typed into a running turn (#253); nothing sent`);
+  return base;
+}
+
 // Arm the activity watch: started BEFORE the push, given armMs to reach the server (herdr
 // takes its event position when the request arrives), running beside the scenario. A
 // baseline already working or blocked (a push into a running turn, G5 C6) needs no watch:
@@ -532,8 +541,9 @@ export function pastFloor(st, floor) {
 //      A change in between (the agent went working again) raises the floor and repeats 2-3.
 // All of it inside one bound (timeoutMs, capped by the box). If the agent never settles, the
 // run ends NOT RUN with a finding naming the startup settle. This only ever waits: it types
-// nothing, and the caller's prompt still takes its own baseline and refuses a running turn
-// (#253). `settleTo({ floor, by, timeoutMs })` -> { state, stateChangeSeq, waitSeq, readSeq }.
+// nothing, and every caller's first prompt still takes its own baseline and refuses a running
+// turn (#253): makeAgent's prompt(text, { wait: true }) in G4/G5/L3, refuseRunningTurn before
+// G2's plain operator prompt. `settleTo({ floor, by, timeoutMs })` -> { state, stateChangeSeq, waitSeq, readSeq }.
 export const STARTUP_SETTLED_STATES = Object.freeze(['idle', 'done']);
 
 export async function settleAfterObservation({ herdr, name, g, agent = null, context, what, timeoutMs, settleMs, ctx, stop, settleTo, sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms))), now = () => Date.now() }) {

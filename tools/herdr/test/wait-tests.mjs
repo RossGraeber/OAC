@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { HerdrSession, NotRunError, agentStatusOf, stateChangeSeqOf } from '../lib/herdr.mjs';
-import { makeAgent, recordWaitState, turnFloor, pastFloor } from '../lib/gate-common.mjs';
+import { makeAgent, recordWaitState, turnFloor, pastFloor, refuseRunningTurn } from '../lib/gate-common.mjs';
 import { threadIdleOnWire } from '../lib/g5.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -233,6 +233,30 @@ export async function waitUnit(check) {
     const { agent } = agentWith(h);
     const s = await agent.startupSettle('codex-mcp-settle', 'x', 5000);
     check('#282 startupSettle: idle at the observation but working on the re-check is not settled; it settles again past the re-check and re-checks again', s.outcome === 'settled' && s.settles.length === 2 && s.rechecks.length === 2 && s.rechecks[0].state === 'working' && s.settles[1].floor === 10 && s.settled.stateChangeSeq === 11 && !h.log.some((x) => x.startsWith('prompt')), h.log.join());
+  }
+  {
+    // #282 review (M4): idle@11 settled, idle@12 on the re-check (it went working and back
+    // during settleMs) is NOT settled: the re-check needs the SAME state_change_seq.
+    const h = stubHerdr({ gets: [{ state: 'working', stateChangeSeq: 10 }, { state: 'idle', stateChangeSeq: 12 }, { state: 'idle', stateChangeSeq: 12 }], waits: [{ state: 'idle', stateChangeSeq: 11 }, { state: 'idle', stateChangeSeq: 12 }] });
+    const { agent } = agentWith(h);
+    const s = await agent.startupSettle('codex-mcp-settle', 'x', 5000);
+    check('#282 startupSettle: a re-check idle at a later state_change_seq (idle@11 settled, idle@12 re-checked) is not settled; it settles again past 12 and re-checks', s.outcome === 'settled' && s.settles.length === 2 && s.rechecks.length === 2 && s.rechecks[0].stateChangeSeq === 12 && s.settles[1].floor === 12 && s.settled.stateChangeSeq === 12 && h.log.join() === 'get,wait,read:visible,get,wait,read:visible,get', h.log.join());
+  }
+  {
+    // #282 review: G2's plain operator prompt (no --wait) gets the #253 refusal too.
+    for (const st of ['working', 'blocked']) {
+      const h = stubHerdr({ gets: [{ state: st, stateChangeSeq: 9 }] });
+      const findings = [];
+      const g = { herdrStates: [] };
+      const ok = await rejectsWith(() => refuseRunningTurn({ herdr: h, name: 'g2codex', g, context: 'operator-prompt', ctx: { finding: (f) => findings.push(f) }, stop: (r) => { throw new NotRunError(r); } }), /never typed into a running turn \(#253\)/);
+      check(`#282/#253 refuseRunningTurn: herdr ${st} just before a plain prompt is NOT RUN; only the \`agent get\` was sent`, ok && h.log.join() === 'get' && g.herdrStates[0]?.context === 'operator-prompt:baseline (agent get)', h.log.join());
+    }
+    const h = stubHerdr({ gets: [{ state: 'idle', stateChangeSeq: 9 }] });
+    const g = { herdrStates: [] };
+    const base = await refuseRunningTurn({ herdr: h, name: 'g2codex', g, context: 'operator-prompt', ctx: { finding: () => {} }, stop: (r) => { throw new NotRunError(r); } });
+    const hn = stubHerdr({ gets: [{ state: null, stateChangeSeq: null }] });
+    const nullFails = await rejectsWith(() => refuseRunningTurn({ herdr: hn, name: 'g2codex', g: { herdrStates: [] }, context: 'operator-prompt', ctx: { finding: () => {} }, stop: (r) => { throw new NotRunError(r); } }), /did not report the agent's state/);
+    check('#282/#253 refuseRunningTurn: idle returns the recorded baseline; a baseline naming no state fails closed', base.state === 'idle' && base.stateChangeSeq === 9 && nullFails);
   }
   {
     // Stays working: herdr's own wait times out inside the settle -> NOT RUN naming the startup settle.
