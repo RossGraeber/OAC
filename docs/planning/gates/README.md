@@ -300,6 +300,11 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   `## Operator attestation` of their time as history. `node
   scripts/check-fixture-manifest.mjs` accepts such a section only with that callout, on a
   pre-#252 run manifest, from a run whose `timebox.start` (the driver's date, not the file name) is no later than 2026-10-03.
+  *Dated note, 2026-10-04 (#131):* `herdr-runs/G4-2026-10-04.md` is the first current
+  equivalence record, for G4 at herdr v0.9.1 (#252 Verification, herdr and Harness
+  VERIFIED). Its callout states a criterion-5 caveat: the modern server's non-delivery is
+  verified, the human run's "unavailable" notice is not in its captures. G4's verdict is
+  unchanged.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers
@@ -327,7 +332,8 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   `herdr-runs/` holds them: `G1-2026-09-29` (marked as an equivalence record, not a current one under #252), `G5-2026-10-02` (the
   K8 run) and `G5-c13-2026-10-02` (the E1 run that carries G5's Codex verdict). Each has
   its run manifest beside it. All three carry pre-#252 operator attestations, kept as
-  history. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
+  history. *Dated note, 2026-10-04 (#131):* `G4-2026-10-04` (the K8 G4 run, the
+  equivalence record for G4 at herdr v0.9.1) carries a #252 Verification section instead. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
   items", K6 entry. *Superseded text, kept as history:* "No scripted run has
   run live yet, so `herdr-runs/` does not exist yet."
 

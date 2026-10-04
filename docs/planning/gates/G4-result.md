@@ -470,11 +470,25 @@ fixtures and cannot be verified identical to it. Codex's MCP registration there 
 invocation (the operator's global Codex config is never edited); because this run's own
 global `g4` entry for `127.0.0.1:17448` may still be present, the scenario refuses this run's
 ports and its report requires exactly one Codex HTTP session before attributing any Codex
-traffic to the per-invocation registration. It has **never run live**:
-it is exercised only against test doubles (`node tools/herdr/run.mjs --self-test`), so no
-`-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md` record exist. When one
-does, it is linked here and changes nothing above: this gate's verdict comes only from the
-human-run procedure (`oac-gates` `references/scripted-runs.md` "Verdict eligibility").
+traffic to the per-invocation registration. *Superseded text, kept as history:* "It has
+**never run live**: it is exercised only against test doubles (`node tools/herdr/run.mjs
+--self-test`), so no `-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md`
+record exist."
+
+*Dated note, 2026-10-04 (#131):* the scenario ran live. Run `20261004T085601Z` (outcome
+PASS, driver commit `b9a9afe`, herdr `v0.9.1` first-party match, Claude Code `2.1.285`,
+Codex `0.160.0`) is recorded at `herdr-runs/G4-2026-10-04.md`, with its run manifest beside
+it and three `-herdr` fixtures under `fixtures/g4-mcp-dual-era/`. It is the **equivalence
+record for G4 at herdr v0.9.1**: all five criteria scored `equivalent` to the 2026-09-26
+re-run above, from the wire transcript and pane captures. **Criterion-5 caveat:** the
+modern-only server's non-delivery as a channel is verified; the "Channel messages from
+"g4modern" are unavailable" notice (UI observation 1) is not in that run's captures, so that
+supporting half is UNVERIFIED for it. Exactly one Codex HTTP session connected, and the
+Codex user config registers no HTTP MCP server, so the per-invocation `-c
+mcp_servers.g4http.url=...` registration is what connected. This changes nothing above:
+the record is not verdict-bearing, and this gate's verdict stays PASS from the human-run
+procedure. A later scripted G4 run may carry a verdict only under `oac-gates`
+`references/scripted-runs.md` "Verdict eligibility".
 
 ---
 

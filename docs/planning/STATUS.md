@@ -2121,6 +2121,17 @@ without an UNVERIFIED label.
   G5's Codex verdict under its one-off exception, and G5 is now PASS. The G4 scenario has
   still not run live, and neither G5 record is a G5 equivalence record, so the rest of this
   item stands for G4 and for any later G5 run.
+  *Dated note, 2026-10-04 (#131):* the G4 scenario has now run live. Run
+  `20261004T085601Z` (PASS, Claude Code 2.1.285, Codex 0.160.0) is recorded at
+  `gates/herdr-runs/G4-2026-10-04.md` with three `-herdr` fixtures, and it is the
+  equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
+  Harness VERIFIED. Closed for G4 by that run: the per-invocation
+  `-c mcp_servers.<name>.url=...` override works for an HTTP MCP server on Codex 0.160.0
+  (exactly one Codex HTTP session, and no HTTP MCP server in the Codex user config), and
+  the G4 dialog texts match. Still open: the in-progress pane pattern (in no kept read);
+  the reconstruction caveat (the server is not the original); and, for this run only,
+  the human run's "g4modern ... unavailable" notice, not in its captures (criterion 5's
+  non-delivery is verified). G4's verdict is unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
   operator signs in and accepts consent dialogs (#187).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
