@@ -18,7 +18,8 @@ replaces a supported interface, and it decides nothing.
 any live leg, and the point of herdr (operator decision, #187). The human attends only to
 sign in to the harnesses and grant elevation. Since 2026-09-30 (#196) the driver accepts
 Claude Code's trust, MCP-approval and dev-channels dialogs itself in dev/test runs, G1
-included, and refuses every other dialog. A human accepts a dialog only in a run meant to
+included, and refuses every other dialog. One narrow exception (#271): in the G4 scenario
+only, it answers Codex's MCP tool-approval prompt "1. Allow" for G4's own server and tools. A human accepts a dialog only in a run meant to
 meet a consent-step criterion (G1 criterion 5 under `accept=human`, G11; see
 "Operator-consent dialogs"). No live leg is "operator-typed only". Live runs are not in the default CI suite
 (`oac-testing` §2). The agent verifies the run from its evidence; the human signs only for
@@ -252,6 +253,39 @@ checks:
 
 Decision record: `K-196-driver-accepts-dialogs.md` §6.
 
+**Amended 2026-10-04 (#271): a narrow exception to #197 for G4.** Operator decision on #271:
+the driver MAY answer Codex's MCP tool-approval prompt, recorded live in G4 run
+20261004T050646Z (Codex 0.160.0, Codex pane section seq 58): "Allow the g4http MCP server to
+run tool "g4_echo"?", options "1. Allow", "2. Allow for this session", "3. Always allow",
+"4. Cancel", marker `›`, footer "enter to submit | esc to cancel". It answers only when ALL of
+these hold (`CODEX_TOOL_APPROVAL` and `planCodexToolApproval` in `tools/herdr/lib/g2.mjs`):
+
+- the form is the recorded text: header "Field 1/1", the question in the recorded wording, one
+  `<input>: <value>` line per argument, the four options with their recorded descriptions,
+  numbered 1-4, and the recorded footer;
+- the server and tool are exactly ones the G4 scenario registered itself, taken from its
+  committed config and validated launch, never from the pane (`g4CodexToolApproval` in
+  `tools/herdr/lib/g4.mjs`: server `g4http`, tools `g4_echo` and `g4_relay_to_claude`). The
+  launch must register `g4http` once, at exactly the staged server's URL
+  `"http://127.0.0.1:<httpPort>/mcp"`. Each argument is one of that tool's declared inputs;
+- the selection is on "1. Allow" (this call only), shown with exactly one `›`. The driver
+  never moves the selection here and never answers "Allow for this session" or "Always allow".
+  A fresh read must confirm all of the above before Enter (`codexToolApprovalCheck`);
+- the scenario opts in: only `g4-mcp-dual-era` passes an expectation. G2, G5, L3 and every
+  other scenario refuse the prompt, the exact recorded one included.
+
+Anything else (another server or tool, other wording, another selection, another scenario)
+ends the run `NOT RUN` with no key sent, as before. Each answer is recorded on the dialog
+(`toolApproval`: prompt, server, tool, arguments, expected, answer; `acceptKeys`,
+`confirmReadSeq`, `acceptOrigin: driver`). The Verification section's Dialogs line renders it.
+Codex source (`rust-v0.160.0`) shows "Allow" persists nothing. Each run also checks it.
+Immediately before the Enter of the first driver Allow, `run.mjs` hashes the harness config
+(`harnessConfig.beforeFirstAllow`). Teardown's hashes must equal that snapshot
+(`harnessConfig.sinceFirstAllow`). A change since the snapshot is a finding, and a PASS
+becomes FAIL. An earlier write, such as a Codex trust accept at startup, is outside the window.
+The start-to-teardown comparison (`harnessConfig.unchanged`) stays a separate recorded fact.
+Decision record: `K-196-driver-accepts-dialogs.md` §7.
+
 - **Read before any keystroke.** The driver reads the dialog's pane text verbatim
   (`--source visible`) and keeps it in the pane capture before it sends any key.
 - **Recognized dialogs only, and the pane decides the keys.** The kind table
@@ -280,7 +314,8 @@ Decision record: `K-196-driver-accepts-dialogs.md` §6.
   (#199).
   The run ends `NOT RUN` with no key sent. A run that may meet one uses `accept=human`.
   Tool approval is not in #196's scope. Driver-approving it would need its own recorded
-  decision and a security note (`oac-security-work`, permission relay).
+  decision and a security note (`oac-security-work`, permission relay). #271 is that
+  decision for one prompt only: Codex's MCP tool approval in G4 (above, and K-196 §7).
 - **Recorded truthfully.** Every key is a `dialog-accept` command in the run manifest.
   Each dialog record carries `acceptOrigin: driver`, `acceptKeys` (key, herdr command seq,
   and the read that verified the move), and `acceptSeq` (the Enter). A driver accept is
@@ -359,7 +394,8 @@ names as a human action, with who did it (see "Verification"):
   grants no permission to driver-accept it in any test. That stays K8's call and needs a
   recorded operator decision.
 - **Other dialogs.** Tool-permission prompts and Codex dialogs other than its trust dialog
-  are never driver-accepted (above). No G2, G4 or G5 criterion names Codex's trust dialog. If a criterion later names any dialog as a consent step, the human rule above
+  are never driver-accepted (above), except Codex's MCP tool-approval prompt in G4 under
+  #271. No G2, G4 or G5 criterion names Codex's trust dialog or that prompt. If a criterion later names any dialog as a consent step, the human rule above
   applies to it until an operator decision says otherwise.
 
 **The origin `human` is inferred.** Under `accept=human` the driver sends no key and waits
@@ -421,7 +457,11 @@ signature settles.
   post-run), and the hash of each harness executable that answered `--version`
   (`harnessExecutables`).
 - **Every dialog accept, with its origin:** `driver`, its keys in the command log, or
-  `human`, inferred (see "Driver identity" and "Operator-consent dialogs").
+  `human`, inferred (see "Driver identity" and "Operator-consent dialogs"). A driver "Allow"
+  on Codex's MCP tool-approval prompt (#271) also names the prompt, server, tool and answer,
+  and the harness-config hash check against the snapshot taken before the first Allow
+  (`harnessConfig.sinceFirstAllow`) that shows nothing persisted, with start-to-teardown
+  (`harnessConfig.unchanged`) beside it.
 
 **What the recording agent does.** The report libs (`g1-report` … `g5-report`,
 `l3-report`; `verification()` in `tools/herdr/lib/gate-report-common.mjs`) generate the
@@ -591,7 +631,11 @@ the operator who signed it."
   the record names: G1 criterion 5, and the G11 confirmation. So an `accept=driver` G1 run
   (G1's default since the operator's second #196 decision) is never an equivalence record
   and never verdict-bearing for G1. No other dialog can be driver-accepted at all: the
-  driver refuses it and the run is `NOT RUN`. G2, G4 and G5 name no
+  driver refuses it and the run is `NOT RUN`. The one exception is Codex's MCP
+  tool-approval prompt in G4 (#271, "Operator-consent dialogs"). It counts only when it
+  matched the recorded text and G4's own server and tools, was answered "1. Allow" by the
+  driver as recorded, and the harness config was unchanged from just before the first Allow
+  to teardown. G2, G4 and G5 name no
   consent step, so for them `accept=driver` and `accept=human` are equally eligible. Their
   accept policy is still part of `scenario.params`, so a verdict-bearing run must use the
   policy of its equivalence record.

@@ -147,7 +147,9 @@
   - **Observed, not closed:** C13 §10 / S10, `turn/start` steering an active turn. Arm 0's
     first X2 delivery joined the still-`inProgress` marker turn (record, "Findings and
     UNVERIFIED"). One live observation at `0.160.0`; it stays in STATUS.md's ledger and
-    belongs to #224 and backlog G7, not to C13. Verified 2026-10-03 from the wire, not
+    belongs to #224 and backlog G7, not to C13. *(Dated note, 2026-10-04, #274: closed.
+    STATUS.md promoted S10 on source at `rust-v0.160.0` plus this observation, and
+    `spec/bindings/mcp.md` §8.2.1 now keeps every delivery off `turn/start`.)* Verified 2026-10-03 from the wire, not
     from the attestation: it was the only delivery of the run that joined an existing turn,
     and arm 0's reproduction does not rest on it. 0.X2.2 and 0.X2.3 each opened a new turn
     in an idle thread (`fixtures/g5-provenance/transcript-codex-2026-10-02-0.160.0-herdr.jsonl`

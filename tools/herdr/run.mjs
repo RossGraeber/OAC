@@ -225,7 +225,7 @@ async function runScenarioInner(opts, state) {
       os: osInfo(),
       session: { name: sessionName, serverPid: null, panePids: [] },
       env: { serverLaunch: launchEnv.delta, pane: null },
-      harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [] },
+      harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [], mustStayUnchanged: [] },
       timebox: { budgetMs: timeboxMs, start: iso(timeboxStart), end: null, elapsedMs: null, expired: null, teardownEnd: null },
       commands,
       teardown: null,
@@ -294,6 +294,18 @@ async function runScenarioInner(opts, state) {
       },
       finding(text) {
         manifest.findings.push(text);
+      },
+      // #271: called immediately BEFORE a step after which the harness config must not change
+      // (the Enter of a driver "Allow" on Codex's MCP tool-approval prompt: proof that no
+      // approval was persisted). The first call hashes the harness config then
+      // (harnessConfig.beforeFirstAllow); teardown compares its own hashes with that snapshot,
+      // not with the run's start, so a legitimate earlier write (a Codex trust accept at
+      // startup) does not count (PR #277 review). A change since the snapshot downgrades a
+      // PASS to FAIL and is always a finding.
+      requireHarnessConfigUnchanged(why) {
+        const hc = manifest.harnessConfig;
+        if (!hc.beforeFirstAllow) hc.beforeFirstAllow = { at: iso(Date.now()), hashes: hashHarnessConfig() };
+        hc.mustStayUnchanged.push({ why: String(why), at: iso(Date.now()) });
       },
       // A process outside the driver's control (e.g. the operator's shared Codex app-server
       // daemon, which the driver never stops) may keep a handle under scratch past the run.
@@ -490,6 +502,15 @@ async function runScenarioInner(opts, state) {
       }
     };
     if (!manifest.teardown.clean) downgrade(`teardown was not clean: ${JSON.stringify({ ...manifest.teardown, clean: undefined })}`);
+    // #271: the teardown hashes against the snapshot taken just before the first driver Allow.
+    // The start-to-teardown comparison above stays recorded as its own fact.
+    const hc = manifest.harnessConfig;
+    if (hc.mustStayUnchanged.length) {
+      hc.sinceFirstAllow = hc.beforeFirstAllow ? compareHashes(hc.beforeFirstAllow.hashes, hc.after) : { unchanged: null, changed: [] };
+      if (hc.sinceFirstAllow.unchanged !== true) {
+        downgrade(`harness config changed after the first driver "Allow" (#271: ${hc.mustStayUnchanged.map((x) => x.why).join('; ')}; changed since the snapshot at ${hc.beforeFirstAllow?.at ?? 'unknown'}: ${hc.sinceFirstAllow.changed.join(', ') || 'unknown'}): that no persistent tool approval was written is not shown`);
+      }
+    }
 
     // Redaction literals first: realpath needs the scratch dir to still exist.
     const literals = [{ value: scratch, placeholder: '<SCRATCH>' }, { value: REPO_ROOT, placeholder: '<REPO>' }, { value: outDir, placeholder: '<OUT>' }, ...extraLiterals];

@@ -359,6 +359,12 @@ list.
   Code prompt content the operator had typed into a separate Claude Code session —
   cross-harness prompt visibility through Codex's own session history, security-
   relevant, mechanism not investigated (`docs/planning/gates/G4-result.md`).
+  **New (#274, 2026-10-04): all Codex inbound delivery now rests on this surface.**
+  `spec/bindings/mcp.md` §8.2.1 sends every delivery through the experimental
+  `thread/queue/add` and forbids `turn/start` and `turn/steer` for delivery. No
+  non-experimental delivery path is left, so a change to `thread/queue/add` stops Codex
+  inbound delivery until the G6 shim follows it. The queue also refuses some threads
+  outright (rows 65-66).
 - **What it invalidates.** `docs/planning/v0.1/01-capability-matrix.md` §1's
   Codex experimental label; `docs/planning/v0.1/07-repository-and-dependencies.md`
   §4(b)'s `adapters/codex/` shim-boundary containment claim; Decision 9's layered
@@ -545,7 +551,9 @@ list.
 
 - **Risk.** `spec/security.md` (E5, #45) makes the security model normative, with 121
   fixtures under `tests/protocol/sec-*/`. No runner executes them yet (E8, F12), and 30 of its
-  requirements are `TODO(fixture)`, each naming the later test (F2, F4, F5, F6, F10, F11, G4,
+  requirements are `TODO(fixture)` *(dated note, 2026-10-04, #174: 38 Appendix A rows now
+  name a `TODO(fixture)`, partial ones included; #174 added four, SEC-AUZ-024 and
+  SEC-PRV-015 to SEC-PRV-017, naming F11 and L10)*, each naming the later test (F2, F4, F5, F6, F10, F11, G4,
   G7, G9, H2). Section 13's threat rows whose only proving test is one of those are open risks,
   not closed mitigations (`oac-security-work` §1). Two library facts are UNVERIFIED (rows 63
   and 64): whether the pinned Ed25519 crate's strict verify gives the verdicts of
@@ -765,7 +773,10 @@ list.
   shipped or called by OAC, with `Gates affected: none` (`docs/planning/PINS.md`
   "Beacon (external memory service)"). No spec text depends on it: L1 chose docs-only
   (L1 §4 Q1). A drift costs only Epic L's docs (L5), threat rows (L4) and opt-in
-  scenario (L10). If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
+  scenario (L10). *(Dated note, 2026-10-04, #174: `spec/security.md` §12.5 and §13
+  now carry the memory-reference doctrine and rows 21-23 in neutral terms, naming no
+  service, so a Beacon drift changes no normative spec text; the §9.3 note and the
+  row-23 residual there are dated, informative observations tied to L1 §2's pin.)* If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
 - **Early-warning signal.** A new Beacon release tag appears; a cited Beacon doc
   changes at a new tag; L3's herdr-driven live leg shows OAC-delivered input in Beacon's
   `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.
@@ -925,6 +936,8 @@ turn, under `RISK-CODEX-EXPERIMENTAL`.
 | 62 | Whether Codex's `thread/queue/add` keeps the order of several inputs queued during a running turn. G2's `busyqueue` step queued one input only; no first-party statement of order is cited. Spec §7.4 makes in-order hand-off a SHOULD (SC-DLV-080) (#43, 2026-10-03; `docs/planning/gates/G2-result.md`) | RISK-CODEX-EXPERIMENTAL |
 | 63 | Whether `ed25519-dalek` `3.0.0`'s `VerifyingKey::verify_strict` gives the verdicts of `spec/security.md` [SEC-SIG-021] to [SEC-SIG-024] (S below L, no small-order or non-canonical `R` or `A`, cofactorless equation) on every `sec-sig` fixture. *Narrowed 2026-10-03 (PR #265 review):* its source checks small-order `R` and `A` and the cofactorless equation by octet comparison of the recomputed `R` (https://docs.rs/ed25519-dalek/3.0.0/src/ed25519_dalek/verifying.rs.html); `VerifyingKey::from_bytes` keeps a non-canonical key encoding, so SEC-KEY-034 must reject one at admission. What stays open is running the fixtures. Its documentation says it performs scalar and point malleability checks and denies weak keys (https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html, retrieved 2026-10-03); no Rust build has run the `sec-sig` fixtures. Node.js 25.2.1 / OpenSSL 3.5.4 accepted the small-order-`R` fixture in the E5 vector check (#45, 2026-10-03) | RISK-SEC-SPEC |
 | 64 | Whether `serde_jcs` `0.2.0` produces RFC 8785 output identical to the `expected.canonical` values of the `sec-*` fixtures (member order by UTF-16 code units, string escapes, non-ASCII text, unknown members). The fixtures were checked by two independent JavaScript serializers only (#45, 2026-10-03) | RISK-SEC-SPEC |
+| 65 | Which `thread/queue/add` errors, if any, mean "not now" (`spec/session-channels.md` [SC-DLV-008]) rather than a failed hand-off. Source at `rust-v0.160.0` shows at least four refusals, none meaning "not now", so each is `handoff-failed`: an ephemeral thread (`thread_queue_processor.rs` L261), a host with no queue service (L246), a subagent thread that does not accept direct input, either a loaded multi-agent-v2 subagent or an unloaded `ThreadSpawn` subagent (`ensure_direct_input_allowed`, L292-L309, called at L83), and an archived thread (L282). **Consequence:** under queue-only delivery, OAC cannot deliver to any of these threads at all. Other refusals are not classified (#274, 2026-10-04; `spec/bindings/mcp.md` §8.2.1). Owner G7 (#68) | RISK-CODEX-EXPERIMENTAL |
+| 66 | Runtime behaviour of the Codex queue that `spec/bindings/mcp.md` §8.2.1 relies on, read from source at `rust-v0.160.0` only. (a) After an interrupted turn nothing dispatches until a turn completes uninterrupted: an item already queued waits (`service.rs` L549-L566), and an add made later to an idle thread whose last turn was interrupted also waits, because `wake_if_loaded` skips a thread whose agent status is `Interrupted` (L477). A TUI user who interrupts and walks away stalls every later delivery, each reported `handed-to-harness`. (b) Other daemon clients can reorder, update or delete a queued item. (c) An add to an unloaded thread waits. (d) An extra member in a `thread/queue/add` request is probably ignored. (#224 C5; #274, 2026-10-04.) Owner G7 (#68); the CDX-002 fixture plan includes the idle-after-interrupt case | RISK-CODEX-EXPERIMENTAL |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

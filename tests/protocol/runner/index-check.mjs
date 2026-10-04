@@ -1,21 +1,25 @@
 // Cross-checks between the requirement indexes and the fixtures:
 //
-// - spec/session-channels.md Appendix A, spec/security.md Appendix A and
-//   spec/bindings/mcp.md §12.3 each list every requirement id their document defines, once,
-//   at the level (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) its defining sentence uses;
+// - spec/session-channels.md Appendix A, spec/security.md Appendix A, spec/bindings/mcp.md
+//   §12.3 and spec/interfaces.md Appendix A each list every requirement id their document
+//   defines, once, at the level (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) its defining
+//   sentence uses;
 // - every fixture an index row names exists, as exactly one file;
 // - every fixture file is named by at least one index row;
-// - every fixture's `requirement` is an id its `spec` document defines.
+// - every fixture's `requirement` is an id its `spec` document defines;
+// - spec/interfaces.md Appendix C gives every MUST and MUST NOT of the four documents exactly
+//   one owner (checkOwners, below).
 
 const DOCS = [
   { prefix: 'SC', path: 'spec/session-channels.md', heading: '## Appendix A. Requirement index' },
   { prefix: 'SEC', path: 'spec/security.md', heading: '## Appendix A. Requirement index' },
   { prefix: 'MCPB', path: 'spec/bindings/mcp.md', heading: '### 12.3 Index' },
+  { prefix: 'IFC', path: 'spec/interfaces.md', heading: '## Appendix A. Requirement index' },
 ];
 export const DOC_OF_PREFIX = Object.fromEntries(DOCS.map((d) => [d.prefix, d.path]));
 
 const KEYWORD = /\b(MUST NOT|MUST|SHOULD NOT|SHOULD|MAY)\b/;
-const ID = '((?:SC|SEC|MCPB)-[A-Z]+-[0-9]{3})';
+const ID = '((?:SC|SEC|MCPB|IFC)-[A-Z]+-[0-9]{3})';
 
 // Requirement ids defined in a document's body: a paragraph (or list item) that starts with
 // `[ID]`, and the first keyword of that paragraph.
@@ -125,11 +129,95 @@ export function checkIndexes(read, fixtures) {
     }
     for (const id of defs.keys()) if (!rowIds.has(id)) problems.push(`${doc.path}: ${id} is defined but has no index row`);
   }
+  problems.push(...checkOwners(read));
   for (const f of fixtures) {
     const key = `${f.dir}/${f.file}`;
     if (!referenced.has(key)) problems.push(`tests/protocol/${key}: named by no index row`);
     const id = f.fixture && f.fixture.requirement;
     if (id && defined.get(id) !== f.fixture.spec) problems.push(`tests/protocol/${key}: requirement ${id} is not defined in ${f.fixture.spec}`);
   }
+  return problems;
+}
+
+// spec/interfaces.md Appendix C (§3.3 there): every MUST and MUST NOT requirement of the four
+// documents has exactly one owner. The appendix runs from its heading to the next top-level
+// `## ` heading, subheadings included. Its table has the header `| Area | Owner | Requirements |`,
+// the separator `|---|---|---|`, and rows `| <DOC>-<AREA> | <owner> | NNN, NNN, ... |`, where
+// <owner> is exactly one of OWNERS, written from column 1. Any other line that contains `|`
+// outside a fenced code block or an HTML comment is a malformed row and fails, including a row
+// without outer pipes or with leading spaces, which GitHub still renders: no row is skipped.
+export const OWNERS = ['adapter', 'core', 'transport', 'binding'];
+const OWNER_DOC = 'spec/interfaces.md';
+const OWNER_HEADING = '## Appendix C. Owner index';
+const OWNER_ROW = new RegExp(`^\\| ((?:SC|SEC|MCPB|IFC)-[A-Z]+) \\| (${OWNERS.join('|')}) \\| ([0-9]{3}(?:, [0-9]{3})*) \\|$`);
+
+// Returns { rows, problems }: rows as { owner, ids, line }; problems for malformed lines.
+export function ownerRows(text) {
+  const start = text.indexOf(OWNER_HEADING);
+  if (start < 0) return { rows: [], problems: [`${OWNER_DOC}: owner index heading not found: ${OWNER_HEADING}`] };
+  const base = text.slice(0, start).split('\n').length;
+  const rows = [];
+  const problems = [];
+  const lines = text.slice(start).split('\n');
+  let fence = null; // the fence marker while inside a fenced code block
+  let comment = false; // inside an HTML comment
+  for (let k = 1; k < lines.length; k++) {
+    const raw = lines[k].replace(/\s+$/, '');
+    if (/^## /.test(raw)) break;
+    // GitHub renders a table row with up to three leading spaces and without outer pipes.
+    const line = raw.replace(/^ {0,3}/, '');
+    if (fence) {
+      if (line.startsWith(fence)) fence = null;
+      continue;
+    }
+    const f = /^(`{3,}|~{3,})/.exec(line);
+    if (f) {
+      fence = f[1];
+      continue;
+    }
+    if (comment || line.startsWith('<!--')) {
+      comment = !line.includes('-->');
+      continue;
+    }
+    if (!line.includes('|')) continue;
+    if (raw === '| Area | Owner | Requirements |' || raw === '|---|---|---|') continue;
+    if (raw !== line) {
+      problems.push(`${OWNER_DOC}:${base + k}: owner-index row with leading spaces: ${raw}`);
+      continue;
+    }
+    const m = OWNER_ROW.exec(line);
+    if (!m) {
+      problems.push(`${OWNER_DOC}:${base + k}: malformed owner-index row (expected | <DOC>-<AREA> | ${OWNERS.join('/')} | NNN, NNN |): ${line}`);
+      continue;
+    }
+    rows.push({ owner: m[2], ids: m[3].split(', ').map((n) => `${m[1]}-${n}`), line: base + k });
+  }
+  return { rows, problems };
+}
+
+// The MUST and MUST NOT ids of every document, as id -> doc path.
+export function mustIds(read) {
+  const must = new Map();
+  for (const doc of DOCS) {
+    for (const [id, d] of definitions(read(doc.path), doc.prefix)) if (d.level === 'MUST' || d.level === 'MUST NOT') must.set(id, doc.path);
+  }
+  return must;
+}
+
+// Returns a list of problem strings: a malformed row (an owner outside OWNERS included), a
+// listed id that is not a MUST or MUST NOT of some document, an id listed twice (within one row
+// or across rows), and a MUST or MUST NOT listed nowhere.
+export function checkOwners(read) {
+  const must = mustIds(read);
+  const { rows, problems } = ownerRows(read(OWNER_DOC));
+  const seen = new Map();
+  for (const row of rows) {
+    for (const id of row.ids) {
+      if (!must.has(id)) problems.push(`${OWNER_DOC}:${row.line}: ${id} is not a MUST or MUST NOT requirement of any document`);
+      if (seen.has(id)) problems.push(`${OWNER_DOC}:${row.line}: ${id} has a second owner (first at line ${seen.get(id)})`);
+      else seen.set(id, row.line);
+    }
+  }
+  for (const [id, path] of must) if (!seen.has(id)) problems.push(`${OWNER_DOC}: ${id} (${path}) has no owner in Appendix C`);
   return problems;
 }

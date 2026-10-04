@@ -344,6 +344,14 @@ Outcomes for X1-X6 are **predicted** unless the column says "observed". "Floor" 
 
 **Option C**, with Option A as its mandatory floor and as the fallback.
 
+*Dated note, 2026-10-04 (#274): in effect, Option A. On the operator decision on #224, every
+Codex delivery uses `thread/queue/add`, never `turn/start` (`spec/bindings/mcp.md` §8.2.1,
+[MCPB-CDX-002], [MCPB-CDX-003]). The anchor exists on `turn/start` only, so it is never
+sent. Option C still stands as the design for a `turn/start` path, but no delivery takes
+that path. The floor alone is enough: §11 arm F, Option A, passed every required trial,
+including X4 via `thread/queue/add` (`docs/planning/gates/G5-result.md`), and
+`spec/security.md` [SEC-PRV-011] makes a second carrier a `MAY`.*
+
 - **A alone closes all three defects on every path, using only the stable `text` item.**
   It is the direct Codex equivalent of the escaping that made Claude's C2/C3 pass. F1 makes
   X5 impossible.
@@ -452,6 +460,12 @@ TUI) between OAC's state check and the RPC. This is a source-level fact. Runtime
 was not observed (§13). It touches the `turn/steer` threat row (C6 §12; `06-security.md`
 §14) and backlog task G7. It is **not** part of C13 and is not decided here. It should go
 to its own issue. Option C's anchor on `turn/start` neither causes it nor fixes it.
+
+*Dated note, 2026-10-04 (#274): closed. It went to #224. There it was confirmed from source
+at `rust-v0.160.0` and by the upstream test, and observed live once at `0.160.0` (G5 E1,
+arm 0). The operator decided that delivery must not steer. `spec/bindings/mcp.md` §8.2.1
+now sends every delivery through `thread/queue/add`, and `docs/planning/STATUS.md` has
+promoted S10 out of "Open UNVERIFIED items".*
 
 ## 11. G5 Codex re-run: acceptance that would prove the chosen option
 
@@ -667,6 +681,9 @@ https://github.com/RossGraeber/OAC/issues/220#issuecomment-5946299656):**
 
 - S10. The source shows `turn/start` steers an active turn. No run has observed it
   (UNVERIFIED — source read only, at `rust-v0.159.3`; not exercised live).
+  *Dated note, 2026-10-04 (#274): closed. Verified from source at `rust-v0.160.0` and
+  observed live once (#224). The STATUS promotion is in the #274 entry, and the spec rule
+  is in `spec/bindings/mcp.md` §8.2.1.*
 - Developer-role anchor reading. S4's test `additional_context_trust_controls_message_role`
   confirms the developer **role** (and text) of an `application` fragment on a mock server
   (L205-213). It asserts the position before user input only for the **untrusted**

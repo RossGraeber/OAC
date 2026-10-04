@@ -27,12 +27,14 @@ Fixtures live under `tests/protocol/` (DESIGN §Suggested repository shape). The
 runner `node tests/protocol/runner/run.mjs` (E8, #48; CI job `conformance`) evaluates every
 fixture from the spec text and checks the requirement indexes against the fixtures. Run it
 in any change that adds a fixture, a stage or an index row; a new stage needs an evaluator
-there. Driving the workspace's own code through the fixtures is task F12.
+there. `node tests/protocol/runner/run.mjs --self-test` checks that the runner rejects planted
+violations. Driving the workspace's own code through the fixtures is task F12.
 
 ## Requirement-id scheme
 
-Defined by task E1 (#41) in `spec/session-channels.md` §3.2 (`<DOC>-<AREA>-<NNN>`, e.g.
-`SC-ENV-010`; never renumbered or reused; a change of meaning gets a new id). The fixture
+Defined in `spec/session-channels.md` §3.2 (`<DOC>-<AREA>-<NNN>`, e.g. `SC-ENV-010`; never
+renumbered or reused; a change of meaning gets a new id). The registered `<DOC>` prefixes are
+listed in §3.2; a new document registers its own prefix there. The fixture
 file layout and JSON members are in §3.3, and the id-to-fixture index is its Appendix A.
 Read them there; they are not restated here. A spec task adds its ids to Appendix A and its
 fixtures under `tests/protocol/<doc>-<area>/` in the same change.

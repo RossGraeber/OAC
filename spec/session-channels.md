@@ -102,7 +102,7 @@ for example `[SC-ENV-001]`.
 - **Form:** `<DOC>-<AREA>-<NNN>`.
   - `<DOC>` names the specification document: `SC` for this document, `SEC` for
     `spec/security.md`. A binding document (E6) registers its own `<DOC>` prefix in its
-    own text.
+    own text, and so does `spec/interfaces.md` (`IFC`, #273).
   - `<AREA>` is upper-case letters naming a section's subject. This document's areas are:
     `ENV` (§4), `VER` (§5), `ID` (§6), `DLV` (§7) and `RCP` (§8). Each area is owned by the
     task that owns its section.
@@ -1287,9 +1287,10 @@ This section defines how a receiver delivers to a live session, how an implement
 announces and withdraws a session's presence, and how a sender learns which sessions exist
 and what they accept. It defines the content and meaning of a presence record (§7.2.2) and
 of a discovery result (§7.3). It does not define how either is framed or carried: the
-transport contract carries presence records (DESIGN "Transport contract",
-`announce_presence` and `watch_presence`), and a transport binding maps them onto one
-transport. `spec/security.md` (E5, #45) authenticates them.
+transport contract carries presence records (DESIGN "Transport contract";
+`spec/interfaces.md` §6.5 and §6.6, `send_presence` and `watch_presence`), and a transport
+binding maps them onto one transport. `spec/security.md` (E5, #45) authenticates
+them.
 
 ### 7.1 The active-inbound obligation and the no-polling rule
 
@@ -2190,6 +2191,12 @@ carriage half, by the transport contract, is still to come, so the "until both e
 paragraph above still holds. The bound on `duplicate` receipts that the previous note
 expects is [SEC-RPL-030] and [SEC-RPL-031] (§8.4 there).*
 
+*Dated note, 2026-10-04 (#273): `spec/interfaces.md` §6 now defines the transport contract's
+carriage of authenticated receipts and presence records ([IFC-TRN-001], §6.5 there). No
+transport binding meets its cross-implementation gate yet ([IFC-TRN-081], §6.7 there), so the
+"until both exist" paragraph above still holds in practice: receipts stay within one
+implementation until one does.*
+
 ### 8.2 Replies and correlation
 
 #### 8.2.1 Meanings
@@ -2677,6 +2684,7 @@ section adds no requirement. It lists what sections 4, 5 and 7 contribute:
 - Decision C13, provenance framing (`docs/planning/decisions/`; §4, the whole-value rule
   §4.3 adopts).
 - `docs/planning/v0.1/05-interfaces.md` §3 and §11, the M0 draft this document supersedes.
+- `spec/interfaces.md`, the core types, adapter contract and transport contract (#273).
 - `docs/planning/decisions/C2-process-model.md` (§5, presence lifetime).
 - Decision C7, the v0.1 transport mapping (`docs/planning/decisions/`; §4 presence, §7 the
   local-mode authorization carve-out).
@@ -2953,4 +2961,5 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-03 | E3 (#43): section 7 (active delivery, presence and discovery) written; area `DLV`; the active-inbound obligation and the no-polling rule, accepting input, the three presence states, presence records (announcement and withdrawal, `seq`, consumer-clock lifetime, carrier loss), discovery results, and where a sender takes a capability declaration from (makes SC-ID-086 satisfiable); `presence` and `discovery` fixture stages (§7.5); fixtures under `tests/protocol/sc-dlv/`; SC-ID-040 and SC-ID-041 now covered by SC-DLV-029. Review of #263: operator decisions on #43 recorded as dated notes; SC-DLV-008, SC-DLV-009 (not-now vs failed hand-off), SC-DLV-049 (monotonic clock) and SC-DLV-067 (scoping by the binding holder; v0.1 same-install only) added; evidence for input during a running turn corrected; E5 constraints recorded; `sc-id/SC-ID-044.p01` added. Merged after E4 (#44): presence added to §8.3.3 as sender refusal step 2 with two Table 8.3.3 rows, the separate [SC-ID-086] step folded into it (`sc-id/SC-ID-086.n01` now expects `unknown-destination`), and SC-DLV-007 cites `sc-rcp/SC-RCP-078.n01`. Re-review: SC-DLV-075 and SC-DLV-076 (a send request reveals nothing about a session its requester is not authorized to discover), SC-DLV-067 widened to send refusals, the no-declaration wording corrected (a withdrawal-only session is `unreachable`), and `sc-rcp/SC-RCP-090.n01` renamed. |
 | 0.1 (draft) | 2026-10-03 | #266, editorial (no requirement added or changed): the `spec/security.md` Appendix B follow-ups. Appendix A rows SC-ID-009, SC-ID-181, SC-ENV-083, SC-RCP-009, SC-RCP-040, SC-RCP-041, SC-RCP-072 and SC-DLV-043 cite the `sec-*` fixtures; SC-ENV-104 stays `TODO(fixture)` (sender-side), and SC-RCP-073's key, signature and replay steps stay `TODO(fixture)` (they need a combined security-and-delivery fixture). Table 8.3 conditions of `unknown-key` and `signature-invalid` cite the malformed-member cases of `spec/security.md` Table 7.1. Dated notes in §7.2.3, §7.2.4, §7.3.2, §8.1.5 and §8.2.2 point at `spec/security.md` §9 to §11 (reply path; the 5-minute presence cap between machines, an operator decision on #45); §8.3.1 names the MCP binding's codes directly (PR #264 review); §10.1 no longer calls `spec/security.md` unwritten. |
 | 0.1 (draft) | 2026-10-03 | E8 (#48), no requirement added or changed: the reference conformance runner `tests/protocol/runner/run.mjs`, run in CI (§3.3 note); §3.3 says a binding document can define its own `fixture_format` and a runner dispatches on it (comment on #48), and that a sender-side section 4 or 5 fixture uses the `send` stage; §8.5 adds the `receive` stage (security and delivery stages together) and names the `send` stage the `sc-rcp/SC-RCP-090` fixtures already use; new fixtures `sc-env/SC-ENV-021.p01`, `sc-env/SC-ENV-066.n01` and `sc-rcp/SC-RCP-073.p01`, `.n03` to `.n05` replace the E8-owned `TODO(fixture)` entries of SC-ENV-021, SC-ENV-066 and SC-RCP-073, and the runner's taxonomy check covers SC-RCP-074's. Review of PR #270: the `combine` stage gains `handoff_deadline_passed`, which rule 6 of SC-RCP-085 reads (`deadline_passed` stays the retry deadline), set in `sc-rcp/SC-RCP-085.n01`, `.n02` and `SC-RCP-086.n01`, `.p02`; §7.5 says the `presence` stage does not apply the cap of `spec/security.md` [SEC-PRS-007]. |
+| 0.1 (draft) | 2026-10-04 | #273, editorial (no requirement added or changed): §3.2 notes that `spec/interfaces.md` registers the prefix `IFC`; the §7 introduction points at the transport contract of `spec/interfaces.md` §6.5-§6.6; a dated note in §8.1.5 records that the transport contract now defines receipt carriage, while no transport binding yet meets its cross-implementation gate; §10.2 lists `spec/interfaces.md`. |
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): Appendix A row SC-ID-080 named only Stage 2 owners (E3, E6), both closed. Its `TODO(fixture)` is now owned by F6 and F10, as the other issuer-side rows of §7.2.5 are. |

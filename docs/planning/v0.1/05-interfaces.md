@@ -465,6 +465,13 @@ hand-waved:**
 
 ## 13. Provider adapter contract
 
+**Superseded, 2026-10-04 (#273).** This section is superseded by `spec/interfaces.md` §5
+(the provider adapter contract, requirement area `IFC-ADP`). That text
+is written from the merged Stage 2 specifications and replaces the shape below, which
+contradicts them (E7 freeze record, blocker B1, #273). What changed, and why, is
+`spec/interfaces.md` §9. Gate S2 freezes `spec/interfaces.md`, not this section, which
+stays as the historical planning record.
+
 **Source.** `docs/planning/DESIGN.md` lines 37-49; issue #26 task 14. Frozen at the Stage
 2 interface freeze (task E7, `oac-spec-authoring` §7) — this M0 draft is the pre-freeze
 shape that freeze will act on, not the freeze itself.
@@ -520,6 +527,13 @@ here as normative for this file's purposes: an adapter implementation `MUST NOT`
 ---
 
 ## 14. Core neutral types
+
+**Superseded, 2026-10-04 (#273).** This section is superseded by `spec/interfaces.md` §4
+(the core neutral types, requirement area `IFC-TYP`). That text
+is written from the merged Stage 2 specifications and replaces the shape below, which
+contradicts them (E7 freeze record, blocker B1, #273). What changed, and why, is
+`spec/interfaces.md` §9. Gate S2 freezes `spec/interfaces.md`, not this section, which
+stays as the historical planning record.
 
 **Source.** `docs/planning/DESIGN.md` line 28; field-level definitions drawn from §3-§13
 above, `docs/planning/decisions/C4-session-identity.md`, `C5-envelope-auth.md`,
@@ -600,6 +614,14 @@ per §6's recorded gap, this type does not yet carry them; a future non-breaking
 ---
 
 ## 15. Transport contract
+
+**Superseded, 2026-10-04 (#273).** This section is superseded by `spec/interfaces.md` §6
+and §7 (the transport contract and containment, requirement areas `IFC-TRN` and
+`IFC-NEU`). That text
+is written from the merged Stage 2 specifications and replaces the shape below, which
+contradicts them (E7 freeze record, blocker B1, #273). What changed, and why, is
+`spec/interfaces.md` §9. Gate S2 freezes `spec/interfaces.md`, not this section, which
+stays as the historical planning record.
 
 **Source.** `docs/planning/DESIGN.md` lines 55-67; task E7 freezes this shape at Stage 2.
 

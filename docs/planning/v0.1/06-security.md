@@ -319,6 +319,11 @@ operator on #220). The amendment has three parts:
 - on `turn/start` only, a scoped, experimental `additionalContext` `application` anchor is
   added. It is never load-bearing.
 
+  *Dated note, 2026-10-04 (#274): delivery no longer uses `turn/start`
+  (`spec/bindings/mcp.md` [MCPB-CDX-002], [MCPB-CDX-003]), so the anchor is never sent and
+  Codex delivery is in effect Option A, the frame alone. `spec/security.md` [SEC-PRV-011]
+  is a `MAY`, and G5 arm F, the frame alone, passed (`docs/planning/gates/G5-result.md`).*
+
 The description below is the pre-amendment framing. This section and §14 rows 5, 17 and 22
 are rewritten when G5's Codex-leg re-run (C13 §11) is recorded. Until then G5 stays
 `FAIL`, and the amendment is designed, not proven. *(Dated note, 2026-10-03, #220: the
@@ -351,6 +356,15 @@ design).
 `turn/steer` only for appending into an *actively in-flight* turn. Ordinary inbound
 message delivery never routes through `turn/steer`; any future routing that would needs
 task G7's own separate authorization gate (C5 §11, C6 §5).
+
+*Dated note, 2026-10-04 (#274): superseded for delivery. A `turn/start` sent while a turn
+is running steers that turn (source at `rust-v0.160.0`, and observed once live; #224). On the
+operator decision on #224 (2026-10-02), `spec/bindings/mcp.md` §8.2.1 now requires every
+delivery to use `thread/queue/add` ([MCPB-CDX-002]), forbids `turn/start` and
+`turn/steer` for delivery with no setting that enables steering ([MCPB-CDX-003],
+[MCPB-CDX-004]), and forbids setting-override
+members ([MCPB-CDX-005]). "`turn/start` for an idle thread" is not race-free, because no
+client-side check of idleness is atomic with the call (`spec/security.md` [SEC-AUZ-026]).*
 
 **No memory in the header block.** No memory ID and no memory body is ever placed in the
 Codex header block; its five fields are set from daemon state only, and a memory
@@ -472,7 +486,11 @@ Merged from C4 §13, C5 §13, and C6 §12, deduplicated, with the DESIGN "Securi
 and every PLANNING-PROMPT.md §7 addition covered. Each row cites the decision section it
 derives from. Rows 21-23 (L4, issue #169) derive from
 `docs/planning/decisions/L1-beacon-memory.md` and use neutral wording ("an external
-memory service, e.g. Beacon per L1") so a later normative text can carry them. Row 24
+memory service, e.g. Beacon per L1") so a later normative text can carry them. *(Dated note, 2026-10-04, #174:
+`spec/security.md` now carries them normatively, in neutral terms: §1.2 and §12.5
+(SEC-PRV-015 to SEC-PRV-017), §12.6 (SEC-PRV-018, no secrets in content), §9.6
+(SEC-AUZ-024), §9.3, and three §13 threat rows. No
+envelope or content-model change; the rows here keep the provider-specific evidence.)* Row 24
 (issue #236, 2026-10-02) derives from C4 §3's revision and C4 §13.
 
 | # | Attack | Precondition | Mitigation | Proving test | Residual risk |
@@ -488,7 +506,7 @@ memory service, e.g. Beacon per L1") so a later normative text can carry them. R
 | 9 | Zenoh has no payload authentication (transport-only authenticity assumed) | An attacker relies on transport security alone to forge a sender claim | Envelope signature is the sole authenticity proof; Zenoh ACL is a coarse pre-filter only (C5 §12; §6 above) | F11 | F11 `NOT RUN`; designed, not proven |
 | 10 | Zenoh `zid` used as an identity/ACL subject | An implementation mistakenly keys policy on `zid` | ACL subjects are drawn only from authenticated certificate common name or username, never `zid` (C5 §12; §6 above) | task G3 ("ACL subjects are authenticated ones only, never `zid`") | task G3 `NOT RUN`; enforced by design and by the rule stated here, not yet verified against a running transport |
 | 11 | Permission-relay abuse (`claude/channel/permission`) | Permission relay is enabled for a deployment | Off by default in v0.1; enabling it is its own explicit decision, never a side effect of allowlisting (C6 §7, §12; §11 above) | task G4 ("Permission relay is off by default"); H2 ("confirmed off... documented") | task G4/H2 `NOT RUN`; a deployment that opts in accepts the documented consequence, an accepted named risk for that deployment |
-| 12 | Unauthorized Codex `turn/steer` (code-execution risk) | Attacker's message is delivered (passes signature and allowlist checks) to a Codex session | Message-delivery authorization and steer-authorization are two separate checks by design; inbound framing never routes through `turn/steer` (C5 §11, §13; C6 §5, §12; §9 above) | F11; task G7; gate G2 | F11/task G7 `NOT RUN`; gate G2 `PASS` (re-run 2026-09-26 on Codex `0.157.1`, `docs/planning/gates/G2-result.md`), but G2 deliberately did not exercise `turn/steer`, so it proves live inbound delivery, not the steer-authorization check; the separate steer-gate this row relies on is not built yet |
+| 12 | Unauthorized Codex `turn/steer` (code-execution risk) | Attacker's message is delivered (passes signature and allowlist checks) to a Codex session | Message-delivery authorization and steer-authorization are two separate checks by design; inbound framing never routes through `turn/steer` (C5 §11, §13; C6 §5, §12; §9 above) | F11; task G7; gate G2 | F11/task G7 `NOT RUN`; gate G2 `PASS` (re-run 2026-09-26 on Codex `0.157.1`, `docs/planning/gates/G2-result.md`), but G2 deliberately did not exercise `turn/steer`, so it proves live inbound delivery, not the steer-authorization check; the separate steer-gate this row relies on is not built yet. *Dated residual, 2026-10-04 (#274):* a mid-turn `turn/start` steers too (#224), so "never `turn/steer`" alone did not prevent steering. Now mitigated in the spec by queue-only delivery with no setting overrides (`spec/bindings/mcp.md` [MCPB-CDX-002] to [MCPB-CDX-005]) and a behaviour-based steering definition with no enabling setting (`spec/security.md` [SEC-AUZ-022], [SEC-AUZ-025] to [SEC-AUZ-027]); proving test G7 (#68) against the F9 fake, not built, so still open. Remaining after it: steering that no source, document or run has shown; queued input that waits (after an interrupted turn, until a turn completes uninterrupted) or is edited by another daemon client; threads the queue refuses get no delivery at all (`11-risks.md` rows 65-66). Claude channel input sent mid-turn does join the running turn at tool-call boundaries (G1 Box C), accepted as ordinary input under the binding exception (`spec/bindings/mcp.md` §8.1) |
 | 13 | Local IPC peer spoofing | An attacker-controlled local process attempts to connect to the daemon's IPC endpoint pretending to be a legitimate shim | OS-level peer authentication — named-pipe DACL / `GetNamedPipeClientProcessId` (Windows), `SO_PEERCRED`/`getpeereid()` (Unix) — peer UID must equal the daemon's own UID (C2 §4; C5 §10(a), §13; §12 above) | F11; G9 | F11/G9 `NOT RUN`; named-pipe DACL behaviour not yet exercised on a live Windows host (§12 above) |
 | 14 | Cross-project leakage via `list_sessions` | A caller invokes `list_sessions` while sessions exist under multiple `working_directory` values | Result filtered by the same `working_directory`-scoped, default-deny allowlist (C6 §8, §12; §13 above) | H2 (fourth acceptance item) | H2 `NOT RUN`; same open item C4/C5's own tables already name for this threat class |
 | 15 | Silently dropped `meta` key yielding unlabelled provenance | A bug emits a non-identifier-safe Claude `meta` key | Const key table; incomplete provenance detected pre-send; message refused, not delivered unlabelled (C6 §3, §12; §8 above) | Contract test and refusal fixture, built by **F8/G4** | Neither test exists yet; carried as an open item, not a closed mitigation |

@@ -24,32 +24,36 @@ mentions Zenoh, Claude, Codex, MCP method names, or key expressions").
 
 ## Combined command (Git Bash / ripgrep)
 
-`spec/` exists since 2026-10-03 (#41), and CI runs the zero-hits group below
-(`.github/workflows/boundary-lint.yml`). The
-`--glob '!…'` exclusion names the task E6 MCP binding document, `spec/bindings/mcp.md`.
-The exemption is task-scoped (§3 of `SKILL.md`) and names that one exact path, not a
-directory: any other file under `spec/bindings/` is scanned like the rest of `spec/`.
-`--hidden` keeps dot-files in scope; ripgrep skips them by default. `--no-ignore` stops a
-committed `.ignore`, `.rgignore` or `.gitignore` from hiding a file. CI goes further and
-runs the zero-hits group on an explicit list of every regular file under `spec/` minus that
-one path, failing if `spec/bindings/mcp.md` is not a regular file or anything under `spec/`
-is a symlink (`.github/workflows/boundary-lint.yml`).
+`spec/` exists (#41) and CI runs the zero-hits group below (step "Checks 1-2 and spec
+neutral vocabulary" in `.github/workflows/boundary-lint.yml`, the source of truth: if it
+changes, change this block too). The exemption is task-scoped (§3 of `SKILL.md`) and names
+one exact regular file, the task E6 MCP binding `spec/bindings/mcp.md`, not a directory: any
+other file under `spec/bindings/` is scanned like the rest of `spec/`. CI passes `rg` an
+explicit file list (every regular file under `spec/` from `find`, minus that one path) with
+`--hidden --no-ignore`, so dot-files and ignored files stay in scope and no glob can drop
+one. It also fails if `spec/bindings/mcp.md` exists but is not a regular file, or if anything
+under `spec/` is a symlink.
 
 Two groups, like `oac-boundaries` "Mechanical checks" 6: a **zero-hits group**, where any hit
 is a violation, and a **read-the-hit group**, where a hit must be read before it is treated as
 guilty, because the pattern also matches ordinary English.
 
 ```bash
-# Zero-hits group: any hit here is a boundary violation.
-rg -n --hidden --no-ignore --glob '!target' --glob '!spec/bindings/mcp.md' -i \
+binding=spec/bindings/mcp.md
+mapfile -d '' spec_all < <(find spec -type f -print0)
+spec_neutral=()
+for f in "${spec_all[@]}"; do [ "$f" = "$binding" ] || spec_neutral+=("$f"); done
+
+# Zero-hits group: any hit here is a boundary violation (rg exit 1 = clean).
+rg -n --hidden --no-ignore -i \
   '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness|scouting|\bmqtt\b|\bnats\b|\bclaude\b|\bcodex\b|app[ -]server|claude/channel|--channels|--dangerously-load-development-channels|thread/(queue/add|start|resume|loaded/list)|turn/(steer|start)|tools/call|prompts/get|resources/read|notifications/[a-z]+/' \
-  spec/
+  -- "${spec_neutral[@]}"
 
 # Read-the-hit group: a hit is read, not assumed guilty — "initialize" and "notifications/"
 # alone both appear in ordinary normative prose (e.g. "MUST initialize the session",
 # "Presence notifications/ are delivered actively"), the same way oac-boundaries treats a
 # hit on its polling-loop check (Mechanical checks 6) as read, not assumed guilty.
-rg -n --hidden --no-ignore --glob '!target' --glob '!spec/bindings/mcp.md' -i '\binitialize\b|notifications/' spec/
+rg -n --hidden --no-ignore -i '\binitialize\b|notifications/' -- "${spec_neutral[@]}"
 ```
 
 A clean run is zero hits from the first command. Any hit there, in normative text or a
@@ -58,14 +62,9 @@ neutral interface signature, is a boundary violation — follow the `oac-boundar
 that names the MCP `initialize` handshake or an MCP `notifications/…` method is a violation;
 ordinary use of "initialize" or "notifications" as English words is not.
 
-## What "no such path" actually looks like
+## A missing path is not a pass
 
-*Dated note, 2026-10-03 (#41): `spec/` now exists, so this section is history for `spec/`.
-It still describes any other path a check names before that path is built.*
-
-Before `spec/` existed (DESIGN §Suggested repository shape was a sketch, not built), this
-command did not return zero hits — ripgrep exits non-zero (code 2) with an I/O
-error such as "cannot find the file specified" (verified: ripgrep 15.2.0, Git Bash). That
-error is expected pre-Stage-2 and is **not** a pass; it is not evidence the check ran clean.
-Re-run the command for real once `spec/` exists, as part of every `type:spec` work item, per
-`oac-boundaries` "Mechanical checks".
+If a path a check names does not exist, ripgrep exits 2 with an I/O error (verified: ripgrep
+15.2.0, Git Bash). That is a failure, not zero hits. `spec/` exists (#41) and CI fails if it
+is missing; for any other path a check names before it is built, re-run the command once the
+path exists, per `oac-boundaries` "Mechanical checks".

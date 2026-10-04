@@ -1,0 +1,23 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "IFC-TYP-051",
+  "spec": "spec/interfaces.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "state outside Table 8.1",
+  "description": "A receipt whose state is the conceptual accepted of DESIGN, which Table 8.1 splits into three states. It is discarded.",
+  "stage": "receipt",
+  "context": {},
+  "input": {
+    "receipt": {
+      "envelope_id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+      "envelope_from": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "state": "accepted",
+      "observer": "sender",
+      "observed_at": "2026-10-03T12:00:00.500Z"
+    }
+  },
+  "expected": {
+    "result": "discarded"
+  }
+}

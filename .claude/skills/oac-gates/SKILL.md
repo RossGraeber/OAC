@@ -159,7 +159,8 @@ A gate re-run driven through herdr (Epic K, `tools/herdr/`) also loads
 `references/scripted-runs.md`: driver identity, the scripted-run timebox, timeout means
 `NOT RUN`, no automatic re-submission, herdr state never scores a criterion, verdict
 eligibility (equivalence records), the dialog rule (#196: the driver accepts only Claude
-Code's trust, MCP-approval and dev-channels dialogs), and verification (#252): herdr,
+Code's trust, MCP-approval and dev-channels dialogs; #271: G4 alone may answer Codex's MCP
+tool approval "1. Allow" for its own tools), and verification (#252): herdr,
 harness versions and dialog accepts are verified with citations, not attested; a person
 signs only for what the agent cannot do (G1 criterion 5, G11, sign-ins, credentials). A
 scripted run is non-verdict-bearing unless that file says it may carry a verdict.
