@@ -31,6 +31,7 @@ import { CriteriaDriftError, parseCriteriaSection } from '../lib/gate-common.mjs
 import { SCORES, ReportError, evaluateG4, parseG4OperatorScores, wireEvidence, writeRefusal, fixtureWithheld, renderReport, draftManifestEntries, versionMatchesLastTested } from '../lib/g4-report.mjs';
 import { createRedactor } from '../lib/redact.mjs';
 import { paneArgv, splitCommandLine } from '../lib/g2.mjs';
+import { classifyScreen, driverMayAccept, selectionCheck, sameDialog } from '../lib/g1.mjs';
 import { processTable, spawnLongRunning } from '../lib/proc.mjs';
 import { parseClaudeVersions, parseCodexVersions } from '../lib/pins.mjs';
 
@@ -271,7 +272,58 @@ async function validateParamsWired(check, SECRET) {
   }
 }
 
+// #267: the multi-select MCP approval form, verbatim from the live G4 herdr run of 2026-10-04
+// (run 20261004T040635Z-8ac610, Claude Code 2.1.285; pane capture section seq 16).
+const MS_LIVE = [
+  '  3 new MCP servers found in this project',
+  '  Select any you wish to enable.',
+  '',
+  '  MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP',
+  '  documentation.',
+  '',
+  '  ❯ [✔] g4spike',
+  '    [✔] g4modern',
+  '    [✔] g4http',
+  '       Enable selected',
+  ' Space to select · Esc to reject all',
+].join('\n');
+const MS_EXPECTED = ['g4spike', 'g4modern', 'g4http'];
+
+function multiSelectUnit(check) {
+  const live = classifyScreen(MS_LIVE);
+  const plan = driverMayAccept(live, { expectedMcpServers: MS_EXPECTED });
+  check('g4 #267: the live multi-select form is recognized as the mcp-server-approval kind, variant multi-select, every recorded line accounted for', live.dialog === 'mcp-server-approval' && live.variant === 'multi-select' && live.form.unknown.length === 0 && live.form.count === 3 && live.form.marked === 1, JSON.stringify(live));
+  check('g4 #267: exact match, all ticked, first server preselected: down to each row, then Enter on "Enable selected"; never space', plan.ok && JSON.stringify(plan.keys) === '["down","down","down","enter"]' && JSON.stringify(plan.moves.map((m) => m.expect)) === '["g4modern","g4http","Enable selected"]' && JSON.stringify(plan.listedServers) === JSON.stringify(MS_EXPECTED) && !plan.keys.includes('space'), JSON.stringify(plan));
+  const at = (row) => classifyScreen(MS_LIVE.replace('  ❯ [✔] g4spike', '    [✔] g4spike').replace(row === 'Enable selected' ? '       Enable selected' : `    [✔] ${row}`, row === 'Enable selected' ? '  ❯    Enable selected' : `  ❯ [✔] ${row}`));
+  check('g4 #267: with "Enable selected" already selected, Enter alone', JSON.stringify(driverMayAccept(at('Enable selected'), { expectedMcpServers: MS_EXPECTED }).keys) === '["enter"]');
+  const refused = (name, cls, re, expected = MS_EXPECTED) => {
+    const p = driverMayAccept(cls, { expectedMcpServers: expected });
+    check(`g4 #267: ${name}: refused, no key`, !p.ok && p.keys.length === 0 && re.test(p.why), p.why);
+  };
+  refused('no expected server set', live, /named no expected MCP servers/, null);
+  refused('an extra listed server', classifyScreen(MS_LIVE.replace('3 new', '4 new').replace('    [✔] g4http', '    [✔] g4http\n    [✔] g4extra')), /extra: \["g4extra"\]/);
+  refused('a missing server', classifyScreen(MS_LIVE.replace('3 new', '2 new').replace('    [✔] g4http\n', '')), /missing: \["g4http"\]/);
+  refused('an expected server unticked', classifyScreen(MS_LIVE.replace('    [✔] g4modern', '    [ ] g4modern')), /not shown ticked/);
+  refused('the selection on a row other than the preselection on record or "Enable selected"', at('g4modern'), /nor the preselection on record/);
+  refused('the heading count differing from the rows', classifyScreen(MS_LIVE.replace('3 new', '4 new')), /heading counts 4/);
+  refused('an unknown line among the rows', classifyScreen(MS_LIVE.replace('       Enable selected', '       Enable all future servers\n       Enable selected')), /text off record/);
+  refused('a different footer', classifyScreen(MS_LIVE.replace('Esc to reject all', 'Esc to cancel')), /text off record/);
+  refused('a reworded body', classifyScreen(MS_LIVE.replace('All tool calls require approval. ', '')), /body text off record/);
+  refused('two selection markers', classifyScreen(MS_LIVE.replace('    [✔] g4http', '  ❯ [✔] g4http')), /2 selection markers/);
+  // Each verifying read: same rows, still ticked, one marker on the expected row.
+  const v = plan.verify;
+  check('g4 #267: a verifying read on the expected row is ok; still on the previous row waits; elsewhere stops', selectionCheck(at('g4modern'), 'mcp-server-approval', 'g4modern', 'g4spike', undefined, v).state === 'ok' && selectionCheck(live, 'mcp-server-approval', 'g4modern', 'g4spike', undefined, v).state === 'wait' && selectionCheck(at('g4http'), 'mcp-server-approval', 'g4modern', 'g4spike', undefined, v).state === 'stop');
+  check('g4 #267: a verifying read showing a tick changed, or a different server list, stops (Enter never sent)', selectionCheck(classifyScreen(MS_LIVE.replace('    [✔] g4modern', '  ❯ [ ] g4modern').replace('  ❯ [✔] g4spike', '    [✔] g4spike')), 'mcp-server-approval', 'g4modern', 'g4spike', undefined, v).state === 'stop' && selectionCheck(classifyScreen(MS_LIVE.replace('g4http', 'g4other')), 'mcp-server-approval', 'g4modern', 'g4spike', undefined, v).state === 'stop');
+  const asRead = (text) => ({ text, screen: classifyScreen(text) });
+  const movedText = MS_LIVE.replace('  ❯ [✔] g4spike', '    [✔] g4spike').replace('       Enable selected', '  ❯    Enable selected');
+  const untickedText = MS_LIVE.replace('[✔] g4modern', '[ ] g4modern');
+  check('g4 #267: a moved selection is the same dialog; a changed tick is not', sameDialog(MS_LIVE, asRead(movedText), 'mcp-server-approval') && !sameDialog(MS_LIVE, asRead(untickedText), 'mcp-server-approval'));
+  const SINGLE = '  New MCP server found in this project: g4spike\n\n    Use this MCP server\n    Use this and all future MCP servers in this project\n  ❯ Continue without using this MCP server\n\n  Enter to confirm · Esc to cancel';
+  check('g4 #267: the single-server form is unaffected (no variant; up, up, enter as on record)', !classifyScreen(SINGLE).variant && JSON.stringify(driverMayAccept(classifyScreen(SINGLE), { expectedMcpServers: MS_EXPECTED }).keys) === '["up","up","enter"]');
+}
+
 export async function g4Unit(check) {
+  multiSelectUnit(check);
   // --- criteria --------------------------------------------------------------------------------
   const { criteria: crit, reference } = readG4Criteria(REPO);
   check('g4: the five G4 criteria are read verbatim from the committed oac-gates reference and match the K8 pin', crit.length === 5 && /^The legacy path registers as a channel/.test(crit[0]) && /rejected as a channel/.test(crit[4]) && reference.criteriaSha256 === G4_CRITERIA_SHA256 && reference.path === G4_REFERENCE);
@@ -551,6 +603,32 @@ export function g4Cases(check) {
     check('g4 driver #199: the Codex trust dialog was accepted by the driver with `enter` alone', cx?.kind === 'workspace-trust' && JSON.stringify(cx.acceptKeys?.map((k) => k.key)) === '["enter"]', JSON.stringify(g4.dialogs));
     check('g4 driver: PASS; each recognized dialog read, then accepted by the driver with no input in between', r.status === 0 && g4.dialogs.length === 2 && g4.dialogs.map((d) => d.agent).sort().join() === 'claude,codex' && g4.dialogs.every((d) => d.acceptOrigin === 'driver' && d.inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === d.acceptSeq - 1)?.argv.includes('read')), `${m.outcome} ${m.outcomeReason}`);
     check('g4 driver: the report still scores nothing on the accept (no G4 criterion names it)', evalRun(r).rows.map((x) => x.score).join('|') === [SCORES.NE, SCORES.EQ, SCORES.EQ, SCORES.EQ, SCORES.NE].join('|'));
+  });
+
+  // #267: Claude Code 2.1.285's multi-select MCP approval form (fake-claude `mcp-multiselect`),
+  // in the order seen live (trust, MCP approval, dev channels).
+  const MS_DIALOGS = 'workspace-trust,mcp-multiselect,dev-channels';
+  const msDialog = (g4) => g4.dialogs.find((d) => d.agent === 'claude' && d.variant === 'multi-select');
+  const noSpace = (m) => !m.commands.some((x) => x.argv.some((a) => /^space$/i.test(a)));
+  run('g4 #267 multi-select: exact match accepted', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37558, 37560)], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+    const m = r.manifest;
+    const d = msDialog(m.scenarioData.g4);
+    check('g4 #267 multi-select: PASS; the form accepted by the DRIVER with down, down, down, enter (each move verified), listed servers recorded, never space', r.status === 0 && m.outcome === 'PASS' && d?.kind === 'mcp-server-approval' && d.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["down","down","down","enter"]' && d.acceptKeys.slice(0, -1).every((k) => Number.isInteger(k.verifiedSeq)) && JSON.stringify(d.listedServers) === JSON.stringify(MS_EXPECTED) && JSON.stringify(d.expectedServers) === JSON.stringify(MS_EXPECTED) && d.inputBetweenReadAndAccept === 0 && noSpace(m), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+  });
+  const msRefused = (name, fake, re, port) => run(`g4 #267 multi-select: ${name} refused`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS, ...fake }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+    const m = r.manifest;
+    const d = msDialog(m.scenarioData.g4);
+    const keysAfterRead = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
+    check(`g4 #267 multi-select: ${name}: NOT RUN, the driver refused it and sent it no key; listed servers recorded`, r.status === 3 && m.outcome === 'NOT RUN' && re.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && keysAfterRead.length === 0 && Array.isArray(d.listedServers) && noSpace(m), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+  });
+  msRefused('an extra server', { FAKE_CLAUDE_MCP_SERVERS: 'g4spike,g4modern,g4http,g4extra' }, /extra: \["g4extra"\]/, 37568);
+  msRefused('a missing server', { FAKE_CLAUDE_MCP_SERVERS: 'g4spike,g4modern' }, /missing: \["g4http"\]/, 37578);
+  msRefused('an unticked server', { FAKE_CLAUDE_MCP_UNTICKED: 'g4modern' }, /not shown ticked/, 37588);
+  msRefused('the wrong row selected', { FAKE_CLAUDE_MCP_CURSOR: '1' }, /nor the preselection on record/, 37598);
+  run('g4 #267 single-server MCP form still accepted', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37608, 37610)], fakeClaude: { FAKE_CLAUDE_DIALOG: 'workspace-trust,mcp-server-approval,dev-channels' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+    const m = r.manifest;
+    const d = m.scenarioData.g4.dialogs.find((x) => x.agent === 'claude' && x.kind === 'mcp-server-approval');
+    check('g4 #267 single form: PASS; accepted by the driver with up, up, enter; no variant recorded', r.status === 0 && m.outcome === 'PASS' && d?.acceptOrigin === 'driver' && !d.variant && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["up","up","enter"]', `${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
   });
 
   // #244: a codexLaunch the allowlist refuses is refused by the scenario's validateParams before

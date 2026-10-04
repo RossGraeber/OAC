@@ -110,6 +110,49 @@ const SELECT_MARK_UNNUMBERED = /^[\s│|]*[❯›▶▸→]\s*(\S.*?)\s*[│|]*\
 //   refuse    the driver never answers this kind, and this is why (#204: Codex's startup
 //             hook review is the operator's consent decision). planDriverAccept refuses it
 //             with this text; under accept=human the driver waits for the operator as usual.
+// #267: the multi-select variant of 'mcp-server-approval', recorded from the live G4 herdr run
+// of 2026-10-04 (run 20261004T040635Z-8ac610, Claude Code 2.1.285 on Windows; pane capture
+// unverified-pane-claude-2026-10-04-herdr.txt, section seq 16), verbatim:
+//
+//     3 new MCP servers found in this project
+//     Select any you wish to enable.
+//
+//     MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP
+//     documentation.
+//
+//     ❯ [✔] g4spike
+//       [✔] g4modern
+//       [✔] g4http
+//          Enable selected
+//    Space to select · Esc to reject all
+//
+// The driver accepts it (#196 ruling on #267) only when ALL of these hold on the read it plans
+// from (planMcpMultiSelect) and on every read that verifies a move (multiSelectCheck):
+//   - the heading, intro, body and footer are exactly the recorded text, and the heading's
+//     count equals the number of server rows;
+//   - every other line between heading and footer is a server row `[✔] <name>` / `[ ] <name>`
+//     or the one "Enable selected" row, last; nothing else, exactly one ❯ marker;
+//   - the listed server names equal EXACTLY the scenario's expected servers (its .mcp.json):
+//     an extra, missing or duplicate name is refused;
+//   - every listed server is shown ticked (✔);
+//   - the selection is on the preselection on record (the first server) or on "Enable
+//     selected"; the driver moves it with `down` keys, each verified by a read, and sends
+//     Enter only after a read shows "Enable selected" selected.
+// Space is never sent: the driver never changes a tick. Anything else: refused, NOT RUN.
+// The ❯ rendering on the "Enable selected" row is not on record (only the first-read
+// preselection was seen); a verifying read that does not show exactly one ❯, on that row,
+// never leads to Enter.
+export const MCP_MULTISELECT = Object.freeze({
+  heading: /^[ \t]*(\d+) new MCP servers? found in this project[ \t]*$/m,
+  intro: 'Select any you wish to enable.',
+  body: 'MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP documentation.',
+  footer: /^[ \t]*Space to select · Esc to reject all[ \t]*$/m,
+  tick: '✔',
+  marker: '❯',
+  submit: 'Enable selected',
+  verified: 'herdr G4 run 2026-10-04 (20261004T040635Z-8ac610), Claude Code v2.1.285 on Windows; first server preselected, all three ticked (#267)',
+});
+
 export const DIALOG_KINDS = Object.freeze({
   'dev-channels': {
     // Box C, verbatim (the one live-observed dialog); the same text and preselection were seen
@@ -144,6 +187,10 @@ export const DIALOG_KINDS = Object.freeze({
     preselected: 2,
     accept: 0,
     verified: 'herdr runs 2026-09-29 (#161) and 2026-09-30 (L3 probe runs), Claude Code v2.1.283 on Windows; "Continue without using this MCP server" preselected',
+    // #267: the same dialog kind in a newer, multi-select form (first seen on Claude Code
+    // 2.1.285; harness versions float, #216, so nothing gates on the version). See
+    // MCP_MULTISELECT above for its recorded text and the rules the driver applies to it.
+    variants: Object.freeze({ 'multi-select': MCP_MULTISELECT }),
   },
   'tool-permission': {
     detect: /Do you want to (?:proceed|allow|make this edit)|Allow (?:this )?tool/i,
@@ -273,6 +320,96 @@ function bodyMatches(lines, recorded) {
   return t.length > 0 && recorded.startsWith(t);
 }
 
+// --- #267: the multi-select MCP approval form ----------------------------------------------
+
+// A server row: optional ❯, "[<tick>] <name>", nothing else. "Enable selected": its own row.
+const MS_ROW = /^\s*(❯)?\s*\[(.)\] (\S+)\s*$/u;
+const MS_SUBMIT = (v) => new RegExp(`^\\s*(❯)?\\s*${v.submit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`);
+const MS_ANY_MARK = /^\s*[❯›▶▸→]/;
+
+// The multi-select form as the pane shows it, or null when its recorded heading is not on
+// screen. -> { count, servers: [{ name, tick, ticked, selected }], submit: { selected } | null,
+// marked, footer, unknown } where `unknown` lists every line between heading and footer that
+// is not the recorded text or a row of the recorded shape (and '(…)' notes for missing parts).
+export function mcpMultiSelectForm(text, v = MCP_MULTISELECT) {
+  const s = String(text ?? '').replace(/\r/g, '');
+  const h = v.heading.exec(s);
+  if (!h) return null;
+  const rest = s.slice(h.index + h[0].length);
+  const foot = v.footer.exec(rest);
+  const region = (foot ? rest.slice(0, foot.index) : rest).split('\n').map((l) => l.replace(BOX_CHARS, ' ')).filter((l) => l.trim());
+  const submitRe = MS_SUBMIT(v);
+  const form = { count: Number(h[1]), servers: [], submit: null, marked: 0, footer: !!foot, unknown: [] };
+  if (!foot) form.unknown.push('(recorded footer not on screen)');
+  let i = 0;
+  if (region[i]?.trim() === v.intro) i += 1;
+  else form.unknown.push('(intro text off record)');
+  const bodyLines = [];
+  while (i < region.length && !MS_ROW.test(region[i]) && !submitRe.test(region[i]) && !MS_ANY_MARK.test(region[i])) bodyLines.push(region[i++].trim());
+  if (bodyLines.join(' ').replace(/\s+/g, ' ') !== v.body) form.unknown.push('(body text off record)');
+  for (; i < region.length; i += 1) {
+    const line = region[i];
+    if (MS_ANY_MARK.test(line)) form.marked += 1;
+    const r = MS_ROW.exec(line);
+    const sub = submitRe.exec(line);
+    if (r && !form.submit) form.servers.push({ name: r[3], tick: r[2], ticked: r[2] === v.tick, selected: !!r[1] });
+    else if (sub && !form.submit) form.submit = { selected: !!sub[1] };
+    else form.unknown.push(line.trim());
+  }
+  if (!form.submit) form.unknown.push(`(no "${v.submit}" row)`);
+  // A selection marker below the footer (a second dialog, a stray picker) counts too.
+  if (foot) for (const line of rest.slice(foot.index + foot[0].length).split('\n')) if (MS_ANY_MARK.test(line.replace(BOX_CHARS, ' '))) form.marked += 1;
+  return form;
+}
+
+// The row the selection is on: a server name, the submit row's text, or null.
+const msCurrent = (f, v) => (f.submit?.selected ? v.submit : (f.servers.find((x) => x.selected)?.name ?? null));
+
+// How may the DRIVER accept the multi-select form? Same result shape as planDriverAccept, plus
+// variant, listedServers, expectedServers (recorded on the dialog), `from` (the row selected
+// on the first read) and `verify` (what each verifying read must still show).
+export function planMcpMultiSelect(classification, expectedServers, v = MCP_MULTISELECT) {
+  const f = classification?.form ?? null;
+  const listed = f ? f.servers.map((x) => x.name) : [];
+  const expected = Array.isArray(expectedServers) ? [...expectedServers] : null;
+  const base = { variant: 'multi-select', listedServers: listed, expectedServers: expected };
+  const no = (why) => ({ ok: false, why: `the mcp-server-approval multi-select form: ${why}; the driver does not guess keystrokes`, moves: [], keys: [], ...base });
+  if (!f) return no('not read');
+  if (!expected?.length) return no('this scenario named no expected MCP servers, and the driver enables no server it was not told to expect');
+  if (f.unknown.length) return no(`text off record on screen (${JSON.stringify(f.unknown)})`);
+  if (f.count !== listed.length) return no(`the heading counts ${f.count} servers but ${listed.length} are listed`);
+  const dup = listed.filter((n, i) => listed.indexOf(n) !== i);
+  if (dup.length) return no(`server(s) listed twice: ${JSON.stringify([...new Set(dup)])}`);
+  const extra = listed.filter((n) => !expected.includes(n));
+  const missing = expected.filter((n) => !listed.includes(n));
+  if (extra.length || missing.length) return no(`the listed servers ${JSON.stringify(listed)} are not exactly the expected ${JSON.stringify(expected)} (extra: ${JSON.stringify(extra)}, missing: ${JSON.stringify(missing)})`);
+  const unticked = f.servers.filter((x) => !x.ticked);
+  if (unticked.length) return no(`server(s) not shown ticked: ${JSON.stringify(unticked.map((x) => `[${x.tick}] ${x.name}`))}; the driver never changes a tick`);
+  if (f.marked !== 1) return no(`${f.marked} selection markers on screen, not exactly one`);
+  const from = msCurrent(f, v);
+  let moves;
+  if (from === v.submit) moves = [];
+  else if (from === listed[0]) moves = [...listed.slice(1), v.submit].map((expect) => ({ key: 'down', expect }));
+  else return no(`the selected row (${JSON.stringify(from)}) is not "${v.submit}" nor the preselection on record (the first server, ${JSON.stringify(listed[0])})`);
+  return { ok: true, why: null, moves, keys: [...moves.map((m) => m.key), 'enter'], from, verify: { variant: 'multi-select', servers: listed }, ...base };
+}
+
+// selectionCheck for the multi-select form: the same server rows in the same order, every one
+// still ticked, exactly one marker, and that marker on `expect`.
+function multiSelectCheck(screen, expect, prev, verify, v = MCP_MULTISELECT) {
+  const f = screen?.variant === 'multi-select' ? screen.form : null;
+  if (!f) return { state: 'wait', why: 'no multi-select form read' };
+  if (f.unknown.length) return { state: 'wait', why: `text off record on screen (${JSON.stringify(f.unknown)})` };
+  const names = f.servers.map((x) => x.name);
+  if (JSON.stringify(names) !== JSON.stringify(verify.servers)) return { state: 'stop', why: `the listed servers are now ${JSON.stringify(names)}, not ${JSON.stringify(verify.servers)}` };
+  if (f.servers.some((x) => !x.ticked)) return { state: 'stop', why: `a server is no longer shown ticked (${JSON.stringify(f.servers.filter((x) => !x.ticked).map((x) => x.name))})` };
+  if (f.marked !== 1) return { state: 'wait', why: `${f.marked} selection markers on screen, not exactly one` };
+  const now = msCurrent(f, v);
+  if (now === expect) return { state: 'ok' };
+  if (now === prev) return { state: 'wait', why: `the selection is still ${JSON.stringify(prev)}` };
+  return { state: 'stop', why: `the selection is ${JSON.stringify(now)}, not ${JSON.stringify(expect)}` };
+}
+
 // -> { dialog: kind | 'unknown' | null, selected, options, busy }
 //   busy: the pane shows Claude Code's in-progress indicator (default "esc to interrupt";
 //   UNVERIFIED wording, a scenario parameter). options: dialogOptions() for a kind that lists
@@ -288,6 +425,11 @@ export function classifyScreen(text, { busyIndicator = 'esc to interrupt' } = {}
   }
   if (!dialog && GENERIC_DIALOG.test(s)) dialog = 'unknown';
   const busy = busyIndicator ? s.toLowerCase().includes(busyIndicator.toLowerCase()) : false;
+  // #267: a kind's recorded variant (the multi-select MCP form) is read with its own parser.
+  for (const [variant, v] of Object.entries((dialog && DIALOG_KINDS[dialog]?.variants) || {})) {
+    const form = mcpMultiSelectForm(s, v);
+    if (form) return { dialog, variant, form, selected: selectedOption(s), options: null, busy };
+  }
   return { dialog, selected: dialog ? selectedOption(s) : null, options: dialog ? dialogOptions(s, dialog) : null, busy };
 }
 
@@ -315,12 +457,18 @@ function formOffRecord(opts, def) {
 // exactly its known options, in order, one of them selected, and the selection must be on the
 // preselection on record or already on the accepting option. A kind without `options` is
 // refused. Never a guessed keystroke.
-export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
+export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS, { expectedMcpServers = null } = {}) {
   const kind = classification?.dialog;
   const def = dialogKinds[kind];
   const no = (why) => ({ ok: false, why, moves: [], keys: [] });
   if (!def) return no(`unrecognized dialog (${kind ?? 'none'}); the driver never accepts a dialog it cannot name`);
   if (def.refuse) return no(def.refuse);
+  // #267: a recorded variant (the multi-select MCP form) has its own rules: planMcpMultiSelect.
+  if (classification.variant) {
+    const v = def.variants?.[classification.variant];
+    if (!v) return no(`${kind}: variant ${classification.variant} is not on record`);
+    return planMcpMultiSelect(classification, expectedMcpServers, v);
+  }
   // #197 review: a kind with no option text on record (Claude Code's tool-permission prompt)
   // is never driver-accepted, whatever is preselected. The driver accepts only the dialogs
   // K-196 lists (three Claude Code ones and, since #199, Codex's workspace trust); anything
@@ -353,8 +501,14 @@ export function planDriverAccept(classification, dialogKinds = DIALOG_KINDS) {
 // that marker on `expect`. -> { state: 'ok' } | { state: 'wait', why } (not yet, or a read
 // that is not clean: the driver reads again until its bound, and never sends Enter on it) |
 // { state: 'stop', why } (the selection moved somewhere else).
-export function selectionCheck(screen, kind, expect, prev, dialogKinds = DIALOG_KINDS) {
+export function selectionCheck(screen, kind, expect, prev, dialogKinds = DIALOG_KINDS, verify = null) {
   const def = dialogKinds[kind];
+  // #267: a move planned on a recorded variant is verified by that variant's rules.
+  if (verify?.variant) {
+    const v = def?.variants?.[verify.variant];
+    return v ? multiSelectCheck(screen, expect, prev, verify, v) : { state: 'stop', why: `variant ${verify.variant} is not on record` };
+  }
+  if (screen?.variant) return { state: 'wait', why: `the read shows the ${screen.variant} form, not the one planned from` };
   const opts = screen?.options;
   if (!def?.options || !opts) return { state: 'wait', why: 'no option list read' };
   if (opts.unknown?.length || JSON.stringify(opts.map((o) => o.text)) !== JSON.stringify(def.options)) return { state: 'wait', why: `options on screen ${JSON.stringify(opts.map((o) => o.text))} are not the ones on record` };
@@ -368,9 +522,17 @@ export function selectionCheck(screen, kind, expect, prev, dialogKinds = DIALOG_
 }
 
 // May the DRIVER accept this dialog (possibly after moving the selection)? The plan's ok/why.
-export function driverMayAccept(classification) {
-  return planDriverAccept(classification, DIALOG_KINDS);
+// expectedMcpServers: the scenario's .mcp.json server names, which the multi-select MCP form
+// must list exactly (#267); without them that form is refused.
+export function driverMayAccept(classification, { expectedMcpServers = null } = {}) {
+  return planDriverAccept(classification, DIALOG_KINDS, { expectedMcpServers });
 }
+
+// A driverMayAccept bound to a scenario's expected MCP servers, read when a dialog is planned
+// (a scenario writes its .mcp.json after creating its agents). getNames() -> string[] | null.
+export const driverMayAcceptExpecting = (getNames) => (classification) => driverMayAccept(classification, { expectedMcpServers: getNames() ?? null });
+// The server names of a scenario's recorded .mcp.json ({ path, contents }), or null.
+export const mcpServerNames = (mcpJson) => (mcpJson?.contents?.mcpServers ? Object.keys(mcpJson.contents.mcpServers) : null);
 
 // Whitespace-, box-drawing- and selection-marker-insensitive comparison of captured dialog
 // text against Box C's. Lines of Box C's text that cannot be found are listed.
@@ -389,11 +551,14 @@ export function normalizeDialogText(s) {
 // resizes the pane), a scroll of lines above the dialog, or a moved selection leaves it
 // unchanged; a different dialog does not (#160).
 export function dialogBody(text, kind, dialogKinds = DIALOG_KINDS) {
-  const s = String(text ?? '');
+  let s = String(text ?? '');
+  // #267: a recorded variant on screen brings its own footer.
+  const variant = Object.values(dialogKinds[kind]?.variants ?? {}).find((v) => v.heading.test(s.replace(/\r/g, '')));
+  if (variant) s = s.replace(/\r/g, '');
   const m = dialogKinds[kind]?.detect.exec(s);
   const start = m ? s.lastIndexOf('\n', m.index) + 1 : 0;
   const rest = s.slice(start);
-  const foot = (dialogKinds[kind]?.footer ?? DEFAULT_FOOTER).exec(rest);
+  const foot = (variant?.footer ?? dialogKinds[kind]?.footer ?? DEFAULT_FOOTER).exec(rest);
   const body = foot ? rest.slice(0, foot.index + foot[0].length) : rest;
   return normalizeDialogText(body).replace(/\s+/g, '');
 }

@@ -49,6 +49,7 @@ is pressed only on the accepting option:
 |---|---|---|---|---|
 | Claude Code | workspace-trust | "No, exit" | `down` (read shows "Yes, I trust this folder"), `enter` | v2.1.283, 2026-09-29/30 |
 | Claude Code | mcp-server-approval | "Continue without using this MCP server" | `up`, `up` (read shows "Use this MCP server"; never "all future"), `enter` | v2.1.283, 2026-09-29/30 |
+| Claude Code | mcp-server-approval, multi-select form (#267) | the first server row ("❯ [✔] g4spike"; every row ticked) | `down` per row, each read-verified, until a read shows "Enable selected" selected, then `enter`; never `space` | first seen v2.1.285, 2026-10-04 (G4 herdr run) |
 | Claude Code | dev-channels | "1. I am using this for local development" | `enter` | v2.1.283 (G1 Box C; 2026-09-30) |
 | Codex | workspace-trust | "› 1. Trust and continue" (options "1. Trust and continue", "2. Back to Agent Command Center"; marker `›`) | `enter` | 0.159.2, 2026-09-30 (#199) |
 
@@ -64,6 +65,28 @@ absent; when present it must be exactly the recorded text, and it is never an op
 
 Codex's other variants ("Quit" as option 2; "Open restricted" or "Open existing task" as
 option 1) are not on record and are refused.
+
+Claude Code's **multi-select MCP approval form** (#267; first seen on 2.1.285 when a project
+adds several servers at once) is the same `mcp-server-approval` kind in a newer form,
+recorded as its `multi-select` variant (`lib/g1.mjs` `MCP_MULTISELECT`, from the 2026-10-04
+G4 run's pane capture). The driver accepts it only when:
+
+- the heading ("<N> new MCP servers found in this project", N equal to the rows listed),
+  "Select any you wish to enable.", the "MCP servers may execute code …" paragraph and the
+  footer "Space to select · Esc to reject all" are exactly the recorded text, and every other
+  line is a `[✔] <name>` / `[ ] <name>` row or the single "Enable selected" row;
+- the listed servers are **exactly** the scenario's expected servers (the names in the
+  `.mcp.json` it wrote); an extra, missing or duplicate name is refused;
+- every listed server is ticked;
+- the selection is on the first server (the preselection on record) or on "Enable selected".
+
+It then sends `down` keys, each verified by a read that shows the same rows, all still
+ticked, and exactly one `❯` on the expected row. It sends `enter` only after a read shows
+"Enable selected" selected. It never sends `space` and never changes a tick. The run manifest
+records the dialog's `variant`, `listedServers`, `expectedServers` and `acceptKeys`. How the
+`❯` looks on the "Enable selected" row is not on record. If a read does not show it cleanly
+there, the move does not verify and the run ends `NOT RUN` with no `enter`. Per #216 the
+Claude Code version is recorded, never gated on.
 
 Any other text, an extra option at any indentation, a second selection marker, or a move that
 does not land ends the run `NOT RUN`, with nothing guessed and nothing re-sent. **Every other

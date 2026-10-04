@@ -96,7 +96,9 @@ export function describeDialog(d) {
   } else if (d.acceptOrigin === 'human') {
     how = 'accepted outside the driver (recorded as human: the driver sent no keystroke and the screen changed)';
   } else how = `not accepted (${d.acceptOrigin ?? 'no accept recorded'})`;
-  return `${who}${d.kind} (read #${d.readSeq ?? '?'}; ${how})`;
+  // #267: a recorded variant (the multi-select MCP form) names the servers it listed.
+  const variant = d.variant ? `; ${d.variant} form listing ${JSON.stringify(d.listedServers ?? [])}, expected ${JSON.stringify(d.expectedServers ?? null)}` : '';
+  return `${who}${d.kind} (read #${d.readSeq ?? '?'}${variant}; ${how})`;
 }
 
 export const describeDialogs = (dialogs) => (dialogs ?? []).map(describeDialog).join('; ') || 'none';

@@ -114,7 +114,7 @@ import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVers
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
-import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
+import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts, threadIdleOnWire } from '../lib/g5.mjs';
@@ -684,7 +684,8 @@ export default {
       };
       const projectDir = ctx.dir('l3-project');
       const codexProjectDir = ctx.dir('l3-codex-project');
-      writeFileSync(join(projectDir, '.mcp.json'), `${JSON.stringify({ mcpServers: { g5spike: { command: process.execPath, args: [join(serverDir, 'g5-channel.mjs')] } } }, null, 2)}\n`);
+      const projectMcp = { mcpServers: { g5spike: { command: process.execPath, args: [join(serverDir, 'g5-channel.mjs')] } } };
+      writeFileSync(join(projectDir, '.mcp.json'), `${JSON.stringify(projectMcp, null, 2)}\n`);
 
       // Operator texts: never a probe value, a spoofing body or a frame marker.
       const g5cases = JSON.parse(committedCases.toString('utf8'));
@@ -750,7 +751,7 @@ export default {
       // herdr launch waits are bounded by the L3 box too (#195 review).
       const startupBound = () => Math.max(1000, Math.min(num('startupTimeoutMs'), Math.max(1, remaining())));
       const agentArgs = { ctx: bctx, g: l3, accept, num, stop };
-      claude = makeAgent({ ...agentArgs, name: 'l3claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept });
+      claude = makeAgent({ ...agentArgs, name: 'l3claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => Object.keys(projectMcp.mcpServers)) });
       codex = makeAgent({ ...agentArgs, name: 'l3codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex });
       const serverFacts = () => g5ClaudeFacts(existsSync(join(serverDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(serverDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
       const clientEntries = () => (existsSync(join(clientDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(clientDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
