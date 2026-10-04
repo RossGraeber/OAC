@@ -899,8 +899,9 @@ declaration.*
 
 *Dated note, 2026-10-03 (#43): §7.3.3 now defines how a declaration reaches a sender: in a
 presence announcement, or from the sender's own binding ([SC-DLV-070]). A session for which
-the sender holds none is `unknown` to it, so the refusal carries `unknown-destination`
-(§8.3.3, step 2).*
+the sender holds none is never `online` to it, so the refusal is a presence refusal (§8.3.3,
+step 2): `unknown-destination`, or `destination-unavailable` when the only record accepted
+for the session is a withdrawal.*
 
 [SC-ID-087] A sender MUST set the envelope's `version` to the revision it implements for
 the agreed major version.
@@ -1707,6 +1708,9 @@ The refusal carries `unauthorized` (§8.3), as a refused send request does under
 [SC-DLV-061] A discovery result MUST NOT list a session that the requester is not authorized
 to discover.
 
+The same authorization governs what a send request reveals about a session ([SC-DLV-075],
+[SC-DLV-076]).
+
 Which sessions a requester is allowed to discover is decided by `spec/security.md`, which
 denies by default. A session in one working directory is not discoverable by a peer that is not
 authorized for that directory (`docs/planning/decisions/C4-session-identity.md` §5;
@@ -1742,7 +1746,7 @@ the two it does is the binding's concern.
 
 [SC-DLV-067] The implementation that holds a session's binding MUST apply discovery
 authorization for that session, including its working-directory scoping, before any
-presence record or discovery result for that session leaves it.
+presence record, discovery result or send refusal that concerns that session leaves it.
 
 Only that implementation knows the session's working directory: [SC-DLV-032] and
 [SC-ID-045] keep it out of everything it sends. A consumer on another implementation
@@ -1788,6 +1792,25 @@ The order matches the delivery stage of §8.3.2: whether the session is known, t
 it is available, then what it accepts. A session that is `unknown` to the sender also has no
 declaration, and the sender reports `unknown-destination`, not a negotiation failure.
 
+The presence state that [SC-DLV-071] to [SC-DLV-073] test is the one the requesting session
+is allowed to see. Discovery hides a session from a requester that is not authorized to
+discover it ([SC-DLV-061]), and a send request does not reveal it either.
+
+[SC-DLV-075] A sender MUST treat a session that the requesting session is not authorized to
+discover as `unknown`, whatever presence state and declaration the sender holds for it.
+
+[SC-DLV-076] A sender MUST NOT consult the presence state or the capability declaration of a
+session that the requesting session is not authorized to discover when it answers that
+session's send request.
+
+Such a request is therefore refused with `unknown-destination` at step 2 of §8.3.3, before
+any check of §6.5 or §6.6. The requester learns neither that the session exists, nor that it
+was withdrawn or went stale, nor what it accepts. Without these two rules a send request
+would be a probe that answers what discovery withholds. They are the sending side of the
+rule that [SC-RCP-073] states for a receiver: whether a session exists, or is available, is
+reported only to a sender that passed authorization. Which sessions a requester is allowed
+to discover is decided by `spec/security.md`, as for [SC-DLV-061].
+
 *Dated note, 2026-10-03 (#43): refusing a send to a session that is `unreachable`, rather
 than passing the envelope to a transport in case the session is still there, is an operator
 decision recorded on #43. A session that is `unknown` is refused in any case, because the
@@ -1829,7 +1852,7 @@ The `send` stage of §6.10 does not model presence. In it, a session for which
 
 | Member | Content |
 |---|---|
-| `context` | `implemented`: an implemented list. `own_sessions`: an object whose members are the session ids the consumer binds itself, each a session descriptor. |
+| `context` | `implemented`: an implemented list. `own_sessions`: an object whose members are the session ids the consumer binds itself, each a session descriptor. Optionally `discoverable`: an array of objects with `requester` and `session`, the session-id pairs that pass discovery authorization for a send request; when it is omitted, every requester is authorized to discover every session. |
 | `input` | `events`: an array, in the order the consumer receives them, of objects of two kinds: a record event, with `at_ms` (the consumer's clock, in milliseconds), `issuer` (a label for the issuing implementation) and `record` (a presence record, as a JSON value); and a carrier-loss event, with `at_ms` and `carrier_lost` (an issuer label). `query_at_ms`: the consumer's clock when the states are read, not earlier than any `at_ms`. Optionally `send`: an object with `from` (one of `own_sessions`), `to` (a session id) and `content` (as §4.5), a send request made at `query_at_ms`. |
 | `expected` | `discarded`: the zero-based indexes, in `events`, of the record events the consumer discards. `states`: an object whose members are session ids and whose values are the presence states at `query_at_ms`. With `send` in the input, `send`: an object with `result` (`sent` or `refused`), with `sent` also `version` (the envelope's `version`), and with `refused` also `error` (the §8.3 code). |
 
@@ -2330,7 +2353,8 @@ passed the security stage.
 
 The order within the security stage is defined in `spec/security.md`. [SC-RCP-073] also
 limits what an unauthorized sender learns: whether a session exists, or is available, is
-reported only to a sender that passed authorization. The expiry check that [SC-ENV-101]
+reported only to a sender that passed authorization. On the sending side, [SC-DLV-075] and
+[SC-DLV-076] give a requesting session the same protection. The expiry check that [SC-ENV-101]
 repeats at hand-off reports `expired`, and the replay-window part of the same
 re-check reports `outside-replay-window` ([SC-RCP-092]).
 
@@ -2352,8 +2376,8 @@ Table 8.3.3.
 |---|---|---|---|---|
 | `from` or `to` is not a session id | [SC-ID-001], [SC-ID-002] | receiver | `malformed-envelope` (envelope stage, step 4) | receiver |
 | No agreed version with the addressed session, including a declaration treated as absent ([SC-ID-068], [SC-ID-070]) | [SC-ID-084] | sender | `unsupported-version` | request |
-| The addressed session's presence is `unknown`, including every session for which no capability declaration is held ([SC-ID-086], [SC-DLV-070]) | [SC-DLV-071], [SC-DLV-072] | sender | `unknown-destination` | request |
-| The addressed session's presence is `unreachable` | [SC-DLV-071], [SC-DLV-073] | sender | `destination-unavailable` | request |
+| The addressed session's presence, as the requester is allowed to see it, is `unknown`, including a session the requester is not authorized to discover | [SC-DLV-071], [SC-DLV-072], [SC-DLV-075] | sender | `unknown-destination` | request |
+| The addressed session's presence, as the requester is allowed to see it, is `unreachable` | [SC-DLV-071], [SC-DLV-073] | sender | `destination-unavailable` | request |
 | The agreed entry has `active_inbound` set to `false` | [SC-ID-100] | sender | `unsupported-capability` | request |
 | A content part type is not advertised in the agreed entry | [SC-ID-101], [SC-ENV-066] | sender | `unsupported-content-type` | request |
 | The envelope would exceed the agreed entry's `max_envelope_octets`, or the default of [SC-ENV-004] | [SC-ENV-005], [SC-ID-065] | sender | `envelope-too-large` | request |
@@ -2369,9 +2393,10 @@ A send request can meet several refusal causes at once. A sender checks them in 
 and reports the first that applies:
 
 1. attribution ([SC-ID-161], [SC-ID-154]): `unauthorized`;
-2. the addressed session's presence ([SC-DLV-071]): `unknown-destination` when it is
-   `unknown` ([SC-DLV-072]), `destination-unavailable` when it is `unreachable`
-   ([SC-DLV-073]);
+2. the addressed session's presence ([SC-DLV-071]), with a session the requester is not
+   authorized to discover taken as `unknown` ([SC-DLV-075], [SC-DLV-076]):
+   `unknown-destination` when it is `unknown` ([SC-DLV-072]), `destination-unavailable`
+   when it is `unreachable` ([SC-DLV-073]);
 3. an agreed version ([SC-ID-084]): `unsupported-version`;
 4. `active_inbound` in the agreed entry ([SC-ID-100]): `unsupported-capability`;
 5. advertised part types ([SC-ID-101]): `unsupported-content-type`;
@@ -2382,15 +2407,19 @@ the declarations the sender holds.
 
 Step 2 also decides [SC-ID-086]. A sender takes a declaration only from an accepted
 announcement or from its own binding ([SC-DLV-070]), so a session for which it holds no
-declaration is `unknown` to it and is refused at step 2 with `unknown-destination`. No
-separate step for [SC-ID-086] remains. This order and that of [SC-DLV-074] are one order:
+declaration is never `online` to it, and step 2 refuses it. The code follows the session's
+presence state: `unknown-destination` when the sender has accepted no record for it, and
+`destination-unavailable` when the only record it accepted is a withdrawal, for example
+because it first saw the session after the announcement. No separate step for [SC-ID-086]
+remains. This order and that of [SC-DLV-074] are one order:
 [SC-DLV-074] places presence before every check of §6.5 and §6.6, and step 1 precedes
 both.
 
 *Dated note, 2026-10-03 (#43): E4 (#44) first assigned `unsupported-capability` to a send
 with no declaration held, as its own step 2. Section 7 (E3, #43) makes that case a presence
-refusal, so it now carries `unknown-destination`, and `sc-id/SC-ID-086.n01` is changed to
-match.*
+refusal, so it now carries `unknown-destination` or `destination-unavailable`, by presence
+state, and `sc-id/SC-ID-086.n01` (no record accepted) is changed to expect
+`unknown-destination`.*
 
 [SC-RCP-090] A sender MUST report the code of the earliest step that applies when a send
 request meets more than one refusal cause of Table 8.3.3.
@@ -2790,8 +2819,10 @@ requirement whose fixtures exercise it.
 | SC-DLV-070 | MUST | 7.3.3 | `sc-dlv/SC-DLV-070.p01`, `.n01` |
 | SC-DLV-071 | MUST NOT | 7.3.3 | `sc-dlv/SC-DLV-071.n01` |
 | SC-DLV-072 | MUST | 7.3.3 | `sc-dlv/SC-DLV-072.n01` |
-| SC-DLV-073 | MUST | 7.3.3 | `sc-dlv/SC-DLV-073.n01` |
+| SC-DLV-073 | MUST | 7.3.3 | `sc-dlv/SC-DLV-073.n01`, `.n02` |
 | SC-DLV-074 | MUST | 7.3.3 | `sc-dlv/SC-DLV-074.n01` |
+| SC-DLV-075 | MUST | 7.3.3 | `sc-dlv/SC-DLV-075.p01`, `.n01`; the live check against the authorization store: TODO(fixture), F5, F11, H2 |
+| SC-DLV-076 | MUST NOT | 7.3.3 | `sc-dlv/SC-DLV-076.n01`; that nothing is consulted, live: TODO(fixture), F5, F11, H2 |
 | SC-DLV-080 | SHOULD | 7.4 | none (SHOULD) |
 | SC-RCP-001 | MUST | 8.1.2 | `sc-rcp/SC-RCP-001.p01`, `.n01` to `.n03` |
 | SC-RCP-002 | MUST NOT | 8.1.2 | `sc-rcp/SC-RCP-002.p01`, `.p02`, `.n01` to `.n03` |
@@ -2861,4 +2892,4 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-03 | E1 (#41): document skeleton for sections 1-10; sections 4 (envelope) and 5 (versioning) written; requirement-id scheme and fixture format (§3); envelope-stage fixtures under `tests/protocol/sc-env/` and `tests/protocol/sc-ver/`. Review of #258: SC-ENV-027, SC-ENV-103, SC-ENV-104 and SC-VER-003 added (retransmission and retry defined); dated notes for the operator decisions on #41. |
 | 0.1 (draft) | 2026-10-03 | E2 (#42): section 6 (session identity, addressing and capability negotiation) written; area `ID`; `negotiation`, `binding` and `send` fixture stages (§6.10, with a §3.3 sentence allowing section-defined stages); fixtures under `tests/protocol/sc-id/`. Review of #260: signal cross-check value, record rules and exact comparison (SC-ID-127 to SC-ID-129, SC-ID-141 to SC-ID-144), SC-ID-045, SC-ID-070, SC-ID-154 made a conditional MUST, SC-ID-023 widened, binding results mapped to cases. |
 | 0.1 (draft) | 2026-10-03 | E4 (#44): section 8 written: delivery states, receipts, replies and correlation, the closed error taxonomy with precedence, and the retransmission and retry rules including the combined state of an envelope; requirement area `RCP`; fixtures under `tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture (§3.3); §4.9's duplicate wording aligned with [SC-RCP-009]; dated notes for the operator decisions on #44. |
-| 0.1 (draft) | 2026-10-03 | E3 (#43): section 7 (active delivery, presence and discovery) written; area `DLV`; the active-inbound obligation and the no-polling rule, accepting input, the three presence states, presence records (announcement and withdrawal, `seq`, consumer-clock lifetime, carrier loss), discovery results, and where a sender takes a capability declaration from (makes SC-ID-086 satisfiable); `presence` and `discovery` fixture stages (§7.5); fixtures under `tests/protocol/sc-dlv/`; SC-ID-040 and SC-ID-041 now covered by SC-DLV-029. Review of #263: operator decisions on #43 recorded as dated notes; SC-DLV-008, SC-DLV-009 (not-now vs failed hand-off), SC-DLV-049 (monotonic clock) and SC-DLV-067 (scoping by the binding holder; v0.1 same-install only) added; evidence for input during a running turn corrected; E5 constraints recorded; `sc-id/SC-ID-044.p01` added. Merged after E4 (#44): presence added to §8.3.3 as sender refusal step 2 with two Table 8.3.3 rows, the separate [SC-ID-086] step folded into it (`sc-id/SC-ID-086.n01` now expects `unknown-destination`), and SC-DLV-007 cites `sc-rcp/SC-RCP-078.n01`. |
+| 0.1 (draft) | 2026-10-03 | E3 (#43): section 7 (active delivery, presence and discovery) written; area `DLV`; the active-inbound obligation and the no-polling rule, accepting input, the three presence states, presence records (announcement and withdrawal, `seq`, consumer-clock lifetime, carrier loss), discovery results, and where a sender takes a capability declaration from (makes SC-ID-086 satisfiable); `presence` and `discovery` fixture stages (§7.5); fixtures under `tests/protocol/sc-dlv/`; SC-ID-040 and SC-ID-041 now covered by SC-DLV-029. Review of #263: operator decisions on #43 recorded as dated notes; SC-DLV-008, SC-DLV-009 (not-now vs failed hand-off), SC-DLV-049 (monotonic clock) and SC-DLV-067 (scoping by the binding holder; v0.1 same-install only) added; evidence for input during a running turn corrected; E5 constraints recorded; `sc-id/SC-ID-044.p01` added. Merged after E4 (#44): presence added to §8.3.3 as sender refusal step 2 with two Table 8.3.3 rows, the separate [SC-ID-086] step folded into it (`sc-id/SC-ID-086.n01` now expects `unknown-destination`), and SC-DLV-007 cites `sc-rcp/SC-RCP-078.n01`. Re-review: SC-DLV-075 and SC-DLV-076 (a send request reveals nothing about a session its requester is not authorized to discover), SC-DLV-067 widened to send refusals, the no-declaration wording corrected (a withdrawal-only session is `unreachable`), and `sc-rcp/SC-RCP-090.n01` renamed. |

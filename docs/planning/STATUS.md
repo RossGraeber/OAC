@@ -12,7 +12,8 @@ three presence states (`online`, `unreachable`, `unknown`), presence records (an
 and withdrawal, `seq` ordering, a lifetime measured on the consumer's clock, carrier loss),
 discovery results (authorized `online` sessions only, scoped by the implementation holding
 the binding), and where a sender takes a capability declaration from, which makes
-SC-ID-086 satisfiable. Appendix A gains 54 `SC-DLV` ids; 39 fixtures land under
+SC-ID-086 satisfiable, and keeps a send request from revealing a session its requester is
+not authorized to discover (SC-DLV-075/076). Appendix A gains 56 `SC-DLV` ids; 43 fixtures land under
 `tests/protocol/sc-dlv/` and one, `SC-ID-044.p01`, under `tests/protocol/sc-id/`. It closes,
 at the neutral layer, decision C7 §4's two recorded gaps (no carriage for a session's
 descriptor, no discovery path); the transport mapping that carries presence records is
