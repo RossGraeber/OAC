@@ -6,7 +6,7 @@ verdict, or when a pin moves.
 
 **Last updated:** 2026-10-03 (**Issue #45 (E5): `spec/security.md` written.** The normative
 security model, neutral (document prefix `SEC`, areas `KEY`, `SIG`, `STG`, `RPL`, `AUZ`,
-`RCT`, `PRS`, `PRV`; 106 requirement ids in its Appendix A). In this change, as revised
+`RCT`, `PRS`, `PRV`; 107 requirement ids in its Appendix A). In this change, as revised
 after the PR #265 review:
 
 - **Keys and signing.** One Ed25519 device key; the key id is the full SHA-256 of the

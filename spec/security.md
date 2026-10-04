@@ -1359,7 +1359,7 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | Receipt flooding by replay | Attacker replays a captured envelope many times | [SEC-RPL-030]; rate limit [SEC-RPL-031] | `sec-rpl/SEC-RPL-021.n01`; F6 | Replays outside the window still draw receipts at the rate the receiver allows |
 | Unauthorized routing (06 row 2) | A trusted device without a grant sends | Default deny [SEC-AUZ-001], [SEC-AUZ-002], [SEC-AUZ-007]; operator-confirmed grants [SEC-AUZ-005] | `sec-auz/SEC-AUZ-001.n01`, `SEC-AUZ-002.*`, `SEC-AUZ-006.n01`, `SEC-AUZ-007.n01`; F5, H2 | An operator who grants too widely |
 | Reply-right abuse: a session that was messaged sends unrelated content, or another session uses the right | A session received an envelope from a session it holds no grant for | Reply right covers only `from` = the original `to`, under the key it was sent to, with `reply_to` = the original `id`, for 24 hours at most: [SEC-AUZ-014], [SEC-AUZ-015], [SEC-AUZ-016] | `sec-auz/SEC-AUZ-014.p01`, `.p02`, `.n01` to `.n03`; `sec-auz/SEC-AUZ-015.n01`; `sec-auz/SEC-AUZ-016.*` | A replier can send any content in its replies, as many as it likes, within the period; content is untrusted anyway (§1.2) |
-| Existence oracle: an unauthorized sender learns whether a session exists | Attacker is trusted but not granted | Step order (§7.1) with [SC-RCP-073]; receipt decision independent of `to` [SEC-RCT-004] | `sec-auz/SEC-AUZ-002.n02`; `sec-stg/SEC-STG-002.n03`, `.n04`; the [SEC-RCT-004] differential test is TODO (F6, F11): open risk | Timing differences between steps are not addressed |
+| Existence oracle: an unauthorized sender learns whether a session exists | Attacker is trusted but not granted, or is a local session that may not discover the target | Step order (§7.1) with [SC-RCP-073]; [SC-DLV-075], [SC-DLV-076]; receipt decision independent of `to` [SEC-RCT-004]; one refusal path with no target-dependent work [SEC-STG-005] (§13.1) | `sec-auz/SEC-AUZ-002.n02`; `sec-stg/SEC-STG-002.n03`, `.n04`; the [SEC-RCT-004] differential test and the [SEC-STG-005] timing test are TODO (F6, F11): open risk | Timing differences, including how cancellation and keepalive requests are handled during a refused call, are not fully prevented by this revision (§13.1) |
 | Cross-project disclosure (06 rows 7, 14) | Sessions exist under several working directories | Scope grants by exact scope [SEC-AUZ-008]; discovery and presence release gated by grants [SEC-AUZ-010] to [SEC-AUZ-012]; records addressed to one device [SEC-PRS-013]; unrelated records dropped [SEC-AUZ-017] | `sec-auz/SEC-AUZ-002.n01`, `SEC-AUZ-010.n01`, `SEC-AUZ-011.n01`, `.n02`, `SEC-AUZ-012.n01`, `SEC-AUZ-017.n01`; `sec-prs/SEC-PRS-013.n01`; H2 | Scope equality is as the implementation records the directory; aliases of one directory (links) are not unified |
 | Compromised transport, transport-only authenticity, transport peer identifier used as identity (06 rows 6, 9, 10) | A transport node is hostile, or a transport identity is trusted | Envelope verification independent of the transport [SEC-SIG-030]; transport identifiers never name a grant's writer or target [SEC-AUZ-004] | F11, H2: not yet built, open risk | A hostile transport can still drop, delay within the window, duplicate and reorder |
 | Model text claims an identity | A peer's content states a sender | Provenance only from verified members [SEC-PRV-002]; never from content [SC-ENV-082] | F11: not yet built, open risk; gate G5 PASS (gate client only) | The model may still believe the content |
@@ -1380,6 +1380,27 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 
 Threats that concern external memory services (06 rows 21 to 23) arise outside the protocol
 and are not restated here.
+
+### 13.1 Timing
+
+The refusals that must not reveal whether a session exists are equal in content: a request to
+an unknown session id and one to a session the requester may not discover both get
+`unknown-destination` ([SC-DLV-075], [SC-DLV-076]), and a sender that is not authorized gets
+`unauthorized` whether or not `to` exists ([SC-RCP-073], Table 7.1). Equal content is not
+equal timing: a refusal that does more work when the target exists answers measurably later.
+
+[SEC-STG-005] An implementation SHOULD produce the `unknown-destination` refusal for an
+unknown session id and for a session the requester may not discover, and the security-stage
+refusals that must not reveal existence, through one code path that does no work that
+depends on the addressed session. An implementation that does not deviates: the time it takes
+to refuse can tell the requester whether the session exists.
+
+**Residual.** This revision does not fully prevent timing differences. They include how an
+implementation handles a cancellation or a keepalive request that arrives while a refused
+call is being handled (noted on #45 from the binding review). A local attacker running as the
+same user can measure them. Across installations, an attacker must first be a trusted,
+authenticated device (§5.3) before any of these refusals is reached, which narrows who can
+try. The timing test is owned by the implementation tasks (Epic F).
 
 ---
 
@@ -1466,6 +1487,7 @@ requirement whose fixtures exercise it.
 | SEC-STG-001 | MUST NOT | 7.1 | `sec-stg/SEC-STG-001.n01` |
 | SEC-STG-002 | MUST | 7.1 | `sec-stg/SEC-STG-002.n01` to `.n04` |
 | SEC-STG-003 | MUST NOT | 7.1 | covered by SEC-STG-002 (`sec-stg/SEC-STG-002.n02`: a stale timestamp under an invalid signature reports `signature-invalid`) |
+| SEC-STG-005 | SHOULD | 13.1 | none (SHOULD); TODO(fixture): a timing comparison of the refusals; F6, F11 |
 | SEC-STG-004 | MUST | 7.1 | `sec-key/SEC-KEY-031.p01` shows the stage on an own-key envelope; failure on one: covered by SEC-AUZ-007 (`sec-auz/SEC-AUZ-007.n01`) |
 | SEC-RPL-001 | MUST | 8.1 | covered by SEC-RPL-002 (both window edges at 300 s) |
 | SEC-RPL-002 | MUST | 8.1 | `sec-rpl/SEC-RPL-002.p01`, `.p02`, `.n01`, `.n02` |
@@ -1583,3 +1605,4 @@ follow from it and belong to their owners:
 | 0.1 (draft) | 2026-10-03 | Review of PR #265: one-way grants, inbound and outbound, with "a session sees the sessions it may write to" and a full request-and-reply on one grant (SEC-AUZ-010 to -017, SEC-PRS-010); a verified, authorized envelope binds its own `from`; the cofactorless equation replaces the cofactored one (SEC-SIG-024), with mixed-order, order-2 and non-canonical `R`, mixed-order `A` and `S = L` fixtures; numbers canonicalize as the nearest double (SEC-SIG-013); presence records carry a signed `audience` (SEC-PRS-011, -013); a session id claimed by two keys fails closed for both (SEC-PRS-003, -012); a copy arriving during an earlier hand-off waits for its outcome (SEC-RPL-026); JCS coverage fixtures; operator decisions on #45 recorded as dated notes. |
 | 0.1 (draft) | 2026-10-03 | Second review of PR #265: conflict marks name the claimant keys and are set only by a related claimant (SEC-PRS-014), never on the consumer's own sessions (SEC-PRS-015); an envelope claim is refused with a finding and never marks; removing a key clears marks that name it (SEC-KEY-035); `key-removal` fixture stage; the nonce labels of every fixture are listed in `sec-test-keys.json`. |
 | 0.1 (draft) | 2026-10-03 | SEC-AUZ-018: a self-initiated retry is a new send and is refused, with no envelope, when the target has become hidden; `remove-grant` operation in the `exchange` stage. |
+| 0.1 (draft) | 2026-10-03 | §13.1 Timing: SEC-STG-005 (SHOULD: one refusal path with no target-dependent work) and the timing residual. |
