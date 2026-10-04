@@ -614,6 +614,30 @@ already refuses that connection's tool calls. The rule does not restrict what th
 does about sessions the bound session is authorized to discover. Timing is outside it, as
 the reference implementation note below explains.
 
+Discovery grants are not symmetric: a session can be authorized to discover and send to the
+bound session while the bound session is not authorized to discover it. [MCPB-TOOL-021]
+therefore does not apply to two kinds of action, even when they depend on a hidden session:
+
+1. **Inbound hand-off.** The hand-off, to the bound session, of an envelope addressed to
+   that session, through the provider-native surface (§2.3, §8), including the provenance
+   the envelope carries (§6). The hidden session revealed itself by sending.
+2. **Outcomes of the bound session's own sends.** The result of a `send` or `reply` that
+   created an envelope (§5.3), and any later delivery state or receipt for an envelope the
+   bound session sent (`spec/session-channels.md` §8.1), even if the addressed session
+   has become hidden since. The bound session named that session in a send that passed
+   authorization when it was made.
+
+Neither exception lets the server reveal anything else about the hidden session: its
+presence state, its capability declaration, or its other traffic stay under
+[MCPB-TOOL-021].
+
+**Replies to a hidden sender.** Whether the bound session may reply to a message from a
+session it is not authorized to discover is governed by `spec/security.md` §9.5 (reply
+rights; E5, #45, PR #265 under review) together with `spec/session-channels.md`
+[SC-DLV-075]. This binding adds no refusal of its own on that question: none of its rules,
+[MCPB-TOOL-016], [MCPB-TOOL-017], [MCPB-TOOL-019], [MCPB-TOOL-020] and [MCPB-TOOL-021]
+included, refuses or hides a `reply` that those documents authorize.
+
 [MCPB-TOOL-020] The `result` of a `send` or `reply` refused with `unknown-destination`,
 and every message related to that call, MUST NOT contain the value of the call's `to`
 argument, or any other value taken from or derived from the addressed session.
@@ -977,6 +1001,11 @@ ones:
   - `unknown_session_subsequent_messages` is the `subsequent_messages` array the
     connection carries in that same unknown-id case, with the same client entries
     ([MCPB-TOOL-021]); an empty array when there are none.
+  - `server_message_kind` says that `server_message` is one of the actions that
+    [MCPB-TOOL-021] does not apply to (§5.4): `handoff` (the hand-off of an envelope
+    addressed to the bound session, from the session `addressed` describes) or
+    `own-send-outcome` (a delivery state or receipt for an envelope the bound session
+    sent to that session). Absent means neither.
 - `input` is `mcp_exchange`: an object with these members, in this order:
   - `request`, optional: the client's JSON-RPC message;
   - `related_messages`, optional: an array of the other messages the server sends on the
@@ -1052,7 +1081,7 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-TOOL-018 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-018.p01-unknown-tool-protocol-error.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-018.n01-unknown-tool-invalid-request.json` |
 | MCPB-TOOL-019 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-019.p01-same-progress-sequence.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.p02-no-related-messages.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n01-revealing-log-notification.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n02-revealing-progress-notification.json` |
 | MCPB-TOOL-020 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-020.p01-no-echo.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n01-to-echoed-in-text.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n02-to-echoed-in-log.json` |
-| MCPB-TOOL-021 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-021.p01-later-call-unaffected.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p02-unbound-nothing-revealed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n01-revealing-log-after-response.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n02-list-changed-for-existing-target.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n03-throttled-after-probe.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n04-close-when-target-exists.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n05-retry-after-on-later-call.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n06-unbound-log-names-session.json`; TODO(fixture), owner E8 (#48): re-issuing a transport session id only when a hidden session exists (negative) → nonconformant; not expressible in `oac-mcpb-fixture/1` (§12.2) |
+| MCPB-TOOL-021 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-021.p01-later-call-unaffected.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p02-unbound-nothing-revealed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p03-handoff-from-hidden-sender.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n01-revealing-log-after-response.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n02-list-changed-for-existing-target.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n03-throttled-after-probe.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n04-close-when-target-exists.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n05-retry-after-on-later-call.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n06-unbound-log-names-session.json`; TODO(fixture), owner E8 (#48): re-issuing a transport session id only when a hidden session exists (negative) → nonconformant; not expressible in `oac-mcpb-fixture/1` (§12.2) |
 | MCPB-META-001 | MUST | `tests/protocol/mcpb-meta/MCPB-META-001.p01-provenance-under-identifier.json`, `tests/protocol/mcpb-meta/MCPB-META-001.n01-provenance-under-other-key.json` |
 | MCPB-META-002 | MUST | `tests/protocol/mcpb-meta/MCPB-META-002.n01-provenance-not-object.json` |
 | MCPB-META-003 | MUST | `tests/protocol/mcpb-meta/MCPB-META-003.p01-mcp-defined-key-allowed.json`, `tests/protocol/mcpb-meta/MCPB-META-003.n01-unprefixed-key.json` |
