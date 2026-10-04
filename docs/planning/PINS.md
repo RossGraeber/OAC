@@ -363,8 +363,11 @@ anything:
   run. The last re-verification is at `0.157.1` (`docs/planning/REVERIFICATION-B2.md`).
 - Version history (dated additions only): `0.158.0` and `0.159.2` in L3 probe runs
   (2026-09-30), and `0.159.3` in the L3 live leg (2026-10-01), all recorded in L1 §13.
-  `0.159.3` was the last tested version from 2026-10-01. `0.160.0` in the G5 E1 Codex re-run
-  (2026-10-02, `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`) and the G4 herdr run
+  `0.159.3` was the last tested version from 2026-10-01. `0.160.0` in the G5 K8 herdr run
+  (2026-10-02, `docs/planning/gates/herdr-runs/G5-2026-10-02.md`, fixtures
+  `docs/planning/gates/fixtures/g5-provenance/k8-2026-10-02/*-0.160.0-herdr*`), the G5 E1
+  Codex re-run (2026-10-02, `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`) and the
+  G4 herdr run
   (2026-10-04, `docs/planning/gates/herdr-runs/G4-2026-10-04.md`); `0.160.0` is the last
   tested version from 2026-10-04.
 
