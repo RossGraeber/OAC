@@ -98,10 +98,29 @@ export function describeDialog(d) {
   } else how = `not accepted (${d.acceptOrigin ?? 'no accept recorded'})`;
   // #267: a recorded variant (the multi-select MCP form) names the servers it listed.
   const variant = d.variant ? `; ${d.variant} form listing ${JSON.stringify(d.listedServers ?? [])}, expected ${JSON.stringify(d.expectedServers ?? null)}` : '';
-  return `${who}${d.kind} (read #${d.readSeq ?? '?'}${variant}; ${how})`;
+  // #271: Codex's MCP tool-approval prompt: what it asked, what the scenario registered, the answer.
+  const t = d.toolApproval;
+  const tool = t
+    ? `; Codex MCP tool approval: prompt ${JSON.stringify(t.question)}, server ${JSON.stringify(t.server)}, tool ${JSON.stringify(t.tool)}; the scenario registered server ${JSON.stringify(t.expected?.server ?? null)}, tools ${JSON.stringify(t.expected?.tools ?? null)}; answer ${t.answer ? `"${t.answer}" (this call only)${d.confirmReadSeq ? `, confirmed by read #${d.confirmReadSeq} before Enter` : ''}` : 'none'}`
+    : '';
+  return `${who}${d.kind} (read #${d.readSeq ?? '?'}${variant}${tool}; ${how})`;
 }
 
-export const describeDialogs = (dialogs) => (dialogs ?? []).map(describeDialog).join('; ') || 'none';
+// harnessConfig: the run manifest's, so that a driver "Allow" on a tool-approval prompt (#271)
+// is shown with the config-hash check that proves no approval was persisted.
+export function describeDialogs(dialogs, { harnessConfig } = {}) {
+  const text = (dialogs ?? []).map(describeDialog).join('; ') || 'none';
+  const allows = (dialogs ?? []).filter((d) => d.toolApproval?.answer && d.acceptOrigin === 'driver').length;
+  if (!allows || harnessConfig === undefined) return text;
+  // The check is against the snapshot taken just before the first Allow (sinceFirstAllow); the
+  // start-to-teardown comparison is a separate fact, shown beside it.
+  const s = harnessConfig?.sinceFirstAllow;
+  const hc = s?.unchanged === true
+    ? `VERIFIED unchanged since the snapshot before the first Allow (\`harnessConfig.sinceFirstAllow.unchanged\` true, snapshot \`harnessConfig.beforeFirstAllow\` at ${harnessConfig.beforeFirstAllow?.at ?? '?'}): no persistent approval was written to the hashed harness config`
+    : `UNVERIFIED — \`harnessConfig.sinceFirstAllow.unchanged\` is ${JSON.stringify(s?.unchanged ?? null)}${s?.changed?.length ? ` (changed: ${s.changed.join(', ')})` : ''}: a persisted approval is not ruled out`;
+  const whole = `; start to teardown: ${harnessConfig?.unchanged === true ? 'unchanged' : `changed (${(harnessConfig?.changed ?? []).join(', ') || 'not recorded'})`} (\`harnessConfig.unchanged\`)`;
+  return `${text}. Harness config after ${allows} driver "Allow" answer(s) (#271): ${hc}${whole}`;
+}
 
 // --- Verification (#252) -------------------------------------------------------------------
 //
@@ -174,7 +193,7 @@ export function verification({ manifest, harness, dialogs, dialogsField, humanAc
     `- **herdr:** ${herdr.text}`,
     `- **Harness:** ${harness}`,
     ...extra,
-    `- **Dialogs:** ${describeDialogs(dialogs)} (\`${dialogsField}\`; each driver key is a \`dialog-accept\` command in \`commands\`)`,
+    `- **Dialogs:** ${describeDialogs(dialogs, { harnessConfig: manifest?.harnessConfig ?? null })} (\`${dialogsField}\`; each driver key is a \`dialog-accept\` command in \`commands\`)`,
     `- **Human actions:** ${humanActions} Sign-ins or credentials a person supplied for this run: ${TO_FILL}: none, or each action and who did it>.`,
     `- **Verified by:** ${TO_FILL}: recording agent>, ${TO_FILL}: YYYY-MM-DD>`,
     '',

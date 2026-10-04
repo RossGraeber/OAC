@@ -76,7 +76,29 @@ export function g4McpJson({ node, serverPath, httpPort, modernHttpPort }) {
 // acceptance, but the containment lint (oac-boundaries check 10) cannot tell a scratch
 // project's file from the operator's, so it is not used.
 
-export const defaultCodexLaunch = (httpPort) => ['codex', '-c', `mcp_servers.g4http.url="http://127.0.0.1:${httpPort}/mcp"`];
+// The Codex MCP server this scenario registers per invocation, and the tools the reconstructed
+// server (gate-servers/g4-server.mjs TOOLS) offers, each with its declared inputs. #271: the
+// only server and tools whose Codex tool-approval prompt the driver may answer "1. Allow"
+// (lib/g2.mjs planCodexToolApproval); tools/herdr/test/g4-tests.mjs checks these against the
+// committed server source.
+export const G4_CODEX_SERVER = 'g4http';
+export const G4_CODEX_TOOLS = Object.freeze({ g4_echo: Object.freeze(['text']), g4_relay_to_claude: Object.freeze(['text']) });
+export const defaultCodexLaunch = (httpPort) => ['codex', '-c', `mcp_servers.${G4_CODEX_SERVER}.url="http://127.0.0.1:${httpPort}/mcp"`];
+
+// #271: what the driver may allow, derived from this scenario's own committed config and its
+// validated Codex launch, never from the pane: G4_CODEX_SERVER and G4_CODEX_TOOLS, and only
+// when the launch registers that server name exactly once, pointed at exactly the server this
+// scenario staged (`"http://127.0.0.1:<httpPort>/mcp"`, as defaultCodexLaunch writes it; PR #277
+// review). Any other URL, port, host or path, or a second g4http registration, gives null.
+// -> { server, tools, arguments, url } | null (null: the driver allows nothing; the prompt ends
+// the run NOT RUN).
+export const g4StagedServerUrl = (httpPort) => `"http://127.0.0.1:${httpPort}/mcp"`;
+export function g4CodexToolApproval(validation, { httpPort } = {}) {
+  if (!validation?.ok || !Array.isArray(validation.overrides) || !Number.isInteger(httpPort)) return null;
+  const regs = validation.overrides.filter((o) => o.key === `mcp_servers.${G4_CODEX_SERVER}.url`);
+  if (regs.length !== 1 || regs[0].value !== g4StagedServerUrl(httpPort)) return null;
+  return { server: G4_CODEX_SERVER, tools: Object.keys(G4_CODEX_TOOLS), arguments: G4_CODEX_TOOLS, url: g4StagedServerUrl(httpPort) };
+}
 const ALLOWED_OVERRIDE = /^(?:mcp_servers\.[A-Za-z0-9_-]{1,64}\.(?:url|enabled|startup_timeout_sec|tool_timeout_sec)|features\.[A-Za-z0-9_]{1,64})$/;
 
 // #244 (PR #242 review note A): the VALUES are allowlisted too, because a validated override is

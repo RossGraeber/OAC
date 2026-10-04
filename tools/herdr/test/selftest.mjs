@@ -667,7 +667,9 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
 }
 
 // Invariants every lifecycle run must hold, whatever its outcome.
-function invariants(name, b, r, { scratchLeft = false, noManifest = false } = {}) {
+// configChanged (#271): the case makes a harness double write its config on purpose (to prove
+// the driver's config-hash requirement bites); the hashes must then show the change.
+function invariants(name, b, r, { scratchLeft = false, noManifest = false, configChanged = false } = {}) {
   const m = r.manifest;
   // #244: a run refused before anything was created (a scenario's validateParams) writes
   // nothing: no output directory, no manifest, no herdr call, and (#249) no scratch directory:
@@ -691,8 +693,8 @@ function invariants(name, b, r, { scratchLeft = false, noManifest = false } = {}
   check(`${name}: the harness-integration command family was never called`, r.calls.every((c) => !c.argv.includes('integration')));
   check(`${name}: timebox start and end recorded`, !!m.timebox.start && !!m.timebox.end && m.timebox.elapsedMs >= 0);
   check(`${name}: driver commit and OS recorded`, /^[0-9a-f]{40}$/.test(m.driver.commit ?? '') && !!m.os.platform);
-  check(`${name}: harness config hashed before and after, unchanged`, m.harnessConfig.before.length === 3 && m.harnessConfig.before.every((h) => h.present && h.sha256 === b.files[h.file]?.sha256) && m.harnessConfig.unchanged === true, JSON.stringify({ manifest: m.harnessConfig.before, expected: b.files }));
-  check(`${name}: synthetic harness config left byte-identical`, Object.values(b.files).every((f) => readFileSync(f.path, 'utf8') === f.content));
+  check(`${name}: harness config hashed before and after, ${configChanged ? 'changed (on purpose)' : 'unchanged'}`, m.harnessConfig.before.length === 3 && m.harnessConfig.before.every((h) => h.present && h.sha256 === b.files[h.file]?.sha256) && m.harnessConfig.unchanged === !configChanged, JSON.stringify({ manifest: m.harnessConfig.before, expected: b.files }));
+  if (!configChanged) check(`${name}: synthetic harness config left byte-identical`, Object.values(b.files).every((f) => readFileSync(f.path, 'utf8') === f.content));
   check(`${name}: no raw scratch or home path in the manifest`, !r.manifestText.includes('oac-herdr-scratch-') && !(homedir().length > 1 && r.manifestText.includes(homedir())));
   const pids = [m.session.serverPid, ...m.session.panePids].filter(Boolean);
   check(`${name}: no server or pane process left running`, pids.every((p) => !isAlive(p)), JSON.stringify(pids.filter(isAlive)));
