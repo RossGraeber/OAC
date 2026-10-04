@@ -1,0 +1,82 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-019",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The server sends the same single progress notification before refusing a send to an undiscoverable session as it sends for an unknown session id.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general",
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_messages": [
+      {
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {
+          "progressToken": "t-101",
+          "progress": 1,
+          "total": 1
+        }
+      }
+    ]
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "progressToken": "t-101"
+          }
+        }
+      },
+      "related_messages": [
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/progress",
+          "params": {
+            "progressToken": "t-101",
+            "progress": 1,
+            "total": 1
+          }
+        }
+      ],
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

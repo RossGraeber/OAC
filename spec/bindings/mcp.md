@@ -525,7 +525,7 @@ code instead (§5.3, after [MCPB-TOOL-008]). The cases this document names map a
 |---|---|---|---|
 | Tool call on a connection not bound to exactly one session (any of the four tools) | [MCPB-ATT-002] | `unauthorized` | §6.8 [SC-ID-161]; §7.3.2 [SC-DLV-060]; Table 8.3.3 |
 | `tools/call` arguments fail the tool's `inputSchema` | [MCPB-TOOL-005] | `invalid-request` | Table 8.3 |
-| `send` or `reply` whose `to` names a session whose presence, as the calling session is allowed to see it, is `unknown`: a session the server does not know, one for which it has accepted no presence record and so holds no capability declaration, or one the calling session is not authorized to discover | [MCPB-TOOL-016], [MCPB-TOOL-017] | `unknown-destination` | §7.3.3 [SC-DLV-071], [SC-DLV-072], [SC-DLV-075], [SC-DLV-076]; Table 8.3.3, step 2 |
+| `send` or `reply` whose `to` names a session whose presence, as the calling session is allowed to see it, is `unknown`: a session the server does not know, one for which it has accepted no presence record and so holds no capability declaration, or one the calling session is not authorized to discover | [MCPB-TOOL-016], [MCPB-TOOL-017], [MCPB-TOOL-019], [MCPB-TOOL-020] | `unknown-destination` | §7.3.3 [SC-DLV-071], [SC-DLV-072], [SC-DLV-075], [SC-DLV-076]; Table 8.3.3, step 2 |
 | `send` or `reply` whose `to` names a session whose presence, as the calling session is allowed to see it, is `unreachable` | [MCPB-TOOL-016] | `destination-unavailable` | §7.3.3 [SC-DLV-071], [SC-DLV-073]; Table 8.3.3, step 2 |
 | Any other refusal of a `send` or `reply` before an envelope exists | [MCPB-TOOL-016] | the code Table 8.3.3 assigns, reported in the order of §8.3.3 ([SC-RCP-090]) | Table 8.3.3 |
 | `send` or `reply` whose envelope was created but could not be passed to a transport | [MCPB-TOOL-010], [MCPB-TOOL-011] | `transport-failure` (state `failed`, sender scope) | Table 8.1; Table 8.3 |
@@ -550,6 +550,43 @@ session id it holds no record of.
 `structuredContent` and `_meta`. Only the JSON-RPC `id`, which is outside `result`, may
 differ. A member that carries a presence state, a capability, or a hint about authorization
 for such a session therefore fails [MCPB-TOOL-017], whatever the code.
+
+The `result` is not the only thing the caller sees. While it handles a `tools/call`, a
+server can send other messages on the same connection: a log message
+(`notifications/message`) when it declared `logging`, a progress notification carrying
+the request's `progressToken`, or any other notification. A message **related to** a
+`tools/call` is any message the server sends on the connection as part of handling that
+call, from the moment it receives the request until it has sent the response.
+
+[MCPB-TOOL-019] When an OAC server refuses a `send` or `reply` whose `to` names a session
+the calling session is not authorized to discover, the sequence of messages related to that
+call MUST be the same, message for message and in the same order, as the sequence it sends
+for a request that differs only in `to`, naming a session id it holds no record of.
+
+Requirement MCPB-TOOL-019 extends [MCPB-TOOL-017] from the `result` to everything else the
+caller observes about the call. A log line, a progress message, or any other notification
+that names, counts, or describes the addressed session fails it. [SC-DLV-076] keeps the
+server from consulting the session's presence or declaration, but the server still has to
+decide the caller's discovery authorization, so it knows that the session exists;
+[MCPB-TOOL-017] and [MCPB-TOOL-019] keep that knowledge out of what the caller sees.
+
+[MCPB-TOOL-020] The `result` of a `send` or `reply` refused with `unknown-destination`,
+and every message related to that call, MUST NOT contain the value of the call's `to`
+argument, or any other value taken from or derived from the addressed session.
+
+With [MCPB-TOOL-020], the two requests that [MCPB-TOOL-017] and [MCPB-TOOL-019] compare
+produce no value that depends on `to`. The comparison is then plain equality, with no
+substitution of the `to` value, and an echoed id cannot carry a re-spelled or annotated
+form of it that reveals more than the caller sent.
+
+> **Reference implementation note:** the reference implementation builds the refusal for a
+> session id it holds no record of and the refusal for a session the caller is not
+> authorized to discover through one code path, which takes no input about the addressed
+> session. That keeps serialization details outside JSON-value equality, such as member
+> order and whitespace, from differing between the two cases. Timing is a side channel the
+> fixtures above cannot test: answering one case faster than the other still reveals the
+> session. Timing is left to `spec/security.md` (E5, #45), which owns discovery
+> authorization.
 
 *Dated note, 2026-10-03 (#262): an earlier draft of this change mapped a `send` to an
 unknown session to `unsupported-capability`, because E4 (#44) placed the
@@ -891,9 +928,13 @@ ones:
   - `unknown_session_result` is the `result` object the same server returns for a request
     that differs only in `to`, naming a session id it holds no record of
     ([MCPB-TOOL-017]).
+  - `unknown_session_messages` is the array of messages related to that same request
+    ([MCPB-TOOL-019]); an empty array when there are none.
 - `input` is `mcp_exchange`: an object with an optional `request` (the client's
-  JSON-RPC message) and a required `server_message` (the server's response or
-  notification).
+  JSON-RPC message), an optional `related_messages` (an array of the other messages the
+  server sends on the connection that are related to the request, in order, §5.4) and a
+  required `server_message` (the server's response or notification). An absent
+  `related_messages` means the server sent none.
 - `expected.result` is `conformant` or `nonconformant`: whether `server_message` meets
   the requirement, given `request` and `context`.
 
@@ -942,6 +983,8 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-TOOL-016 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-016.p01-unknown-session-unknown-destination.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.p02-undiscoverable-session-unknown-destination.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.p03-unreachable-session-destination-unavailable.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.n01-unknown-session-unsupported-capability.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.n02-undiscoverable-session-destination-unavailable.json` |
 | MCPB-TOOL-017 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-017.p01-identical-to-unknown-id.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-017.n01-explanatory-text.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-017.n02-presence-in-structured-content.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-017.n03-hint-in-meta.json` |
 | MCPB-TOOL-018 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-018.p01-unknown-tool-protocol-error.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-018.n01-unknown-tool-invalid-request.json` |
+| MCPB-TOOL-019 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-019.p01-same-progress-sequence.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.p02-no-related-messages.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n01-revealing-log-notification.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n02-revealing-progress-notification.json` |
+| MCPB-TOOL-020 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-020.p01-no-echo.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n01-to-echoed-in-text.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n02-to-echoed-in-log.json` |
 | MCPB-META-001 | MUST | `tests/protocol/mcpb-meta/MCPB-META-001.p01-provenance-under-identifier.json`, `tests/protocol/mcpb-meta/MCPB-META-001.n01-provenance-under-other-key.json` |
 | MCPB-META-002 | MUST | `tests/protocol/mcpb-meta/MCPB-META-002.n01-provenance-not-object.json` |
 | MCPB-META-003 | MUST | `tests/protocol/mcpb-meta/MCPB-META-003.p01-mcp-defined-key-allowed.json`, `tests/protocol/mcpb-meta/MCPB-META-003.n01-unprefixed-key.json` |

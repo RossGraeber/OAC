@@ -1,0 +1,84 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-019",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "revealing progress notification",
+  "description": "The result matches the unknown-id case, but a progress notification for the call carries a message describing the addressed session as online.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general",
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_messages": [
+      {
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {
+          "progressToken": "t-104",
+          "progress": 1,
+          "total": 1
+        }
+      }
+    ]
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 104,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "progressToken": "t-104"
+          }
+        }
+      },
+      "related_messages": [
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/progress",
+          "params": {
+            "progressToken": "t-104",
+            "progress": 1,
+            "total": 1,
+            "message": "addressed session is online; checking discovery grant"
+          }
+        }
+      ],
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 104,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}
