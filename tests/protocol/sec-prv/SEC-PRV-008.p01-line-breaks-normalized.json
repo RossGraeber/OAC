@@ -4,15 +4,22 @@
   "spec": "spec/security.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "Tab is kept. NUL, ESC, DEL, a C1 control and a bidi override become visible escapes.",
+  "description": "CR LF, CR, VT, FF, NEL, LS and PS each become one line feed before quoting.",
   "stage": "body",
   "context": {},
   "input": {
-    "body": "x\ty\u0000\u001b‮z⁦"
+    "body": "a\r\nb\rc\u000bd\fef g h"
   },
   "expected": {
     "quoted_lines": [
-      "| x\ty\\u{0000}\\u{001B}\\u{007F}\\u{0090}\\u{202E}z\\u{2066}"
+      "| a",
+      "| b",
+      "| c",
+      "| d",
+      "| e",
+      "| f",
+      "| g",
+      "| h"
     ]
   }
 }

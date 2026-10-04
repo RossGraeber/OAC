@@ -1,0 +1,45 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-AUZ-011",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "presence released to a device with neither grant nor reply right",
+  "description": "B2 sent nothing to Alice's device and no grant names it, so B2's announcement is not released there.",
+  "stage": "discovery-auth",
+  "context": {
+    "now": "2026-10-03T12:00:01.000Z",
+    "sessions": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "working_directory_scope": "scope-repo-a"
+      },
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": {
+        "working_directory_scope": "scope-repo-b"
+      }
+    },
+    "bindings": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    "grants": [],
+    "sent": [
+      {
+        "id": "msg-bob-0001",
+        "from": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+        "to": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to_key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "created_at": "2026-10-03T11:30:00.000Z"
+      }
+    ]
+  },
+  "input": {
+    "requester": {
+      "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174"
+    },
+    "session": "5mt9x2k7q4w8c1n6b3r0v5z2pd"
+  },
+  "expected": {
+    "discoverable": false
+  }
+}

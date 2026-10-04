@@ -47,7 +47,7 @@ Everything below follows from that. A verified signature and a matching grant au
 one thing only: handing the message's content to the addressed session's input. They never
 authorize an action that the content asks for. Any further power, such as approving a
 harness permission request, is a separate authorization decision with its own default
-(§9.5).
+(§9.6).
 
 ### 1.3 Scope
 
@@ -176,7 +176,7 @@ security stage, to one envelope. Every delivery-stage check is taken as passed.
 
 | Member | Content |
 |---|---|
-| `context` | `receiver_time`; `supported_major_versions`; `trusted_keys`: a trusted-key list; `bindings`: a binding map; `sessions`: a session map; `grants`: a grant list; `duplicate_store`: an array of objects with `key_id` and `nonce`, the entries the store holds. |
+| `context` | `receiver_time`; `supported_major_versions`; `trusted_keys`: a trusted-key list; `bindings`: a binding map; `sessions`: a session map; `grants`: a grant list; `duplicate_store`: an array of objects with `key_id` and `nonce`, the entries the store holds; optionally `sent`: an array of the receiver's own sent-envelope records (§9.5), each with `id`, `from`, `to`, `to_key_id` (the key `to` was bound to when sent) and `created_at`. |
 | `input` | `envelope`, as in `spec/session-channels.md` §3.3. |
 | `expected` | `result`: `passed`, `rejected`, `expired` or `duplicate`. For a result other than `passed`, `error`: the code. Optionally `canonical`: the JCS text of §6.2 for the envelope. Optionally `receipt_permitted`: `false` when no receipt may be sent for the envelope at all (§10.3). |
 
@@ -206,9 +206,13 @@ optionally `canonical`.
 or `finding`, the local record §11 requires; optionally `bindings_after`, `canonical`, and,
 for an accepted announcement, `effective_lifetime_ms` (§11.4).
 
-**Stage `discovery-auth`** (§9.4). `context`: `sessions`, `bindings`, `grants`. `input`:
-`requester` (`key_id` and `session_id`) and `session`. `expected`: `discoverable`, a
-boolean.
+**Stage `discovery-auth`** (§9.4, §9.5). `context`: `sessions` (the implementation's own
+sessions), `bindings`, `grants`; optionally `now`, `sent` (as for `security`) and
+`handed_off`: an array of hand-off records, each with `id`, `from`, `to` and `created_at`.
+`input`: `requester` and `session`. `requester` is `key_id` and `session_id` for a session,
+or `key_id` alone for a peer device to which a presence record would be released. `session`
+is one of `sessions`, or a session of another implementation whose binding `bindings`
+holds. `expected`: `discoverable`, a boolean.
 
 **Stage `provenance`** (§12.2). `input`: `fields`, an object with `sender`, `device`,
 `session`, `message_id` and `reply_to`. `expected`: `result` (`rendered` or `refused`); with
@@ -288,7 +292,7 @@ The key id is the device's fingerprint. It is the full digest, not a truncation,
 above the 128-bit floor of `docs/planning/decisions/C5-envelope-auth.md` §10(b) by
 construction. It is an identifier token (`spec/session-channels.md` §4.3), so an adapter can
 render it as provenance without escaping (§12.2;
-`docs/planning/decisions/C13-codex-provenance-framing.md` §14 hands that encoding choice to
+Decision C13 (`docs/planning/decisions/`; §14) hands that encoding choice to
 this document).
 
 [SEC-KEY-010] An implementation MUST compute a key id as the lower-case hexadecimal SHA-256
@@ -329,8 +333,8 @@ from it, through a channel other than the transport that delivered the key.
 signature by that key was received, or because a transport authenticated the connection
 that carried it.
 
-Trust is never established on first use. **Pairing** is the operator-confirmed exchange of
-[SEC-KEY-032]. This revision fixes what pairing establishes, not the wire format of the
+Trust is never established on first use. **Pairing** is the operator-confirmed exchange that
+the rule [SEC-KEY-032] requires. This revision fixes what pairing establishes, not the wire format of the
 exchange.
 
 > **Reference implementation note:** the v0.1 reference implementation pairs two devices
@@ -475,9 +479,11 @@ signature.
 Verification follows RFC 8032 §5.1.7, with four rules that close the gaps different
 libraries leave open. The public key `A` is the trusted key named by the envelope (§5.3).
 
-[SEC-SIG-020] A verifier MUST split the decoded signature into `R` (the first 32 octets) and
-`S` (the last 32 octets, a little-endian integer), and MUST compute
-`k = SHA-512(R || A || M)` reduced modulo `L`, where `M` is the signing input.
+Below, `R` is the first 32 octets of the decoded signature, `S` the last 32 octets read as a
+little-endian integer, and `M` the signing input.
+
+[SEC-SIG-020] A verifier MUST compute `k` as `SHA-512(R || A || M)`, read as a little-endian
+integer and reduced modulo `L`, as RFC 8032 §5.1.7 step 2 does.
 
 [SEC-SIG-021] A verifier MUST reject a signature whose `S` is not less than `L`, the order of
 the base point.
@@ -547,8 +553,8 @@ envelope-stage validation.
 
 Such an envelope gets its envelope-stage code only ([SC-RCP-072]).
 
-[SEC-STG-002] A receiver MUST run the security-stage checks in the order of Table 7.1, and
-MUST report the code of the earliest step that fails.
+[SEC-STG-002] A receiver whose envelope fails one or more security-stage checks MUST report
+the code of the earliest failing step of Table 7.1.
 
 Table 7.1.
 
@@ -557,7 +563,7 @@ Table 7.1.
 | 1 | key resolution | (`security.principal`, `security.key_id`) names no trusted key ([SEC-KEY-030]), including when either value is not of the form §5 requires | `unknown-key` | `rejected` |
 | 2 | signature | `security.nonce` or `security.signature` is not of the form of [SEC-SIG-003] or [SEC-SIG-004], or the signature does not verify (§6.3) | `signature-invalid` | `rejected` |
 | 3 | replay window on arrival | `created_at` is outside the replay window (§8.1, [SEC-RPL-002]) | `outside-replay-window` | `expired` |
-| 4 | authorization | `from` is not bound to the signing key ([SEC-AUZ-003]), or no grant covers the envelope ([SEC-AUZ-002]) | `unauthorized` | `rejected` |
+| 4 | authorization | `from` is not bound to the signing key ([SEC-AUZ-003]), or neither a grant nor a live reply right covers the envelope ([SEC-AUZ-002], §9.5) | `unauthorized` | `rejected` |
 | 5 | duplicate suppression | the duplicate store holds an entry for the envelope (§8.3) | `duplicate` | `duplicate` |
 
 The order has two reasons. A value is not trusted before it is verified, so the timestamp,
@@ -675,8 +681,8 @@ The eviction bound and the hand-off bound are the same instant. No copy is hande
 after the deadline ([SC-RCP-091]), so forgetting the entry then cannot let a duplicate
 through.
 
-[SEC-RPL-025] A receiver MAY keep its duplicate store across a restart, for no longer than
-[SEC-RPL-024] allows. A receiver that does not starts with an empty store, and for up to the
+[SEC-RPL-025] A receiver MAY keep its duplicate store across a restart, for no longer than the
+eviction rule of [SEC-RPL-024] allows. A receiver that does not starts with an empty store, and for up to the
 replay window after a restart can hand off again a copy of an envelope it handed off before
 the restart.
 
@@ -704,10 +710,12 @@ sender.
 
 ### 9.1 Default deny
 
-[SEC-AUZ-001] A receiver MUST NOT pass security step 4 for an envelope that no grant covers.
+[SEC-AUZ-001] A receiver MUST NOT pass security step 4 for an envelope that neither a grant
+nor a live reply right (§9.5) covers.
 
-Nothing is permitted until a grant permits it. That holds between two devices and between
-two sessions of one device ([SEC-AUZ-007]). A binding is not an authorization
+Nothing is permitted until a grant permits it, apart from the narrow, automatic reply right
+of §9.5, which answers only a message the receiver's own session chose to send. That holds
+between two devices and between two sessions of one device ([SEC-AUZ-007]). A binding is not an authorization
 ([SC-ID-157]), presence is not an authorization ([SC-ID-181]), and pairing is not an
 authorization: pairing makes a key trusted, and a grant decides what that key may reach
 (`docs/planning/decisions/C5-envelope-auth.md` §11).
@@ -725,7 +733,8 @@ A grant **covers** an envelope verified under key id `K` when its subject's key 
 its subject's session id, if any, is the envelope's `from`, and its object is either the
 envelope's `to` or the working-directory scope of the receiver's session `to`.
 
-[SEC-AUZ-002] A receiver MUST pass security step 4 only for an envelope that a grant covers.
+[SEC-AUZ-002] A receiver MUST pass security step 4 only for an envelope that a grant or a
+live reply right (§9.5) covers.
 
 [SEC-AUZ-003] A receiver MUST NOT pass security step 4 for an envelope whose `from` is not
 bound, in its binding table (§11.3) or by its own registration records (§5.4), to the device
@@ -778,22 +787,86 @@ it. This is the cross-project rule (`docs/planning/decisions/C4-session-identity
 
 ### 9.4 Discovery and presence authorization
 
-A requester is **authorized to discover** a session when a grant would cover an envelope
-from the requester to that session: the requester's key id and session id are the subject
-side, and the session is the object side. This is the rule `spec/session-channels.md` §7
-leaves to this document for discovery results and for releasing presence records.
+`spec/session-channels.md` §7 leaves to this document which sessions a requester is
+**authorized to discover**. The answer decides discovery results ([SC-DLV-061]), the
+release of presence records ([SC-DLV-066], [SC-DLV-067]), and what a send request may learn
+about a session ([SC-DLV-075], [SC-DLV-076]). It has two cases, because only the
+implementation that holds a session's binding knows its working-directory scope.
 
-[SEC-AUZ-010] An implementation MUST NOT list a session in a discovery result for a
-requester, or release a presence record for a session to a peer device, unless a grant would
-cover an envelope from that requester or device to that session.
+**A session of the implementation itself.** The implementation's own grants decide, read as
+for an envelope from the requester to the session.
 
-[SEC-AUZ-011] An implementation that releases a presence record to a peer device MUST
-evaluate [SEC-AUZ-010] with the peer's key id as the subject.
+[SEC-AUZ-010] An implementation MUST NOT treat a requester as authorized to discover one of
+its own sessions unless a grant or a live reply right of its own would cover some envelope
+from that requester to that session.
 
-A device grant then releases the record; a grant naming one of the peer's sessions does too,
-because that session could send.
+[SEC-AUZ-011] An implementation MUST NOT release a presence record for one of its own
+sessions to a peer device unless a grant or a live reply right of its own, whose subject key
+id is that device's, has that session as its object.
 
-### 9.5 Actions beyond delivery
+A device grant releases the record; so does a grant naming one of the peer's sessions,
+because that session could send; so does a reply right, because the peer needs the record to
+reply ([SC-DLV-070]).
+
+**A session of another implementation.** That implementation has already decided, by
+releasing its announcement to this device, that this device may know of the session. This
+implementation then decides which of its own sessions may see it. It uses the inverse of its
+inbound rules: a session may see the peers that may write to it.
+
+[SEC-AUZ-012] An implementation MUST NOT treat one of its own sessions as authorized to
+discover a session of another implementation unless a grant of its own would cover an
+envelope from that session to its own session, or [SEC-AUZ-016] applies.
+
+### 9.5 Reply rights
+
+A reply is a send (`spec/session-channels.md` §8.2), and default deny would refuse it twice:
+the replier could not discover the original sender ([SC-DLV-075]), and the original sender's
+receiver would hold no grant for the reply. A grant in both directions would be needed for
+every exchange. Instead, sending a message opens a narrow, automatic, time-limited right to
+answer that one message (#45, from the PR #263 review).
+
+The **reply period** is 86400000 milliseconds (24 hours), the longest validity
+`spec/session-channels.md` allows an envelope ([SC-ENV-050]).
+
+**On the original sender's side.** Let `E` be an envelope that an implementation passed to a
+transport, from its session `A` to a session `S` bound to device key `K`. The implementation
+records a **reply right** for `E`.
+
+[SEC-AUZ-013] An implementation that passes an envelope to a transport MUST record a reply
+right for it.
+
+[SEC-AUZ-014] A reply right for `E` MUST cover only an envelope that is verified under `K`,
+whose `from` is `S`, whose `to` is `A`, and whose `reply_to` is `E`'s `id`.
+
+An uncorrelated message from `S`, or one answering anything else, needs a grant. Correlation
+is checked at both ends anyway ([SC-RCP-050], [SC-RCP-060]), so the reply right adds no new
+trust in `reply_to`: it accepts only a value matching a record the implementation made
+itself.
+
+[SEC-AUZ-015] A reply right for `E` MUST end at the earlier of `E`'s `created_at` plus the
+reply period, read on the implementation's own clock, and the end of `A`'s binding.
+
+A reply right is **live** until it ends. It covers an envelope at security step 4 as a grant
+does ([SEC-AUZ-002]), and it releases `A`'s presence record to `K`'s device
+([SEC-AUZ-011]).
+
+**On the replier's side.** The same exchange, seen from `S`'s implementation, which handed
+`E` off to `S`.
+
+[SEC-AUZ-016] An implementation that handed off an envelope to one of its sessions, with the
+outcome `handed-to-harness` or `unknown`, MUST treat that session as authorized to discover
+the envelope's `from` until the envelope's `created_at` plus the reply period, or until the
+receiving session's binding ends, whichever is earlier.
+
+With [SEC-AUZ-012], `S` can then see `A`, hold its declaration ([SC-DLV-070]), and reply.
+The reply still needs `A`'s presence record, which `A`'s implementation releases, under the
+rule [SEC-AUZ-011], because it holds the reply right for `E`.
+
+*Dated note, 2026-10-03 (#45): the automatic reply right, and its 24-hour period, are a
+design choice of this document awaiting operator confirmation on #45. Without it, a reply
+needs a grant in each direction.*
+
+### 9.6 Actions beyond delivery
 
 A grant authorizes delivery into the addressed session's input. Some harness surfaces offer
 operations that do more. Each is a separate authorization decision, off by default.
@@ -820,7 +893,7 @@ case is an open finding owned by backlog task G7 (#224).
 [SEC-AUZ-023] An implementation MUST NOT automate, suppress or pre-answer a consent step that
 a harness itself requires before it loads an extension or accepts input from one.
 
-### 9.6 The local attachment
+### 9.7 The local attachment
 
 [SEC-AUZ-030] An implementation MUST authenticate the local process at the other end of
 each attachment with an operating-system facility before accepting send requests or
@@ -1012,14 +1085,16 @@ header and `security` members and the implementation's own verification results,
 [SEC-PRV-003] An adapter MUST refuse to hand off a message any of whose provenance values,
 other than an empty reply target, is not an identifier token as a whole value.
 
-[SEC-PRV-004] An adapter that refuses under [SEC-PRV-003] MUST NOT escape, truncate or
-otherwise alter the value instead, and MUST report the state `failed` with the code
-`internal-error`.
+[SEC-PRV-004] An adapter MUST NOT escape, truncate or otherwise alter a provenance value to
+make it pass [SEC-PRV-003].
+
+[SEC-PRV-014] An adapter that refuses under [SEC-PRV-003] MUST report the state `failed`
+with the code `internal-error`.
 
 Envelope-stage validation ([SC-ENV-010], [SC-ENV-011]) and the key-id form (§5.2) already
 guarantee the form, so a refusal here means a fault inside the implementation. The rule keeps
 a value with a line break from adding a forged provenance line
-(`docs/planning/decisions/C13-codex-provenance-framing.md` §4 and §8, cases X5 and X5c; gate
+(Decision C13, `docs/planning/decisions/`, §4 and §8, cases X5 and X5c; gate
 G5 refused both in its re-run, `docs/planning/gates/G5-result.md`).
 
 [SEC-PRV-005] An adapter MUST NOT render a display form, an alias, a `display_name` or a
@@ -1054,8 +1129,8 @@ character of general category `Cc` except TAB and LF, and each of U+202A to U+20
 to U+2069, with the text `\u{XXXX}`, where `XXXX` is the code point in four upper-case
 hexadecimal digits.
 
-[SEC-PRV-010] An adapter using a shared carrier MUST prefix every body line, as split at LF,
-with `| `, and MUST write an empty line as `|`.
+[SEC-PRV-010] An adapter using a shared carrier MUST write each body line, as split at LF,
+as `| ` followed by the line, or as `|` alone when the line is empty.
 
 A body ending in LF ends with an empty line, which is quoted too. After these steps no body
 character can begin a line of the frame.
@@ -1087,7 +1162,7 @@ visible; it does not make the content safe (§1.2).
 
 ## 13. Threat-to-requirement traceability
 
-Each row uses the threat-table template of `.claude/skills/oac-security-work/SKILL.md` §1. The
+Each row uses the threat-table template of the `oac-security-work` skill (§1). The
 attack column names the matching row of `docs/planning/v0.1/06-security.md` §14 where one
 exists; that file keeps the provider- and transport-specific wording, which this document
 does not repeat. A proving test is either a committed fixture or a named future test.
@@ -1107,12 +1182,13 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | Duplicate suppression that blocks a legitimate retransmission | A first copy was refused or failed | Entries added at authorization, removed when not handed off: [SEC-RPL-021], [SEC-RPL-022] | `sec-rpl/SEC-RPL-022.p01` to `.p03` | None known |
 | Receipt flooding by replay | Attacker replays a captured envelope many times | [SEC-RPL-030]; rate limit [SEC-RPL-031] | `sec-rpl/SEC-RPL-021.n01`; F6 | Replays outside the window still draw receipts at the rate the receiver allows |
 | Unauthorized routing (06 row 2) | A trusted device without a grant sends | Default deny [SEC-AUZ-001], [SEC-AUZ-002], [SEC-AUZ-007]; operator-confirmed grants [SEC-AUZ-005] | `sec-auz/SEC-AUZ-001.n01`, `SEC-AUZ-002.*`, `SEC-AUZ-006.n01`, `SEC-AUZ-007.n01`; F5, H2 | An operator who grants too widely |
+| Reply-right abuse: a session that was messaged sends unrelated content, or another session uses the right | A session received an envelope from a session it holds no grant for | Reply right covers only `from` = the original `to`, under the key it was sent to, with `reply_to` = the original `id`, for 24 hours at most: [SEC-AUZ-014], [SEC-AUZ-015], [SEC-AUZ-016] | `sec-auz/SEC-AUZ-014.p01`, `.n01` to `.n03`; `sec-auz/SEC-AUZ-015.n01`; `sec-auz/SEC-AUZ-016.*` | A replier can send any content in its replies, as many as it likes, within the period; content is untrusted anyway (§1.2) |
 | Existence oracle: an unauthorized sender learns whether a session exists | Attacker is trusted but not granted | Step order (§7.1) with [SC-RCP-073]; receipt decision independent of `to` [SEC-RCT-004] | `sec-auz/SEC-AUZ-002.n02`; `sec-stg/SEC-STG-002.n03`, `.n04`; the [SEC-RCT-004] differential test is TODO (F6, F11): open risk | Timing differences between steps are not addressed |
-| Cross-project disclosure (06 rows 7, 14) | Sessions exist under several working directories | Scope grants by exact scope [SEC-AUZ-008]; discovery and presence release gated by grants [SEC-AUZ-010], [SEC-AUZ-011] | `sec-auz/SEC-AUZ-002.n01`, `sec-auz/SEC-AUZ-010.n01`; H2 | Scope equality is as the implementation records the directory; aliases of one directory (links) are not unified |
+| Cross-project disclosure (06 rows 7, 14) | Sessions exist under several working directories | Scope grants by exact scope [SEC-AUZ-008]; discovery and presence release gated by grants [SEC-AUZ-010] to [SEC-AUZ-012] | `sec-auz/SEC-AUZ-002.n01`, `sec-auz/SEC-AUZ-010.n01`, `SEC-AUZ-011.n01`, `SEC-AUZ-012.n01`; H2 | Scope equality is as the implementation records the directory; aliases of one directory (links) are not unified |
 | Compromised transport, transport-only authenticity, transport peer identifier used as identity (06 rows 6, 9, 10) | A transport node is hostile, or a transport identity is trusted | Envelope verification independent of the transport [SEC-SIG-030]; transport identifiers are never subjects [SEC-AUZ-004] | F11, H2: not yet built, open risk | A hostile transport can still drop, delay within the window, duplicate and reorder |
 | Model text claims an identity | A peer's content states a sender | Provenance only from verified members [SEC-PRV-002]; never from content [SC-ENV-082] | F11: not yet built, open risk; gate G5 PASS (gate client only) | The model may still believe the content |
 | Prompt injection from an authenticated peer (06 row 5) | A trusted, granted peer sends adversarial content | Doctrine §1.2; [SEC-AUZ-020]; untrusted presentation [SEC-PRV-012], [SEC-PRV-013] | G5 PASS (gate client); F11 not yet built, open risk | The model judges. Authentication never makes content safe |
-| Provenance forgery in the body of a shared carrier (06 rows 16, 17) | A trusted, granted peer writes frame-shaped text | Receiver-generated delimiter [SEC-PRV-007]; normalization and quoting [SEC-PRV-008] to [SEC-PRV-010] | `sec-prv/SEC-PRV-007.*` to `SEC-PRV-010.*` (body stage); G5 PASS; G7, F11 | A character a model treats as a line break that the closed list omits |
+| Provenance forgery in the body of a shared carrier (06 rows 16, 17) | A trusted, granted peer writes frame-shaped text | Receiver-generated delimiter [SEC-PRV-007]; normalization and quoting [SEC-PRV-008] to [SEC-PRV-010] | `sec-prv/SEC-PRV-008.*` to `SEC-PRV-010.*` (body stage); G5 PASS; G7, F11 | A character a model treats as a line break that the closed list omits |
 | Header injection through an identifier (C13 X5, X5c) | A value carries a line break | Whole-value check and refusal [SEC-PRV-003], [SEC-PRV-004] | `sec-prv/SEC-PRV-003.n01`, `.n02`; G7, F11 | None in the protocol; adapter code still needs its own tests |
 | Silently dropped provenance field (06 row 15) | A harness surface drops a field it cannot carry | Refuse instead of delivering partial provenance [SEC-PRV-006] | F10 contract suite, G4: not yet built, open risk | A surface that drops a field without any observable sign |
 | Permission-relay abuse (06 row 11) | Relay of approvals is enabled | Off by default; enabling is a separate operator decision [SEC-AUZ-021] | F11, H2: not yet built, open risk | Once enabled, any granted sender can approve the harness's actions |
@@ -1161,8 +1237,8 @@ and are not restated here.
 - `docs/planning/decisions/C5-envelope-auth.md` (algorithm, canonicalization, signed field
   set, replay window, duplicate store, pairing, authorization).
 - `docs/planning/decisions/C6-trust-rendering.md` §3, §5.0, §7.
-- `docs/planning/decisions/C13-codex-provenance-framing.md` §4, §8, §14 (neutral provenance
-  requirements handed to this document).
+- Decision C13, provenance framing (`docs/planning/decisions/`; §4, §8 and §14, the neutral
+  provenance requirements handed to this document).
 - `docs/planning/v0.1/06-security.md` §14 (threat table).
 - `docs/planning/gates/G5-result.md` (provenance gate verdict).
 - `ed25519-dalek` 3.0.0, `VerifyingKey`,
@@ -1216,7 +1292,7 @@ requirement whose fixtures exercise it.
 | SEC-STG-004 | MUST | 7.1 | `sec-key/SEC-KEY-031.p01` shows the stage on an own-key envelope; failure on one: covered by SEC-AUZ-007 (`sec-auz/SEC-AUZ-007.n01`) |
 | SEC-RPL-001 | MUST | 8.1 | covered by SEC-RPL-002 (both window edges at 300 s) |
 | SEC-RPL-002 | MUST | 8.1 | `sec-rpl/SEC-RPL-002.p01`, `.p02`, `.n01`, `.n02` |
-| SEC-RPL-003 | MUST | 8.1 | `sec-rpl/SEC-RPL-002.n03` |
+| SEC-RPL-003 | MUST | 8.1 | `sec-rpl/SEC-RPL-003.n01` |
 | SEC-RPL-010 | MUST | 8.2 | TODO(fixture): randomness; F2 |
 | SEC-RPL-011 | MUST NOT | 8.2 | TODO(fixture): sender-side; F2 |
 | SEC-RPL-020 | MUST | 8.3 | `sec-rpl/SEC-RPL-020.p01`, `.n01`, `.n02` |
@@ -1236,12 +1312,17 @@ requirement whose fixtures exercise it.
 | SEC-AUZ-007 | MUST NOT | 9.2 | `sec-auz/SEC-AUZ-007.n01` |
 | SEC-AUZ-008 | MUST | 9.3 | covered by SEC-AUZ-002 (`sec-auz/SEC-AUZ-002.n01`) and SEC-AUZ-010 (`.n01`) |
 | SEC-AUZ-010 | MUST NOT | 9.4 | `sec-auz/SEC-AUZ-010.p01`, `.n01` |
-| SEC-AUZ-011 | MUST | 9.4 | TODO(fixture): presence release to a peer device; F6, H2 |
-| SEC-AUZ-020 | MUST NOT | 9.5 | TODO(fixture): behaviour across the implementation; F11 |
-| SEC-AUZ-021 | MUST NOT | 9.5 | TODO(fixture): needs a live harness; G4, F11, H2 |
-| SEC-AUZ-022 | MUST NOT | 9.5 | TODO(fixture): needs a live harness; G7 |
-| SEC-AUZ-023 | MUST NOT | 9.5 | TODO(fixture): review of launch code; H2 |
-| SEC-AUZ-030 | MUST | 9.6 | TODO(fixture): needs the platform facilities; G9 |
+| SEC-AUZ-011 | MUST NOT | 9.4 | `sec-auz/SEC-AUZ-011.p01`, `.n01` |
+| SEC-AUZ-012 | MUST NOT | 9.4 | `sec-auz/SEC-AUZ-012.p01`, `.n01` |
+| SEC-AUZ-013 | MUST | 9.5 | covered by SEC-AUZ-014 (`sec-auz/SEC-AUZ-014.p01` holds the recorded right as `context.sent`); that a send records one: TODO(fixture), F6 |
+| SEC-AUZ-014 | MUST | 9.5 | `sec-auz/SEC-AUZ-014.p01`, `.n01`, `.n02`, `.n03` |
+| SEC-AUZ-015 | MUST | 9.5 | `sec-auz/SEC-AUZ-015.n01`; the end with `A`'s binding: TODO(fixture), F5 |
+| SEC-AUZ-016 | MUST | 9.5 | `sec-auz/SEC-AUZ-016.p01`, `.n01`, `.n02` |
+| SEC-AUZ-020 | MUST NOT | 9.6 | TODO(fixture): behaviour across the implementation; F11 |
+| SEC-AUZ-021 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G4, F11, H2 |
+| SEC-AUZ-022 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G7 |
+| SEC-AUZ-023 | MUST NOT | 9.6 | TODO(fixture): review of launch code; H2 |
+| SEC-AUZ-030 | MUST | 9.7 | TODO(fixture): needs the platform facilities; G9 |
 | SEC-RCT-001 | MUST | 10.1 | `sec-rct/SEC-RCT-001.p01` |
 | SEC-RCT-002 | MUST | 10.1 | covered by SEC-RCT-003 (`sec-rct/SEC-RCT-003.n04`, `.n07`) |
 | SEC-RCT-003 | MUST | 10.2 | `sec-rct/SEC-RCT-003.n01` to `.n07` |
@@ -1259,16 +1340,17 @@ requirement whose fixtures exercise it.
 | SEC-PRV-001 | MUST | 12.1 | TODO(fixture): needs an adapter; F10, F11 |
 | SEC-PRV-002 | MUST | 12.1 | TODO(fixture): needs an adapter; F11 |
 | SEC-PRV-003 | MUST | 12.2 | `sec-prv/SEC-PRV-003.p01`, `.n01`, `.n02` |
-| SEC-PRV-004 | MUST NOT | 12.2 | `expected.state` and `expected.error` of `sec-prv/SEC-PRV-003.n01`, `.n02` |
+| SEC-PRV-004 | MUST NOT | 12.2 | covered by SEC-PRV-003 (`sec-prv/SEC-PRV-003.n01`, `.n02` expect `refused`, never a rendered altered value) |
 | SEC-PRV-005 | MUST NOT | 12.2 | TODO(fixture): needs an adapter; F11 |
 | SEC-PRV-006 | MUST | 12.3 | TODO(fixture): needs a harness surface; F10 contract suite, G4 |
-| SEC-PRV-007 | MUST | 12.3 | TODO(fixture): delimiter randomness; G7, F11. `sec-prv/SEC-PRV-007.n01` shows why quoting must not depend on it |
-| SEC-PRV-008 | MUST | 12.3 | `sec-prv/SEC-PRV-007.p01`, `sec-prv/SEC-PRV-007.n01` |
-| SEC-PRV-009 | MUST | 12.3 | `sec-prv/SEC-PRV-008.p01` |
-| SEC-PRV-010 | MUST | 12.3 | `sec-prv/SEC-PRV-009.p01` |
+| SEC-PRV-007 | MUST | 12.3 | TODO(fixture): delimiter randomness; G7, F11 |
+| SEC-PRV-008 | MUST | 12.3 | `sec-prv/SEC-PRV-008.p01`, `.n01` |
+| SEC-PRV-009 | MUST | 12.3 | `sec-prv/SEC-PRV-009.p01` |
+| SEC-PRV-010 | MUST | 12.3 | `sec-prv/SEC-PRV-010.p01` |
 | SEC-PRV-011 | MAY | 12.3 | none (MAY) |
 | SEC-PRV-012 | MUST | 12.4 | TODO(fixture): needs a live harness; G5 re-run, F11 |
 | SEC-PRV-013 | MUST NOT | 12.4 | TODO(fixture): needs a harness surface; F10, F11 |
+| SEC-PRV-014 | MUST | 12.2 | `expected.state` and `expected.error` of `sec-prv/SEC-PRV-003.n01`, `.n02` |
 
 Retired ids: none.
 
@@ -1278,22 +1360,33 @@ This change does not edit `spec/session-channels.md` or `spec/bindings/mcp.md`. 
 follow from it and belong to their owners:
 
 1. `spec/session-channels.md` Appendix A: point SC-ID-009, SC-ID-181, SC-ENV-083,
-   SC-ENV-104, SC-RCP-009, SC-RCP-040, SC-RCP-041 and SC-RCP-072 at the fixtures named here
-   (SEC-KEY-041/043, SEC-STG-002/003, SEC-RPL-021/022, SEC-RCT-003/005, SEC-STG-001).
+   SC-ENV-104, SC-RCP-009, SC-RCP-040, SC-RCP-041, SC-RCP-072 and SC-DLV-043 at the fixtures
+   named here (SEC-KEY-041/043, SEC-STG-002/003, SEC-RPL-021/022, SEC-RCT-003/005,
+   SEC-STG-001, SEC-PRS-002).
 2. `spec/session-channels.md` §10.1: drop "not yet written" from the `spec/security.md`
    reference; §8.1.5: the "until both exist" paragraph now has its authentication half.
 3. `spec/session-channels.md` Table 8.3: widen the conditions of `unknown-key` and
    `signature-invalid` to the malformed-member cases of Table 7.1 here.
-4. `spec/session-channels.md` §7 (E3, PR #263): the dated notes under §7.2.3 that wait for
-   E5 can cite §11 here; [SC-DLV-043] stays as written.
-5. `spec/bindings/mcp.md` §6.3: replace "planned, E5" with a citation of §6 here.
-6. The fixture-file naming in the `sec-prv` directory follows requirement ids allocated
-   before the final numbering of §12.3: `SEC-PRV-007.*` fixtures prove [SEC-PRV-008],
-   `SEC-PRV-008.p01` proves [SEC-PRV-009], and `SEC-PRV-009.p01` proves [SEC-PRV-010].
-   Appendix A maps them; a later revision may rename the files.
+4. `spec/session-channels.md` §7.2.3: the dated notes that wait for E5 (no
+   cross-implementation records until E5; the replay and binding-proof constraints) can now
+   cite §11 here. [SC-DLV-043] stays as written. The same-install-only ruling of the §7.3.2
+   dated note stands until a transport binding meets [SC-DLV-066]; this document supplies
+   the authentication half only.
+5. `spec/session-channels.md` §7.3.2 and §7.3.3: [SC-DLV-061], [SC-DLV-066], [SC-DLV-075]
+   and [SC-DLV-076] defer "authorized to discover" to this document; §9.4 and §9.5 here now
+   define it, including the reply right. A sentence there saying that a session handed an
+   envelope may discover its sender for the reply period ([SEC-AUZ-016]) would make §8.2's
+   reply path readable without this document. The §7.5 `discovery` stage's `discoverable`
+   pairs stay a given input.
+6. `spec/session-channels.md` §8.2.2: a note that a reply needs the original sender's
+   announcement ([SC-DLV-070]), which the reply right releases ([SEC-AUZ-011]), and that an
+   uncorrelated reply needs a grant ([SEC-AUZ-014]).
+7. `spec/session-channels.md` §7.2.4 / [SC-DLV-028]: a cross-reference to the 300-second
+   lifetime cap of [SEC-PRS-007] for records from another implementation.
+8. `spec/bindings/mcp.md` §6.3: replace "planned, E5" with a citation of §6 here.
 
 ## Appendix C. Revision history
 
 | Revision | Date | Change |
 |---|---|---|
-| 0.1 (draft) | 2026-10-03 | E5 (#45): document written. Device keys, key ids and the registration record; Ed25519 signing over domain-separated JCS with strict verification; the security stage and its codes; the 300-second replay window and skew allowance; duplicate suppression recorded at authorization and released when not handed off; default-deny grants; receipt and presence-record authentication, with the signed announcement as the publishable binding proof and replay bounded across restart; neutral provenance rendering; threat traceability. Fixtures under `tests/protocol/sec-*/` and test keys in `tests/protocol/sec-test-keys.json`. |
+| 0.1 (draft) | 2026-10-03 | E5 (#45): document written. Device keys, key ids and the registration record; Ed25519 signing over domain-separated JCS with strict verification; the security stage and its codes; the 300-second replay window and skew allowance; duplicate suppression recorded at authorization and released when not handed off; default-deny grants and an automatic, correlated, 24-hour reply right; receipt and presence-record authentication, with the signed announcement as the publishable binding proof and replay bounded across restart; neutral provenance rendering; threat traceability. Fixtures under `tests/protocol/sec-*/` and test keys in `tests/protocol/sec-test-keys.json`. |

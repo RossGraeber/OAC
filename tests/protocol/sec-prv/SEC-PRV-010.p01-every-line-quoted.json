@@ -1,6 +1,6 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SEC-PRV-009",
+  "requirement": "SEC-PRV-010",
   "spec": "spec/security.md",
   "spec_revision": "0.1",
   "kind": "positive",

@@ -1,0 +1,45 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-AUZ-016",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "reply visibility used after the reply period",
+  "description": "The envelope from A1 was handed to B1 exactly 24 hours ago. The reply period has ended.",
+  "stage": "discovery-auth",
+  "context": {
+    "now": "2026-10-04T12:00:00.000Z",
+    "sessions": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "working_directory_scope": "scope-repo-a"
+      },
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": {
+        "working_directory_scope": "scope-repo-b"
+      }
+    },
+    "bindings": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    "grants": [],
+    "handed_off": [
+      {
+        "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+        "created_at": "2026-10-03T12:00:00.000Z"
+      }
+    ]
+  },
+  "input": {
+    "requester": {
+      "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+      "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+    },
+    "session": "01harn7x9k2m4p6q8r0s2t4v6w"
+  },
+  "expected": {
+    "discoverable": false
+  }
+}
