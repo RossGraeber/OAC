@@ -302,9 +302,8 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   pre-#252 run manifest, from a run whose `timebox.start` (the driver's date, not the file name) is no later than 2026-10-03.
   *Dated note, 2026-10-04 (#131):* `herdr-runs/G4-2026-10-04.md` is the first current
   equivalence record, for G4 at herdr v0.9.1 (#252 Verification, herdr and Harness
-  VERIFIED). Its callout states a criterion-5 caveat: the modern server's non-delivery is
-  verified, the human run's "unavailable" notice is not in its captures. G4's verdict is
-  unchanged.
+  VERIFIED). Its run, `20261004T093525Z`, ran at driver `b478f2a`, whose `tools/herdr/`
+  equals `main` after #287. G4's verdict is unchanged.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers

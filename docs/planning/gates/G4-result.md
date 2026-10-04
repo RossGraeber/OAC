@@ -475,15 +475,16 @@ traffic to the per-invocation registration. *Superseded text, kept as history:* 
 --self-test`), so no `-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md`
 record exist."
 
-*Dated note, 2026-10-04 (#131):* the scenario ran live. Run `20261004T085601Z` (outcome
-PASS, driver commit `b9a9afe`, herdr `v0.9.1` first-party match, Claude Code `2.1.285`,
-Codex `0.160.0`) is recorded at `herdr-runs/G4-2026-10-04.md`, with its run manifest beside
+*Dated note, 2026-10-04 (#131):* the scenario ran live. Run `20261004T093525Z` (outcome
+PASS, driver commit `b478f2a`, whose `tools/herdr/` (excluding `test/`) equals `main` after
+#287; herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`) is recorded at `herdr-runs/G4-2026-10-04.md`, with its run manifest beside
 it and three `-herdr` fixtures under `fixtures/g4-mcp-dual-era/`. It is the **equivalence
 record for G4 at herdr v0.9.1**: all five criteria scored `equivalent` to the 2026-09-26
-re-run above, from the wire transcript and pane captures. **Criterion-5 caveat:** the
-modern-only server's non-delivery as a channel is verified; the "Channel messages from
-"g4modern" are unavailable" notice (UI observation 1) is not in that run's captures, so that
-supporting half is UNVERIFIED for it. Exactly one Codex HTTP session connected, and the
+re-run above, from the wire transcript and pane captures. That includes criterion 5's
+refusal notice, "Channel messages from "g4modern" are unavailable" (UI observation 1). The
+notice was captured after the first Claude turn, not at startup. An earlier PASS run of the
+same day, `20261004T085601Z` at driver `b9a9afe`, is superseded: its driver predates #287,
+and the notice was hidden in its captures. Exactly one Codex HTTP session connected, and the
 Codex user config registers no HTTP MCP server, so the per-invocation `-c
 mcp_servers.g4http.url=...` registration is what connected. This changes nothing above:
 the record is not verdict-bearing, and this gate's verdict stays PASS from the human-run
