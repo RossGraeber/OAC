@@ -839,6 +839,20 @@ export function g4Cases(check) {
   taRefused('"Allow for this session" highlighted', { FAKE_CODEX_APPROVAL_SELECTED: '1' }, /selected option is "2\. Allow for this session"/, 37758);
   taRefused('altered wording', { FAKE_CODEX_APPROVAL_QUESTION: 'Allow the {server} MCP server to execute tool "{tool}"?' }, /question text off record/, 37768);
 
+  // #282: a slow Codex startup (fake-codex FAKE_CODEX_MCP_CONNECT_MS / POST_CONNECT_*), as live
+  // run 20261004T075757Z saw on 0.160.0: idle composer, the MCP connect late, then `working`.
+  run('g4 #282 slow Codex startup: settles after the MCP connect, then prompts', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37788, 37790)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_CONNECT_MS: '5000', FAKE_CODEX_POST_CONNECT_MS: '4000' } }, (r) => {
+    const m = r.manifest;
+    const s = m.scenarioData.g4.codexStartupSettle;
+    const promptSeq = m.commands.find((c) => c.role === 'operator-input' && c.argv.includes('prompt') && c.argv.includes('g4codex'))?.seq;
+    check('g4 #282 slow startup: PASS; herdr reported Codex working at the MCP connect, the driver settled it (idle past that, re-checked) and only then typed the Codex prompt', r.status === 0 && m.outcome === 'PASS' && s?.outcome === 'settled' && s.observed.state === 'working' && s.settled.stateChangeSeq > s.observed.stateChangeSeq && Number.isInteger(promptSeq) && promptSeq > s.settled.recheckSeq && !m.findings.some((f) => /startup settle/.test(f)), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(s)}`);
+  });
+  run('g4 #282 Codex stays working after its MCP connect: NOT RUN naming the startup settle', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37798, 37800), '--param', 'turnTimeoutMs=6000'], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_CONNECT_MS: '5000', FAKE_CODEX_POST_CONNECT_HANG: '1' } }, (r) => {
+    const m = r.manifest;
+    const s = m.scenarioData.g4.codexStartupSettle ?? m.scenarioData.g4.startupSettles?.[0];
+    check('g4 #282 stays working: NOT RUN (exit 3) with a finding and outcome naming the startup settle; nothing typed to Codex', r.status === 3 && m.outcome === 'NOT RUN' && /startup settle after Codex's MCP connect/.test(m.outcomeReason) && m.findings.some((f) => /^startup settle \(#282\): codex did not settle after Codex's MCP connect/.test(f)) && /^not settled/.test(s?.outcome ?? '') && !r.prompts.some((p) => p.target === 'g4codex'), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.findings)}`);
+  });
+
   // #244: a codexLaunch the allowlist refuses is refused by the scenario's validateParams before
   // run.mjs creates scratch, an output directory or a manifest: usage error (exit 2), nothing
   // recorded, and the console reason never quotes the refused text.

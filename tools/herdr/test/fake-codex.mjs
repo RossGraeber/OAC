@@ -59,6 +59,11 @@
 //                              no loaded thread; a prompt typed then is held) (default 0)
 //   FAKE_CODEX_STARTUP_HANG    1 = the startup draft never ends
 //   FAKE_CODEX_PRELOADED       1 = the daemon starts with another client's thread loaded
+//   FAKE_CODEX_MCP_CONNECT_MS  #282 (with a per-invocation MCP server): the idle composer is shown
+//                              (state idle) for N ms before the MCP client connects; the TUI then
+//                              reports `working` (busy screen) while its startup finishes
+//   FAKE_CODEX_POST_CONNECT_MS #282: how long that `working` lasts before the TUI goes idle
+//   FAKE_CODEX_POST_CONNECT_HANG #282: 1 = that `working` never ends (nothing is ever typed)
 //   FAKE_CODEX_HOOKS_REVIEW    1 = the startup hook review (seen live on 0.159.2, #204) follows
 //                              the draft and holds the session start until answered (esc);
 //                              FAKE_CODEX_SELF_ACCEPT_MS also answers it (stands in for the operator)
@@ -537,6 +542,16 @@ async function tui(overrides = {}) {
     if (!s.session && r.headers.get('mcp-session-id')) s.session = r.headers.get('mcp-session-id');
     return r.status === 202 ? null : r.json();
   };
+  // #282: a slow startup, as live G4 run 20261004T075757Z saw on Codex 0.160.0: the idle
+  // composer first (herdr idle), the MCP connect late, then `working` while startup finishes.
+  const slowStart = mcp.size > 0 && (env.FAKE_CODEX_MCP_CONNECT_MS || env.FAKE_CODEX_POST_CONNECT_MS || env.FAKE_CODEX_POST_CONNECT_HANG === '1');
+  if (slowStart) {
+    setState('idle');
+    render(false);
+    await sleep(Number(env.FAKE_CODEX_MCP_CONNECT_MS || 0));
+    setState('working');
+    render(true);
+  }
   for (const [name, s] of mcp) {
     try {
       await mcpPost(s, { jsonrpc: '2.0', id: s.nextId++, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: { elicitation: { form: {}, url: {} } }, clientInfo: { name: 'codex-mcp-client', title: 'Codex', version: VERSION } } });
@@ -547,6 +562,10 @@ async function tui(overrides = {}) {
     } catch (e) {
       hist(`[mcp ${name} failed: ${e.message}]`);
     }
+  }
+  if (slowStart) {
+    const until = env.FAKE_CODEX_POST_CONNECT_HANG === '1' ? Infinity : Date.now() + Number(env.FAKE_CODEX_POST_CONNECT_MS || 0);
+    while (Date.now() < until) await sleep(50);
   }
   const mcpTurn = async (text) => {
     const [name, s] = [...mcp.entries()][0];

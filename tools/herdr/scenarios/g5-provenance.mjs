@@ -444,6 +444,8 @@ export default {
           });
           out.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
           if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
+          // #282: the session loaded on the wire is not the end of Codex's startup; settle first.
+          out.codexStartupSettle = await agent.startupSettle(`codex-ready-settle-arm-${arm}`, `the arm ${arm} Codex session loaded in the daemon (pane read #${ready.readSeq})`, num('turnTimeoutMs'));
           const marker = await agent.prompt(operator.threadMarker, { wait: true });
           const markerFrom = lastLine();
           // #253: typed with `herdr agent prompt --wait`, so herdr observed the marker's own turn;
@@ -577,6 +579,8 @@ export default {
       });
       g5.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
+      // #282: the session loaded on the wire is not the end of Codex's startup; settle first.
+      g5.codexStartupSettle = await codex.startupSettle('codex-ready-settle', `the Codex session loaded in the daemon (pane read #${ready.readSeq})`, num('turnTimeoutMs'));
       const marker = await codex.prompt(operator.threadMarker, { wait: true });
       const markerFrom = lastLine();
       // #253: typed with `herdr agent prompt --wait`, as in the arms path.

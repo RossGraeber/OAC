@@ -86,7 +86,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
-import { driverAcceptDialog, recordWaitState } from '../lib/gate-common.mjs';
+import { driverAcceptDialog, recordWaitState, settleAfterObservation, pastFloor } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, paneArgv, parseG2Transcript,
@@ -350,8 +350,9 @@ export default {
     // Wait until the pane shows neither a dialog nor work in progress. `done` (#253) is the
     // wire-level "turn finished" signal when the scenario has one: with it, a herdr `unknown`
     // counts as settled (recorded with a finding); without it, `unknown` is never settled.
-    const settle = async (context, timeoutMs, { done = null } = {}) => {
-      await sleep(num('settleMs'));
+    // #282: `floor` (a state_change_seq) is a settle that must be at or past it.
+    const settle = async (context, timeoutMs, { done = null, floor = null } = {}) => {
+      if (floor === null) await sleep(num('settleMs'));
       const deadline = deadlineFor(timeoutMs);
       const waited0 = humanWaitMs;
       let blockedUnseen = 0;
@@ -361,7 +362,7 @@ export default {
         const st = await waitState(context, left);
         const state = st.state;
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
-        if (state === 'unknown' && !(done && done())) {
+        if ((state === 'unknown' && !(done && done())) || !pastFloor(st, { floor })) {
           await sleep(pollMs);
           continue;
         }
@@ -380,7 +381,7 @@ export default {
           await sleep(pollMs);
           continue;
         }
-        return { read: r, state };
+        return { read: r, state, stateChangeSeq: st.stateChangeSeq, waitSeq: st.seq };
       }
     };
 
@@ -573,6 +574,16 @@ export default {
       });
       g2.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
+      // #282: the session loaded on the wire is not the end of Codex's startup: settle (idle at
+      // or past herdr's state at this observation, still idle on a re-check) before typing.
+      g2.codexStartupSettle = await settleAfterObservation({
+        herdr, name: AGENT, g: g2, context: 'codex-ready-settle', what: `the Codex session loaded in the daemon (pane read #${ready.readSeq})`,
+        timeoutMs: num('turnTimeoutMs'), settleMs: num('settleMs'), ctx, stop, sleep,
+        settleTo: async ({ floor, timeoutMs }) => {
+          const s = await settle('codex-ready-settle', timeoutMs, { floor });
+          return { state: s.state, stateChangeSeq: s.stateChangeSeq, waitSeq: s.waitSeq, readSeq: s.read.seq };
+        },
+      });
 
       // --- 4. the operator's own message; find the TUI's thread on the wire ----------------
       const res = await herdr.agentPrompt(AGENT, operatorPrompt);

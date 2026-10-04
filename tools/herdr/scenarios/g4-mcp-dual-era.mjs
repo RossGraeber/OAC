@@ -56,7 +56,10 @@
 //      both copies push; the Claude pane is read.
 //   4. Claude's modern HTTP `tools/call` (an operator prompt).
 //   5. Codex starts in a second pane, CONCURRENTLY with the live Claude session. Its MCP
-//      client's `initialize` user-agent must equal the pinned Codex version. An operator
+//      client's `initialize` user-agent must equal the pinned Codex version. Once that MCP
+//      connect is seen, the driver settles Codex again before typing (#282: idle at or past
+//      herdr's state at the connect, still idle on a re-check; never settled within
+//      turnTimeoutMs -> NOT RUN with a startup-settle finding). An operator
 //      prompt asks it to call g4_echo, then g4_relay_to_claude; the relay reaches Claude only
 //      as the server's own channel push. Codex asks to approve each call (seen live on 0.160.0,
 //      #271): under accept=driver the driver answers "1. Allow" (this call only) when the prompt
@@ -358,6 +361,12 @@ export default {
       } else {
         ctx.finding(`a harness's CLI and wire versions differ (CLI ${JSON.stringify(g4.versions.cliOutput)}, wire ${JSON.stringify(g4.versions.wire)}); the run continues, but its captures stay unverified-* because they cannot name one version per harness`);
       }
+
+      // #282: Codex's MCP connect shows only that its startup reached the server, not that the
+      // startup is over (live run 20261004T075757Z: connect ~13 s after launch, `working` 1.1 s
+      // later). Settle (idle at or past herdr's state at this observation, then idle on a
+      // re-check) before the first prompt; never settled within the turn bound -> NOT RUN.
+      g4.codexStartupSettle = await codex.startupSettle('codex-mcp-settle', `Codex's MCP connect (initialize at transcript line ${cinit.reqLine})`, num('turnTimeoutMs'));
 
       const callsBefore = facts().toolCalls.length;
       const pushesBefore = facts().pushes.length;
