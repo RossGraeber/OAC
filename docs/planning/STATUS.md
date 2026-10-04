@@ -2127,7 +2127,9 @@ without an UNVERIFIED label.
   equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
   Harness VERIFIED. Closed for G4 by that run: the per-invocation
   `-c mcp_servers.<name>.url=...` override works for an HTTP MCP server on Codex 0.160.0
-  (exactly one Codex HTTP session, and no HTTP MCP server in the Codex user config), and
+  (exactly one Codex HTTP session, from a Codex launched with the `-c` override; the Codex
+  user config was unchanged through the run, and that it holds no other entry at the run's
+  port rests on an uncommitted `codex mcp list` read: UNVERIFIED from committed evidence), and
   the G4 dialog texts and in-progress indicator match. Criterion 5 holds on both halves:
   non-delivery, and the "g4modern ... unavailable" notice. Still open: the reconstruction
   caveat (the server is not the original). G4's verdict is unchanged (PASS).

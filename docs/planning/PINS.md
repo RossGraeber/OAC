@@ -339,7 +339,8 @@ anything:
   repos/openai/codex/releases/tags/rust-v0.160.0`, `gh api
   repos/openai/codex/git/ref/tags/rust-v0.160.0` and `gh api
   repos/openai/codex/git/tags/79b1b666f2e8551f8abbbca34957227f67f3f553`). It ran in the G4 herdr run on
-  2026-10-04 (run `20261004T085601Z`): `codex --version` `codex-cli 0.160.0`, the MCP client
+  2026-10-04 (run `20261004T093525Z`, the recorded run; also in the superseded run
+  `20261004T085601Z` of the same day): `codex --version` `codex-cli 0.160.0`, the MCP client
   user-agent and `clientInfo.version` `0.160.0`, and the post-run check `0.160.0`
   (`docs/planning/gates/herdr-runs/G4-2026-10-04.md` and its run manifest,
   `scenarioData.g4.versions`, `scenarioData.g4.postRun`). Update this field, and the version
