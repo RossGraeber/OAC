@@ -140,36 +140,56 @@ export function checkIndexes(read, fixtures) {
 }
 
 // spec/interfaces.md Appendix C (§3.3 there): every MUST and MUST NOT requirement of the four
-// documents has exactly one owner. Rows: `| <DOC>-<AREA> | <owner> | NNN, NNN, ... |`.
-const OWNERS = ['adapter', 'core', 'transport', 'binding'];
+// documents has exactly one owner. The appendix runs from its heading to the next top-level
+// `## ` heading, subheadings included. Its table has the header `| Area | Owner | Requirements |`,
+// the separator `|---|---|---|`, and rows `| <DOC>-<AREA> | <owner> | NNN, NNN, ... |`, where
+// <owner> is exactly one of OWNERS. Any other line that starts with `|` is a malformed row and
+// fails: no row is skipped silently.
+export const OWNERS = ['adapter', 'core', 'transport', 'binding'];
 const OWNER_DOC = 'spec/interfaces.md';
 const OWNER_HEADING = '## Appendix C. Owner index';
+const OWNER_ROW = new RegExp(`^\\| ((?:SC|SEC|MCPB|IFC)-[A-Z]+) \\| (${OWNERS.join('|')}) \\| ([0-9]{3}(?:, [0-9]{3})*) \\|$`);
 
+// Returns { rows, problems }: rows as { owner, ids, line }; problems for malformed lines.
 export function ownerRows(text) {
   const start = text.indexOf(OWNER_HEADING);
-  if (start < 0) throw new Error(`owner index heading not found: ${OWNER_HEADING}`);
+  if (start < 0) return { rows: [], problems: [`${OWNER_DOC}: owner index heading not found: ${OWNER_HEADING}`] };
   const base = text.slice(0, start).split('\n').length;
   const rows = [];
+  const problems = [];
   const lines = text.slice(start).split('\n');
   for (let k = 1; k < lines.length; k++) {
-    if (/^#{1,3} /.test(lines[k])) break;
-    const m = /^\| ([A-Z]+-[A-Z]+) \| ([a-z]+) \| ([0-9, ]+) \|\s*$/.exec(lines[k]);
-    if (m) rows.push({ owner: m[2], ids: m[3].split(',').map((s) => `${m[1]}-${s.trim()}`), line: base + k });
+    const line = lines[k].replace(/\s+$/, '');
+    if (/^## /.test(line)) break;
+    if (!line.startsWith('|')) continue;
+    if (line === '| Area | Owner | Requirements |' || line === '|---|---|---|') continue;
+    const m = OWNER_ROW.exec(line);
+    if (!m) {
+      problems.push(`${OWNER_DOC}:${base + k}: malformed owner-index row (expected | <DOC>-<AREA> | ${OWNERS.join('/')} | NNN, NNN |): ${line}`);
+      continue;
+    }
+    rows.push({ owner: m[2], ids: m[3].split(', ').map((n) => `${m[1]}-${n}`), line: base + k });
   }
-  return rows;
+  return { rows, problems };
 }
 
-// Returns a list of problem strings: an owner outside OWNERS, a listed id that is not a MUST or
-// MUST NOT of some document, an id listed twice, and a MUST or MUST NOT listed nowhere.
-export function checkOwners(read) {
-  const problems = [];
-  const must = new Map(); // id -> doc path
+// The MUST and MUST NOT ids of every document, as id -> doc path.
+export function mustIds(read) {
+  const must = new Map();
   for (const doc of DOCS) {
     for (const [id, d] of definitions(read(doc.path), doc.prefix)) if (d.level === 'MUST' || d.level === 'MUST NOT') must.set(id, doc.path);
   }
+  return must;
+}
+
+// Returns a list of problem strings: a malformed row (an owner outside OWNERS included), a
+// listed id that is not a MUST or MUST NOT of some document, an id listed twice (within one row
+// or across rows), and a MUST or MUST NOT listed nowhere.
+export function checkOwners(read) {
+  const must = mustIds(read);
+  const { rows, problems } = ownerRows(read(OWNER_DOC));
   const seen = new Map();
-  for (const row of ownerRows(read(OWNER_DOC))) {
-    if (!OWNERS.includes(row.owner)) problems.push(`${OWNER_DOC}:${row.line}: owner ${row.owner} is not one of ${OWNERS.join(', ')}`);
+  for (const row of rows) {
     for (const id of row.ids) {
       if (!must.has(id)) problems.push(`${OWNER_DOC}:${row.line}: ${id} is not a MUST or MUST NOT requirement of any document`);
       if (seen.has(id)) problems.push(`${OWNER_DOC}:${row.line}: ${id} has a second owner (first at line ${seen.get(id)})`);
