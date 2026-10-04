@@ -999,7 +999,8 @@ and reply, with no grant from B to A (fixture `sec-auz/SEC-AUZ-014.p02`):
 ### 9.6 Actions beyond delivery
 
 A grant authorizes delivery into the addressed session's input. Some harness surfaces offer
-operations that do more. Each is a separate authorization decision, off by default.
+operations that do more. Each is a separate authorization decision, off by default, or, for
+steering, not offered at all ([SEC-AUZ-022]).
 
 [SEC-AUZ-020] An implementation MUST NOT treat a verified signature, a grant, or a
 successful pairing as authorizing any action that a message's content requests.
@@ -1012,13 +1013,68 @@ With relay enabled, any sender a grant admits could approve the harness's action
 why it is off by default (`docs/planning/decisions/C6-trust-rendering.md` §7, conflict C10).
 
 [SEC-AUZ-022] An implementation MUST NOT hand off a peer message through a **steering
-operation**, an operation that a harness documents as amending the instructions of a turn
-already running, unless an operator enabled steering for the addressed session as a
-decision of its own.
+operation**.
 
-Input that a harness queues and delivers at its own boundaries is ordinary input, not
-steering. Whether a particular harness operation steers is a binding's concern; one such
-case is an open finding owned by backlog task G7 (#224).
+A **steering operation** is a hand-off operation that, in some state of the session, adds
+its input to a turn the harness is already running. What the harness does with the
+operation decides whether it steers, not what the operation is called or how it is
+documented. An operation steers if the harness's documentation says that it adds input to a
+running turn, or if the harness was observed or shown by its source to do so. That holds
+even where the harness documents the operation only as starting a turn, or documents
+nothing about a call made during a turn. Each binding names which of its hand-off
+operations are steering operations.
+
+The one exception is an operation for which a binding states, citing evidence for each
+point, both that the harness input surface offers no hand-off that holds input for a turn
+of its own, and that the harness itself decides at which boundaries of its running turn
+the input is taken in. Such an operation is not a steering operation. Input handed off
+through it during a turn does join the running turn: it is accepted as ordinary input
+because the surface offers nothing else (`spec/session-channels.md` [SC-DLV-006]), not
+because it stays out of the turn. Without such a binding statement, an operation that adds
+input to a running turn is a steering operation, even on a surface whose holding hand-off
+is unavailable on a particular host.
+
+This revision offers no operator setting that enables steering, unlike the relay of
+[SEC-AUZ-021].
+
+*Dated note, 2026-10-04 (#274): until this date a steering operation was only one that a
+harness "documents as amending the instructions of a turn already running", and an
+operator could enable steering for a session. A harness's operation for starting a turn was
+shown, from source and in one live run, to add its input to the running turn when called
+during one, and its documentation says nothing about that case. The operator decided on
+#224 (2026-10-02) that delivery must not steer. The definition is now behavioural, the
+enabling path is removed, and [SEC-AUZ-025] to [SEC-AUZ-027] state how a hand-off avoids
+steering. The change is made before the interface freeze: after it, the wider definition
+and the three new requirements would each be a `MUST` or `MUST NOT` that an implementation
+conformant to the earlier revision could violate (`spec/session-channels.md` §5.3,
+item 11). A later revision that adds an enabling decision would loosen a `MUST NOT`.*
+
+[SEC-AUZ-025] An implementation whose harness input surface offers a hand-off operation
+that holds input for a turn of its own MUST hand off a peer message through that operation
+whenever the addressed session is running a turn or may be running one.
+
+[SEC-AUZ-026] An implementation MUST treat the addressed session as possibly running a turn
+unless the harness establishes, in the same operation as the hand-off, that no turn is
+running.
+
+A check of whether a turn is running, made before a separate hand-off call, does not
+establish it. A turn can start between the check and the call, from the harness's own user,
+from input the harness held earlier, or from another client of the same harness. An
+operation that steers when called during a turn can therefore steer after a check that found
+the session idle.
+
+[SEC-AUZ-027] An implementation whose holding hand-off is turned away MUST NOT hand off the
+same peer message through a steering operation instead.
+
+This requirement restates [SEC-AUZ-022] for the moment an implementation is most tempted to
+break it: a holding hand-off that fails, or is unavailable, does not make a steering
+operation acceptable.
+
+The receiver reports the turned-away hand-off as `spec/session-channels.md` §7.1.3 says:
+`destination-unavailable` when the surface turned it away as unable to take input now
+([SC-DLV-008]), and `handoff-failed` otherwise ([SC-DLV-009]). Input that the harness holds
+after the holding hand-off succeeds is held by the harness, not by the receiver
+([SC-DLV-007]).
 
 [SEC-AUZ-023] An implementation MUST NOT automate, suppress or pre-answer a consent step that
 a harness itself requires before it loads an extension or accepts input from one.
@@ -1474,7 +1530,7 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | Header injection through an identifier (C13 X5, X5c) | A value carries a line break | Whole-value check and refusal [SEC-PRV-003], [SEC-PRV-004] | `sec-prv/SEC-PRV-003.n01`, `.n02`; G7, F11 | None in the protocol; adapter code still needs its own tests |
 | Silently dropped provenance field (06 row 15) | A harness surface drops a field it cannot carry | Refuse instead of delivering partial provenance [SEC-PRV-006] | F10 contract suite, G4: not yet built, open risk | A surface that drops a field without any observable sign |
 | Permission-relay abuse (06 row 11) | Relay of approvals is enabled | Off by default; enabling is a separate operator decision [SEC-AUZ-021] | F11, H2: not yet built, open risk | Once enabled, any granted sender can approve the harness's actions |
-| Steering a running turn (06 row 12) | A granted peer's message reaches a harness that offers steering | Steering off unless separately enabled [SEC-AUZ-022] | G7: not yet built, open risk | A harness operation that steers without being documented as steering (#224, G7) |
+| Steering a running turn (06 row 12) | A granted peer's message reaches a harness that offers steering | No steering operation is used, judged by what an operation does rather than by its documentation, and no setting enables one [SEC-AUZ-022]; a holding hand-off whenever a turn may be running, with no reliance on a separate idle check [SEC-AUZ-025], [SEC-AUZ-026]; no fallback to steering when the holding hand-off is turned away [SEC-AUZ-027] | G7 (#68) against the F9 fake: not yet built, open risk | On one v0.1 surface, input handed off mid-turn does join the running turn, at tool-call boundaries the harness chooses (G1 criterion 3, Box C); it is accepted as ordinary input under the binding exception of [SEC-AUZ-022], because that surface offers no holding hand-off. A steering behaviour that neither documentation, source nor any run has shown. Input the harness holds can wait, or never run, on conditions the harness sets (`spec/bindings/mcp.md` §8.2.1) |
 | Bypass of a harness's own consent step | An implementation automates past a consent prompt | [SEC-AUZ-023] | H2 review: not yet built, open risk | None if the rule holds |
 | Local attachment spoofing (06 row 13) | A local process connects pretending to be a harness's attachment | OS-level peer authentication [SEC-AUZ-030] | G9: not yet built, open risk | Platform behaviour UNVERIFIED on Windows (`RISK-LOCAL-IPC`) |
 | Leaked device key (06 row 8) | Attacker reads the private seed | Seed never disclosed [SEC-KEY-004]; revocation removes every grant and binding at once [SEC-KEY-035] | F5, F11: not yet built, open risk | No rotation in v0.1: the key stays trusted by every peer until removed |
@@ -1632,9 +1688,12 @@ requirement whose fixtures exercise it.
 | SEC-AUZ-018 | MUST | 9.5 | `sec-auz/SEC-AUZ-018.n01` |
 | SEC-AUZ-020 | MUST NOT | 9.6 | TODO(fixture): behaviour across the implementation; F11 |
 | SEC-AUZ-021 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G4, F11, H2 |
-| SEC-AUZ-022 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G7 |
+| SEC-AUZ-022 | MUST NOT | 9.6 | TODO(fixture): needs a harness input surface; G7 (#68) against the F9 fake |
 | SEC-AUZ-023 | MUST NOT | 9.6 | TODO(fixture): review of launch code; H2 |
 | SEC-AUZ-024 | MUST NOT | 9.6 | TODO(fixture): behaviour across the implementation; the fixture stages carry no content into an authorization decision; F11 |
+| SEC-AUZ-025 | MUST | 9.6 | TODO(fixture): needs a harness input surface with a running turn; G7 (#68) against the F9 fake |
+| SEC-AUZ-026 | MUST | 9.6 | TODO(fixture): needs a harness input surface where a turn starts between a check and a hand-off; G7 (#68) against the F9 fake |
+| SEC-AUZ-027 | MUST NOT | 9.6 | TODO(fixture): needs a harness input surface that turns a holding hand-off away; G7 (#68) against the F9 fake |
 | SEC-AUZ-030 | MUST | 9.7 | TODO(fixture): needs the platform facilities; G9 |
 | SEC-RCT-001 | MUST | 10.1 | `sec-rct/SEC-RCT-001.p01` |
 | SEC-RCT-002 | MUST | 10.1 | covered by SEC-RCT-003 (`sec-rct/SEC-RCT-003.n04`, `.n07`) |
@@ -1723,3 +1782,4 @@ follow from it and belong to their owners:
 | 0.1 (draft) | 2026-10-03 | §13.1 Timing: SEC-STG-005 (SHOULD: one refusal path with no target-dependent work) and the timing residual. |
 | 0.1 (draft) | 2026-10-03 | E8 (#48), editorial: the §3.3 note and the §13 introduction name the committed reference runner, `tests/protocol/runner/run.mjs`, which CI runs over every fixture. Review of PR #270: a dated note after [SEC-AUZ-006] records that a session-id grant still covers its id after the binding ends, so the delivery stage reports `unknown-destination`. |
 | 0.1 (draft) | 2026-10-04 | L9 (#174): memory references. §1.2 states that memory references and resolved memory are content; §12.5 defines them in neutral terms, scoped to `content`, and adds SEC-PRV-015 (never in the provenance set, a separate carrier or a frame header), SEC-PRV-016 (no look-up or validation) and SEC-PRV-017 (no enrichment from a memory service); §9.6 adds SEC-AUZ-024 (no authorization decision takes a memory reference as input); §9.3 notes that working-directory scoping does not govern an external service's capture; §13 carries `docs/planning/v0.1/06-security.md` §14 rows 21 to 23. No envelope or content-model change: a memory reference stays text in a `content` entry (Decision L1 §4 Q1). No fixture: each new MUST NOT is `TODO(fixture)`. Operator decisions on #174: §12.6 adds SEC-PRV-018 (SHOULD NOT: no secrets in content) with a warning that the receiving side may store content; §12.5 notes that a harness that looks memory up itself and sends the result is unaffected. Review of PR #272: memory references scoped to `content`, so a header value of the same form is governed by §12.1 only; the §9.3 note and row 23 tied to Decision L1 §2's pinned version. |
+| 0.1 (draft) | 2026-10-04 | #274 (operator decision on #224, 2026-10-02): [SEC-AUZ-022] widened and made unconditional: a steering operation is any hand-off that adds input to a running turn, as documented, observed or shown by source, and no operator setting enables one. The only exception is an operation a binding shows, with evidence, to be on a surface with no holding hand-off and taken in at boundaries the harness chooses; such input does join the running turn, as the §13 residual states. SEC-AUZ-025 (a holding hand-off whenever a turn may be running), SEC-AUZ-026 (only an atomic check shows that no turn is running) and SEC-AUZ-027 (no fallback to steering) added, each `TODO(fixture)` owned by G7 (#68). The §13 steering row updated. Made before the interface freeze (`spec/session-channels.md` §5.3, item 11). |
