@@ -545,7 +545,9 @@ list.
 
 - **Risk.** `spec/security.md` (E5, #45) makes the security model normative, with 121
   fixtures under `tests/protocol/sec-*/`. No runner executes them yet (E8, F12), and 30 of its
-  requirements are `TODO(fixture)`, each naming the later test (F2, F4, F5, F6, F10, F11, G4,
+  requirements are `TODO(fixture)` *(dated note, 2026-10-04, #174: 38 Appendix A rows now
+  name a `TODO(fixture)`, partial ones included; #174 added four, SEC-AUZ-024 and
+  SEC-PRV-015 to SEC-PRV-017, naming F11 and L10)*, each naming the later test (F2, F4, F5, F6, F10, F11, G4,
   G7, G9, H2). Section 13's threat rows whose only proving test is one of those are open risks,
   not closed mitigations (`oac-security-work` §1). Two library facts are UNVERIFIED (rows 63
   and 64): whether the pinned Ed25519 crate's strict verify gives the verdicts of
@@ -765,7 +767,9 @@ list.
   shipped or called by OAC, with `Gates affected: none` (`docs/planning/PINS.md`
   "Beacon (external memory service)"). No spec text depends on it: L1 chose docs-only
   (L1 §4 Q1). A drift costs only Epic L's docs (L5), threat rows (L4) and opt-in
-  scenario (L10). If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
+  scenario (L10). *(Dated note, 2026-10-04, #174: `spec/security.md` §12.5 and §13
+  now carry the memory-reference doctrine and rows 21-23 in neutral terms, naming no
+  service, so a Beacon drift still changes no spec text.)* If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
 - **Early-warning signal.** A new Beacon release tag appears; a cited Beacon doc
   changes at a new tag; L3's herdr-driven live leg shows OAC-delivered input in Beacon's
   `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.

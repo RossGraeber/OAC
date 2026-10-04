@@ -61,6 +61,8 @@ Each one is a boundary hit, not a feature request.
   license §3, UNVERIFIED §6 (status §11, live leg §12)).
 - Doctrine and threats: `docs/planning/v0.1/06-security.md` §2 (memory references are
   content), §13 (capture outside `working_directory` scoping), §14 rows 21-23.
+  Normative, neutral form (no service named): `spec/security.md` §1.2, §9.3, §9.6
+  (SEC-AUZ-024), §12.5 (SEC-PRV-015 to -017), §13 memory rows.
 - Risk register: `docs/planning/v0.1/11-risks.md` `RISK-BEACON`.
 - Operator guide and "What OAC does not do": `docs/planning/v0.1/08-cli-and-deployment.md`
   §20 (all Beacon commands live there, not here).
