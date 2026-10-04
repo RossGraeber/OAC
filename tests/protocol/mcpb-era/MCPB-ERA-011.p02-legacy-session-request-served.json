@@ -23,7 +23,36 @@
         "jsonrpc": "2.0",
         "id": 3,
         "result": {
-          "tools": []
+          "tools": [
+            {
+              "name": "send",
+              "description": "OAC send",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "reply",
+              "description": "OAC reply",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "list_sessions",
+              "description": "OAC list_sessions",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "whoami",
+              "description": "OAC whoami",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          ]
         }
       }
     }

@@ -8,7 +8,7 @@
   "description": "A request with no protocolVersion, on a connection with no initialize, is served instead of rejected.",
   "stage": "mcp-binding",
   "context": {
-    "era": "modern",
+    "era": "unestablished",
     "server_role": "general",
     "legacy_initialized": false
   },

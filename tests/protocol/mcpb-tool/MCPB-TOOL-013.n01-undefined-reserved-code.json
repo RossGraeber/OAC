@@ -9,7 +9,8 @@
   "stage": "mcp-binding",
   "context": {
     "era": "modern",
-    "server_role": "general"
+    "server_role": "general",
+    "bound": true
   },
   "input": {
     "mcp_exchange": {

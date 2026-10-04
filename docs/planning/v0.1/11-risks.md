@@ -166,7 +166,7 @@ list.
   calls are refused on both eras, including if Codex's default moves to `2026-07-28`;
   (b) whether one Codex legacy-era connection carries several threads' calls (owner #69);
   (c) whether legacy clients other than Codex `0.157.1`, Claude Code's channel path
-  included, accept an `extensions` member in an `initialize` result (§4.3.8, tested in
+  included, accept an `extensions` member in an `initialize` result (MCPB-ERA-008, tested in
   #65).
 
 ### RISK-G3 — Zenoh loopback discovery fails

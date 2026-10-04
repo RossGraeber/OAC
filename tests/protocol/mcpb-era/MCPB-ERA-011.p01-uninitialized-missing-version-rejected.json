@@ -7,7 +7,7 @@
   "description": "A request with no protocolVersion, on a connection with no initialize, is rejected with -32602.",
   "stage": "mcp-binding",
   "context": {
-    "era": "modern",
+    "era": "unestablished",
     "server_role": "general",
     "legacy_initialized": false
   },

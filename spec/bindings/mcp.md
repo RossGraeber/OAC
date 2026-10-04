@@ -4,7 +4,7 @@
 - **Status:** Stage 2 draft, normative once Gate S2 freezes the spec surface
   (`docs/planning/v0.1/10-stages.md` §6). Every requirement carries an `MCPB` id; the index
   in §12 lists its fixtures or marks it `TODO(fixture)`.
-- **Binding revision:** `0.1-draft`.
+- **Binding revision:** `0.1` (draft until Gate S2; fixtures cite `spec_revision` `0.1`).
 - **Extension identifier:** `io.github.rossgraeber/oac-session-channels`
   (`docs/planning/decisions/C3-spec-packaging.md` §1-§3).
 - **MCP revisions bound:** current (modern) era `2026-07-28`; legacy era `2025-11-25`
@@ -579,7 +579,7 @@ extension support.
 
 [MCPB-FBK-002] A client that does understand the identifier SHOULD declare it in
 its own `capabilities.extensions`. A client deviates by not declaring it; the server
-still serves it under 7.1.
+still serves it under [MCPB-FBK-001].
 
 ## 8. Provider profiles
 
@@ -622,7 +622,7 @@ exception to [MCPB-ERA-005]: a Claude-channel stdio process is legacy-only, by d
 
 The 2026-07-28 schema still defines `experimental` on both `ClientCapabilities` and
 `ServerCapabilities` (schema at commit `271ecc9`, lines 720 and 797, cited in §4.3), so
-Requirement MCPB-CLD-001 restricts where the capability is declared, not whether the member exists.
+requirement MCPB-CLD-001 restricts where the capability is declared, not whether the member exists.
 
 > **Reference implementation note:** the Claude adapter's shim is a stdio process
 > spawned by Claude Code (C2 §1). It therefore runs as the legacy-only exception in [MCPB-CLD-003],
@@ -646,7 +646,7 @@ Requirement MCPB-CLD-001 restricts where the capability is declared, not whether
 Codex MCP client as a way of delivering an OAC message.
 
 Requirement MCPB-CDX-001 holds on both eras: Codex has no MCP surface that turns a notification into session
-input, so such a notification could only mislead (§2.1). G4 recorded one such push with
+input, so such a notification could only mislead ([MCPB-DLV-001]). G4 recorded one such push with
 no consumer (line 56).
 
 ## 9. Resolution of conflict-register row C5
@@ -742,8 +742,12 @@ ones:
 
 - `fixture_format` is `oac-mcpb-fixture/1`.
 - `stage` is `mcp-binding`.
-- `context` holds `era` (`legacy` or `modern`), `server_role` (`channel-path` or
-  `general`, §4.3) and, where a requirement needs them, `legacy_initialized` (whether the
+- `context` holds `era` and `server_role` (`channel-path` or `general`, §4.3). `era` is
+  `legacy` (the request belongs to a legacy-era connection), `modern` (a modern-era
+  request) or `unestablished` (neither: no `initialize` on that stdio process or HTTP
+  session and no `protocolVersion`, §1). Where a requirement needs them, `context` also
+  holds `bound` (whether the connection is bound by a documented pairing, §4.4; every
+  fixture that shows a served `tools/call` sets it to `true`), `legacy_initialized` (whether the
   stdio process or HTTP session has completed `initialize`) and
   `supported_legacy_revisions`.
 - `input` is `mcp_exchange`: an object with an optional `request` (the client's
@@ -760,7 +764,7 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 
 | Id | Keyword | Fixtures |
 |---|---|---|
-| MCPB-DLV-001 | MUST NOT | TODO(fixture): `server/discover` and `initialize` results, `tools/list`, `resources/list`, `prompts/list` → exposed capability keys are exactly `tools`, `extensions` (holding only the §3 identifier) and, on a legacy channel-path connection only, `experimental["claude/channel"]`; tool names are exactly §5.1's four; no resource or prompt is listed |
+| MCPB-DLV-001 | MUST NOT | TODO(fixture): `server/discover` and `initialize` results, `tools/list`, `resources/list`, `prompts/list` → every capability key is one the MCP revision in use defines (for example `tools`, `logging`) or `extensions` (holding only the §3 identifier) or, on a legacy channel-path connection only, `experimental["claude/channel"]`; no tool beyond §5.1's four; no resource or prompt is listed |
 | MCPB-DLV-002 | MUST NOT | TODO(fixture): `resources/list`, `prompts/list`, `subscriptions/listen` while active inbound is declared → no inbox-shaped resource, prompt or subscription offered |
 | MCPB-EXT-001 | MUST | `tests/protocol/mcpb-ext/MCPB-EXT-001.p01-initialize-exact-identifier.json`, `tests/protocol/mcpb-ext/MCPB-EXT-001.n01-identifier-wrong-case.json` |
 | MCPB-EXT-002 | MUST NOT | TODO(fixture), needs the version member of `spec/session-channels.md` §6.5 (E2): a settings object declaring version `1.0` under the identifier (negative) → nonconformant |
@@ -777,7 +781,7 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-ERA-009 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-009.p01-discover-declares-extension.json`, `tests/protocol/mcpb-era/MCPB-ERA-009.n01-discover-no-extensions.json` |
 | MCPB-ERA-010 | SHOULD | none (not a `MUST`) |
 | MCPB-ERA-011 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-011.p01-uninitialized-missing-version-rejected.json`, `tests/protocol/mcpb-era/MCPB-ERA-011.p02-legacy-session-request-served.json`, `tests/protocol/mcpb-era/MCPB-ERA-011.n01-uninitialized-missing-version-served.json` |
-| MCPB-ATT-001 | MUST NOT | TODO(fixture): two tool calls on one unbound connection carrying different client-asserted session ids (negative) → neither attributed by connection alone; both refused per H17 |
+| MCPB-ATT-001 | MUST NOT | TODO(fixture): two tool calls on one unbound connection carrying different client-asserted session ids (negative) → neither attributed by connection alone; both refused per MCPB-ATT-002 |
 | MCPB-ATT-002 | MUST | TODO(fixture): `send`, `list_sessions` and `whoami` on an unbound connection, legacy and modern (negative) → `isError: true` result carrying the authorization-failure error for each (code pending E4) |
 | MCPB-TOOL-001 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-001.p01-four-tools-listed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-001.n01-whoami-missing.json` |
 | MCPB-TOOL-002 | MUST | TODO(fixture): `tools/list` on each era → identical names, schemas and result shapes |

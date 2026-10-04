@@ -31,8 +31,8 @@ verdict, or when a pin moves.
   `oac-mcp` is corrected. C3 §4, `PINS.md`, `REVERIFICATION-B2.md` and G4-result.md
   criterion 2 still carry the narrower wording; #257 corrects them. The identifier itself
   is unaffected (second label `github`).
-- **Cross-dependency.** The binding cites `spec/session-channels.md` (#41) sections by
-  planned name.
+- **Cross-dependency.** The binding cites `spec/session-channels.md` (#41, PR #258) by
+  its section numbers; §6-§8 there are stubs E2-E4 fill.
 
 No gate verdict, pin or `ADR-001.md` text changes.)
 
@@ -1672,8 +1672,7 @@ without an UNVERIFIED label.
   are refused on both eras (`spec/bindings/mcp.md` §4.4, §8.2).
 - **New, from E6 (#46, 2026-10-03):** whether legacy clients other than Codex `0.157.1`,
   Claude Code's channel path included, accept an `extensions` member in an `initialize`
-  result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` §4.3.8,
-  hook H13).
+  result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).
 
 - Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
   from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own
