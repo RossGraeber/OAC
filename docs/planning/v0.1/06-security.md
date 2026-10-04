@@ -480,7 +480,11 @@ Merged from C4 §13, C5 §13, and C6 §12, deduplicated, with the DESIGN "Securi
 and every PLANNING-PROMPT.md §7 addition covered. Each row cites the decision section it
 derives from. Rows 21-23 (L4, issue #169) derive from
 `docs/planning/decisions/L1-beacon-memory.md` and use neutral wording ("an external
-memory service, e.g. Beacon per L1") so a later normative text can carry them. Row 24
+memory service, e.g. Beacon per L1") so a later normative text can carry them. *(Dated note, 2026-10-04, #174:
+`spec/security.md` now carries them normatively, in neutral terms: §1.2 and §12.5
+(SEC-PRV-015 to SEC-PRV-017), §12.6 (SEC-PRV-018, no secrets in content), §9.6
+(SEC-AUZ-024), §9.3, and three §13 threat rows. No
+envelope or content-model change; the rows here keep the provider-specific evidence.)* Row 24
 (issue #236, 2026-10-02) derives from C4 §3's revision and C4 §13.
 
 | # | Attack | Precondition | Mitigation | Proving test | Residual risk |
