@@ -1378,7 +1378,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 |---|---|---|
 | Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.285` (2026-09-29T19:27:30Z UTC; L3, 2026-10-01). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied. §3.1 facts re-checked at `2.1.285` on 2026-10-02 (#122, REVERIFICATION-B2.md) | PINS.md — Claude Code Channels ("Version policy") |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
-| Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.159.3`, commit `01fc69f4026735edfdf6789820549727a4867b11` (2026-09-30T22:57:34Z UTC; L3, 2026-10-01). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
+| Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc` (2026-10-01T20:19:13Z UTC; G4 herdr run, 2026-10-04). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
