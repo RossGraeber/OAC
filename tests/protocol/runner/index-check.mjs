@@ -166,13 +166,17 @@ export function ownerRows(text) {
     if (/^## /.test(raw)) break;
     // GitHub renders a table row with up to three leading spaces and without outer pipes.
     const line = raw.replace(/^ {0,3}/, '');
+    // CommonMark §4.5: a fence opens with three or more backticks or tildes; a backtick fence's
+    // info string may not contain a backtick (```a`b is a paragraph, not a fence). It closes on
+    // a line of the same character, at least as long, with nothing after it but spaces.
     if (fence) {
-      if (line.startsWith(fence)) fence = null;
+      const c = /^(`{3,}|~{3,})$/.exec(line);
+      if (c && c[1][0] === fence[0] && c[1].length >= fence.length) fence = null;
       continue;
     }
-    const f = /^(`{3,}|~{3,})/.exec(line);
+    const f = /^(?:(`{3,})[^`]*|(~{3,}).*)$/.exec(line);
     if (f) {
-      fence = f[1];
+      fence = f[1] ?? f[2];
       continue;
     }
     if (comment || line.startsWith('<!--')) {
