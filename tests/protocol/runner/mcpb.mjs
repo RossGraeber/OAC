@@ -128,6 +128,38 @@ function failsInputSchema(ex) {
 
 const containsString = (v, s) => JSON.stringify(v).includes(s);
 
+// Every string value inside a JSON value.
+function stringsIn(v, out = []) {
+  if (typeof v === 'string') out.push(v);
+  else if (Array.isArray(v)) v.forEach((x) => stringsIn(x, out));
+  else if (isObj(v)) Object.values(v).forEach((x) => stringsIn(x, out));
+  return out;
+}
+// The words of a text: runs of letters, digits and hyphens.
+const wordsIn = (s) => String(s).match(/[A-Za-z0-9-]+/g) || [];
+// A device fingerprint is the key id: 64 lower-case hex digits (spec/security.md §5.2).
+const isFingerprint = (s) => /^[0-9a-f]{64}$/.test(s);
+// Delivery states (spec/session-channels.md Table 8.1); those only a receiver observes.
+const STATE_NAMES = ['accepted-by-adapter', 'handed-to-harness', 'unknown', 'rejected', 'expired', 'duplicate', 'unreachable', 'failed'];
+const RECEIVER_ONLY_STATES = ['handed-to-harness', 'rejected', 'expired', 'duplicate'];
+
+// The client capabilities a request shows: `initialize` params, or modern per-request
+// `_meta`. Null when the exchange does not show them (a request inside a legacy session).
+function clientCaps(ex) {
+  const r = req(ex);
+  if (!r || !isObj(r.params)) return null;
+  if (r.method === 'initialize') return isObj(r.params.capabilities) ? r.params.capabilities : {};
+  const meta = isObj(r.params._meta) ? r.params._meta : null;
+  if (meta && has(meta, 'io.modelcontextprotocol/protocolVersion')) {
+    return isObj(meta['io.modelcontextprotocol/clientCapabilities']) ? meta['io.modelcontextprotocol/clientCapabilities'] : {};
+  }
+  return null;
+}
+const successResult = (ex) => {
+  const res = result(ex);
+  return res !== null && res.isError !== true ? res : null;
+};
+
 // ---------------------------------------------------------------------------------------
 // One checker per requirement.
 
@@ -144,8 +176,28 @@ const CHECKS = {
     if (!c || !isObj(c.extensions) || !has(c.extensions, EXTENSION_ID)) return true;
     return isObj(c.extensions[EXTENSION_ID]);
   },
+  // This binding revision defines no settings member (§3.6), so every member a client
+  // places in its OAC settings object is unrecognized and is ignored: the request is served.
+  'MCPB-EXT-004': (ex) => {
+    const c = clientCaps(ex);
+    if (!c || !isObj(c.extensions) || !isObj(c.extensions[EXTENSION_ID])) return true;
+    if (Object.keys(c.extensions[EXTENSION_ID]).length === 0) return true;
+    return result(ex) !== null;
+  },
 
   // §4.3 eras.
+  'MCPB-ERA-001': (ex, ctx) => method(ex) !== 'initialize' || ctx.era !== 'legacy' || result(ex) !== null,
+  'MCPB-ERA-002': (ex) => {
+    if (method(ex) !== 'initialize' || req(ex).params.protocolVersion !== LEGACY) return true;
+    return result(ex) !== null && result(ex).protocolVersion === LEGACY;
+  },
+  // Served: only methods that a well-formed request cannot otherwise fail are decided.
+  'MCPB-ERA-004': (ex, ctx) => {
+    if (ctx.server_role === 'channel-path' || !['tools/list', 'server/discover'].includes(method(ex))) return true;
+    const meta = req(ex).params && isObj(req(ex).params._meta) ? req(ex).params._meta : {};
+    if (meta['io.modelcontextprotocol/protocolVersion'] !== MODERN) return true;
+    return result(ex) !== null;
+  },
   'MCPB-ERA-003': (ex, ctx) => {
     if (method(ex) !== 'initialize') return true;
     const asked = req(ex).params.protocolVersion;
@@ -176,8 +228,13 @@ const CHECKS = {
     return rpcError(ex) !== null && rpcError(ex).code === -32602;
   },
 
-  // §4.4 attribution.
-  'MCPB-ATT-002': (ex, ctx, env) => {
+  // §4.4 attribution. A call served on an unbound connection whose request carries no
+  // session id at all can only have been attributed by the connection or process.
+  'MCPB-ATT-001': (ex, ctx) => {
+    if (!isOacToolCall(ex) || ctx.bound !== false || successResult(ex) === null) return true;
+    return stringsIn(req(ex).params).some((s) => isSessionId(s));
+  },
+  'MCPB-ATT-002':(ex, ctx, env) => {
     if (!isOacToolCall(ex) || ctx.bound !== false) return true;
     const res = result(ex);
     return isToolError(res) && codesInResult(res, env.table83).includes('unauthorized');
@@ -195,6 +252,21 @@ const CHECKS = {
     if (!isOacToolCall(ex) || ctx.bound === false || !failsInputSchema(ex)) return true;
     const res = result(ex);
     return isToolError(res) && codesInResult(res, env.table83).includes('invalid-request');
+  },
+  // The values §5.3 lists, in a `text` block of a successful result. The message id of a
+  // `send` or `reply` is not decided: this revision fixes no layout that identifies it.
+  'MCPB-TOOL-006': (ex) => {
+    const res = successResult(ex);
+    if (!isOacToolCall(ex) || !res) return true;
+    const words = textBlocks(res).flatMap(wordsIn);
+    if (toolName(ex) === 'whoami') return words.some(isSessionId) && words.some(isFingerprint);
+    if (toolName(ex) === 'list_sessions') return CHECKS['MCPB-TOOL-015'](ex);
+    return words.includes('accepted-by-adapter');
+  },
+  'MCPB-TOOL-008': (ex) => {
+    const res = result(ex);
+    if (!['send', 'reply'].includes(toolName(ex)) || !res) return true;
+    return !stringsIn(res).flatMap(wordsIn).some((w) => RECEIVER_ONLY_STATES.includes(w));
   },
   'MCPB-TOOL-010': (ex, ctx, env) => {
     if (!isOacToolCall(ex)) return true;
@@ -272,10 +344,29 @@ const CHECKS = {
     const p = prefixOf(k);
     return p === null || !reservedPrefix(p) || MCP_SERVER_META_KEYS.has(k);
   })),
+  // A session id, a fingerprint or a delivery state in a tool result's `_meta` is a value
+  // the model needs ([MCPB-TOOL-006]); it must also be in a `text` block.
+  'MCPB-META-006': (ex) => {
+    const res = result(ex);
+    if (!isOacToolCall(ex) || !res || !isObj(res._meta)) return true;
+    const words = new Set(textBlocks(res).flatMap(wordsIn));
+    return stringsIn(res._meta).flatMap(wordsIn)
+      .filter((w) => isSessionId(w) || isFingerprint(w) || STATE_NAMES.includes(w))
+      .every((w) => words.has(w));
+  },
   'MCPB-META-007': (ex) => {
     const msgs = [ex.server_message, ...related(ex), ...serverEntries(subsequent(ex)).map((e) => e.message).filter(Boolean)];
     return msgs.every((m) => !(m && m.method === 'notifications/claude/channel' && isObj(m.params) && isObj(m.params.meta))
       || Object.keys(m.params.meta).every((k) => !k.includes('/')));
+  },
+
+  // §7 fallback: a client whose capabilities do not declare the identifier.
+  'MCPB-FBK-001': (ex, ctx) => {
+    const c = clientCaps(ex);
+    if (!c || (isObj(c.extensions) && has(c.extensions, EXTENSION_ID))) return true;
+    if (method(ex) === 'tools/list') return result(ex) !== null && Array.isArray(result(ex).tools);
+    if (isOacToolCall(ex) && ctx.bound === true) return rpcError(ex) === null;
+    return true;
   },
 
   // §8.1 channel path.
@@ -283,6 +374,21 @@ const CHECKS = {
     const c = caps(ex);
     if (!c || !isObj(c.experimental) || !has(c.experimental, 'claude/channel')) return true;
     return method(ex) === 'initialize' && isStr(result(ex).protocolVersion) && result(ex).protocolVersion <= LEGACY;
+  },
+  'MCPB-CLD-002': (ex, ctx) => {
+    if (ctx.era === 'legacy') return true;
+    const msgs = [ex.server_message, ...related(ex), ...serverEntries(subsequent(ex)).map((e) => e.message).filter(Boolean)];
+    return !msgs.some((m) => m && m.method === 'notifications/claude/channel');
+  },
+  // MCP 2026-07-28 names UnsupportedProtocolVersionError (-32022) as a recognized modern
+  // error; G4 showed -32601 makes Claude Code fall back (§8.1). Other codes: undecided.
+  'MCPB-CLD-003': (ex, ctx) => {
+    if (ctx.server_role !== 'channel-path' || method(ex) !== 'server/discover') return true;
+    const err = rpcError(ex);
+    if (!err) return false;
+    if (err.code === -32022) return false;
+    if (err.code === -32601) return true;
+    throw new Error(`MCPB-CLD-003: whether error code ${err.code} is a recognized modern error is not decided by spec/bindings/mcp.md`);
   },
 };
 

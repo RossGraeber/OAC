@@ -2901,7 +2901,7 @@ requirement whose fixtures exercise it.
 | SC-RCP-025 | MUST | 8.1.4 | `sc-rcp/SC-RCP-025.p01`, `.n01` |
 | SC-RCP-026 | MUST NOT | 8.1.4 | `sc-rcp/SC-RCP-026.n01` |
 | SC-RCP-027 | MUST | 8.1.4 | `sc-rcp/SC-RCP-027.n01` |
-| SC-RCP-028 | MUST | 8.1.4 | `sc-rcp/SC-RCP-028.n01`, `.n02` |
+| SC-RCP-028 | MUST | 8.1.4 | `sc-rcp/SC-RCP-028.p01`, `.p02`, `.n01` to `.n04` (`.p01` and `.n03` decide the Table 8.3 row of `transport-failure`, `.p02` and `.n04` that of `envelope-too-large`) |
 | SC-RCP-029 | MUST | 8.1.4 | `sc-rcp/SC-RCP-029.p01` |
 | SC-RCP-030 | MUST | 8.1.4 | `sc-rcp/SC-RCP-030.p01`, `.p02` |
 | SC-RCP-031 | MUST NOT | 8.1.4 | TODO(fixture): needs the envelope beside the receipt; F6 |
@@ -2921,14 +2921,14 @@ requirement whose fixtures exercise it.
 | SC-RCP-062 | MUST NOT | 8.2.3 | `sc-rcp/SC-RCP-062.n01` |
 | SC-RCP-070 | MUST | 8.3.1 | `expected.error` of every negative `envelope`-stage fixture in `sc-env/` and `sc-ver/`; `sc-rcp/SC-RCP-071.n01` to `.n06` |
 | SC-RCP-071 | MUST | 8.3.2 | `sc-rcp/SC-RCP-071.n01` to `.n06` |
-| SC-RCP-072 | MUST NOT | 8.3.2 | `sec-stg/SEC-STG-001.n01` (`spec/security.md` §7.1) |
+| SC-RCP-072 | MUST NOT | 8.3.2 | `sec-stg/SEC-STG-001.n01` (`spec/security.md` §7.1); `sc-rcp/SC-RCP-072.n01` (`receive` stage: an envelope past both its expiry and the replay window on arrival reports the envelope-stage `expired`) |
 | SC-RCP-073 | MUST NOT | 8.3.2 | `sc-rcp/SC-RCP-073.n01`, `.n02` (authorization, `routing` stage); `sc-rcp/SC-RCP-073.n03`, `.n04`, `.n05` (key, signature and replay steps) and `.p01` (`receive` stage, which combines the security and delivery stages) |
 | SC-RCP-074 | MUST NOT | 8.3.2 | the conformance runner (`tests/protocol/runner/run.mjs`, E8, #48) fails every fixture whose `expected` carries an error code that Table 8.3 does not list; that an implementation emits no other code: TODO(fixture), F12 |
 | SC-RCP-075 | MUST | 8.3.2 | TODO(fixture): request errors; E6 binding hooks, G5, G8 |
 | SC-RCP-076 | MUST | 8.3.2 | `sc-rcp/SC-RCP-076.p01`, `.n01` |
 | SC-RCP-077 | MUST | 8.3.2 | `sc-rcp/SC-RCP-077.n01` |
 | SC-RCP-078 | MUST | 8.3.2 | `sc-rcp/SC-RCP-078.n01`, `.n02` |
-| SC-RCP-079 | MUST | 8.3.3 | `sc-rcp/SC-RCP-079.n01`; `expected.error` of every negative `envelope`-stage and refusing `send`-stage fixture in `sc-id/` |
+| SC-RCP-079 | MUST | 8.3.3 | `sc-rcp/SC-RCP-079.n01`; `sc-rcp/SC-RCP-079.p01`, `.n02` (`send` stage: `envelope-too-large` as a request error, against the default and an advertised `max_envelope_octets`); `expected.error` of every negative `envelope`-stage and refusing `send`-stage fixture in `sc-id/` |
 | SC-RCP-080 | MUST NOT | 8.4.2 | `sc-rcp/SC-RCP-080.p01` (`retry_allowed`); live retry behaviour: F6 |
 | SC-RCP-081 | MUST NOT | 8.4.2 | `sc-rcp/SC-RCP-081.p01` (`retry_allowed`); live retry behaviour: F6 |
 | SC-RCP-082 | SHOULD NOT | 8.4.2 | none (SHOULD NOT); `retry_allowed` in `sc-rcp/SC-RCP-085.p03` reflects it |
@@ -2937,7 +2937,7 @@ requirement whose fixtures exercise it.
 | SC-RCP-085 | MUST | 8.4.1 | `sc-rcp/SC-RCP-085.p01` to `.p06`, `.n01`, `.n02` |
 | SC-RCP-086 | MUST NOT | 8.4.2 | `sc-rcp/SC-RCP-086.p01`, `.p02`, `.n01`, `.n02`; live retry behaviour: F6 |
 | SC-RCP-087 | MAY | 8.4.2 | none (MAY); `retry_allowed` in `sc-rcp/SC-RCP-086.p01`, `.p02` reflects it |
-| SC-RCP-090 | MUST | 8.3.3 | `sc-rcp/SC-RCP-090.n01`, `.n02` |
+| SC-RCP-090 | MUST | 8.3.3 | `sc-rcp/SC-RCP-090.n01` to `.n03` |
 | SC-RCP-091 | MUST NOT | 8.1.3 | `sc-rcp/SC-RCP-091.p01`, `.n01`, `.n02`; the live re-check immediately before the hand-off call: TODO(fixture), F6 receipt state machine |
 | SC-RCP-092 | MUST | 8.1.3 | `sc-rcp/SC-RCP-092.n01`, and the `expected.error` of `sc-rcp/SC-RCP-091.n01`, `.n02` |
 
