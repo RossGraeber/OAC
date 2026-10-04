@@ -1261,10 +1261,11 @@ decides which `sc-id` fixtures gain an `expected.error` member.
 `docs/planning/ADR-001.md`, "Decision" and "Boundary"; `docs/planning/decisions/C2-process-model.md`
 §5 (presence lifetime); `docs/planning/decisions/C4-session-identity.md` §5 (cross-project
 scoping); `docs/planning/decisions/C5-envelope-auth.md` §11 (default deny);
-`docs/planning/decisions/C6-trust-rendering.md` §8 (session listing); and decision C7 §4,
-the v0.1 transport decision, which maps presence onto one transport and records two gaps
-that this section closes at the neutral layer (no carriage for a session's descriptor, and
-no discovery path).
+`docs/planning/decisions/C6-trust-rendering.md` §8 (session listing); and Decision C7, the
+v0.1 transport mapping (`docs/planning/decisions/`; §4 presence, §7 the local-mode
+authorization carve-out). C7 §4 maps presence onto one transport and records two gaps that
+this section closes at the neutral layer: no carriage for a session's descriptor, and no
+discovery path.
 
 This section defines how a receiver delivers to a live session, how an implementation
 announces and withdraws a session's presence, and how a sender learns which sessions exist
@@ -1281,7 +1282,10 @@ transport. `spec/security.md` (E5, #45) authenticates them.
 - **Active delivery:** a receiver hands an accepted envelope's content off to the addressed
   session on its own initiative, through the harness's supported input surface (§2.3),
   without any request from the session, its harness or a model. An envelope is
-  **accepted** here when it has passed every check that precedes hand-off (§8.3.2).
+  **accepted for hand-off** when it has passed every check that precedes the hand-off call
+  (§8.3.2). This is a receiver's judgement about one envelope. It is neither the
+  acceptance of a presence record (§7.2.3) nor the delivery state `accepted-by-adapter`
+  (§8.1).
 - **Polling:** issuing a request repeatedly, on a timer or in a loop, to learn whether an
   envelope is waiting. An inbox, a mailbox, a message list that a session is expected to
   re-read, and a receiver loop that asks a transport on a timer for new envelopes are all
@@ -1291,17 +1295,20 @@ transport. `spec/security.md` (E5, #45) authenticates them.
   pushes, or only keeps a connection open. None of them is polling. A keepalive that asks
   nothing about waiting envelopes is not polling.
 
-The obligation below is the one `docs/planning/ADR-001.md` ("Decision") states for a harness
-that advertises active inbound support, and the rule against polling is DESIGN "Delivery
-semantics": "Provider-supported streaming connections, subscriptions, event loops, and
-keepalives are acceptable; application-level inbox polling is not for adapters claiming
-active inbound support."
+The obligation below is DESIGN's normative concept ("OAC Session Channels specification,
+packaged as an MCP extension"): "a harness advertising active inbound OAC Session Channels
+support accepts an authorized external channel message as input to the addressed live
+session without application-level polling." It serves the `docs/planning/ADR-001.md`
+("Context") requirement of "push rather than application polling". The rule against
+polling is DESIGN "Delivery semantics": "Provider-supported streaming connections,
+subscriptions, event loops, and keepalives are acceptable; application-level inbox polling
+is not for adapters claiming active inbound support."
 
 #### 7.1.2 Requirements
 
-[SC-DLV-001] A receiver MUST hand off, by active delivery, each envelope that it accepts for
-a local session whose own capabilities entry, for the envelope's major version, has
-`active_inbound` set to `true`.
+[SC-DLV-001] A receiver MUST hand off, by active delivery, each envelope that it accepts
+for hand-off for a local session whose own capabilities entry, for the envelope's major
+version, has `active_inbound` set to `true`.
 
 What the receiver then reports is §8.1: `handed-to-harness`, `unknown`, or an error state.
 
@@ -1328,9 +1335,11 @@ send-only (§6.6). Polling silently while claiming active inbound is the drift t
 editing a harness's stored history, or through an interface that the harness does not
 document.
 
-This restates, for hand-off, the `docs/planning/ADR-001.md` "Boundary" rule against
-interface scraping and undocumented private interfaces, and the planning rule against
-history-file manipulation (`docs/planning/PLANNING-PROMPT.md` §10).
+This restates, for hand-off, the `docs/planning/ADR-001.md` "Boundary" rule against "UI/terminal
+scraping or undocumented private RPCs", and `docs/planning/PLANNING-PROMPT.md` §10: "Do not
+substitute model APIs, UI automation, terminal scraping, credential reuse, private RPCs, or
+rollout-file manipulation for a supported interface." A harness's stored history (its
+rollout file, where it has one) is not an input surface.
 
 #### 7.1.3 Accepting input
 
@@ -1338,17 +1347,28 @@ A session is **accepting input** when all of the following hold:
 
 - it is bound (§6.7) and its attachment is live;
 - the implementation is not withholding delivery from it under [SC-ID-154];
-- the harness's input surface takes a hand-off call now.
+- the harness's input surface does not turn a hand-off call away as unable to take input
+  now.
+
+A receiver judges the first two conditions from its own state, before any call. It learns
+the third only from the surface: a hand-off call that the surface turns away as unable to
+take input now, without having taken it, is the evidence that the session is not
+accepting input.
 
 A session that is running a turn can still be accepting input. Both harness input surfaces
-that the v0.1 bindings use took input submitted while a turn was running, held it, and
-delivered it at a later turn boundary, in submission order, in the gate runs
-(`docs/planning/gates/G1-result.md`, criterion 3, current verdict 2026-09-28;
-`docs/planning/gates/G2-result.md`, the `busyqueue` step). For one of the two surfaces, the
-harness's first-party documentation also states that queued input is processed in order
-(`docs/planning/REVERIFICATION-B2.md` §3.1, verdict HOLDS, retrieved 2026-09-16). For the
-other, no first-party statement of order is cited in this repository, so that it keeps
-order as a guarantee is UNVERIFIED (`docs/planning/STATUS.md`, "Open UNVERIFIED items").
+that the v0.1 bindings use took input submitted while a turn was running, in the gate runs:
+
+- On one surface, two inputs sent during a running turn were each delivered at a later
+  tool-call boundary inside that same turn, in submission order, with nothing dropped
+  (`docs/planning/gates/G1-result.md`, criterion 3, re-run Box C, current verdict
+  2026-09-28). That harness's first-party documentation states that queued events are
+  processed in order (`docs/planning/REVERIFICATION-B2.md`, "§3.1 re-check", row 5, HOLDS,
+  retrieved 2026-10-02).
+- On the other, one input queued during a running turn ran after that turn completed
+  (`docs/planning/gates/G2-result.md`, the `busyqueue` step). Only one input was queued,
+  so order among several queued inputs was not exercised, and no first-party statement of
+  order is cited in this repository. That this surface keeps order is UNVERIFIED
+  (`docs/planning/STATUS.md`, "Open UNVERIFIED items").
 
 [SC-DLV-006] A receiver MUST NOT treat a session as not accepting input solely because the
 session's harness is running a turn, when the harness's input surface accepts input during
@@ -1365,7 +1385,19 @@ a completed hand-off is held by the harness, not by the receiver, and this rule 
 touch it.
 
 *Dated note, 2026-10-03 (#43): refusing at once, rather than holding an envelope in memory
-for a short window, is the draft's choice and an open operator question on #43.*
+for a short window, is an operator decision recorded on #43.*
+
+[SC-DLV-008] A receiver whose hand-off call the harness's input surface turns away as unable
+to take input now, without having taken the input, MUST report `destination-unavailable`.
+
+[SC-DLV-009] A receiver whose hand-off call the harness's input surface reports as failed
+for any other reason MUST report `handoff-failed`.
+
+The two codes tell the sending implementation different things (§8.3, Table 8.3): a session
+that is not accepting input now, or a hand-off that was tried and failed. A receiver that
+already knows, before calling, that the first or second condition above fails reports
+`destination-unavailable` without calling. A call whose outcome is indeterminate is neither:
+it is `unknown` (§8.1).
 
 ### 7.2 Presence
 
@@ -1477,10 +1509,13 @@ part of it.
 [SC-ID-045] already keeps the working directory out of the descriptor. This rule keeps it
 out of the rest of the record.
 
-*Dated note, 2026-10-03 (#43): the `lifetime_ms` range, one second to one hour, is the
-draft's choice and an open operator question on #43.*
+*Dated note, 2026-10-03 (#43): the `lifetime_ms` range, one second to one hour, is a
+decision recorded on #43.*
 
 #### 7.2.3 Accepting a presence record
+
+A consumer **accepts** a presence record when it keeps the record as the latest one for its
+session. A record that is not accepted is discarded and changes nothing.
 
 [SC-DLV-040] A consumer MUST discard a presence record that fails any of [SC-DLV-021] to
 [SC-DLV-031].
@@ -1504,9 +1539,26 @@ to which the record's session id is bound ([SC-ID-009]).
 *Dated note, 2026-10-03 (#43): `spec/security.md` (E5, #45) does not yet define how a
 presence record is authenticated. Until it does, a consumer accepts no record from another
 implementation, so a sender holds a capability declaration only for its own
-implementation's sessions, and no conformant send crosses implementations. This is the same
-dependency §8.1.5 records for receipts. The conformance fixtures of §7.5 take
-authentication as passed.*
+implementation's sessions, and no conformant send crosses implementations. That presence,
+discovery and sending stay within one implementation until E5 lands is an operator decision
+recorded on #43. It is the same dependency §8.1.5 records for receipts. The conformance
+fixtures of §7.5 take authentication as passed.*
+
+*Dated note, 2026-10-03 (#43), constraints on E5 (#45):*
+
+- *Replay. [SC-DLV-042] protects a consumer only while it remembers the latest `seq`. A
+  consumer that restarts, or forgets a session under [SC-DLV-048], would accept a captured
+  old announcement, and report a session that has ended as `online` for up to that
+  announcement's `lifetime_ms`, which can be one hour. `spec/security.md` is expected to
+  bound the replay of presence records across a consumer restart and a forget, not only
+  while `seq` is remembered.*
+- *Binding proof. [SC-DLV-043] needs a consumer to check that a session id is bound to the
+  issuing device key. The registration record that binds them is held by its
+  implementation and not published, and it holds the working directory and the
+  harness-native id (`docs/planning/decisions/C4-session-identity.md` §5), which
+  [SC-DLV-032], [SC-ID-045] and [SC-ID-006] keep off the wire. `spec/security.md` is
+  expected to define a publishable proof of the binding that reveals neither, rather than
+  publishing the registration record.*
 
 `issued_at` serves diagnostics and the replay rules that `spec/security.md` defines.
 Staleness does not use it (§7.2.4).
@@ -1534,11 +1586,20 @@ moment it accepted the announcement.
 The issuer's and the consumer's clocks can differ. A lifetime counted from `issued_at`
 would make a session look stale, or fresh, by the size of that difference.
 
+[SC-DLV-049] A consumer SHOULD measure lifetimes on a monotonic clock. A consumer that
+measures them on a wall clock deviates: a step in that clock, for example a time-zone or
+synchronization correction, stretches or cuts every lifetime it is measuring.
+
 [SC-DLV-045] A consumer MUST treat an accepted announcement as stale once its lifetime has
 passed without a newer accepted record for the session.
 
 [SC-DLV-046] A consumer MUST treat each accepted announcement from an issuer as stale when
 the carrier reports carrier loss for that issuer.
+
+The carrier's link from a transport peer to an issuer is not authentication. A transport's
+own peer identifier names a connection, not a device key. Carrier loss can therefore only
+move a session toward `unreachable`. It never makes a session `online`, so a spoofed
+carrier loss can at worst deny service until the issuer's next announcement is accepted.
 
 [SC-DLV-047] A consumer MUST report the presence state of each session as the table of
 §7.2.1 defines it.
@@ -1555,6 +1616,10 @@ protects it against an older record. Bounding the replay of an old record is a r
 
 [SC-DLV-050] An implementation MUST give each presence record it issues for a session a
 `seq` greater than that of every earlier record it issued for that session id.
+
+`seq` need not survive a restart of the issuer. Session ids do not survive one
+([SC-ID-156]) and are never reused ([SC-ID-008]), so a restarted issuer announces only new
+session ids, and no consumer holds an earlier `seq` for them.
 
 [SC-DLV-051] An implementation MUST issue an announcement for a session when it starts to
 expose the session to peers.
@@ -1631,8 +1696,8 @@ The refusal carries `unauthorized` (§8.3), as a refused send request does under
 [SC-DLV-061] A discovery result MUST NOT list a session that the requester is not authorized
 to discover.
 
-Which sessions a requester may discover is decided by `spec/security.md`, which denies by
-default. A session in one working directory is not discoverable by a peer that is not
+Which sessions a requester is allowed to discover is decided by `spec/security.md`, which
+denies by default. A session in one working directory is not discoverable by a peer that is not
 authorized for that directory (`docs/planning/decisions/C4-session-identity.md` §5;
 `docs/planning/decisions/C5-envelope-auth.md` §11; `docs/planning/decisions/C6-trust-rendering.md`
 §8).
@@ -1644,7 +1709,9 @@ implementation and that the requester is authorized to discover.
 `online`.
 
 *Dated note, 2026-10-03 (#43): listing only `online` sessions, and not recently withdrawn
-or stale ones, is the draft's choice and an open operator question on #43.*
+or stale ones, is an operator decision recorded on #43. A discovery result is an array of
+descriptors with no presence member, so listing `unreachable` sessions later would need a
+new member as well as a change to [SC-DLV-063].*
 
 [SC-DLV-064] A discovery result MUST NOT list a session more than once.
 
@@ -1661,6 +1728,25 @@ An announcement reveals that a session exists and what it accepts. [SC-DLV-066] 
 whatever carries the records. A transport binding meets it by delivering presence records
 only to authorized peers, or by carrying them so that no other peer can read them. Which of
 the two it does is the binding's concern.
+
+[SC-DLV-067] The implementation that holds a session's binding MUST apply discovery
+authorization for that session, including its working-directory scoping, before any
+presence record or discovery result for that session leaves it.
+
+Only that implementation knows the session's working directory: [SC-DLV-032] and
+[SC-ID-045] keep it out of everything it sends. A consumer on another implementation
+therefore cannot apply working-directory scoping to a remote session, and the issuer has to.
+
+*Dated note, 2026-10-03 (#43): Decision C7 (`docs/planning/decisions/`; §7) ships local mode
+with no transport-layer authorization, as a deliberate exception to default deny, and full
+end-to-end encryption is out of scope for this revision (`docs/planning/ADR-001.md`, "v0.1
+scope"). Neither of the two ways to meet [SC-DLV-066] across implementations therefore
+exists in v0.1. With the #43 decision that presence and discovery stay within one
+implementation until `spec/security.md` (E5, #45) authenticates presence records
+([SC-DLV-043]), v0.1 presence and discovery are same-install only, and discovery
+authorization, including working-directory scoping, is enforced by the implementation that
+holds the session's binding ([SC-DLV-067]). The transport options of [SC-DLV-066] apply once
+records cross implementations, after E5. This is a ruling recorded on #43.*
 
 #### 7.3.3 Capability declarations for sending
 
@@ -1691,9 +1777,10 @@ The order matches the delivery stage of §8.3.2: whether the session is known, t
 it is available, then what it accepts. A session that is `unknown` to the sender also has no
 declaration, and the sender reports `unknown-destination`, not a negotiation failure.
 
-*Dated note, 2026-10-03 (#43): refusing a send to a session that is not `online`, rather
-than passing the envelope to a transport in case the session is still there, is the
-draft's choice and an open operator question on #43.*
+*Dated note, 2026-10-03 (#43): refusing a send to a session that is `unreachable`, rather
+than passing the envelope to a transport in case the session is still there, is an operator
+decision recorded on #43. A session that is `unknown` is refused in any case, because the
+sender holds no declaration for it ([SC-ID-086]).*
 
 ### 7.4 Ordering, loss and duplication
 
@@ -1711,9 +1798,9 @@ carry their own order, `seq` ([SC-DLV-042]).
 it accepted them. A receiver that does not deviates: two envelopes that arrived in one order
 reach the harness in the other, a reordering the transport did not cause.
 
-What a harness does with input after hand-off is the harness's own. The gate observations of
-§7.1.3 show both v0.1 harness surfaces keeping submission order, but only one of them
-documents it (§7.1.3).
+What a harness does with input after hand-off is the harness's own. Of the two v0.1
+harness surfaces, one documents in-order processing and kept submission order in its gate
+run. On the other, order among several queued inputs has not been exercised (§7.1.3).
 
 ### 7.5 Conformance fixtures for this section
 
@@ -1775,7 +1862,7 @@ and expiry ([SC-ENV-100]).
 
 The security model is normative in `spec/security.md` (E5, #45): the identity hierarchy,
 signing, replay defence, duplicate suppression, authorization and provenance. This
-section adds no requirement. It lists what sections 4 and 5 contribute:
+section adds no requirement. It lists what sections 4, 5 and 7 contribute:
 
 - The trust partition (§4.7) gives trusted metadata a single structural home, so content
   never poses as provenance.
@@ -1787,6 +1874,15 @@ section adds no requirement. It lists what sections 4 and 5 contribute:
   does not understand.
 - Expiry (§4.9) is the sender's own bound. It does not replace the replay window of
   `spec/security.md`.
+- `seq` ordering of presence records ([SC-DLV-042]) stops a delayed or duplicated record
+  from undoing a later one, while the consumer remembers the session. Replay across a
+  consumer restart is left to `spec/security.md` (§7.2.3 dated note).
+- Presence records from another implementation count only once authenticated
+  ([SC-DLV-043]). Carrier loss is not authentication and can only make a session
+  `unreachable` (§7.2.4).
+- Discovery is default-deny per requester ([SC-DLV-061]), scoped by the implementation
+  that holds the binding ([SC-DLV-067]), and presence records reach only authorized peers
+  ([SC-DLV-066]).
 
 ---
 
@@ -1821,6 +1917,12 @@ section adds no requirement. It lists what sections 4 and 5 contribute:
 - Decision C13, provenance framing (`docs/planning/decisions/`; §4, the whole-value rule
   §4.3 adopts).
 - `docs/planning/v0.1/05-interfaces.md` §3 and §11, the M0 draft this document supersedes.
+- `docs/planning/decisions/C2-process-model.md` (§5, presence lifetime).
+- Decision C7, the v0.1 transport mapping (`docs/planning/decisions/`; §4 presence, §7 the
+  local-mode authorization carve-out).
+- `docs/planning/gates/G1-result.md`, `docs/planning/gates/G2-result.md` and
+  `docs/planning/gates/G3-result.md` (harness input during a running turn; peer discovery).
+- `docs/planning/REVERIFICATION-B2.md` (§3.1 re-check, row 5).
 
 ---
 
@@ -1898,8 +2000,8 @@ requirement whose fixtures exercise it.
 | SC-ID-041 | MUST | 6.3 | covered by SC-DLV-029 (`sc-dlv/SC-DLV-029.n01`): a consumer can only show a descriptor without `capabilities` being discarded with its presence record |
 | SC-ID-042 | MAY | 6.3 | none (MAY) |
 | SC-ID-043 | MUST NOT | 6.3 | TODO(fixture): routing and authorization paths; F11 |
-| SC-ID-044 | MUST | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, E8 |
-| SC-ID-045 | MUST NOT | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, H2 |
+| SC-ID-044 | MUST | 6.3 | `sc-id/SC-ID-044.p01` |
+| SC-ID-045 | MUST NOT | 6.3 | TODO(fixture): issuer-side, descriptors carried in presence records (§7.2.2); F6, H2 |
 | SC-ID-060 | MUST | 6.4 | covered by SC-ID-070 (`sc-id/SC-ID-070.n01`, `.n02`): a consumer can only show a non-object declaration holding no entries |
 | SC-ID-061 | MUST | 6.4 | `sc-id/SC-ID-061.n01`, `.n02` |
 | SC-ID-062 | MUST | 6.4 | `sc-id/SC-ID-062.n01`, `.n02` |
@@ -1961,9 +2063,9 @@ requirement whose fixtures exercise it.
 | SC-ID-160 | MUST | 6.8 | `sc-id/SC-ID-160.p01` |
 | SC-ID-161 | MUST | 6.8 | `sc-id/SC-ID-161.n01`, `.n02` |
 | SC-ID-162 | MUST NOT | 6.8 | `sc-id/SC-ID-162.p01` |
-| SC-ID-180 | MUST NOT | 6.9 | TODO(fixture): presence; E3, F6 |
+| SC-ID-180 | MUST NOT | 6.9 | TODO(fixture): presence registry; F6 |
 | SC-ID-181 | MUST NOT | 6.9 | TODO(fixture): registration-record verification; E5 |
-| SC-ID-182 | MUST NOT | 6.9 | TODO(fixture): presence and discovery; E3, F6 |
+| SC-ID-182 | MUST NOT | 6.9 | TODO(fixture): presence registry and discovery; F6, F11 |
 | SC-DLV-001 | MUST | 7.1.2 | TODO(fixture): needs a running adapter; F10 adapter contract suite |
 | SC-DLV-002 | MUST NOT | 7.1.2 | TODO(fixture): needs a running adapter; F10 (its acceptance asserts the no-polling rule) |
 | SC-DLV-003 | MUST NOT | 7.1.2 | TODO(fixture): surface listing per binding; F10, and `spec/bindings/mcp.md` MCPB-DLV-002 |
@@ -1971,6 +2073,8 @@ requirement whose fixtures exercise it.
 | SC-DLV-005 | MUST NOT | 7.1.2 | TODO(fixture): by construction and review; F10, boundary lint checks 4-5 (`oac-boundaries`) |
 | SC-DLV-006 | MUST NOT | 7.1.3 | TODO(fixture): needs a harness that takes input mid-turn; F10 against the F8 and F9 fakes |
 | SC-DLV-007 | MUST NOT | 7.1.3 | TODO(fixture): the report is E4's delivery stage (§8.5, once #44 lands); that no copy is held needs a timed run; F6, F10 |
+| SC-DLV-008 | MUST | 7.1.3 | TODO(fixture): needs a surface that turns a call away; F10 against the F8 and F9 fakes |
+| SC-DLV-009 | MUST | 7.1.3 | TODO(fixture): needs a surface that reports a failed call; F10 against the F8 and F9 fakes |
 | SC-DLV-020 | MUST NOT | 7.2.1 | TODO(fixture): presence registry output; F6 (every `sc-dlv` presence fixture expects only the three states) |
 | SC-DLV-021 | MUST | 7.2.2 | `sc-dlv/SC-DLV-021.n01` |
 | SC-DLV-022 | MUST | 7.2.2 | `sc-dlv/SC-DLV-022.n01`, `.n02` |
@@ -1993,6 +2097,7 @@ requirement whose fixtures exercise it.
 | SC-DLV-046 | MUST | 7.2.4 | `sc-dlv/SC-DLV-046.n01` |
 | SC-DLV-047 | MUST | 7.2.4 | `sc-dlv/SC-DLV-047.p01` |
 | SC-DLV-048 | MAY | 7.2.4 | none (MAY) |
+| SC-DLV-049 | SHOULD | 7.2.4 | none (SHOULD) |
 | SC-DLV-050 | MUST | 7.2.5 | TODO(fixture): issuer-side; F6 |
 | SC-DLV-051 | MUST | 7.2.5 | TODO(fixture): issuer-side, needs a live attachment; F6, F10 |
 | SC-DLV-052 | MUST | 7.2.5 | TODO(fixture): issuer-side; F6 |
@@ -2007,7 +2112,8 @@ requirement whose fixtures exercise it.
 | SC-DLV-063 | MUST NOT | 7.3.2 | `sc-dlv/SC-DLV-063.n01` |
 | SC-DLV-064 | MUST NOT | 7.3.2 | covered by SC-DLV-062: every `listed` fixture expects each session id once, so no fixture breaks this rule alone |
 | SC-DLV-065 | MUST | 7.3.2 | covered by SC-DLV-062: every `listed` fixture expects each descriptor exactly as `context` gives it; which announcement is latest is SC-DLV-070's `sc-dlv/SC-DLV-070.n01` |
-| SC-DLV-066 | MUST NOT | 7.3.2 | TODO(fixture): needs a transport binding's carriage; F11, H2 |
+| SC-DLV-066 | MUST NOT | 7.3.2 | TODO(fixture): needs a transport binding's carriage, after E5; F11, H2 |
+| SC-DLV-067 | MUST | 7.3.2 | TODO(fixture): authorization store and working-directory scope; F5, F11, H2 |
 | SC-DLV-070 | MUST | 7.3.3 | `sc-dlv/SC-DLV-070.p01`, `.n01` |
 | SC-DLV-071 | MUST NOT | 7.3.3 | `sc-dlv/SC-DLV-071.n01` |
 | SC-DLV-072 | MUST | 7.3.3 | `sc-dlv/SC-DLV-072.n01` |
@@ -2023,4 +2129,4 @@ Retired ids: none.
 |---|---|---|
 | 0.1 (draft) | 2026-10-03 | E1 (#41): document skeleton for sections 1-10; sections 4 (envelope) and 5 (versioning) written; requirement-id scheme and fixture format (§3); envelope-stage fixtures under `tests/protocol/sc-env/` and `tests/protocol/sc-ver/`. Review of #258: SC-ENV-027, SC-ENV-103, SC-ENV-104 and SC-VER-003 added (retransmission and retry defined); dated notes for the operator decisions on #41. |
 | 0.1 (draft) | 2026-10-03 | E2 (#42): section 6 (session identity, addressing and capability negotiation) written; area `ID`; `negotiation`, `binding` and `send` fixture stages (§6.10, with a §3.3 sentence allowing section-defined stages); fixtures under `tests/protocol/sc-id/`. Review of #260: signal cross-check value, record rules and exact comparison (SC-ID-127 to SC-ID-129, SC-ID-141 to SC-ID-144), SC-ID-045, SC-ID-070, SC-ID-154 made a conditional MUST, SC-ID-023 widened, binding results mapped to cases. |
-| 0.1 (draft) | 2026-10-03 | E3 (#43): section 7 (active delivery, presence and discovery) written; area `DLV`; the active-inbound obligation and the no-polling rule, accepting input, the three presence states, presence records (announcement and withdrawal, `seq`, consumer-clock lifetime, carrier loss), discovery results, and where a sender takes a capability declaration from (makes SC-ID-086 satisfiable); `presence` and `discovery` fixture stages (§7.5); fixtures under `tests/protocol/sc-dlv/`; SC-ID-040 and SC-ID-041 now covered by SC-DLV-029. |
+| 0.1 (draft) | 2026-10-03 | E3 (#43): section 7 (active delivery, presence and discovery) written; area `DLV`; the active-inbound obligation and the no-polling rule, accepting input, the three presence states, presence records (announcement and withdrawal, `seq`, consumer-clock lifetime, carrier loss), discovery results, and where a sender takes a capability declaration from (makes SC-ID-086 satisfiable); `presence` and `discovery` fixture stages (§7.5); fixtures under `tests/protocol/sc-dlv/`; SC-ID-040 and SC-ID-041 now covered by SC-DLV-029. Review of #263: operator decisions on #43 recorded as dated notes; SC-DLV-008, SC-DLV-009 (not-now vs failed hand-off), SC-DLV-049 (monotonic clock) and SC-DLV-067 (scoping by the binding holder; v0.1 same-install only) added; evidence for input during a running turn corrected; E5 constraints recorded; `sc-id/SC-ID-044.p01` added. |

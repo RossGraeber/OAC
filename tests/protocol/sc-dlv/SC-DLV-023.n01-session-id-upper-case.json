@@ -5,7 +5,7 @@
   "spec_revision": "0.1",
   "kind": "negative",
   "failure_mode": "session id not in canonical form",
-  "description": "The record's `session_id` is an upper-case form of a session id.",
+  "description": "A withdrawal's `session_id` is an upper-case form of a session id. A withdrawal has no descriptor, so no other rule fails.",
   "stage": "presence",
   "context": {
     "implemented": [
@@ -35,18 +35,8 @@
         "record": {
           "session_id": "7GQ3M8Z2C5K9T1W4X6B0N2R8VD",
           "seq": 1,
-          "present": true,
-          "issued_at": "2026-10-03T12:00:00.000Z",
-          "lifetime_ms": 60000,
-          "descriptor": {
-            "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
-            "capabilities": {
-              "io.github.rossgraeber/oac-session-channels": {
-                "revision": "0.1",
-                "active_inbound": true
-              }
-            }
-          }
+          "present": false,
+          "issued_at": "2026-10-03T12:00:05.000Z"
         }
       }
     ],
