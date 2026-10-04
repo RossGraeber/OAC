@@ -61,7 +61,7 @@
 //                              no redaction pattern matches), and writes that secret to this file
 //                              so the self-test can prove it never reaches a record
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -396,7 +396,20 @@ async function tui(overrides = {}) {
     console.error('fake-codex: the TUI needs FAKE_CODEX_AGENT_DIR and FAKE_CODEX_PANE_BUF (set by fake-herdr)');
     process.exit(2);
   }
-  const setState = (s) => writeFileSync(join(dir, 'state'), s);
+  // herdr AgentInfo.state_change_seq (#253), as in fake-claude.mjs.
+  let stateSeq = 0;
+  let lastState = null;
+  const setState = (s) => {
+    if (s !== lastState) {
+      lastState = s;
+      writeFileSync(join(dir, 'state-seq'), `${++stateSeq} ${Date.now()}`);
+      appendFileSync(join(dir, 'state-log'), `${stateSeq} ${s}\n`); // every transition, as herdr's event stream sees it
+    }
+    writeFileSync(join(dir, 'state'), s);
+    // One atomic snapshot (state, seq, time) for fake-herdr: herdr's AgentInfo is never torn.
+    writeFileSync(join(dir, 'status.tmp'), `${s} ${stateSeq} ${Date.now()}`);
+    renameSync(join(dir, 'status.tmp'), join(dir, 'status'));
+  };
   const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
   const hist = (s) => appendFileSync(buf, `${s}\n`);
   const history = [];

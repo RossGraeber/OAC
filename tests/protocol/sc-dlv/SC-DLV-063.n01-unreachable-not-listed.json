@@ -1,0 +1,84 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-DLV-063",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "session not online",
+  "description": "The requester is authorized for an unreachable session. It is not listed.",
+  "stage": "discovery",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-a",
+          "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+        }
+      },
+      {
+        "attachment": "B"
+      }
+    ],
+    "sessions": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "presence": "online",
+        "descriptor": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "capabilities": {
+            "io.github.rossgraeber/oac-session-channels": {
+              "revision": "0.1",
+              "active_inbound": true
+            }
+          },
+          "harness_label": "harness-b"
+        }
+      },
+      "3k8q2v6w9m4t7p0r5s1yabcdef": {
+        "presence": "online",
+        "descriptor": {
+          "session_id": "3k8q2v6w9m4t7p0r5s1yabcdef",
+          "capabilities": {
+            "io.github.rossgraeber/oac-session-channels": {
+              "revision": "0.1",
+              "active_inbound": false
+            }
+          }
+        }
+      },
+      "5zxcvbnm0123456789abcdefgh": {
+        "presence": "unreachable",
+        "descriptor": {
+          "session_id": "5zxcvbnm0123456789abcdefgh",
+          "capabilities": {
+            "io.github.rossgraeber/oac-session-channels": {
+              "revision": "0.1",
+              "active_inbound": true
+            }
+          }
+        }
+      }
+    },
+    "discoverable": [
+      {
+        "requester": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "session": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      },
+      {
+        "requester": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "session": "5zxcvbnm0123456789abcdefgh"
+      }
+    ]
+  },
+  "input": {
+    "request": {
+      "attachment": "A"
+    }
+  },
+  "expected": {
+    "result": "listed",
+    "sessions": [
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+    ]
+  }
+}
