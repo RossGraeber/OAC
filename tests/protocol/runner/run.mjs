@@ -85,7 +85,7 @@ function listFixtures() {
     const name = entry.name;
     if (entry.isFile() && name === 'sec-test-keys.json') continue;
     if (entry.isDirectory() && name === 'runner') continue;
-    if (!entry.isDirectory() || !/^(sc|sec|mcpb)-[a-z]+$/.test(name)) {
+    if (!entry.isDirectory() || !/^(sc|sec|mcpb|ifc)-[a-z]+$/.test(name)) {
       stray.push(`tests/protocol/${name}${entry.isDirectory() ? '/' : ''}: not a fixture directory, the runner or the test-key file`);
       continue;
     }
@@ -104,7 +104,7 @@ function listFixtures() {
 function formProblems(f, fx) {
   const p = [];
   if (!f.file.endsWith('.json')) return ['not a .json file'];
-  const m = /^((?:SC|SEC|MCPB)-[A-Z]+-[0-9]{3})\.([pn])([0-9]{2})-[a-z0-9-]+\.json$/.exec(f.file);
+  const m = /^((?:SC|SEC|MCPB|IFC)-[A-Z]+-[0-9]{3})\.([pn])([0-9]{2})-[a-z0-9-]+\.json$/.exec(f.file);
   if (!m) p.push('file name is not <REQUIREMENT-ID>.<p|n><NN>-<slug>.json');
   if (!STAGES[fx.fixture_format]) p.push(`unknown fixture_format ${JSON.stringify(fx.fixture_format)}`);
   if (m && fx.requirement !== m[1]) p.push(`requirement ${fx.requirement} does not match the file name`);
