@@ -1513,7 +1513,13 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   though ADR-001.md line 61 puts presence/discovery in v0.1 scope. Neither is fixed by
   this document; a future decision must close them. Restated (not copied) in
   `docs/planning/v0.1/03-decisions-and-amendments.md` decision 10 (Epic A task A4,
-  landed), citing C7 §4.
+  landed), citing C7 §4. **Update, 2026-10-04 (#273):** the neutral layer now closes both
+  at the contract level. `spec/session-channels.md` §7.2-§7.3 define the full presence
+  record and discovery, and `spec/interfaces.md` §6.5 requires a transport to carry the
+  whole authenticated presence record, not reachability alone ([IFC-TRN-050]), and gates
+  cross-implementation traffic on a destination-restricted transport ([IFC-TRN-081]). The
+  v0.1 transport binding (C7) meets neither yet, so the gap stays open for the binding
+  (G1, G2).
 
 ## Open conflict-register items
 

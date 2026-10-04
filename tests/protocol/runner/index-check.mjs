@@ -1,8 +1,9 @@
 // Cross-checks between the requirement indexes and the fixtures:
 //
-// - spec/session-channels.md Appendix A, spec/security.md Appendix A and
-//   spec/bindings/mcp.md §12.3 each list every requirement id their document defines, once,
-//   at the level (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) its defining sentence uses;
+// - spec/session-channels.md Appendix A, spec/security.md Appendix A, spec/bindings/mcp.md
+//   §12.3 and spec/interfaces.md Appendix A each list every requirement id their document
+//   defines, once, at the level (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) its defining
+//   sentence uses;
 // - every fixture an index row names exists, as exactly one file;
 // - every fixture file is named by at least one index row;
 // - every fixture's `requirement` is an id its `spec` document defines.
@@ -11,11 +12,12 @@ const DOCS = [
   { prefix: 'SC', path: 'spec/session-channels.md', heading: '## Appendix A. Requirement index' },
   { prefix: 'SEC', path: 'spec/security.md', heading: '## Appendix A. Requirement index' },
   { prefix: 'MCPB', path: 'spec/bindings/mcp.md', heading: '### 12.3 Index' },
+  { prefix: 'IFC', path: 'spec/interfaces.md', heading: '## Appendix A. Requirement index' },
 ];
 export const DOC_OF_PREFIX = Object.fromEntries(DOCS.map((d) => [d.prefix, d.path]));
 
 const KEYWORD = /\b(MUST NOT|MUST|SHOULD NOT|SHOULD|MAY)\b/;
-const ID = '((?:SC|SEC|MCPB)-[A-Z]+-[0-9]{3})';
+const ID = '((?:SC|SEC|MCPB|IFC)-[A-Z]+-[0-9]{3})';
 
 // Requirement ids defined in a document's body: a paragraph (or list item) that starts with
 // `[ID]`, and the first keyword of that paragraph.
