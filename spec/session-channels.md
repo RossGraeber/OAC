@@ -143,6 +143,10 @@ A fixture is a JSON object with these members:
 | `input` | Exactly one of: `envelope` (the envelope as a JSON value), `envelope_text` (the exact serialized text, for inputs that no JSON value expresses, such as duplicate member names), or `envelope_base64` (the exact octets, base64 per [RFC4648] §4, for inputs that are not valid UTF-8). |
 | `expected` | `result` (one of `valid`, `rejected`, `expired`), and optionally `trusted_security` (the `security` member values a receiver extracts, §4.7). |
 
+The `context`, `input` and `expected` rows above define the `envelope` stage. A section of
+this document can define further stages, each with its own `context`, `input` and
+`expected` members, as §6.10 does.
+
 An envelope-stage fixture's `security` members hold placeholder strings. Envelope-stage
 validation checks their presence and type (§4.6), never their values. Signature vectors and
 replay cases are `spec/security.md` fixtures (E5, E8).
@@ -630,36 +634,623 @@ extension identifier, and what a peer does on an unknown version during negotiat
 
 ## 6. Session identity, addressing, and capability negotiation
 
-*Owned by E2 (#42). Requirement area: `ID`.* Stub: E2 fills this section without
-renumbering it. Source: `docs/planning/decisions/C4-session-identity.md` (as revised by
-#236), C3, and the backlog E2 acceptance criteria.
+*Owned by E2 (#42). Requirement area: `ID`.* Sources:
+`docs/planning/decisions/C4-session-identity.md` (as revised by #236),
+`docs/planning/decisions/C3-spec-packaging.md`, and the backlog E2 acceptance criteria.
+Sections 6.1 to 6.6 keep the numbering of the E1 skeleton. Sections 6.7 to 6.10 are added
+after them.
+
+This section uses four layers of identity. Only the first two carry authority
+(`docs/planning/decisions/C4-session-identity.md` §1):
+
+1. the **device key**, defined in `spec/security.md`;
+2. the **session id**, an opaque value bound to one device key (§6.1);
+3. the **display form**, a string for people to read (§6.2);
+4. the **alias**, a local label a person chooses (§6.2).
+
+Routing, authorization and provenance use the device key and the session id only.
 
 ### 6.1 Session identifiers
 
-*Owned by E2 (#42).* The opaque, stable session id bound to a device key. Its syntax is a
-subset of the identifier token (§4.3), as §4.4.3 requires.
+A **session id** names one session for as long as that session is bound (§6.7). It is
+128 bits of random output, written as 26 characters of lower-case Crockford Base32: the
+value, most significant bit first, after two leading zero bits. As a whole value it
+matches:
+
+```
+[0-7][0-9a-hjkmnp-tv-z]{25}
+```
+
+The alphabet is the digits and the lower-case letters except `i`, `l`, `o` and `u`. The
+first character is limited to `0` to `7` because 26 characters hold 130 bits and the top
+two bits are zero. Every session id is an identifier token (§4.3).
+
+The value carries no structure. It encodes no device, harness, time, working directory or
+transport address.
+
+[SC-ID-001] The values of `from` and `to` MUST each be a session id.
+
+A receiver rejects an envelope that fails [SC-ID-001], as it does an envelope that fails
+[SC-ENV-010]. E4 (#44) assigns the §8.3 error code for a failure of §6.1.
+
+[SC-ID-002] A receiver MUST test the session-id pattern against the whole decoded string
+value, without trimming, case-folding or any other normalization.
+
+Some Base32 decoders accept upper case, map `i` and `l` to `1` and `o` to `0`, and skip
+hyphens. A receiver does none of these. Two session ids are equal only when their strings
+are equal.
+
+[SC-ID-003] An implementation MUST generate each session id from 128 bits of output of a
+cryptographically secure random number generator.
+
+[SC-ID-004] An implementation MUST NOT derive a session id from a device key, a
+harness-native session identifier, a working directory, a time, or any other input.
+
+An id derived from the device key would let anyone who sees two ids from one device link
+them to that device (`docs/planning/decisions/C4-session-identity.md` §14).
+
+[SC-ID-005] An implementation MUST NOT infer a device, harness, time or any other property
+of a session from the characters of its session id.
+
+[SC-ID-006] An implementation MUST NOT place a harness-native session identifier or a
+transport-native address in any envelope member, or in a session descriptor (§6.3), in
+place of a session id.
+
+[SC-ID-007] An implementation MUST NOT change the session id of a binding while that
+binding lasts.
+
+A binding lasts from registration until deregistration (§6.7). A change of harness-native
+identity ends one binding and starts another, under a new session id (§6.7, case 4).
+
+[SC-ID-008] An implementation MUST NOT assign a session id that it has already assigned to
+an earlier registration.
+
+[SC-ID-009] An implementation MUST bind each session id to exactly one device key, by a
+registration record signed with that device key.
+
+The registration record and its signature are defined in `spec/security.md`. Verifying a
+binding means checking that signature, never recomputing the id
+(`docs/planning/decisions/C4-session-identity.md` §2, §5).
 
 ### 6.2 Display form and human aliases
 
-*Owned by E2 (#42).* The non-authoritative display form and local aliases.
+The **display form** of a session is a string of the shape
+`session://<device>/<harness>/<session-id>`. `<device>` is a short device label, `<harness>`
+a harness label, and `<session-id>` the session id. It exists for listings, logs and
+diagnostics. This document defines no grammar for the labels, because no conformant
+implementation parses them.
+
+[SC-ID-020] The values of `from` and `to` MUST NOT hold a display form.
+
+[SC-ID-021] An implementation MUST NOT use a display form, or any part of one, to route a
+message, to make an authorization decision, or as provenance.
+
+This resolves conflict C8 as `docs/planning/decisions/C4-session-identity.md` §8 records:
+the opaque id and the display form are separate values, and only the opaque id is on the
+wire.
+
+An **alias** is a label a person assigns, on one device, to a session id. It is local to
+that device and can change at any time. An implementation resolves an alias to a session
+id on the device where it was made, and the envelope carries the session id.
+
+[SC-ID-022] The values of `from` and `to` MUST NOT hold an alias.
+
+[SC-ID-023] An implementation MUST NOT transmit an alias to a peer.
+
+This covers every member an implementation sets, including a session descriptor's
+`display_name` (§6.3), which is not an alias. Only `content`, which a user or a model
+writes, can carry an alias's text, and there it is content.
+
+[SC-ID-024] An implementation MUST NOT use an alias as an authorization subject.
+
+An alias or a display form that appears in `content` is content. It is untrusted, and it is
+never provenance ([SC-ENV-082]).
 
 ### 6.3 Session descriptor
 
-*Owned by E2 (#42).*
+A **session descriptor** is the JSON object that describes one session to a peer, for
+example in a discovery result (§7.3). Its members:
+
+| Member | Type | Presence | Authority |
+|---|---|---|---|
+| `session_id` | session id (§6.1) | exactly once | authoritative address |
+| `capabilities` | capability declaration (§6.4) | exactly once | what the session supports |
+| `display_name` | string | zero or once | none; display only |
+| `harness_label` | identifier token (§4.3) | zero or once | none; display only |
+
+[SC-ID-040] A session descriptor MUST contain a `session_id` member whose value is a session
+id.
+
+[SC-ID-041] A session descriptor MUST contain a `capabilities` member whose value is a
+capability declaration (§6.4).
+
+[SC-ID-042] An implementation MAY include `display_name` and `harness_label` in a
+session descriptor. A descriptor without them is still complete, and a consumer still
+identifies the session by `session_id` alone.
+
+[SC-ID-043] A consumer MUST NOT use `display_name` or `harness_label` to route a message,
+to make an authorization decision, or as provenance.
+
+[SC-ID-044] A consumer MUST ignore a session-descriptor member that this revision does not
+define.
+
+A descriptor carries no harness-native identifier ([SC-ID-006]).
+
+[SC-ID-045] A session descriptor MUST NOT contain the session's working directory, or any
+part of it.
+
+The working directory limits who is allowed to learn of a session at all, which is a
+discovery and authorization rule (§7.3, `spec/security.md`;
+`docs/planning/decisions/C4-session-identity.md` §5).
 
 ### 6.4 Session capabilities
 
-*Owned by E2 (#42).* Includes whether active inbound delivery is supported, the content
-part types a session accepts ([SC-ENV-066]), and any envelope size limit above the default
-of [SC-ENV-004].
+A **capability declaration** states what one session supports. It is a JSON object with
+one member per extension identifier (§5.1) that the declaring implementation implements
+for the session. Each member's value is a **capabilities entry**:
+
+| Member | Type | Presence | Meaning |
+|---|---|---|---|
+| `revision` | string, `<major>.<minor>` | exactly once | the revision of this document the declarer implements for this identifier |
+| `active_inbound` | boolean | exactly once | whether the session accepts envelopes by active delivery (§7.1) |
+| `content_types` | array of strings | zero or once | content part types the session accepts, beyond `text` |
+| `max_envelope_octets` | integer | zero or once | the largest serialized envelope the session accepts |
+
+Example (informative):
+
+```json
+{
+  "io.github.rossgraeber/oac-session-channels": {
+    "revision": "0.1",
+    "active_inbound": true
+  }
+}
+```
+
+A binding document carries the declaration in its own form. For example, a binding whose
+negotiation has a per-extension settings object places each entry there.
+
+[SC-ID-060] A capability declaration MUST be a JSON object.
+
+[SC-ID-070] A consumer MUST treat a capability declaration that is not a JSON object as
+holding no entries.
+
+A consumer ignores a member whose name is not an extension identifier it implements
+([SC-ID-082]).
+
+[SC-ID-061] The `revision` member of a capabilities entry MUST be a string that matches the
+`version` pattern of [SC-ENV-020] and whose major version is the one §5.1 assigns to the
+entry's extension identifier.
+
+[SC-ID-062] The `active_inbound` member of a capabilities entry MUST be a boolean.
+
+[SC-ID-063] A declarer MAY include `content_types` in a capabilities entry. A consumer that
+finds no `content_types` member treats `text` as the only supported part type.
+
+[SC-ID-064] When `content_types` is present, its value MUST be an array of strings, each a
+core type or an extension type (§4.5.2).
+
+A session always accepts `text`. Listing it in `content_types` is allowed and changes
+nothing.
+
+[SC-ID-065] A declarer MAY include `max_envelope_octets` in a capabilities entry. A
+consumer that finds no `max_envelope_octets` member applies the default of [SC-ENV-004].
+
+[SC-ID-066] When `max_envelope_octets` is present, its value MUST be an integer from 65536
+to 9007199254740991 inclusive.
+
+The lower bound is the default of [SC-ENV-004], so a declaration only ever raises it. The
+upper bound is the largest integer that I-JSON represents exactly ([RFC7493] §2.2).
+
+[SC-ID-067] A consumer MUST ignore a member of a capabilities entry that this revision does
+not define.
+
+[SC-ID-068] A consumer MUST treat a capabilities entry that fails any of [SC-ID-061],
+[SC-ID-062], [SC-ID-064] and [SC-ID-066] as absent.
+
+[SC-ID-069] A consumer MUST NOT discard the other entries of a declaration because one entry
+is invalid.
 
 ### 6.5 Version and extension negotiation
 
-*Owned by E2 (#42).* Builds on §5.
+Peers do not exchange a handshake message in this revision. A sender learns a session's
+capability declaration from a session descriptor (§6.3) or from a binding document's own
+negotiation, and it decides alone what to send.
+
+[SC-ID-080] An implementation MUST make a capability declaration available for each
+session it exposes to peers.
+
+[SC-ID-081] An implementation MUST NOT include an entry for an extension identifier that it
+does not implement for that session.
+
+[SC-ID-082] A consumer MUST ignore a declaration member whose name is not an extension
+identifier that the consumer implements.
+
+This is the rule for an unknown version during negotiation. A declaration that names a
+newer extension identifier, and so a newer major version, still works with an older peer
+if it also names one the peer implements. A declaration that names only identifiers the
+peer does not implement leaves the two with no common version.
+
+[SC-ID-083] A sender MUST select, as the **agreed version**, the highest major version
+whose extension identifier the sender implements and the session's declaration holds a
+valid entry for.
+
+[SC-ID-084] A sender MUST NOT send an envelope to a session with which it has no agreed
+version.
+
+The sender reports the refusal to the requesting session ([SC-ID-102]). Which §8.3 error
+code that report carries is set by E4 (#44).
+
+[SC-ID-085] A sender MUST NOT refuse to send solely because the minor version in the
+session's entry differs from its own.
+
+A receiver validates a higher minor version under its own rules ([SC-VER-003]). A sender
+uses only what the session's entry declares (§6.6), so a lower minor version on the
+receiver is safe too.
+
+[SC-ID-086] A sender MUST NOT send an envelope to a session for which it holds no
+capability declaration.
+
+*Dated note, 2026-10-03 (#42): [SC-ID-086] is an operator decision recorded on #42. Until
+E3 (#43) or E6 (#46) defines how a declaration reaches a sender, no conformant send is
+possible. A reply (§8.2) is a send too, so the replier needs the original sender's
+declaration.*
+
+[SC-ID-087] A sender MUST set the envelope's `version` to the revision it implements for
+the agreed major version.
+
+On receipt, an envelope whose major version the receiver does not support is rejected by
+[SC-VER-001]. That is the rule for an unknown version on the wire.
 
 ### 6.6 Unsupported-capability behaviour
 
-*Owned by E2 (#42).*
+The **agreed entry** is the capabilities entry for the agreed version (§6.5). A sender
+checks every envelope against it before sending.
+
+[SC-ID-100] A sender MUST NOT send an envelope to a session whose agreed entry has
+`active_inbound` set to `false`.
+
+A session that does not accept active delivery can still send. It cannot receive in this
+revision: no inbox, mailbox or polling path stands in for active delivery (§7.1;
+`docs/planning/ADR-001.md`, "v0.1 scope").
+
+[SC-ID-101] A sender MUST treat a content part type as advertised, for [SC-ENV-066], only
+when the type is `text` or the agreed entry's `content_types` lists it.
+
+[SC-ID-102] A sender that refuses to send under §6.5 or §6.6 MUST report the refusal to the
+requesting session.
+
+The report carries an error code from §8.3. E4 (#44) maps each refusal cause in this
+section to its code. A silent drop is not conformant.
+
+[SC-ID-103] A sender MUST NOT change a requested message to fit a session's capabilities.
+
+Dropping a content part, splitting an envelope or choosing another session are all
+changes. The requesting session decides what to send next.
+
+[SC-ID-104] An implementation MUST NOT declare `active_inbound` as `true` for a session
+unless it delivers to that session as §7.1 requires.
+
+[SC-ID-105] A receiver MUST reject an envelope addressed to a local session whose own
+capabilities entry, for the envelope's major version, has `active_inbound` set to `false`.
+
+### 6.7 Binding a session id to a live session
+
+A **binding** ties one session id to one live harness session. This section states when an
+implementation creates, keeps, refuses and ends bindings. It folds in
+`docs/planning/decisions/C4-session-identity.md` §3 ("Revision, 2026-10-02", #236), §5, §6
+and §7 in neutral terms. Harness-specific capture and pairing detail belongs in each
+adapter's binding document.
+
+#### 6.7.1 Terms
+
+- **Harness-native id (N):** the identifier a harness gives one live conversation. An
+  adapter captures it through a supported harness surface.
+- **Native signal:** an event, received through the surface that an adapter's binding
+  document names as authoritative for N, that carries N and a start kind.
+- **Start kind (S):** `fresh` for a newly started conversation, or `transition` for a
+  conversation that was resumed, cleared, forked, compacted or otherwise carried on from an
+  earlier one. The adapter's binding document maps each harness-reported start value to
+  one of the two.
+- **Attachment:** the local path through which an implementation hands envelopes to one
+  live session and takes send requests from it.
+- **Cross-check value (E):** a second identifier, reported by the harness to a process of
+  the implementation, that the harness documents as equal to N on a fresh start. It is
+  never authoritative. An attachment has at most one, reported to the attachment's own
+  process. A native signal can also carry one, reported to the process that received the
+  signal: the **signal's cross-check value**.
+- **Pairing:** the implementation's decision about which attachment a native signal belongs
+  to.
+- **Registration record:** the record of a binding: the session id, the device, N, a
+  harness label, the working-directory scope and the registration time, signed by the
+  device key ([SC-ID-009]).
+- **Finding:** a local record that an operator is meant to review, because it might show a
+  misconfiguration or an attack. **Diagnostic:** a local record for troubleshooting only.
+
+> **Reference implementation note:** `docs/planning/decisions/C4-session-identity.md` §3
+> records the v0.1 mapping for the first adapter, its native signal, its cross-check value
+> and its attachment, and §4 the capture path for the second.
+
+#### 6.7.2 Pairing
+
+[SC-ID-120] An implementation MUST create a binding only on a paired native signal.
+
+[SC-ID-121] An implementation MUST pair a native signal with an attachment using a key that
+the implementation observes itself from the operating system, never a value that the
+attaching process supplies.
+
+[SC-ID-122] An implementation MUST NOT use a cross-check value as the only pairing key.
+
+[SC-ID-127] An implementation MUST NOT use a cross-check value in pairing a `transition`
+signal.
+
+After a transition the attachment's cross-check value is stale by design.
+
+*Dated note, 2026-10-03 (#42): which operating-system facility yields such a key for each
+supported platform is UNVERIFIED. It is carried as an open item in
+`docs/planning/decisions/C4-session-identity.md` §3 ("Pairing requirement") and
+`docs/planning/STATUS.md`, owned by the adapter work in Epic F and G9. Until it is
+established, every native signal is unpairable ([SC-ID-125]). That costs availability,
+never authority.*
+
+A native signal can arrive before its attachment exists. It is then **not yet pairable**.
+
+[SC-ID-123] An implementation MUST hold a not-yet-pairable native signal for at most a
+bounded window.
+
+[SC-ID-124] An implementation MUST drop a native signal, binding nothing, when the window
+ends before the signal is paired.
+
+[SC-ID-128] An implementation that drops a native signal under [SC-ID-124] MUST record a
+diagnostic.
+
+This document does not fix the window's length.
+
+A signal is **unpairable** when no implementation-observed key is available, or when more
+than one attachment is a candidate.
+
+[SC-ID-125] An implementation MUST NOT bind a native signal that it cannot pair with
+certainty.
+
+[SC-ID-129] An implementation that does not bind an unpairable native signal MUST record a
+finding.
+
+Before any signal is paired with it, an attachment's cross-check value is a hint for logs
+only.
+
+[SC-ID-126] An implementation MUST NOT use an unpaired attachment's cross-check value to
+create a registration record, to select a session id, to make the session discoverable or
+present, to route or deliver a message, as provenance, as an allowlist or authorization
+subject, in pairing with a peer, or to authorize anything.
+
+[SC-ID-144] An implementation MUST NOT place a cross-check value in any envelope member or
+session descriptor.
+
+#### 6.7.3 The ordered cases
+
+An implementation applies these cases, in order, to each paired native signal. The first
+case that matches decides.
+
+[SC-ID-143] An implementation MUST compare native ids and cross-check values as exact
+strings, without trimming, case-folding or any other normalization.
+
+Each case ends in one **binding result**: `unchanged` (case 1), `refused` (case 2),
+`failed-closed` (case 3(b), and an unpairable signal under [SC-ID-125]), `bound` (cases
+3(a), 3(c) and 4), or `dropped` (a signal dropped under [SC-ID-124]).
+
+**Case 1, same N.** The attachment is already bound to the signal's N.
+
+[SC-ID-130] When the attachment is already bound to the signal's N, the implementation MUST
+leave the binding unchanged, whatever the start kind and the cross-check value.
+
+Case 1 covers a harness whose native id survives a resume that the implementation observes
+on the same attachment: the session keeps its session id
+(`docs/planning/decisions/C4-session-identity.md` §7).
+
+*Dated note, 2026-10-03 (#42): this narrows C4 §7, which says the session id "MAY be
+re-bound to the same thread". Here the id is kept only while the same attachment stays
+live. A conversation resumed after its binding was deregistered gets a new session id
+([SC-ID-008], [SC-ID-155]). The narrowing is deliberate, not an omission: a record never
+outlives its attachment (C4 §5).*
+
+**Case 2, duplicate N.** N is bound to a different attachment that is still live.
+
+[SC-ID-131] When N is bound to a different live attachment, the implementation MUST NOT
+bind the signal's attachment.
+
+[SC-ID-132] An implementation that refuses a signal under case 2 MUST record a finding.
+
+[SC-ID-133] An implementation MUST NOT withdraw or change the other attachment's binding
+under case 2.
+
+[SC-ID-134] An implementation MUST compare only N, never a cross-check value, when it tests
+for a duplicate.
+
+An attachment whose conversation moved on from N to another id still holds its old
+cross-check value. Keying on that value would refuse a later, legitimate resume of N.
+
+**Case 3, fresh start.** S is `fresh`.
+
+[SC-ID-135] An implementation MUST treat a native signal whose start kind is missing, or is
+a value the adapter's binding document does not map, as `fresh`.
+
+This is the fail-closed default: an unexplained mismatch at a fresh start blocks.
+
+At a fresh start, a cross-check value **differs** when the attachment's cross-check value,
+or the signal's cross-check value, is present and not equal to N.
+
+[SC-ID-136] When S is `fresh`, the attachment's cross-check value equals N, and no
+cross-check value differs (case 3(a)), the implementation MUST bind N under a new session
+id.
+
+[SC-ID-137] When S is `fresh` and a cross-check value differs (case 3(b)), the
+implementation MUST NOT bind either value.
+
+A signal's own cross-check value that differs from N therefore fails closed at a fresh
+start, as `docs/planning/decisions/C4-session-identity.md` §3 ("Hook handler's own
+environment") requires.
+
+[SC-ID-138] An implementation that fails a signal closed under case 3(b) MUST record a
+finding.
+
+[SC-ID-139] When S is `fresh`, the attachment has no cross-check value, and no cross-check
+value differs (case 3(c)), the implementation MUST bind N under a new session id.
+
+[SC-ID-141] An implementation that binds under case 3(c) MUST record a diagnostic.
+
+The diagnostic notes the missing cross-check value. It is not a finding.
+
+**Case 4, transition.** S is `transition`.
+
+[SC-ID-140] When S is `transition`, the implementation MUST bind N under a new session id,
+without comparing any cross-check value.
+
+[SC-ID-142] An implementation that binds under case 4 while the attachment's or the
+signal's cross-check value differs from N MUST record a diagnostic.
+
+The session keeps working, under a new session id. Peers that address the old session id
+no longer reach it.
+
+#### 6.7.4 Re-binding and stale bindings
+
+[SC-ID-150] When case 3(a), 3(c) or 4 binds an attachment that is already bound to a
+different N, the implementation MUST first deregister the attachment's earlier
+registration record.
+
+[SC-ID-151] An implementation MUST NOT carry authorization state from an earlier session id
+to a new one.
+
+Allowlist entries and pairing grants name the earlier session id. They do not follow the
+conversation to its new id (`docs/planning/decisions/C4-session-identity.md` §6).
+
+A **stale binding** arises when a paired native signal carries an N that differs from the
+N its attachment is bound to, and the signal is refused under case 2 or fails closed under
+case 3(b).
+
+[SC-ID-152] On a stale binding, the implementation MUST deregister the attachment's
+existing registration record.
+
+[SC-ID-153] On a stale binding, the implementation MUST record a finding.
+
+The attachment ends unbound. An unbound attachment is better than one that delivers into a
+conversation the session has left. The other attachment's binding in case 2 is untouched
+([SC-ID-133]).
+
+A dropped or unpairable signal cannot be attributed to an attachment, so [SC-ID-152] cannot
+fire for it, and the attachment's old binding can survive a transition it never saw.
+
+[SC-ID-154] An implementation that can attribute a dropped or unpairable native signal to
+the harness process behind a bound attachment MUST stop delivering to, and accepting send
+requests from, that attachment until a later signal is paired with it.
+
+Otherwise its messages can reach a conversation the session has left. C4 §3 ("Residual")
+and §13 make closing this gap a requirement on the implementation.
+
+*Dated note, 2026-10-03 (#42): whether any pairing mechanism can make that attribution is
+UNVERIFIED, tied to the pairing-mechanism item in the dated note of §6.7.2
+(`docs/planning/decisions/C4-session-identity.md` §3, "Residual"). An implementation that
+cannot make it is not bound by [SC-ID-154].*
+
+An implementation binds only on signals it receives. A transition that happens elsewhere
+and never reaches it leaves the binding as it was last observed.
+
+#### 6.7.5 Lifetime and authority
+
+[SC-ID-155] An implementation MUST deregister a binding when its attachment ends.
+
+[SC-ID-156] An implementation MUST NOT keep a registration record after the implementation
+itself stops.
+
+A record that outlived its implementation would be a durable store, which this revision
+does not define (`docs/planning/ADR-001.md`, "v0.1 scope").
+
+[SC-ID-157] An implementation MUST NOT treat a binding as an authorization.
+
+A bound session is registered, not trusted. Whether a message is delivered to it, and
+whether a sender is allowed to reach it, is decided by `spec/security.md`, which denies by
+default.
+
+### 6.8 Attributing send requests
+
+An implementation that sends an envelope on a session's behalf decides which session asked.
+This applies the operator decision recorded on #46 (2026-10-03) in neutral terms: a request
+the implementation cannot tie to exactly one bound session is refused, and a harness's own
+claim about which session it is does not count.
+
+[SC-ID-160] A sender MUST set `from` to the session id bound to the attachment on which the
+send request arrived.
+
+[SC-ID-161] A sender MUST refuse a send request that arrives on an attachment that is not
+bound to exactly one session.
+
+The refusal carries the authorization-failure error of §8.3 ([SC-ID-102]).
+
+[SC-ID-162] A sender MUST NOT attribute a send request using a session id or harness-native
+id that the request itself carries.
+
+### 6.9 Identity and presence
+
+Presence (§7.2) says whether a session is reachable. It does not decide identity.
+
+[SC-ID-180] An implementation MUST NOT change a session id, or end a binding, because of a
+change in presence alone.
+
+[SC-ID-181] An implementation MUST NOT treat a session's presence as evidence that its
+session id is bound to a device key.
+
+The binding is evidenced only by the registration record's signature ([SC-ID-009]).
+
+[SC-ID-182] An implementation MUST NOT announce presence for, or return in discovery, an
+attachment that is not bound.
+
+### 6.10 Conformance fixtures for this section
+
+Section 6 fixtures live in `tests/protocol/sc-id/` and use the members of §3.3. The
+fixtures for [SC-ID-001] and [SC-ID-002] use the `envelope` stage exactly as §3.3 defines
+it. The other fixtures use one of three further stages. For those, `context`, `input` and
+`expected` hold the members below instead of the ones §3.3 lists.
+
+**Common values.** An **implemented list** is an array of objects, each with `extension`
+(an extension identifier), `major` (an integer) and `revision` (a `<major>.<minor>`
+string): the versions the implementation under test implements. A fixture can name a
+hypothetical identifier for a major version that §5.1 does not list yet. An **attachment
+list** is an array of objects, each with `attachment` (a label), optionally `cross_check`
+(a string) and optionally `binding` (an object with `native_id` and `session_id`). An
+attachment without `binding` is unbound.
+
+**Stage `negotiation`** (§6.4, §6.5).
+
+| Member | Content |
+|---|---|
+| `context` | `implemented`: an implemented list. |
+| `input` | `declaration`: the session's capability declaration, as a JSON value. |
+| `expected` | `result`: `agreed` or `no-common-version`. With `agreed`: `extension` and `major`, the agreed version. |
+
+**Stage `binding`** (§6.7).
+
+| Member | Content |
+|---|---|
+| `context` | `attachments`: an attachment list, before the signal. |
+| `input` | `signal`: an object with `native_id`; `start_kind` (`fresh`, `transition`, or `unmapped` for a value the binding document does not map), omitted when the signal has none; optionally `cross_check`, the signal's cross-check value; `pairing` (`paired`, `window-expired` or `unpairable`); and, when `pairing` is `paired`, `attachment`. |
+| `expected` | `result`: the binding result of §6.7.3, which maps each value to its case: `unchanged` (case 1), `refused` (case 2), `failed-closed` (case 3(b), or `pairing` `unpairable`), `bound` (cases 3(a), 3(c), 4) or `dropped` (`pairing` `window-expired`). `attachments`: the attachment list after the signal, where a `session_id` of `new` means a freshly generated session id equal to none in `context`. `record`: `none`, `diagnostic` or `finding`, the local record the rules of §6.7 require. |
+
+**Stage `send`** (§6.5, §6.6, §6.8).
+
+| Member | Content |
+|---|---|
+| `context` | `implemented`: an implemented list. `attachments`: an attachment list. `declarations`: an object whose members are session ids and whose values are capability declarations the sender holds. |
+| `input` | `request`: an object with `attachment`, `to` (a session id), `content` (as §4.5) and optionally `asserted_from` (a session id the request itself claims). |
+| `expected` | `result`: `sent` or `refused`. With `sent`: `from` and `version`, the values the envelope carries. |
+
+The `refused` result of the `send` stage is a sender's refusal, never a delivery state of
+§8.1. The binding results are local outcomes, never delivery states either. E4 (#44)
+decides which `sc-id` fixtures gain an `expected.error` member.
+
+> **Reference implementation note:** the v0.1 conformance runner (tasks E8 and F12) drives
+> the `binding` and `send` stages through the implementation's own binding and send logic
+> with a scripted attachment list, so no live harness takes part. What a fixture cannot
+> show, such as how the pairing key is obtained or that ids are random, is marked
+> `TODO(fixture)` in Appendix A with the task that tests it.
 
 ---
 
@@ -761,7 +1352,9 @@ section adds no requirement. It lists what sections 4 and 5 contribute:
 ## Appendix A. Requirement index
 
 Fixture paths are relative to `tests/protocol/`. `TODO(fixture)` marks a requirement with
-no conformance fixture yet, and names the task expected to supply the test.
+no conformance fixture yet, and names the task expected to supply the test. `covered by`
+marks a requirement that no fixture can break on its own at its stage, and names the
+requirement whose fixtures exercise it.
 
 | Id | Level | Section | Fixtures |
 |---|---|---|---|
@@ -792,7 +1385,7 @@ no conformance fixture yet, and names the task expected to supply the test.
 | SC-ENV-063 | MUST | 4.5.1 | `sc-env/SC-ENV-063.p01` |
 | SC-ENV-064 | MUST | 4.5.1 | TODO(fixture): hand-off behaviour; F10 adapter contract suite |
 | SC-ENV-065 | MUST | 4.5.2 | `sc-env/SC-ENV-065.n01`, `.n02`, `.n03` |
-| SC-ENV-066 | MUST NOT | 4.5.2 | TODO(fixture): needs the §6.4 capability model; E2, E8 |
+| SC-ENV-066 | MUST NOT | 4.5.2 | TODO(fixture): sender-side; E8. §6.4 now defines "advertised" and `sc-id/SC-ID-101` exercises it |
 | SC-ENV-070 | MUST | 4.6 | `sc-env/SC-ENV-070.n01`, `.n02`, `.n03` |
 | SC-ENV-071 | MUST | 4.6 | `sc-env/SC-ENV-071.n01` |
 | SC-ENV-072 | MUST | 4.6 | `sc-env/SC-ENV-072.n01` |
@@ -812,6 +1405,90 @@ no conformance fixture yet, and names the task expected to supply the test.
 | SC-VER-001 | MUST | 5.4 | `sc-ver/SC-VER-001.n01`, `.n02` |
 | SC-VER-002 | MUST NOT | 5.4 | `sc-ver/SC-VER-002.p01` |
 | SC-VER-003 | MUST | 5.4 | `sc-ver/SC-VER-003.n01` |
+| SC-ID-001 | MUST | 6.1 | `sc-id/SC-ID-001.p01`, `.p02`, `.n01`, `.n02`, `.n03`, `.n04`, `.n05`, `.n06` |
+| SC-ID-002 | MUST | 6.1 | `sc-id/SC-ID-002.n01`, `.n02`, `.n03` |
+| SC-ID-003 | MUST | 6.1 | TODO(fixture): sender-side randomness; F2 unit tests |
+| SC-ID-004 | MUST NOT | 6.1 | TODO(fixture): sender-side, by construction; F2, F11 |
+| SC-ID-005 | MUST NOT | 6.1 | TODO(fixture): receiver bookkeeping; F11 |
+| SC-ID-006 | MUST NOT | 6.1 | TODO(fixture): sender-side; F2 (`sc-id/SC-ID-001.n05` shows a receiver rejecting one such value) |
+| SC-ID-007 | MUST NOT | 6.1 | `sc-id/SC-ID-007.p01` |
+| SC-ID-008 | MUST NOT | 6.1 | TODO(fixture): sender-side; F2 |
+| SC-ID-009 | MUST | 6.1 | TODO(fixture): registration-record signature vectors; E5, E8 |
+| SC-ID-020 | MUST NOT | 6.2 | covered by SC-ENV-010: every display form contains `/`, which no identifier token allows, so no fixture breaks this rule alone |
+| SC-ID-021 | MUST NOT | 6.2 | TODO(fixture): routing and authorization paths; F11, H2 |
+| SC-ID-022 | MUST NOT | 6.2 | covered by SC-ID-001 (`sc-id/SC-ID-001.n06`): an alias that is not a session id fails it, and one shaped like a session id cannot be told apart on the wire |
+| SC-ID-023 | MUST NOT | 6.2 | TODO(fixture): sender-side; F2 |
+| SC-ID-024 | MUST NOT | 6.2 | TODO(fixture): authorization store; F5 |
+| SC-ID-040 | MUST | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, E8 |
+| SC-ID-041 | MUST | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, E8 |
+| SC-ID-042 | MAY | 6.3 | none (MAY) |
+| SC-ID-043 | MUST NOT | 6.3 | TODO(fixture): routing and authorization paths; F11 |
+| SC-ID-044 | MUST | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, E8 |
+| SC-ID-045 | MUST NOT | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, H2 |
+| SC-ID-060 | MUST | 6.4 | covered by SC-ID-070 (`sc-id/SC-ID-070.n01`, `.n02`): a consumer can only show a non-object declaration holding no entries |
+| SC-ID-061 | MUST | 6.4 | `sc-id/SC-ID-061.n01`, `.n02` |
+| SC-ID-062 | MUST | 6.4 | `sc-id/SC-ID-062.n01`, `.n02` |
+| SC-ID-063 | MAY | 6.4 | none (MAY) |
+| SC-ID-064 | MUST | 6.4 | `sc-id/SC-ID-064.n01`, `.n02` |
+| SC-ID-065 | MAY | 6.4 | none (MAY) |
+| SC-ID-066 | MUST | 6.4 | `sc-id/SC-ID-066.p01`, `.n01`, `.n02` |
+| SC-ID-067 | MUST | 6.4 | `sc-id/SC-ID-067.p01` |
+| SC-ID-068 | MUST | 6.4 | `sc-id/SC-ID-068.n01` |
+| SC-ID-069 | MUST NOT | 6.4 | `sc-id/SC-ID-069.p01` |
+| SC-ID-070 | MUST | 6.4 | `sc-id/SC-ID-070.n01`, `.n02` |
+| SC-ID-080 | MUST | 6.5 | TODO(fixture): declaration carriage; E3 discovery, E6 binding |
+| SC-ID-081 | MUST NOT | 6.5 | TODO(fixture): declarer-side; F10 adapter contract suite |
+| SC-ID-082 | MUST | 6.5 | `sc-id/SC-ID-082.p01`, `.p02`, `.n01` |
+| SC-ID-083 | MUST | 6.5 | `sc-id/SC-ID-083.p01` |
+| SC-ID-084 | MUST NOT | 6.5 | `sc-id/SC-ID-084.n01` |
+| SC-ID-085 | MUST NOT | 6.5 | `sc-id/SC-ID-085.p01`, `.p02` |
+| SC-ID-086 | MUST NOT | 6.5 | `sc-id/SC-ID-086.n01` |
+| SC-ID-087 | MUST | 6.5 | `sc-id/SC-ID-087.p01` |
+| SC-ID-100 | MUST NOT | 6.6 | `sc-id/SC-ID-100.n01` |
+| SC-ID-101 | MUST | 6.6 | `sc-id/SC-ID-101.p01`, `.p02`, `.n01` |
+| SC-ID-102 | MUST | 6.6 | TODO(fixture): needs the §8.3 error taxonomy; E4, F10 |
+| SC-ID-103 | MUST NOT | 6.6 | TODO(fixture): sender-side; F2 |
+| SC-ID-104 | MUST NOT | 6.6 | TODO(fixture): needs a live harness; F10 adapter contract suite, E3 |
+| SC-ID-105 | MUST | 6.6 | TODO(fixture): hand-off behaviour; F10 |
+| SC-ID-120 | MUST | 6.7.2 | TODO(fixture): needs a live harness; F10 adapter contract suite |
+| SC-ID-121 | MUST | 6.7.2 | TODO(fixture): needs a live harness and the pairing mechanism (UNVERIFIED); Epic F adapter work, G9 |
+| SC-ID-122 | MUST NOT | 6.7.2 | TODO(fixture): needs a live harness; F11, G9 |
+| SC-ID-123 | MUST | 6.7.2 | TODO(fixture): window timing; F10 |
+| SC-ID-124 | MUST | 6.7.2 | `sc-id/SC-ID-124.n01` |
+| SC-ID-125 | MUST NOT | 6.7.2 | `sc-id/SC-ID-125.n01` |
+| SC-ID-126 | MUST NOT | 6.7.2 | TODO(fixture): needs a live harness; F11 |
+| SC-ID-127 | MUST NOT | 6.7.2 | TODO(fixture): needs a live harness; F11, G9 |
+| SC-ID-128 | MUST | 6.7.2 | `sc-id/SC-ID-128.n01` |
+| SC-ID-129 | MUST | 6.7.2 | `sc-id/SC-ID-129.n01` |
+| SC-ID-130 | MUST | 6.7.3 | `sc-id/SC-ID-130.p01`, `.p02` |
+| SC-ID-131 | MUST NOT | 6.7.3 | `sc-id/SC-ID-131.n01` |
+| SC-ID-132 | MUST | 6.7.3 | `sc-id/SC-ID-132.n01` |
+| SC-ID-133 | MUST NOT | 6.7.3 | `sc-id/SC-ID-133.n01` |
+| SC-ID-134 | MUST | 6.7.3 | `sc-id/SC-ID-134.p01` |
+| SC-ID-135 | MUST | 6.7.3 | `sc-id/SC-ID-135.n01`, `.n02` |
+| SC-ID-136 | MUST | 6.7.3 | `sc-id/SC-ID-136.p01` |
+| SC-ID-137 | MUST NOT | 6.7.3 | `sc-id/SC-ID-137.n01`, `.n02` |
+| SC-ID-138 | MUST | 6.7.3 | `sc-id/SC-ID-138.n01` |
+| SC-ID-139 | MUST | 6.7.3 | `sc-id/SC-ID-139.p01` |
+| SC-ID-140 | MUST | 6.7.3 | `sc-id/SC-ID-140.p01` |
+| SC-ID-141 | MUST | 6.7.3 | `sc-id/SC-ID-141.p01` |
+| SC-ID-142 | MUST | 6.7.3 | `sc-id/SC-ID-142.p01` |
+| SC-ID-143 | MUST | 6.7.3 | `sc-id/SC-ID-143.n01` |
+| SC-ID-144 | MUST NOT | 6.7.2 | TODO(fixture): sender-side; F2 |
+| SC-ID-150 | MUST | 6.7.4 | `sc-id/SC-ID-150.p01` |
+| SC-ID-151 | MUST NOT | 6.7.4 | TODO(fixture): authorization store; E5, F5 |
+| SC-ID-152 | MUST | 6.7.4 | `sc-id/SC-ID-152.n01`, `.n02` |
+| SC-ID-153 | MUST | 6.7.4 | `sc-id/SC-ID-153.n01` |
+| SC-ID-154 | MUST | 6.7.4 | TODO(fixture): needs attribution of a dropped signal (UNVERIFIED); F10, G9 |
+| SC-ID-155 | MUST | 6.7.5 | TODO(fixture): needs a live attachment; F10 |
+| SC-ID-156 | MUST NOT | 6.7.5 | TODO(fixture): restart behaviour; F2 |
+| SC-ID-157 | MUST NOT | 6.7.5 | TODO(fixture): authorization; E5, F5 |
+| SC-ID-160 | MUST | 6.8 | `sc-id/SC-ID-160.p01` |
+| SC-ID-161 | MUST | 6.8 | `sc-id/SC-ID-161.n01`, `.n02` |
+| SC-ID-162 | MUST NOT | 6.8 | `sc-id/SC-ID-162.p01` |
+| SC-ID-180 | MUST NOT | 6.9 | TODO(fixture): presence; E3, F6 |
+| SC-ID-181 | MUST NOT | 6.9 | TODO(fixture): registration-record verification; E5 |
+| SC-ID-182 | MUST NOT | 6.9 | TODO(fixture): presence and discovery; E3, F6 |
 
 Retired ids: none.
 
@@ -820,3 +1497,4 @@ Retired ids: none.
 | Revision | Date | Change |
 |---|---|---|
 | 0.1 (draft) | 2026-10-03 | E1 (#41): document skeleton for sections 1-10; sections 4 (envelope) and 5 (versioning) written; requirement-id scheme and fixture format (§3); envelope-stage fixtures under `tests/protocol/sc-env/` and `tests/protocol/sc-ver/`. Review of #258: SC-ENV-027, SC-ENV-103, SC-ENV-104 and SC-VER-003 added (retransmission and retry defined); dated notes for the operator decisions on #41. |
+| 0.1 (draft) | 2026-10-03 | E2 (#42): section 6 (session identity, addressing and capability negotiation) written; area `ID`; `negotiation`, `binding` and `send` fixture stages (§6.10, with a §3.3 sentence allowing section-defined stages); fixtures under `tests/protocol/sc-id/`. Review of #260: signal cross-check value, record rules and exact comparison (SC-ID-127 to SC-ID-129, SC-ID-141 to SC-ID-144), SC-ID-045, SC-ID-070, SC-ID-154 made a conditional MUST, SC-ID-023 widened, binding results mapped to cases. |

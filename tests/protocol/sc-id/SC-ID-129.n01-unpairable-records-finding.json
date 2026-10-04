@@ -1,0 +1,41 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-129",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "unpairable signal",
+  "description": "A transition signal for native-y cannot be paired with certainty. Nothing is bound and a finding is recorded.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-y",
+      "start_kind": "transition",
+      "pairing": "unpairable"
+    }
+  },
+  "expected": {
+    "result": "failed-closed",
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ],
+    "record": "finding"
+  }
+}

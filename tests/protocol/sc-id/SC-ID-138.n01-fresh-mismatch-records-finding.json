@@ -1,0 +1,44 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-138",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "unexplained fresh-start mismatch",
+  "description": "A fresh signal for native-q on B, whose cross-check value is native-x, fails closed with a finding.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-x"
+      },
+      {
+        "attachment": "D",
+        "cross_check": "native-q"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-q",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "B"
+    }
+  },
+  "expected": {
+    "result": "failed-closed",
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-x"
+      },
+      {
+        "attachment": "D",
+        "cross_check": "native-q"
+      }
+    ],
+    "record": "finding"
+  }
+}

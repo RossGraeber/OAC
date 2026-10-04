@@ -1,0 +1,40 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-083",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "Both sides implement majors 0 and 1 (major 1 is hypothetical). Major 1 is agreed.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      },
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels-v2",
+        "major": 1,
+        "revision": "1.0"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "io.github.rossgraeber/oac-session-channels": {
+        "revision": "0.1",
+        "active_inbound": true
+      },
+      "io.github.rossgraeber/oac-session-channels-v2": {
+        "revision": "1.0",
+        "active_inbound": true
+      }
+    }
+  },
+  "expected": {
+    "result": "agreed",
+    "extension": "io.github.rossgraeber/oac-session-channels-v2",
+    "major": 1
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-135",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "missing start kind treated as fresh",
+  "description": "The signal has no start kind, so it is treated as fresh; the cross-check value differs from N.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-z"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "pairing": "paired",
+      "attachment": "B"
+    }
+  },
+  "expected": {
+    "result": "failed-closed",
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-z"
+      }
+    ],
+    "record": "finding"
+  }
+}

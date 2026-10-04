@@ -1,0 +1,43 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-007",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A transition signal repeats the native id A is bound to. The session id does not change.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "transition",
+      "pairing": "paired",
+      "attachment": "A"
+    }
+  },
+  "expected": {
+    "result": "unchanged",
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ],
+    "record": "none"
+  }
+}
