@@ -654,8 +654,8 @@ form of it that reveals more than the caller sent.
 > order and whitespace, from differing between the two cases. Timing is a side channel the
 > fixtures above cannot test: answering one case faster than the other still reveals the
 > session, directly or through whether a cancellation arrives before the response. Timing
-> is left to `spec/security.md` §13.1 ([SEC-STG-005] and its timing residual), which owns
-> discovery authorization.
+> is left to `spec/security.md` §13.1 ([SEC-STG-005] and its timing residual); that
+> document also owns discovery authorization (§9.4).
 
 *Dated note, 2026-10-03 (#262): an earlier draft of this change mapped a `send` to an
 unknown session to `unsupported-capability`, because E4 (#44) placed the

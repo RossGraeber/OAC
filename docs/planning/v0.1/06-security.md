@@ -509,7 +509,9 @@ Per `oac-security-work` §1: **a mitigation with no proving test is not a mitiga
 (F4, F5, F8, F11), a gate (gate G1-gate G5), or a backlog task (task G2, task G4, task
 G7, task G8, task G9, H2, L10). **No named test tier has passed**: every F/H test and
 every backlog task named is `NOT RUN`, not yet built, or blocked on a stage that is not
-open (`docs/planning/STATUS.md`, Pre-Stage 0; L10 waits on Stage 5). The gate results
+open (`docs/planning/STATUS.md`, Pre-Stage 0; L10 waits on Stage 5). *(Dated note,
+2026-10-03, #254: "Pre-Stage 0" here is stale; read the current stage from
+`docs/planning/STATUS.md` "Current stage". No named F/H test tier has passed yet.)* The gate results
 that do exist — gate G1 `PASS` (row 16), gate G2 `PASS` (rows 12, 17), gate G5 `FAIL`
 (rows 5, 16, 17, 21, 22) — are cited in their rows for what each actually confirmed, but
 a gate result is not a test tier and does not by itself close a row
