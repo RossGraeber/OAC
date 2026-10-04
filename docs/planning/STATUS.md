@@ -4,6 +4,42 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-04 (**Issue #274: delivery never steers; the #224 decision is in
+the spec before the freeze.** Blocker B2 of the E7 freeze-readiness audit (#47, #274).
+In this change:
+
+- **Neutral (`spec/security.md` §9.6).** [SEC-AUZ-022] now judges a steering operation by
+  what the harness does with it (documented, observed, or shown by source), not only by
+  its documentation. A surface with no holding hand-off still takes ordinary input (the
+  channel surface, G1). New: SEC-AUZ-025 (a holding hand-off whenever a turn may be
+  running), SEC-AUZ-026 (only a check atomic with the hand-off shows no turn is running)
+  and SEC-AUZ-027 (no fallback to steering). Each is `TODO(fixture)`, owned by G7 (#68)
+  against the F9 fake. The §13 steering row is updated.
+- **Binding (`spec/bindings/mcp.md` §8.2.1).** The race-free form was chosen: every Codex
+  delivery uses `thread/queue/add` (MCPB-CDX-002). `turn/start` is never used for delivery
+  (MCPB-CDX-003). `turn/steer` is used only with steering enabled (MCPB-CDX-004). No
+  setting-override members are sent (MCPB-CDX-005). Each cites the #224 source findings at
+  `rust-v0.160.0` and the E1 live observation. `thread/queue/add` is labelled experimental,
+  behind the G6 shim. Fixtures are `TODO(fixture)` because app-server traffic is outside
+  the `mcp-binding` stage. §8.1 classifies the channel notification as not steering.
+- **Ledger.** The C13 item "`turn/start` sent while a turn is active steers it" is closed
+  and removed from "Open UNVERIFIED items". Promotion: verified from first-party source at
+  `openai/codex` `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`
+  (`codex-rs/app-server/src/request_processors/turn_processor.rs` L651-L684;
+  `codex-rs/core/src/session/turn_input.rs` L276-L373; upstream test
+  `turn_start_steers_active_turn_and_returns_active_turn_id`), retrieved 2026-10-02
+  (https://github.com/RossGraeber/OAC/issues/224#issuecomment-5956477165), with one live
+  observation at `0.160.0` (E1 run `20261002T161612Z`). The spec no longer depends on the
+  timing, because delivery never uses `turn/start`. Codex floats, so a later version is
+  re-checked as a follow-up (#216). Two new items are added (queue "not now" errors; queue
+  runtime caveats), with `11-risks.md` rows 65-66. `06-security.md` gets a dated note in
+  §9 and a dated residual on row 12.
+- **Freeze.** Done before Gate S2, because after it the wider [SEC-AUZ-022] and the new
+  `MUST`s would be breaking (`spec/session-channels.md` §5.3, item 11). Implementation
+  stays with G7 (#68) and G6.
+
+No pin moves. No envelope or interface type changes.)
+
 **Last updated:** 2026-10-03 (**Issue #45 (E5): `spec/security.md` written.** The normative
 security model, neutral (document prefix `SEC`, areas `KEY`, `SIG`, `STG`, `RPL`, `AUZ`,
 `RCT`, `PRS`, `PRV`; 107 requirement ids in its Appendix A). In this change, as revised
@@ -1672,19 +1708,16 @@ without an UNVERIFIED label.
   open until re-checked against a pin. This entry gates nothing. Risk entry:
   RISK-B2-CARRIED in `docs/planning/v0.1/11-risks.md` (`oac-evidence` §5).
 
-- **New, from C13 (issue #220, 2026-10-02):** at `openai/codex` `rust-v0.159.3`, a
-  `turn/start` sent while a turn is active steers that turn (`start_or_steer_turn` →
-  `TurnInputSubmission::Steered`, `codex-rs/app-server/src/request_processors/
-  turn_processor.rs` L652-675). So C6 §5's "never `turn/steer`" is not ensured by
-  choosing `turn/start` (UNVERIFIED — source read only, not exercised live; an adjacent
-  finding for backlog G7, `docs/planning/decisions/C13-codex-provenance-framing.md` §10).
-  *Dated note, 2026-10-02 (#220):* observed once live, at Codex `0.160.0`. In the G5 E1
-  run, arm 0's first X2 delivery `turn/start` returned turn `01a0fd67-566a-7173-a60e-2fc073ce3896`
-  with status `inProgress`, and joined the still-active marker turn
-  (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, "Findings and UNVERIFIED";
-  `transcript-codex-2026-10-02-0.160.0-herdr.jsonl` L58, L66). One observation does not
-  settle the behaviour across versions or timings, so the item stays open. Owner: #224 and
-  backlog G7.
+- **New, from #274 (2026-10-04):** two Codex queue items that `spec/bindings/mcp.md`
+  §8.2.1 relies on, from source at `rust-v0.160.0` only (#224 step-1 findings C5).
+  Owner: backlog G7 (#68). Risk rows: `docs/planning/v0.1/11-risks.md` rows 65-66,
+  RISK-CODEX-EXPERIMENTAL.
+  - Which `thread/queue/add` errors, if any, mean "not now"
+    (`spec/session-channels.md` [SC-DLV-008]). The two known refusals, an ephemeral thread
+    and a host with no queue service, are failed hand-offs.
+  - Runtime behaviour of the queue: no dispatch after an interrupted turn; other daemon
+    clients can reorder, update or delete a queued item; an add to an unloaded thread
+    waits; an extra member in a `thread/queue/add` request is probably ignored.
 
 - **New, from verifying the G5 E1 findings (#220, 2026-10-03):**
   - The old C6 §5 frame's X2 failure was not reproduced across runs. The K8 run

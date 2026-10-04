@@ -83,7 +83,7 @@ fourth option:
 
 | Thread state | Call | Notes |
 |---|---|---|
-| Idle (no turn in flight) | `turn/start` | Starts a new turn. |
+| Idle (no turn in flight) | `turn/start` | Starts a new turn, but **steers** a turn that is running when it lands, and no idle check is atomic with it (#224). **Never for OAC delivery:** every delivery uses `thread/queue/add` with no setting-override members (`spec/bindings/mcp.md` §8.2.1, [MCPB-CDX-002] to [MCPB-CDX-005]). |
 | A turn may be in flight and you want the input delivered once the thread goes idle | `thread/queue/add` | Experimental; queued until idle. |
 | A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7)** — gate any code path that can call this behind an explicit authorization check, and see `oac-security-work` before wiring it up. |
 
