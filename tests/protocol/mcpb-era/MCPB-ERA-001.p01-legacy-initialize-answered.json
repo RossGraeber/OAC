@@ -1,0 +1,50 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-ERA-001",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A legacy-era `initialize` gets a result (G4 fixture line 14-15 shape).",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "channel-path"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {},
+          "clientInfo": {
+            "name": "fixture-client",
+            "version": "1.0.0"
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "result": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tools": {},
+            "extensions": {
+              "io.github.rossgraeber/oac-session-channels": {}
+            }
+          },
+          "serverInfo": {
+            "name": "oac",
+            "version": "0.1.0"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

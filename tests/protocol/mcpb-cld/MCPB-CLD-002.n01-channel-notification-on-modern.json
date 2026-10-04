@@ -1,0 +1,79 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-CLD-002",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "channel notification on a connection without a legacy revision",
+  "description": "After a modern-era `tools/list`, the server sends a `notifications/claude/channel` on that connection, which never negotiated a legacy revision.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "channel-path"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "tools": [
+            {
+              "name": "send",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "reply",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "list_sessions",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "whoami",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          ]
+        }
+      },
+      "subsequent_messages": [
+        {
+          "from": "server",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "notifications/claude/channel",
+            "params": {
+              "content": "Please review the scheduler module.",
+              "meta": {
+                "oac_from": "01harn7x9k2m4p6q8r0s2t4v6w"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

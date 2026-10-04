@@ -1,0 +1,63 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-FBK-001",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A modern `tools/list` from a client whose capabilities declare no extensions is served with the four tools.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/list",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": {
+          "tools": [
+            {
+              "name": "send",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "reply",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "list_sessions",
+              "inputSchema": {
+                "type": "object"
+              }
+            },
+            {
+              "name": "whoami",
+              "inputSchema": {
+                "type": "object"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}
