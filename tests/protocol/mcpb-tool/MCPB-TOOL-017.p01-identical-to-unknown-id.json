@@ -1,25 +1,35 @@
 {
   "fixture_format": "oac-mcpb-fixture/1",
-  "requirement": "MCPB-TOOL-011",
+  "requirement": "MCPB-TOOL-017",
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "A send to a session whose presence is unknown to the server carries unknown-destination, spelled exactly as Table 8.3 spells it (Table 8.3.3, step 2).",
+  "description": "A send to an online session the calling session may not discover returns exactly the result the server returns for a session id it holds no record of.",
   "stage": "mcp-binding",
   "context": {
-    "era": "modern",
+    "era": "legacy",
     "server_role": "general",
+    "legacy_initialized": true,
     "bound": true,
     "addressed": {
-      "presence": "unknown",
-      "discoverable": true
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "unknown-destination: no session with that id is known."
+        }
+      ],
+      "isError": true
     }
   },
   "input": {
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 41,
+        "id": 81,
         "method": "tools/call",
         "params": {
           "name": "send",
@@ -31,16 +41,12 @@
                 "text": "Build finished; please review."
               }
             ]
-          },
-          "_meta": {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
           }
         }
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 41,
+        "id": 81,
         "result": {
           "content": [
             {

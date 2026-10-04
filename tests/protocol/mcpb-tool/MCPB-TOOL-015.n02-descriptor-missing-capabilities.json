@@ -5,7 +5,7 @@
   "spec_revision": "0.1",
   "kind": "negative",
   "failure_mode": "descriptor incomplete",
-  "description": "A list_sessions result carries a JSON array whose descriptor lacks the capabilities member a session descriptor requires.",
+  "description": "A list_sessions result carries a sessions array whose descriptor lacks the capabilities member a session descriptor requires.",
   "stage": "mcp-binding",
   "context": {
     "era": "modern",
@@ -34,7 +34,7 @@
           "content": [
             {
               "type": "text",
-              "text": "[{\"session_id\":\"3m8q2r7t0v4w6x9y1z5a3b8c2d\"}]"
+              "text": "{\"sessions\":[{\"session_id\":\"3m8q2r7t0v4w6x9y1z5a3b8c2d\"}]}"
             }
           ]
         }

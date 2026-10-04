@@ -1,10 +1,11 @@
 {
   "fixture_format": "oac-mcpb-fixture/1",
-  "requirement": "MCPB-TOOL-015",
+  "requirement": "MCPB-TOOL-018",
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
-  "kind": "positive",
-  "description": "A list_sessions result with no discoverable session carries an empty JSON array.",
+  "kind": "negative",
+  "failure_mode": "OAC error for an unknown tool",
+  "description": "A tools/call naming a tool outside the four OAC tools is answered with a tool execution error carrying invalid-request.",
   "stage": "mcp-binding",
   "context": {
     "era": "modern",
@@ -15,11 +16,18 @@
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 62,
+        "id": 92,
         "method": "tools/call",
         "params": {
-          "name": "list_sessions",
-          "arguments": {},
+          "name": "broadcast",
+          "arguments": {
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          },
           "_meta": {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientCapabilities": {}
@@ -28,22 +36,20 @@
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 62,
+        "id": 92,
         "result": {
           "content": [
             {
               "type": "text",
-              "text": "[]"
+              "text": "invalid-request: no tool named broadcast."
             }
           ],
-          "structuredContent": {
-            "sessions": []
-          }
+          "isError": true
         }
       }
     }
   },
   "expected": {
-    "result": "conformant"
+    "result": "nonconformant"
   }
 }

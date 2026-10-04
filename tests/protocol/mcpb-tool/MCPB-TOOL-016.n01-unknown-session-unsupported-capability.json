@@ -1,10 +1,11 @@
 {
   "fixture_format": "oac-mcpb-fixture/1",
-  "requirement": "MCPB-TOOL-011",
+  "requirement": "MCPB-TOOL-016",
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
-  "kind": "positive",
-  "description": "A send to an online session the calling session is not authorized to discover is refused exactly like an unknown session, with unknown-destination (SC-DLV-075, SC-DLV-076).",
+  "kind": "negative",
+  "failure_mode": "wrong code for the cause",
+  "description": "A send to an unknown session carries unsupported-capability, a correctly spelled code that Table 8.3.3 does not assign to this cause.",
   "stage": "mcp-binding",
   "context": {
     "era": "legacy",
@@ -12,15 +13,15 @@
     "legacy_initialized": true,
     "bound": true,
     "addressed": {
-      "presence": "online",
-      "discoverable": false
+      "presence": "unknown",
+      "discoverable": true
     }
   },
   "input": {
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 42,
+        "id": 74,
         "method": "tools/call",
         "params": {
           "name": "send",
@@ -37,12 +38,12 @@
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 42,
+        "id": 74,
         "result": {
           "content": [
             {
               "type": "text",
-              "text": "unknown-destination: no session with that id is known."
+              "text": "unsupported-capability: no capability declaration is held for the addressed session."
             }
           ],
           "isError": true
@@ -51,6 +52,6 @@
     }
   },
   "expected": {
-    "result": "conformant"
+    "result": "nonconformant"
   }
 }

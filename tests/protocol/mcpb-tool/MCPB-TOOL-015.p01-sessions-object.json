@@ -4,7 +4,7 @@
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "A list_sessions result carries the discovery result as a JSON array of session descriptors in a text block.",
+  "description": "A list_sessions result carries {\"sessions\": [...]} in a text block, the serialization of its structuredContent.",
   "stage": "mcp-binding",
   "context": {
     "era": "legacy",
@@ -30,7 +30,7 @@
           "content": [
             {
               "type": "text",
-              "text": "[{\"session_id\":\"3m8q2r7t0v4w6x9y1z5a3b8c2d\",\"capabilities\":{\"io.github.rossgraeber/oac-session-channels\":{\"revision\":\"0.1\",\"active_inbound\":true}},\"harness_label\":\"harness-b\"}]"
+              "text": "{\"sessions\":[{\"session_id\":\"3m8q2r7t0v4w6x9y1z5a3b8c2d\",\"capabilities\":{\"io.github.rossgraeber/oac-session-channels\":{\"revision\":\"0.1\",\"active_inbound\":true}},\"harness_label\":\"harness-b\"}]}"
             }
           ],
           "structuredContent": {

@@ -3,42 +3,47 @@
   "requirement": "MCPB-TOOL-015",
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
-  "kind": "negative",
-  "failure_mode": "session list not a JSON array",
-  "description": "A list_sessions result lists sessions as prose rather than as a {\"sessions\": [...]} JSON object.",
+  "kind": "positive",
+  "description": "A list_sessions result with no discoverable session carries {\"sessions\": []}.",
   "stage": "mcp-binding",
   "context": {
-    "era": "legacy",
+    "era": "modern",
     "server_role": "general",
-    "legacy_initialized": true,
     "bound": true
   },
   "input": {
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 63,
+        "id": 62,
         "method": "tools/call",
         "params": {
           "name": "list_sessions",
-          "arguments": {}
+          "arguments": {},
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
         }
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 63,
+        "id": 62,
         "result": {
           "content": [
             {
               "type": "text",
-              "text": "1 session reachable: 3m8q2r7t0v4w6x9y1z5a3b8c2d (harness-b, active inbound)."
+              "text": "{\"sessions\":[]}"
             }
-          ]
+          ],
+          "structuredContent": {
+            "sessions": []
+          }
         }
       }
     }
   },
   "expected": {
-    "result": "nonconformant"
+    "result": "conformant"
   }
 }
