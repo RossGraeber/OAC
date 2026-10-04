@@ -497,6 +497,26 @@ cannot be frozen without freezing the leak; the offending text is corrected and 
 is re-attempted. A failing criterion 4 (a fixture nothing can execute) blocks Stage 3,
 which loads those fixtures as its CI-default spec-conformance tier.
 
+**Current verdict (2026-10-04, #47): Gate S2 is not met. The freeze is prepared, not
+declared.** The proposed freeze record is `docs/planning/decisions/E7-interface-freeze.md`.
+It holds the readiness audit (§2), the blockers (§3), the markers edited at sign-off (§6),
+the change-control rule after the freeze (§7) and the operator sign-off block (§8). The
+freeze is the operator's decision. Open blockers: the interface text for `ProviderAdapter`,
+`Transport` and the core types (#273), and the #224 no-steering decision (#274), which hold
+criteria 1 and 6; the `envelope-too-large` and `transport-failure` fixtures and the MCP
+binding fixture owners (#275), which hold the executable demonstration. Criteria 2, 3 and 5
+hold for the three merged documents, and criterion 4 holds for the 461 fixtures.
+
+*Dated note, 2026-10-04 (#47): two references above are M0-era.*
+
+- *Criterion 1's "spec-revision event under `docs/planning/v0.1/05-interfaces.md` §11" is
+  now governed by `spec/session-channels.md` §5, which supersedes `05-interfaces.md`, and
+  by the freeze record's §7.*
+- *The "closed error taxonomy (`05-interfaces.md` §10, ten rows)" in the executable
+  demonstration is now `spec/session-channels.md` Table 8.3, with seventeen codes.*
+
+*The criteria themselves are unchanged.*
+
 ---
 
 ## 7. Stage 3 — Core and fakes

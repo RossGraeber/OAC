@@ -1611,6 +1611,16 @@ follow from it and belong to their owners:
    lifetime cap of [SEC-PRS-007] for records from another implementation.
 9. `spec/bindings/mcp.md` §6.3: replace "planned, E5" with a citation of §6 here.
 
+*Dated note, 2026-10-04 (#47): all nine follow-ups above are applied, by #266 (see the #266 row
+of `spec/session-channels.md` Appendix B). The E7 freeze audit checked each one
+against `main` at `94f5053`. Item 1: the Appendix A rows cite the `sec-*` fixtures; SC-ENV-104
+stays `TODO(fixture)` (sender-side). Item 2: §10.1 and §8.1.5 there. Item 3: Table 8.3 there.
+Items 4 and 7: the §7.2.3 notes there cite §11 here, [SEC-AUZ-017] and [SEC-PRS-012]. Item 5:
+§7.3.2 there cites §9.4 and §9.5 here and [SEC-AUZ-016]. Item 6: §8.2.2 there cites
+[SEC-PRS-010] and [SEC-AUZ-014]. Item 8: §7.2.4 there cites [SEC-PRS-007]. Item 9:
+`spec/bindings/mcp.md` no longer contains "planned, E5". This appendix no longer lists open
+work.*
+
 ## Appendix C. Revision history
 
 | Revision | Date | Change |
@@ -1621,3 +1631,4 @@ follow from it and belong to their owners:
 | 0.1 (draft) | 2026-10-03 | SEC-AUZ-018: a self-initiated retry is a new send and is refused, with no envelope, when the target has become hidden; `remove-grant` operation in the `exchange` stage. |
 | 0.1 (draft) | 2026-10-03 | §13.1 Timing: SEC-STG-005 (SHOULD: one refusal path with no target-dependent work) and the timing residual. |
 | 0.1 (draft) | 2026-10-03 | E8 (#48), editorial: the §3.3 note and the §13 introduction name the committed reference runner, `tests/protocol/runner/run.mjs`, which CI runs over every fixture. Review of PR #270: a dated note after [SEC-AUZ-006] records that a session-id grant still covers its id after the binding ends, so the delivery stage reports `unknown-destination`. |
+| 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): a dated note in Appendix B records that its nine follow-ups are all applied. |
