@@ -1,0 +1,53 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-DLV-023",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "session id not in canonical form",
+  "description": "A withdrawal's `session_id` is an upper-case form of a session id. A withdrawal has no descriptor, so no other rule fails.",
+  "stage": "presence",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "own_sessions": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": {
+        "session_id": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "capabilities": {
+          "io.github.rossgraeber/oac-session-channels": {
+            "revision": "0.1",
+            "active_inbound": true
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "events": [
+      {
+        "at_ms": 0,
+        "issuer": "B",
+        "record": {
+          "session_id": "7GQ3M8Z2C5K9T1W4X6B0N2R8VD",
+          "seq": 1,
+          "present": false,
+          "issued_at": "2026-10-03T12:00:05.000Z"
+        }
+      }
+    ],
+    "query_at_ms": 1000
+  },
+  "expected": {
+    "discarded": [
+      0
+    ],
+    "states": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "unknown"
+    }
+  }
+}

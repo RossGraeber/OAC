@@ -1,0 +1,90 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-DLV-042",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "After a withdrawal, an announcement with a greater `seq` makes the session online again.",
+  "stage": "presence",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "own_sessions": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": {
+        "session_id": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "capabilities": {
+          "io.github.rossgraeber/oac-session-channels": {
+            "revision": "0.1",
+            "active_inbound": true
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "events": [
+      {
+        "at_ms": 0,
+        "issuer": "B",
+        "record": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "seq": 1,
+          "present": true,
+          "issued_at": "2026-10-03T12:00:00.000Z",
+          "lifetime_ms": 60000,
+          "descriptor": {
+            "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+            "capabilities": {
+              "io.github.rossgraeber/oac-session-channels": {
+                "revision": "0.1",
+                "active_inbound": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "at_ms": 100,
+        "issuer": "B",
+        "record": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "seq": 2,
+          "present": false,
+          "issued_at": "2026-10-03T12:00:05.000Z"
+        }
+      },
+      {
+        "at_ms": 200,
+        "issuer": "B",
+        "record": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "seq": 3,
+          "present": true,
+          "issued_at": "2026-10-03T12:00:00.000Z",
+          "lifetime_ms": 60000,
+          "descriptor": {
+            "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+            "capabilities": {
+              "io.github.rossgraeber/oac-session-channels": {
+                "revision": "0.1",
+                "active_inbound": true
+              }
+            }
+          }
+        }
+      }
+    ],
+    "query_at_ms": 1000
+  },
+  "expected": {
+    "discarded": [],
+    "states": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "online"
+    }
+  }
+}

@@ -40,6 +40,6 @@
   },
   "expected": {
     "result": "refused",
-    "error": "unsupported-capability"
+    "error": "unknown-destination"
   }
 }
