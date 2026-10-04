@@ -1,0 +1,32 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-066",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "`max_envelope_octets` raises the limit to 1048576 octets.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "io.github.rossgraeber/oac-session-channels": {
+        "revision": "0.1",
+        "active_inbound": true,
+        "max_envelope_octets": 1048576
+      }
+    }
+  },
+  "expected": {
+    "result": "agreed",
+    "extension": "io.github.rossgraeber/oac-session-channels",
+    "major": 0
+  }
+}

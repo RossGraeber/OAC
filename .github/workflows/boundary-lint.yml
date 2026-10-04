@@ -1,7 +1,10 @@
 # ADR-001 boundary lint: the scripted/CI-safe subset of
-# .claude/skills/oac-boundaries/references/mechanical-checks.md (checks 3, 8, 9, 10, 11).
-# That file is the source of truth for every check; if a command changes there, change it
-# here too. Checks 1, 2, 4-7 target paths that do not exist yet and stay manual until then.
+# .claude/skills/oac-boundaries/references/mechanical-checks.md (checks 1, 2, 3, 8, 9, 10, 11),
+# plus the zero-hits group of
+# .claude/skills/oac-spec-authoring/references/neutral-vocabulary-check.md over spec/.
+# Those files are the source of truth for every check; if a command changes there, change it
+# here too. Checks 1-2 run over spec/ (mandatory since #41: a missing spec/ fails) and over
+# core/ once it exists. Checks 4-7 target paths that do not exist yet and stay manual until then.
 # Minimal on purpose: the full CI pipeline is a separate task (F12).
 # The fixture-manifest job (#142) is not a boundary check; it shares this file's triggers,
 # permissions and pinned checkout. It needs git and Node only, and no secrets. The same
@@ -34,10 +37,11 @@ jobs:
         run: command -v rg || (sudo apt-get update -q && sudo apt-get install -y -q ripgrep)
 
       # rg exit 1 = zero hits (pass); exit 0 = hits (fail); exit 2 = error (fail).
+      # --no-ignore: a committed .ignore/.rgignore/.gitignore must not switch a check off.
       - name: Check 3 - no provider SDK imports or deps in the code tree
         run: |
           set +e
-          rg -n --glob '!target' --glob '!docs/**' -i \
+          rg -n --no-ignore --glob '!target' --glob '!docs/**' -i \
             '\bopenai\b|\banthropic\b|@anthropic-ai|from openai|import openai' \
             --glob '*.rs' --glob '*.py' --glob '*.ts' --glob '*.toml' \
             --glob '*.js' --glob '*.mjs' --glob '*.go' --glob '*.json' .
@@ -49,10 +53,47 @@ jobs:
       - name: Check 8 - no separately administered server for local use
         run: |
           set +e
-          rg -n -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
+          rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|helm|zenohd' .
           status=$?
           [ "$status" -eq 1 ] && { echo "check 8 clean"; exit 0; }
           echo "check 8 failed (rg exit $status): stop and cite the boundary (oac-boundaries)"
+          exit 1
+
+      # Checks 1-2 over spec/ (mandatory: missing fails) and core/ (once it exists), then the
+      # spec neutral-vocabulary zero-hits group over spec/. The files are listed explicitly
+      # with find (every regular file, dot-files and ignored files included), so no ignore
+      # file, glob or directory name can drop one. Check 2 and the zero-hits group exempt
+      # exactly one regular file, spec/bindings/mcp.md (the task E6 binding document); check 1
+      # exempts nothing. A symlink under spec/, or a non-regular spec/bindings/mcp.md, fails.
+      - name: Checks 1-2 and spec neutral vocabulary - no transport or provider names in spec/ core/
+        run: |
+          set +e
+          binding=spec/bindings/mcp.md
+          if [ ! -d spec ] || [ -L spec ]; then echo "checks 1-2 failed: spec/ is missing or not a directory (mandatory since #41)"; exit 1; fi
+          if [ ! -f spec/session-channels.md ] || [ -L spec/session-channels.md ]; then echo "checks 1-2 failed: spec/session-channels.md is missing or not a regular file"; exit 1; fi
+          if { [ -e "$binding" ] || [ -L "$binding" ]; } && { [ -L "$binding" ] || [ ! -f "$binding" ]; }; then
+            echo "checks 1-2 failed: $binding exists but is not a regular file"; exit 1
+          fi
+          links=$(find spec -type l)
+          if [ -n "$links" ]; then echo "checks 1-2 failed: symlink under spec/:"; echo "$links"; exit 1; fi
+          mapfile -d '' spec_all < <(find spec -type f -print0)
+          spec_neutral=()
+          for f in "${spec_all[@]}"; do [ "$f" = "$binding" ] || spec_neutral+=("$f"); done
+          core_all=()
+          [ -d core ] && mapfile -d '' core_all < <(find core -type f -not -path '*/target/*' -print0)
+          fail=0
+          rg -n --hidden --no-ignore -i '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness' -- "${spec_all[@]}" "${core_all[@]}"
+          s=$?; [ "$s" -eq 1 ] || { echo "check 1 failed (rg exit $s)"; fail=1; }
+          rg -n --hidden --no-ignore \
+            'claude/channel|thread/queue/add|turn/steer|turn/start|thread/start|thread/resume|notifications/claude/channel' \
+            -- "${spec_neutral[@]}" "${core_all[@]}"
+          s=$?; [ "$s" -eq 1 ] || { echo "check 2 failed (rg exit $s)"; fail=1; }
+          rg -n --hidden --no-ignore -i \
+            '\bzenoh\b|\bzid\b|key[_-]?expr|liveliness|scouting|\bmqtt\b|\bnats\b|\bclaude\b|\bcodex\b|app[ -]server|claude/channel|--channels|--dangerously-load-development-channels|thread/(queue/add|start|resume|loaded/list)|turn/(steer|start)|tools/call|prompts/get|resources/read|notifications/[a-z]+/' \
+            -- "${spec_neutral[@]}"
+          s=$?; [ "$s" -eq 1 ] || { echo "spec neutral-vocabulary check failed (rg exit $s)"; fail=1; }
+          [ "$fail" -eq 0 ] && { echo "checks 1-2 and spec neutral vocabulary clean (${#spec_all[@]} spec/ files, ${#core_all[@]} core/ files)"; exit 0; }
+          echo "stop and cite the boundary (oac-boundaries, oac-spec-authoring section 3)"
           exit 1
 
       # Scans git-tracked files only (what CI sees). No tracked files under the product

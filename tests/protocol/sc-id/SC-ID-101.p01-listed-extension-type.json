@@ -1,0 +1,55 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-101",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The message uses an extension part type that the agreed entry lists.",
+  "stage": "send",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-a",
+          "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+        }
+      }
+    ],
+    "declarations": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "io.github.rossgraeber/oac-session-channels": {
+          "revision": "0.1",
+          "active_inbound": true,
+          "content_types": [
+            "com.example/markdown"
+          ]
+        }
+      }
+    }
+  },
+  "input": {
+    "request": {
+      "attachment": "A",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "content": [
+        {
+          "type": "com.example/markdown",
+          "text": "# Review"
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "sent",
+    "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+    "version": "0.1"
+  }
+}

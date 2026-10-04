@@ -1,0 +1,37 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-141",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "D has no cross-check value and the signal carries none. A fresh signal for native-q binds with a diagnostic.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "D"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-q",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "D"
+    }
+  },
+  "expected": {
+    "result": "bound",
+    "attachments": [
+      {
+        "attachment": "D",
+        "binding": {
+          "native_id": "native-q",
+          "session_id": "new"
+        }
+      }
+    ],
+    "record": "diagnostic"
+  }
+}

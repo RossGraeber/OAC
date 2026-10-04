@@ -748,7 +748,8 @@ record (2026-10-02). The re-run closes the second.
   `oac-security-work` §5's Codex bullet, and `oac-gates` `references/G5-provenance.md`
   (new cases).
 - Backlog:
-  - task E1: the id charset as a whole-value rule;
+  - task E1: the id charset as a whole-value rule *(done 2026-10-03, #41:
+    `spec/session-channels.md` §4.3, [SC-ENV-010]/[SC-ENV-011])*;
   - C5/E5: choose a device-fingerprint text encoding inside F1's charset, for example
     Crockford Base32 as for session ids (§4);
   - E5: §8's neutral requirement and its X5/X5c negative fixtures;

@@ -1,0 +1,23 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ENV-002",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "noncharacter code point in a string",
+  "description": "The text part contains U+FFFF, a Unicode noncharacter, which I-JSON forbids.",
+  "stage": "envelope",
+  "context": {
+    "receiver_time": "2026-10-03T12:00:01.000Z",
+    "supported_major_versions": [
+      0
+    ]
+  },
+  "input": {
+    "envelope_text": "{\n  \"version\": \"0.1\",\n  \"id\": \"msg-01hzx3k8q2v6w9m4t7p0r5s1ya\",\n  \"from\": \"01harn7x9k2m4p6q8r0s2t4v6w\",\n  \"to\": \"7gq3m8z2c5k9t1w4x6b0n2r8vd\",\n  \"created_at\": \"2026-10-03T12:00:00.000Z\",\n  \"ttl_ms\": 300000,\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"Please review \\uffff the scheduler module.\"\n    }\n  ],\n  \"security\": {\n    \"principal\": \"fixture-placeholder-principal\",\n    \"key_id\": \"fixture-placeholder-key-id\",\n    \"nonce\": \"fixture-placeholder-nonce\",\n    \"signature\": \"fixture-placeholder-signature\"\n  }\n}"
+  },
+  "expected": {
+    "result": "rejected",
+    "error": "malformed-envelope"
+  }
+}

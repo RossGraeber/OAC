@@ -1,0 +1,29 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-080",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The receiver reported `handed-to-harness`. No retry on the implementation's own initiative.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 1,
+    "deadline_passed": false
+  },
+  "input": {
+    "held": [
+      {
+        "state": "accepted-by-adapter",
+        "observer": "sender"
+      },
+      {
+        "state": "handed-to-harness",
+        "observer": "receiver"
+      }
+    ]
+  },
+  "expected": {
+    "state": "handed-to-harness",
+    "retry_allowed": false
+  }
+}

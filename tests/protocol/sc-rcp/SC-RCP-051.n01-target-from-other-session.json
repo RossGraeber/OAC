@@ -1,0 +1,35 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-051",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "requested target sent by a session other than the addressee",
+  "description": "msg-c1 came from Carol, but the reply goes to Alice. The reply is sent uncorrelated.",
+  "stage": "reply",
+  "context": {
+    "handed_off": [
+      {
+        "id": "msg-a1",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      },
+      {
+        "id": "msg-c1",
+        "from": "3kp8w2n6c9t4x1b5m7q0r3s8vz",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      }
+    ]
+  },
+  "input": {
+    "reply_request": {
+      "from": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "to": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "requested_target": "msg-c1"
+    }
+  },
+  "expected": {
+    "reply_headers": {},
+    "correlation": "uncorrelated"
+  }
+}

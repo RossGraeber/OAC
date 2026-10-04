@@ -4,6 +4,133 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-03 (**Issue #44 (E4): receipts, replies, correlation and the
+error taxonomy written.** `spec/session-channels.md` §8 now holds the delivery-state set
+(DESIGN's `accepted` split into `accepted-by-adapter`, `handed-to-harness` and `unknown`, as
+C5 §9 requires; no state claims a model saw a message), the receipt format, the reply rule
+for a harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
+precedence, and the retransmission and retry rules, including how receipts for several
+copies of one envelope combine (a retry on the implementation's own initiative only after the
+hand-off deadline plus the replay-window clock-skew allowance, by the sender's clock), and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
+code. A receiver re-checks the whole hand-off deadline (expiry and replay window) immediately
+before hand-off (SC-RCP-091/092). Requirement area `RCP`: 58 ids in Appendix A. New fixtures: 72 under
+`tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture
+under `sc-env/`, `sc-ver/` and `sc-id/`, and to the six refusing `send`-stage fixtures in
+`sc-id/`. Follow-up for `spec/bindings/mcp.md` (#46): drop its "placeholders by role"
+wording and cite the codes and §8.1 directly.
+- **Departure from C5 §9, recorded:** C5 §9 defines `accepted-by-adapter` as the receiving
+  side's acceptance after verification; §8.1.2 adopts C6 §8's reading instead (the sending
+  implementation passed the envelope to a transport), because that is what `send` returns
+  and what a sender can observe. A dated forward note is added at the end of C5 §9.
+- **Operator decisions on #44**, each a dated note in §8: far-side receipts are optional
+  (MAY) for v0.1; no inferred reply links in v0.1.
+- No gate verdict, pin or ADR text changes, and no UNVERIFIED item opens or closes.)
+
+**Last updated:** 2026-10-03 (**Issue #42 (E2): spec §6, session identity, written.**
+`spec/session-channels.md` §6 now holds the session id (opaque, 26-character Crockford
+Base32, bound to one device key), the non-authoritative display form and aliases, the
+session descriptor, the capability declaration (`active_inbound`, `content_types`,
+`max_envelope_octets`), version negotiation and unsupported-capability rules, C4's
+binding, re-binding and stale-binding cases (#236) in neutral terms, send-request
+attribution (the #46 operator decision, neutral), and identity-versus-presence rules.
+Appendix A gains 84 `SC-ID` ids; 68 fixtures land under `tests/protocol/sc-id/`. Operator
+decisions on #42: no send without a capability declaration (SC-ID-086), and
+`active_inbound: false` means send-only. No gate verdict, pin or ADR text changes. No
+UNVERIFIED item opens or closes: §6 cites the existing C4 pairing-mechanism item.)
+
+**Last updated:** 2026-10-03 (**Issue #46 (E6): the MCP binding lands at
+`spec/bindings/mcp.md`; C5 closed.** In this change:
+
+- **Path.** `spec/bindings/mcp.md`, the task-scoped exemption from the neutral-vocabulary
+  rule. The CI step and skill text exempting exactly that regular file from check 2 and the
+  spec zero-hits group came with #41 (PR #258, entry below); check 1 has no exemption.
+  Skills updated here: `oac-mcp` Pin, `oac-claude-channels` §4; mirror re-synced.
+- **Ids.** The binding uses #41 §3 ids with document prefix `MCPB` (`MCPB-<AREA>-<NNN>`)
+  and cites `spec/session-channels.md` by its real headings.
+- **C5: `CLOSED`** by the binding's §9 (dual-era server, legacy-only channel path, an
+  era-invariant tool surface). Both register rows and RISK-G4 carry dated notes. #65 and
+  RISK-G4 row 41 stay open as verification. Caveat: a tool call is served only on a
+  connection bound by a documented pairing (§4.4, interim). No Codex connection is bound
+  yet (#69), so Codex outbound calls are refused on both eras, including if Codex's
+  default moves to `2026-07-28` first.
+- **Ledger.** Closed: "`experimental` at `2026-07-28`" (present in the schema at commit
+  `271ecc9`, lines 720/797; RISK-MCP-EXPERIMENTAL dated note). Added: a documented
+  per-request session signal OAC can bind; Codex legacy-era multi-thread connections
+  (#69); legacy clients accepting `extensions` in `initialize`. `G4-result.md` gets a
+  dated correction: Codex's `x-codex-turn-metadata` does carry session, thread and turn
+  ids.
+- **Drift.** B2 D2 ("no reserved-prefix rule") holds for SEP-2133's text only. The MCP
+  base spec reserves `_meta` prefixes whose second label is `modelcontextprotocol` or
+  `mcp` at both revisions, and at `2026-07-28` extension identifiers follow those rules.
+  `oac-mcp` is corrected. C3 §4, `PINS.md`, `REVERIFICATION-B2.md` and G4-result.md
+  criterion 2 still carry the narrower wording; #257 corrects them. The identifier itself
+  is unaffected (second label `github`).
+- **Cross-dependency.** The binding cites `spec/session-channels.md` (#41, PR #258) by
+  its section numbers; §6-§8 there are stubs E2-E4 fill.
+
+No gate verdict, pin or `ADR-001.md` text changes.)
+
+**Last updated:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning
+written.** The first Stage 2 spec change. In this change:
+
+- **New:** `spec/session-channels.md`, the normative OAC Session Channels document.
+  - It has the full section skeleton. §4 (envelope) and §5 (versioning) are written. §6
+    (E2, #42), §7 (E3, #43) and §8 (E4, #44) are titled stubs those tasks fill without
+    renumbering. Security stays in `spec/security.md` (E5, #45, not yet written).
+  - §3 fixes the requirement-id scheme (`SC-ENV-010` form) and the conformance-fixture
+    format. Appendix A indexes 47 requirement ids: 28 `MUST`/`MUST NOT` with fixtures, 14
+    marked `TODO(fixture)` with the task named, and 5 `SHOULD`/`SHOULD NOT`/`MAY`.
+- **New:** 76 envelope-stage fixtures under `tests/protocol/sc-env/` and
+  `tests/protocol/sc-ver/`, including the "unknown version" negative case E8 requires.
+- **Design choices** (details in the spec):
+  - the C13 whole-value charset is now an envelope rule (§4.3), closing C13 §14's E1
+    item and `11-risks.md` row 46's residual in the spec;
+  - an unsupported content-part type is rejected, not ignored (§4.5.2). This supersedes
+    `05-interfaces.md` §3's M0 draft, which said ignore;
+  - operator decisions on #41, each marked in the spec with a dated note: the 64 KB size
+    default, the 24-hour `ttl_ms` cap, and rejecting the whole message on an unsupported
+    part type. Orchestrator ruling: the extension identifier stays in the core spec;
+  - the `security` object is closed; unrecognized top-level members are ignored;
+  - `null` is never a value; `created_at` is UTC `Z` only; `ttl_ms` is 1 to 86400000;
+  - `version` is `"<major>.<minor>"`. A major maps one-to-one to an extension
+    identifier; major 0 is `io.github.rossgraeber/oac-session-channels` (C3 §8).
+- **CI:** boundary checks 1-2 and the spec neutral-vocabulary zero-hits group now run in
+  `boundary-lint.yml` over `spec/`, which is mandatory (a missing `spec/` fails); `core/` is
+  still pending. The step scans an explicit list of every regular file under `spec/`, so
+  dot-files and ignore files cannot hide one, and a symlink fails. Check 2 and the
+  zero-hits group exempt exactly the regular file `spec/bindings/mcp.md`, the path #46
+  (PR #255) uses for the E6 binding. Checks 3 and 8 gain `--no-ignore`. Checks 9 and 11 now see
+  `spec/` too, and it is clean. The `oac-boundaries` and `oac-spec-authoring` references
+  are updated to match and re-synced to `.agents/skills/`.
+
+No gate verdict, pin or ADR text changes. This change opens and closes no UNVERIFIED item:
+it makes no harness or transport claim.)
+
+**Last updated:** 2026-10-03 (**Issue #40 (D7): Stage 1 exits, and Stage 2 opens.**
+Operator decision on #40 (2026-10-02): D7 proceeds once the C13 G5 Codex re-run is
+recorded. It does not wait for the remaining herdr re-runs (#130, #131, #124), which check
+test tooling and cannot change a verdict. The G5 verdict change (#231, merged at
+`691aef6`, entry below) landed first. It synced every file stating G5's verdict and
+regenerated `02-gating-findings.md`. In this change:
+
+- **New record:** `docs/planning/decisions/D7-stage1-exit.md`. It holds:
+  - the Gate S1 checklist, with evidence for each criterion;
+  - the inventory of the 15 quarantined `*.throwaway-quarantined` files, and the
+    `tools/herdr/gate-servers/` exception;
+  - the "no fallback taken" statement and the Stage 2 go/no-go;
+  - the continuing and deferred items.
+- **Verdicts:** G1-G5 are all **PASS**, and none took a fallback. For G5, see
+  `docs/planning/gates/G5-result.md` L103 at `691aef6`.
+- **"Current stage"** below now reads Stage 2, entered. The "Open epics" and "Blocked"
+  cells are rewritten to match. `10-stages.md` §5 "Current verdict" gets the Gate S1
+  verdict.
+- **Done since the draft:** #232 (PR #242), #243 (PR #245), #244 (PR #248), #239
+  (PR #250) and #249 (PR #251).
+- **Continuing, not exit blockers:** #246, #253, #252, #224, #130, #131 and #124. K6 is
+  deferred past v0.1 (#129).
+
+No pin, spec or ADR text changes. This change opens and closes no UNVERIFIED item.)
+
 **Last updated:** 2026-10-03 (**Issue #220: G5 is PASS; C13 resolved.** G5's Codex-leg
 re-run under C13 §11 ran through herdr under the one-off E1 exception
 (`.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility"). Run
@@ -1002,10 +1129,10 @@ amendments A1-A3 issued)
 
 | | |
 |---|---|
-| Milestone | M2 — Stage 1 gate spikes (Epic D). *(Dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
-| Stage | **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **PASS** (2026-10-02, #220: Codex leg re-run under C13 §11, route E1, on Codex `0.160.0`; Claude leg PASS, carried from 2026-09-27; was **FAIL** on Codex from 2026-09-27) — see `docs/planning/gates/G5-result.md`; C13 `RESOLVED-IN-DECISION` 2026-10-02), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is no longer blocked by any gate leg: G3's macOS leg PASSED 2026-10-02 (#219) and G1's re-run PASSED 2026-09-28, so every gate has a closed verdict; separately Stage 2 cannot freeze the Codex provenance interface until C13 closes. The C13 design is decided (C6 §5.0, 2026-10-02, #220), and C13 closes when G5's Codex-leg re-run under C13 §11 passes; that re-run is pending. *Dated note, 2026-10-03, #220: the re-run passed and C13 is closed, so the Codex provenance freeze is no longer blocked; G5 is PASS*). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Milestone | M3 — Stage 2 normative spec (Epic E, #5). *(Dated note, 2026-10-03, #40: was "M2 — Stage 1 gate spikes (Epic D)" until D7. Earlier dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
+| Stage | **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
+| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. Progress: E1 (#41) in review, `spec/session-channels.md` with §4-§5 written and the §6-§8 stubs E2-E4 fill (2026-10-03); E2-E9 open. D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
+| Blocked | Stages 3-6. Stage 3 starts only after Gate S2, Stage 2's exit (`docs/planning/v0.1/10-stages.md` §6), and each later stage after its own gate. Stage 0 (Gate S0, #228) and Stage 1 (Gate S1, D7 #40) are complete. That meets the rule that no substantial core or transport code starts before both complete. The risk-first ordering (`10-stages.md` §2) still applies. No gate verdict blocks Stage 2: G5 is PASS and C13 is closed. *(Dated note, 2026-10-03, #40: until D7 this cell read "Stages 2-6, and the rest of Stage 1 pending D7"; C13 had closed on 2026-10-02, #220.)* |
 
 ## ADR amendments
 
@@ -1333,6 +1460,10 @@ states or that are inferred/stale). Closed when the named resolution lands.
   with the G4 result cited) for the resolution, and #65 (G4) for the first `rmcp`-based
   legacy-era channel run against real Claude Code. Codex's default client era stays under
   RISK-G4 (`docs/planning/v0.1/11-risks.md` row 41).
+  **Dated note, 2026-10-03 (#46): closed.** `spec/bindings/mcp.md` §9 resolves it; both
+  register rows read `CLOSED (2026-10-03, #46)`. #65 and RISK-G4 row 41 stay open as
+  verification items, not as a conflict. Caveat: Codex outbound calls are refused
+  (interim, fail-closed) on both eras until a Codex pairing exists (#69).
 - C13 (new, from G5, issue #38/D5, 2026-09-27): `docs/planning/decisions/
   C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name
   the forged id as the sender in part (1) of its answer against a forged block using a
@@ -1568,11 +1699,21 @@ without an UNVERIFIED label.
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
   item 12).
-- Whether MCP `experimental` capabilities still exist at the current era `2026-07-28`
-  (UNVERIFIED — re-labelled from HOLDS in B2; the prior inference cited Claude Code's own
-  client capability, not the `2026-07-28` schema itself, and Claude Code does not
-  register a channel server negotiating `2026-07-28`; see REVERIFICATION-B2.md §3.3
-  table and "Carried to 11-risks.md" item 13).
+- **New, from E6 (#46, 2026-10-03):** whether a documented per-request session signal
+  exists that OAC can bind to a paired session (UNVERIFIED — Codex sends
+  `_meta["x-codex-turn-metadata"]` with `session_id`, `thread_id` and `turn_id` on both
+  eras, G4 fixtures `transcript-2026-09-26.jsonl` lines 48/50 and
+  `transcript-row41-2026-09-27.jsonl` line 17, but it is in no first-party doc we cite and
+  is client-asserted, so it cannot pair alone). Until resolved, tool calls on any
+  connection not bound by a documented pairing are refused, interim
+  (`spec/bindings/mcp.md` §4.4).
+- **New, from E6 (#46, 2026-10-03):** whether one Codex legacy-era MCP connection carries
+  calls from several threads (UNVERIFIED — a thread id is sent per call; C4 §4 defines no
+  outbound attribution). Owner: #69. Until a Codex pairing exists, Codex outbound calls
+  are refused on both eras (`spec/bindings/mcp.md` §4.4, §8.2).
+- **New, from E6 (#46, 2026-10-03):** whether legacy clients other than Codex `0.157.1`,
+  Claude Code's channel path included, accept an `extensions` member in an `initialize`
+  result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).
 
 - Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
   from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own

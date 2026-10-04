@@ -556,6 +556,15 @@ C6 ("No Claude acknowledgement vs DESIGN `accepted` delivery state") moves from
 `ASSIGNED` to `RESOLVED-IN-DECISION`, pointing at this section — the cross-file update
 is recorded in §18.
 
+*Dated forward note, 2026-10-03 (#44, PR #261): `spec/session-channels.md` §8.1.2 departs
+from this section in one respect. Here, `accepted-by-adapter` is the receiving side's
+acceptance, after verification, replay, duplicate and authorization checks. The spec instead
+adopts the reading of `docs/planning/decisions/C6-trust-rendering.md` §8: the sending
+implementation built the envelope and passed it to a transport, which is the state a `send`
+returns. Receiver-side acceptance is not reported as a state of its own; a receiver reports
+`handed-to-harness`, `unknown` or an error state. The honesty rule of this section is
+unchanged: no state claims a model saw a message. The spec governs (C3 §1).*
+
 ## 10. Pairing model, two flows
 
 ### (a) Same-user multi-harness on one device — zero-config

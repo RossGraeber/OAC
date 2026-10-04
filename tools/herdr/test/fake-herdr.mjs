@@ -23,6 +23,17 @@
 //                        read/send-keys/prompt/wait then talk to it through files
 //   fake-codex           `agent start --kind codex` runs the `codex` on the pane's PATH (the
 //                        self-test's copy of test/fake-codex.mjs, K7) the same way
+//   linger-working=<ms>  (#246) an agent reports `working` for <ms> after its harness double
+//                        went idle (the TUI still drawing after the wire turn completed), so
+//                        an `agent read --lines` straight after the wire says done is refused
+//   wait-no-status       (#253) `agent wait` answers with no agent_status, a response the
+//                        driver cannot read a state from
+//
+// Agent responses carry herdr's AgentInfo shape (#253): the state is `agent_status` (there is
+// no `state` field) with `state_change_seq`, the count of state changes the harness double
+// recorded in its state-seq file. `agent read --lines N` of recent/recent-unwrapped history is
+// refused with agent_not_idle while the agent is working, blocked or unknown (herdr
+// agent-automation.mdx at v0.9.1).
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -98,6 +109,33 @@ const agentRec = (target) => {
   return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null;
 };
 const agentState = (a) => (a?.dir && existsSync(join(a.dir, 'state')) ? readFileSync(join(a.dir, 'state'), 'utf8').trim() : 'idle');
+// The state herdr would report, and its state_change_seq (#253, #246).
+const agentStatus = (a) => {
+  // The harness doubles' atomic snapshot (state, seq, time; written by rename), so a state is
+  // never paired with another state's seq; without one, the separate files.
+  const snap = a?.dir && existsSync(join(a.dir, 'status')) ? readFileSync(join(a.dir, 'status'), 'utf8').trim().split(' ') : null;
+  const st = snap?.length === 3 ? snap[0] : agentState(a);
+  const f = a?.dir ? join(a.dir, 'state-seq') : null;
+  const [seq, at] = snap?.length === 3 ? [Number(snap[1]), Number(snap[2])] : f && existsSync(f) ? readFileSync(f, 'utf8').trim().split(' ').map(Number) : [0, 0];
+  const linger = Number(modeVal('linger-working') ?? 0);
+  if (linger > 0 && ['idle', 'done'].includes(st) && Date.now() - at < linger) return { state: 'working', seq: Math.max(0, seq - 1) };
+  return { state: st, seq };
+};
+// The transitions herdr's event stream would have carried after state_change_seq `after`
+// (the harness doubles log each one to state-log), so a wait catches a short-lived state as
+// herdr's event-driven waits do. A transition still hidden by linger-working is not seen yet.
+const transitionsAfter = (a, after, cur = agentStatus(a)) => {
+  const f = a?.dir ? join(a.dir, 'state-log') : null;
+  if (!f || !existsSync(f)) return [];
+  return readFileSync(f, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => ({ seq: Number(l.split(' ')[0]), state: l.split(' ')[1] }))
+    .filter((t) => t.seq > after && t.seq <= cur.seq);
+};
+const agentInfo = (name, a, s = agentStatus(a)) => {
+  return { name, terminal_id: `term_${name}`, pane_id: a?.pane ?? null, agent_status: s.state, state_change_seq: s.seq };
+};
 
 const [c0, c1, c2] = args;
 const needsServer = () => {
@@ -245,7 +283,7 @@ if (c0 === 'server' && c1 === undefined) {
     const settled = () => existsSync(join(adir, 'state')) && ['blocked', 'idle'].includes(agentState({ dir: adir }));
     for (let t = 0; t < 100 && !settled(); t++) sleepSync(50);
     if (agentState({ dir: adir }) === 'blocked') fail('agent_not_ready', `agent ${c2} is blocked during startup`);
-    out({ type: 'agent_started', agent: { name: c2, state: agentState({ dir: adir }) }, argv: ['claude', ...rest] });
+    out({ type: 'agent_started', agent: agentInfo(c2, { dir: adir, pane: p.id }), argv: ['claude', ...rest] });
   }
   if (MODES.has('fake-codex') && opt('--kind') === 'codex') {
     // The pane runs whatever `codex` its PATH resolves (the self-test's copy of
@@ -259,11 +297,11 @@ if (c0 === 'server' && c1 === undefined) {
     const settled = () => existsSync(join(adir, 'state')) && ['blocked', 'idle'].includes(agentState({ dir: adir }));
     for (let t = 0; t < 100 && !settled(); t++) sleepSync(50);
     if (agentState({ dir: adir }) === 'blocked') fail('agent_not_ready', `agent ${c2} is blocked during startup`);
-    out({ type: 'agent_started', agent: { name: c2, state: agentState({ dir: adir }) }, argv: ['codex', ...rest] });
+    out({ type: 'agent_started', agent: agentInfo(c2, { dir: adir, pane: p.id }), argv: ['codex', ...rest] });
   }
   writeFileSync(join(sdir, 'agents', `${c2}.json`), JSON.stringify({ pane: p.id }));
   append(p.id, `[agent ${opt('--kind')} started]\n`);
-  out({ type: 'agent_started', agent: { name: c2, state: 'idle' }, argv: [opt('--kind'), ...rest] });
+  out({ type: 'agent_started', agent: agentInfo(c2, { pane: p.id }), argv: [opt('--kind'), ...rest] });
 } else if (c0 === 'agent' && c1 === 'read') {
   needsServer();
   if (MODES.has('hang-agent-read')) hang();
@@ -272,6 +310,10 @@ if (c0 === 'server' && c1 === undefined) {
     const a = agentRec(c2);
     const screen = a?.dir ? join(a.dir, 'screen.txt') : null;
     const src = opt('--source') ?? 'visible';
+    const st = agentStatus(a).state;
+    if (a?.dir && opt('--lines') && ['recent', 'recent-unwrapped'].includes(src) && ['working', 'blocked', 'unknown'].includes(st)) {
+      fail('agent_not_idle', `cannot read ${opt('--lines')} lines while ${c2} is ${st}: its alternate-screen history can only be captured by scrolling while idle. Wait and retry, or use --source visible`);
+    }
     process.stdout.write(readFileSync(src === 'visible' && screen && existsSync(screen) ? screen : bufFile(agentPane(c2)), 'utf8'));
     process.exit(0);
   }
@@ -288,27 +330,66 @@ if (c0 === 'server' && c1 === undefined) {
   needsServer();
   appendFileSync(join(STATE, 'prompts.log'), `${JSON.stringify({ target: c2, text: args[3] })}\n`);
   const pa = agentRec(c2);
+  // The agent as it was when the prompt was submitted (#253): taken before the harness double
+  // can pick the prompt up, so a fast fake turn cannot already be inside the baseline.
+  const before = agentInfo(c2, pa);
+  if (args.includes('--wait')) appendFileSync(join(STATE, 'waits.log'), `${JSON.stringify({ target: c2, prompt: true, baselineSeq: before.state_change_seq })}\n`);
   if (pa?.dir) appendFileSync(join(pa.dir, 'inbox.log'), `${JSON.stringify({ text: args[3] })}\n`);
   if (args.includes('--wait') && MODES.has('prompt-timeout')) {
     sleepSync(Number(opt('--timeout') ?? 1000));
     fail('timeout', 'timed out waiting for the agent');
   }
-  out({ type: 'agent_prompted', agent: { name: c2, state: 'working' } });
+  if (args.includes('--wait')) {
+    // herdr v0.9.1 `agent prompt --wait` (src/api/wait.rs prompt_agent): unless the agent was
+    // already working, an observed working/blocked state with state_change_seq past the
+    // queued state's within 5000 ms (else agent_prompt_stalled, or `timeout` when the caller's
+    // timeout is the shorter), then the first requested settled state.
+    const until = optAll('--until');
+    const settled = until.length ? until : ['idle', 'done', 'blocked'];
+    const timeout = opt('--timeout') ? Number(opt('--timeout')) : Infinity;
+    const start = Date.now();
+    let active = before.agent_status === 'working';
+    for (;;) {
+      const s = agentStatus(pa);
+      const elapsed = Date.now() - start;
+      if (!active) {
+        if (['working', 'blocked'].includes(s.state) && s.seq > before.state_change_seq) active = true;
+        else if (transitionsAfter(pa, before.state_change_seq, s).some((t) => ['working', 'blocked'].includes(t.state))) active = true;
+        else if (elapsed >= Math.min(5000, timeout)) fail(timeout <= 5000 ? 'timeout' : 'agent_prompt_stalled', `no working or blocked state observed for ${c2} after the prompt`);
+      }
+      if (active && settled.includes(s.state)) out({ type: 'agent_prompted', agent: agentInfo(c2, pa, s) });
+      if (elapsed >= timeout) fail('timeout', `timed out after ${timeout}ms waiting for ${settled.join('|')}`);
+      sleepSync(20);
+    }
+  }
+  out({ type: 'agent_prompted', agent: before });
 } else if (c0 === 'agent' && c1 === 'wait') {
   needsServer();
   const a = agentRec(c2);
   const until = optAll('--until');
   const timeout = opt('--timeout') ? Number(opt('--timeout')) : Infinity;
   const start = Date.now();
+  const wanted = until.length ? until : ['idle', 'done', 'blocked']; // herdr: "Without --until, matches idle, done, or blocked."
+  const startSeq = agentStatus(a).seq;
+  // The request's event position is now taken (herdr: when the request arrives); a test can
+  // wait for this line instead of guessing how long the process takes to start.
+  appendFileSync(join(STATE, 'waits.log'), `${JSON.stringify({ target: c2, until, startSeq })}\n`);
   for (;;) {
-    const st = agentState(a);
-    if (!until.length || until.includes(st)) out({ type: 'agent_info', agent: { name: c2, state: st } });
+    const snap = agentStatus(a);
+    const st = snap.state;
+    // herdr (src/api/wait.rs wait_for_agent): the current state first, then any state the event
+    // stream carried after the request (accept_transient_status), reported with that state.
+    const transient = wanted.includes(st) ? null : transitionsAfter(a, startSeq, snap).find((t) => wanted.includes(t.state));
+    if (wanted.includes(st) || transient) {
+      if (MODES.has('wait-no-status')) out({ type: 'agent_info', agent: { name: c2, terminal_id: `term_${c2}` } });
+      out({ type: 'agent_info', agent: { ...agentInfo(c2, a, snap), ...(transient ? { agent_status: transient.state } : {}) } });
+    }
     if (Date.now() - start >= timeout) fail('timeout', `timed out after ${timeout}ms waiting for ${until.join('|')}`);
     sleepSync(50);
   }
 } else if (c0 === 'agent' && (c1 === 'get' || c1 === 'explain')) {
   needsServer();
-  out({ type: 'agent_info', agent: { name: c2, state: 'idle' } });
+  out({ type: 'agent_info', agent: agentInfo(c2, agentRec(c2)) });
 } else {
   fail('unknown_command', `fake-herdr does not implement: ${args.join(' ')}`, 2);
 }

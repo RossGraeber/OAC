@@ -1,0 +1,25 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-070",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "declaration not an object",
+  "description": "The declaration is a string, not a JSON object, so the consumer treats it as holding no entries.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ]
+  },
+  "input": {
+    "declaration": "io.github.rossgraeber/oac-session-channels"
+  },
+  "expected": {
+    "result": "no-common-version"
+  }
+}

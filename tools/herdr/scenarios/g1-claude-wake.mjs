@@ -85,7 +85,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
-import { driverAcceptDialog } from '../lib/gate-common.mjs';
+import { driverAcceptDialog, recordWaitState, takeBaseline, armActivityWatch, turnFloor, pastFloor, ACTIVITY_STATES } from '../lib/gate-common.mjs';
 import {
   G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
   formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText, sameDialog, acceptHint,
@@ -218,6 +218,7 @@ export default {
       captureNames: null,
       agentStart: null,
       dialogs: [],
+      herdrStates: [], // #253: every herdr agent wait, its agent_status and state_change_seq
       devChannelsDialogSeen: false,
       handshake: null,
       triggers: [],
@@ -335,21 +336,27 @@ export default {
     };
 
     // Wait until the pane shows neither a dialog nor work in progress. herdr agent state
-    // only schedules the next read; the read decides.
-    const settle = async (context, timeoutMs) => {
-      await sleep(num('settleMs'));
+    // only schedules the next read; the read decides. #253: a wait whose answer carries no
+    // agent_status ends the run NOT RUN (recordWaitState), and `since` (a prompt typed with
+    // `agent prompt --wait`, or an activity watch armed before a push) makes the settle wait
+    // for that input's own turn: a settled state past the activity herdr observed
+    // (lib/gate-common.mjs turnFloor). This wait never requests `unknown`.
+    const settle = async (context, timeoutMs, { since = null } = {}) => {
       const deadline = deadlineFor(timeoutMs);
       const waited0 = humanWaitMs;
+      const floor = await turnFloor({ since, g: g1, context, ctx, stop });
+      if (!since) await sleep(num('settleMs'));
       let blockedUnseen = 0;
       for (;;) {
         const left = leftUntil(deadline, waited0);
         if (left <= 0) stop(`${context}: the pane did not settle within ${timeoutMs} ms`);
         const w = await herdr.agentWait(AGENT, { until: ['idle', 'done', 'blocked'], timeoutMs: Math.max(1000, left) });
+        const st = recordWaitState({ g: g1, context, w, ctx, stop });
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
         // herdr saying `blocked` while the screen shows no dialog the driver can name: herdr
         // state may lag the screen, so look again; if it persists, treat it as an
         // unrecognized dialog -- the conservative reading (never accepted by the driver).
-        if (!r.screen.dialog && w.json?.result?.agent?.state === 'blocked') {
+        if (!r.screen.dialog && st.state === 'blocked') {
           if (++blockedUnseen < 3) {
             await sleep(pollMs);
             continue;
@@ -360,10 +367,11 @@ export default {
           await handleDialog(r, context);
           continue;
         }
-        if (r.screen.busy) {
+        if (r.screen.busy || !pastFloor(st, floor)) {
           await sleep(pollMs);
           continue;
         }
+        r.settled = { state: st.state, waitSeq: st.seq, stateChangeSeq: st.stateChangeSeq, floor: floor.floor, turnBegunBy: floor.by };
         return r;
       }
     };
@@ -399,10 +407,20 @@ export default {
     };
     const channelFrames = (kind) => (entries) => transcriptFacts(entries).channelNotifications.filter((n) => n.kind === kind);
 
-    const prompt = async (label, text) => {
+    // #253: { wait: true } types the prompt only into an agent herdr reports idle/done, through
+    // `herdr agent prompt --wait` (herdr observes the prompt's activity); the record is what
+    // settle({ since }) takes. Without wait (the busy prompt): herdr's queued-state answer.
+    const prompt = async (label, text, { wait = false } = {}) => {
       assertNotInjected(label, text);
-      const res = await herdr.agentPrompt(AGENT, text);
-      return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt };
+      if (!wait) {
+        const res = await herdr.agentPrompt(AGENT, text);
+        return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, queued: { state: res.state, stateChangeSeq: res.stateChangeSeq } };
+      }
+      const base = await takeBaseline({ herdr, name: AGENT, g: g1, context: label, ctx, stop });
+      if (ACTIVITY_STATES.includes(base.state)) stop(`herdr reported ${base.state} (herdr command #${base.seq}) just before the ${label}; a prompt is never typed into a running turn (#253); nothing sent`);
+      const res = await herdr.agentPrompt(AGENT, text, { wait: { until: ['idle', 'done', 'blocked'], timeoutMs: num('turnTimeoutMs') } });
+      const after = recordWaitState({ g: g1, context: `${label} --wait`, w: res, ctx, stop });
+      return { kind: 'prompt-wait', seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, baseline: base, settledAtReturn: { state: after.state, stateChangeSeq: after.stateChangeSeq } };
     };
 
     try {
@@ -516,6 +534,9 @@ export default {
       const pre = await read('pre-wake-idle-check');
       const promptsBefore = herdr.commands.filter((c) => c.argv.includes('prompt')).length;
       if (pre.screen.busy || pre.screen.dialog) stop('the session was not visibly idle before the wake trigger');
+      // #253: a baseline and an activity watch before the push; the wake-turn settle waits for it.
+      const wakeBase = await takeBaseline({ herdr, name: AGENT, g: g1, context: 'wake-push', ctx, stop });
+      const wakeWatch = await armActivityWatch({ herdr, name: AGENT, base: wakeBase, timeoutMs: num('turnTimeoutMs'), armMs: pollMs, sleep });
       const wakeTrig = fire('wake');
       const wakeFrame = await waitWire('the wake notification', (es) => channelFrames('wake-test')(es)[0], num('wireTimeoutMs'), { label: 'wake-wait' });
       // Before waiting for the wake turn to end, wait (bounded) for it to visibly begin --
@@ -530,7 +551,7 @@ export default {
         else if (r.screen.busy || normalizeDialogText(r.text) !== normalizeDialogText(pre.text)) wakeTurnSeen = { seq: r.seq, busy: r.screen.busy };
         else await sleep(pollMs);
       }
-      const afterWake = await settle('wake-turn', num('turnTimeoutMs'));
+      const afterWake = await settle('wake-turn', num('turnTimeoutMs'), { since: wakeWatch });
       const wakeRead = await read('after-wake', { source: 'recent-unwrapped', lines: readLines });
       g1.wake = {
         preReadSeq: pre.seq,
@@ -545,8 +566,8 @@ export default {
       };
 
       // --- 4. attribute query and the dropped meta key -------------------------------------
-      const aq = await prompt('attributePrompt', prompts.attributePrompt);
-      await settle('attribute-query', num('turnTimeoutMs'));
+      const aq = await prompt('attributePrompt', prompts.attributePrompt, { wait: true });
+      await settle('attribute-query', num('turnTimeoutMs'), { since: aq });
       const aqRead = await read('after-attribute-query', { source: 'recent-unwrapped', lines: readLines });
       g1.attributeQuery = { prompt: aq, answerReadSeq: aqRead.seq };
 
@@ -590,14 +611,14 @@ export default {
       };
 
       // --- 6. reply tool call -----------------------------------------------------------
-      const rp = await prompt('replyPrompt', prompts.replyPrompt);
+      const rp = await prompt('replyPrompt', prompts.replyPrompt, { wait: true });
       const call = await waitWire(
         'the reply tool call and its result',
         (es) => transcriptFacts(es).replyCalls.find((c) => c.resultLine !== null) ?? null,
         num('turnTimeoutMs'),
         { label: 'reply-wait' },
       );
-      await settle('reply-turn', num('turnTimeoutMs'));
+      await settle('reply-turn', num('turnTimeoutMs'), { since: rp });
       const replyRead = await read('after-reply', { source: 'recent-unwrapped', lines: readLines });
       g1.reply = { prompt: rp, wire: call, afterReadSeq: replyRead.seq };
 
