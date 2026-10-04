@@ -584,18 +584,35 @@ sent later, a `list_changed` notification, or state that changes how later calls
 answered, such as a counter of refused sends that later throttles the caller. The next rule
 has no time window.
 
-[MCPB-TOOL-021] An OAC server MUST NOT send, on a connection bound to a session, any message
-whose presence, content or order depends on whether a session that the bound session is not
-authorized to discover exists, or on that session's presence state or capability
-declaration.
+An **observable action** on a connection is anything the server does that the client can
+observe on it apart from timing: sending a message; closing or resetting the connection, a
+stdio pipe, a stream or a transport session; setting a transport status code or header (for
+example an HTTP status or `Retry-After`); and dropping or re-issuing a transport session id.
+A **hidden session** of a connection is a session that the connection's bound session is not
+authorized to discover. On a connection that is not bound to exactly one session, every
+session is a hidden session.
 
-Requirement MCPB-TOOL-021 covers every message for as long as the connection lasts:
-notifications at any time, including log messages, progress notifications and
-`list_changed` notifications, and the responses to every later call. It covers state the
-server keeps between calls as well. Rate limiting, throttling, refusal counters or any
-other behaviour that earlier calls naming such a session influence differently from
-earlier calls naming a session id the server holds no record of fail it. It does not
-restrict what the server sends about sessions the bound session is authorized to discover.
+[MCPB-TOOL-021] An OAC server MUST NOT take, on any connection, an observable action whose
+occurrence, content or order depends on whether a hidden session of that connection exists,
+or on that session's presence state or capability declaration.
+
+Requirement MCPB-TOOL-021 covers every observable action for as long as the connection
+lasts:
+
+- messages at any time, including log messages, progress notifications and `list_changed`
+  notifications, and the responses to every later call;
+- closing or resetting the connection, a stream or a transport session, and dropping or
+  re-issuing a transport session id;
+- transport status codes and headers, such as an HTTP `429` or a `Retry-After` value;
+- state the server keeps between calls: rate limiting, throttling, refusal counters or any
+  other behaviour that earlier calls naming a hidden session influence differently from
+  earlier calls naming a session id the server holds no record of.
+
+Because every session is hidden on an unbound connection, nothing the server does on a
+connection before it is paired names or reveals any session, even though [MCPB-ATT-002]
+already refuses that connection's tool calls. The rule does not restrict what the server
+does about sessions the bound session is authorized to discover. Timing is outside it, as
+the reference implementation note below explains.
 
 [MCPB-TOOL-020] The `result` of a `send` or `reply` refused with `unknown-destination`,
 and every message related to that call, MUST NOT contain the value of the call's `to`
@@ -965,13 +982,26 @@ ones:
   - `related_messages`, optional: an array of the other messages the server sends on the
     connection that are related to the request, in order (§5.4); absent means none;
   - `server_message`, required: the server's response or notification;
-  - `subsequent_messages`, optional: an array of what the connection carries after
-    `server_message`, in order. Each entry is an object with `from` (`client` or
-    `server`) and `message` (the JSON-RPC message). It holds later notifications and
-    later calls with their responses ([MCPB-TOOL-021]); absent means none.
-- `expected.result` is `conformant` or `nonconformant`: whether the server's messages in
+  - `subsequent_messages`, optional: an array of what happens on the connection after
+    `server_message`, in order ([MCPB-TOOL-021]); absent means nothing. Each entry is an
+    object with `from` (`client` or `server`) and one of these shapes:
+    - `message`: a JSON-RPC message (a later notification, call or response). A server
+      entry over HTTP may also hold `http`, the transport envelope that carried it;
+    - `http` alone (server only): an HTTP response with no JSON-RPC body. `http` is an
+      object with `status` (an integer) and optionally `headers` (an object of header
+      names to string values);
+    - `close` alone (server only): the server closed or reset something on the
+      connection. `close` is an object with `scope`: `connection` (the whole connection
+      or stdio pipe), `stream` (one stream, such as an SSE stream) or `session` (the
+      transport session, including dropping its session id).
+
+    Re-issuing a transport session id is not expressible as an entry: whether a new id
+    reveals anything depends on how the transport binds ids, which `oac-mcpb-fixture/1`
+    does not model. It stays
+    `TODO(fixture)` under [MCPB-TOOL-021], owned by E8 (#48).
+- `expected.result` is `conformant` or `nonconformant`: whether the server's messages and actions in
   `input` meet the requirement, given `request`, the client's entries in
-  `subsequent_messages` and `context`. The server's messages are `server_message` and,
+  `subsequent_messages` and `context`. The server's messages and actions are `server_message` and,
   where the requirement covers them, `related_messages` ([MCPB-TOOL-019],
   [MCPB-TOOL-020]) and the server's entries in `subsequent_messages` ([MCPB-TOOL-021]).
 
@@ -1022,7 +1052,7 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-TOOL-018 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-018.p01-unknown-tool-protocol-error.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-018.n01-unknown-tool-invalid-request.json` |
 | MCPB-TOOL-019 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-019.p01-same-progress-sequence.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.p02-no-related-messages.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n01-revealing-log-notification.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n02-revealing-progress-notification.json` |
 | MCPB-TOOL-020 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-020.p01-no-echo.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n01-to-echoed-in-text.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n02-to-echoed-in-log.json` |
-| MCPB-TOOL-021 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-021.p01-later-call-unaffected.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n01-revealing-log-after-response.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n02-list-changed-for-existing-target.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n03-throttled-after-probe.json` |
+| MCPB-TOOL-021 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-021.p01-later-call-unaffected.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p02-unbound-nothing-revealed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n01-revealing-log-after-response.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n02-list-changed-for-existing-target.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n03-throttled-after-probe.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n04-close-when-target-exists.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n05-retry-after-on-later-call.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n06-unbound-log-names-session.json`; TODO(fixture), owner E8 (#48): re-issuing a transport session id only when a hidden session exists (negative) → nonconformant; not expressible in `oac-mcpb-fixture/1` (§12.2) |
 | MCPB-META-001 | MUST | `tests/protocol/mcpb-meta/MCPB-META-001.p01-provenance-under-identifier.json`, `tests/protocol/mcpb-meta/MCPB-META-001.n01-provenance-under-other-key.json` |
 | MCPB-META-002 | MUST | `tests/protocol/mcpb-meta/MCPB-META-002.n01-provenance-not-object.json` |
 | MCPB-META-003 | MUST | `tests/protocol/mcpb-meta/MCPB-META-003.p01-mcp-defined-key-allowed.json`, `tests/protocol/mcpb-meta/MCPB-META-003.n01-unprefixed-key.json` |
