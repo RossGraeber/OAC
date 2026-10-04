@@ -31,7 +31,9 @@
 //     (docs/planning/decisions/K-196-driver-accepts-dialogs.md). A human accept is
 //     `equivalent` when the dialog text, read before any keystroke, matches Box C's.
 //   - The record names who accepted each dialog as the run manifest records it (driver, with
-//     its keys and herdr command seqs, or human), and its unticked attestation says so.
+//     its keys and herdr command seqs, or human), and its Verification section (#252) says
+//     so; a human accept of the dev-channels dialog is the one human action it asks a
+//     person to sign.
 //   - Any run outcome other than PASS makes every criterion `not evaluable`.
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -42,7 +44,7 @@ import { fileURLToPath } from 'node:url';
 
 import { compareTranscripts, formatDiff, parseTranscript, selectSegment, transcriptFacts, isLegacyRevision } from './compare-transcripts.mjs';
 import { BOX_C_TRANSCRIPT, BOX_C_WAKE_ATTRIBUTES, FIXTURE_DIR, G1_CRITERIA, HERDR_RUNS_DIR, dialogMatchesBoxC, midTurnWindow, parseSections } from './g1.mjs';
-import { attestation, describeDialog, describeDialogs, herdrExecutableHash } from './gate-report-common.mjs';
+import { TO_FILL, describeDialog, describeDialogs, harnessVerification, verification } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -278,17 +280,24 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('- Operator prompts are scenario parameters; Box C\'s own prompt texts are not on record, so wording differs from Box C by construction.');
   out.push('- Pane-text patterns other than the dev-channels dialog (in-progress indicator, other dialogs) were written before any live run; confirm them against this run\'s pane capture.');
   out.push('');
-  // #196: the consent line says who accepted the dev-channels dialog as the record says it.
-  // Only a human accept can be attested as the operator's; a driver accept is stated as the
-  // driver's, which leaves criterion 5 not evaluable and the record not an equivalence record.
+  // #196, #252: criterion 5 is a consent step, so its accept is the one human action a G1
+  // record needs signed: the person who pressed the key names themself. A driver accept is
+  // stated as the driver's, which leaves criterion 5 not evaluable and the record not an
+  // equivalence record.
   const dev = (g1.dialogs ?? []).find((d) => d.kind === 'dev-channels');
   const devDriver = !dev || dev.acceptOrigin !== 'human' || g1.acceptPolicy !== 'human' || (manifest?.commands ?? []).some((c) => c.role === 'dialog-accept');
-  const consent = !dev
-    ? 'no dev-channels dialog on record, so none was accepted by me; this record is neither an equivalence record nor verdict-bearing.'
+  const humanActions = !dev
+    ? 'none: no dev-channels dialog on record, so criterion 5 is not evaluable and this record is neither an equivalence record nor verdict-bearing.'
     : devDriver
-      ? `the dev-channels dialog is not attested as a human accept: ${describeDialog(dev)}; accept policy ${g1.acceptPolicy ?? '?'}; dialog-accept commands in the run: ${(manifest?.commands ?? []).filter((c) => c.role === 'dialog-accept').map((c) => `#${c.seq}`).join(', ') || 'none'}. Criterion 5 is not evaluable, so this record is neither an equivalence record nor verdict-bearing.`
-      : `the dev-channels dialog (read #${dev.readSeq}) was accepted by me, a human at the keyboard, during this run.`;
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, herdrHash: herdrExecutableHash(manifest), harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput ?? '?'}\`)`, consent }));
+      ? `none for criterion 5: ${describeDialog(dev)}; accept policy ${g1.acceptPolicy ?? '?'}; dialog-accept commands in the run: ${(manifest?.commands ?? []).filter((c) => c.role === 'dialog-accept').map((c) => `#${c.seq}`).join(', ') || 'none'}. Criterion 5 is not evaluable, so this record is neither an equivalence record nor verdict-bearing.`
+      : `the dev-channels dialog accept, G1 criterion 5's consent step (read #${dev.readSeq}; the driver sent no keystroke, so the record cannot show who pressed the key): accepted at the keyboard by ${TO_FILL}: the person who accepted it>.`;
+  out.push(...verification({
+    manifest,
+    harness: harnessVerification(manifest, { verified: versionsVerified(g1), versions: `Claude Code: CLI \`${v.cliOutput ?? '?'}\` (\`scenarioData.g1.versions.cliOutput\`, parsed \`${v.cli ?? '?'}\` in \`scenarioData.g1.versions.cli\`), wire \`clientInfo.version\` \`${v.wireClientInfo ?? '?'}\` (\`scenarioData.g1.versions.wireClientInfo\`), post-run \`${g1.postRunVersion ?? 'not recorded'}\` (\`scenarioData.g1.postRunVersion\`)` }),
+    dialogs: g1.dialogs,
+    dialogsField: 'scenarioData.g1.dialogs',
+    humanActions,
+  }));
   return out.join('\n');
 }
 

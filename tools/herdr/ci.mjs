@@ -261,7 +261,7 @@ function writeStepSummary(res) {
     `- Evidence: ${res.ok ? `clean; staged ${res.files.map((f) => `\`${f}\``).join(', ')}` : 'NOT clean; nothing uploaded'}`,
     ...res.problems.map((x) => `  - ${x}`),
     '',
-    'Not verdict-bearing (oac-gates `references/scripted-runs.md`). A fixture from this run still needs the operator attestation.',
+    'Not verdict-bearing (oac-gates `references/scripted-runs.md`). A fixture from this run still needs its record\'s Verification section, re-checked by the recording agent (#252).',
     '',
   ];
   try {

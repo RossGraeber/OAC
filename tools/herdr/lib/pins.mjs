@@ -45,6 +45,71 @@ export function readHerdrPin(pinsPath) {
   return parseHerdrPin(readFileSync(pinsPath, 'utf8'));
 }
 
+// --- The expected herdr executable (#252) -----------------------------------------------
+//
+// Operator decision on #252 (2026-10-03): which herdr ran is verified by the driver, not
+// attested. PINS.md's "herdr (test tooling)" section carries a table whose header starts
+// `| Platform | ... | Expected executable sha256 | ... |`, one row per platform
+// (`process.platform`-`process.arch`, in backticks: `win32-x64`, `linux-x64`, ...). The
+// expected sha256 is the first backticked 64-hex token of that cell; the Basis cell says
+// where it comes from. The driver compares the executable it resolved and hashed with the
+// row for its platform (checkHerdrExecutable). No table, or no row for this platform, is
+// not an error: the comparison is then `no-expected-value`, and the herdr identity UNVERIFIED.
+export const EXPECTED_HASH_COLUMN = 'Expected executable sha256';
+export const FIRST_PARTY_COLUMN = 'First-party';
+
+export function parseHerdrExpectedExecutables(pinsText) {
+  const lines = pinsText.split(/\r?\n/);
+  const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const start = lines.findIndex((l) => /^\s*\|/.test(l) && cells(l)[0] === 'Platform' && cells(l).includes(EXPECTED_HASH_COLUMN));
+  if (start === -1) return [];
+  const header = cells(lines[start]);
+  const col = (name) => header.indexOf(name);
+  const out = [];
+  for (const line of lines.slice(start + 2)) {
+    if (!/^\s*\|/.test(line)) break;
+    const row = cells(line);
+    const platform = (/`([^`]+)`/.exec(row[0] ?? '') ?? [])[1];
+    const sha256 = (/`([0-9a-f]{64})`/.exec(row[col(EXPECTED_HASH_COLUMN)] ?? '') ?? [])[1];
+    if (!platform || !sha256) throw new Error(`PINS.md "${PIN_ROW}" expected-executable row has no backticked platform or 64-hex sha256: ${line.trim()}`);
+    if (out.some((e) => e.platform === platform)) throw new Error(`PINS.md "${PIN_ROW}" expected-executable table lists ${platform} twice`);
+    // First-party: `yes` only when the expected value comes from a first-party source (the
+    // release's own digest or provenance attestation), not from a locally observed binary.
+    const fp = col(FIRST_PARTY_COLUMN) === -1 ? '' : String(row[col(FIRST_PARTY_COLUMN)] ?? '').toLowerCase();
+    out.push({ platform, sha256, firstParty: /^\**yes\b/.test(fp), basis: col('Basis') === -1 ? null : row[col('Basis')] ?? null });
+  }
+  return out;
+}
+
+export const herdrPlatform = (platform = process.platform, arch = process.arch) => `${platform}-${arch}`;
+
+// Compare the herdr executable the driver resolved and hashed (manifest.mjs herdrIdentity)
+// with PINS.md's expected sha256 for this platform. -> { result, platform, expectedSha256,
+// firstParty, basis, detail }. result: `match`; `mismatch` and `unhashed` (run.mjs: NOT RUN,
+// nothing else spawned); `no-expected-value` (a finding; the run goes on, its herdr
+// UNVERIFIED); `test-double` (the node-run self-test herdr: never compared, never verified).
+// A `match` against a row whose firstParty is false shows only that the binary is the one
+// observed locally; the record states herdr UNVERIFIED (first-party source UNVERIFIED).
+export function checkHerdrExecutable(executable, expected, platform = herdrPlatform()) {
+  const row = (expected ?? []).find((e) => e.platform === platform) ?? null;
+  const base = { platform, expectedSha256: row?.sha256 ?? null, firstParty: row ? row.firstParty === true : null, basis: row?.basis ?? null };
+  if (executable?.testDouble !== false) return { ...base, result: 'test-double', detail: 'the node-run test-double herdr is never compared with an expected value' };
+  if (!/^[0-9a-f]{64}$/.test(executable.sha256 ?? '')) return { ...base, result: 'unhashed', detail: 'the herdr executable could not be hashed, so it cannot be compared with an expected value' };
+  if (!row) return { ...base, result: 'no-expected-value', detail: `PINS.md "${PIN_ROW}" has no expected executable sha256 for ${platform}` };
+  if (executable.sha256 !== row.sha256) return { ...base, result: 'mismatch', detail: `herdr executable sha256 ${executable.sha256} is not PINS.md's expected ${row.sha256} for ${platform}` };
+  return { ...base, result: 'match', detail: `herdr executable sha256 equals PINS.md's expected value for ${platform}${row.firstParty ? '' : ' (a locally observed value; first-party source UNVERIFIED)'}` };
+}
+
+// What run.mjs does with a check (#252), kept here so it is unit-tested: -> { notRun, finding }.
+// `notRun` is the NOT RUN reason (mismatch, unhashed), thrown before herdr is spawned;
+// `finding` is recorded and the run goes on (no expected value, or a non-first-party match).
+export function herdrCheckDecision(check) {
+  if (check?.result === 'mismatch' || check?.result === 'unhashed') return { notRun: `${check.detail}. Refusing to run (#252).`, finding: null };
+  if (check?.result === 'no-expected-value') return { notRun: null, finding: `herdr identity UNVERIFIED (#252): ${check.detail}; the executable was hashed (herdr.executable.sha256) but compared with nothing` };
+  if (check?.result === 'match' && check.firstParty !== true) return { notRun: null, finding: `herdr identity UNVERIFIED as first-party (#252): ${check.detail}` };
+  return { notRun: null, finding: null };
+}
+
 export const PINS_REL_PATH = 'docs/planning/PINS.md';
 
 // The herdr pin as COMMITTED at HEAD (#139): the driver never accepts a herdr version on the
@@ -54,8 +119,9 @@ export const PINS_REL_PATH = 'docs/planning/PINS.md';
 // carrying a different tag from HEAD's. Any other uncommitted PINS.md change (a harness row,
 // prose) does not stop the run (harness versions are never gated, #216): the pin is read from
 // HEAD and `finding` says so. The working tree is compared with HEAD in git's normalized
-// form, as `git status` does (#152).
-// -> { pin, source: { path, headCommit, committedSha256, workingTreeMatchesHead }, finding: string | null }.
+// form, as `git status` does (#152). The expected herdr executable table (#252) is read the
+// same way: an uncommitted change to it is refused like a tag change.
+// -> { pin, expectedExecutables, source: { path, headCommit, committedSha256, workingTreeMatchesHead }, finding: string | null }.
 export function readCommittedHerdrPin(repoRoot) {
   const f = committedFile(repoRoot, PINS_REL_PATH);
   const source = { path: PINS_REL_PATH, headCommit: f.headCommit, committedSha256: f.committedSha256, workingTreeMatchesHead: f.workingTreeMatchesHead };
@@ -65,13 +131,15 @@ export function readCommittedHerdrPin(repoRoot) {
     return err;
   };
   let pin;
+  let expectedExecutables;
   try {
     pin = parseHerdrPin(f.bytes.toString('utf8'));
+    expectedExecutables = parseHerdrExpectedExecutables(f.bytes.toString('utf8'));
   } catch (err) {
     err.source = source;
     throw err;
   }
-  if (f.workingTreeMatchesHead) return { pin, source, finding: null };
+  if (f.workingTreeMatchesHead) return { pin, expectedExecutables, source, finding: null };
   let onDisk;
   try {
     onDisk = readFileSync(join(repoRoot, PINS_REL_PATH), 'utf8');
@@ -85,8 +153,17 @@ export function readCommittedHerdrPin(repoRoot) {
     throw refuse(`the working-tree row does not parse: ${err.message}`);
   }
   if (disk.tag !== pin.tag) throw refuse(`working tree ${disk.tag}, HEAD ${pin.tag}`);
+  // #252: the expected executable sha256 table is part of the herdr pin, read only from HEAD.
+  let diskExpected;
+  try {
+    diskExpected = parseHerdrExpectedExecutables(onDisk);
+  } catch (err) {
+    throw refuse(`the working-tree expected-executable table does not parse: ${err.message}`);
+  }
+  if (JSON.stringify(diskExpected) !== JSON.stringify(expectedExecutables)) throw refuse('the working-tree expected executable sha256 table differs from HEAD\'s');
   return {
     pin,
+    expectedExecutables,
     source,
     finding: `${PINS_REL_PATH} has uncommitted changes outside the herdr pin (its "${PIN_ROW}" tag ${pin.tag} matches HEAD ${f.headCommit}); the herdr pin was read from HEAD and the run continued (#139)`,
   };

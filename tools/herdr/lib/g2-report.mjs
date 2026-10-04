@@ -15,10 +15,10 @@
 // for the operator to review and merge. Existing files are never overwritten. --root writes
 // under another directory instead of the repository (used by the self-test).
 //
-// NOT VERDICT-BEARING. The record never changes G2's verdict, STATUS.md or PINS.md. It is
-// generated with an UNTICKED operator attestation (oac-gates references/scripted-runs.md
-// "Operator attestation"): only the operator who ran the machine may tick it, and without
-// it the record is neither an equivalence record nor verdict-bearing.
+// NOT VERDICT-BEARING. The record never changes G2's verdict, STATUS.md or PINS.md. Its
+// Verification section (#252; oac-gates references/scripted-runs.md "Verification") states
+// herdr, the harness and every dialog accept as verified from the run manifest, with the
+// field cited, or UNVERIFIED; the recording agent re-checks it and fills its slots.
 //
 // Scoring: each criterion is `equivalent`, `not equivalent`, or `not evaluable` against the
 // human run's fixture (docs/planning/gates/fixtures/g2-codex-inject/
@@ -42,7 +42,7 @@ import {
   DEFAULT_OPERATOR_PROMPT, compareByMode, formatModeDiff, g2Facts, identifyTuiThread, parseG2Transcript, readG2Criteria, G2_CRITERIA_SHA256, CriteriaDriftError,
 } from './g2.mjs';
 import { parseSections, committedFile, sha256 } from './g1.mjs';
-import { describeDialogs, herdrExecutableHash, noConsentCriterionLine } from './gate-report-common.mjs';
+import { describeDialogs, harnessVerification, noConsentCriterionLine, verification } from './gate-report-common.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -217,7 +217,7 @@ export function evaluateG2({ manifest, transcriptText, paneText, baselineText, c
   c4.score = required(c4).every((c) => c.ok) ? SCORES.EQ : SCORES.NEQ;
   c4.reason =
     c4.score === SCORES.EQ
-      ? 'same basis as the human run: a credential-free client, a clean transcript. Driver-side, no credential access is enforced by scripts/check-herdr-containment.mjs (oac-boundaries check 10) and traced by the self-test; the operator attestation covers that real binaries ran'
+      ? 'same basis as the human run: a credential-free client, a clean transcript. Driver-side, no credential access is enforced by scripts/check-herdr-containment.mjs (oac-boundaries check 10) and traced by the self-test; which herdr and harness executables ran is in the Verification section'
       : `not met: ${failed(c4)}`;
 
   return { rows, base, run, sections };
@@ -235,8 +235,8 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('> **Not verdict-bearing.** Epic K, K7 #130. This record compares a herdr-driven run of');
   out.push('> G2 against the human-run `0.157.1` re-run. G2\'s verdict');
   out.push('> (`docs/planning/gates/G2-result.md`) and `docs/planning/STATUS.md` are unchanged by it.');
-  out.push('> The operator attestation below is unticked as generated; until the operator who ran');
-  out.push('> the machine ticks it, this is neither an equivalence record nor verdict-bearing.');
+  out.push('> Its Verification section is generated from the run manifest; until the recording agent has');
+  out.push('> re-checked it and filled its slots, this is neither an equivalence record nor verdict-bearing.');
   out.push('');
   out.push(`- **Driver:** herdr (\`${manifest?.herdr?.observedVersionOutput ?? '?'}\`, PINS.md \`herdr (test tooling)\` ${manifest?.herdr?.pinnedTag ?? '?'}) via \`tools/herdr/run.mjs\`, scenario \`${manifest?.scenario?.file ?? '?'}\`, driver commit \`${manifest?.driver?.commit ?? '?'}\`${manifest?.driver?.toolsHerdrDirty !== false ? ` (tools/herdr dirty: ${manifest?.driver?.toolsHerdrDirty})` : ''}`);
   out.push(`- **Run outcome:** ${manifest?.outcome ?? '?'}${manifest?.outcomeReason ? ` — ${manifest.outcomeReason}` : ''}`);
@@ -284,15 +284,16 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   out.push('- Codex pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane capture.');
   out.push('- herdr agent states are recorded above for K1 §5 item 5 (what Codex settles in after a response); they scored nothing.');
   out.push('');
-  out.push('## Operator attestation');
-  out.push('');
-  out.push('Generated unticked. Only the operator who ran this machine ticks these lines, each only if true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation"). An unticked line means this record is neither an equivalence record nor verdict-bearing.');
-  out.push('');
-  out.push(`- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${manifest?.herdr?.observedVersionOutput ?? '?'}\`; sha256 of the executable: ${herdrExecutableHash(manifest)}`);
-  out.push(`- [ ] **Harness:** the real, logged-in Codex CLI ran, not a test double. \`codex --version\`: \`${v.cliOutput ?? '?'}\``);
-  out.push(`- [ ] **Consent dialog:** ${noConsentCriterionLine('G2', g2.dialogs)}`);
-  out.push('- **Attested by:** <operator>, <YYYY-MM-DD>');
-  out.push('');
+  out.push(...verification({
+    manifest,
+    harness: harnessVerification(manifest, {
+      verified: versionsVerified(g2),
+      versions: `Codex: CLI \`${v.cliOutput ?? '?'}\` (\`scenarioData.g2.versions.cliOutput\`, parsed \`${v.cli ?? '?'}\` in \`scenarioData.g2.versions.cli\`), daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${d[k] ?? '?'}\``).join(', ')} (\`scenarioData.g2.versions.daemon\`), wire \`initialize\` userAgent \`${v.wireUserAgent ?? '?'}\` (\`scenarioData.g2.versions.wireUserAgent\`, parsed \`${v.wire ?? '?'}\` in \`scenarioData.g2.versions.wire\`), post-run \`${g2.postRun?.cliOutput ?? 'not recorded'}\` (\`scenarioData.g2.postRun.cliOutput\`)`,
+    }),
+    dialogs: g2.dialogs,
+    dialogsField: 'scenarioData.g2.dialogs',
+    humanActions: noConsentCriterionLine('G2'),
+  }));
   return out.join('\n');
 }
 
@@ -506,7 +507,7 @@ function main(argv) {
   });
   writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
-  console.log('Next: review the draft and score criterion 3 from the pane text; the operator who ran the machine fills in the attestation; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G2-result.md.');
+  console.log('Next: review the draft and score criterion 3 from the pane text; the recording agent re-checks the Verification section and fills its slots; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G2-result.md.');
   return 0;
 }
 

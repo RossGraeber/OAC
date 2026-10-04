@@ -21,7 +21,9 @@ import { spawnSync } from 'node:child_process';
 import { runBounded } from './proc.mjs';
 
 // 2 (#140): herdr.executable, harnessExecutables, captures[].sha256.
-export const MANIFEST_SCHEMA_VERSION = 2;
+// 3 (#252): herdr.executableCheck, the comparison with PINS.md's expected herdr sha256.
+// scripts/check-fixture-manifest.mjs refuses a schemaVersion 3 manifest without it.
+export const MANIFEST_SCHEMA_VERSION = 3;
 
 export function driverInfo(repoRoot) {
   const git = (args) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', timeout: 10000 });

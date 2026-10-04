@@ -253,7 +253,8 @@ that default is `accept=driver`.
   pass a parameter. Run it locally. The driver then sends nothing, and you accept each dialog
   yourself at the pane (`herdr session attach <session>`). For trust and MCP, move the
   selection to "Yes, I trust this folder" or "Use this MCP server" before Enter. The accept
-  counts only if you, the person who pressed it, attest to it.
+  counts only if the record names you, the person who pressed it, under "Human actions" in
+  its Verification section (#252).
 
 herdr keeps a named session's socket under the runner user's config directory
 (`$XDG_CONFIG_HOME` or `~/.config/herdr/sessions/<name>/` on Linux,
@@ -291,15 +292,17 @@ artifacts can be downloaded by anyone who can read the repository. That is why t
 fails closed, and why `ci.mjs run` prints the outcome from the redacted manifest, never
 from the driver's in-memory record.
 
-**Committing a run as evidence stays a manual, attested step.** Download the artifact.
+**Committing a run as evidence stays a separate, verified step.** Download the artifact.
 For G1, run `node tools/herdr/lib/g1-report.mjs --run <downloaded dir>`, then the rest of
 `scripted-runs.md` "Checklist: recording a scripted run". That g1-report accepts a
 downloaded artifact directory as `--run` is UNVERIFIED. A record or fixture from this
-workflow needs the `## Operator attestation` section that
-`node scripts/check-fixture-manifest.mjs` requires, written by the operator who ran the
-machine. **The workflow never writes an attestation, and must not.** An attestation exists
-precisely because automation cannot prove that it ran the real herdr and the real harness
-rather than a test double (`scripted-runs.md` "Driver identity").
+workflow needs the `## Verification` section that `node scripts/check-fixture-manifest.mjs`
+requires, re-checked by the recording agent against the committed run manifest and
+captures (#252; before #252 this was an operator attestation). **The workflow never writes
+or fills a Verification section, and must not.** A job cannot check its own evidence: the
+check happens after the run, outside the job, from what the run manifest recorded (the
+herdr hash against PINS.md, the harness versions, every dialog accept), and anything it
+cannot show stays UNVERIFIED (`scripted-runs.md` "Driver identity", "Verification").
 
 ## 5. What stays on the runner
 

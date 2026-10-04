@@ -123,6 +123,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+          # Full history (#252): a verified herdr-runs record's expected herdr sha256 is
+          # checked against PINS.md at the run's driver commit, which a shallow clone lacks.
+          fetch-depth: 0
 
       - name: Fixture manifest self-test (each planted violation must fail)
         run: node scripts/check-fixture-manifest.mjs --self-test

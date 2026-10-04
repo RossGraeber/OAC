@@ -207,7 +207,7 @@ export default {
       stoppedAt: null,
     };
     // C13 arms mode only: the arms run, each arm's fresh thread, and every delivery's record.
-    if (arms) g5.c13 = { eligibility: 'C13 §11 arms (#220): may carry G5\'s Codex verdict ONLY under the E1 one-off exception (oac-gates references/scripted-runs.md "Verdict eligibility"), whose conditions lib/g5-report.mjs checks and the operator attests; this scenario changes no verdict', claudeCases, arms: arms.map((a) => a.arm), threads: {}, deliveries: [] };
+    if (arms) g5.c13 = { eligibility: 'C13 §11 arms (#220): may carry G5\'s Codex verdict ONLY under the E1 one-off exception (oac-gates references/scripted-runs.md "Verdict eligibility"), whose conditions lib/g5-report.mjs checks and the recording agent verifies (#252); this scenario changes no verdict', claudeCases, arms: arms.map((a) => a.arm), threads: {}, deliveries: [] };
     const stop = stopper(herdr, g5);
     const abortSignal = herdr.abortSignal;
     const aborted = () => {
