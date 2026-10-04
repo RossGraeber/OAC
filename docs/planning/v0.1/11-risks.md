@@ -769,7 +769,8 @@ list.
   (L1 §4 Q1). A drift costs only Epic L's docs (L5), threat rows (L4) and opt-in
   scenario (L10). *(Dated note, 2026-10-04, #174: `spec/security.md` §12.5 and §13
   now carry the memory-reference doctrine and rows 21-23 in neutral terms, naming no
-  service, so a Beacon drift still changes no spec text.)* If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
+  service, so a Beacon drift changes no normative spec text; the §9.3 note and the
+  row-23 residual there are dated, informative observations tied to L1 §2's pin.)* If a harness drops MCP revision `2024-11-05`, Beacon, not OAC, has to move.
 - **Early-warning signal.** A new Beacon release tag appears; a cited Beacon doc
   changes at a new tag; L3's herdr-driven live leg shows OAC-delivered input in Beacon's
   `runtime.jsonl`, or shows Beacon editing a Codex config key OAC's launch path uses.
