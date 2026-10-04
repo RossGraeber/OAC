@@ -1399,7 +1399,9 @@ later retransmission (§8.4). How a receiver recognizes a copy is defined in
 An envelope's **hand-off deadline** is the earlier of its expiry instant (§4.9), when it
 has one, and the end of the replay window of `spec/security.md` for its `created_at`. The
 replay window bounds `created_at` whatever `ttl_ms` says (§4.9), so no receiver can hand off
-any copy of an envelope after its hand-off deadline.
+any copy of an envelope after its hand-off deadline, read on that receiver's own clock.
+Section 8.4.2 adds the clock-skew margin a sending implementation needs before it relies on
+this for a retry.
 
 [SC-RCP-010] A sending implementation SHOULD report `unknown` for an envelope once its
 hand-off deadline has passed, when its combined state (§8.4.1) is still
@@ -1836,11 +1838,24 @@ describe just one copy that the sending implementation passed.
 
 #### 8.4.2 Retry and retransmission rules
 
-[SC-RCP-086] A sending implementation that passed at least one copy of an envelope MUST NOT
-retry the message on its own initiative before the envelope's hand-off deadline (§8.1.3).
+Receivers apply the hand-off deadline (§8.1.3) by their own clocks. The sending
+implementation can read only its own clock, which also set `created_at`. A receiver whose
+clock is behind the sender's by up to the **replay-window skew allowance**, the clock-skew
+allowance that the replay window of `spec/security.md` already absorbs, still accepts a
+copy after the deadline has passed by the sender's clock. (The allowance is 300 seconds
+under `docs/planning/decisions/C5-envelope-auth.md` §7; `spec/security.md` fixes it, and
+this section takes whatever value it fixes.) For the retry rules below, the sending
+implementation therefore uses the **retry deadline**: the hand-off deadline plus the
+replay-window skew allowance, read on its own clock. [SC-RCP-010] and [SC-RCP-083] keep the
+plain hand-off deadline. Reporting `unknown` early, or retransmitting a copy that a
+receiver then refuses, does no harm.
 
-Until the deadline, a copy the sending implementation never counted, from transport
-duplication or a replay, can still be handed off, whatever receipts say.
+[SC-RCP-086] A sending implementation that passed at least one copy of an envelope MUST NOT
+retry the message on its own initiative before the envelope's retry deadline.
+
+Until then, a copy the sending implementation never counted, from transport duplication or
+a replay, can still be handed off by a receiver whose clock is within the allowance,
+whatever receipts say.
 
 [SC-RCP-080] A sending implementation MUST NOT retry, on its own initiative, a message for
 which it holds `handed-to-harness`.
@@ -1863,16 +1878,20 @@ holds.
 unchanged ([SC-ENV-102]), so the receiver repeats the same result.
 
 [SC-RCP-087] A sending implementation MAY retry a message on its own initiative after the
-envelope's hand-off deadline when it holds neither `handed-to-harness` nor `duplicate`, and
-no receiver reported `unknown` for it ([SC-RCP-082]). A sending implementation that does not retry reports the state it holds, and the requesting
-harness decides what to send next.
+envelope's retry deadline when it holds neither `handed-to-harness` nor `duplicate`, and no
+receiver reported `unknown` for it ([SC-RCP-082]). A sending implementation that does not
+retry reports the state it holds, and the requesting harness decides what to send next.
 
 [SC-RCP-086] does not cover a sending implementation that passed no copy. No copy of that
 envelope exists for anyone to deliver, so a retry cannot meet one.
 
-What a retry under [SC-RCP-087] guarantees, precisely: after the hand-off deadline no copy
-of the original envelope can be handed off any more, so the retry and a copy of the
-original are never both still deliverable. It does not guarantee a single hand-off. A copy
+What a retry under [SC-RCP-087] guarantees, precisely: after the retry deadline no copy of
+the original envelope can be handed off any more, so the retry and a copy of the original
+are never both still deliverable. This assumes that the sending implementation's clock and
+every receiver's clock differ by no more than the replay-window skew allowance. With a
+larger skew no deadline on the sender's clock is safe, because a copy refused as too far in
+the future can become acceptable later; that case falls under the residual below. It does
+not guarantee a single hand-off. A copy
 of the original may already have been handed off with its `handed-to-harness` receipt lost
 or never sent ([SC-RCP-042]), and the retry then hands the content off a second time. That
 is the residual the absence of an exactly-once promise (§8) accepts. Requiring receipts
@@ -1889,7 +1908,7 @@ Fixtures for this section follow §3.3 and live under `tests/protocol/sc-rcp/`. 
 | `receipt` | an empty object | `receipt`: the receipt as a JSON value | `result`: `valid` or `discarded` ([SC-RCP-032]); for `valid`, `effective_state`: the state a peer processes the receipt as ([SC-RCP-030]) |
 | `reply` | `handed_off`: an array of hand-off records, each an object with `id`, `from`, `to` and, when present, `conversation_id` and `correlation_id` | `reply_request`: an object with `from` (the replying session), `to` (the addressed session) and, optionally, `requested_target` | `reply_headers`: an object holding exactly those of `reply_to`, `conversation_id` and `correlation_id` that the implementation sets; `correlation`: `correlated` or `uncorrelated` |
 | `correlation` | `receiver_time` and `supported_major_versions` as in §3.3, and `sent`: an array of sent-envelope records, with the members of a hand-off record | `envelope`, as in §3.3 | `result`, as in §3.3; `correlation`: `matched` or `unmatched`; for `matched`, `answers`: an object with the `id` and `from` of the answered envelope |
-| `combine` | `copies_passed`: the number of copies passed to a transport; `deadline_passed`: whether the hand-off deadline has passed | `held`: an array of the states held for the envelope, in arrival order, each an object with `state`, `observer` and, when present, `error` | `state`: the combined state ([SC-RCP-085]); `retry_allowed`: whether a retry on the implementation's own initiative is permitted without deviating from §8.4.2. With `copies_passed` 0 it is true only when `state` is an error state. Otherwise it is true only when `deadline_passed` is true, `state` is neither `handed-to-harness` nor `duplicate`, and no `held` entry is a receiver-observed `unknown`. The error states are `rejected`, `expired`, `unreachable` and `failed`; `duplicate` is not one (§8.4.1). ([SC-RCP-080] to [SC-RCP-082], [SC-RCP-086], [SC-RCP-087]) |
+| `combine` | `copies_passed`: the number of copies passed to a transport; `deadline_passed`: whether the retry deadline of §8.4.2 (the hand-off deadline plus the replay-window skew allowance, on the sending implementation's clock) has passed | `held`: an array of the states held for the envelope, in arrival order, each an object with `state`, `observer` and, when present, `error` | `state`: the combined state ([SC-RCP-085]); `retry_allowed`: whether a retry on the implementation's own initiative is permitted without deviating from §8.4.2. With `copies_passed` 0 it is true only when `state` is an error state. Otherwise it is true only when `deadline_passed` is true, `state` is neither `handed-to-harness` nor `duplicate`, and no `held` entry is a receiver-observed `unknown`. The error states are `rejected`, `expired`, `unreachable` and `failed`; `duplicate` is not one (§8.4.1). ([SC-RCP-080] to [SC-RCP-082], [SC-RCP-086], [SC-RCP-087]) |
 | `routing` | `receiver_time` and `supported_major_versions` as in §3.3; `receiver_content_types`: the part types the receiver supports for at least one session; `sessions`: an object whose members are the session ids the receiver knows, each an object with `accepting` (a boolean), `content_types` (an array) and optionally `active_inbound` (a boolean, `true` when omitted); `authorized`: an array of objects with `from` and `to`, the sender-to-session pairs that pass authorization. Every other security-stage check is taken as passed. | `envelope`, as in §3.3 | `result`: `valid`, `rejected`, `expired` or `unreachable`; for a result other than `valid`, `error` |
 
 Every negative `envelope`-stage fixture, in `sc-rcp/` and in `sc-env/` and `sc-ver/`,

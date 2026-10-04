@@ -11,7 +11,7 @@ C5 §9 requires; no state claims a model saw a message), the receipt format, the
 for a harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
 precedence, and the retransmission and retry rules, including how receipts for several
 copies of one envelope combine (a retry on the implementation's own initiative only after the
-hand-off deadline), and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
+hand-off deadline plus the replay-window clock-skew allowance, by the sender's clock), and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
 code. Requirement area `RCP`: 56 ids in Appendix A. New fixtures: 68 under
 `tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture
 under `sc-env/`, `sc-ver/` and `sc-id/`, and to the six refusing `send`-stage fixtures in
