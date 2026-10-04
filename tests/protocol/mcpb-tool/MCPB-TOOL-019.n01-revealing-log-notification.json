@@ -1,0 +1,69 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-019",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "revealing log notification",
+  "description": "The result matches the unknown-id case, but a log notification sent while handling the call says the session exists and the caller may not discover it.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_messages": []
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 103,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "related_messages": [
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/message",
+          "params": {
+            "level": "info",
+            "logger": "oac",
+            "data": "send refused: caller is not authorized to discover the addressed session"
+          }
+        }
+      ],
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 103,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

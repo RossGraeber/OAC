@@ -1,0 +1,68 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-020",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "to echoed in a related message",
+  "description": "An unknown-destination refusal is preceded by a log notification that echoes the to argument.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "unknown",
+      "discoverable": true
+    }
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 113,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "related_messages": [
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/message",
+          "params": {
+            "level": "debug",
+            "logger": "oac",
+            "data": "send to 3m8q2r7t0v4w6x9y1z5a3b8c2d refused"
+          }
+        }
+      ],
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 113,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

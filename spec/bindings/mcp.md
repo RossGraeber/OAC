@@ -35,10 +35,9 @@ governs"). This document adds no requirement on message semantics. It says only 
 those semantics are carried over MCP.
 
 **Cross-dependency.** This document cites `spec/session-channels.md` (revision 0.1,
-landed by #41) by section number. Sections 4 and 5 of that document are written. Its §6
-(E2, #42), §7 (E3, #43) and §8 (E4, #44) are titled stubs, so a citation of them names a
-section whose content is still to come. Error names here are placeholders by role,
-pending the closed taxonomy of its §8.3 (E4, #44); see §5.4.
+landed by #41) by section number and requirement id. Its sections 4 to 8 are written,
+including §6 (E2, #42), §7 (E3, #43) and §8 (E4, #44). The error codes here are those of
+its closed taxonomy, §8.3; see §5.4.
 
 ## 1. Conventions
 
@@ -89,7 +88,7 @@ or subscription that a session is expected to read repeatedly in order to receiv
 messages, while the session's capabilities claim active inbound delivery.
 
 Requirement MCPB-DLV-002 is the MCP form of the no-polling rule in `spec/session-channels.md` §7.1
-(E3) (`oac-boundaries` boundary 14).
+(`oac-boundaries` boundary 14).
 
 **2.3 — what does deliver.** Inbound delivery into a live session happens through a
 provider-native surface, named in the provider profiles (§8):
@@ -153,10 +152,17 @@ settings objects", and "an empty object indicates support with no additional set
   identifier MUST be a JSON object.
 - [MCPB-EXT-004] A receiver MUST ignore a settings member it does
   not recognize.
-- The members of the settings object (for example the spec revision and the OAC
-  capability set) are defined by `spec/session-channels.md` §6.4 and §6.5 (E2,
-  #42). This binding defines none. Until E2 fills those sections, an OAC server that has
-  nothing to declare sends `{}`.
+- This revision of the binding defines no members of the settings object, so an OAC
+  server sends `{}`. `spec/session-channels.md` §6.4 defines a capabilities entry per
+  *session*, and an OAC server process can serve connections for more than one session,
+  so no session's declaration belongs in the server's settings object.
+- A session's capability declaration reaches other implementations in its presence
+  announcements (`spec/session-channels.md` §7.2). A sender takes the declaration it uses
+  only from an announcement it accepted or from the descriptor it announces itself
+  ([SC-DLV-070]). `list_sessions` (§5.5) shows the calling harness the descriptors of the
+  sessions it may discover; it is a view for the harness, not a source of declarations.
+  A declaration that a client sends back, in a tool argument or anywhere else, is never
+  used under `spec/session-channels.md` §6.5 or §6.6.
 
 Requirement MCPB-EXT-004 is the MCP form of the forward-compatibility rule in `spec/session-channels.md`
 §4.8 (unrecognized members are ignored).
@@ -318,7 +324,10 @@ OAC server to it. A request inside an established legacy-era connection carries 
 ### 4.4 Caller attribution
 
 All four tools (§5) depend on the caller's identity: `send` and `reply` use it as the
-envelope's `from`, `list_sessions` filters by it (C5 §11), and `whoami` returns it.
+envelope's `from` (`spec/session-channels.md` §6.8), `list_sessions` uses it as the
+discovery requester (`spec/session-channels.md` §7.3; C5 §11), `send` and `reply` also use
+it as the requester whose discovery authorization limits what a refusal reveals
+([SC-DLV-075], [SC-DLV-076]), and `whoami` returns it.
 
 **Bound connections.** A connection is *bound* when a documented OAC pairing has tied it
 to exactly one harness session. Today the only such pairing is the Claude channel-path
@@ -343,7 +352,14 @@ connection or process that carried it.
 
 [MCPB-ATT-002] When an OAC server cannot attribute a tool call
 on a connection that is not bound to exactly one OAC session, it MUST refuse the call with
-the error taxonomy's authorization-failure error (§5.4).
+the error code `unauthorized` (§5.4).
+
+Requirement MCPB-ATT-002 is the MCP form of `spec/session-channels.md` [SC-ID-161]: a send
+request on an attachment not bound to exactly one session is refused, with the code
+`unauthorized` (`spec/session-channels.md` Table 8.3.3, request scope). The refusal of a
+`list_sessions` call on such a connection is the MCP form of `spec/session-channels.md`
+[SC-DLV-060], which refuses a discovery request on such an attachment with the same code
+(§5.5).
 
 **The refusal in [MCPB-ATT-002] is interim.** It holds until a documented per-request signal
 exists that OAC can bind to a paired session. Codex does send a per-request candidate:
@@ -383,8 +399,8 @@ receive OAC messages; sending from Codex waits for #69. Codex's self-reported
 The tool surface is the outbound half of OAC over MCP. Both harnesses send through the
 same four OAC tools, and inbound stays provider-native (PLANNING-PROMPT.md §5 decision 9;
 C6 §8). Argument and result semantics belong to `spec/session-channels.md` §8.2 (replies and
-correlation), §8.1 (delivery states) and §6 (session identity and addressing), all
-filled by E2 and E4. This section fixes only how they are carried.
+correlation), §8.1 (delivery states), §8.3 (errors), §6 (session identity, addressing and
+send attribution) and §7.3 (discovery). This section fixes only how they are carried.
 
 ### 5.1 Tools
 
@@ -392,7 +408,7 @@ filled by E2 and E4. This section fixes only how they are carried.
 |---|---|---|
 | `send` | Send a new message to an addressed session | C6 §8 |
 | `reply` | Reply to a received message (`in_reply_to`) | C6 §8, §10 |
-| `list_sessions` | List the sessions the caller is authorized to see | C6 §8; C5 §11 |
+| `list_sessions` | List the sessions the caller is authorized to see: the discovery result of `spec/session-channels.md` §7.3 (§5.5) | C6 §8; C5 §11 |
 | `whoami` | Return the caller's own session id and device fingerprint, never a credential | C6 §8 |
 
 All four names meet the MCP tool-name guidance. MCP allows 1-128 characters drawn from
@@ -421,8 +437,10 @@ object whose properties are the tool's arguments as `spec/session-channels.md` �
 §8.2 name them.
 
 [MCPB-TOOL-005] A `tools/call` that fails its tool's `inputSchema`
-MUST return a tool execution error (§5.4) carrying the error taxonomy's malformed-input
-error.
+MUST return a tool execution error (§5.4) carrying the error code `invalid-request`.
+
+`invalid-request` is the request-scope code of `spec/session-channels.md` Table 8.3 for "a
+harness's request is malformed".
 
 ### 5.3 Results
 
@@ -444,10 +462,29 @@ use them.
 [MCPB-TOOL-008] A `send` or `reply` result MUST NOT report a
 delivery state beyond `accepted-by-adapter`.
 
-The tool call returns before the receiving harness has the message. The states after
-`accepted-by-adapter` are decided in C5 §9 and are to be defined in
-`spec/session-channels.md` §8.1 (E4). The name `accepted-by-adapter` is C5 §9's; it is
-re-pointed when §8.1 lands.
+The tool call returns before the receiving harness has the message. `accepted-by-adapter`
+is defined in `spec/session-channels.md` §8.1.2 (Table 8.1): its observer is the sending
+implementation, and it means that the sending implementation created a valid envelope and
+passed it to a transport. That is the sender-side reading of C6 §8, which §8.1.2 adopts in
+its dated note, not C5 §9's receiver-side acceptance. In Table 8.1's terms, "beyond
+`accepted-by-adapter`" means a state whose only observer is the receiver
+(`handed-to-harness`, `rejected`, `expired`, `duplicate`). The OAC server, as the
+sending implementation, has not observed any of them when the call returns
+(`spec/session-channels.md` [SC-RCP-003]).
+
+What a `send` or `reply` result reports therefore depends only on how far the sending
+implementation got:
+
+- **No envelope created.** The request was refused (Table 8.3.3). That is not a delivery
+  state; the result is a tool execution error carrying the refusal's code (§5.4).
+- **Envelope created, not passed to a transport.** The sending implementation observed
+  `failed` (Table 8.1). The result is a tool execution error carrying `transport-failure`,
+  or `internal-error` for an internal error unrelated to the envelope (Table 8.3, sender
+  scope).
+- **Envelope passed to a transport.** The result reports `accepted-by-adapter`. From then
+  on the sending implementation reports neither `unreachable` nor `failed` from its own
+  observation ([SC-RCP-007]). `unknown` applies only once the envelope's hand-off deadline
+  has passed ([SC-RCP-010]), so it is a later state that the result does not carry.
 
 [MCPB-TOOL-009] A `whoami` result MUST NOT contain a private key,
 bearer token or any other value that authenticates its holder as the caller (C6 §8).
@@ -462,23 +499,181 @@ the `2025-11-25` and `2026-07-28` schemas (lines 1129 and 1837 of the schema fil
 in §4.3).
 
 [MCPB-TOOL-010] An OAC error from the closed taxonomy in
-`spec/session-channels.md` §8.3 (E4) MUST be returned as a tool
+`spec/session-channels.md` §8.3 MUST be returned as a tool
 execution error with `isError: true`.
 
 [MCPB-TOOL-011] A tool execution error MUST carry the OAC error
 code, spelled exactly as the taxonomy spells it, in its `text` content.
 
-**Error names are placeholders.** The closed taxonomy is `spec/session-channels.md` §8.3,
-a stub E4 (#44) fills. This document therefore names errors by role only: the *authorization-failure
-error* ([MCPB-ATT-002]), the *malformed-input error* ([MCPB-TOOL-005]) and the *unknown-destination error*
-([MCPB-TOOL-011]). Each role is re-pointed to the taxonomy's exact code when E4 lands; until then no
-fixture can assert a spelling. Once #44 lands, these roles map to the codes in
-`spec/session-channels.md` §8.3.1 as proposed in PR #261: authorization failure →
-`unauthorized`, malformed input → `invalid-request`, unknown destination →
-`unknown-destination`.
+[MCPB-TOOL-016] A tool execution error that refuses a `send` or `reply` before an envelope
+exists MUST carry the code that `spec/session-channels.md` Table 8.3.3 assigns to the
+refusal cause, chosen in the order of §8.3.3.
+
+Requirement MCPB-TOOL-016 is the MCP form of `spec/session-channels.md` [SC-RCP-079] and
+[SC-RCP-090], with a session the calling session is not authorized to discover taken as
+`unknown` ([SC-DLV-075]). [MCPB-TOOL-011] governs how the code is spelled; [MCPB-TOOL-016]
+governs which code it is.
+
+**The codes this binding returns.** The closed taxonomy is `spec/session-channels.md`
+§8.3, Table 8.3. A refusal before any envelope exists refuses a harness's request, so its
+code is one whose scope in Table 8.3 includes `request` ([SC-RCP-075]); for a refusal cause
+listed in Table 8.3.3 it is the code that table assigns ([SC-RCP-079]). A failure the
+sending implementation observes after it has created the envelope carries a sender-scope
+code instead (§5.3, after [MCPB-TOOL-008]). The cases this document names map as follows:
+
+| Case | Rule here | Code | Neutral source |
+|---|---|---|---|
+| Tool call on a connection not bound to exactly one session (any of the four tools) | [MCPB-ATT-002] | `unauthorized` | §6.8 [SC-ID-161]; §7.3.2 [SC-DLV-060]; Table 8.3.3 |
+| `tools/call` arguments fail the tool's `inputSchema` | [MCPB-TOOL-005] | `invalid-request` | Table 8.3 |
+| `send` or `reply` whose `to` names a session whose presence, as the calling session is allowed to see it, is `unknown`: a session the server does not know, one for which it has accepted no presence record and so holds no capability declaration, or one the calling session is not authorized to discover | [MCPB-TOOL-016], [MCPB-TOOL-017], [MCPB-TOOL-019], [MCPB-TOOL-020], [MCPB-TOOL-021] | `unknown-destination` | §7.3.3 [SC-DLV-071], [SC-DLV-072], [SC-DLV-075], [SC-DLV-076]; Table 8.3.3, step 2 |
+| `send` or `reply` whose `to` names a session whose presence, as the calling session is allowed to see it, is `unreachable` | [MCPB-TOOL-016] | `destination-unavailable` | §7.3.3 [SC-DLV-071], [SC-DLV-073]; Table 8.3.3, step 2 |
+| Any other refusal of a `send` or `reply` before an envelope exists | [MCPB-TOOL-016] | the code Table 8.3.3 assigns, reported in the order of §8.3.3 ([SC-RCP-090]) | Table 8.3.3 |
+| `send` or `reply` whose envelope was created but could not be passed to a transport | [MCPB-TOOL-010], [MCPB-TOOL-011] | `transport-failure` (state `failed`, sender scope) | Table 8.1; Table 8.3 |
+| `tools/call` naming a tool outside §5.1 | [MCPB-TOOL-018] | none: an MCP protocol error, not an OAC error | MCP tools page, "Error Handling" |
+
+The text content carries the code exactly as Table 8.3 spells it: lower case, hyphenated,
+compared case-sensitively (`spec/session-channels.md` §8.3.1). Neither a role name such as
+"authorization failure" nor a re-spelled code such as `Unauthorized` meets
+[MCPB-TOOL-011].
+
+A session the calling session is not authorized to discover is refused with the same code
+as one that does not exist ([SC-DLV-075], [SC-DLV-076]). The code alone does not stop a
+result from revealing the session: free text, `structuredContent` or `_meta` could still
+say that it exists, what its presence is, or what it accepts.
+
+[MCPB-TOOL-017] When an OAC server refuses a `send` or `reply` whose `to` names a session
+the calling session is not authorized to discover, the `result` it returns MUST be the same
+JSON value as the `result` it returns for a request that differs only in `to`, naming a
+session id it holds no record of.
+
+"The same JSON value" covers every member of `result`: `content`, `isError`,
+`structuredContent` and `_meta`. Only the JSON-RPC `id`, which is outside `result`, may
+differ. A member that carries a presence state, a capability, or a hint about authorization
+for such a session therefore fails [MCPB-TOOL-017], whatever the code.
+
+The `result` is not the only thing the caller sees. While it handles a `tools/call`, a
+server can send other messages on the same connection: a log message
+(`notifications/message`) when it declared `logging`, a progress notification carrying
+the request's `progressToken`, or any other notification. A message **related to** a
+`tools/call` is any message the server sends on the connection as part of handling that
+call, from the moment it receives the request until it has sent the response.
+
+[MCPB-TOOL-019] When an OAC server refuses a `send` or `reply` whose `to` names a session
+the calling session is not authorized to discover, the sequence of messages related to that
+call MUST be the same, message for message and in the same order, as the sequence it sends
+for a request that differs only in `to`, naming a session id it holds no record of, when
+the client sends the same messages on the connection while each call is handled.
+
+The comparison holds the client's side fixed. A cancellation (`notifications/cancelled`) or
+a `ping` that arrives while the call is handled can change what the server sends: a server
+that honours a cancellation in one case but has already answered in the other produces a
+difference that comes from how long each case took. That is a timing difference, which
+[MCPB-TOOL-019] does not cover; it is left to `spec/security.md` with the other timing
+questions (reference implementation note below).
+
+Requirement MCPB-TOOL-019 extends [MCPB-TOOL-017] from the `result` to everything else the
+caller observes about the call. A log line, a progress message, or any other notification
+that names, counts, or describes the addressed session fails it. [SC-DLV-076] keeps the
+server from consulting the session's presence or declaration, but the server still has to
+decide the caller's discovery authorization, so it knows that the session exists;
+[MCPB-TOOL-017] and [MCPB-TOOL-019] keep that knowledge out of what the caller sees.
+
+Requirements [MCPB-TOOL-017] and [MCPB-TOOL-019] compare one call, and their window ends
+when the response is sent. A server can still reveal a session after that: a log message
+sent later, a `list_changed` notification, or state that changes how later calls are
+answered, such as a counter of refused sends that later throttles the caller. The next rule
+has no time window.
+
+An **observable action** on a connection is anything the server does that the client can
+observe on it apart from timing: sending a message; closing or resetting the connection, a
+stdio pipe, a stream or a transport session; setting a transport status code or header (for
+example an HTTP status or `Retry-After`); and dropping or re-issuing a transport session id.
+A **hidden session** of a connection is a session that the connection's bound session is not
+authorized to discover. On a connection that is not bound to exactly one session, every
+session is a hidden session.
+
+[MCPB-TOOL-021] An OAC server MUST NOT take, on any connection, an observable action whose
+occurrence, content or order depends on whether a hidden session of that connection exists,
+or on that session's presence state or capability declaration.
+
+Requirement MCPB-TOOL-021 covers every observable action for as long as the connection
+lasts:
+
+- messages at any time, including log messages, progress notifications and `list_changed`
+  notifications, and the responses to every later call;
+- closing or resetting the connection, a stream or a transport session, and dropping or
+  re-issuing a transport session id;
+- transport status codes and headers, such as an HTTP `429` or a `Retry-After` value;
+- state the server keeps between calls: rate limiting, throttling, refusal counters or any
+  other behaviour that earlier calls naming a hidden session influence differently from
+  earlier calls naming a session id the server holds no record of.
+
+Because every session is hidden on an unbound connection, nothing the server does on a
+connection before it is paired names or reveals any session, even though [MCPB-ATT-002]
+already refuses that connection's tool calls. The rule does not restrict what the server
+does about sessions the bound session is authorized to discover. Timing is outside it, as
+the reference implementation note below explains.
+
+Discovery grants are not symmetric: a session can be authorized to discover and send to the
+bound session while the bound session is not authorized to discover it. [MCPB-TOOL-021]
+therefore does not apply to two kinds of action, even when they depend on a hidden session:
+
+1. **Inbound hand-off.** The hand-off, to the bound session, of an envelope addressed to
+   that session, through the provider-native surface (§2.3, §8), including the provenance
+   the envelope carries (§6). The hidden session revealed itself by sending.
+2. **Outcomes of the bound session's own sends.** The result of a `send` or `reply` that
+   created an envelope (§5.3), and any later delivery state or receipt for an envelope the
+   bound session sent (`spec/session-channels.md` §8.1), even if the addressed session
+   has become hidden since. The bound session named that session in a send that passed
+   authorization when it was made.
+
+Neither exception lets the server reveal anything else about the hidden session: its
+presence state, its capability declaration, or its other traffic stay under
+[MCPB-TOOL-021].
+
+**Replies to a hidden sender.** Whether the bound session may reply to a message from a
+session it is not authorized to discover is governed by `spec/security.md` §9.5 (reply
+rights; E5, #45, PR #265 under review) together with `spec/session-channels.md`
+[SC-DLV-075]. This binding adds no refusal of its own on that question: none of its rules,
+[MCPB-TOOL-016], [MCPB-TOOL-017], [MCPB-TOOL-019], [MCPB-TOOL-020] and [MCPB-TOOL-021]
+included, refuses or hides a `reply` that those documents authorize.
+
+[MCPB-TOOL-020] The `result` of a `send` or `reply` refused with `unknown-destination`,
+and every message related to that call, MUST NOT contain the value of the call's `to`
+argument, or any other value taken from or derived from the addressed session.
+
+With [MCPB-TOOL-020], the two requests that [MCPB-TOOL-017] and [MCPB-TOOL-019] compare
+produce no value that depends on `to`. The comparison is then plain equality, with no
+substitution of the `to` value, and an echoed id cannot carry a re-spelled or annotated
+form of it that reveals more than the caller sent.
+
+> **Reference implementation note:** the reference implementation builds the refusal for a
+> session id it holds no record of and the refusal for a session the caller is not
+> authorized to discover through one code path, which takes no input about the addressed
+> session. That keeps serialization details outside JSON-value equality, such as member
+> order and whitespace, from differing between the two cases. Timing is a side channel the
+> fixtures above cannot test: answering one case faster than the other still reveals the
+> session, directly or through whether a cancellation arrives before the response. Timing
+> is left to `spec/security.md` (E5, #45), which owns discovery authorization.
+
+*Dated note, 2026-10-03 (#262): an earlier draft of this change mapped a `send` to an
+unknown session to `unsupported-capability`, because E4 (#44) placed the
+no-declaration cause ([SC-ID-086]) before any presence check. E3 (#43, PR #263) folded that
+cause into a presence step, step 2 of the §8.3.3 order, so the case now carries
+`unknown-destination`, as `spec/session-channels.md` §8.3.1 names it for this binding. The
+conflict is resolved in the neutral spec, and this binding follows it.*
 
 [MCPB-TOOL-012] An OAC server MUST NOT return an OAC taxonomy
 error as a JSON-RPC error object.
+
+[MCPB-TOOL-018] An OAC server MUST answer a `tools/call` that names a tool outside §5.1
+with a JSON-RPC protocol error, not with a tool execution error carrying an OAC code.
+
+MCP lists "Unknown tools" among the protocol errors (MCP tools page, "Error Handling",
+quoted above). A call to a tool the server does not offer is therefore an MCP error, not an
+OAC one, and [MCPB-TOOL-010] and [MCPB-TOOL-012] do not apply to it. `invalid-request` is
+returned only for a call to one of the four tools whose arguments fail its `inputSchema`
+([MCPB-TOOL-005]).
 
 [MCPB-TOOL-013] An OAC server MUST NOT emit a JSON-RPC error code
 in the range `-32020` to `-32099` that the MCP specification does not define.
@@ -486,6 +681,45 @@ in the range `-32020` to `-32099` that the MCP specification does not define.
 Requirement MCPB-TOOL-013 repeats the MCP `2026-07-28` reservation of that range ("Implementations **MUST
 NOT** emit any code from this sub-range that is not defined by this specification", MCP
 basic page, "Error Codes", retrieved 2026-10-03).
+
+### 5.5 `list_sessions` and discovery
+
+`list_sessions` is the MCP form of a discovery request (`spec/session-channels.md` §7.3).
+The requester is the session bound to the calling connection (§4.4). Which sessions the
+result lists, and the scoping applied to it, belong to §7.3 of that document
+([SC-DLV-060] to [SC-DLV-067]) and to `spec/security.md`; this binding adds none of it.
+
+- On a connection that is not bound to exactly one session, the call is refused with
+  `unauthorized` ([MCPB-ATT-002]). That is the refusal [SC-DLV-060] gives a discovery
+  request on an attachment not bound to exactly one session.
+- The descriptors are session descriptors (`spec/session-channels.md` §6.3). They carry
+  the session id and capability declaration, and never a working directory
+  ([SC-ID-045]) or a harness-native identifier ([SC-ID-006]).
+- The result lists exactly the `online` sessions the calling session is authorized to
+  discover, each once ([SC-DLV-061] to [SC-DLV-064]). Each descriptor is the one in the
+  latest announcement the implementation accepted for the session or, for a session of
+  its own, the descriptor it currently announces ([SC-DLV-065]).
+- The OAC server is part of the implementation that holds the calling session's binding.
+  In v0.1, presence and discovery stay within one implementation
+  (`spec/session-channels.md` §7.3.2, dated note), so that implementation applies the
+  discovery authorization, including working-directory scoping, for every session it
+  lists ([SC-DLV-067]). The requester is the session bound to the connection (§4.4),
+  never a session id that the call's arguments or `_meta` carry.
+
+[MCPB-TOOL-014] An OAC server MUST answer a `list_sessions` call on a bound connection
+with the discovery result that `spec/session-channels.md` §7.3 defines for the session
+bound to that connection as the requester.
+
+[MCPB-TOOL-015] A successful `list_sessions` result MUST include a `text` content block
+whose text is a serialized JSON object with a member `sessions` whose value is the
+discovery result, an array of session descriptors.
+
+Requirement MCPB-TOOL-015 fixes the form of the session list that [MCPB-TOOL-006] requires
+in `text`, so that a model or client reads the same structure on every harness and era. An
+empty `sessions` array is a valid result. The text is an object rather than a bare array
+because MCP's `structuredContent` is an object: a server that also sends
+`structuredContent` ([MCPB-TOOL-007]) sends that same `{"sessions": [...]}` object, so the
+text block is its serialization, as MCP recommends.
 
 ## 6. `_meta` provenance
 
@@ -529,7 +763,7 @@ specification defines for the role the server is playing.
 
 **6.2.5 — members.** The members of the provenance object are copies of envelope and
 receipt fields. They are named in `spec/session-channels.md` §4.2 (envelope members) and
-§8.1 (delivery states, E4). This binding defines none of them.
+§8.1 (delivery states, §8.1.2; receipts, §8.1.4). This binding defines none of them.
 
 > **Reference implementation note:** the expected members are the message id, the
 > conversation and correlation ids, the delivery state, and the spec revision. G4's spike
@@ -593,8 +827,9 @@ restate them. Each provider surface carries one label (`oac-evidence` §4).
   (`docs/planning/STATUS.md` "Pins").
 - **Inbound:** the provider-native `notifications/claude/channel` notification, with
   `content` and `meta` (`oac-claude-channels` §1). Claude Code sends no acknowledgement,
-  so the strongest delivery state an OAC server can report for it is `handed-to-harness`
-  (C5 §9; `spec/session-channels.md` §8.1, E4).
+  so the strongest delivery state an OAC server can report for it is `handed-to-harness`,
+  which on a surface that returns no response means only that the write completed
+  (C5 §9; `spec/session-channels.md` §8.1.2, §8.1.3).
 - **Era:** "A channel server that negotiates MCP protocol `2026-07-28` cannot deliver
   channel messages and is not registered as a channel" (`oac-claude-channels` §4; G4
   fact 3).
@@ -748,13 +983,56 @@ ones:
   session and no `protocolVersion`, §1). Where a requirement needs them, `context` also
   holds `bound` (whether the connection is bound by a documented pairing, §4.4; every
   fixture that shows a served `tools/call` sets it to `true`), `legacy_initialized` (whether the
-  stdio process or HTTP session has completed `initialize`) and
-  `supported_legacy_revisions`.
-- `input` is `mcp_exchange`: an object with an optional `request` (the client's
-  JSON-RPC message) and a required `server_message` (the server's response or
-  notification).
-- `expected.result` is `conformant` or `nonconformant`: whether `server_message` meets
-  the requirement, given `request` and `context`.
+  stdio process or HTTP session has completed `initialize`),
+  `supported_legacy_revisions`, `addressed` and `unknown_session_result`.
+  - `addressed` describes the session a `send` or `reply` names in `to`. It is an
+    object with `presence`, the presence state that the OAC server's implementation
+    holds for that session as its observer (`online`, `unreachable` or `unknown`,
+    `spec/session-channels.md` §7.2.1), and `discoverable`, whether the calling session
+    is authorized to discover it (§7.3). The presence the calling session is allowed to
+    see is derived from the pair: `unknown` when `discoverable` is `false`
+    ([SC-DLV-075]), and `presence` otherwise. That derived value decides the code at
+    Table 8.3.3, step 2.
+  - `unknown_session_result` is the `result` object the same server returns for a request
+    that differs only in `to`, naming a session id it holds no record of
+    ([MCPB-TOOL-017]).
+  - `unknown_session_messages` is the array of messages related to that same request
+    ([MCPB-TOOL-019]); an empty array when there are none.
+  - `unknown_session_subsequent_messages` is the `subsequent_messages` array the
+    connection carries in that same unknown-id case, with the same client entries
+    ([MCPB-TOOL-021]); an empty array when there are none.
+  - `server_message_kind` says that `server_message` is one of the actions that
+    [MCPB-TOOL-021] does not apply to (§5.4): `handoff` (the hand-off of an envelope
+    addressed to the bound session, from the session `addressed` describes) or
+    `own-send-outcome` (a delivery state or receipt for an envelope the bound session
+    sent to that session). Absent means neither.
+- `input` is `mcp_exchange`: an object with these members, in this order:
+  - `request`, optional: the client's JSON-RPC message;
+  - `related_messages`, optional: an array of the other messages the server sends on the
+    connection that are related to the request, in order (§5.4); absent means none;
+  - `server_message`, required: the server's response or notification;
+  - `subsequent_messages`, optional: an array of what happens on the connection after
+    `server_message`, in order ([MCPB-TOOL-021]); absent means nothing. Each entry is an
+    object with `from` (`client` or `server`) and one of these shapes:
+    - `message`: a JSON-RPC message (a later notification, call or response). A server
+      entry over HTTP may also hold `http`, the transport envelope that carried it;
+    - `http` alone (server only): an HTTP response with no JSON-RPC body. `http` is an
+      object with `status` (an integer) and optionally `headers` (an object of header
+      names to string values);
+    - `close` alone (server only): the server closed or reset something on the
+      connection. `close` is an object with `scope`: `connection` (the whole connection
+      or stdio pipe), `stream` (one stream, such as an SSE stream) or `session` (the
+      transport session, including dropping its session id).
+
+    Re-issuing a transport session id is not expressible as an entry: whether a new id
+    reveals anything depends on how the transport binds ids, which `oac-mcpb-fixture/1`
+    does not model. It stays
+    `TODO(fixture)` under [MCPB-TOOL-021], owned by E8 (#48).
+- `expected.result` is `conformant` or `nonconformant`: whether the server's messages and actions in
+  `input` meet the requirement, given `request`, the client's entries in
+  `subsequent_messages` and `context`. The server's messages and actions are `server_message` and,
+  where the requirement covers them, `related_messages` ([MCPB-TOOL-019],
+  [MCPB-TOOL-020]) and the server's entries in `subsequent_messages` ([MCPB-TOOL-021]).
 
 Fixtures live in `tests/protocol/mcpb-<area>/`, named as `spec/session-channels.md` §3.3 says. A requirement that a
 single exchange cannot decide (a whole session, a comparison across eras, or a value a
@@ -767,7 +1045,7 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-DLV-001 | MUST NOT | TODO(fixture): `server/discover` and `initialize` results, `tools/list`, `resources/list`, `prompts/list` → every capability key is one the MCP revision in use defines (for example `tools`, `logging`) or `extensions` (holding only the §3 identifier) or, on a legacy channel-path connection only, `experimental["claude/channel"]`; no tool beyond §5.1's four; no resource or prompt is listed |
 | MCPB-DLV-002 | MUST NOT | TODO(fixture): `resources/list`, `prompts/list`, `subscriptions/listen` while active inbound is declared → no inbox-shaped resource, prompt or subscription offered |
 | MCPB-EXT-001 | MUST | `tests/protocol/mcpb-ext/MCPB-EXT-001.p01-initialize-exact-identifier.json`, `tests/protocol/mcpb-ext/MCPB-EXT-001.n01-identifier-wrong-case.json` |
-| MCPB-EXT-002 | MUST NOT | TODO(fixture), needs the version member of `spec/session-channels.md` §6.5 (E2): a settings object declaring version `1.0` under the identifier (negative) → nonconformant |
+| MCPB-EXT-002 | MUST NOT | TODO(fixture): no MCP-observable surface in this revision, because the settings object of §3.6 is `{}` and carries no version. Planned once a binding revision defines a version member there: `initialize` or `server/discover` result declaring the identifier with a major version other than 0 (negative) → nonconformant |
 | MCPB-EXT-003 | MUST | `tests/protocol/mcpb-ext/MCPB-EXT-003.n01-settings-not-object.json` |
 | MCPB-EXT-004 | MUST | TODO(fixture): client capabilities with an unknown settings member → request served normally |
 | MCPB-ERA-001 | MUST | TODO(fixture): legacy `initialize` → result returned |
@@ -781,21 +1059,29 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-ERA-009 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-009.p01-discover-declares-extension.json`, `tests/protocol/mcpb-era/MCPB-ERA-009.n01-discover-no-extensions.json` |
 | MCPB-ERA-010 | SHOULD | none (not a `MUST`) |
 | MCPB-ERA-011 | MUST | `tests/protocol/mcpb-era/MCPB-ERA-011.p01-uninitialized-missing-version-rejected.json`, `tests/protocol/mcpb-era/MCPB-ERA-011.p02-legacy-session-request-served.json`, `tests/protocol/mcpb-era/MCPB-ERA-011.n01-uninitialized-missing-version-served.json` |
-| MCPB-ATT-001 | MUST NOT | TODO(fixture): two tool calls on one unbound connection carrying different client-asserted session ids (negative) → neither attributed by connection alone; both refused per MCPB-ATT-002 |
-| MCPB-ATT-002 | MUST | TODO(fixture): `send`, `list_sessions` and `whoami` on an unbound connection, legacy and modern (negative) → `isError: true` result carrying the authorization-failure error for each (code pending E4) |
+| MCPB-ATT-001 | MUST NOT | TODO(fixture): two tool calls on one unbound connection carrying different client-asserted session ids (negative) → neither attributed by connection alone; both refused with `unauthorized` per MCPB-ATT-002 |
+| MCPB-ATT-002 | MUST | `tests/protocol/mcpb-att/MCPB-ATT-002.p01-send-unbound-legacy-unauthorized.json`, `tests/protocol/mcpb-att/MCPB-ATT-002.p02-list-sessions-unbound-modern-unauthorized.json`, `tests/protocol/mcpb-att/MCPB-ATT-002.p03-whoami-unbound-legacy-unauthorized.json`, `tests/protocol/mcpb-att/MCPB-ATT-002.n01-unbound-send-served.json`, `tests/protocol/mcpb-att/MCPB-ATT-002.n02-unbound-wrong-code.json` |
 | MCPB-TOOL-001 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-001.p01-four-tools-listed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-001.n01-whoami-missing.json` |
 | MCPB-TOOL-002 | MUST | TODO(fixture): `tools/list` on each era → identical names, schemas and result shapes |
 | MCPB-TOOL-003 | MUST | TODO(fixture): `tools/list` as two different clients → identical |
 | MCPB-TOOL-004 | MUST | TODO(fixture): each `inputSchema` → valid JSON Schema object; property names match the neutral spec |
-| MCPB-TOOL-005 | MUST | TODO(fixture): `send` missing a required argument, on a bound connection (negative) → `isError: true`, the malformed-input error (code pending E4) |
+| MCPB-TOOL-005 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-005.p01-missing-to-invalid-request.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-005.n01-role-name-not-code.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-005.n02-missing-to-served.json` |
 | MCPB-TOOL-006 | MUST | TODO(fixture): each tool's result → required values present in a `text` block |
 | MCPB-TOOL-007 | SHOULD | none (not a `MUST`) |
-| MCPB-TOOL-008 | MUST NOT | TODO(fixture): `send` result → state is `accepted-by-adapter` or an error |
+| MCPB-TOOL-008 | MUST NOT | TODO(fixture): `send` result → state is `accepted-by-adapter` (`spec/session-channels.md` §8.1.2) or a tool execution error; never `handed-to-harness`, `rejected`, `expired` or `duplicate` |
 | MCPB-TOOL-009 | MUST NOT | TODO(fixture): `whoami` result → no key material or token |
-| MCPB-TOOL-010 | MUST | TODO(fixture): `send` to an unknown session, on a bound connection (negative) → `isError: true` result, not a JSON-RPC error |
-| MCPB-TOOL-011 | MUST | TODO(fixture): same → `text` contains the unknown-destination error's exact code (pending E4) |
-| MCPB-TOOL-012 | MUST NOT | TODO(fixture): every OAC error case → never a JSON-RPC error object |
+| MCPB-TOOL-010 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-010.p01-refusal-as-tool-error.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-010.n01-refusal-as-jsonrpc-error.json` |
+| MCPB-TOOL-011 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-011.p01-code-spelled-exactly.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-011.n01-code-recased.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-011.n02-no-code.json` |
+| MCPB-TOOL-012 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-012.n01-unauthorized-as-jsonrpc-error.json`; TODO(fixture) for every other code of `spec/session-channels.md` Table 8.3 a tool can return: each → never a JSON-RPC error object |
 | MCPB-TOOL-013 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-013.n01-undefined-reserved-code.json` |
+| MCPB-TOOL-014 | MUST | TODO(fixture): `list_sessions` on a bound connection, given the sessions, presence states and discovery grants → exactly the discovery result `spec/session-channels.md` §7.3 defines for the bound session; needs a discovery `context` that `oac-mcpb-fixture/1` does not hold; the selection itself is fixtured by the `discovery`-stage fixtures of `spec/session-channels.md` §7.5 under `tests/protocol/sc-dlv/` |
+| MCPB-TOOL-015 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-015.p01-sessions-object.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-015.p02-empty-sessions.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-015.n01-prose-list.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-015.n02-descriptor-missing-capabilities.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-015.n03-bare-array.json` |
+| MCPB-TOOL-016 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-016.p01-unknown-session-unknown-destination.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.p02-undiscoverable-session-unknown-destination.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.p03-unreachable-session-destination-unavailable.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.n01-unknown-session-unsupported-capability.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-016.n02-undiscoverable-session-destination-unavailable.json` |
+| MCPB-TOOL-017 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-017.p01-identical-to-unknown-id.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-017.n01-explanatory-text.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-017.n02-presence-in-structured-content.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-017.n03-hint-in-meta.json` |
+| MCPB-TOOL-018 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-018.p01-unknown-tool-protocol-error.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-018.n01-unknown-tool-invalid-request.json` |
+| MCPB-TOOL-019 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-019.p01-same-progress-sequence.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.p02-no-related-messages.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n01-revealing-log-notification.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n02-revealing-progress-notification.json` |
+| MCPB-TOOL-020 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-020.p01-no-echo.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n01-to-echoed-in-text.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n02-to-echoed-in-log.json` |
+| MCPB-TOOL-021 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-021.p01-later-call-unaffected.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p02-unbound-nothing-revealed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p03-handoff-from-hidden-sender.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n01-revealing-log-after-response.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n02-list-changed-for-existing-target.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n03-throttled-after-probe.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n04-close-when-target-exists.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n05-retry-after-on-later-call.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n06-unbound-log-names-session.json`; TODO(fixture), owner E8 (#48): re-issuing a transport session id only when a hidden session exists (negative) → nonconformant; not expressible in `oac-mcpb-fixture/1` (§12.2) |
 | MCPB-META-001 | MUST | `tests/protocol/mcpb-meta/MCPB-META-001.p01-provenance-under-identifier.json`, `tests/protocol/mcpb-meta/MCPB-META-001.n01-provenance-under-other-key.json` |
 | MCPB-META-002 | MUST | `tests/protocol/mcpb-meta/MCPB-META-002.n01-provenance-not-object.json` |
 | MCPB-META-003 | MUST | `tests/protocol/mcpb-meta/MCPB-META-003.p01-mcp-defined-key-allowed.json`, `tests/protocol/mcpb-meta/MCPB-META-003.n01-unprefixed-key.json` |

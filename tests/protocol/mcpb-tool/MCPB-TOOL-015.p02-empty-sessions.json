@@ -1,0 +1,49 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-015",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A list_sessions result with no discoverable session carries {\"sessions\": []}.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general",
+    "bound": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 62,
+        "method": "tools/call",
+        "params": {
+          "name": "list_sessions",
+          "arguments": {},
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 62,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"sessions\":[]}"
+            }
+          ],
+          "structuredContent": {
+            "sessions": []
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}
