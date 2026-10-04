@@ -30,6 +30,9 @@ criteria x) (dated note, 2026-10-03, #220: G5 is now **PASS** after its Codex-le
 under C13 §11 — see `docs/planning/gates/G5-result.md`), and G3 stays
 `NOT RUN` at gate level (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md`
 "Current stage," the project is still at **Pre-Stage 0** — no F/G/H test tier is built.
+*(Dated note, 2026-10-03, #254: the "Pre-Stage 0" statement is stale. Read the current
+stage from `docs/planning/STATUS.md` "Current stage" rather than from this caveat; this file
+does not restate it. No F/G/H test tier is built yet.)*
 This section is not re-authored per gate result; only the caveat's own currency is
 corrected here. Every mitigation described below remains **designed**, not fully
 **proven**: no sentence in this file asserts a mechanism has been exercised end to end

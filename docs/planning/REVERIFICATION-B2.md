@@ -497,6 +497,21 @@ does not exist in the SEP-2133 text.** See Drift register below. `oac-spec-autho
 stop relying on this rule as stated and instead cite only the domain-ownership SHOULD
 clause actually present.
 
+*Dated correction, 2026-10-03 (#257, from PR #255 / #46): this verdict is right about the
+SEP-2133 text and too broad about MCP. This re-verification read SEP-2133 only. The MCP
+base specification states the reservation for `_meta` key prefixes at both pinned
+revisions: "Any prefix where the second label is `modelcontextprotocol` or `mcp` is
+**reserved** for MCP use." Source: https://modelcontextprotocol.io/specification/2025-11-25/basic
+and https://modelcontextprotocol.io/specification/2026-07-28/basic, section "General fields"
+→ "`_meta`", MCP revisions `2025-11-25` and `2026-07-28`, retrieved 2026-10-03. At
+`2026-07-28` it binds extension identifiers too: "Extension identifiers **MUST** follow the
+`_meta` key naming rules, with a mandatory prefix." Source:
+https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning, section
+"Extension Negotiation", retrieved 2026-10-03. §3.3's sentence is therefore supported, with
+the base specification as its source; spec work may cite the reservation from there. OAC's
+identifier `io.github.rossgraeber/oac-session-channels` has second label `github` and is
+unaffected. D2 below is corrected the same way.*
+
 **(c) Terminology note (not drift, already decided in PINS.md).** The SEP page uses
 "vendor-prefix"; §3.3 uses "reverse-dns-prefix". Both describe the same reversed-domain
 convention. Carried forward as a terminology pointer only, per PINS.md.
@@ -602,6 +617,13 @@ DESIGN.md and §5's text are unchanged, so no `ADR-001-A*` amendment is proposed
 
 (Dated note, 2026-10-02, #236: D5 is resolved by a C4 revision, not an ADR-001
 amendment. See the D5 row above and `docs/planning/decisions/C4-session-identity.md` §3.)
+
+(Dated note, 2026-10-03, #257: D2 holds for the SEP-2133 text only. The MCP base
+specification, section "General fields" → "`_meta`", states the reservation at both
+`2025-11-25` and `2026-07-28`, and at `2026-07-28` extension identifiers must follow the
+same key rules. See the dated correction under §3.3 carry-over (b) for the quotes and
+sources. The D2 row's "No such clause exists" is true of SEP-2133 and not of MCP; no
+decision changes, and OAC's identifier is unaffected.)
 
 ## Closed UNVERIFIED items
 

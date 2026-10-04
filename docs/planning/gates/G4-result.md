@@ -114,6 +114,15 @@
         names — though that concern's own premise is itself unconfirmed (`oac-mcp`'s pin
         record: no such reservation clause was found in the SEP-2133 text during B2
         re-verification; this does not change the call here either way).
+        *Dated correction, 2026-10-03 (#257, from the PR #255 review): two errors in the
+        sentence above. The key's second label is `github` (`io` `.` `github` `.`
+        `rossgraeber`), not `session-channels`, which is the name after the `/`. And the
+        reservation premise is confirmed: the MCP base specification states it at both
+        `2025-11-25` and `2026-07-28`, section "General fields" → "`_meta`" ("Any prefix
+        where the second label is `modelcontextprotocol` or `mcp` is **reserved** for MCP
+        use"; https://modelcontextprotocol.io/specification/2026-07-28/basic, retrieved
+        2026-10-03); only SEP-2133's own text lacks it. `github` is neither reserved
+        label, so the key does not collide, and this criterion's verdict is unaffected.*
         - **New observation (not a criterion failure):** Claude Code does not surface
           this `_meta` to the model — confirmed on the wire (line 25) but reported by
           Claude itself as absent when asked (UI observation 3). The criterion is about
