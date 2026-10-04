@@ -4,7 +4,7 @@
   "spec": "spec/security.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "Bob's B1 sent msg-bob-0001 to Alice's A1. Alice's reply from A1 to B1 names it in `reply_to`. No grant exists, but the reply right covers it.",
+  "description": "Bob's B1 sent msg-bob-0001 to Alice's A1. Alice's reply from A1 to B1 names it in `reply_to`. Bob's implementation holds no grant for A1, but the reply right covers the reply.",
   "stage": "security",
   "context": {
     "receiver_time": "2026-10-03T12:00:01.000Z",

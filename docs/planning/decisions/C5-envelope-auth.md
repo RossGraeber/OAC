@@ -406,6 +406,13 @@ verifying daemon's own clock, where the `+300s` half (an envelope claiming a tim
 up to 5 minutes in the *future*) exists specifically to absorb clock skew between the
 sending and receiving devices, not to extend the sender's own intended validity window.
 
+*Dated note, 2026-10-03 (#45, PR #265): `spec/security.md` §8.1 makes the window open at both
+ends: an envelope is inside it when `now - 300s < created_at < now + 300s`. The closed
+interval above is replaced so that "outside the window from `created_at + 300s` on" agrees
+with `spec/session-channels.md` [SC-RCP-091], which forbids hand-off at or after the
+deadline. The difference is one instant at each edge. The width (300 s) and the skew
+allowance (300 s) are unchanged. The spec governs (C3 §1).*
+
 **Outside the window: reject as `expired`.** An envelope whose `created_at` falls
 outside the accept-window is rejected using DESIGN's existing `expired` delivery state
 (`docs/planning/DESIGN.md` line 108's list: `accepted`, `rejected`, `unreachable`,

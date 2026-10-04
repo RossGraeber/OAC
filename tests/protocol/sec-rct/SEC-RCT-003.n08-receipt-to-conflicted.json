@@ -1,0 +1,62 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-RCT-003",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "receipt accepted for a session id under conflict",
+  "description": "B1 is marked in conflict in the sending implementation's binding table, so no key is bound to it and the receipt is discarded.",
+  "stage": "receipt-auth",
+  "context": {
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      },
+      {
+        "principal": "principal-c",
+        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+        "public_key": "LGPN2K_EISaRrzouTAmZRDaX66hHaXyOX0i-x3X0JUE"
+      }
+    ],
+    "bindings": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "conflict"
+    },
+    "sent": [
+      {
+        "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+        "nonce": "IWbLRgaoV3SucODJ7eS70g"
+      }
+    ]
+  },
+  "input": {
+    "authenticated_receipt": {
+      "receipt": {
+        "envelope_id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+        "envelope_from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "state": "handed-to-harness",
+        "observer": "receiver",
+        "observed_at": "2026-10-03T12:00:01.250Z"
+      },
+      "envelope_to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "envelope_nonce": "IWbLRgaoV3SucODJ7eS70g",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "RQDWCtiZyxzXZ6zg6H-cjrt0KJCJ68b0883x3RI0Mh6iio-EvX7QRjivL7e68hJx0oUcHtCQv6eI57tLuK5tCA"
+      }
+    }
+  },
+  "expected": {
+    "result": "discarded"
+  }
+}

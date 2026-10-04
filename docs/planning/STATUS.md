@@ -6,15 +6,18 @@ verdict, or when a pin moves.
 
 **Last updated:** 2026-10-03 (**Issue #45 (E5): `spec/security.md` written.** The normative
 security model, neutral (document prefix `SEC`, areas `KEY`, `SIG`, `STG`, `RPL`, `AUZ`,
-`RCT`, `PRS`, `PRV`; 96 requirement ids in its Appendix A). In this change:
+`RCT`, `PRS`, `PRV`; 103 requirement ids in its Appendix A). In this change, as revised
+after the PR #265 review:
 
 - **Keys and signing.** One Ed25519 device key; the key id is the full SHA-256 of the
   public key in lower-case hex (an identifier token, so it renders as provenance, closing
   C13 §14's hand-off of the fingerprint encoding); nonce and signature in unpadded
   base64url; signing input = domain string, a zero octet, then RFC 8785 JCS of the object
   without `security.signature`; four domain strings (envelope, registration record,
-  receipt, presence record). Verification is strict: S below L, no small-order or
-  non-canonical `R`/`A`, cofactored equation. Pairing's wire format is out of scope.
+  receipt, presence record); every number canonicalizes as the nearest double.
+  Verification is strict: S below L, no small-order or non-canonical `R`/`A`, and the
+  cofactorless equation, matching `ed25519-dalek`'s `verify_strict` (the first draft's
+  cofactored equation was replaced after review). Pairing's wire format is out of scope.
 - **Security stage.** Order: key resolution (`unknown-key`), signature
   (`signature-invalid`), replay window (`outside-replay-window`), authorization
   (`unauthorized`), duplicate (`duplicate`). Nothing about `to` is read before step 4.
@@ -22,29 +25,39 @@ security model, neutral (document prefix `SEC`, areas `KEY`, `SIG`, `STG`, `RPL`
   `spec/session-channels.md` §8.4.2 is fixed there at 300 s. Duplicate store keyed on
   (`key_id`, `nonce`), entry added atomically at step 5 and removed when the copy is not
   handed off (SC-RCP-009), kept until the hand-off deadline (eviction bound = hand-off
-  bound). At most one `duplicate` receipt per entry.
-- **Authorization.** Default deny, no implicit same-device grants; grants with a device or
-  device-plus-session subject and a session or working-directory-scope object; `from` must
-  be bound to the signing key. Discovery: own sessions by own grants; remote sessions by
-  the inverse of inbound grants. **Reply rights** (constraint from the PR #263 review):
-  sending `E` lets `E`'s addressee reply, correlated to `E`, for 24 hours, and lets the
-  receiving session discover `E`'s sender for the same period.
+  bound). A copy arriving during an earlier copy's hand-off waits for that outcome, so
+  `duplicate` is never reported for a message that was not handed off. At most one
+  `duplicate` receipt per entry.
+- **Authorization.** Default deny, no implicit same-device grants. Grants are one-way
+  ("writer may send to target") and are recorded on both implementations, inbound and
+  outbound; each side may name a session, a working-directory scope or a whole device. A
+  session sees the sessions it may write to. **Reply rights** (constraint from the PR #263
+  review): sending `E` lets `E`'s addressee reply, correlated to `E`, for 24 hours, and
+  lets the receiving session discover `E`'s sender for the same period. One one-way grant
+  carries a whole request and reply (fixture `sec-auz/SEC-AUZ-014.p02`).
 - **Receipts and presence.** Authenticated receipt and authenticated presence-record
-  wrappers. The signed announcement is the publishable binding proof (no working
-  directory, no native id). Presence replay across consumer restart or forget is bounded by
-  freshness (`issued_at` inside `W`) and a 300-second effective lifetime cap for records
-  from another implementation.
+  wrappers; a presence record names its one `audience` device, signed, so a forwarded
+  record is refused. A signed claim (an announcement, or a verified and authorized
+  envelope's `from`) is the publishable binding proof (no working directory, no native
+  id). A session id claimed by two keys fails closed for both until an operator resolves
+  it. Presence replay across consumer restart or forget is bounded by freshness
+  (`issued_at` inside `W`) and a 300-second effective lifetime cap for records from
+  another implementation.
 - **Provenance.** Neutral adapter obligations: whole-value identifier check with refusal,
   refuse rather than partial provenance, shared-carrier framing (CSPRNG delimiter, closed
   line-break list, control and bidi escapes, `| ` quoting), content never presented as user
   or system.
-- **Fixtures.** 93 under `tests/protocol/sec-*/`, test keys in
+- **Fixtures.** 117 under `tests/protocol/sec-*/`, test keys in
   `tests/protocol/sec-test-keys.json` (seeds derived from public labels; test only).
   Checked by an independent script (own JCS and BigInt Ed25519); not committed.
-- **Ledger.** New UNVERIFIED items 63-64 (strict-verify equivalence of the pinned crate;
-  JCS crate conformance), new risk `RISK-SEC-SPEC` in `11-risks.md`; C5's
-  fingerprint-truncation item narrowed. Operator questions on #45: reply rights, the
-  presence lifetime cap, a default same-device grant.
+- **Ledger.** New UNVERIFIED items 63-64 (the pinned crate's verdicts on the fixtures,
+  narrowed by reading its source; JCS crate conformance), new risk `RISK-SEC-SPEC` in
+  `11-risks.md`; C5's fingerprint-truncation item narrowed; a dated note in C5 §7 on the
+  open replay interval.
+- **Operator decisions on #45**, each a dated note in the spec: a reply right covers that
+  one message for 24 hours; the same machine and folder still need an explicit grant;
+  presence between machines is capped at 5 minutes; grants may be per session,
+  folder-wide or machine-wide.
 - **Follow-ups**, not made here (`spec/security.md` Appendix B): Appendix A rows and §10.1 of
   `spec/session-channels.md`, Table 8.3 conditions, §7/§8.2 reply-path notes, and
   `spec/bindings/mcp.md` §6.3's "planned, E5".
@@ -1577,11 +1590,18 @@ Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 without an UNVERIFIED label.
 
 - **New, from E5 (#45, 2026-10-03):** whether `ed25519-dalek` `3.0.0`'s
-  `VerifyingKey::verify_strict` gives exactly the verdicts of `spec/security.md`
-  [SEC-SIG-021] to [SEC-SIG-024] on every input, including mixed-order points (its docs
-  claim scalar and point malleability checks and weak-key denial; no Rust build has run the
-  `sec-sig` fixtures; Node.js 25.2.1 / OpenSSL 3.5.4 accepted the small-order-`R` fixture
-  `sec-sig/SEC-SIG-022.n01`). Owner: F4. `11-risks.md` row 63.
+  `VerifyingKey::verify_strict` gives the `spec/security.md` verdicts of [SEC-SIG-021] to
+  [SEC-SIG-024] on every `sec-sig` fixture when actually run. *Narrowed the same day by
+  the PR #265 review:* its source rejects small-order `R` and `A`, recomputes `R` with
+  `vartime_double_scalar_mul_basepoint` and compares the compressed octets, which is the
+  cofactorless equation the spec now requires, and rejects a non-canonical `R` by that
+  octet comparison
+  (https://docs.rs/ed25519-dalek/3.0.0/src/ed25519_dalek/verifying.rs.html, retrieved
+  2026-10-03). `VerifyingKey::from_bytes` keeps a non-canonical public-key encoding, so
+  the spec's canonical-`A` rule must be checked at key admission (SEC-KEY-034). What stays
+  open is a run of the fixtures through a Rust build. Node.js 25.2.1 / OpenSSL 3.5.4
+  accepts the small-order-`R` fixture `sec-sig/SEC-SIG-022.n01` and rejects the rest.
+  Owner: F4. `11-risks.md` row 63.
 - **New, from E5 (#45, 2026-10-03):** whether `serde_jcs` `0.2.0` reproduces the
   `expected.canonical` values of the `sec-*` fixtures (RFC 8785). Checked only by two
   independent JavaScript serializers. Owner: F4. `11-risks.md` row 64.

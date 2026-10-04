@@ -543,13 +543,15 @@ list.
 
 ### RISK-SEC-SPEC — Security mitigations specified but not yet proven
 
-- **Risk.** `spec/security.md` (E5, #45) makes the security model normative, with 93
+- **Risk.** `spec/security.md` (E5, #45) makes the security model normative, with 117
   fixtures under `tests/protocol/sec-*/`. No runner executes them yet (E8, F12), and 30 of its
   requirements are `TODO(fixture)`, each naming the later test (F2, F4, F5, F6, F10, F11, G4,
   G7, G9, H2). Section 13's threat rows whose only proving test is one of those are open risks,
   not closed mitigations (`oac-security-work` §1). Two library facts are UNVERIFIED (rows 63
-  and 64): whether the pinned Ed25519 crate's strict verify gives exactly the verdicts of
-  `spec/security.md` [SEC-SIG-021] to [SEC-SIG-024] on every input, and whether the pinned JCS
+  and 64): whether the pinned Ed25519 crate's strict verify gives the verdicts of
+  `spec/security.md` [SEC-SIG-021] to [SEC-SIG-024] when the fixtures are run (its source,
+  read in the PR #265 review, uses the same cofactorless equation and small-order checks),
+  and whether the pinned JCS
   crate matches RFC 8785 on the fixtures. The E5 vector check observed that Node.js 25.2.1's
   Ed25519 verify (OpenSSL 3.5.4) accepts the small-order-`R` fixture
   `sec-sig/SEC-SIG-022.n01`, so a default library verify is not enough.
@@ -560,9 +562,9 @@ list.
   verifier, or an F12 conformance run, fails a fixture.
 - **Response.** Treat a failing fixture as a defect in the implementation, not the fixture,
   unless the independent check (`spec/security.md` §3.3 note) also disagrees. Add a wrapper
-  check before the library call for any rule the library does not enforce. Operator
-  decisions pending on #45 (reply rights, the presence lifetime cap, same-device default
-  grants) can change requirements in §9 and §11 before Gate S2.
+  check before the library call for any rule the library does not enforce. The operator
+  decisions on #45 (reply rights, the presence lifetime cap, no implicit same-device grant,
+  grant granularity) are recorded in the spec as dated notes.
 
 ## R5 — Low-impact / non-dependency risks
 
@@ -921,7 +923,7 @@ turn, under `RISK-CODEX-EXPERIMENTAL`.
 | 60 | Whether a herdr run writes a harness config file and reverts it to the same bytes. The driver hashes `~/.codex/config.toml` and the other files only at run start and teardown (#220, 2026-10-03; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings) | RISK-HERDR |
 | 61 | Whether the v0.1 transport carries presence records (announcement, withdrawal, staleness, carrier loss) as `spec/session-channels.md` §7.2 requires, and how it meets SC-DLV-066 once records cross installs. G3 verified only peer discovery; presence records were not exercised. C7 §7 local mode has no transport-layer authorization, so v0.1 presence and discovery are same-install only (operator decision on #43) (#43, 2026-10-03; `docs/planning/gates/G3-result.md`) | RISK-G3 |
 | 62 | Whether Codex's `thread/queue/add` keeps the order of several inputs queued during a running turn. G2's `busyqueue` step queued one input only; no first-party statement of order is cited. Spec §7.4 makes in-order hand-off a SHOULD (SC-DLV-080) (#43, 2026-10-03; `docs/planning/gates/G2-result.md`) | RISK-CODEX-EXPERIMENTAL |
-| 63 | Whether `ed25519-dalek` `3.0.0`'s `VerifyingKey::verify_strict` gives exactly the verdicts of `spec/security.md` [SEC-SIG-021] to [SEC-SIG-024] (S below L, no small-order or non-canonical `R` or `A`, cofactored equation) on every input, including mixed-order points. Its documentation says it performs scalar and point malleability checks and denies weak keys (https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html, retrieved 2026-10-03); no Rust build has run the `sec-sig` fixtures. Node.js 25.2.1 / OpenSSL 3.5.4 accepted the small-order-`R` fixture in the E5 vector check (#45, 2026-10-03) | RISK-SEC-SPEC |
+| 63 | Whether `ed25519-dalek` `3.0.0`'s `VerifyingKey::verify_strict` gives the verdicts of `spec/security.md` [SEC-SIG-021] to [SEC-SIG-024] (S below L, no small-order or non-canonical `R` or `A`, cofactorless equation) on every `sec-sig` fixture. *Narrowed 2026-10-03 (PR #265 review):* its source checks small-order `R` and `A` and the cofactorless equation by octet comparison of the recomputed `R` (https://docs.rs/ed25519-dalek/3.0.0/src/ed25519_dalek/verifying.rs.html); `VerifyingKey::from_bytes` keeps a non-canonical key encoding, so SEC-KEY-034 must reject one at admission. What stays open is running the fixtures. Its documentation says it performs scalar and point malleability checks and denies weak keys (https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html, retrieved 2026-10-03); no Rust build has run the `sec-sig` fixtures. Node.js 25.2.1 / OpenSSL 3.5.4 accepted the small-order-`R` fixture in the E5 vector check (#45, 2026-10-03) | RISK-SEC-SPEC |
 | 64 | Whether `serde_jcs` `0.2.0` produces RFC 8785 output identical to the `expected.canonical` values of the `sec-*` fixtures (member order by UTF-16 code units, string escapes, non-ASCII text, unknown members). The fixtures were checked by two independent JavaScript serializers only (#45, 2026-10-03) | RISK-SEC-SPEC |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)

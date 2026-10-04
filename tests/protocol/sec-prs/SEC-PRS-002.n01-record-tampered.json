@@ -9,6 +9,7 @@
   "stage": "presence-auth",
   "context": {
     "consumer_time": "2026-10-03T12:00:01.000Z",
+    "own_key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
     "trusted_keys": [
       {
         "principal": "principal-a",
@@ -26,8 +27,33 @@
         "public_key": "LGPN2K_EISaRrzouTAmZRDaX66hHaXyOX0i-x3X0JUE"
       }
     ],
+    "sessions": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": {
+        "working_directory_scope": "scope-alice"
+      }
+    },
     "bindings": {},
-    "latest_seq": {}
+    "latest_seq": {},
+    "grants": [
+      {
+        "direction": "outbound",
+        "writer": {
+          "device": true
+        },
+        "target": {
+          "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+        }
+      },
+      {
+        "direction": "outbound",
+        "writer": {
+          "device": true
+        },
+        "target": {
+          "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9"
+        }
+      }
+    ]
   },
   "input": {
     "authenticated_record": {
@@ -48,10 +74,11 @@
           "harness_label": "harness-b"
         }
       },
+      "audience": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
       "security": {
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
-        "signature": "yI3O1T2rFUmRqW5e0LF9SPfPFtL_11jqtplcvFdJxGdQjpKDm_zBgT5VbORO7ZRV2X1Cn0pFkuEgiCwpqo6ZCg"
+        "signature": "z8k9n_Ar-YOr4jKzyWhB7qcFqfWNhmaQzp9nf1TdI_8WJrMsZtLyp0znJem94ZAu5PLoKHco0Q1w3WhDsBrnCg"
       }
     }
   },

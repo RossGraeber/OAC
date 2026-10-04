@@ -48,11 +48,12 @@
     },
     "grants": [
       {
-        "subject": {
+        "direction": "inbound",
+        "writer": {
           "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
           "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
         },
-        "object": {
+        "target": {
           "session_id": "6wd4k1q7z3m9c2t6x0b5n8r1vf"
         }
       }

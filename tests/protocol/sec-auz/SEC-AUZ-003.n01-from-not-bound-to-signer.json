@@ -5,7 +5,7 @@
   "spec_revision": "0.1",
   "kind": "negative",
   "failure_mode": "a paired device claims another device's session as `from`",
-  "description": "Carol's device signs correctly but sets `from` to Alice's session, which is bound to Alice's key. Carol holds a device grant, but `from` is not bound to the signing key.",
+  "description": "Carol's device signs correctly but sets `from` to Alice's session, which is bound to Alice's key. Carol holds a device grant, but `from` is bound to another key.",
   "stage": "security",
   "context": {
     "receiver_time": "2026-10-03T12:00:01.000Z",
@@ -49,10 +49,11 @@
     },
     "grants": [
       {
-        "subject": {
+        "direction": "inbound",
+        "writer": {
           "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9"
         },
-        "object": {
+        "target": {
           "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
         }
       }
