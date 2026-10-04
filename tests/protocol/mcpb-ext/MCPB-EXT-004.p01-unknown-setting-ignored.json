@@ -1,0 +1,56 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-EXT-004",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The client declares the OAC identifier with a settings member this binding revision does not define. The server ignores it and answers `initialize` normally.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "extensions": {
+              "io.github.rossgraeber/oac-session-channels": {
+                "future_member": true
+              }
+            }
+          },
+          "clientInfo": {
+            "name": "fixture-client",
+            "version": "1.0.0"
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "result": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tools": {},
+            "extensions": {
+              "io.github.rossgraeber/oac-session-channels": {}
+            }
+          },
+          "serverInfo": {
+            "name": "oac",
+            "version": "0.1.0"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

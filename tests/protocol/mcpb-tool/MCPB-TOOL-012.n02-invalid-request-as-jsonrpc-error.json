@@ -1,0 +1,47 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-012",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "taxonomy error as JSON-RPC error",
+  "description": "The server returns the taxonomy error `invalid-request` for a `send` call as a JSON-RPC error object instead of a tool execution error.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 60,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "content": [
+              {
+                "type": "text",
+                "text": "No addressee."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 60,
+        "error": {
+          "code": -32000,
+          "message": "invalid-request"
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

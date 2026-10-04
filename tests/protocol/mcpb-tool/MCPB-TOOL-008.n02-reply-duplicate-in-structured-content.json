@@ -1,0 +1,60 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-008",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "reply result reports a receiver-observed state",
+  "description": "A `reply` result's text reports `accepted-by-adapter`, but its `structuredContent` reports `duplicate`, a state only the receiver observes.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": true
+    }
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 15,
+        "method": "tools/call",
+        "params": {
+          "name": "reply",
+          "arguments": {
+            "in_reply_to": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reviewed; looks good."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 15,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"id\":\"msg-01hzx3k8q2v6w9m4t7p0r5s1yd\",\"state\":\"accepted-by-adapter\"}"
+            }
+          ],
+          "structuredContent": {
+            "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1yd",
+            "state": "duplicate"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

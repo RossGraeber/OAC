@@ -1,0 +1,51 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-008",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A `send` refused as `invalid-request` returns a tool execution error whose text uses the word \"duplicate\". A tool error reports a refusal by its code, not a delivery state (§5.3), so the result reports no state beyond `accepted-by-adapter`.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": true
+    }
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 19,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+            "content": "not an array"
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 19,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "invalid-request: duplicate member in arguments"
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

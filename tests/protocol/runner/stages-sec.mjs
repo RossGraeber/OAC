@@ -81,7 +81,7 @@ function replyRightCovers(state, envl, K, nowNs) {
 
 export function securityCheck(state, input, nowNs, supportedMajors, opts = {}) {
   const read = readEnvelopeInput(input);
-  const envStage = envelopeStage(read, { supportedMajors, receiverTimeNs: nowNs, supportedTypes: opts.supportedTypes });
+  const envStage = envelopeStage(read, { supportedMajors, receiverTimeNs: nowNs, supportedTypes: opts.supportedTypes, sizeLimit: opts.sizeLimit });
   if (envStage.result !== 'valid') return { ...envStage, receipt_permitted: false }; // [SEC-STG-001], [SC-RCP-041]
   const raw = read.parsed;
   const envl = toPlain(raw);
@@ -132,7 +132,13 @@ export function securityStage(fx, env, opts = {}) {
   out.record = chk.record || 'none';
   return out;
 }
-export const security = securityStage;
+// The `security` stage's context (spec/security.md §3.3) lists its members in place of those
+// of spec/session-channels.md §3.3, and `max_envelope_octets` is not one of them: a security
+// fixture is judged at the default receiver-wide limit, so the member is refused, not ignored.
+export function security(fx, env) {
+  if (Object.prototype.hasOwnProperty.call(fx.context, 'max_envelope_octets')) throw new Error('context.max_envelope_octets is not a member of the security stage (spec/security.md §3.3)');
+  return securityStage(fx, env);
+}
 
 // ---------------------------------------------------------------------------------------
 // replay (§8): arrivals at one receiver, starting from an empty duplicate store.

@@ -1,0 +1,56 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-008",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "send result reports a receiver-observed state",
+  "description": "A `send` result reports `handed-to-harness`, a state only the receiver observes ([SC-RCP-003]).",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": true
+    }
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 14,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 14,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"id\":\"msg-01hzx3k8q2v6w9m4t7p0r5s1yc\",\"state\":\"handed-to-harness\"}"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

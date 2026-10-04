@@ -1,10 +1,10 @@
 {
   "fixture_format": "oac-mcpb-fixture/1",
-  "requirement": "MCPB-META-001",
+  "requirement": "MCPB-FBK-001",
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "Result provenance is carried under the identifier key (G4 fixture line 25 shape).",
+  "description": "A `whoami` call on a bound connection, from a client whose capabilities declare no extensions, is served.",
   "stage": "mcp-binding",
   "context": {
     "era": "modern",
@@ -15,7 +15,7 @@
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 7,
+        "id": 5,
         "method": "tools/call",
         "params": {
           "name": "whoami",
@@ -28,19 +28,14 @@
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 7,
+        "id": 5,
         "result": {
-          "resultType": "complete",
           "content": [
             {
               "type": "text",
-              "text": "session 01harn7x9k2m4p6q8r0s2t4v6w, device fingerprint b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174"
+              "text": "{\"session_id\":\"01harn7x9k2m4p6q8r0s2t4v6w\",\"device_fingerprint\":\"b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174\"}"
             }
-          ],
-          "isError": false,
-          "_meta": {
-            "io.github.rossgraeber/oac-session-channels": {}
-          }
+          ]
         }
       }
     }
