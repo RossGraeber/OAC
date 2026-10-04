@@ -246,6 +246,24 @@ herdr's state is a scheduling signal only, never evidence; these rules make it a
   - Wire evidence comes in two kinds. `begun` (a tool call on the wire) only shows that a
     turn started. `done` (the turn completed on the wire) shows that it is over, and only
     `done` lets herdr's `unknown` count as settled.
+- **A startup seen on the wire is not a finished startup (#282).** Live G4 run
+  20261004T075757Z (Codex 0.160.0) saw Codex's MCP connect ~13 s after launch, and the
+  pre-prompt `agent get` 1.1 s later read `working`, so the driver refused to type. After such
+  an observation (Codex's MCP connect in G4; its session loaded in the daemon in G2, G5 and L3)
+  the driver settles once more before the first prompt (`lib/gate-common.mjs`
+  `settleAfterObservation`, `makeAgent().startupSettle`): `agent get` right after the
+  observation sets the floor, a settle must be idle at or past it, and a re-check `agent get`
+  after `settleMs` must still be idle at the same `state_change_seq` (a change raises the floor
+  and repeats). Bounded by `turnTimeoutMs`; never settled is NOT RUN with a finding naming the
+  startup settle. It types nothing, and the first prompt keeps its own #253 baseline and
+  refusal: `prompt(text, { wait: true })` in G4, G5 and L3, and since #282 also before G2's
+  plain operator prompt (`refuseRunningTurn`: an `agent get` reporting working or blocked is
+  NOT RUN, nothing typed).
+  Codex startup timing varies widely: the MCP connect came ~2 s after launch in run 050646Z
+  and ~13 s in 075757Z, and in 075322Z the TUI exited unprompted before connecting (cause
+  UNVERIFIED; Codex's own log store, `logs_2.sqlite` under the Codex home, not examined).
+  Claude's handshakes were already followed by a settle (`post-handshake`, G4's
+  `after-startup` settled read), so they are unchanged.
 - **"Turn finished" comes from the wire where one exists.** Codex: `thread/turns/list`
   showing no turn `inProgress` (`lib/g5.mjs` `threadIdleOnWire`), taken after the thread
   marker and before every delivery (G5 both paths, L3); G2 already waits for the thread's

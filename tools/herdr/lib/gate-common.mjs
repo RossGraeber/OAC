@@ -418,7 +418,19 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     return { kind: 'prompt-wait', seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text, baseline: base, settledAtReturn: { state: after.state, stateChangeSeq: after.stateChangeSeq } };
   };
 
-  return { name, label, sections, read, keep, handleDialog, waitState, settle, settledRead, waitFor, prompt, watch };
+  // #282: after a startup observation on the wire (`what` names it), settle before the first
+  // prompt: idle at or past herdr's state at the observation, then still idle on a re-check
+  // (settleAfterObservation). Bounded by timeoutMs; never settled -> NOT RUN with a finding.
+  const startupSettle = (context, what, timeoutMs) =>
+    settleAfterObservation({
+      herdr, name, g, agent: label, context, what, timeoutMs, settleMs: num('settleMs'), ctx, stop, sleep,
+      settleTo: async ({ floor, by, timeoutMs: t }) => {
+        const r = await settle(context, t, { since: { kind: 'floor', floor, by } });
+        return { state: r.settled.state, stateChangeSeq: r.settled.stateChangeSeq, waitSeq: r.settled.waitSeq, readSeq: r.seq };
+      },
+    });
+
+  return { name, label, sections, read, keep, handleDialog, waitState, settle, settledRead, waitFor, prompt, watch, startupSettle };
 }
 
 // Record one herdr agent state answer (`agent wait`, `agent get`, `agent prompt --wait`) and
@@ -455,6 +467,15 @@ export async function takeBaseline({ herdr, name, g, agent = null, context, ctx,
   return recordWaitState({ g, agent, context: `${context}:baseline (agent get)`, w: r, ctx, stop });
 }
 
+// #253 for a prompt typed WITHOUT `--wait` (G2's operator message, #282 review): an `agent get`
+// baseline right before it; herdr reporting working or blocked is a stop, nothing typed. The
+// same refusal makeAgent's prompt(text, { wait: true }) applies.
+export async function refuseRunningTurn({ herdr, name, g, agent = null, context, ctx, stop }) {
+  const base = await takeBaseline({ herdr, name, g, agent, context, ctx, stop });
+  if (ACTIVITY_STATES.includes(base.state)) stop(`${agent ?? name}: herdr reported ${base.state} (herdr command #${base.seq}) just before a prompt; a prompt is never typed into a running turn (#253); nothing sent`);
+  return base;
+}
+
 // Arm the activity watch: started BEFORE the push, given armMs to reach the server (herdr
 // takes its event position when the request arrives), running beside the scenario. A
 // baseline already working or blocked (a push into a running turn, G5 C6) needs no watch:
@@ -484,6 +505,8 @@ export async function armActivityWatch({ herdr, name, base, timeoutMs, armMs = 0
 //   - a push into a running turn: past the baseline (the running turn's end).
 export async function turnFloor({ since, g, agent = null, context, ctx, stop }) {
   if (!since) return { floor: null, by: null };
+  // #282: a floor taken from an observation (settleAfterObservation): at or past it.
+  if (since.kind === 'floor') return { floor: since.floor, by: since.by };
   if (since.kind === 'prompt-wait') return { floor: since.settledAtReturn.stateChangeSeq, by: `herdr agent prompt --wait (#${since.seq}) observed the prompt's activity` };
   if (since.kind !== 'watch') stop(`${agent ?? 'agent'} ${context}: the input this settle waits out has no herdr-observed start (#253); nothing more sent`);
   if (since.running) return { floor: since.base.stateChangeSeq + 1, by: `herdr reported ${since.base.state} at the baseline (#${since.base.seq}); that turn must end` };
@@ -502,6 +525,82 @@ export async function turnFloor({ since, g, agent = null, context, ctx, stop }) 
 // Whether a settled answer is at or past the turn floor.
 export function pastFloor(st, floor) {
   return floor?.floor == null || (st.stateChangeSeq != null && st.stateChangeSeq >= floor.floor);
+}
+
+// --- startup settle (#282) ----------------------------------------------------------------
+// A harness's startup is seen on the wire (Codex's MCP connect in G4; its session loaded in
+// the daemon in G2, G5 and L3) before the harness has finished starting: live G4 run
+// 20261004T075757Z (Codex 0.160.0) saw Codex's MCP initialize ~13 s after its launch, and the
+// pre-prompt `agent get` 1.1 s later read `working` (state_change_seq 10, past the startup
+// settle's idle at 9), so the driver rightly refused to type (#253). Before the first prompt
+// after such an observation, the driver therefore settles once more:
+//   1. `agent get` right after the observation: its state_change_seq is the floor;
+//   2. a settle (the caller's own: no dialog, no work on screen, herdr idle/done) whose
+//      state_change_seq is AT OR PAST that floor;
+//   3. after settleMs, a re-check `agent get`: still idle/done at the same state_change_seq.
+//      A change in between (the agent went working again) raises the floor and repeats 2-3.
+// All of it inside one bound (timeoutMs, capped by the box). If the agent never settles, the
+// run ends NOT RUN with a finding naming the startup settle. This only ever waits: it types
+// nothing, and every caller's first prompt still takes its own baseline and refuses a running
+// turn (#253): makeAgent's prompt(text, { wait: true }) in G4/G5/L3, refuseRunningTurn before
+// G2's plain operator prompt. `settleTo({ floor, by, timeoutMs })` -> { state, stateChangeSeq, waitSeq, readSeq }.
+export const STARTUP_SETTLED_STATES = Object.freeze(['idle', 'done']);
+
+export async function settleAfterObservation({ herdr, name, g, agent = null, context, what, timeoutMs, settleMs, ctx, stop, settleTo, sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms))), now = () => Date.now() }) {
+  const who = agent ?? name;
+  const t0 = now();
+  const deadline = t0 + Math.min(timeoutMs, Math.max(0, ctx.remainingMs()));
+  const rec = { agent: who, context, what, timeoutMs, observed: null, settles: [], rechecks: [], settled: null, waitedMs: null, outcome: null };
+  (g.startupSettles ??= []).push(rec);
+  let findingMade = false;
+  const fail = (why) => {
+    rec.outcome = `not settled: ${why}`;
+    rec.waitedMs = now() - t0;
+    if (!findingMade) ctx.finding(`startup settle (#282): ${who} did not settle after ${what} within ${timeoutMs} ms (${why}); no prompt was typed, and the run stops NOT RUN rather than type into a turn that may still be running (#253)`);
+    findingMade = true;
+    stop(`${who} ${context}: the startup settle after ${what} did not complete (${why}); nothing typed`);
+  };
+  try {
+    const base = await takeBaseline({ herdr, name, g, agent, context: `${context}:observed`, ctx, stop });
+    rec.observed = { seq: base.seq, state: base.state, stateChangeSeq: base.stateChangeSeq };
+    if (!Number.isInteger(base.stateChangeSeq)) fail(`herdr's \`agent get\` #${base.seq} after the observation carried no state_change_seq, so nothing could be ordered on it`);
+    let floor = base.stateChangeSeq;
+    let by = `herdr's state at the observation of ${what} (\`agent get\` #${base.seq}: ${base.state}, state_change_seq ${base.stateChangeSeq})`;
+    for (;;) {
+      const left = deadline - now();
+      if (left <= 0) fail(`herdr never reported it idle at or past state_change_seq ${floor} and still idle on a re-check`);
+      const s = await settleTo({ floor, by, timeoutMs: left });
+      rec.settles.push({ floor, state: s.state, stateChangeSeq: s.stateChangeSeq, waitSeq: s.waitSeq ?? null, readSeq: s.readSeq ?? null });
+      if (!STARTUP_SETTLED_STATES.includes(s.state) || !(Number.isInteger(s.stateChangeSeq) && s.stateChangeSeq >= floor)) {
+        // The caller's settle returned something that is not idle/done at or past the floor
+        // (it should not); never treated as settled.
+        await sleep(settleMs);
+        continue;
+      }
+      await sleep(settleMs);
+      const re = await takeBaseline({ herdr, name, g, agent, context: `${context}:re-check`, ctx, stop });
+      rec.rechecks.push({ seq: re.seq, state: re.state, stateChangeSeq: re.stateChangeSeq });
+      if (STARTUP_SETTLED_STATES.includes(re.state) && re.stateChangeSeq === s.stateChangeSeq) {
+        rec.settled = { state: re.state, stateChangeSeq: re.stateChangeSeq, settleWaitSeq: s.waitSeq ?? null, recheckSeq: re.seq };
+        rec.waitedMs = now() - t0;
+        rec.outcome = 'settled';
+        return rec;
+      }
+      // It changed after the settle (went working again, say): that change is the new floor.
+      floor = Number.isInteger(re.stateChangeSeq) ? Math.max(floor, re.stateChangeSeq) : floor;
+      by = `herdr's re-check \`agent get\` #${re.seq} (${re.state}, state_change_seq ${re.stateChangeSeq}) after the settle`;
+    }
+  } catch (err) {
+    if (err instanceof NotRunError && !findingMade) {
+      findingMade = true;
+      rec.outcome = `not settled: ${err.message}`;
+      rec.waitedMs = now() - t0;
+      ctx.finding(`startup settle (#282): ${who} did not settle after ${what} (${err.message}); no prompt was typed, and the run stops NOT RUN rather than type into a turn that may still be running (#253)`);
+      g.stoppedAt = `${who} ${context}: the startup settle after ${what} did not complete: ${err.message}`;
+      throw new NotRunError(g.stoppedAt);
+    }
+    throw err;
+  }
 }
 
 export const stopper = (herdr, g) => (reason) => {
