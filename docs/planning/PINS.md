@@ -498,7 +498,9 @@ semver, and are recorded verbatim — never reformatted.
   official extensions "use the `io.modelcontextprotocol` vendor prefix" but does not,
   in the text retrieved, spell out a general reservation rule for any second label of
   `modelcontextprotocol` or `mcp`. This is carried as an open item below — it is a B2
-  re-verification input, not resolved here.
+  re-verification input, not resolved here. *(Dated note, 2026-10-03, #257: the rule is
+  stated in the MCP base specification, "General fields" → "`_meta`", at both revisions;
+  see the dated correction under the open item below.)*
 - Gates affected: **G4** (dual-era server), **G1** (Claude channels require
   negotiating legacy per the Claude Code pin record above).
 
@@ -948,6 +950,20 @@ occur; everything else above this line is unchanged from B1.
   **RESOLVED as DRIFT — see REVERIFICATION-B2.md §3.3 carry-over (b) and Drift register
   D2.** No such reservation clause exists in the SEP-2133 text; §3.3's rule is
   unsupported and `oac-spec-authoring` must not rely on it.
+  *Dated correction, 2026-10-03 (#257, from PR #255 / #46): D2 holds for SEP-2133's own
+  text only. The MCP base specification states the reservation for `_meta` key prefixes
+  at both pinned revisions: "Any prefix where the second label is `modelcontextprotocol`
+  or `mcp` is **reserved** for MCP use." Source:
+  https://modelcontextprotocol.io/specification/2025-11-25/basic and
+  https://modelcontextprotocol.io/specification/2026-07-28/basic, section "General
+  fields" → "`_meta`", MCP revisions `2025-11-25` and `2026-07-28`, retrieved
+  2026-10-03. At `2026-07-28` it binds extension identifiers too: "Extension identifiers
+  **MUST** follow the `_meta` key naming rules, with a mandatory prefix." Source:
+  https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning, section
+  "Extension Negotiation", retrieved 2026-10-03. §3.3's rule is therefore supported, with
+  the MCP base specification as its source rather than SEP-2133. No pin moves, and OAC's
+  identifier `io.github.rossgraeber/oac-session-channels` (second label `github`) is
+  unaffected. The `oac-mcp` Pin section carries the same correction.*
 - ACP schema v2 "alpha" status was not independently re-confirmed on
   https://agentclientprotocol.com/protocol/ as fetched today; it is carried forward
   from PLANNING-PROMPT.md §3.5 only (UNVERIFIED — re-check against

@@ -1572,6 +1572,18 @@ fixtures of §7.5 take authentication as passed.*
   expected to define a publishable proof of the binding that reveals neither, rather than
   publishing the registration record.*
 
+*Dated note, 2026-10-03 (#266): `spec/security.md` (E5, #45) now defines how a presence
+record from another implementation is authenticated: it travels as an authenticated presence
+record (§11.1 there), checked under [SEC-PRS-002] (§11.3 there). Both constraints above are
+met there. The replay of presence records across a consumer restart or a forget is bounded
+by [SEC-PRS-006] and [SEC-PRS-007] (§11.4 there). The publishable binding proof is a signed
+claim by the device key, not the registration record (§11.2 there). Before the rules of this
+section, a consumer also discards a record from a device that no grant relates to it
+([SEC-AUZ-017]), and accepts no record for a session id that two related keys claimed
+([SEC-PRS-012]); §11.4 there gives the order of those checks. [SC-DLV-043] stays as written.
+The same-install-only ruling of the §7.3.2 dated note stands until a transport binding meets
+[SC-DLV-066]; `spec/security.md` supplies the authentication half only.*
+
 `issued_at` serves diagnostics and the replay rules that `spec/security.md` defines.
 Staleness does not use it (§7.2.4).
 
@@ -1622,7 +1634,13 @@ reporting `unreachable`.
 
 A consumer that forgets a session also forgets its latest `seq`, so [SC-DLV-042] no longer
 protects it against an older record. Bounding the replay of an old record is a rule of
-`spec/security.md`.
+`spec/security.md` ([SEC-PRS-006], [SEC-PRS-007], §11.4 there).
+
+*Dated note, 2026-10-03 (#266): for an announcement from another implementation,
+`spec/security.md` [SEC-PRS-007] has the consumer treat it as stale no later than 300000
+milliseconds after accepting it, whatever its `lifetime_ms` ([SC-DLV-028]). Presence between
+machines is therefore capped at 5 minutes. This is an operator decision recorded on #45.
+Records inside one implementation are not affected.*
 
 #### 7.2.5 Issuing presence records
 
@@ -1715,7 +1733,10 @@ Which sessions a requester is allowed to discover is decided by `spec/security.m
 denies by default. A session in one working directory is not discoverable by a peer that is not
 authorized for that directory (`docs/planning/decisions/C4-session-identity.md` §5;
 `docs/planning/decisions/C5-envelope-auth.md` §11; `docs/planning/decisions/C6-trust-rendering.md`
-§8).
+§8). `spec/security.md` §9.4 and §9.5 define it: a session sees the sessions it may write
+to, under one-way grants, and a session that was handed an envelope may discover its sender
+for the reply period ([SEC-AUZ-016]), so that it can answer (§8.2.2). The `discoverable`
+pairs of the fixture stages of §7.5 stay a given input.
 
 [SC-DLV-062] A discovery result MUST list every session that is `online` to the
 implementation and that the requester is authorized to discover.
@@ -1762,6 +1783,11 @@ implementation until `spec/security.md` (E5, #45) authenticates presence records
 authorization, including working-directory scoping, is enforced by the implementation that
 holds the session's binding ([SC-DLV-067]). The transport options of [SC-DLV-066] apply once
 records cross implementations, after E5. This is a ruling recorded on #43.*
+
+*Dated note, 2026-10-03 (#266): `spec/security.md` (E5, #45) now authenticates presence
+records (§11 there), with a signed `audience` that limits each record to one device
+([SEC-PRS-013]). That is the authentication half only. The same-install-only ruling above
+stands until a transport binding meets [SC-DLV-066].*
 
 #### 7.3.3 Capability declarations for sending
 
@@ -2145,6 +2171,13 @@ a receipt for each one sends an unbounded number of receipts to the real sender.
 `spec/security.md` is expected to bound this, for example by sending at most one
 `duplicate` receipt per envelope or by rate-limiting them. This section sets no bound.*
 
+*Dated note, 2026-10-03 (#266): `spec/security.md` (E5, #45) now supplies the
+authentication half of the cross-implementation receipt path: the authenticated receipt and
+how a sending implementation accepts one (§10 there, [SEC-RCT-003], [SEC-RCT-005]). The
+carriage half, by the transport contract, is still to come, so the "until both exist"
+paragraph above still holds. The bound on `duplicate` receipts that the previous note
+expects is [SEC-RPL-030] and [SEC-RPL-031] (§8.4 there).*
+
 ### 8.2 Replies and correlation
 
 #### 8.2.1 Meanings
@@ -2224,6 +2257,15 @@ believing that an uncorrelated reply is threaded.
 > whose answered envelope is no longer recorded, for example after a restart, is sent
 > uncorrelated. How a harness passes the requested target is binding detail (E6, #46).
 
+*Dated note, 2026-10-03 (#266): the reply path across implementations rests on
+`spec/security.md` (E5, #45). A reply is a send, so the replying implementation needs the
+original sender's accepted announcement ([SC-DLV-070]). The original sender's
+implementation issues that announcement to the recipient's device before its first envelope
+there ([SEC-PRS-010]), and the replying session may discover the original sender for the
+reply period ([SEC-AUZ-016]). The original sender's implementation accepts a correlated
+reply under the reply right of [SEC-AUZ-014]. An uncorrelated reply, or one answering
+anything else, needs a grant (§9.2 and §9.5 there).*
+
 #### 8.2.3 Receiving a reply
 
 The implementation that receives a reply matches it against the envelopes it sent itself.
@@ -2274,8 +2316,8 @@ Table 8.3.
 | `unsupported-version` | envelope | `rejected` | receiver, request | The major version is not one the receiver supports ([SC-VER-001]); as a request error, no version is agreed with the addressed session (§6.5). | Retry under a major version the receiver supports (§6.5). |
 | `unsupported-content-type` | envelope | `rejected` | receiver, request | A content part's `type` is one the receiver supports for no session ([SC-ENV-065], [SC-RCP-076]); as a request error, the addressed session has not advertised it ([SC-ENV-066]). | Retry with supported part types. |
 | `expired` | envelope | `expired` | receiver | The expiry instant has passed ([SC-ENV-100], [SC-ENV-101]), or at hand-off the binding bound is the expiry instant ([SC-RCP-092]). | Retry, if the message is still wanted. |
-| `unknown-key` | security | `rejected` | receiver | `security.key_id` names no key the receiver trusts. | None until the devices are paired. |
-| `signature-invalid` | security | `rejected` | receiver | The signature does not verify. | None: investigate. |
+| `unknown-key` | security | `rejected` | receiver | `security.key_id` names no key the receiver trusts, including when `security.principal` or `security.key_id` is not of the form `spec/security.md` requires (its Table 7.1, step 1). | None until the devices are paired. |
+| `signature-invalid` | security | `rejected` | receiver | The signature does not verify, including when `security.nonce` or `security.signature` is not of the form `spec/security.md` requires (its Table 7.1, step 2). | None: investigate. |
 | `outside-replay-window` | security | `expired` | receiver | `created_at` is outside the receiver's replay window on arrival, or at hand-off the binding bound is the replay window ([SC-RCP-092]; reported at delivery stage, step 4). | Retry once the clocks agree. |
 | `duplicate` | security | `duplicate` | receiver | The envelope is a copy of one that was handed off, may have been, or is being handed off ([SC-RCP-009]). | None ([SC-RCP-081]). |
 | `unauthorized` | security | `rejected` | receiver, request | The sender, or the requesting harness, is not authorized for the operation. | None until authorized. |
@@ -2290,9 +2332,11 @@ Table 8.3.
 [SC-RCP-070] A receiver that does not hand off an envelope because a check failed MUST
 report the code that Table 8.3 assigns to that check.
 
-The binding document (E6, #46) names three errors by role. Its authorization-failure error
-is `unauthorized`, its malformed-input error is `invalid-request`, and its
-unknown-destination error is `unknown-destination`.
+The MCP binding (`spec/bindings/mcp.md` §5.4, E6, #46) returns these codes as tool
+execution errors. It uses `unauthorized` for a call on a connection not bound to exactly one
+session ([SC-ID-161]) and `invalid-request` for a call whose arguments fail the tool's input
+schema, and it takes the code of every other refusal of a send or reply before an envelope
+exists from Table 8.3.3, `unknown-destination` included.
 
 #### 8.3.2 Precedence
 
@@ -2429,8 +2473,8 @@ The receiver-side causes in the table follow the stage orders of §8.3.2.
 The local outcomes of §6.7 (`refused`, `failed-closed` and `dropped` bindings) and a
 negotiation that ends with no common version are not errors. They emit no code, and §6.7
 records them as findings or diagnostics instead. A send that follows a negotiation with no
-common version is refused with `unsupported-version`, as the table says. The binding
-document's authorization-failure error ([SC-ID-161]) is `unauthorized`, as §8.3.1 states.
+common version is refused with `unsupported-version`, as the table says. A refusal under
+[SC-ID-161] is `unauthorized`, as the table says; §8.3.1 notes how the MCP binding returns it.
 
 ### 8.4 Retransmission, retry and receipts
 
@@ -2578,7 +2622,7 @@ section adds no requirement. It lists what sections 4, 5 and 7 contribute:
   `spec/security.md`.
 - `seq` ordering of presence records ([SC-DLV-042]) stops a delayed or duplicated record
   from undoing a later one, while the consumer remembers the session. Replay across a
-  consumer restart is left to `spec/security.md` (§7.2.3 dated note).
+  consumer restart is bounded by `spec/security.md` §11.4 (§7.2.3 dated notes).
 - Presence records from another implementation count only once authenticated
   ([SC-DLV-043]). Carrier loss is not authentication and can only make a session
   `unreachable` (§7.2.4).
@@ -2606,7 +2650,7 @@ section adds no requirement. It lists what sections 4, 5 and 7 contribute:
   RFC 3339. https://www.rfc-editor.org/rfc/rfc3339
 - [RFC4648] Josefsson, S., "The Base16, Base32, and Base64 Data Encodings", RFC 4648.
   https://www.rfc-editor.org/rfc/rfc4648
-- `spec/security.md`, OAC Session Channels security (E5, #45; not yet written).
+- `spec/security.md`, OAC Session Channels security (E5, #45).
 
 ### 10.2 Informative references
 
@@ -2672,7 +2716,7 @@ requirement whose fixtures exercise it.
 | SC-ENV-080 | MUST | 4.7 | `sc-env/SC-ENV-080.p01` |
 | SC-ENV-081 | MUST NOT | 4.7 | TODO(fixture): sender-side, by construction; F2 |
 | SC-ENV-082 | MUST NOT | 4.7 | TODO(fixture): provenance rendering; E5, F11 |
-| SC-ENV-083 | MUST NOT | 4.7 | TODO(fixture): verification order; E5 signature vectors |
+| SC-ENV-083 | MUST NOT | 4.7 | covered by `spec/security.md` SEC-STG-003, through SEC-STG-002 (`sec-stg/SEC-STG-002.n02`) |
 | SC-ENV-090 | MUST | 4.8 | `sc-env/SC-ENV-090.p01` |
 | SC-ENV-091 | MUST NOT | 4.8 | TODO(fixture): hand-off behaviour; F10 |
 | SC-ENV-092 | MUST NOT | 4.8 | TODO(fixture): provenance rendering; E5, F11 |
@@ -2680,7 +2724,7 @@ requirement whose fixtures exercise it.
 | SC-ENV-101 | MUST | 4.9 | TODO(fixture): held-envelope timing; F6 receipt state machine |
 | SC-ENV-102 | MUST | 4.9 | TODO(fixture): sender-side behaviour; F2 |
 | SC-ENV-103 | MUST | 4.9 | TODO(fixture): sender-side behaviour; F2 |
-| SC-ENV-104 | MUST | 4.9 | TODO(fixture): sender-side behaviour; F2, E5 |
+| SC-ENV-104 | MUST | 4.9 | TODO(fixture): sender-side behaviour, as is `spec/security.md` SEC-RPL-011; F2 |
 | SC-VER-001 | MUST | 5.4 | `sc-ver/SC-VER-001.n01`, `.n02` |
 | SC-VER-002 | MUST NOT | 5.4 | `sc-ver/SC-VER-002.p01` |
 | SC-VER-003 | MUST | 5.4 | `sc-ver/SC-VER-003.n01` |
@@ -2692,7 +2736,7 @@ requirement whose fixtures exercise it.
 | SC-ID-006 | MUST NOT | 6.1 | TODO(fixture): sender-side; F2 (`sc-id/SC-ID-001.n05` shows a receiver rejecting one such value) |
 | SC-ID-007 | MUST NOT | 6.1 | `sc-id/SC-ID-007.p01` |
 | SC-ID-008 | MUST NOT | 6.1 | TODO(fixture): sender-side; F2 |
-| SC-ID-009 | MUST | 6.1 | TODO(fixture): registration-record signature vectors; E5, E8 |
+| SC-ID-009 | MUST | 6.1 | `sec-key/SEC-KEY-041.p01`, `.n01`; `sec-key/SEC-KEY-043.n01` (`spec/security.md` §5.4) |
 | SC-ID-020 | MUST NOT | 6.2 | covered by SC-ENV-010: every display form contains `/`, which no identifier token allows, so no fixture breaks this rule alone |
 | SC-ID-021 | MUST NOT | 6.2 | TODO(fixture): routing and authorization paths; F11, H2 |
 | SC-ID-022 | MUST NOT | 6.2 | covered by SC-ID-001 (`sc-id/SC-ID-001.n06`): an alias that is not a session id fails it, and one shaped like a session id cannot be told apart on the wire |
@@ -2766,7 +2810,7 @@ requirement whose fixtures exercise it.
 | SC-ID-161 | MUST | 6.8 | `sc-id/SC-ID-161.n01`, `.n02` |
 | SC-ID-162 | MUST NOT | 6.8 | `sc-id/SC-ID-162.p01` |
 | SC-ID-180 | MUST NOT | 6.9 | TODO(fixture): presence registry; F6 |
-| SC-ID-181 | MUST NOT | 6.9 | TODO(fixture): registration-record verification; E5 |
+| SC-ID-181 | MUST NOT | 6.9 | `sec-key/SEC-KEY-043.n01`; `sec-prs/SEC-PRS-002.n01`, `.n02` (`spec/security.md` §5.4, §11.3) |
 | SC-ID-182 | MUST NOT | 6.9 | TODO(fixture): presence registry and discovery; F6, F11 |
 | SC-DLV-001 | MUST | 7.1.2 | TODO(fixture): needs a running adapter; F10 adapter contract suite |
 | SC-DLV-002 | MUST NOT | 7.1.2 | TODO(fixture): needs a running adapter; F10 (its acceptance asserts the no-polling rule) |
@@ -2793,7 +2837,7 @@ requirement whose fixtures exercise it.
 | SC-DLV-040 | MUST | 7.2.3 | covered by the negative fixtures of SC-DLV-021 to SC-DLV-031, each of which expects the record discarded |
 | SC-DLV-041 | MUST | 7.2.3 | `sc-dlv/SC-DLV-041.p01` |
 | SC-DLV-042 | MUST | 7.2.3 | `sc-dlv/SC-DLV-042.p01`, `.n01`, `.n02` |
-| SC-DLV-043 | MUST NOT | 7.2.3 | TODO(fixture): presence-record authentication vectors; E5, E8 |
+| SC-DLV-043 | MUST NOT | 7.2.3 | `sec-prs/SEC-PRS-002.n01`, `.n02` (`spec/security.md` §11.3) |
 | SC-DLV-044 | MUST | 7.2.4 | `sc-dlv/SC-DLV-044.p01` |
 | SC-DLV-045 | MUST | 7.2.4 | `sc-dlv/SC-DLV-045.p01`, `.n01` |
 | SC-DLV-046 | MUST | 7.2.4 | `sc-dlv/SC-DLV-046.n01` |
@@ -2832,7 +2876,7 @@ requirement whose fixtures exercise it.
 | SC-RCP-006 | MUST | 8.1.3 | TODO(fixture): indeterminate hand-off; F10 with a fake that times out, live leg H3 |
 | SC-RCP-007 | MUST NOT | 8.1.3 | TODO(fixture): sender state machine; F6 |
 | SC-RCP-008 | MUST NOT | 8.1.3 | TODO(fixture): hand-off behaviour; F6, F10 |
-| SC-RCP-009 | MUST NOT | 8.1.3 | TODO(fixture): needs the duplicate-suppression rules of `spec/security.md`; E5, F4 |
+| SC-RCP-009 | MUST NOT | 8.1.3 | `sec-rpl/SEC-RPL-021.n01`, `.n02`; `sec-rpl/SEC-RPL-022.p01` to `.p03`; `sec-rpl/SEC-RPL-026.p01` (`spec/security.md` §8.3) |
 | SC-RCP-010 | SHOULD | 8.1.3 | none (SHOULD) |
 | SC-RCP-011 | MAY | 8.1.3 | none (MAY) |
 | SC-RCP-020 | MUST | 8.1.4 | `sc-rcp/SC-RCP-020.n01`, `.n02` |
@@ -2849,8 +2893,8 @@ requirement whose fixtures exercise it.
 | SC-RCP-031 | MUST NOT | 8.1.4 | TODO(fixture): needs the envelope beside the receipt; F6 |
 | SC-RCP-032 | MUST | 8.1.4 | every negative `receipt`-stage fixture in `sc-rcp/` (SC-RCP-001 to SC-RCP-028) |
 | SC-RCP-033 | MUST NOT | 8.1.4 | TODO(fixture): peer behaviour; F6 |
-| SC-RCP-040 | MUST NOT | 8.1.5 | TODO(fixture): receipt authentication; E5, E8 |
-| SC-RCP-041 | MUST NOT | 8.1.5 | TODO(fixture): needs verification vectors; E5, F4, H2 |
+| SC-RCP-040 | MUST NOT | 8.1.5 | `sec-rct/SEC-RCT-003.n01` to `.n08` (`spec/security.md` §10.2) |
+| SC-RCP-041 | MUST NOT | 8.1.5 | `sec-rct/SEC-RCT-005.n01` (`spec/security.md` §10.3) |
 | SC-RCP-042 | MAY | 8.1.5 | none (MAY) |
 | SC-RCP-050 | MUST | 8.2.2 | `sc-rcp/SC-RCP-050.p01`, `.n01`, `.n02` |
 | SC-RCP-051 | MUST | 8.2.2 | `sc-rcp/SC-RCP-051.n01` |
@@ -2863,8 +2907,8 @@ requirement whose fixtures exercise it.
 | SC-RCP-062 | MUST NOT | 8.2.3 | `sc-rcp/SC-RCP-062.n01` |
 | SC-RCP-070 | MUST | 8.3.1 | `expected.error` of every negative `envelope`-stage fixture in `sc-env/` and `sc-ver/`; `sc-rcp/SC-RCP-071.n01` to `.n06` |
 | SC-RCP-071 | MUST | 8.3.2 | `sc-rcp/SC-RCP-071.n01` to `.n06` |
-| SC-RCP-072 | MUST NOT | 8.3.2 | TODO(fixture): needs security-stage vectors; E5, E8 |
-| SC-RCP-073 | MUST NOT | 8.3.2 | `sc-rcp/SC-RCP-073.n01`, `.n02` (authorization only; signature and replay vectors: E5, E8, H2) |
+| SC-RCP-072 | MUST NOT | 8.3.2 | `sec-stg/SEC-STG-001.n01` (`spec/security.md` §7.1) |
+| SC-RCP-073 | MUST NOT | 8.3.2 | `sc-rcp/SC-RCP-073.n01`, `.n02` (authorization only); key, signature and replay steps: TODO(fixture): needs a fixture that combines the security and delivery stages, since a `security`-stage fixture takes every delivery-stage check as passed; E8 (#48), F12, H2 |
 | SC-RCP-074 | MUST NOT | 8.3.2 | TODO(fixture): a runner check that every emitted code is in Table 8.3; E8, F12 |
 | SC-RCP-075 | MUST | 8.3.2 | TODO(fixture): request errors; E6 binding hooks, G5, G8 |
 | SC-RCP-076 | MUST | 8.3.2 | `sc-rcp/SC-RCP-076.p01`, `.n01` |
@@ -2893,3 +2937,4 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-03 | E2 (#42): section 6 (session identity, addressing and capability negotiation) written; area `ID`; `negotiation`, `binding` and `send` fixture stages (§6.10, with a §3.3 sentence allowing section-defined stages); fixtures under `tests/protocol/sc-id/`. Review of #260: signal cross-check value, record rules and exact comparison (SC-ID-127 to SC-ID-129, SC-ID-141 to SC-ID-144), SC-ID-045, SC-ID-070, SC-ID-154 made a conditional MUST, SC-ID-023 widened, binding results mapped to cases. |
 | 0.1 (draft) | 2026-10-03 | E4 (#44): section 8 written: delivery states, receipts, replies and correlation, the closed error taxonomy with precedence, and the retransmission and retry rules including the combined state of an envelope; requirement area `RCP`; fixtures under `tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture (§3.3); §4.9's duplicate wording aligned with [SC-RCP-009]; dated notes for the operator decisions on #44. |
 | 0.1 (draft) | 2026-10-03 | E3 (#43): section 7 (active delivery, presence and discovery) written; area `DLV`; the active-inbound obligation and the no-polling rule, accepting input, the three presence states, presence records (announcement and withdrawal, `seq`, consumer-clock lifetime, carrier loss), discovery results, and where a sender takes a capability declaration from (makes SC-ID-086 satisfiable); `presence` and `discovery` fixture stages (§7.5); fixtures under `tests/protocol/sc-dlv/`; SC-ID-040 and SC-ID-041 now covered by SC-DLV-029. Review of #263: operator decisions on #43 recorded as dated notes; SC-DLV-008, SC-DLV-009 (not-now vs failed hand-off), SC-DLV-049 (monotonic clock) and SC-DLV-067 (scoping by the binding holder; v0.1 same-install only) added; evidence for input during a running turn corrected; E5 constraints recorded; `sc-id/SC-ID-044.p01` added. Merged after E4 (#44): presence added to §8.3.3 as sender refusal step 2 with two Table 8.3.3 rows, the separate [SC-ID-086] step folded into it (`sc-id/SC-ID-086.n01` now expects `unknown-destination`), and SC-DLV-007 cites `sc-rcp/SC-RCP-078.n01`. Re-review: SC-DLV-075 and SC-DLV-076 (a send request reveals nothing about a session its requester is not authorized to discover), SC-DLV-067 widened to send refusals, the no-declaration wording corrected (a withdrawal-only session is `unreachable`), and `sc-rcp/SC-RCP-090.n01` renamed. |
+| 0.1 (draft) | 2026-10-03 | #266, editorial (no requirement added or changed): the `spec/security.md` Appendix B follow-ups. Appendix A rows SC-ID-009, SC-ID-181, SC-ENV-083, SC-RCP-009, SC-RCP-040, SC-RCP-041, SC-RCP-072 and SC-DLV-043 cite the `sec-*` fixtures; SC-ENV-104 stays `TODO(fixture)` (sender-side), and SC-RCP-073's key, signature and replay steps stay `TODO(fixture)` (they need a combined security-and-delivery fixture). Table 8.3 conditions of `unknown-key` and `signature-invalid` cite the malformed-member cases of `spec/security.md` Table 7.1. Dated notes in §7.2.3, §7.2.4, §7.3.2, §8.1.5 and §8.2.2 point at `spec/security.md` §9 to §11 (reply path; the 5-minute presence cap between machines, an operator decision on #45); §8.3.1 names the MCP binding's codes directly (PR #264 review); §10.1 no longer calls `spec/security.md` unwritten. |

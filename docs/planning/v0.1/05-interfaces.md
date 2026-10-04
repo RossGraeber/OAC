@@ -42,7 +42,12 @@ Per `.claude/skills/oac-spec-authoring/SKILL.md` §1-§2, applied throughout thi
   Every `MUST`/`MUST NOT` below that has no accompanying Stage 2 conformance fixture is
   marked **`TODO(fixture)`** — fixtures land under `tests/protocol/` (Stage 2 task E8);
   none exist yet (Pre-Stage 0, `docs/planning/STATUS.md`), so **every** `MUST`/`MUST NOT`
-  in this file carries that marker. This satisfies the "separated in every section"
+  in this file carries that marker. *(Dated note, 2026-10-03, #254: "Pre-Stage 0" here
+  and in the closing `TODO(fixture)` paragraph is stale; read the current stage from
+  `docs/planning/STATUS.md` "Current stage". Stage 2 fixtures now exist under
+  `tests/protocol/` for `spec/session-channels.md`, `spec/security.md` and
+  `spec/bindings/mcp.md`, which supersede this file's spec surface; this file's own markers
+  are unchanged.)* This satisfies the "separated in every section"
   acceptance requirement mechanically, by the marker's presence, not by prose tone.
 - `SHOULD`/`SHOULD NOT` is a deviation-permitted recommendation; what "deviated" means is
   stated at each such sentence.
