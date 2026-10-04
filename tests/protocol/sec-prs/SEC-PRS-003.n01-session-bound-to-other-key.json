@@ -1,0 +1,69 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-PRS-003",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "a paired device announces a session bound to another device",
+  "description": "Carol's device, a trusted peer, announces B1, which the consumer has bound to Bob's key. The record is discarded and a finding recorded.",
+  "stage": "presence-auth",
+  "context": {
+    "consumer_time": "2026-10-03T12:00:01.000Z",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      },
+      {
+        "principal": "principal-c",
+        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+        "public_key": "LGPN2K_EISaRrzouTAmZRDaX66hHaXyOX0i-x3X0JUE"
+      }
+    ],
+    "bindings": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    "latest_seq": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": 3
+    }
+  },
+  "input": {
+    "authenticated_record": {
+      "record": {
+        "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+        "seq": 4,
+        "present": true,
+        "issued_at": "2026-10-03T12:00:00.000Z",
+        "lifetime_ms": 60000,
+        "descriptor": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "capabilities": {
+            "io.github.rossgraeber/oac-session-channels": {
+              "revision": "0.1",
+              "active_inbound": true
+            }
+          },
+          "harness_label": "harness-b"
+        }
+      },
+      "security": {
+        "principal": "principal-c",
+        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+        "signature": "glo0I6Vkz7EGYG7KFuC-wPM1Wb7pvH9o1el_hsC_-u85Mm2nGsUIWMAvsn_oROT2AhkBMjuZRB34kblm8BQkBQ"
+      }
+    }
+  },
+  "expected": {
+    "result": "discarded",
+    "bindings_after": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    "record": "finding"
+  }
+}

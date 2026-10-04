@@ -1,0 +1,18 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-PRV-008",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "Tab is kept. NUL, ESC, DEL, a C1 control and a bidi override become visible escapes.",
+  "stage": "body",
+  "context": {},
+  "input": {
+    "body": "x\ty\u0000\u001b‮z⁦"
+  },
+  "expected": {
+    "quoted_lines": [
+      "| x\ty\\u{0000}\\u{001B}\\u{007F}\\u{0090}\\u{202E}z\\u{2066}"
+    ]
+  }
+}
