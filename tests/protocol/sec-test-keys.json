@@ -1,7 +1,26 @@
 {
   "format": "oac-test-keys/1",
   "warning": "TEST KEYS ONLY. Every seed is SHA-256 of the public label shown, so anyone can recompute it. Never use these keys outside conformance fixtures.",
-  "seed_rule": "seed = SHA-256(UTF-8 \"oac-test-key/\" + label); nonce for label N = first 16 octets of SHA-256(UTF-8 \"oac-test-nonce/\" + N), base64url without padding",
+  "seed_rule": "seed = SHA-256(UTF-8 \"oac-test-key/\" + label); nonce for label N = first 16 octets of SHA-256(UTF-8 \"oac-test-nonce/\" + N), base64url without padding, except where a fixture sets a nonce of another length on purpose (SEC-SIG-003.n01, .n02)",
+  "nonce_labels": [
+    "conc",
+    "jcs1",
+    "jcs2",
+    "jcs3",
+    "jcs4",
+    "mixa",
+    "n1",
+    "n2",
+    "n3",
+    "other",
+    "reply1",
+    "reply2",
+    "reply3",
+    "x1",
+    "x2",
+    "x3",
+    "x4"
+  ],
   "keys": [
     {
       "label": "alice",

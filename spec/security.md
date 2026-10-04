@@ -148,9 +148,10 @@ in §3.3. Appendix A indexes every requirement and its fixtures.
 **Test keys.** `tests/protocol/sec-test-keys.json` lists the device keys the fixtures use.
 They are **test keys only**: each private seed is the SHA-256 of a published label, so anyone
 can recompute it, and no real device holds any of them. The file gives each key's label,
-principal, seed, public key and key id, and the rule that derives the fixtures' nonces. An
-implementation uses the seeds only to check that its signing produces the fixtures'
-signatures, which Ed25519's deterministic signing makes reproducible.
+principal, seed, public key and key id, the rule that derives the fixtures' nonces, and the
+label of every nonce the fixtures use (`nonce_labels`). An implementation uses the seeds only
+to check that its signing produces the fixtures' signatures, which Ed25519's deterministic
+signing makes reproducible.
 
 Public keys appear in fixtures as unpadded base64url [RFC4648] §5 of the 32-octet encoding.
 
@@ -164,7 +165,8 @@ in place of those of `spec/session-channels.md` §3.3. Timestamps are in the for
 
 - A **trusted-key list** is an array of objects with `principal`, `key_id` and `public_key`.
 - A **binding map** is an object whose members are session ids and whose values are key ids,
-  or the string `conflict` for a session id under conflict (§11.3).
+  or, for a session id under conflict, an object `{"conflict": [...]}` listing the claimant
+  key ids in ascending order (§11.3).
 - A **grant list** is an array of grants in the form of §9.2: objects with `direction`
   (`inbound` or `outbound`), `writer` and `target`. The side on the implementation's own
   device is `{"session_id": …}`, `{"working_directory_scope": …}` or `{"device": true}`; the
@@ -186,7 +188,7 @@ passed.
 |---|---|
 | `context` | `receiver_time`; `supported_major_versions`; `trusted_keys`: a trusted-key list; `bindings`: a binding map, which includes the receiver's own sessions; `sessions`: a session map; `grants`: a grant list; `duplicate_store`: an array of objects with `key_id` and `nonce`, the entries the store holds; optionally `sent`: a sent list. |
 | `input` | `envelope`, or `envelope_text`, as in `spec/session-channels.md` §3.3. |
-| `expected` | `result`: `passed`, `rejected`, `expired` or `duplicate`. For a result other than `passed`, `error`: the code. Optionally `canonical`: the JCS text of §6.2 for the envelope; `receipt_permitted`: `false` when no receipt may be sent for the envelope at all (§10.3); `bindings_after`: the binding map after the envelope (§11.3). |
+| `expected` | `result`: `passed`, `rejected`, `expired` or `duplicate`. For a result other than `passed`, `error`: the code. Optionally `canonical`: the JCS text of §6.2 for the envelope; `receipt_permitted`: `false` when no receipt may be sent for the envelope at all (§10.3); `bindings_after`: the binding map after the envelope (§11.3); `record`: `none` or `finding`, the local record [SEC-PRS-004] requires. |
 
 **Stage `replay`** (§8). A sequence of arrivals at one receiver, which starts with an empty
 duplicate store.
@@ -198,6 +200,10 @@ duplicate store.
 | `expected` | `results`: one object per arrival with `result` (a delivery state of `spec/session-channels.md` §8.1, or `duplicate`), `error` when the state carries one, and for a `duplicate` result `duplicate_receipt_allowed` (§8.4). |
 
 **Stage `key-id`** (§5.2). `input`: `public_key`. `expected`: `key_id`.
+
+**Stage `key-removal`** (§5.3). `context`: `bindings` and `grants`. `input`:
+`remove_key_id`. `expected`: `bindings_after` and `grants_after`, after the key is removed
+from the trusted key set ([SEC-KEY-035]).
 
 **Stage `registration`** (§5.4). `context`: `trusted_keys`. `input`: `record`, a
 registration record. `expected`: `result` (`verified` or `invalid`); with `verified`,
@@ -371,10 +377,12 @@ https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html, retr
 
 [SEC-KEY-035] An implementation that removes a key from its trusted key set MUST, in the
 same step, remove every grant (§9.2) and every binding-table entry (§11.3) that names that
-key's key id.
+key's key id, including every conflict mark that names it.
 
 A revoked device loses every grant it held at once, not only future ones
-(`docs/planning/decisions/C5-envelope-auth.md` §11).
+(`docs/planning/decisions/C5-envelope-auth.md` §11). Removing either key named in a conflict
+mark is how an operator resolves the conflict: the session id becomes unbound, and the
+remaining device's next claim binds it (fixture `sec-key/SEC-KEY-035.p01`).
 
 ### 5.4 The registration record
 
@@ -816,9 +824,10 @@ as under conflict.
 
 When `from` has no binding yet, the envelope itself is the binding claim: it is signed, and
 `from` is inside the signed scope. If the envelope passes step 4, the receiver binds `from`
-to the verifying key ([SEC-PRS-005]). If it does not, nothing is bound. A trusted device
-that claims a session id another device holds is therefore refused, and a second claim on a
-bound session id is handled as a conflict (§11.3).
+to the verifying key ([SEC-PRS-005]). If it does not, nothing is bound. An envelope from a
+trusted device that claims a session id bound to another key is refused, and the receiver
+records a finding ([SEC-PRS-004]). An envelope never sets a conflict mark; only a related
+device's presence record can (§11.3, [SEC-PRS-014]).
 
 [SEC-AUZ-004] An implementation MUST NOT use as a grant's writer or target, or as evidence for
 a grant decision, a display form, an alias, a `display_name`, a harness label, a principal
@@ -1116,27 +1125,50 @@ registration record for ([SEC-KEY-043]).
 
 A consumer's **binding table** maps session ids to key ids. It is filled from accepted
 announcements and accepted envelopes, and from the implementation's own registration records
-for its own sessions. An entry can instead mark a session id as **under conflict**.
+for its own sessions. An entry for another implementation's session can instead be a
+**conflict mark**, which names the key ids that claimed the session id.
 
 [SEC-PRS-002] A consumer MUST discard an authenticated presence record unless its
 `security.principal` and `security.key_id` name a trusted key and its signature verifies
 under that key (§6.3) with the domain string `oac-presence-v1`.
 
-[SEC-PRS-003] A consumer that receives an authenticated presence record whose `session_id`
-its binding table binds to a different key MUST discard the record and mark that session id
-as under conflict.
+[SEC-PRS-003] A consumer MUST discard an authenticated presence record whose `session_id` its
+binding table binds to a different key.
 
-[SEC-PRS-004] A consumer that marks a session id as under conflict MUST record a finding.
+[SEC-PRS-004] A consumer that discards a record or an envelope because its session id is
+bound to a different key MUST record a finding.
 
-[SEC-PRS-012] A consumer MUST NOT bind a session id under conflict to any key, or accept any
-record or envelope that claims it, until an operator resolves the conflict.
+A claim is always noticed, whoever makes it. Whether it also locks the session id depends on
+who makes it.
 
-Two trusted devices claiming one session id means one of them is misbehaving: session ids are
-random and never reused ([SC-ID-003], [SC-ID-008]), and none can be derived from a key
-([SC-ID-004]). The consumer cannot tell which claim is genuine, so it fails closed for both:
-the session is not `online` to it, envelopes from it are refused ([SEC-AUZ-003]), and
-receipts naming it are discarded ([SEC-RCT-003]). An operator resolves the conflict, for
-example by removing a misbehaving device's key ([SEC-KEY-035]).
+[SEC-PRS-015] A consumer MUST NOT mark as under conflict a session id that it binds by a
+registration record of its own.
+
+The consumer knows its own sessions from its verified registration records ([SEC-KEY-043]).
+A claim on one of them is false by construction, so it is refused and recorded, and the
+session keeps working (fixture `sec-prs/SEC-PRS-015.n01`).
+
+[SEC-PRS-014] A consumer MUST mark a session id of another implementation as under conflict,
+naming both key ids, only when the record that conflicts with its binding comes from a key
+that passes the relation test of [SEC-AUZ-017] for that session id.
+
+Two related, trusted devices claiming one session id means one of them is misbehaving:
+session ids are random and never reused ([SC-ID-003], [SC-ID-008]), and none can be derived
+from a key ([SC-ID-004]). The consumer cannot tell which claim is genuine, so it fails closed
+for both (fixture `sec-prs/SEC-PRS-003.n01`). A device that nothing relates to the consumer
+cannot lock a session id: its claim is refused and recorded without a mark (fixture
+`sec-prs/SEC-PRS-014.n01`). An envelope never marks a conflict: an envelope whose `from` is
+bound to another key is refused at security step 4 with a finding (rules [SEC-AUZ-003]
+and [SEC-PRS-004]; fixture `sec-auz/SEC-AUZ-003.n01`).
+
+[SEC-PRS-012] A consumer MUST NOT bind a session id under a conflict mark to any key, or
+accept any record or envelope that claims it, while the mark stands.
+
+The session is then not `online` to the consumer, envelopes from it are refused
+([SEC-AUZ-003]), and receipts naming it are discarded ([SEC-RCT-003]). An operator removes
+the mark by removing one of the keys it names ([SEC-KEY-035]; fixture
+`sec-key/SEC-KEY-035.p01`). The session id is then unbound, and the remaining device's next
+announcement binds it again.
 
 [SEC-PRS-005] A consumer MUST add a binding-table entry for an unbound session id only from an
 accepted announcement or from an envelope that passed security step 4 with that session id
@@ -1150,8 +1182,8 @@ it has forgotten the session ([SC-DLV-048]). A consumer that keeps the entry kee
 other keys' claims on that session id, which is still correct.
 
 The table lives in memory and a restart empties it, conflict marks included. Section 13
-records the residual: after a restart, the first trusted device to claim a session id holds
-it until a conflicting claim marks it.
+records the residual: after a restart, the first related, trusted device to claim another
+implementation's session id holds it until a conflicting related claim marks it.
 
 ### 11.4 Replay bounding across restart and forgetting
 
@@ -1183,9 +1215,10 @@ Records inside one implementation are not affected.*
 
 The checks on an authenticated presence record run in this order: signature
 ([SEC-PRS-002]), audience ([SEC-PRS-013]), freshness ([SEC-PRS-006]), conflict
-([SEC-PRS-003], [SEC-PRS-012]), relation ([SEC-AUZ-017]), then the rules of
-`spec/session-channels.md` §7.2.3. A conflict is detected even for a record the consumer
-would not otherwise take in, so a squatter is noticed.
+([SEC-PRS-003], [SEC-PRS-012], [SEC-PRS-014], [SEC-PRS-015]), relation ([SEC-AUZ-017]),
+then the rules of `spec/session-channels.md` §7.2.3. A conflicting claim is recorded even
+when it comes from a device the consumer would not otherwise take records from, so a squatter
+is noticed, but only a related claimant can lock the session id.
 
 ---
 
@@ -1309,7 +1342,7 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | Attack | Precondition | Mitigation | Proving test | Residual risk |
 |---|---|---|---|---|
 | Impersonation: a forged envelope claims a device it does not hold (06 row 1) | Attacker can send to a receiver | Signature over the full envelope with a trusted device key: [SEC-KEY-030], [SEC-SIG-010], [SEC-SIG-024], [SEC-STG-002] | `sec-key/SEC-KEY-030.n01`, `.n02`; `sec-sig/SEC-SIG-024.n03`; F11, H2 | A stolen device key signs validly (row "leaked key" below) |
-| Session-id squatting: a trusted device claims another device's session id (in `from` or in an announcement) | Attacker controls a paired device | A bound `from` must match the signing key [SEC-AUZ-003]; a second claim marks the id as under conflict and fails closed for both keys until an operator resolves it [SEC-PRS-003], [SEC-PRS-004], [SEC-PRS-012]; unauthorized envelopes bind nothing [SEC-PRS-005] | `sec-auz/SEC-AUZ-003.n01` to `.n03`, `.p01`; `sec-prs/SEC-PRS-003.n01`, `SEC-PRS-012.n01`; `sec-rct/SEC-RCT-003.n08`; `sec-auz/SEC-AUZ-012.n02` | Until a second claim arrives, the first trusted device to claim an unbound session id holds it. The table is in memory, so this reopens after every consumer restart and after a forget ([SEC-PRS-009]). A misbehaving paired device can also deny service by claiming a genuine session id, which then fails closed until an operator acts |
+| Session-id squatting: a trusted device claims another device's session id (in `from` or in an announcement) | Attacker controls a paired device | A bound `from` must match the signing key, and a mismatch is recorded as a finding [SEC-AUZ-003], [SEC-PRS-004]; a second claim by a related device marks the id as under conflict, naming both keys, and fails closed for both until an operator removes one of them [SEC-PRS-003], [SEC-PRS-014], [SEC-PRS-012], [SEC-KEY-035]; an unrelated device's claim is refused without a mark [SEC-PRS-014]; the consumer's own sessions are never marked [SEC-PRS-015]; unauthorized envelopes bind nothing [SEC-PRS-005] | `sec-auz/SEC-AUZ-003.n01` to `.n03`, `.p01`; `sec-prs/SEC-PRS-003.n01`, `SEC-PRS-012.n01`, `SEC-PRS-014.n01`, `SEC-PRS-015.n01`; `sec-key/SEC-KEY-035.p01`; `sec-rct/SEC-RCT-003.n08`; `sec-auz/SEC-AUZ-012.n02` | Until a second related claim arrives, the first related, trusted device to claim another implementation's unbound session id holds it. The table is in memory, so this reopens after every consumer restart and after a forget ([SEC-PRS-009]). A misbehaving device that a grant relates to the consumer can still lock a genuine remote session id until an operator removes its key; an unrelated device cannot |
 | Tampering in transit (06 row 3) | Attacker on the transport path rewrites bytes | Every member except the signature is signed: [SEC-SIG-010], [SEC-SIG-011], [SEC-SIG-012] | `sec-sig/SEC-SIG-011.n01`, `.n02`; `sec-sig/SEC-SIG-024.n01`, `.n02` | None beyond the signature itself, by construction |
 | Signature malleability and weak or mixed-order points | Attacker alters a valid signature, or offers a small-order, mixed-order or non-canonical `R` or `A` | [SEC-SIG-021] to [SEC-SIG-023]; cofactorless equation [SEC-SIG-024]; [SEC-KEY-034] | `sec-sig/SEC-SIG-021.n01`, `.n02`; `sec-sig/SEC-SIG-022.n01` to `.n03`; `sec-sig/SEC-SIG-024.n04`, `.n05`; F4 | That the reference crate gives these verdicts is checked against its source, not yet by running the fixtures (UNVERIFIED until F4) |
 | Cross-protocol reuse: a signature over one kind of object presented as another | Attacker holds a valid signature of one kind | Domain-separated signing input, four distinct domain strings (§6.2) | `sec-sig/SEC-SIG-010.n01`; `sec-key/SEC-KEY-041.n01` | None known |
@@ -1404,7 +1437,7 @@ requirement whose fixtures exercise it.
 | SEC-KEY-032 | MUST NOT | 5.3 | TODO(fixture): operator pairing flow; F5 |
 | SEC-KEY-033 | MUST NOT | 5.3 | TODO(fixture): trust-store admission; F5, H2 |
 | SEC-KEY-034 | MUST NOT | 5.3 | TODO(fixture): trust-store admission of weak keys; F5 |
-| SEC-KEY-035 | MUST | 5.3 | TODO(fixture): revocation cascade; F5 |
+| SEC-KEY-035 | MUST | 5.3 | `sec-key/SEC-KEY-035.p01` |
 | SEC-KEY-040 | MUST | 5.4 | covered by SEC-KEY-041 (`sec-key/SEC-KEY-041.p01` carries exactly these members) |
 | SEC-KEY-041 | MUST | 5.4 | `sec-key/SEC-KEY-041.p01`, `.n01` |
 | SEC-KEY-042 | MUST NOT | 5.4 | TODO(fixture): wire behaviour; F2, H2 |
@@ -1469,8 +1502,8 @@ requirement whose fixtures exercise it.
 | SEC-RCT-005 | MUST NOT | 10.3 | `sec-rct/SEC-RCT-005.n01`; `receipt_permitted` in every step-1 and step-2 `security` fixture |
 | SEC-PRS-001 | MUST | 11.1 | `sec-prs/SEC-PRS-001.p01` |
 | SEC-PRS-002 | MUST | 11.3 | `sec-prs/SEC-PRS-002.n01`, `.n02` |
-| SEC-PRS-003 | MUST | 11.3 | `sec-prs/SEC-PRS-003.n01` |
-| SEC-PRS-004 | MUST | 11.3 | `sec-prs/SEC-PRS-003.n01` (`expected.record` `finding`) |
+| SEC-PRS-003 | MUST | 11.3 | `sec-prs/SEC-PRS-003.n01`, `SEC-PRS-014.n01`, `SEC-PRS-015.n01` |
+| SEC-PRS-004 | MUST | 11.3 | `expected.record` `finding` in `sec-prs/SEC-PRS-003.n01`, `SEC-PRS-014.n01`, `SEC-PRS-015.n01` and `sec-auz/SEC-AUZ-003.n01` |
 | SEC-PRS-005 | MUST | 11.3 | `sec-prs/SEC-PRS-005.n01`; from an envelope: `sec-auz/SEC-AUZ-003.p01`, `.n03` |
 | SEC-PRS-006 | MUST | 11.4 | `sec-prs/SEC-PRS-006.n01`, `.p01` |
 | SEC-PRS-007 | MUST | 11.4 | `sec-prs/SEC-PRS-007.p01` |
@@ -1480,6 +1513,8 @@ requirement whose fixtures exercise it.
 | SEC-PRS-011 | MUST | 11.1 | `sec-prs/SEC-PRS-011.n01` (the audience is signed); the issuer's choice of audience: TODO(fixture), F6 |
 | SEC-PRS-012 | MUST NOT | 11.3 | `sec-prs/SEC-PRS-012.n01`; `sec-auz/SEC-AUZ-003.n02`, `SEC-AUZ-012.n02`; `sec-rct/SEC-RCT-003.n08` |
 | SEC-PRS-013 | MUST | 11.1 | `sec-prs/SEC-PRS-013.n01` |
+| SEC-PRS-014 | MUST | 11.3 | `sec-prs/SEC-PRS-014.n01` (unrelated claimant, no mark); `sec-prs/SEC-PRS-003.n01` (related claimant, mark naming both keys) |
+| SEC-PRS-015 | MUST NOT | 11.3 | `sec-prs/SEC-PRS-015.n01` |
 | SEC-PRV-001 | MUST | 12.1 | TODO(fixture): needs an adapter; F10, F11 |
 | SEC-PRV-002 | MUST | 12.1 | TODO(fixture): needs an adapter; F11 |
 | SEC-PRV-003 | MUST | 12.2 | `sec-prv/SEC-PRV-003.p01`, `.n01`, `.n02` |
@@ -1538,3 +1573,4 @@ follow from it and belong to their owners:
 |---|---|---|
 | 0.1 (draft) | 2026-10-03 | E5 (#45): document written. Device keys, key ids and the registration record; Ed25519 signing over domain-separated JCS with strict verification; the security stage and its codes; the 300-second replay window and skew allowance; duplicate suppression recorded at authorization and released when not handed off; default-deny grants and an automatic, correlated, 24-hour reply right; receipt and presence-record authentication, with the signed announcement as the publishable binding proof and replay bounded across restart; neutral provenance rendering; threat traceability. Fixtures under `tests/protocol/sec-*/` and test keys in `tests/protocol/sec-test-keys.json`. |
 | 0.1 (draft) | 2026-10-03 | Review of PR #265: one-way grants, inbound and outbound, with "a session sees the sessions it may write to" and a full request-and-reply on one grant (SEC-AUZ-010 to -017, SEC-PRS-010); a verified, authorized envelope binds its own `from`; the cofactorless equation replaces the cofactored one (SEC-SIG-024), with mixed-order, order-2 and non-canonical `R`, mixed-order `A` and `S = L` fixtures; numbers canonicalize as the nearest double (SEC-SIG-013); presence records carry a signed `audience` (SEC-PRS-011, -013); a session id claimed by two keys fails closed for both (SEC-PRS-003, -012); a copy arriving during an earlier hand-off waits for its outcome (SEC-RPL-026); JCS coverage fixtures; operator decisions on #45 recorded as dated notes. |
+| 0.1 (draft) | 2026-10-03 | Second review of PR #265: conflict marks name the claimant keys and are set only by a related claimant (SEC-PRS-014), never on the consumer's own sessions (SEC-PRS-015); an envelope claim is refused with a finding and never marks; removing a key clears marks that name it (SEC-KEY-035); `key-removal` fixture stage; the nonce labels of every fixture are listed in `sec-test-keys.json`. |

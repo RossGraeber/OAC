@@ -543,7 +543,7 @@ list.
 
 ### RISK-SEC-SPEC — Security mitigations specified but not yet proven
 
-- **Risk.** `spec/security.md` (E5, #45) makes the security model normative, with 117
+- **Risk.** `spec/security.md` (E5, #45) makes the security model normative, with 120
   fixtures under `tests/protocol/sec-*/`. No runner executes them yet (E8, F12), and 30 of its
   requirements are `TODO(fixture)`, each naming the later test (F2, F4, F5, F6, F10, F11, G4,
   G7, G9, H2). Section 13's threat rows whose only proving test is one of those are open risks,

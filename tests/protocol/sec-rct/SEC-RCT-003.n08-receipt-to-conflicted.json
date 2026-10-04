@@ -27,7 +27,12 @@
     ],
     "bindings": {
       "01harn7x9k2m4p6q8r0s2t4v6w": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
-      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "conflict"
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "conflict": [
+          "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+          "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+        ]
+      }
     },
     "sent": [
       {

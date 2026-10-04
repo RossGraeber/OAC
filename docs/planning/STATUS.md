@@ -6,7 +6,7 @@ verdict, or when a pin moves.
 
 **Last updated:** 2026-10-03 (**Issue #45 (E5): `spec/security.md` written.** The normative
 security model, neutral (document prefix `SEC`, areas `KEY`, `SIG`, `STG`, `RPL`, `AUZ`,
-`RCT`, `PRS`, `PRV`; 103 requirement ids in its Appendix A). In this change, as revised
+`RCT`, `PRS`, `PRV`; 105 requirement ids in its Appendix A). In this change, as revised
 after the PR #265 review:
 
 - **Keys and signing.** One Ed25519 device key; the key id is the full SHA-256 of the
@@ -39,15 +39,17 @@ after the PR #265 review:
   wrappers; a presence record names its one `audience` device, signed, so a forwarded
   record is refused. A signed claim (an announcement, or a verified and authorized
   envelope's `from`) is the publishable binding proof (no working directory, no native
-  id). A session id claimed by two keys fails closed for both until an operator resolves
-  it. Presence replay across consumer restart or forget is bounded by freshness
+  id). A session id claimed by two keys fails closed for both until an operator removes one
+  of the keys, which clears the mark; only a claimant that a grant or exchange relates to
+  the consumer can set the mark, and the consumer's own sessions are never marked (second
+  review of PR #265). Presence replay across consumer restart or forget is bounded by freshness
   (`issued_at` inside `W`) and a 300-second effective lifetime cap for records from
   another implementation.
 - **Provenance.** Neutral adapter obligations: whole-value identifier check with refusal,
   refuse rather than partial provenance, shared-carrier framing (CSPRNG delimiter, closed
   line-break list, control and bidi escapes, `| ` quoting), content never presented as user
   or system.
-- **Fixtures.** 117 under `tests/protocol/sec-*/`, test keys in
+- **Fixtures.** 120 under `tests/protocol/sec-*/`, test keys in
   `tests/protocol/sec-test-keys.json` (seeds derived from public labels; test only).
   Checked by an independent script (own JCS and BigInt Ed25519); not committed.
 - **Ledger.** New UNVERIFIED items 63-64 (the pinned crate's verdicts on the fixtures,

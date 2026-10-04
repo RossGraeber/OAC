@@ -1,11 +1,11 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SEC-PRS-003",
+  "requirement": "SEC-PRS-014",
   "spec": "spec/security.md",
   "spec_revision": "0.1",
   "kind": "negative",
-  "failure_mode": "a second trusted device claims a bound session id",
-  "description": "Carol's device, a trusted peer that the consumer's outbound grant relates to, announces B1, which the consumer has bound to Bob's key. The record is discarded, B1 is marked in conflict naming both keys, and a finding is recorded.",
+  "failure_mode": "a session id locked by a device with no grant or relation",
+  "description": "Carol's device is trusted but no grant or exchange relates the consumer to it. It announces B1, bound to Bob's key. The record is discarded and a finding recorded, but B1 is not marked: an unrelated device cannot lock a session id.",
   "stage": "presence-auth",
   "context": {
     "consumer_time": "2026-10-03T12:00:01.000Z",
@@ -35,9 +35,7 @@
     "bindings": {
       "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
     },
-    "latest_seq": {
-      "7gq3m8z2c5k9t1w4x6b0n2r8vd": 3
-    },
+    "latest_seq": {},
     "grants": [
       {
         "direction": "outbound",
@@ -46,15 +44,6 @@
         },
         "target": {
           "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
-        }
-      },
-      {
-        "direction": "outbound",
-        "writer": {
-          "device": true
-        },
-        "target": {
-          "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9"
         }
       }
     ]
@@ -89,12 +78,7 @@
   "expected": {
     "result": "discarded",
     "bindings_after": {
-      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
-        "conflict": [
-          "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
-          "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
-        ]
-      }
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
     },
     "record": "finding"
   }
