@@ -497,8 +497,9 @@ cannot be frozen without freezing the leak; the offending text is corrected and 
 is re-attempted. A failing criterion 4 (a fixture nothing can execute) blocks Stage 3,
 which loads those fixtures as its CI-default spec-conformance tier.
 
-**Current verdict (2026-10-04, #47): Gate S2 is not met until the operator signs. The freeze is ready, not
-declared.** The proposed freeze record is `docs/planning/decisions/E7-interface-freeze.md`.
+**Current verdict (2026-10-04, #47): Gate S2 is not met until the operator signs. The
+freeze is ready, not declared.** The proposed freeze record is
+`docs/planning/decisions/E7-interface-freeze.md`.
 It holds the readiness audit (§2), the blockers (§3), the markers edited at sign-off (§6),
 the change-control rule after the freeze (§7) and the operator sign-off block (§8). The
 freeze is the operator's decision.

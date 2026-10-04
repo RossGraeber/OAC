@@ -47,8 +47,8 @@ item 7). That is how Stage 3 works.
 | 1 | Conformance runner, every fixture plus index cross-checks, including the Appendix C owner index | **PASS** | `node tests/protocol/runner/run.mjs`: "Fixtures: 527/527 pass. Index checks: clean." |
 | 2 | Runner self-test (Ed25519 and JCS vectors; planted owner-index edits) | **PASS** | `node tests/protocol/runner/run.mjs --self-test`: "Result: PASS (self-test)" |
 | 3 | Every cited requirement id resolves | **PASS** | The scratch audit found every `[SC-…]`, `[SEC-…]`, `[MCPB-…]` and `[IFC-…]` citation in the four documents defined (510 ids). |
-| 4 | Every `MUST`/`MUST NOT` has a fixture, or a `TODO(fixture)` naming a task outside Stage 2 | **PASS** | All 472 do. The scratch audit reads every `TODO(fixture)` cell of the four indexes. Every one names an owner outside Stage 2, an F-, G- or H-task or an issue such as #65, #66, #68 or #69. None names a Stage 2 task alone. The 22 MCP binding rows that named no task now each have a fixture or a Stage 3/4 owner (#275, PR #284, merge `3e4471e`). That leaves 17 MCPB rows with `TODO(fixture)`, down from 27. Seven rows say "covered by" another requirement's fixtures, which is acceptable: SC-ID-020, SC-DLV-040, SC-DLV-064, SC-RCP-032, SEC-KEY-002, SEC-SIG-020, SEC-RPL-001. |
-| 5 | Every Table 8.3 error code and Table 8.1 state decided by a fixture (`10-stages.md` §6, executable demonstration), with binding fixtures counted (ruling below) | **PASS** | All 8 states and all 17 codes are decided. The three that the pre-#284 audit found missing are now decided as follows. `envelope-too-large` (`spec/session-channels.md` L2333): `sc-rcp/SC-RCP-076.n02`, `.n03`, `SC-RCP-079.n02`, `SC-RCP-090.n03`, `SC-RCP-071.n07`, `SC-RCP-028.p02`, `.n04`, `mcpb-tool/MCPB-TOOL-012.n08`. `transport-failure` (L2347): `sc-rcp/SC-RCP-028.p01` (a sender-observed receipt, valid, `failed`), `.n03` (receiver-observed, discarded), `mcpb-tool/MCPB-TOOL-010.p02`, `.n02`, `MCPB-TOOL-012.n09`. `invalid-request` (L2349): binding fixtures `mcpb-tool/MCPB-TOOL-005.p01`, `.n01`, `mcpb-att/MCPB-ATT-002.n02`. The `ttl_ms`-before-replay-window rule is decided by `sc-rcp/SC-RCP-072.n01` and `SC-RCP-091.n01`/`SC-RCP-092.n01`. |
+| 4 | Every `MUST`/`MUST NOT` has a fixture, or a `TODO(fixture)` naming a task outside Stage 2 | **PASS** | All 472 do. The scratch audit reads every `TODO(fixture)` cell of the four indexes. Every one names an owner outside Stage 2, an F-, G- or H-task or an issue such as #65, #66, #68 or #69. None names a Stage 2 task alone. The 22 MCP binding rows that named no task now each have a fixture or a Stage 3/4 owner (#275, PR #284, merge `3e4471e`). That leaves 17 MCPB rows with `TODO(fixture)`, down from 27. 33 `MUST`/`MUST NOT` rows name no fixture of their own and no `TODO(fixture)`. Each cites the fixtures of other requirements that decide it. 20 of them say so with the words "covered by": SC-ENV-083, SC-ID-020, SC-ID-022, SC-ID-040, SC-ID-041, SC-ID-060, SC-DLV-040, SC-DLV-064, SC-DLV-065, SEC-KEY-002, SEC-KEY-040, SEC-SIG-012, SEC-SIG-020, SEC-STG-003, SEC-STG-004 (in part), SEC-RPL-001, SEC-AUZ-008, SEC-RCT-002, SEC-PRV-004, IFC-TYP-070. The other 13 cite the deciding fixtures directly, such as `sec-*` fixtures or the `expected.error` of other fixtures: SC-ID-009, SC-ID-102, SC-ID-181, SC-DLV-043, SC-RCP-009, SC-RCP-032, SC-RCP-040, SC-RCP-041, SC-RCP-070, SEC-RPL-030, SEC-AUZ-013, SEC-PRS-004, SEC-PRV-014. Across the four indexes, 27 `MUST`/`MUST NOT` rows contain "covered by". The 7 not counted above (IFC-TYP-001, -003, -041, -081, IFC-TRN-010, -032, -062) pair it with a `TODO(fixture)` that has an owner. Counted by the scratch audit with the runner's `indexRows` and `cellReferences`. |
+| 5 | Every Table 8.3 error code and Table 8.1 state decided by a fixture (`10-stages.md` §6, executable demonstration), with binding fixtures counted (ruling below) | **PASS** | All 8 states and all 17 codes appear in a fixture that the runner decides. For 15 codes, a fixture has the validator itself produce the code as its decision: `expected.error` of a validation, security, delivery or send fixture. For `envelope-too-large` (`spec/session-channels.md` L2333) these are `sc-rcp/SC-RCP-076.n02`, `.n03`, `SC-RCP-079.n02` and `SC-RCP-071.n07`; `SC-RCP-028.p02`, `.n04` and `mcpb-tool/MCPB-TOOL-012.n08` check how it is carried. **Two codes are decided only as values carried in a receipt or a tool result.** No fixture has the validator emit them itself, because each is produced by behaviour no fixture stage simulates. `transport-failure` (L2347) is a sending implementation failing to reach a transport. `sc-rcp/SC-RCP-028.p01` (a sender-observed receipt carrying it is valid and `failed`) and `.n03` (a receiver-observed one is discarded) decide receipts that carry it. `mcpb-tool/MCPB-TOOL-010.p02`, `.n02` and `MCPB-TOOL-012.n09` decide how a tool result carries it. `invalid-request` (L2349) is a harness request being refused. Only the binding fixtures `mcpb-tool/MCPB-TOOL-005.p01`, `.n01` and `mcpb-att/MCPB-ATT-002.n02` decide it, as a value in a tool result, which counts under the ruling below. The `ttl_ms`-before-replay-window rule is decided by `sc-rcp/SC-RCP-072.n01` (`receive`), `SC-RCP-091.n01` and `SC-RCP-092.n01`. |
 | 6 | Neutral vocabulary over `spec/`, with only the binding exempt; `spec/interfaces.md` is included | **PASS** | Checks 1-2 and the zero-hits group find zero hits over all three neutral documents. The read-the-hit group (`initialize`, `notifications/`) also finds zero. `spec/interfaces.md` §7 Table 7.1 lists every non-neutral value that crosses a contract, with the reason it is allowed. This meets the #47 acceptance item "any unavoidable exception is documented with its reason". |
 | 7 | No open placeholders, "planned" text or stale stubs | **PASS** | The `spec/security.md` Appendix B dated note (this change) records that its follow-ups are done. `spec/session-channels.md` §8.1.5's "carriage ... still to come" has a #273 dated note pointing at `spec/interfaces.md` §6.5. `05-interfaces.md` §13-§15 carry "Superseded, 2026-10-04 (#273)" (L468, L531, L618). |
 | 8 | Draft markers and versions are ready to finalize | **READY** | The markers, now including `spec/interfaces.md` L5, are listed in §6. Version `0.1` and the identifier are final. |
@@ -58,12 +58,11 @@ item 7). That is how Stage 3 works.
 | 12 | Open UNVERIFIED items that affect the interface are listed with owners | **PASS** | §4.1 |
 | 13 | Other CI checks (`boundary-lint.yml`) | **PASS** | Check 3, check 8 and check 11 are clean. Checks 9-10 report PENDING, which is not a pass, because no product paths exist yet; their self-test is 102/103 with 1 skipped. Fixture manifest: 211/211 entries match, self-test 73/73. `check-skills`: all 15 skills are within budget. `sync-agents-skills --check` and `--self-test` pass. |
 
-**Ruling (orchestrator, 2026-10-04, relayed on #47):** fixtures in a binding document's own
-format (`oac-mcpb-fixture/1`, `spec/bindings/mcp.md` §12.2) count toward the Gate S2
-executable demonstration, just as `oac-conformance-fixture/1` fixtures do. Both are read and
-decided by the same runner (`tests/protocol/runner/run.mjs`, which dispatches on
-`fixture_format`). So a code decided only by binding fixtures, such as `invalid-request`,
-counts as covered.
+**Ruling (orchestrator, 2026-10-04), recorded on #47** (https://github.com/RossGraeber/OAC/issues/47#issuecomment-5978246563): fixtures in a binding
+document's own format (`oac-mcpb-fixture/1`, `spec/bindings/mcp.md` §12.2) count toward the
+Gate S2 conformance demonstration alongside the core `oac-conformance-fixture/1` fixtures.
+Both are decided by the same runner (`tests/protocol/runner/run.mjs`, which dispatches on
+`fixture_format`). This ruling is what lets `invalid-request` count as decided.
 
 Editorial fixes made in this change (no requirement added or changed):
 
@@ -103,33 +102,60 @@ sign-off commit, re-run §2 rows 1, 4, 5 and 6 on that commit.
 | Queue "not now" errors and queue runtime caveats (#274) | `spec/bindings/mcp.md` §8.2.1; `11-risks.md` rows 65-66 | Binding only | G6, G7 (#68) |
 | Other MCP binding items (tool-result `_meta` surfacing, `rmcp` legacy channel, Codex default client era, Codex per-request session signal, Codex connection multiplexing, legacy clients ignoring `extensions`) | `spec/bindings/mcp.md` §10 | Binding only. Each is carried with an owner there. | #65, #69, RISK-G4 |
 
-### 4.2 Decisions the freeze carries forward
+### 4.2 What the freeze carries forward
 
-- **The operations are renamed from #47's outcome list.** `spec/interfaces.md` §9 records
-  each change with its reason:
+**For the operator's acceptance (§8 row 2).** These two items go beyond what the recorded
+operator decisions say:
+
+- **(a) Cross-install waits for a transport binding, not only for E5.** The operator
+  decision on #43 said cross-install presence and messaging wait for E5 (#45) to define
+  presence-record authentication. E5 has done so (`spec/security.md` §10-§11). The merged
+  text now also requires a transport binding that meets [SC-DLV-066] and [IFC-TRN-080]
+  before any presence record crosses implementations ([IFC-TRN-081];
+  `spec/session-channels.md` §7.3.2, #266 dated note; `spec/interfaces.md` §6.7). No v0.1
+  transport meets that, because C7 carries reachability only. So v0.1 stays same-install
+  until a later transport binding.
+- **(b) All Codex delivery goes through the queue, not only when the thread is busy.** The
+  operator decision on #224 said: when the thread is busy, deliver via `thread/queue/add`,
+  and the spec should say which form, noting that check-busy-then-`turn/start` is racy.
+  The binding chose the race-free form. Every Codex delivery uses `thread/queue/add`
+  ([MCPB-CDX-002]), and `turn/start` is never used for delivery ([MCPB-CDX-003];
+  `spec/bindings/mcp.md` §8.2.1, the race reasoning at L982-L984). The consequences are
+  stated at `spec/bindings/mcp.md` L1033 onward:
+  - OAC cannot deliver to ephemeral, queue-less-host, subagent or archived threads; each is
+    `handoff-failed`;
+  - after an interrupted turn, deliveries wait until a turn completes uninterrupted;
+  - all Codex delivery rests on one experimental method, behind the G6 shim.
+
+**Already decided by the operator, listed for information, not for re-acceptance:**
+
+- Codex sends nothing until #69: [MCPB-ATT-002] refuses Codex tool calls on both eras
+  (operator decision on #46; `spec/bindings/mcp.md` L387). Codex sessions still receive.
+- Never steer: [SEC-AUZ-022] (operator decision on #224, written by #274).
+- Refuse at once, and OAC never holds messages; stale or withdrawn presence refuses;
+  discovery lists `online` sessions only (operator decisions on #43; [SC-DLV-007],
+  [IFC-TRN-026]).
+- Far-side receipts are optional ([SC-RCP-042], operator decision on #44).
+- No inferred reply links: a reply links to a message only when the link is checked, and
+  otherwise goes out uncorrelated (operator decision on #44; `spec/session-channels.md`
+  §8.2.2 dated note, L2249-L2256).
+- The #45 grant decisions: a one-message, 24-hour reply right; explicit grants even on the
+  same machine and folder; a 5-minute cap on cross-machine presence; per-session, folder or
+  machine grants.
+- The #174 decisions: L9 landed before the freeze; senders SHOULD NOT put secrets in
+  content; an implementation never looks up memory ([SEC-PRV-016] to [SEC-PRV-018]).
+
+**Also carried forward:**
+
+- **The operations are renamed from #47's outcome list** (§8 row 1). `spec/interfaces.md`
+  §9 records each change with its reason:
   - `discover_sessions` → `take_connection` / `watch_attachments`;
   - `attach` → `set_binding`;
   - `publish_output` → `accept_requests`;
   - `announce_presence` → `send_presence`;
   - `deliver` and `capabilities` keep their names, with new shapes.
 
-  Freezing accepts these names. #47's issue text keeps the DESIGN names as the conceptual
-  list.
-- **Codex: receive only, until #69.** [MCPB-ATT-002] refuses every Codex tool call on both
-  eras until a documented Codex pairing exists. Codex sessions still receive, through
-  `thread/queue/add` only (MCPB-CDX-002). Lifting the refusal is a binding change that
-  relaxes a refusal. It does not touch the neutral spec.
-- **Same-install only.** Presence, discovery and sending stay within one implementation
-  until a transport binding meets [SC-DLV-066] and [IFC-TRN-080]. `spec/security.md` §10
-  and §11 supply the authentication half. `spec/interfaces.md` §6.5-§6.7 now defines the
-  carriage contract and the cross-implementation gate ([IFC-TRN-081]). No v0.1 transport
-  meets that gate yet.
-- **Never steer, and all Codex delivery rests on one experimental method.** Per #274,
-  Codex delivery cannot reach ephemeral, queue-less, subagent or archived threads (each is
-  `handoff-failed`), and deliveries wait after an interrupted turn. Implementation stays
-  with G6 and G7 (#68).
-- **Far-side receipts are optional in v0.1** ([SC-RCP-042], operator decision on #44).
-- **No holding:** OAC never holds messages (operator decision on #43; [IFC-TRN-026]).
+  #47's issue text keeps the DESIGN names as the conceptual list.
 - **C11** (the shim-boundary module name) stays with Epic F/G implementation. It names a
   module, not an interface.
 - **E9** (#49, design-for-replacement proofs) now has frozen-interface text to argue from.
@@ -157,52 +183,65 @@ draft:
 | `spec/security.md` L4 | `**Revision:** 0.1 (draft, Stage 2). Written by task E5 (#45).` | `**Revision:** 0.1, frozen at Gate S2 on {{SIGN-OFF DATE}} (E7, #47). Written by task E5 (#45).` |
 | `spec/interfaces.md` L5 | `**Revision:** 0.1 (draft, Stage 2). Written by #273 for task E7 (#47).` | `**Revision:** 0.1, frozen at Gate S2 on {{SIGN-OFF DATE}} (E7, #47). Written by #273.` |
 | `spec/interfaces.md` L1164-L1167 (§7, the paragraph after Table 7.1, "Once Gate S2 freezes this document ...") | future tense | `Since Gate S2 froze this document on {{SIGN-OFF DATE}} ...`, citing §7 of this record |
-| `spec/bindings/mcp.md` L4-L5 | `**Status:** Stage 2 draft, normative once Gate S2 freezes the spec surface ...` | `**Status:** normative; frozen at Gate S2 on {{SIGN-OFF DATE}} (E7, #47).` |
+| `spec/bindings/mcp.md` L4-L6 | `**Status:** Stage 2 draft, normative once Gate S2 freezes the spec surface (...). Every requirement carries an `MCPB` id; the index in §12 lists its fixtures or marks it `TODO(fixture)`.` | `**Status:** normative; frozen at Gate S2 on {{SIGN-OFF DATE}} (E7, #47). Every requirement carries an `MCPB` id; the index in §12 lists its fixtures or marks it `TODO(fixture)`.` |
 | `spec/bindings/mcp.md` L7 | `` `0.1` (draft until Gate S2; fixtures cite `spec_revision` `0.1`) `` | `` `0.1` (frozen; fixtures cite `spec_revision` `0.1`) `` |
-| The revision-history appendix of each of the four documents | rows read `0.1 (draft)` | Add a row `0.1` with `{{SIGN-OFF DATE}}`: "Frozen at Gate S2 (E7, #47)". Earlier rows keep `(draft)` as history. |
+| The revision-history appendix of `spec/session-channels.md` (Appendix B), `spec/security.md` (Appendix C) and `spec/interfaces.md` (Appendix B) | rows read `0.1 (draft)` | Add a row `0.1` with `{{SIGN-OFF DATE}}`: "Frozen at Gate S2 (E7, #47)". Earlier rows keep `(draft)` as history. `spec/bindings/mcp.md` has no revision-history appendix, and the sign-off commit does not add one. Its Status line (above) records the freeze. |
 
 The version stays `0.1` and the identifier is unchanged. The freeze makes the existing
 revision binding. It is not a new one.
 
 ## 7. Change control after the freeze
 
-From sign-off on, the frozen items in §1 change only as follows. The skill rule is
-`oac-spec-authoring` §7. The classification is `spec/session-channels.md` §5.2-§5.3, and
-`spec/interfaces.md` §7 (last paragraph) applies it to the contracts.
+From sign-off on, the frozen items in §1 change only as follows.
 
-1. **Fixture-only and editorial changes.** Adding a fixture, replacing a `TODO(fixture)`,
-   or an editorial change that leaves every requirement's meaning unchanged (§5.2 items 7
-   and 8). These need a revision-history row and nothing more. The revision stays `0.1`.
-2. **Any other change to a requirement, a frozen type or a frozen operation is a recorded
-   amendment.** This includes moving a requirement to a different owner in Appendix C. It
-   is filed as an issue and logged below as `E7-A<n>` with four fields: old text or
-   signature (verbatim), new text or signature, rationale, and which stage's output it
-   invalidates. It lands only after the operator approves it on that issue.
-   - A compatible change (§5.2 items 1-6) bumps the minor version (`0.2`, …) under the
-     same extension identifier.
-   - A breaking change (§5.3, including any added `MUST` that a `0.1` implementation would
-     violate) needs a new major version and a new extension identifier (§5.1, C3 §8).
-3. **Stage 3 and 4 work implements against the frozen text and does not renegotiate it.**
+- The skill rule is `oac-spec-authoring` §7.
+- The classification is `spec/session-channels.md` §5.2-§5.3.
+- `spec/interfaces.md` §7 (L1164-L1167) applies that classification to the contracts. A
+  change to a type or an operation there is a recorded amendment. Whether it also needs a
+  new minor or major version is decided by §5.2-§5.3 "for the wire forms it touches".
+
+This record adds no rule of its own.
+
+1. **Fixture-only and editorial changes.** These are adding a fixture, replacing a
+   `TODO(fixture)`, or an editorial change that leaves every requirement's normative meaning
+   unchanged (`spec/session-channels.md` §5.2 items 7 and 8). They are published as §5.2
+   provides. Because they change no requirement's meaning, they need no amendment.
+2. **Any other change to a requirement, a frozen type or a frozen operation is an
+   amendment.** This includes renaming an operation or moving a requirement to another
+   owner in `spec/interfaces.md` Appendix C. It follows the `oac-evidence` §6 procedure:
+   - record the conflict, with what the frozen text says and what the evidence says;
+   - propose a numbered amendment with the old text or signature verbatim, the new text,
+     the rationale, and (`oac-spec-authoring` §7) which stage's output it invalidates;
+   - land it in `docs/planning/v0.1/03-decisions-and-amendments.md`, and flag it in
+     `docs/planning/STATUS.md`.
+
+   It lands only after the operator approves it.
+3. **The version consequence is decided per wire form.**
+   - A change that touches no wire form, such as an owner move or a rename of an internal
+     operation, is an amendment. It needs no new version and no new extension identifier.
+   - A change that touches a wire form takes the version that §5.2 or §5.3 assigns to that
+     form. A compatible change (§5.2 items 1-6) is a minor revision under the same
+     identifier. A breaking change (§5.3, including item 11: an added `MUST` that a `0.1`
+     implementation would violate) needs a new major version and a new extension
+     identifier (§5.1; C3 §8).
+4. **Stage 3 and 4 work implements against the frozen text and does not renegotiate it.**
    A `type:code` item that finds a frozen interface does not fit records a finding and
    proposes an amendment. It does not edit the interface (`oac-spec-authoring` §7;
    `oac-boundaries` boundary 10). A change made only to get a module to pass is a Stage 2
    freeze violation (`10-stages.md` §8).
 
-### Amendment log
-
-None.
-
 ## 8. Operator sign-off
 
 The freeze happens when the operator signs this section and the sign-off commit applies
 §6. Until then, Gate S2 criterion 1 is not met. Before signing, read §1 (what is frozen),
-§3 (all blockers closed), §4.2 (what the freeze carries forward, including the renamed
-operations) and §9 (plain-language commitments).
+§3 (all blockers closed), §4.2 (the two items for acceptance, the renamed operations, and
+the already-recorded decisions, listed for information) and §9 (plain-language
+commitments).
 
 | Question | Operator's answer |
 |---|---|
 | I accept the renamed adapter and transport operations (§4.2; `spec/interfaces.md` §9) in place of the DESIGN names in #47's outcome list | `{{OPERATOR: YES / NO}}` |
-| I accept what the freeze carries forward (§4.2): Codex receive-only until #69; same-install only until a transport binding meets [IFC-TRN-080]; never steer, with all Codex delivery on `thread/queue/add`; far-side receipts optional | `{{OPERATOR: YES / NO}}` |
+| I accept the two items of §4.2 that go beyond recorded decisions: (a) cross-install waits for a transport binding that meets [SC-DLV-066] and [IFC-TRN-080], not only for E5; (b) all Codex delivery goes through `thread/queue/add`, not only when busy, with the consequences listed there | `{{OPERATOR: YES / NO}}` |
 | Decision | `{{OPERATOR: FREEZE / NOT YET}}` |
 | Frozen at commit (the sign-off commit, which applies §6) | `{{SHA}}` |
 | Date | `{{SIGN-OFF DATE}}` |
@@ -233,8 +272,9 @@ the freeze.
   never call a transport directly. A transport has to declare what it supports. The
   operations carry new names (§4.2), and freezing accepts them.
 - **Any later change costs something and is visible.** Changing a rule, a type or an
-  operation needs an amendment you approve. A change that would break a `0.1`
-  implementation also needs a new version and a new extension identifier.
+  operation needs an amendment you approve, recorded in `03-decisions-and-amendments.md`. A
+  change to a wire form that would break a `0.1` implementation also needs a new version
+  and a new extension identifier. An internal rename or owner move does not.
 - **What stays open after the freeze:**
   - Codex can receive but not send (#69).
   - Traffic stays within one installation until a transport binding carries authenticated
@@ -243,7 +283,8 @@ the freeze.
   - The UNVERIFIED items in §4.1 stay open with their owners. None of them changes an
     interface.
 - **What continues regardless:** fixtures can be added and `TODO(fixture)` entries
-  replaced at any time without an amendment.
+  replaced without an amendment. They are published as `spec/session-channels.md` §5.2
+  items 7-8 provide.
 
 ## Boundary and evidence pass
 

@@ -21,10 +21,16 @@ sign-off, not declared.** The freeze record, `docs/planning/decisions/E7-interfa
 - **Blockers: all closed.** B1, the interface text (#273, PR #279). B2, never steer
   (#274, PR #278). B3 and B4, fixtures and binding owners (#275, PR #284). B5, L9 before
   the freeze (#174, PR #272).
-- **What the operator signs (record §8).** Yes or no on the renamed adapter and transport
-  operations (`spec/interfaces.md` §9). Yes or no on what the freeze carries forward:
-  Codex receive-only until #69, same-install only until a transport binding meets
-  [IFC-TRN-080], never steer, and optional far-side receipts. Then FREEZE or NOT YET.
+- **What the operator signs (record §8).**
+  - Yes or no on the renamed adapter and transport operations (`spec/interfaces.md` §9).
+  - Yes or no on the two items that go beyond recorded decisions (record §4.2): (a)
+    cross-install waits for a transport binding meeting [SC-DLV-066] and [IFC-TRN-080],
+    not only for E5; (b) all Codex delivery goes through the queue, not only when busy.
+  - Then FREEZE or NOT YET.
+
+  Decisions the operator already recorded are listed for information only.
+- **Ruling.** Binding-format fixtures count toward the Gate S2 demonstration (orchestrator,
+  #47 comment 5978246563).
 - **Editorial fixes.** The SC-ID-080 fixture owner; a `spec/security.md` Appendix B note;
   the "Open epics" cell; `10-stages.md` §6 "Current verdict".
 - **Not frozen yet.** The draft markers in the four `spec/` documents stay until the
