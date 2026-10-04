@@ -12,7 +12,8 @@ for a harness with no reply tag (C6 §10, conflict C9), a closed 17-code error t
 precedence, and the retransmission and retry rules, including how receipts for several
 copies of one envelope combine (a retry on the implementation's own initiative only after the
 hand-off deadline plus the replay-window clock-skew allowance, by the sender's clock), and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
-code. Requirement area `RCP`: 56 ids in Appendix A. New fixtures: 68 under
+code. A receiver re-checks the whole hand-off deadline (expiry and replay window) immediately
+before hand-off (SC-RCP-091/092). Requirement area `RCP`: 58 ids in Appendix A. New fixtures: 72 under
 `tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture
 under `sc-env/`, `sc-ver/` and `sc-id/`, and to the six refusing `send`-stage fixtures in
 `sc-id/`. Follow-up for `spec/bindings/mcp.md` (#46): drop its "placeholders by role"

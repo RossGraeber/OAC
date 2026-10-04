@@ -54,7 +54,8 @@
         "from": "01harn7x9k2m4p6q8r0s2t4v6w",
         "to": "2zq7c4m1x8t5k3w9b6n0r2v7pd"
       }
-    ]
+    ],
+    "replay_window_ms": 300000
   },
   "input": {
     "envelope": {

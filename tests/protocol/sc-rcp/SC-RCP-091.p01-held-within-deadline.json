@@ -1,11 +1,10 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SC-RCP-079",
+  "requirement": "SC-RCP-091",
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
-  "kind": "negative",
-  "failure_mode": "envelope delivered to a session that does not accept active delivery",
-  "description": "Henry's own capabilities entry has `active_inbound` set to `false` (SC-ID-105). Alice is authorized, so the delivery stage reports `unsupported-capability`.",
+  "kind": "positive",
+  "description": "The envelope has no `ttl_ms`. It arrives at once and is handed off 4 minutes after `created_at`, inside the 5-minute replay window.",
   "stage": "routing",
   "context": {
     "receiver_time": "2026-10-03T12:00:01.000Z",
@@ -35,13 +34,6 @@
         "content_types": [
           "text"
         ]
-      },
-      "4hn2c7q9k1m5x3t8b0w6r4z1vd": {
-        "accepting": true,
-        "content_types": [
-          "text"
-        ],
-        "active_inbound": false
       }
     },
     "authorized": [
@@ -60,22 +52,18 @@
       {
         "from": "01harn7x9k2m4p6q8r0s2t4v6w",
         "to": "2zq7c4m1x8t5k3w9b6n0r2v7pd"
-      },
-      {
-        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
-        "to": "4hn2c7q9k1m5x3t8b0w6r4z1vd"
       }
     ],
-    "replay_window_ms": 300000
+    "replay_window_ms": 300000,
+    "handoff_time": "2026-10-03T12:04:00.000Z"
   },
   "input": {
     "envelope": {
       "version": "0.1",
       "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
       "from": "01harn7x9k2m4p6q8r0s2t4v6w",
-      "to": "4hn2c7q9k1m5x3t8b0w6r4z1vd",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
       "created_at": "2026-10-03T12:00:00.000Z",
-      "ttl_ms": 300000,
       "content": [
         {
           "type": "text",
@@ -91,7 +79,6 @@
     }
   },
   "expected": {
-    "result": "rejected",
-    "error": "unsupported-capability"
+    "result": "valid"
   }
 }

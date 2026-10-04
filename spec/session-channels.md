@@ -1397,11 +1397,34 @@ later retransmission (§8.4). How a receiver recognizes a copy is defined in
 `spec/security.md`.
 
 An envelope's **hand-off deadline** is the earlier of its expiry instant (§4.9), when it
-has one, and the end of the replay window of `spec/security.md` for its `created_at`. The
-replay window bounds `created_at` whatever `ttl_ms` says (§4.9), so no receiver can hand off
-any copy of an envelope after its hand-off deadline, read on that receiver's own clock.
+has one, and the end of the replay window of `spec/security.md` for its `created_at`. Its
+**binding bound** is whichever of the two is earlier; when the envelope has no `ttl_ms`, or
+its expiry instant is later than the end of the replay window, the binding bound is the
+replay window.
+
+A receiver checks the replay window when an envelope arrives (`spec/security.md`) and may
+then hold the envelope before hand-off ([SC-ENV-101]). Checking the deadline on arrival
+alone would let a held envelope reach the harness at any later time.
+
+[SC-RCP-091] A receiver MUST NOT hand off an envelope at or after its hand-off deadline,
+read on the receiver's own clock.
+
+[SC-RCP-092] A receiver that does not hand off an envelope under [SC-RCP-091] MUST report
+`expired` with the code `expired` when the binding bound is the expiry instant, and with
+the code `outside-replay-window` when the binding bound is the replay window.
+
+The receiver evaluates [SC-RCP-091] immediately before the hand-off call (delivery stage,
+step 4, §8.3.2), whatever it checked on arrival. With it, no receiver hands off any copy of
+an envelope after the envelope's hand-off deadline, read on that receiver's own clock.
 Section 8.4.2 adds the clock-skew margin a sending implementation needs before it relies on
 this for a retry.
+
+[SC-RCP-091] also closes a gap in duplicate suppression. A duplicate-suppression store
+forgets an envelope once its replay window has passed
+(`docs/planning/decisions/C5-envelope-auth.md` §8). Without a check at hand-off, a copy
+verified inside the window and held past it could be handed off after the store forgot the
+earlier copy. With the check, no copy is handed off after the point at which the store may
+forget, so eviction cannot let a duplicate through.
 
 [SC-RCP-010] A sending implementation SHOULD report `unknown` for an envelope once its
 hand-off deadline has passed, when its combined state (§8.4.1) is still
@@ -1652,10 +1675,10 @@ Table 8.3.
 | `malformed-envelope` | envelope | `rejected` | receiver | The envelope fails a requirement of §4, §5.4 or §6.1 that no other code in this table covers. | None: the sender is defective. |
 | `unsupported-version` | envelope | `rejected` | receiver, request | The major version is not one the receiver supports ([SC-VER-001]); as a request error, no version is agreed with the addressed session (§6.5). | Retry under a major version the receiver supports (§6.5). |
 | `unsupported-content-type` | envelope | `rejected` | receiver, request | A content part's `type` is one the receiver supports for no session ([SC-ENV-065], [SC-RCP-076]); as a request error, the addressed session has not advertised it ([SC-ENV-066]). | Retry with supported part types. |
-| `expired` | envelope | `expired` | receiver | The expiry instant has passed ([SC-ENV-100], [SC-ENV-101]). | Retry, if the message is still wanted. |
+| `expired` | envelope | `expired` | receiver | The expiry instant has passed ([SC-ENV-100], [SC-ENV-101]), or at hand-off the binding bound is the expiry instant ([SC-RCP-092]). | Retry, if the message is still wanted. |
 | `unknown-key` | security | `rejected` | receiver | `security.key_id` names no key the receiver trusts. | None until the devices are paired. |
 | `signature-invalid` | security | `rejected` | receiver | The signature does not verify. | None: investigate. |
-| `outside-replay-window` | security | `expired` | receiver | `created_at` is outside the receiver's replay window. | Retry once the clocks agree. |
+| `outside-replay-window` | security | `expired` | receiver | `created_at` is outside the receiver's replay window on arrival, or at hand-off the binding bound is the replay window ([SC-RCP-092]; reported at delivery stage, step 4). | Retry once the clocks agree. |
 | `duplicate` | security | `duplicate` | receiver | The envelope is a copy of one that was handed off, may have been, or is being handed off ([SC-RCP-009]). | None ([SC-RCP-081]). |
 | `unauthorized` | security | `rejected` | receiver, request | The sender, or the requesting harness, is not authorized for the operation. | None until authorized. |
 | `unknown-destination` | delivery | `unreachable` | sender, receiver, request | No session with the addressed id is known to the observer. | None. |
@@ -1716,7 +1739,9 @@ Within the delivery stage, the checks run in this order:
 2. whether it is accepting input now: `destination-unavailable`;
 3. whether it has every capability the envelope needs, including its size and part types:
    `unsupported-capability`;
-4. expiry, repeated at hand-off ([SC-ENV-101]): `expired`;
+4. the hand-off deadline, expiry and replay window both, re-checked immediately before the
+   hand-off call ([SC-ENV-101], [SC-RCP-091]): `expired` or `outside-replay-window`
+   ([SC-RCP-092]);
 5. the hand-off call: `handoff-failed`.
 
 [SC-RCP-078] A receiver MUST report the code of the earliest failed step when an envelope
@@ -1731,7 +1756,8 @@ passed the security stage.
 The order within the security stage is defined in `spec/security.md`. [SC-RCP-073] also
 limits what an unauthorized sender learns: whether a session exists, or is available, is
 reported only to a sender that passed authorization. The expiry check that [SC-ENV-101]
-repeats at hand-off still reports `expired`.
+repeats at hand-off reports `expired`, and the replay-window part of the same
+re-check reports `outside-replay-window` ([SC-RCP-092]).
 
 [SC-RCP-074] An implementation MUST NOT emit an error code that Table 8.3 of the revision
 it implements does not list.
@@ -1909,7 +1935,7 @@ Fixtures for this section follow §3.3 and live under `tests/protocol/sc-rcp/`. 
 | `reply` | `handed_off`: an array of hand-off records, each an object with `id`, `from`, `to` and, when present, `conversation_id` and `correlation_id` | `reply_request`: an object with `from` (the replying session), `to` (the addressed session) and, optionally, `requested_target` | `reply_headers`: an object holding exactly those of `reply_to`, `conversation_id` and `correlation_id` that the implementation sets; `correlation`: `correlated` or `uncorrelated` |
 | `correlation` | `receiver_time` and `supported_major_versions` as in §3.3, and `sent`: an array of sent-envelope records, with the members of a hand-off record | `envelope`, as in §3.3 | `result`, as in §3.3; `correlation`: `matched` or `unmatched`; for `matched`, `answers`: an object with the `id` and `from` of the answered envelope |
 | `combine` | `copies_passed`: the number of copies passed to a transport; `deadline_passed`: whether the retry deadline of §8.4.2 (the hand-off deadline plus the replay-window skew allowance, on the sending implementation's clock) has passed | `held`: an array of the states held for the envelope, in arrival order, each an object with `state`, `observer` and, when present, `error` | `state`: the combined state ([SC-RCP-085]); `retry_allowed`: whether a retry on the implementation's own initiative is permitted without deviating from §8.4.2. With `copies_passed` 0 it is true only when `state` is an error state. Otherwise it is true only when `deadline_passed` is true, `state` is neither `handed-to-harness` nor `duplicate`, and no `held` entry is a receiver-observed `unknown`. The error states are `rejected`, `expired`, `unreachable` and `failed`; `duplicate` is not one (§8.4.1). ([SC-RCP-080] to [SC-RCP-082], [SC-RCP-086], [SC-RCP-087]) |
-| `routing` | `receiver_time` and `supported_major_versions` as in §3.3; `receiver_content_types`: the part types the receiver supports for at least one session; `sessions`: an object whose members are the session ids the receiver knows, each an object with `accepting` (a boolean), `content_types` (an array) and optionally `active_inbound` (a boolean, `true` when omitted); `authorized`: an array of objects with `from` and `to`, the sender-to-session pairs that pass authorization. Every other security-stage check is taken as passed. | `envelope`, as in §3.3 | `result`: `valid`, `rejected`, `expired` or `unreachable`; for a result other than `valid`, `error` |
+| `routing` | `receiver_time` and `supported_major_versions` as in §3.3; `receiver_content_types`: the part types the receiver supports for at least one session; `sessions`: an object whose members are the session ids the receiver knows, each an object with `accepting` (a boolean), `content_types` (an array) and optionally `active_inbound` (a boolean, `true` when omitted); `authorized`: an array of objects with `from` and `to`, the sender-to-session pairs that pass authorization; `replay_window_ms`: the time after `created_at` at which the receiver's replay window ends (300000 under C5 §7); optionally `handoff_time`, the receiver's clock at the hand-off attempt (`receiver_time` when omitted). Every other security-stage check is taken as passed on arrival. | `envelope`, as in §3.3 | `result`: `valid`, `rejected`, `expired` or `unreachable`; for a result other than `valid`, `error` |
 
 Every negative `envelope`-stage fixture, in `sc-rcp/` and in `sc-env/` and `sc-ver/`,
 carries `expected.error`: the code that [SC-RCP-070] and [SC-RCP-071] require.
@@ -2165,6 +2191,8 @@ requirement whose fixtures exercise it.
 | SC-RCP-086 | MUST NOT | 8.4.2 | `sc-rcp/SC-RCP-086.p01`, `.p02`, `.n01`, `.n02`; live retry behaviour: F6 |
 | SC-RCP-087 | MAY | 8.4.2 | none (MAY); `retry_allowed` in `sc-rcp/SC-RCP-086.p01`, `.p02` reflects it |
 | SC-RCP-090 | MUST | 8.3.3 | `sc-rcp/SC-RCP-090.n01`, `.n02` |
+| SC-RCP-091 | MUST NOT | 8.1.3 | `sc-rcp/SC-RCP-091.p01`, `.n01`, `.n02`; the live re-check immediately before the hand-off call: TODO(fixture), F6 receipt state machine |
+| SC-RCP-092 | MUST | 8.1.3 | `sc-rcp/SC-RCP-092.n01`, and the `expected.error` of `sc-rcp/SC-RCP-091.n01`, `.n02` |
 
 Retired ids: none.
 
