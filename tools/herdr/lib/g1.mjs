@@ -357,8 +357,13 @@ export function mcpMultiSelectForm(text, v = MCP_MULTISELECT) {
     else form.unknown.push(line.trim());
   }
   if (!form.submit) form.unknown.push(`(no "${v.submit}" row)`);
-  // A selection marker below the footer (a second dialog, a stray picker) counts too.
-  if (foot) for (const line of rest.slice(foot.index + foot[0].length).split('\n')) if (MS_ANY_MARK.test(line.replace(BOX_CHARS, ' '))) form.marked += 1;
+  // A selection marker below the footer (a second dialog, a stray picker) counts too, and a
+  // second copy of the form's heading there is off record whatever its markers.
+  if (foot) {
+    const below = rest.slice(foot.index + foot[0].length);
+    for (const line of below.split('\n')) if (MS_ANY_MARK.test(line.replace(BOX_CHARS, ' '))) form.marked += 1;
+    if (v.heading.test(below)) form.unknown.push('(a second copy of the form below its footer)');
+  }
   return form;
 }
 
@@ -402,6 +407,7 @@ function multiSelectCheck(screen, expect, prev, verify, v = MCP_MULTISELECT) {
   if (f.unknown.length) return { state: 'wait', why: `text off record on screen (${JSON.stringify(f.unknown)})` };
   const names = f.servers.map((x) => x.name);
   if (JSON.stringify(names) !== JSON.stringify(verify.servers)) return { state: 'stop', why: `the listed servers are now ${JSON.stringify(names)}, not ${JSON.stringify(verify.servers)}` };
+  if (f.count !== names.length) return { state: 'stop', why: `the heading now counts ${f.count} servers but ${names.length} are listed` };
   if (f.servers.some((x) => !x.ticked)) return { state: 'stop', why: `a server is no longer shown ticked (${JSON.stringify(f.servers.filter((x) => !x.ticked).map((x) => x.name))})` };
   if (f.marked !== 1) return { state: 'wait', why: `${f.marked} selection markers on screen, not exactly one` };
   const now = msCurrent(f, v);

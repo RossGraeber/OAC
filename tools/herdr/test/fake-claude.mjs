@@ -32,6 +32,8 @@
 //   FAKE_CLAUDE_MCP_SERVERS     mcp-multiselect: the servers listed (default: .mcp.json's)
 //   FAKE_CLAUDE_MCP_UNTICKED    mcp-multiselect: listed servers shown unticked
 //   FAKE_CLAUDE_MCP_CURSOR      mcp-multiselect: the row selected first (default 0)
+//   FAKE_CLAUDE_MCP_DOUBLE_MARK mcp-multiselect: 1 = ❯ also stays on the last server row
+//                               while "Enable selected" is selected
 //   FAKE_CLAUDE_IGNORE_KEYS     1 = up/down never move an option dialog's selection
 //   FAKE_CLAUDE_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                               operator pressing Enter outside the driver)
@@ -215,6 +217,7 @@ async function mcpMultiSelect() {
   const unticked = new Set(list(env.FAKE_CLAUDE_MCP_UNTICKED) ?? []);
   const ticked = servers.map((s) => !unticked.has(s));
   let sel = Number(env.FAKE_CLAUDE_MCP_CURSOR || 0);
+  const DOUBLE_MARK = env.FAKE_CLAUDE_MCP_DOUBLE_MARK === '1';
   const render = () => [
     `  ${servers.length} new MCP servers found in this project`,
     '  Select any you wish to enable.',
@@ -222,7 +225,9 @@ async function mcpMultiSelect() {
     '  MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP',
     '  documentation.',
     '',
-    ...servers.map((s, i) => `${i === sel ? '  ❯ ' : '    '}[${ticked[i] ? '✔' : ' '}] ${s}`),
+    // FAKE_CLAUDE_MCP_DOUBLE_MARK=1: with "Enable selected" selected, the last server row keeps
+    // its ❯ too (a torn redraw; the driver must never take it as a verified move).
+    ...servers.map((s, i) => `${i === sel || (DOUBLE_MARK && sel === servers.length && i === servers.length - 1) ? '  ❯ ' : '    '}[${ticked[i] ? '✔' : ' '}] ${s}`),
     `${sel === servers.length ? '  ❯    ' : '       '}Enable selected`,
     ' Space to select · Esc to reject all',
   ].join('\n');
