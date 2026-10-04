@@ -901,9 +901,10 @@ provide.
 
 [IFC-TRN-026] A transport MUST declare `persistence` and `offline_queueing` absent.
 
-*Dated note, 2026-10-04 (#273): the review of PR #279 ruled that a transport refuses right away
-and that OAC never holds messages, as the receiver already does under [SC-DLV-007] (the
-#43 decision recorded there). Persistence and offline queueing are a durable offline mailbox,
+*Dated note, 2026-10-04 (#273): this applies the operator decision on #43 (2026-10-03):
+refuse right away, OAC never holds messages, and no offline mailbox in v0.1. The receiver
+already follows it under [SC-DLV-007]. The review of PR #279 applied the same decision to the
+transport. Persistence and offline queueing are a durable offline mailbox,
 which `docs/planning/ADR-001.md` ("v0.1 scope") defers. They stay in the declaration so that a
 later revision can define them; in this revision they are refused, and [IFC-TRN-033]
 to [IFC-TRN-036] state what a transport may hold.*
@@ -1222,7 +1223,7 @@ the operation's meaning changed.
 | `announce_presence(record)` | `send_presence(device, authenticated presence record, Deadline)` (§6.5) | Renamed: it is not a broadcast announcement but a directed send of one record, announcement or withdrawal, to one audience ([SEC-PRS-011]); reachability alone is not a record (C7 §4 gap) |
 | `watch_presence(handler)` | records and carrier losses, each with a carrier handle (§6.6) | Same meaning; carrier loss is per link ([SC-DLV-046]) |
 | "Optional capabilities: reliability, persistence, offline queueing, ordering, multicast discovery, routing/federation" | declared booleans, plus `reach`, `destination_restricted`, `max_payload_octets` (§6.3) | Declared, not assumed (E7 acceptance); cross-implementation gating ([IFC-TRN-081]) |
-| "persistence", "offline queueing" | declared, and always absent in this revision ([IFC-TRN-026]) | v0.1 refuses them: OAC never holds messages (ruling in the review of PR #279; #43; `docs/planning/ADR-001.md` "v0.1 scope" defers offline mailboxes) |
+| "persistence", "offline queueing" | declared, and always absent in this revision ([IFC-TRN-026]) | v0.1 refuses them: OAC never holds messages (operator decision on #43, applied in the review of PR #279; `docs/planning/ADR-001.md` "v0.1 scope" defers offline mailboxes) |
 | A "binding/mapping annex" naming the v0.1 harnesses and transport | adapter and transport binding documents ([IFC-ADP-080], [IFC-TRN-090]) | Neutral text names no harness or transport (§7) |
 
 ---
