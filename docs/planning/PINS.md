@@ -776,14 +776,20 @@ semver, and are recorded verbatim — never reformatted.
        `8544776216a8d28088db59a5344ea21ee2d05d2b`.
     3. `herdr.exe` inside the zip hashes to `007781…9b6`, byte-identical to the installed
        binary.
-  - Linux and macOS: the expected value is the API asset digest, and each digest has a
-    release attestation. `gh release verify-asset` on each downloaded asset would confirm
-    that the asset is the release's, as for Windows. That has not been run (UNVERIFIED).
+  - All five assets, Linux and macOS included (verified 2026-10-03, no download):
+    `gh release verify v0.9.1 --repo herdrdev/herdr` resolved tag `v0.9.1` to sha1
+    `8544776216a8d28088db59a5344ea21ee2d05d2b`, loaded the release attestation from the
+    GitHub API, and printed "Release v0.9.1 verified!". It lists `herdr-linux-aarch64`
+    `f4ccf4de…`, `herdr-linux-x86_64` `2a02fed1…`, `herdr-macos-aarch64` `5fc7a7e7…`,
+    `herdr-macos-x86_64` `053be063…` and `herdr-windows-x86_64.zip` `04ce380c…`. Each
+    equals that row's asset digest below. For Linux and macOS the asset is the executable,
+    so the expected value is attested directly. No run has yet hashed an installed herdr on
+    those platforms. A mismatch there would be `NOT RUN`, and a finding to look into.
 
 | Platform | Release asset | Asset digest (sha256) | Expected executable sha256 | First-party | Basis |
 |---|---|---|---|---|---|
 | `win32-x64` | `herdr-windows-x86_64.zip` | `04ce380cac5af27bfcf75d0951ac49b7afe4c984aee8852985806d4f71f93a6e` | `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` | yes | First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`). |
-| `linux-x64` | `herdr-linux-x86_64` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | yes | The release's own asset digest. The asset name has no archive extension, so it is taken to be the bare executable. No run has yet hashed an installed herdr on this platform; a mismatch there is `NOT RUN` and a finding to look into. |
+| `linux-x64` | `herdr-linux-x86_64` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | yes | The release's own asset digest, listed under the `v0.9.1` release attestation by `gh release verify v0.9.1 --repo herdrdev/herdr` (2026-10-03, above). The asset name has no archive extension, so it is taken to be the bare executable. No run has yet hashed an installed herdr on this platform; a mismatch there is `NOT RUN` and a finding to look into. |
 | `linux-arm64` | `herdr-linux-aarch64` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | yes | As `linux-x64`. |
 | `darwin-x64` | `herdr-macos-x86_64` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | yes | As `linux-x64`. |
 | `darwin-arm64` | `herdr-macos-aarch64` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | yes | As `linux-x64`. |

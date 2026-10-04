@@ -470,7 +470,8 @@ who did it. Nothing else in the record is signed.
   For a verified file, that manifest must be the #252 driver's (`schemaVersion` 3, or
   carrying `herdr.executableCheck`). It must record a first-party `match`, and its
   expected value must equal PINS.md's committed row for the platform, and the row at the
-  run's driver commit when that commit is in the repository. The stated herdr hash must
+  run's driver commit when that commit is in the repository (CI checks out full history,
+  `fetch-depth: 0`, so it runs there too). The stated herdr hash must
   be the manifest's. The script refuses a `-herdr` fixture from a run whose
   `herdr.executableCheck` is not `match`, or from a `schemaVersion` 3 manifest without
   one. It proves completeness and those bindings. The rest is the recording agent's
@@ -480,7 +481,8 @@ who did it. Nothing else in the record is signed.
   `G5-result.md`. They stay as written. The checker accepts a complete attestation only
   when all of these hold:
   - the run manifest is pre-#252 (`schemaVersion` <= 2, no `executableCheck`);
-  - the record is dated no later than 2026-10-03;
+  - the run started no later than 2026-10-03, by the date the driver recorded (run
+    manifest `timebox.start`; missing is refused), never the file name;
   - the file carries the callout `> **Pre-#252 attestation (history).**`, which says it is
     not a current basis.
 

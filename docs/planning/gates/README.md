@@ -88,7 +88,7 @@ record to a committed, parseable run manifest: an equivalence record its own, an
 Driver line names. A verified record needs, in that manifest:
 - a first-party `match`;
 - an expected value equal to PINS.md's committed row for the platform, and to the row at
-  the run's driver commit when that commit is present;
+  the run's driver commit when that commit is present (CI fetches full history, so it is);
 - the herdr sha256 the record states.
 
 A `schemaVersion` 1 run manifest predates
@@ -99,7 +99,7 @@ key. The record states those from the evidence, or as UNVERIFIED, and names any 
 action and who did it (`oac-gates` `references/scripted-runs.md` "Verification"). The
 script checks that the verification section is present and complete wherever one is
 required. An operator attestation from before #252 is accepted as history only on a
-pre-#252 run manifest, from a record dated no later than 2026-10-03, and with the
+pre-#252 run manifest, from a run whose `timebox.start` is no later than 2026-10-03, and with the
 `> **Pre-#252 attestation (history).**` callout.
 `node scripts/check-fixture-manifest.mjs --self-test` plants one violation per rule.
 
@@ -297,7 +297,7 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   the human-run Box C and is unaffected. That record and `G5-result.md` keep the
   `## Operator attestation` of their time as history. `node
   scripts/check-fixture-manifest.mjs` accepts such a section only with that callout, on a
-  pre-#252 run manifest, from a record dated no later than 2026-10-03.
+  pre-#252 run manifest, from a run whose `timebox.start` (the driver's date, not the file name) is no later than 2026-10-03.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers

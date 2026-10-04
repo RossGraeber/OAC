@@ -297,7 +297,7 @@ function driverBlockProblems(entry, root, tracked, warn = () => {}) {
 //    driver commit when that commit is in the repository). The stated herdr sha256 must be
 //    the manifest's.
 //  - Attestation form (pre-#252 history): accepted only on a pre-#252 manifest (schemaVersion
-//    <= 2 and no executableCheck), from a record dated no later than the #252 cut-off, and
+//    <= 2 and no executableCheck), from a run the driver dated (timebox.start) no later than the #252 cut-off, and
 //    only with the `> **Pre-#252 attestation (history).**` callout saying it is not a current
 //    basis. Its herdr hash must still equal a schemaVersion 2 manifest's.
 const PRE252_CALLOUT = /^> \*\*Pre-#252 attestation \(history\)\.\*\*/m;
@@ -356,8 +356,11 @@ function evidenceProblems(text, file, root, tracked, form, isRecord) {
   const out = [];
   if (form === 'attestation') {
     if (by252) return [`its run manifest ${rm} was written by the #252 driver, so it carries a \`## Verification\` section, not an operator attestation`];
-    const date = /-(\d{4}-\d{2}-\d{2})\.md$/.exec(record)?.[1];
-    if (date && date > CUTOFF_252) out.push(`its record ${record} is dated after #252 (${CUTOFF_252}), so it carries a \`## Verification\` section, not an operator attestation`);
+    // The run's date is the one the driver recorded (timebox.start), never the file name.
+    const start = run?.timebox?.start;
+    const date = typeof start === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(start) ? start.slice(0, 10) : null;
+    if (!date) out.push(`its run manifest ${rm} records no timebox.start, so nothing shows the run predates #252; an operator attestation is accepted only for a run the driver dated on or before ${CUTOFF_252}`);
+    else if (date > CUTOFF_252) out.push(`its run started ${date} (run manifest timebox.start), after #252 (${CUTOFF_252}), so it carries a \`## Verification\` section, not an operator attestation`);
     if (!PRE252_CALLOUT.test(text)) out.push('it carries a pre-#252 operator attestation without the `> **Pre-#252 attestation (history).**` callout that says it is not a current basis (#252)');
   } else {
     if (!by252) return [`its run manifest ${rm} predates #252 (no herdr.executableCheck), so herdr cannot be VERIFIED`];
@@ -572,6 +575,7 @@ const RUN = {
   schemaVersion: 2,
   outcome: 'PASS',
   driver: { commit: COMMIT, toolsHerdrDirty: false },
+  timebox: { start: '2026-10-01T00:00:00.000Z' },
   herdr: { observedVersionOutput: 'herdr 0.9.1', executable: HERDR_EXE },
   captures: [posix.basename(HERDR_FIXTURE), posix.basename(UNVERIFIED_FIXTURE)].map((file) => ({ file, written: true, sha256: sha256(FIXTURE_BYTES) })),
 };
@@ -660,7 +664,10 @@ const SELF_TEST_CASES = [
   { name: 'committed -herdr file with no manifest entry', expect: 'has no MANIFEST.json entry', ...tree({ entries: [], extraFiles: [HERDR_FIXTURE] }) },
   { name: 'control (history): pre-#252 equivalence record with a complete operator attestation and its history callout', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION}` }) },
   { name: '#252: pre-#252 attestation without the history callout', expect: 'without the `> **Pre-#252 attestation (history).**` callout', ...tree({ entries: [herdrEntry(DRIVER)], record: `${EQUIV}\n${ATTESTATION_BODY}` }) },
-  { name: '#252: an operator attestation on a record dated after #252', expect: 'is dated after #252', ...tree({ entries: [], recordPath: `${herdrRunsDir}/G1-2026-10-05.md`, record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: '#252: an operator attestation on a run the driver dated after #252 (timebox.start)', expect: 'after #252 (2026-10-03)', ...tree({ entries: [], run: runWith({ timebox: { start: '2026-10-05T09:00:00.000Z' } }), record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: '#252: an operator attestation on a backdated record name whose run started after #252', expect: 'after #252 (2026-10-03)', ...tree({ entries: [], recordPath: `${herdrRunsDir}/G1-2026-09-01.md`, run: runWith({ timebox: { start: '2026-10-05T09:00:00.000Z' } }), record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: '#252: an operator attestation on an undated record name whose run manifest records no timebox.start', expect: 'records no timebox.start', ...tree({ entries: [], recordPath: `${herdrRunsDir}/G1-undated.md`, run: runWith({ timebox: undefined }), record: `${EQUIV}\n${ATTESTATION}` }) },
+  { name: 'control (#252): an operator attestation on an undated record name whose run started before #252', expect: 'pass', ...tree({ entries: [], recordPath: `${herdrRunsDir}/G1-undated.md`, record: `${EQUIV}\n${ATTESTATION}` }) },
   { name: '#252: an operator attestation on a run the #252 driver recorded', expect: 'carries a `## Verification` section, not an operator attestation', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${ATTESTATION}` }) },
   { name: 'equivalence record with neither a verification nor an attestation', expect: 'has no `## Verification` section', ...tree({ entries: [herdrEntry(DRIVER)], record: EQUIV }) },
   { name: 'control (#252): equivalence record with a complete verification, its schemaVersion 3 run manifest recording a first-party match that PINS.md agrees with', expect: 'pass', ...tree({ entries: [herdrEntry(DRIVER)], run: RUN_252, record: `${EQUIV}\n${VERIFICATION}` }) },
