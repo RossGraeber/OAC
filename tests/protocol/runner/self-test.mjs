@@ -175,6 +175,9 @@ export function selfTest() {
     'capitalised owner': iface.replace(rct, rct.replace('| core |', '| Core |')),
     'backticked area': iface.replace(rct, rct.replace('| SEC-RCT |', '| `SEC-RCT` |')),
     'row under a C.1 subheading': iface.replace(rct, `${rct}\n\n### C.1 More rows\n\n| SEC-RCT | adapter | 001 |`),
+    'row without a leading pipe': iface.replace(rct, `${rct}\nSEC-STG | adapter | 001 |`),
+    'row without outer pipes': iface.replace(rct, `${rct}\nSEC-STG | adapter | 001`),
+    'row with two leading spaces': iface.replace(rct, `${rct}\n  | SEC-STG | adapter | 001 |`),
   };
   for (const [name, text] of Object.entries(planted)) {
     expect(`owner index: planted ${name} is applied`, text !== iface);

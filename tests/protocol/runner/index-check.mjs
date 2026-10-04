@@ -143,8 +143,9 @@ export function checkIndexes(read, fixtures) {
 // documents has exactly one owner. The appendix runs from its heading to the next top-level
 // `## ` heading, subheadings included. Its table has the header `| Area | Owner | Requirements |`,
 // the separator `|---|---|---|`, and rows `| <DOC>-<AREA> | <owner> | NNN, NNN, ... |`, where
-// <owner> is exactly one of OWNERS. Any other line that starts with `|` is a malformed row and
-// fails: no row is skipped silently.
+// <owner> is exactly one of OWNERS, written from column 1. Any other line that contains `|`
+// outside a fenced code block or an HTML comment is a malformed row and fails, including a row
+// without outer pipes or with leading spaces, which GitHub still renders: no row is skipped.
 export const OWNERS = ['adapter', 'core', 'transport', 'binding'];
 const OWNER_DOC = 'spec/interfaces.md';
 const OWNER_HEADING = '## Appendix C. Owner index';
@@ -158,11 +159,32 @@ export function ownerRows(text) {
   const rows = [];
   const problems = [];
   const lines = text.slice(start).split('\n');
+  let fence = null; // the fence marker while inside a fenced code block
+  let comment = false; // inside an HTML comment
   for (let k = 1; k < lines.length; k++) {
-    const line = lines[k].replace(/\s+$/, '');
-    if (/^## /.test(line)) break;
-    if (!line.startsWith('|')) continue;
-    if (line === '| Area | Owner | Requirements |' || line === '|---|---|---|') continue;
+    const raw = lines[k].replace(/\s+$/, '');
+    if (/^## /.test(raw)) break;
+    // GitHub renders a table row with up to three leading spaces and without outer pipes.
+    const line = raw.replace(/^ {0,3}/, '');
+    if (fence) {
+      if (line.startsWith(fence)) fence = null;
+      continue;
+    }
+    const f = /^(`{3,}|~{3,})/.exec(line);
+    if (f) {
+      fence = f[1];
+      continue;
+    }
+    if (comment || line.startsWith('<!--')) {
+      comment = !line.includes('-->');
+      continue;
+    }
+    if (!line.includes('|')) continue;
+    if (raw === '| Area | Owner | Requirements |' || raw === '|---|---|---|') continue;
+    if (raw !== line) {
+      problems.push(`${OWNER_DOC}:${base + k}: owner-index row with leading spaces: ${raw}`);
+      continue;
+    }
     const m = OWNER_ROW.exec(line);
     if (!m) {
       problems.push(`${OWNER_DOC}:${base + k}: malformed owner-index row (expected | <DOC>-<AREA> | ${OWNERS.join('/')} | NNN, NNN |): ${line}`);
