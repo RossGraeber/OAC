@@ -134,6 +134,22 @@ reservation rule the source text does not contain. Asserting such a rule would r
 the exact drift `REVERIFICATION-B2.md` D2 already caught in PLANNING-PROMPT.md §3.3 and
 `oac-mcp`'s own Pin section flags as corrected.
 
+*Dated correction, 2026-10-03 (#257, from PR #255 / #46): the guard above is right about
+SEP-2133's own text and wrong about MCP as a whole. The MCP base specification states the
+reservation, for `_meta` key prefixes, at both pinned revisions: "Any prefix where the second
+label is `modelcontextprotocol` or `mcp` is **reserved** for MCP use." Source:
+https://modelcontextprotocol.io/specification/2025-11-25/basic and
+https://modelcontextprotocol.io/specification/2026-07-28/basic, section "General fields" →
+"`_meta`", MCP revisions `2025-11-25` and `2026-07-28`, retrieved 2026-10-03. At
+`2026-07-28` the rule also binds extension identifiers: "Extension identifiers **MUST**
+follow the `_meta` key naming rules, with a mandatory prefix." Source:
+https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning, section
+"Extension Negotiation", MCP revision `2026-07-28`, retrieved 2026-10-03. Citing that
+reservation, with this source, is therefore correct; attributing it to SEP-2133 is not. The
+chosen identifier is unaffected: the second label of `io.github.rossgraeber` is `github`, so
+it collides with neither reserved label. `spec/bindings/mcp.md` §3 checks the identifier
+against it, and §6.1 quotes it.*
+
 ## 5. MCP is not the delivery mechanism
 
 Quoted verbatim (Source: PLANNING-PROMPT.md §3.3, retrieved 2026-09-15; re-verified

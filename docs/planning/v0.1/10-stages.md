@@ -44,7 +44,10 @@ criteria 2/3 f; Claude all criteria x) (dated note, 2026-10-03, #220: G5 is now 
 after its Codex-leg re-run under C13 §11 — see `docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level
 (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md` "Current stage," the
 project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
-exited. This file is not re-authored per gate result; only this caveat's own currency is
+exited. *(Dated note, 2026-10-03, #254: the "Pre-Stage 0" statement is stale. Read the
+current stage, and which stages are entered or exited, from `docs/planning/STATUS.md`
+"Current stage" and from this file's own "Current verdict" sections, not from this caveat.)*
+This file is not re-authored per gate result; only this caveat's own currency is
 corrected here. The criteria are the plan, not a report.
 
 ---

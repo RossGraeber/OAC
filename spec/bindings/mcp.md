@@ -568,8 +568,8 @@ The comparison holds the client's side fixed. A cancellation (`notifications/can
 a `ping` that arrives while the call is handled can change what the server sends: a server
 that honours a cancellation in one case but has already answered in the other produces a
 difference that comes from how long each case took. That is a timing difference, which
-[MCPB-TOOL-019] does not cover; it is left to `spec/security.md` with the other timing
-questions (reference implementation note below).
+[MCPB-TOOL-019] does not cover; it is left to `spec/security.md` §13.1 ([SEC-STG-005] and
+its timing residual) with the other timing questions (reference implementation note below).
 
 Requirement MCPB-TOOL-019 extends [MCPB-TOOL-017] from the `result` to everything else the
 caller observes about the call. A log line, a progress message, or any other notification
@@ -633,7 +633,7 @@ presence state, its capability declaration, or its other traffic stay under
 
 **Replies to a hidden sender.** Whether the bound session may reply to a message from a
 session it is not authorized to discover is governed by `spec/security.md` §9.5 (reply
-rights; E5, #45, PR #265 under review) together with `spec/session-channels.md`
+rights, [SEC-AUZ-014] to [SEC-AUZ-016]) together with `spec/session-channels.md`
 [SC-DLV-075]. This binding adds no refusal of its own on that question: none of its rules,
 [MCPB-TOOL-016], [MCPB-TOOL-017], [MCPB-TOOL-019], [MCPB-TOOL-020] and [MCPB-TOOL-021]
 included, refuses or hides a `reply` that those documents authorize.
@@ -654,7 +654,8 @@ form of it that reveals more than the caller sent.
 > order and whitespace, from differing between the two cases. Timing is a side channel the
 > fixtures above cannot test: answering one case faster than the other still reveals the
 > session, directly or through whether a cancellation arrives before the response. Timing
-> is left to `spec/security.md` (E5, #45), which owns discovery authorization.
+> is left to `spec/security.md` §13.1 ([SEC-STG-005] and its timing residual); that
+> document also owns discovery authorization (§9.4).
 
 *Dated note, 2026-10-03 (#262): an earlier draft of this change mapped a `send` to an
 unknown session to `unsupported-capability`, because E4 (#44) placed the
@@ -775,7 +776,7 @@ receipt fields. They are named in `spec/session-channels.md` §4.2 (envelope mem
 [MCPB-META-005] A receiver MUST NOT use a value read from `_meta`
 as evidence of a message's authenticity or sender.
 
-Authenticity comes from the envelope signature (`spec/security.md`, planned, E5; C5 §2-§6).
+Authenticity comes from the envelope signature (`spec/security.md` §6; C5 §2-§6).
 `_meta` is unsigned client- or server-supplied data. SEP-2133 says "Clients and servers
 SHOULD treat any new fields or data introduced as part of an extension as untrusted"
 (https://modelcontextprotocol.io/seps/2133-extensions, "Security Implications", retrieved

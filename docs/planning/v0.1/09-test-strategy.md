@@ -31,7 +31,10 @@ criteria 2/3 f; Claude all criteria x)
 (`docs/planning/gates/G5-result.md`) (dated note, 2026-10-03, #220: G5 is now **PASS**
 after its Codex-leg re-run under C13 §11), and G3 stays `NOT RUN` at gate level (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per
 `docs/planning/STATUS.md` "Current stage," the project is still at **Pre-Stage 0** — no
-E8/F8-F12/H1-H5 test exists yet. This file is the **design** these tasks build against,
+E8/F8-F12/H1-H5 test exists yet. *(Dated note, 2026-10-03, #254: the "Pre-Stage 0"
+statement is stale. Read the current stage from `docs/planning/STATUS.md` "Current stage"
+rather than from this caveat; this file does not restate it. E8's conformance fixtures have
+since started landing under `tests/protocol/`; no F8-F12 or H1-H5 test exists yet.)* This file is the **design** these tasks build against,
 not a report of tests that pass; a gate result is not one of the test tiers this file
 owns. Every "proves"/"asserts" statement below names what a built test will assert once
 its owning task lands, not a result.
@@ -442,7 +445,9 @@ Criterion text verbatim, `docs/planning/DESIGN.md` "v0.1 acceptance criteria" (l
 owning gate, where one applies, is `NOT RUN`** — no row is marked done ahead of its test
 actually existing and passing, per `docs/planning/backlog/05-tasks-GHIJ.json` task H5's
 own acceptance box: "Any unproven criterion is called out as a v0.1 gap rather than
-quietly marked done."
+quietly marked done." *(Dated note, 2026-10-03, #254: "Pre-Stage 0" here is stale; read
+the current stage from `docs/planning/STATUS.md` "Current stage", and gate verdicts from its
+Gate verdicts table. This table's statuses are not re-authored here.)*
 
 | # | Criterion (verbatim) | Named test | Tier | CI-default / opt-in | Current status |
 |---|---|---|---|---|---|
@@ -468,7 +473,9 @@ for orientation, and the proving test already named at §7 above (or cited to §
 currently passing proving test is an explicit v0.1 gap, per §14's row content and §15's
 "unproven-mitigation disposition" — none of the twenty-four rows (row 24 added by #236,
 2026-10-02) currently has a passing
-**test** (F11/H2/H3/G3/G7/G8/G9 are all `NOT RUN`, Pre-Stage 0), though rows 5, 16, and
+**test** (F11/H2/H3/G3/G7/G8/G9 are all `NOT RUN`, Pre-Stage 0 — dated note, 2026-10-03,
+#254: "Pre-Stage 0" is stale, read the current stage from `docs/planning/STATUS.md`
+"Current stage"; none of these tests has run yet), though rows 5, 16, and
 17's named gate has since run: gate **G1 `PASS`** (row 16 — originally on Claude Code
 `v2.1.282`, invalidated when the pin went floating 2026-09-27, re-run and PASSED again
 2026-09-28 on `v2.1.283`, see `docs/planning/gates/G1-result.md`), gate G2 `PASS` (row 17), and
