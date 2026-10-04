@@ -77,7 +77,7 @@ import { fileURLToPath } from 'node:url';
 import { DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
-import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
+import { committedFile, classifyScreen, driverMayAcceptExpecting, mcpServerNames, DIALOG_KINDS } from '../lib/g1.mjs';
 import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv } from '../lib/g2.mjs';
 import { descendants } from '../lib/proc.mjs';
 import { makeAgent, stopper, stageGateFiles, loopbackPortFree } from '../lib/gate-common.mjs';
@@ -178,7 +178,7 @@ export default {
     const stop = stopper(herdr, g4);
     let serverDir = null;
 
-    const claude = makeAgent({ ctx, g: g4, name: 'g4claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept, accept, num, stop });
+    const claude = makeAgent({ ctx, g: g4, name: 'g4claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => mcpServerNames(g4.mcpJson)), accept, num, stop });
     const codex = makeAgent({ ctx, g: g4, name: 'g4codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex, accept, num, stop });
 
     const transcriptPath = () => join(serverDir, 'transcript.jsonl');

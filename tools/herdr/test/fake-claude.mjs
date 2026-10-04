@@ -27,8 +27,13 @@
 //   FAKE_CLAUDE_VERSION         clientInfo.version on the wire (default 2.1.283)
 //   FAKE_CLAUDE_DIALOG          dev-channels (default) | unknown | wrong-selection | none |
 //                               workspace-trust | mcp-server-approval | mcp-unknown-options |
-//                               tool-permission,
+//                               tool-permission | mcp-multiselect (#267),
 //                               or a comma-separated sequence of these (#196)
+//   FAKE_CLAUDE_MCP_SERVERS     mcp-multiselect: the servers listed (default: .mcp.json's)
+//   FAKE_CLAUDE_MCP_UNTICKED    mcp-multiselect: listed servers shown unticked
+//   FAKE_CLAUDE_MCP_CURSOR      mcp-multiselect: the row selected first (default 0)
+//   FAKE_CLAUDE_MCP_DOUBLE_MARK mcp-multiselect: 1 = ❯ also stays on the last server row
+//                               while "Enable selected" is selected
 //   FAKE_CLAUDE_IGNORE_KEYS     1 = up/down never move an option dialog's selection
 //   FAKE_CLAUDE_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                               operator pressing Enter outside the driver)
@@ -199,11 +204,71 @@ async function optionDialog(kind) {
   await sleep(200);
 }
 
+// #267: the multi-select MCP approval form, as seen live on Claude Code 2.1.285 (lib/g1.mjs
+// MCP_MULTISELECT). The listed servers (FAKE_CLAUDE_MCP_SERVERS, default: every server in
+// .mcp.json), the unticked ones (FAKE_CLAUDE_MCP_UNTICKED) and the first selected row
+// (FAKE_CLAUDE_MCP_CURSOR, default 0, the first server; the last row is "Enable selected")
+// are configurable. up/down move the selection, space toggles a tick, Enter on "Enable
+// selected" confirms; Enter on a server row exits the fake, so a wrong Enter fails the run.
+// How the selection marker looks on the "Enable selected" row is this file's invention.
+async function mcpMultiSelect() {
+  const list = (v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : null);
+  const servers = list(env.FAKE_CLAUDE_MCP_SERVERS) ?? Object.keys(MCP);
+  const unticked = new Set(list(env.FAKE_CLAUDE_MCP_UNTICKED) ?? []);
+  const ticked = servers.map((s) => !unticked.has(s));
+  let sel = Number(env.FAKE_CLAUDE_MCP_CURSOR || 0);
+  const DOUBLE_MARK = env.FAKE_CLAUDE_MCP_DOUBLE_MARK === '1';
+  const render = () => [
+    `  ${servers.length} new MCP servers found in this project`,
+    '  Select any you wish to enable.',
+    '',
+    '  MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP',
+    '  documentation.',
+    '',
+    // FAKE_CLAUDE_MCP_DOUBLE_MARK=1: with "Enable selected" selected, the last server row keeps
+    // its ❯ too (a torn redraw; the driver must never take it as a verified move).
+    ...servers.map((s, i) => `${i === sel || (DOUBLE_MARK && sel === servers.length && i === servers.length - 1) ? '  ❯ ' : '    '}[${ticked[i] ? '✔' : ' '}] ${s}`),
+    `${sel === servers.length ? '  ❯    ' : '       '}Enable selected`,
+    ' Space to select · Esc to reject all',
+  ].join('\n');
+  setScreen(render());
+  hist(render());
+  setState('blocked');
+  for (;;) {
+    let done = false;
+    for (const k of newKeys().map((x) => x.trim())) {
+      if (k === 'enter') {
+        done = true;
+        break;
+      }
+      if (IGNORE_KEYS) continue;
+      if (k === 'down') sel = Math.min(servers.length, sel + 1);
+      if (k === 'up') sel = Math.max(0, sel - 1);
+      if (k === 'space' && sel < servers.length) ticked[sel] = !ticked[sel];
+      setScreen(render());
+    }
+    if (done) break;
+    await sleep(50);
+  }
+  if (sel !== servers.length) {
+    hist(`[mcp-multiselect: Enter on "${servers[sel]}"; exiting]`);
+    process.exit(0);
+  }
+  hist(`[mcp-multiselect: enabled ${JSON.stringify(servers.filter((_, i) => ticked[i]))}]`);
+  setState('working');
+  setScreen('Starting…');
+  await sleep(200);
+}
+
 async function dialog() {
   // FAKE_CLAUDE_DIALOG may list several dialogs, shown in turn (e.g.
   // workspace-trust,mcp-server-approval,dev-channels, the order Claude Code showed live).
   for (const kind of DIALOG.split(',').map((x) => x.trim())) {
     if (kind === 'none') continue;
+    if (kind === 'mcp-multiselect') {
+      await mcpMultiSelect();
+      continue;
+    }
     if (OPTION_DIALOGS[kind]) {
       await optionDialog(kind);
       continue;
