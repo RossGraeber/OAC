@@ -179,9 +179,32 @@ export function selfTest() {
     'row without outer pipes': iface.replace(rct, `${rct}\nSEC-STG | adapter | 001`),
     'row with two leading spaces': iface.replace(rct, `${rct}\n  | SEC-STG | adapter | 001 |`),
   };
+  // Code fences follow CommonMark §4.5 (#283). Appendix C runs to the end of the document, so
+  // these append after its last row. A malformed row after a line that is not a fence opener
+  // must be checked; one inside a real fence, up to a line that is a valid closer, must not.
+  const BAD = '| SEC-STG | adapter | 001 |';
+  const appended = (block) => `${iface.replace(/\n+$/, '')}\n\n${block}\n`;
+  // Not fences: a backtick in a backtick fence's info string makes the line a paragraph, so the
+  // row after it is rendered and must fail; the trailing ``` then opens a fence to the end.
+  planted['row after ```a`b (not a fence)'] = appended(`\`\`\`a\`b\n\n${BAD}\n\n\`\`\``);
+  planted['row after ```js `x` (not a fence)'] = appended(`\`\`\`js \`x\`\n\n${BAD}\n\n\`\`\``);
   for (const [name, text] of Object.entries(planted)) {
     expect(`owner index: planted ${name} is applied`, text !== iface);
     expect(`owner index: planted ${name} fails`, checkOwners(withInterfaces(text)).length > 0);
+  }
+  const fenced = {
+    'backtick fence with an info string': `\`\`\`text\n${BAD}\n\`\`\``,
+    'tilde fence with a backtick in its info string': `~~~a\`b\n${BAD}\n~~~`,
+    'longer closing fence': `\`\`\`\n${BAD}\n\`\`\`\`\``,
+    'indented fence and closer': `   \`\`\`\n${BAD}\n  \`\`\``,
+    '```js inside a fence is not a closer': `\`\`\`\n${BAD}\n\`\`\`js\n${BAD}\n\`\`\``,
+    'shorter run inside a fence is not a closer': `\`\`\`\`\n${BAD}\n\`\`\`\n${BAD}\n\`\`\`\``,
+    'other fence character is not a closer': `\`\`\`\n${BAD}\n~~~\n${BAD}\n\`\`\``,
+  };
+  // Control: the row with no fence around it fails, so a clean result below is the fence's doing.
+  expect('owner index: appended unfenced row fails', checkOwners(withInterfaces(appended(BAD))).length > 0);
+  for (const [name, block] of Object.entries(fenced)) {
+    expect(`owner index: ${name} stays clean`, checkOwners(withInterfaces(appended(block))).length === 0);
   }
   return failures;
 }
