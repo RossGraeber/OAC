@@ -21,6 +21,10 @@ const leBytes = (x) => {
 };
 const L = 2n ** 252n + 27742317777372353535851937790883648493n;
 import { parseTimestamp, isSessionId, isToken } from './core.mjs';
+import { checkOwners } from './index-check.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export function selfTest() {
   const failures = [];
@@ -150,5 +154,34 @@ export function selfTest() {
   expect('nine fraction digits', parseTimestamp('1970-01-01T00:00:00.000000001Z') === 1n);
   expect('session id', isSessionId('7gq3m8z2c5k9t1w4x6b0n2r8vd') && !isSessionId('8gq3m8z2c5k9t1w4x6b0n2r8vd') && !isSessionId('7gq3m8z2c5k9t1w4x6b0n2r8vu'));
   expect('token rejects trailing LF', !isToken('msg-1\n'));
+
+  // The owner index of spec/interfaces.md Appendix C (checkOwners): the committed text is clean,
+  // and each planted edit to it fails.
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const readRepo = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n');
+  const iface = readRepo('spec/interfaces.md');
+  const rowOf = (area, owner) => iface.split('\n').find((l) => l.startsWith(`| ${area} | ${owner} | `));
+  const withInterfaces = (text) => (rel) => (rel === 'spec/interfaces.md' ? text : readRepo(rel));
+  expect('owner index: committed text is clean', checkOwners(readRepo).length === 0);
+  const rct = rowOf('SEC-RCT', 'core'); // | SEC-RCT | core | 001, 002, 003, 004, 005 |
+  const env = rowOf('SC-ENV', 'adapter');
+  const planted = {
+    'removed id': iface.replace(rct, rct.replace(', 005 |', ' |')),
+    'id with two owners across rows': iface.replace(env, `${env}\n| SC-ENV | core | 064 |`),
+    'id twice within one row': iface.replace(rct, rct.replace('001, 002', '001, 001, 002')),
+    'owner harness': iface.replace(rct, rct.replace('| core |', '| harness |')),
+    'SHOULD id listed': iface.replace(rct, `${rct}\n| SEC-RPL | core | 031 |`),
+    'nonexistent id': iface.replace(rct, rct.replace(', 005 |', ', 005, 999 |')),
+    'capitalised owner': iface.replace(rct, rct.replace('| core |', '| Core |')),
+    'backticked area': iface.replace(rct, rct.replace('| SEC-RCT |', '| `SEC-RCT` |')),
+    'row under a C.1 subheading': iface.replace(rct, `${rct}\n\n### C.1 More rows\n\n| SEC-RCT | adapter | 001 |`),
+    'row without a leading pipe': iface.replace(rct, `${rct}\nSEC-STG | adapter | 001 |`),
+    'row without outer pipes': iface.replace(rct, `${rct}\nSEC-STG | adapter | 001`),
+    'row with two leading spaces': iface.replace(rct, `${rct}\n  | SEC-STG | adapter | 001 |`),
+  };
+  for (const [name, text] of Object.entries(planted)) {
+    expect(`owner index: planted ${name} is applied`, text !== iface);
+    expect(`owner index: planted ${name} fails`, checkOwners(withInterfaces(text)).length > 0);
+  }
   return failures;
 }
