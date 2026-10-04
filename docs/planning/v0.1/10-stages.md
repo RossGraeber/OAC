@@ -497,20 +497,23 @@ cannot be frozen without freezing the leak; the offending text is corrected and 
 is re-attempted. A failing criterion 4 (a fixture nothing can execute) blocks Stage 3,
 which loads those fixtures as its CI-default spec-conformance tier.
 
-**Current verdict (2026-10-04, #47): Gate S2 is not met. The freeze is prepared, not
+**Current verdict (2026-10-04, #47): Gate S2 is not met until the operator signs. The freeze is ready, not
 declared.** The proposed freeze record is `docs/planning/decisions/E7-interface-freeze.md`.
 It holds the readiness audit (§2), the blockers (§3), the markers edited at sign-off (§6),
 the change-control rule after the freeze (§7) and the operator sign-off block (§8). The
 freeze is the operator's decision.
 
-- **Closed:** the interface text, `spec/interfaces.md` (#273, PR #279); the #224
-  no-steering decision (#274, PR #278); L9 (#174, PR #272), landed before the freeze.
-- **Criteria:** 2, 3, 5 and 6 hold, and criterion 1 waits only for the operator's sign-off.
-  Criterion 4 holds for the 475 fixtures.
-- **Open:** the executable demonstration still lacks fixtures that decide
-  `envelope-too-large` and `transport-failure`, and 22 MCP binding `TODO(fixture)` rows
-  name no owner (#275, addressed by PR #284, open). Binding-format fixtures count toward
-  the demonstration, by an orchestrator ruling recorded in the freeze record §2.
+- **All five blockers are closed:**
+  - the interface text, `spec/interfaces.md` (#273, PR #279);
+  - the #224 no-steering decision (#274, PR #278);
+  - L9 (#174, PR #272), landed before the freeze;
+  - the deciding fixtures for `envelope-too-large` and `transport-failure`, and owners for
+    every MCP binding `TODO(fixture)` row (#275, PR #284, merge `3e4471e`).
+- **Criteria:** 2-6 hold. Criterion 4's demonstration now covers every error code and
+  delivery state over 527 fixtures. Binding-format fixtures count, by an orchestrator ruling
+  recorded in the freeze record §2.
+- **Only criterion 1 remains, and it is the operator's.** The operator signs the record's
+  §8, and the sign-off commit applies its §6 marker edits.
 
 *Dated note, 2026-10-04 (#47): two references above are M0-era.*
 
