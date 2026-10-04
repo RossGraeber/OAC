@@ -398,6 +398,13 @@ provenance verdict and is recorded here, on G4, because it is G4's own open item
     `content[0].text: "g4 echo: row41 modern probe"` and OAC
     `_meta["io.github.rossgraeber/oac-session-channels"]` provenance
     (`served_by_pid: 26152, surface: "http-modern"`).
+    *Dated correction, 2026-10-03 (#46): the line above under-reports
+    `x-codex-turn-metadata`. On line 17 it also carries `session_id`, `thread_id` and
+    `turn_id` (plus `reasoning_effort`, `thread_source`, `turn_trigger`, sandbox fields
+    and `turn_started_at_unix_ms`). The legacy-era calls in
+    `transcript-2026-09-26.jsonl` lines 48 and 50 carry the same fields. The verdict is
+    unchanged. `spec/bindings/mcp.md` §4.4 records why OAC does not attribute calls by
+    this undocumented, client-asserted field.*
   - **Every request on this leg negotiated the current MCP revision, `2026-07-28`, this
     time** — the first time any Codex client has done so against this server in either
     G4 run.

@@ -1425,7 +1425,7 @@ requirement whose fixtures exercise it.
 | SC-ID-043 | MUST NOT | 6.3 | TODO(fixture): routing and authorization paths; F11 |
 | SC-ID-044 | MUST | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, E8 |
 | SC-ID-045 | MUST NOT | 6.3 | TODO(fixture): descriptors are carried by discovery (§7.3); E3, H2 |
-| SC-ID-060 | MUST | 6.4 | `sc-id/SC-ID-060.n01` |
+| SC-ID-060 | MUST | 6.4 | covered by SC-ID-070 (`sc-id/SC-ID-070.n01`, `.n02`): a consumer can only show a non-object declaration holding no entries |
 | SC-ID-061 | MUST | 6.4 | `sc-id/SC-ID-061.n01`, `.n02` |
 | SC-ID-062 | MUST | 6.4 | `sc-id/SC-ID-062.n01`, `.n02` |
 | SC-ID-063 | MAY | 6.4 | none (MAY) |
@@ -1435,7 +1435,7 @@ requirement whose fixtures exercise it.
 | SC-ID-067 | MUST | 6.4 | `sc-id/SC-ID-067.p01` |
 | SC-ID-068 | MUST | 6.4 | `sc-id/SC-ID-068.n01` |
 | SC-ID-069 | MUST NOT | 6.4 | `sc-id/SC-ID-069.p01` |
-| SC-ID-070 | MUST | 6.4 | `sc-id/SC-ID-070.n01` |
+| SC-ID-070 | MUST | 6.4 | `sc-id/SC-ID-070.n01`, `.n02` |
 | SC-ID-080 | MUST | 6.5 | TODO(fixture): declaration carriage; E3 discovery, E6 binding |
 | SC-ID-081 | MUST NOT | 6.5 | TODO(fixture): declarer-side; F10 adapter contract suite |
 | SC-ID-082 | MUST | 6.5 | `sc-id/SC-ID-082.p01`, `.p02`, `.n01` |

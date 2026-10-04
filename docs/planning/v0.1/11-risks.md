@@ -155,6 +155,19 @@ list.
   Codex
   `0.157.1` never negotiated in either run — still tracked under this risk id at
   traceability row 41 below, even though the risk's core viability question is closed.
+- **Dated status, 2026-10-03 (#46).** `spec/bindings/mcp.md` §9 closes conflict-register
+  row C5: the tool surface no longer depends on which era Codex negotiates. Two new
+  UNVERIFIED items from that binding sit under this risk and in `docs/planning/STATUS.md`:
+  (a) whether a documented per-request session signal exists that OAC can bind to a
+  paired session. Codex's `_meta["x-codex-turn-metadata"]` does carry `session_id`,
+  `thread_id` and `turn_id` (G4 fixtures), but it is undocumented and client-asserted, so
+  it cannot pair alone. Until resolved, calls on any connection not bound by a documented
+  pairing are refused (interim, §4.4). No Codex connection is bound yet, so Codex outbound
+  calls are refused on both eras, including if Codex's default moves to `2026-07-28`;
+  (b) whether one Codex legacy-era connection carries several threads' calls (owner #69);
+  (c) whether legacy clients other than Codex `0.157.1`, Claude Code's channel path
+  included, accept an `extensions` member in an `initialize` result (MCPB-ERA-008, tested in
+  #65).
 
 ### RISK-G3 — Zenoh loopback discovery fails
 
@@ -415,6 +428,14 @@ list.
   the MCP `2026-07-28` schema on the next pin move. G4's own fallback (two
   server entry points) already isolates the legacy negotiation path from any
   current-era schema change (`docs/planning/v0.1/02-gating-findings.md` §6).
+- **Dated status, 2026-10-03 (#46): the existence question is closed.** The `2026-07-28`
+  schema defines `experimental?: { [key: string]: JSONObject }` on both
+  `ClientCapabilities` and `ServerCapabilities` (lines 720 and 797). Source:
+  https://github.com/modelcontextprotocol/modelcontextprotocol/blob/271ecc9accafdd9b83a3c869fa67c22953b2af80/schema/2026-07-28/schema.ts,
+  retrieved 2026-10-03. The ledger item is removed from `docs/planning/STATUS.md`. What
+  remains is the G4-confirmed fact that Claude Code does not register a channel on a
+  `2026-07-28` connection, which `spec/bindings/mcp.md` §8.1 handles by declaring
+  `claude/channel` on legacy connections only.
 
 ## R4 — Design-parameter and platform-runtime risks
 

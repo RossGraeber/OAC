@@ -1,6 +1,6 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SC-ID-060",
+  "requirement": "SC-ID-070",
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
   "kind": "negative",
