@@ -3,7 +3,23 @@
 
 import { parse, DUPLICATE, JNum, isPlainInt, ijsonViolation } from './json.mjs';
 import { canonicalize } from './jcs.mjs';
-import { verify, sign, publicKeyFromSeed, decodePoint, isSmallOrder, acceptablePublicKey } from './ed25519.mjs';
+import { createHash } from 'node:crypto';
+import { verify, sign, publicKeyFromSeed, decodePoint, encodePoint, isSmallOrder, acceptablePublicKey, _internal } from './ed25519.mjs';
+
+const leBig = (b) => {
+  let r = 0n;
+  for (let k = b.length - 1; k >= 0; k--) r = (r << 8n) | BigInt(b[k]);
+  return r;
+};
+const leBytes = (x) => {
+  const out = Buffer.alloc(32);
+  for (let k = 0; k < 32; k++) {
+    out[k] = Number(x & 0xffn);
+    x >>= 8n;
+  }
+  return out;
+};
+const L = 2n ** 252n + 27742317777372353535851937790883648493n;
 import { parseTimestamp, isSessionId, isToken } from './core.mjs';
 
 export function selfTest() {
@@ -39,10 +55,55 @@ export function selfTest() {
   const negZero = Buffer.from(identity);
   negZero[31] |= 0x80;
   expect('x = 0 with sign bit rejected', decodePoint(negZero) === null);
+  // Small-order points other than the identity: order 2 (y = p - 1), order 4 (y = 0) and
+  // order 8 (the two encodings published in the Ed25519 small-order lists, e.g. libsodium).
+  const torsion = [
+    'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+    '0000000000000000000000000000000000000000000000000000000000000000',
+    '0000000000000000000000000000000000000000000000000000000000000080',
+    '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
+    'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+  ];
+  for (const t of torsion) {
+    const pt = decodePoint(hex(t));
+    expect(`torsion ${t.slice(0, 8)} decodes`, pt !== null);
+    expect(`torsion ${t.slice(0, 8)} is small order`, pt !== null && isSmallOrder(pt));
+    expect(`torsion ${t.slice(0, 8)} is not the identity`, pt !== null && !hex(t).equals(identity));
+    expect(`torsion ${t.slice(0, 8)} refused as a public key`, !acceptablePublicKey(hex(t)));
+  }
+  // Mixed order: A' = A + T8 is not small order, so it decodes as an acceptable key, but a
+  // signature that only the cofactored equation accepts is rejected ([SEC-SIG-024]).
+  {
+    const { mul, add, B } = _internal;
+    const T8 = decodePoint(hex(torsion[3]));
+    const seed = hex(vectors[0][0]);
+    const h = createHash('sha512').update(seed).digest();
+    const a0 = Buffer.from(h.subarray(0, 32));
+    a0[0] &= 248;
+    a0[31] &= 127;
+    a0[31] |= 64;
+    const a = leBig(a0);
+    const Amixed = encodePoint(add(mul(a, B), T8));
+    expect('mixed-order key is not small order', acceptablePublicKey(Amixed));
+    let tried = 0;
+    for (let n = 0; n < 64; n++) {
+      const msg = Buffer.from(`mixed-${n}`);
+      const r = leBig(createHash('sha512').update(Buffer.concat([h.subarray(32), msg])).digest()) % L;
+      const Rb = encodePoint(mul(r, B));
+      const k = leBig(createHash('sha512').update(Buffer.concat([Rb, Amixed, msg])).digest()) % L;
+      if (k % 8n === 0n) continue; // [k]T8 vanishes, so both equations would agree
+      const S = (r + k * a) % L;
+      // [8][S]B = [8]R + [8][k]A' holds; [S]B = R + [k]A' does not.
+      expect('mixed-order key: cofactored-only signature rejected', !verify(Amixed, msg, Buffer.concat([Rb, leBytes(S)])));
+      tried++;
+      if (tried === 3) break;
+    }
+    expect('mixed-order key: cases tried', tried === 3);
+  }
+
   // S = L must be rejected even when S - L would verify ([SEC-SIG-021]).
   const [seed1, pub1, , sig1] = vectors[0];
-  const L = 2n ** 252n + 27742317777372353535851937790883648493n;
-  const s = hex(sig1).subarray(32);
+  const s =hex(sig1).subarray(32);
   let S = 0n;
   for (let k = 31; k >= 0; k--) S = (S << 8n) | BigInt(s[k]);
   const S2 = S + L;

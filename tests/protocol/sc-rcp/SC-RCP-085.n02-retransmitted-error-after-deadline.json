@@ -9,7 +9,8 @@
   "stage": "combine",
   "context": {
     "copies_passed": 2,
-    "deadline_passed": true
+    "deadline_passed": true,
+    "handoff_deadline_passed": true
   },
   "input": {
     "held": [

@@ -75,14 +75,29 @@ const STAGES = {
 // Spec text with CR LF line ends (a Windows checkout) read as LF.
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
+// Every fixture file, and the entries of tests/protocol/ the runner does not recognise: an
+// entry other than a fixture directory (`<doc>-<area>/`), this runner's directory and the
+// test-key file, and anything inside a fixture directory that is not a regular file.
 function listFixtures() {
   const out = [];
-  for (const dir of fs.readdirSync(FIXTURES).sort()) {
-    const full = path.join(FIXTURES, dir);
-    if (!fs.statSync(full).isDirectory() || !/^(sc|sec|mcpb)-[a-z]+$/.test(dir)) continue;
-    for (const file of fs.readdirSync(full).sort()) out.push({ dir, file, full: path.join(full, file) });
+  const stray = [];
+  for (const entry of fs.readdirSync(FIXTURES, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    const name = entry.name;
+    if (entry.isFile() && name === 'sec-test-keys.json') continue;
+    if (entry.isDirectory() && name === 'runner') continue;
+    if (!entry.isDirectory() || !/^(sc|sec|mcpb)-[a-z]+$/.test(name)) {
+      stray.push(`tests/protocol/${name}${entry.isDirectory() ? '/' : ''}: not a fixture directory, the runner or the test-key file`);
+      continue;
+    }
+    for (const f of fs.readdirSync(path.join(FIXTURES, name), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      if (!f.isFile()) {
+        stray.push(`tests/protocol/${name}/${f.name}: not a regular file inside a fixture directory`);
+        continue;
+      }
+      out.push({ dir: name, file: f.name, full: path.join(FIXTURES, name, f.name) });
+    }
   }
-  return out;
+  return { fixtures: out, stray };
 }
 
 // The fixture's own form (§3.3; spec/bindings/mcp.md §12.2).
@@ -172,8 +187,16 @@ function main() {
   const verbose = args.includes('--verbose');
   const only = args.filter((a) => !a.startsWith('--')).map((a) => path.resolve(a));
   const env = { table83: readTable83(read('spec/session-channels.md')) };
-  const all = listFixtures();
+  const { fixtures: all, stray } = listFixtures();
+  for (const s of stray) console.log(`FAIL layout: ${s}`);
   const selected = only.length ? all.filter((f) => only.includes(path.resolve(f.full))) : all;
+  const unmatched = only.filter((p) => !all.some((f) => path.resolve(f.full) === p));
+  for (const p of unmatched) console.log(`FAIL filter: ${p} is not a fixture file under tests/protocol/<doc>-<area>/`);
+  if (selected.length === 0) {
+    console.log('FAIL: no fixture selected');
+    console.log('Result: FAIL');
+    process.exit(1);
+  }
   let failed = 0;
   const tally = new Map();
   const parsed = [];
@@ -205,7 +228,8 @@ function main() {
   for (const [k, t] of [...tally.entries()].sort()) console.log(`${k.padEnd(48)} ${String(t.pass).padStart(4)} pass ${t.fail ? `${t.fail} FAIL` : ''}`);
   const total = selected.length;
   console.log(`\nFixtures: ${total - failed}/${total} pass. Index checks: ${only.length ? 'skipped' : indexProblems.length ? `${indexProblems.length} problems` : 'clean'}.`);
-  const bad = failed > 0 || indexProblems.length > 0;
+  if (stray.length || unmatched.length) console.log(`Layout and filter problems: ${stray.length + unmatched.length}.`);
+  const bad = failed > 0 || indexProblems.length > 0 || stray.length > 0 || unmatched.length > 0;
   console.log(bad ? 'Result: FAIL' : 'Result: PASS');
   process.exit(bad ? 1 : 0);
 }

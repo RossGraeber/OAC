@@ -230,7 +230,12 @@ export function combine(fx) {
   else if (c.copies_passed === 1 && held.some((h) => ERROR_STATES.includes(h.state))) state = held.find((h) => ERROR_STATES.includes(h.state)).state;
   else if (c.copies_passed === 0 && held.some((h) => h.observer === 'sender' && ERROR_STATES.includes(h.state))) {
     state = held.find((h) => h.observer === 'sender' && ERROR_STATES.includes(h.state)).state;
-  } else state = c.deadline_passed ? 'unknown' : 'accepted-by-adapter';
+  } else {
+    // Rule 6 turns on the hand-off deadline, which `handoff_deadline_passed` states (§8.5).
+    if (typeof c.handoff_deadline_passed !== 'boolean') throw new Error('rule 6 of [SC-RCP-085] decides the state, but context.handoff_deadline_passed is missing');
+    state = c.handoff_deadline_passed ? 'unknown' : 'accepted-by-adapter';
+  }
+  if (c.deadline_passed === true && c.handoff_deadline_passed === false) throw new Error('the retry deadline has passed but the earlier hand-off deadline has not');
   let retry;
   if (c.copies_passed === 0) retry = ERROR_STATES.includes(state);
   else {
