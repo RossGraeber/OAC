@@ -138,14 +138,18 @@ A fixture is a JSON object with these members:
 | `kind` | `positive` or `negative`. |
 | `failure_mode` | Negative fixtures only: a short phrase naming the failure the fixture exercises. |
 | `description` | One or two sentences, for a human reader. |
-| `stage` | The validation stage the fixture exercises. Section 4 and 5 fixtures use `envelope` (envelope-stage validation, §2.3). |
+| `stage` | The validation stage the fixture exercises. Section 4 and 5 fixtures use `envelope` (envelope-stage validation, §2.3), except that a fixture for a sender-side requirement uses the `send` stage of §6.10. |
 | `context` | The receiver's state for the test: `receiver_time` (a timestamp in the §4.4.6 form) and `supported_major_versions` (an array of integers). |
 | `input` | Exactly one of: `envelope` (the envelope as a JSON value), `envelope_text` (the exact serialized text, for inputs that no JSON value expresses, such as duplicate member names), or `envelope_base64` (the exact octets, base64 per [RFC4648] §4, for inputs that are not valid UTF-8). |
 | `expected` | `result` (one of `valid`, `rejected`, `expired`); for a negative fixture, `error` (the §8.3 error code the receiver reports); and optionally `trusted_security` (the `security` member values a receiver extracts, §4.7). |
 
 The `context`, `input` and `expected` rows above define the `envelope` stage. A section of
 this document can define further stages, each with its own `context`, `input` and
-`expected` members, as §6.10 and §8.5 do.
+`expected` members, as §6.10, §7.5 and §8.5 do.
+
+A binding document can define a fixture format of its own, under its own `fixture_format`
+string, for inputs that this format's stages do not express; the MCP binding does so in
+`spec/bindings/mcp.md` §12.2. A conformance runner dispatches on `fixture_format`.
 
 An envelope-stage fixture's `security` members hold placeholder strings. Envelope-stage
 validation checks their presence and type (§4.6), never their values. Signature vectors and
@@ -155,9 +159,13 @@ The `result` values `rejected` and `expired` are the delivery states that §8.1 
 Each negative envelope-stage fixture carries `expected.error`, the code from the closed
 error taxonomy of §8.3 that the receiver reports ([SC-RCP-070], [SC-RCP-071]).
 
-> **Reference implementation note:** the v0.1 reference workspace runs these fixtures from
-> its conformance runner (task E8, wired into CI by task F12). The fixture set in this
-> revision covers sections 4, 5, 6 and 8. Task E8 extends it to every section.
+> **Reference implementation note:** the reference conformance runner,
+> `tests/protocol/runner/run.mjs` (task E8, #48), evaluates every fixture under
+> `tests/protocol/` from the rules of this document, `spec/security.md` and
+> `spec/bindings/mcp.md`, and checks Appendix A and the other requirement indexes against
+> the fixtures. CI runs it on every push and pull request. It checks the fixtures, not an
+> implementation: driving the v0.1 workspace's own code through the same fixtures is task
+> F12. The fixture set in this revision covers sections 4 to 8.
 
 ---
 
@@ -1868,7 +1876,11 @@ Section 7 fixtures live in `tests/protocol/sc-dlv/` and use the members of §3.3
 two stages below. For those, `context`, `input` and `expected` hold the members below
 instead of the ones §3.3 lists. Implemented lists and attachment lists are as §6.10 defines
 them. In both stages, every presence record is taken as authenticated ([SC-DLV-043]) and
-every other check of `spec/security.md` as passed.
+every other check of `spec/security.md` as passed. The `presence` stage does not apply the
+300000-millisecond cap of `spec/security.md` [SEC-PRS-007] on announcements from another
+implementation: lifetimes run for the full `lifetime_ms`. That cap belongs to the
+security stages: `effective_lifetime_ms` of the `presence-auth` stage of
+`spec/security.md` §3.3.
 
 The `send` stage of §6.10 does not model presence. In it, a session for which
 `declarations` holds a declaration is taken as `online`, and any other session as
@@ -2588,16 +2600,18 @@ would narrow it; for v0.1 they are optional (operator decision on #44).
 ### 8.5 Conformance fixtures for this section
 
 Fixtures for this section follow §3.3 and live under `tests/protocol/sc-rcp/`. Besides the
-`envelope` stage, they use five more `stage` values, with these members. In an
-`envelope`-stage fixture, the receiver supports the part type `text` and no other.
+`envelope` stage and the `send` stage of §6.10, they use six more `stage` values, with these
+members. In an `envelope`-stage fixture, the receiver supports the part type `text` and no
+other.
 
 | `stage` | `context` | `input` | `expected` |
 |---|---|---|---|
 | `receipt` | an empty object | `receipt`: the receipt as a JSON value | `result`: `valid` or `discarded` ([SC-RCP-032]); for `valid`, `effective_state`: the state a peer processes the receipt as ([SC-RCP-030]) |
 | `reply` | `handed_off`: an array of hand-off records, each an object with `id`, `from`, `to` and, when present, `conversation_id` and `correlation_id` | `reply_request`: an object with `from` (the replying session), `to` (the addressed session) and, optionally, `requested_target` | `reply_headers`: an object holding exactly those of `reply_to`, `conversation_id` and `correlation_id` that the implementation sets; `correlation`: `correlated` or `uncorrelated` |
 | `correlation` | `receiver_time` and `supported_major_versions` as in §3.3, and `sent`: an array of sent-envelope records, with the members of a hand-off record | `envelope`, as in §3.3 | `result`, as in §3.3; `correlation`: `matched` or `unmatched`; for `matched`, `answers`: an object with the `id` and `from` of the answered envelope |
-| `combine` | `copies_passed`: the number of copies passed to a transport; `deadline_passed`: whether the retry deadline of §8.4.2 (the hand-off deadline plus the replay-window skew allowance, on the sending implementation's clock) has passed | `held`: an array of the states held for the envelope, in arrival order, each an object with `state`, `observer` and, when present, `error` | `state`: the combined state ([SC-RCP-085]); `retry_allowed`: whether a retry on the implementation's own initiative is permitted without deviating from §8.4.2. With `copies_passed` 0 it is true only when `state` is an error state. Otherwise it is true only when `deadline_passed` is true, `state` is neither `handed-to-harness` nor `duplicate`, and no `held` entry is a receiver-observed `unknown`. The error states are `rejected`, `expired`, `unreachable` and `failed`; `duplicate` is not one (§8.4.1). ([SC-RCP-080] to [SC-RCP-082], [SC-RCP-086], [SC-RCP-087]) |
+| `combine` | `copies_passed`: the number of copies passed to a transport; `deadline_passed`: whether the retry deadline of §8.4.2 (the hand-off deadline plus the replay-window skew allowance, on the sending implementation's clock) has passed; `handoff_deadline_passed`: whether the hand-off deadline of §8.1.3 has passed on that clock, which rule 6 of [SC-RCP-085] reads, present whenever rule 6 decides the state (it is `true` whenever `deadline_passed` is) | `held`: an array of the states held for the envelope, in arrival order, each an object with `state`, `observer` and, when present, `error` | `state`: the combined state ([SC-RCP-085]); `retry_allowed`: whether a retry on the implementation's own initiative is permitted without deviating from §8.4.2. With `copies_passed` 0 it is true only when `state` is an error state. Otherwise it is true only when `deadline_passed` is true, `state` is neither `handed-to-harness` nor `duplicate`, and no `held` entry is a receiver-observed `unknown`. The error states are `rejected`, `expired`, `unreachable` and `failed`; `duplicate` is not one (§8.4.1). ([SC-RCP-080] to [SC-RCP-082], [SC-RCP-086], [SC-RCP-087]) |
 | `routing` | `receiver_time` and `supported_major_versions` as in §3.3; `receiver_content_types`: the part types the receiver supports for at least one session; `sessions`: an object whose members are the session ids the receiver knows, each an object with `accepting` (a boolean), `content_types` (an array) and optionally `active_inbound` (a boolean, `true` when omitted); `authorized`: an array of objects with `from` and `to`, the sender-to-session pairs that pass authorization; `replay_window_ms`: the time after `created_at` at which the receiver's replay window ends (300000 under C5 §7); optionally `handoff_time`, the receiver's clock at the hand-off attempt (`receiver_time` when omitted). Every other security-stage check is taken as passed on arrival. | `envelope`, as in §3.3 | `result`: `valid`, `rejected`, `expired` or `unreachable`; for a result other than `valid`, `error` |
+| `receive` | every member of the `context` of the `security` stage of `spec/security.md` §3.3; `receiver_content_types` as for `routing`; `delivery`: an object whose members are the session ids the receiver knows, each an object as a `sessions` member of `routing` is; optionally `handoff_time` as for `routing`. The runner applies envelope-stage validation, then every step of the security stage of `spec/security.md` §7.1, then the delivery stage of §8.3.2, with the replay window of `spec/security.md` §8.1. The hand-off call, when reached, succeeds. | `envelope`, as in §3.3 | `result`: `valid`, `rejected`, `expired`, `duplicate` or `unreachable`; for a result other than `valid`, `error` |
 
 Every negative `envelope`-stage fixture, in `sc-rcp/` and in `sc-env/` and `sc-ver/`,
 carries `expected.error`: the code that [SC-RCP-070] and [SC-RCP-071] require.
@@ -2689,7 +2703,7 @@ requirement whose fixtures exercise it.
 | SC-ENV-010 | MUST | 4.3 | `sc-env/SC-ENV-010.p01`, `.p02`, `.n01` to `.n08` |
 | SC-ENV-011 | MUST | 4.3 | `sc-env/SC-ENV-011.n01`, `.n02` |
 | SC-ENV-020 | MUST | 4.4.1 | `sc-env/SC-ENV-020.n01` to `.n04` |
-| SC-ENV-021 | MUST | 4.4.1 | TODO(fixture): sender-side behaviour; E8 |
+| SC-ENV-021 | MUST | 4.4.1 | `sc-env/SC-ENV-021.p01` (`send` stage); `sc-id/SC-ID-087.p01` shows the same rule against a peer with a higher minor version |
 | SC-ENV-022 | MUST | 4.4.2 | `sc-env/SC-ENV-022.n01` |
 | SC-ENV-023 | MUST | 4.4.2 | TODO(fixture): sender-side behaviour; F2 unit tests |
 | SC-ENV-024 | SHOULD | 4.4.2 | none (SHOULD) |
@@ -2708,7 +2722,7 @@ requirement whose fixtures exercise it.
 | SC-ENV-063 | MUST | 4.5.1 | `sc-env/SC-ENV-063.p01` |
 | SC-ENV-064 | MUST | 4.5.1 | TODO(fixture): hand-off behaviour; F10 adapter contract suite |
 | SC-ENV-065 | MUST | 4.5.2 | `sc-env/SC-ENV-065.n01`, `.n02`, `.n03` |
-| SC-ENV-066 | MUST NOT | 4.5.2 | TODO(fixture): sender-side; E8. §6.4 now defines "advertised" and `sc-id/SC-ID-101` exercises it; `sc-id/SC-ID-101.n01` carries `expected.error` `unsupported-content-type` (Table 8.3.3) |
+| SC-ENV-066 | MUST NOT | 4.5.2 | `sc-env/SC-ENV-066.n01` (`send` stage); §6.4 defines "advertised", and `sc-id/SC-ID-101.p01`, `.p02`, `.n01` exercise it |
 | SC-ENV-070 | MUST | 4.6 | `sc-env/SC-ENV-070.n01`, `.n02`, `.n03` |
 | SC-ENV-071 | MUST | 4.6 | `sc-env/SC-ENV-071.n01` |
 | SC-ENV-072 | MUST | 4.6 | `sc-env/SC-ENV-072.n01` |
@@ -2908,8 +2922,8 @@ requirement whose fixtures exercise it.
 | SC-RCP-070 | MUST | 8.3.1 | `expected.error` of every negative `envelope`-stage fixture in `sc-env/` and `sc-ver/`; `sc-rcp/SC-RCP-071.n01` to `.n06` |
 | SC-RCP-071 | MUST | 8.3.2 | `sc-rcp/SC-RCP-071.n01` to `.n06` |
 | SC-RCP-072 | MUST NOT | 8.3.2 | `sec-stg/SEC-STG-001.n01` (`spec/security.md` §7.1) |
-| SC-RCP-073 | MUST NOT | 8.3.2 | `sc-rcp/SC-RCP-073.n01`, `.n02` (authorization only); key, signature and replay steps: TODO(fixture): needs a fixture that combines the security and delivery stages, since a `security`-stage fixture takes every delivery-stage check as passed; E8 (#48), F12, H2 |
-| SC-RCP-074 | MUST NOT | 8.3.2 | TODO(fixture): a runner check that every emitted code is in Table 8.3; E8, F12 |
+| SC-RCP-073 | MUST NOT | 8.3.2 | `sc-rcp/SC-RCP-073.n01`, `.n02` (authorization, `routing` stage); `sc-rcp/SC-RCP-073.n03`, `.n04`, `.n05` (key, signature and replay steps) and `.p01` (`receive` stage, which combines the security and delivery stages) |
+| SC-RCP-074 | MUST NOT | 8.3.2 | the conformance runner (`tests/protocol/runner/run.mjs`, E8, #48) fails every fixture whose `expected` carries an error code that Table 8.3 does not list; that an implementation emits no other code: TODO(fixture), F12 |
 | SC-RCP-075 | MUST | 8.3.2 | TODO(fixture): request errors; E6 binding hooks, G5, G8 |
 | SC-RCP-076 | MUST | 8.3.2 | `sc-rcp/SC-RCP-076.p01`, `.n01` |
 | SC-RCP-077 | MUST | 8.3.2 | `sc-rcp/SC-RCP-077.n01` |
@@ -2938,3 +2952,4 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-03 | E4 (#44): section 8 written: delivery states, receipts, replies and correlation, the closed error taxonomy with precedence, and the retransmission and retry rules including the combined state of an envelope; requirement area `RCP`; fixtures under `tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture (§3.3); §4.9's duplicate wording aligned with [SC-RCP-009]; dated notes for the operator decisions on #44. |
 | 0.1 (draft) | 2026-10-03 | E3 (#43): section 7 (active delivery, presence and discovery) written; area `DLV`; the active-inbound obligation and the no-polling rule, accepting input, the three presence states, presence records (announcement and withdrawal, `seq`, consumer-clock lifetime, carrier loss), discovery results, and where a sender takes a capability declaration from (makes SC-ID-086 satisfiable); `presence` and `discovery` fixture stages (§7.5); fixtures under `tests/protocol/sc-dlv/`; SC-ID-040 and SC-ID-041 now covered by SC-DLV-029. Review of #263: operator decisions on #43 recorded as dated notes; SC-DLV-008, SC-DLV-009 (not-now vs failed hand-off), SC-DLV-049 (monotonic clock) and SC-DLV-067 (scoping by the binding holder; v0.1 same-install only) added; evidence for input during a running turn corrected; E5 constraints recorded; `sc-id/SC-ID-044.p01` added. Merged after E4 (#44): presence added to §8.3.3 as sender refusal step 2 with two Table 8.3.3 rows, the separate [SC-ID-086] step folded into it (`sc-id/SC-ID-086.n01` now expects `unknown-destination`), and SC-DLV-007 cites `sc-rcp/SC-RCP-078.n01`. Re-review: SC-DLV-075 and SC-DLV-076 (a send request reveals nothing about a session its requester is not authorized to discover), SC-DLV-067 widened to send refusals, the no-declaration wording corrected (a withdrawal-only session is `unreachable`), and `sc-rcp/SC-RCP-090.n01` renamed. |
 | 0.1 (draft) | 2026-10-03 | #266, editorial (no requirement added or changed): the `spec/security.md` Appendix B follow-ups. Appendix A rows SC-ID-009, SC-ID-181, SC-ENV-083, SC-RCP-009, SC-RCP-040, SC-RCP-041, SC-RCP-072 and SC-DLV-043 cite the `sec-*` fixtures; SC-ENV-104 stays `TODO(fixture)` (sender-side), and SC-RCP-073's key, signature and replay steps stay `TODO(fixture)` (they need a combined security-and-delivery fixture). Table 8.3 conditions of `unknown-key` and `signature-invalid` cite the malformed-member cases of `spec/security.md` Table 7.1. Dated notes in §7.2.3, §7.2.4, §7.3.2, §8.1.5 and §8.2.2 point at `spec/security.md` §9 to §11 (reply path; the 5-minute presence cap between machines, an operator decision on #45); §8.3.1 names the MCP binding's codes directly (PR #264 review); §10.1 no longer calls `spec/security.md` unwritten. |
+| 0.1 (draft) | 2026-10-03 | E8 (#48), no requirement added or changed: the reference conformance runner `tests/protocol/runner/run.mjs`, run in CI (§3.3 note); §3.3 says a binding document can define its own `fixture_format` and a runner dispatches on it (comment on #48), and that a sender-side section 4 or 5 fixture uses the `send` stage; §8.5 adds the `receive` stage (security and delivery stages together) and names the `send` stage the `sc-rcp/SC-RCP-090` fixtures already use; new fixtures `sc-env/SC-ENV-021.p01`, `sc-env/SC-ENV-066.n01` and `sc-rcp/SC-RCP-073.p01`, `.n03` to `.n05` replace the E8-owned `TODO(fixture)` entries of SC-ENV-021, SC-ENV-066 and SC-RCP-073, and the runner's taxonomy check covers SC-RCP-074's. Review of PR #270: the `combine` stage gains `handoff_deadline_passed`, which rule 6 of SC-RCP-085 reads (`deadline_passed` stays the retry deadline), set in `sc-rcp/SC-RCP-085.n01`, `.n02` and `SC-RCP-086.n01`, `.p02`; §7.5 says the `presence` stage does not apply the cap of `spec/security.md` [SEC-PRS-007]. |

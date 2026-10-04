@@ -1,0 +1,118 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-021",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "transport session terminated, forcing a new session id, only when a hidden session exists",
+  "description": "Over Streamable HTTP, after refusing a send to an undiscoverable session, the server terminates the transport session: it answers the next request with HTTP 404, so the client must initialize again and receives a new session id. After refusing a send to an unknown session id it answers the same request normally.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "unknown-destination: no session with that id is known."
+        }
+      ],
+      "isError": true
+    },
+    "unknown_session_subsequent_messages": [
+      {
+        "from": "client",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 133,
+          "method": "tools/call",
+          "params": {
+            "name": "whoami",
+            "arguments": {}
+          }
+        }
+      },
+      {
+        "from": "server",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 133,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"session_id\":\"01harn7x9k2m4p6q8r0s2t4v6w\",\"device_fingerprint\":\"SHA256:7f3a9c0e1b2d4f6a8c0e2b4d6f8a0c2e\"}"
+              }
+            ]
+          }
+        },
+        "http": {
+          "status": 200
+        }
+      }
+    ]
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 132,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 132,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      },
+      "subsequent_messages": [
+        {
+          "from": "client",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 133,
+            "method": "tools/call",
+            "params": {
+              "name": "whoami",
+              "arguments": {}
+            }
+          }
+        },
+        {
+          "from": "server",
+          "http": {
+            "status": 404
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

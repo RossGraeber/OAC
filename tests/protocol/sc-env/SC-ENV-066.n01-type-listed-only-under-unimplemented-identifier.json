@@ -1,0 +1,59 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ENV-066",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "part type advertised only under an identifier the sender does not implement",
+  "description": "The session lists `com.example/note` only in its entry for a later extension identifier, which the sender does not implement and so ignores. The agreed entry does not list it, so the sender refuses the request with `unsupported-content-type` and sends nothing.",
+  "stage": "send",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-a",
+          "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+        }
+      }
+    ],
+    "declarations": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "io.github.rossgraeber/oac-session-channels": {
+          "revision": "0.1",
+          "active_inbound": true
+        },
+        "io.github.rossgraeber/oac-session-channels-v2": {
+          "revision": "1.0",
+          "active_inbound": true,
+          "content_types": [
+            "com.example/note"
+          ]
+        }
+      }
+    }
+  },
+  "input": {
+    "request": {
+      "attachment": "A",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "content": [
+        {
+          "type": "com.example/note",
+          "text": "Please review the scheduler module."
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "refused",
+    "error": "unsupported-content-type"
+  }
+}

@@ -250,6 +250,9 @@ quoted lines.
 > takes part. The E5 change checked every fixture with a separate script that shares no code
 > with the script that generated them: its own JCS, its own Ed25519 arithmetic, and its own
 > evaluator for each stage. Neither script is committed; the fixtures are the artifact.
+> Since E8 (#48), the committed reference runner `tests/protocol/runner/run.mjs`, written
+> from this document with its own JCS and strict Ed25519, evaluates every stage above and
+> runs in CI. It checks the fixtures, not the workspace's code, which is task F12.
 
 ---
 
@@ -848,6 +851,15 @@ When a conversation moves to a new session id, a session grant does not follow i
 ([SC-ID-151]). A grant whose target is a working-directory scope or a device covers the new
 session because of that scope or device, not because of the old session id.
 
+*Dated note, 2026-10-04 (E8, #48, review of PR #270): a grant whose target is a session id
+names that id, and it still covers an envelope addressed to the id after the id's binding
+has ended, until an operator removes the grant. Such an envelope passes security step 4,
+and the delivery stage then refuses it with `unknown-destination`
+(`spec/session-channels.md` Table 8.3.3, [SC-ID-155]; fixture `sc-rcp/SC-RCP-073.p01`). A
+grant whose target is a working-directory scope or the device covers only the sessions the
+implementation binds at the time of the check. This note records how the reference runner
+reads §9.2; it adds no requirement.*
+
 [SEC-AUZ-007] An implementation MUST NOT treat two sessions as authorized to reach each other
 because they belong to the same device, the same harness or the same working-directory
 scope.
@@ -1342,7 +1354,9 @@ Each row uses the threat-table template of the `oac-security-work` skill (§1). 
 attack column names the matching row of `docs/planning/v0.1/06-security.md` §14 where one
 exists; that file keeps the provider- and transport-specific wording, which this document
 does not repeat. A proving test is either a committed fixture or a named future test.
-Fixtures are data: no runner executes them in CI until tasks E8 and F12. A row whose only
+Fixtures are data. Since E8 (#48), CI runs the reference runner (`tests/protocol/runner/run.mjs`)
+over them, which shows that each fixture's expected outcome follows from this document; that
+an implementation produces those outcomes is task F12's. A row whose only
 proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 `docs/planning/v0.1/11-risks.md`, not a closed mitigation.
 
@@ -1606,3 +1620,4 @@ follow from it and belong to their owners:
 | 0.1 (draft) | 2026-10-03 | Second review of PR #265: conflict marks name the claimant keys and are set only by a related claimant (SEC-PRS-014), never on the consumer's own sessions (SEC-PRS-015); an envelope claim is refused with a finding and never marks; removing a key clears marks that name it (SEC-KEY-035); `key-removal` fixture stage; the nonce labels of every fixture are listed in `sec-test-keys.json`. |
 | 0.1 (draft) | 2026-10-03 | SEC-AUZ-018: a self-initiated retry is a new send and is refused, with no envelope, when the target has become hidden; `remove-grant` operation in the `exchange` stage. |
 | 0.1 (draft) | 2026-10-03 | §13.1 Timing: SEC-STG-005 (SHOULD: one refusal path with no target-dependent work) and the timing residual. |
+| 0.1 (draft) | 2026-10-03 | E8 (#48), editorial: the §3.3 note and the §13 introduction name the committed reference runner, `tests/protocol/runner/run.mjs`, which CI runs over every fixture. Review of PR #270: a dated note after [SEC-AUZ-006] records that a session-id grant still covers its id after the binding ends, so the delivery stage reports `unknown-destination`. |
