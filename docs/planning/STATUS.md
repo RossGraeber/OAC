@@ -2125,12 +2125,13 @@ without an UNVERIFIED label.
   `20261004T093525Z` (PASS, driver `b478f2a`, Claude Code 2.1.285, Codex 0.160.0) is recorded at
   `gates/herdr-runs/G4-2026-10-04.md` with three `-herdr` fixtures, and it is the
   equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
-  Harness VERIFIED. Closed for G4 by that run: the per-invocation
-  `-c mcp_servers.<name>.url=...` override works for an HTTP MCP server on Codex 0.160.0
-  (exactly one Codex HTTP session, from a Codex launched with the `-c` override; the Codex
-  user config was unchanged through the run, and that it holds no other entry at the run's
-  port rests on an uncommitted `codex mcp list` read: UNVERIFIED from committed evidence), and
-  the G4 dialog texts and in-progress indicator match. Criterion 5 holds on both halves:
+  Harness VERIFIED. Closed for G4 by that run: the G4 dialog texts and the in-progress
+  indicator match. Partly closed: whether the per-invocation `-c mcp_servers.<name>.url=...`
+  override works for an HTTP MCP server on Codex 0.160.0. Exactly one Codex HTTP session
+  connected, from a Codex launched with the `-c` override, and the Codex user config was
+  unchanged through the run. Still open on it: that the user config holds no other entry at
+  the run's port is UNVERIFIED from committed evidence. It rests on an uncommitted read-only
+  `codex mcp list`. Criterion 5 holds on both halves:
   non-delivery, and the "g4modern ... unavailable" notice. Still open: the reconstruction
   caveat (the server is not the original). G4's verdict is unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
