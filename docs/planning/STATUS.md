@@ -10,8 +10,9 @@ error taxonomy written.** `spec/session-channels.md` §8 now holds the delivery-
 C5 §9 requires; no state claims a model saw a message), the receipt format, the reply rule
 for a harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
 precedence, and the retransmission and retry rules, including how receipts for several
-copies of one envelope combine, and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
-code. Requirement area `RCP`: 54 ids in Appendix A. New fixtures: 64 under
+copies of one envelope combine (a retry on the implementation's own initiative only after the
+hand-off deadline), and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
+code. Requirement area `RCP`: 56 ids in Appendix A. New fixtures: 68 under
 `tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture
 under `sc-env/`, `sc-ver/` and `sc-id/`, and to the six refusing `send`-stage fixtures in
 `sc-id/`. Follow-up for `spec/bindings/mcp.md` (#46): drop its "placeholders by role"

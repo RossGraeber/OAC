@@ -4,11 +4,11 @@
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "One copy was passed and it failed at hand-off. No copy was handed off, so a retry is allowed.",
+  "description": "One copy was passed, it failed at hand-off, and the hand-off deadline has passed. A retry is permitted.",
   "stage": "combine",
   "context": {
     "copies_passed": 1,
-    "deadline_passed": false
+    "deadline_passed": true
   },
   "input": {
     "held": [

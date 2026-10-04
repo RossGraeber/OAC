@@ -1,0 +1,41 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-090",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "refusal causes reported out of order",
+  "description": "The request arrives on an unbound attachment, and the sender holds no declaration for Bob. Attribution is checked first.",
+  "stage": "send",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "attachments": [
+      {
+        "attachment": "A"
+      }
+    ],
+    "declarations": {}
+  },
+  "input": {
+    "request": {
+      "attachment": "A",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "content": [
+        {
+          "type": "text",
+          "text": "Please review the scheduler module."
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "refused",
+    "error": "unauthorized"
+  }
+}

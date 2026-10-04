@@ -3,9 +3,8 @@
   "requirement": "SC-RCP-086",
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
-  "kind": "negative",
-  "failure_mode": "retry after a retransmission",
-  "description": "Three copies were passed and two `failed` receipts arrived. The third copy may have been handed off with its receipt lost, so no retry.",
+  "kind": "positive",
+  "description": "Three copies were passed, two `failed` receipts arrived, and the hand-off deadline has passed. No copy can be handed off any more, so a retry is permitted.",
   "stage": "combine",
   "context": {
     "copies_passed": 3,
@@ -31,6 +30,6 @@
   },
   "expected": {
     "state": "unknown",
-    "retry_allowed": false
+    "retry_allowed": true
   }
 }

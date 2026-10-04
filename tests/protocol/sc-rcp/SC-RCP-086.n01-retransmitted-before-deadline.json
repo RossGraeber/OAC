@@ -1,15 +1,15 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SC-RCP-085",
+  "requirement": "SC-RCP-086",
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
   "kind": "negative",
-  "failure_mode": "error receipts counted as covering every copy",
-  "description": "Two copies were passed and only `failed` receipts arrived. After the hand-off deadline the state is `unknown`, not `failed`; no copy can be handed off any more, so a retry is permitted.",
+  "failure_mode": "retry before the hand-off deadline after a retransmission",
+  "description": "Three copies were passed and two `failed` receipts arrived before the hand-off deadline. The third copy may still be handed off, so no retry.",
   "stage": "combine",
   "context": {
-    "copies_passed": 2,
-    "deadline_passed": true
+    "copies_passed": 3,
+    "deadline_passed": false
   },
   "input": {
     "held": [
@@ -30,7 +30,7 @@
     ]
   },
   "expected": {
-    "state": "unknown",
-    "retry_allowed": true
+    "state": "accepted-by-adapter",
+    "retry_allowed": false
   }
 }
