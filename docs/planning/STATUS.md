@@ -6,7 +6,7 @@ verdict, or when a pin moves.
 
 **Last updated:** 2026-10-03 (**Issue #45 (E5): `spec/security.md` written.** The normative
 security model, neutral (document prefix `SEC`, areas `KEY`, `SIG`, `STG`, `RPL`, `AUZ`,
-`RCT`, `PRS`, `PRV`; 105 requirement ids in its Appendix A). In this change, as revised
+`RCT`, `PRS`, `PRV`; 106 requirement ids in its Appendix A). In this change, as revised
 after the PR #265 review:
 
 - **Keys and signing.** One Ed25519 device key; the key id is the full SHA-256 of the
@@ -49,7 +49,7 @@ after the PR #265 review:
   refuse rather than partial provenance, shared-carrier framing (CSPRNG delimiter, closed
   line-break list, control and bidi escapes, `| ` quoting), content never presented as user
   or system.
-- **Fixtures.** 120 under `tests/protocol/sec-*/`, test keys in
+- **Fixtures.** 121 under `tests/protocol/sec-*/`, test keys in
   `tests/protocol/sec-test-keys.json` (seeds derived from public labels; test only).
   Checked by an independent script (own JCS and BigInt Ed25519); not committed.
 - **Ledger.** New UNVERIFIED items 63-64 (the pinned crate's verdicts on the fixtures,

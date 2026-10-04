@@ -234,8 +234,8 @@ implementation may release `session`'s presence record to that device. `session`
 | Member | Content |
 |---|---|
 | `context` | `implementations`: an object of labelled implementations, each with `own_key_id`, `trusted_keys`, `sessions` and `grants`. Each starts with its own sessions in its binding map and no other state. |
-| `input` | `steps`: an array, in order, of objects with `at`, `actor` (an implementation label), `op`, and the operation's members: `release` (`session`, `to_device`: may the actor release `session`'s presence record to that device, and if so it issues it); `accept-presence` (`authenticated_record`); `discover` (`requester`, `session`); `send` (`envelope`: the actor passes it to a transport if its requester may discover `to` and the actor has issued the requester's announcement to `to`'s device, and records a reply right); `receive` (`envelope`, optionally `delivery`). |
-| `expected` | `results`: one object per step: `released`; `result` for `accept-presence`; `discoverable`; `result` (`sent`, or `refused` with `error`) for `send`; `result` and `error` as in stage `replay` for `receive`. |
+| `input` | `steps`: an array, in order, of objects with `at`, `actor` (an implementation label), `op`, and the operation's members: `release` (`session`, `to_device`: may the actor release `session`'s presence record to that device, and if so it issues it); `accept-presence` (`authenticated_record`); `discover` (`requester`, `session`); `remove-grant` (`grant`: the operator removes that grant); `send` (`envelope`: the actor passes it to a transport if its requester may discover `to` and the actor has issued the requester's announcement to `to`'s device, and records a reply right); `receive` (`envelope`, optionally `delivery`). |
+| `expected` | `results`: one object per step: `released`; `result` for `accept-presence`; `discoverable`; `removed`; `result` (`sent`, or `refused` with `error`) for `send`; `result` and `error` as in stage `replay` for `receive`. |
 
 **Stage `provenance`** (§12.2). `input`: `fields`, an object with `sender`, `device`,
 `session`, `message_id` and `reply_to`. `expected`: `result` (`rendered` or `refused`); with
@@ -945,6 +945,13 @@ receiving session's binding ends, whichever is earlier.
 *Dated note, 2026-10-03 (#45): a reply right covers that one message and lasts 24 hours at
 most. This is an operator decision recorded on #45.*
 
+[SEC-AUZ-018] A sending implementation MUST apply [SC-DLV-075] to a retry it starts on its
+own initiative ([SC-RCP-087]) exactly as to a new send request, and so create no envelope
+when the target has since become hidden from the requesting session.
+
+A retry is a new envelope ([SC-ENV-103]), so a grant removed or a reply right ended since the
+original send also ends the retry (fixture `sec-auz/SEC-AUZ-018.n01`).
+
 **One grant suffices.** Take one grant, "A may write to B", recorded as an outbound grant on
 A's implementation and an inbound grant on B's. The rules above then carry a whole request
 and reply, with no grant from B to A (fixture `sec-auz/SEC-AUZ-014.p02`):
@@ -1490,6 +1497,7 @@ requirement whose fixtures exercise it.
 | SEC-AUZ-015 | MUST | 9.5 | `sec-auz/SEC-AUZ-015.n01`; the end with `A`'s binding: TODO(fixture), F5 |
 | SEC-AUZ-016 | MUST | 9.5 | `sec-auz/SEC-AUZ-016.p01`, `.n01`, `.n02` |
 | SEC-AUZ-017 | MUST | 9.4 | `sec-auz/SEC-AUZ-017.p01`, `.n01`; in an exchange: `sec-auz/SEC-AUZ-014.p02` |
+| SEC-AUZ-018 | MUST | 9.5 | `sec-auz/SEC-AUZ-018.n01` |
 | SEC-AUZ-020 | MUST NOT | 9.6 | TODO(fixture): behaviour across the implementation; F11 |
 | SEC-AUZ-021 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G4, F11, H2 |
 | SEC-AUZ-022 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G7 |
@@ -1574,3 +1582,4 @@ follow from it and belong to their owners:
 | 0.1 (draft) | 2026-10-03 | E5 (#45): document written. Device keys, key ids and the registration record; Ed25519 signing over domain-separated JCS with strict verification; the security stage and its codes; the 300-second replay window and skew allowance; duplicate suppression recorded at authorization and released when not handed off; default-deny grants and an automatic, correlated, 24-hour reply right; receipt and presence-record authentication, with the signed announcement as the publishable binding proof and replay bounded across restart; neutral provenance rendering; threat traceability. Fixtures under `tests/protocol/sec-*/` and test keys in `tests/protocol/sec-test-keys.json`. |
 | 0.1 (draft) | 2026-10-03 | Review of PR #265: one-way grants, inbound and outbound, with "a session sees the sessions it may write to" and a full request-and-reply on one grant (SEC-AUZ-010 to -017, SEC-PRS-010); a verified, authorized envelope binds its own `from`; the cofactorless equation replaces the cofactored one (SEC-SIG-024), with mixed-order, order-2 and non-canonical `R`, mixed-order `A` and `S = L` fixtures; numbers canonicalize as the nearest double (SEC-SIG-013); presence records carry a signed `audience` (SEC-PRS-011, -013); a session id claimed by two keys fails closed for both (SEC-PRS-003, -012); a copy arriving during an earlier hand-off waits for its outcome (SEC-RPL-026); JCS coverage fixtures; operator decisions on #45 recorded as dated notes. |
 | 0.1 (draft) | 2026-10-03 | Second review of PR #265: conflict marks name the claimant keys and are set only by a related claimant (SEC-PRS-014), never on the consumer's own sessions (SEC-PRS-015); an envelope claim is refused with a finding and never marks; removing a key clears marks that name it (SEC-KEY-035); `key-removal` fixture stage; the nonce labels of every fixture are listed in `sec-test-keys.json`. |
+| 0.1 (draft) | 2026-10-03 | SEC-AUZ-018: a self-initiated retry is a new send and is refused, with no envelope, when the target has become hidden; `remove-grant` operation in the `exchange` stage. |

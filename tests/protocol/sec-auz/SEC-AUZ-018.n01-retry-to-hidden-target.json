@@ -1,0 +1,170 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-AUZ-018",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "a retry sent to a session the sender may no longer discover",
+  "description": "A1 sends to B1 under an outbound grant. The operator then removes the grant. A retry that Alice's implementation starts on its own initiative is a new envelope and a new send: B1 is now hidden from A1, so the retry is refused with `unknown-destination` and no envelope is created.",
+  "stage": "exchange",
+  "context": {
+    "implementations": {
+      "alice": {
+        "own_key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "trusted_keys": [
+          {
+            "principal": "principal-a",
+            "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+            "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+          },
+          {
+            "principal": "principal-b",
+            "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+            "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+          }
+        ],
+        "sessions": {
+          "01harn7x9k2m4p6q8r0s2t4v6w": {
+            "working_directory_scope": "scope-alice"
+          }
+        },
+        "grants": [
+          {
+            "direction": "outbound",
+            "writer": {
+              "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+            },
+            "target": {
+              "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+              "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "input": {
+    "steps": [
+      {
+        "at": "2026-10-03T12:00:02.000Z",
+        "actor": "alice",
+        "op": "accept-presence",
+        "authenticated_record": {
+          "record": {
+            "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+            "seq": 4,
+            "present": true,
+            "issued_at": "2026-10-03T12:00:01.000Z",
+            "lifetime_ms": 60000,
+            "descriptor": {
+              "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+              "capabilities": {
+                "io.github.rossgraeber/oac-session-channels": {
+                  "revision": "0.1",
+                  "active_inbound": true
+                }
+              },
+              "harness_label": "harness-b"
+            }
+          },
+          "audience": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+          "security": {
+            "principal": "principal-b",
+            "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+            "signature": "MXo_kyOaCn9EbL0kaKIp1zX5s1TFppWN6gnpfW0sCBHITjnQjGEWnPGkB45PZCBbmM0qz_qw8s4nXoyifuN6Dw"
+          }
+        }
+      },
+      {
+        "at": "2026-10-03T12:00:03.000Z",
+        "actor": "alice",
+        "op": "release",
+        "session": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to_device": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+      },
+      {
+        "at": "2026-10-03T12:00:05.000Z",
+        "actor": "alice",
+        "op": "send",
+        "envelope": {
+          "version": "0.1",
+          "id": "msg-orig-1",
+          "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+          "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "created_at": "2026-10-03T12:00:05.000Z",
+          "content": [
+            {
+              "type": "text",
+              "text": "Please review the scheduler module."
+            }
+          ],
+          "security": {
+            "principal": "principal-a",
+            "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+            "nonce": "VBsv7e2Gy52X8s4lwVAmMQ",
+            "signature": "8x1k6jxJ7PfzNw15ukhHhNnu9cDdn7fs7KTTs8w9TBl6rnXbFMEzQdbIeVV1AuX37wlpIqOifm4zVBCey6uTDQ"
+          }
+        }
+      },
+      {
+        "at": "2026-10-03T12:00:30.000Z",
+        "actor": "alice",
+        "op": "remove-grant",
+        "grant": {
+          "direction": "outbound",
+          "writer": {
+            "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+          },
+          "target": {
+            "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+            "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+          }
+        }
+      },
+      {
+        "at": "2026-10-03T12:00:40.000Z",
+        "actor": "alice",
+        "op": "send",
+        "envelope": {
+          "version": "0.1",
+          "id": "msg-retry-1",
+          "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+          "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "created_at": "2026-10-03T12:00:40.000Z",
+          "content": [
+            {
+              "type": "text",
+              "text": "Please review the scheduler module."
+            }
+          ],
+          "security": {
+            "principal": "principal-a",
+            "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+            "nonce": "KpURE9d1AZMCyRl0BoByGw",
+            "signature": "r9Gb8qgPiG6V2gj9yc-_0NxKhWk9BWUV4PNtNv7P0DKdRMjBkC73U_6FO51MWlLmdUrrUw8De4KVLLNDJ8VCDw"
+          }
+        }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "result": "accepted"
+      },
+      {
+        "released": true
+      },
+      {
+        "result": "sent"
+      },
+      {
+        "removed": true
+      },
+      {
+        "result": "refused",
+        "error": "unknown-destination"
+      }
+    ]
+  }
+}
