@@ -501,11 +501,15 @@ which loads those fixtures as its CI-default spec-conformance tier.
 declared.** The proposed freeze record is `docs/planning/decisions/E7-interface-freeze.md`.
 It holds the readiness audit (§2), the blockers (§3), the markers edited at sign-off (§6),
 the change-control rule after the freeze (§7) and the operator sign-off block (§8). The
-freeze is the operator's decision. Open blockers: the interface text for `ProviderAdapter`,
-`Transport` and the core types (#273), and the #224 no-steering decision (#274), which hold
-criteria 1 and 6; the `envelope-too-large` and `transport-failure` fixtures and the MCP
-binding fixture owners (#275), which hold the executable demonstration. Criteria 2, 3 and 5
-hold for the three merged documents, and criterion 4 holds for the 461 fixtures.
+freeze is the operator's decision.
+
+- **Closed:** the interface text, `spec/interfaces.md` (#273, PR #279); the #224
+  no-steering decision (#274, PR #278); L9 (#174, PR #272), landed before the freeze.
+- **Criteria:** 2, 3, 5 and 6 hold, and criterion 1 waits only for the operator's sign-off.
+  Criterion 4 holds for the 475 fixtures.
+- **Open:** the executable demonstration still lacks fixtures that decide
+  `envelope-too-large` and `transport-failure`, and 22 MCP binding `TODO(fixture)` rows
+  name no owner (#275).
 
 *Dated note, 2026-10-04 (#47): two references above are M0-era.*
 
