@@ -1,0 +1,85 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-073",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "delivery-stage code reported before authorization",
+  "description": "Carol is not authorized for Bob. Bob does not accept the part type, but Carol learns only that she is unauthorized.",
+  "stage": "routing",
+  "context": {
+    "receiver_time": "2026-10-03T12:00:01.000Z",
+    "supported_major_versions": [
+      0
+    ],
+    "receiver_content_types": [
+      "text",
+      "com.example/note"
+    ],
+    "sessions": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "accepting": true,
+        "content_types": [
+          "text"
+        ]
+      },
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": {
+        "accepting": true,
+        "content_types": [
+          "text",
+          "com.example/note"
+        ]
+      },
+      "8wd4k1q7z3m9c2t6x0b5n8r1vf": {
+        "accepting": false,
+        "content_types": [
+          "text"
+        ]
+      }
+    },
+    "authorized": [
+      {
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      },
+      {
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "5mt9x2k7q4w8c1n6b3r0v5z2pd"
+      },
+      {
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "8wd4k1q7z3m9c2t6x0b5n8r1vf"
+      },
+      {
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "2zq7c4m1x8t5k3w9b6n0r2v7pd"
+      }
+    ]
+  },
+  "input": {
+    "envelope": {
+      "version": "0.1",
+      "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+      "from": "3kp8w2n6c9t4x1b5m7q0r3s8vz",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "created_at": "2026-10-03T12:00:00.000Z",
+      "ttl_ms": 300000,
+      "content": [
+        {
+          "type": "com.example/note",
+          "text": "Please review the scheduler module."
+        }
+      ],
+      "security": {
+        "principal": "fixture-placeholder-principal",
+        "key_id": "fixture-placeholder-key-id",
+        "nonce": "fixture-placeholder-nonce",
+        "signature": "fixture-placeholder-signature"
+      }
+    }
+  },
+  "expected": {
+    "result": "rejected",
+    "error": "unauthorized"
+  }
+}

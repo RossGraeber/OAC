@@ -1,8 +1,9 @@
 # OAC Session Channels
 
 **Document:** `spec/session-channels.md`, the normative OAC Session Channels specification.
-**Revision:** 0.1 (draft, Stage 2). Sections 4 and 5 are written (E1, #41). Sections 6, 7
-and 8 are titled stubs that tasks E2 (#42), E3 (#43) and E4 (#44) fill.
+**Revision:** 0.1 (draft, Stage 2). Sections 4 and 5 are written (E1, #41), and so is
+section 8 (E4, #44). Sections 6 and 7 are titled stubs that tasks E2 (#42) and E3 (#43)
+fill.
 **Companion document:** `spec/security.md` (task E5, #45) holds the identity hierarchy,
 signing, replay defence, authorization and provenance rules. This document does not restate
 them.
@@ -141,15 +142,15 @@ A fixture is a JSON object with these members:
 | `stage` | The validation stage the fixture exercises. Section 4 and 5 fixtures use `envelope` (envelope-stage validation, §2.3). |
 | `context` | The receiver's state for the test: `receiver_time` (a timestamp in the §4.4.6 form) and `supported_major_versions` (an array of integers). |
 | `input` | Exactly one of: `envelope` (the envelope as a JSON value), `envelope_text` (the exact serialized text, for inputs that no JSON value expresses, such as duplicate member names), or `envelope_base64` (the exact octets, base64 per [RFC4648] §4, for inputs that are not valid UTF-8). |
-| `expected` | `result` (one of `valid`, `rejected`, `expired`), and optionally `trusted_security` (the `security` member values a receiver extracts, §4.7). |
+| `expected` | `result` (one of `valid`, `rejected`, `expired`); for a negative fixture, `error` (the §8.3 error code the receiver reports); and optionally `trusted_security` (the `security` member values a receiver extracts, §4.7). Section 8.5 adds the members of the stages §8 defines. |
 
 An envelope-stage fixture's `security` members hold placeholder strings. Envelope-stage
 validation checks their presence and type (§4.6), never their values. Signature vectors and
 replay cases are `spec/security.md` fixtures (E5, E8).
 
-The `result` values `rejected` and `expired` are the delivery states that §8.1 (E4) defines.
-When E4 lands the closed error taxonomy (§8.3), each negative fixture gains an
-`expected.error` member naming the error it emits.
+The `result` values `rejected` and `expired` are the delivery states that §8.1 defines.
+Each negative envelope-stage fixture carries `expected.error`, the code from the closed
+error taxonomy of §8.3 that the receiver reports ([SC-RCP-070], [SC-RCP-071]).
 
 > **Reference implementation note:** the v0.1 reference workspace runs these fixtures from
 > its conformance runner (task E8, wired into CI by task F12). The fixture set in this
@@ -514,8 +515,9 @@ envelope that passes one check is still subject to the other.
 
 A **retransmission** resends an envelope that was already signed, octet for octet: the same
 `id`, `created_at`, `ttl_ms`, `security.nonce` and signature. A **retry** sends the same
-message content again as a new envelope. A receiver that already accepted the original
-treats a retransmission as a duplicate (`spec/security.md`).
+message content again as a new envelope. A receiver that has handed off the original, may
+have handed it off, or is handing it off treats a retransmission as a duplicate
+([SC-RCP-009], `spec/security.md`).
 
 [SC-ENV-102] A sender that retransmits an envelope MUST send it unchanged.
 
@@ -721,7 +723,7 @@ envelope.
 | State | Observer | Meaning | Handed off |
 |---|---|---|---|
 | `accepted-by-adapter` | sending implementation | The sending implementation created a valid envelope for the message and passed it to a transport. | not known |
-| `handed-to-harness` | receiver | The receiver passed the content to the harness through the harness's supported input surface, and that surface reported the call successful. | yes |
+| `handed-to-harness` | receiver | The receiver passed the content to the harness through the harness's supported input surface, and the input call completed successfully as that surface defines completion. For a surface that returns no response, completion is the end of the write to it. | yes |
 | `unknown` | either | The observer cannot determine whether the content was handed off. | not known |
 | `rejected` | receiver | The receiver refused the envelope: it failed validation, verification, authorization or a capability check. | no |
 | `expired` | receiver | The receiver did not hand off the envelope because its expiry instant (§4.9) or the replay window of `spec/security.md` had passed. | no |
@@ -756,9 +758,10 @@ report keeps the receiver as the observer (§8.1.5).
 #### 8.1.3 What a state proves, and what it does not
 
 No state in Table 8.1 means that a model read, understood, processed or acted on a
-message. `handed-to-harness` is the strongest state. It proves only that the harness's
-input surface accepted the input call. The harness then owns the input and decides when,
-and whether, a model sees it.
+message. `handed-to-harness` is the strongest state. It proves only that the input call to
+the harness's input surface completed. On a surface that returns no response, that means
+only that the write completed, not that the harness acknowledged anything. The harness then
+owns the input and decides when, and whether, a model sees it.
 
 This limit comes from the harnesses, not from a choice in this document.
 `docs/planning/decisions/C5-envelope-auth.md` §9 fixes the strongest observable point of
@@ -768,12 +771,12 @@ each harness surface the v0.1 bindings use as the success of the input call itse
   harness sends no acknowledgement that it processed the input
   (`docs/planning/REVERIFICATION-B2.md` §3.1, re-verified HOLDS against first-party
   documentation retrieved 2026-09-16; `docs/planning/PLANNING-PROMPT.md` §3.1).
-- On the other, a success response to the input call confirms that the harness accepted
-  the call, not that a model processed the resulting turn (C5 §9;
-  `docs/planning/PLANNING-PROMPT.md` §3.2).
+- On the other, C5 §9 reads a success response to the input call as confirming that the
+  harness accepted the call, not that a model processed the resulting turn. That reading
+  is the decision's own; C5 §9 claims no stronger observable point.
 
-[SC-RCP-004] A receiver MUST NOT report `handed-to-harness` before the harness's input
-surface has reported the hand-off call successful.
+[SC-RCP-004] A receiver MUST NOT report `handed-to-harness` before the hand-off call has
+completed successfully, as the harness's input surface defines completion.
 
 [SC-RCP-005] An implementation MUST NOT present a delivery state to a user, a harness or a
 model as meaning that a model read, processed or acted on the message.
@@ -802,17 +805,19 @@ receipt (§8.1.5) or `unknown` ([SC-RCP-010]) changes the sending implementation
 later retransmission (§8.4). How a receiver recognizes a copy is defined in
 `spec/security.md`.
 
-[SC-RCP-010] A sending implementation SHOULD report `unknown` for an envelope once no
-receiver can hand it off any more, when it holds no receiver-observed state for that
-envelope. A sending implementation that keeps reporting `accepted-by-adapter` after that
-point deviates: its caller waits for a change that cannot come.
+An envelope's **hand-off deadline** is the earlier of its expiry instant (§4.9), when it
+has one, and the end of the replay window of `spec/security.md` for its `created_at`. The
+replay window bounds `created_at` whatever `ttl_ms` says (§4.9), so no receiver can hand off
+any copy of an envelope after its hand-off deadline.
 
-No receiver can hand off an envelope after its expiry instant (§4.9) or, for an envelope
-without `ttl_ms`, after the replay window of `spec/security.md` ends.
+[SC-RCP-010] A sending implementation SHOULD report `unknown` for an envelope once its
+hand-off deadline has passed, when its combined state (§8.4.1) is still
+`accepted-by-adapter`. A sending implementation that keeps reporting `accepted-by-adapter`
+after that point deviates: its caller waits for a change that cannot come.
 
-[SC-RCP-011] A sending implementation MAY replace `unknown` with the state of a receipt
-for the same envelope that arrives later. A sending implementation that does not keeps
-reporting `unknown`, which stays true.
+[SC-RCP-011] A sending implementation MAY recompute its reported state when a receipt
+arrives after it reported `unknown` under [SC-RCP-010]. A sending implementation that does
+not keeps reporting `unknown`, which stays true.
 
 #### 8.1.4 Receipts
 
@@ -915,9 +920,16 @@ forges a `from` aim receipts at another session.
 it has verified. A receiver that sends none still conforms, and its senders report
 `unknown` ([SC-RCP-010]).
 
-*Dated note, 2026-10-03 (#44): whether v0.1 promises receiver-observed receipts across
-implementations is an open operator question on #44. Until it is answered they are
-optional, as [SC-RCP-042] states.*
+*Dated note, 2026-10-03 (#44): receipts from the receiving side back to the sender are
+optional for v0.1, as [SC-RCP-042] states. This is an operator decision recorded on #44.
+The sending implementation always knows the states it observes itself. The decision is
+revisited when a binding can show far-side receipts to the sending harness.*
+
+*Dated note, 2026-10-03 (#44, for E5 #45): anyone who captures a verified envelope can
+replay it inside the replay window. Each replay is a `duplicate`, and a receiver that sends
+a receipt for each one sends an unbounded number of receipts to the real sender.
+`spec/security.md` is expected to bound this, for example by sending at most one
+`duplicate` receipt per envelope or by rate-limiting them. This section sets no bound.*
 
 ### 8.2 Replies and correlation
 
@@ -972,8 +984,10 @@ envelope, and the implementation never guesses one, even when only one candidate
 implementation picks the single plausible candidate and marks the reply as inferred. This
 revision has no envelope member for that mark, and an unmarked guess on the wire would look
 the same as a checked target. Inferred correlations are therefore not sent in this
-revision. Whether to add an optional marker member (a minor revision, §5.2) is an open
-operator question on #44.*
+revision: a reply links to a message only when the link is checked, and otherwise goes out
+uncorrelated. This is an operator decision recorded on #44, to be revisited after the live
+reply-correlation leg of the reference adapters (backlog G8). Adding an optional marker
+member then would be a minor revision (§5.2).*
 
 [SC-RCP-053] A sending implementation that sets `reply_to` MUST set the reply's
 `conversation_id` to the answered envelope's `conversation_id` when the hand-off record
@@ -1041,10 +1055,10 @@ Table 8.3.
 
 | Code | Stage | State | Scope | Condition | Sender's next step |
 |---|---|---|---|---|---|
-| `envelope-too-large` | envelope | `rejected` | receiver, request | The serialized envelope is larger than the receiver accepts ([SC-ENV-004], [SC-ENV-005]). | Retry with smaller content. |
+| `envelope-too-large` | envelope | `rejected` | receiver, request | The serialized envelope is larger than the receiver-wide limit ([SC-ENV-004], [SC-RCP-076]); as a request error, larger than the addressed session accepts ([SC-ENV-005]). | Retry with smaller content. |
 | `malformed-envelope` | envelope | `rejected` | receiver | The envelope fails a requirement of §4 or §5.4 that no other code in this table covers. | None: the sender is defective. |
-| `unsupported-version` | envelope | `rejected` | receiver | The major version is not one the receiver supports ([SC-VER-001]). | Retry under a major version the receiver supports (§6.5). |
-| `unsupported-content-type` | envelope | `rejected` | receiver, request | A content part's `type` is not supported ([SC-ENV-065]); as a request error, it is not advertised ([SC-ENV-066]). | Retry with supported part types. |
+| `unsupported-version` | envelope | `rejected` | receiver, request | The major version is not one the receiver supports ([SC-VER-001]); as a request error, no version is agreed with the addressed session (§6.5). | Retry under a major version the receiver supports (§6.5). |
+| `unsupported-content-type` | envelope | `rejected` | receiver, request | A content part's `type` is one the receiver supports for no session ([SC-ENV-065], [SC-RCP-076]); as a request error, the addressed session has not advertised it ([SC-ENV-066]). | Retry with supported part types. |
 | `expired` | envelope | `expired` | receiver | The expiry instant has passed ([SC-ENV-100], [SC-ENV-101]). | Retry, if the message is still wanted. |
 | `unknown-key` | security | `rejected` | receiver | `security.key_id` names no key the receiver trusts. | None until the devices are paired. |
 | `signature-invalid` | security | `rejected` | receiver | The signature does not verify. | None: investigate. |
@@ -1053,7 +1067,7 @@ Table 8.3.
 | `unauthorized` | security | `rejected` | receiver, request | The sender, or the requesting harness, is not authorized for the operation. | None until authorized. |
 | `unknown-destination` | delivery | `unreachable` | sender, receiver, request | No session with the addressed id is known to the observer. | None. |
 | `destination-unavailable` | delivery | `unreachable` | sender, receiver, request | The addressed session is known but is not accepting input now. | Retransmit, or retry later. |
-| `unsupported-capability` | delivery | `rejected` | receiver, request | The addressed session lacks a capability the message requires (§6.6). | None. |
+| `unsupported-capability` | delivery | `rejected` | receiver, request | The addressed session lacks a capability the message requires (§6.6), including a size or part type that the receiver accepts for some session but not for this one ([SC-RCP-077]). | None. |
 | `handoff-failed` | delivery | `failed` | receiver | The harness's input surface reported that the hand-off call failed. | Retransmit. |
 | `transport-failure` | delivery | `failed` | sender | The sending implementation could not pass the envelope to a transport. | Retransmit. |
 | `internal-error` | any | `failed` | sender, receiver, request | An internal error unrelated to the envelope's validity. | Retransmit. |
@@ -1073,13 +1087,14 @@ choose it, so that every implementation reports the same code for the same input
 
 Within the envelope stage, the checks run in this order:
 
-1. the size limit: `envelope-too-large`;
+1. the receiver-wide size limit: `envelope-too-large`;
 2. encoding ([SC-ENV-001], [SC-ENV-002]) and the `version` member ([SC-ENV-020]):
    `malformed-envelope`;
 3. the major version ([SC-VER-001]): `unsupported-version`;
 4. every other requirement of §4 and §5.4 that envelope-stage validation checks, except the
    two below: `malformed-envelope`;
-5. content part types ([SC-ENV-065]): `unsupported-content-type`;
+5. content part types the receiver supports for no session ([SC-ENV-065]):
+   `unsupported-content-type`;
 6. expiry ([SC-ENV-100]): `expired`.
 
 Step 3 comes before step 4 because a receiver cannot judge an envelope's structure by the
@@ -1087,6 +1102,32 @@ rules of a major version it does not implement.
 
 [SC-RCP-071] A receiver MUST report the code of the earliest failed step when an envelope
 fails more than one envelope-stage check.
+
+The envelope stage runs before the sender is authenticated or authorized. A check there
+that depended on the addressed session would tell an unauthorized sender whether that
+session exists and what it accepts.
+
+[SC-RCP-076] A receiver MUST apply the size check of step 1 and the part-type check of
+step 5 with limits that do not depend on the addressed session.
+
+The receiver-wide size limit is the largest size the receiver accepts for any session. The
+receiver-wide part types are those it supports for at least one session.
+
+[SC-RCP-077] A receiver MUST report an envelope whose size or part types the receiver
+accepts, but the addressed session does not, as `unsupported-capability` at the delivery
+stage.
+
+Within the delivery stage, the checks run in this order:
+
+1. whether the addressed session is known: `unknown-destination`;
+2. whether it is accepting input now: `destination-unavailable`;
+3. whether it has every capability the envelope needs, including its size and part types:
+   `unsupported-capability`;
+4. expiry, repeated at hand-off ([SC-ENV-101]): `expired`;
+5. the hand-off call: `handoff-failed`.
+
+[SC-RCP-078] A receiver MUST report the code of the earliest failed step when an envelope
+fails more than one delivery-stage check.
 
 [SC-RCP-072] A receiver MUST NOT report a security-stage code for an envelope that failed
 envelope-stage validation.
@@ -1111,12 +1152,53 @@ Section 4.9 defines a **retransmission** (the same envelope, unchanged) and a **
 (the same content in a new envelope, with a new `id` and a new nonce). They behave
 differently against duplicate suppression. A receiver recognizes a retransmission as a
 copy and suppresses it when an earlier copy was handed off (`spec/security.md`,
-[SC-RCP-009]). A retry is a new envelope, which no receiver can recognize as a repeat. Retransmission is therefore the safe recovery when the outcome
-is not known; a retry can hand the content off twice.
+[SC-RCP-009]). A retry is a new envelope, which no receiver can recognize as a repeat.
+Retransmission is therefore the safe recovery when the outcome is not known; a retry can
+hand the content off twice.
 
 A retry "on its own initiative" is one the implementation starts without a new request
 from the harness. When a harness or its user asks to send the message again, that is a new
 message and the harness's decision. Each retry gets its own receipts, under its own `id`.
+
+#### 8.4.1 The combined state of an envelope
+
+A receipt names an envelope, not a copy of it. Every copy of a retransmitted envelope has
+the same `envelope_id` and `envelope_from`, so a receipt cannot say which copy it
+describes, and receipts can be lost or arrive in any order ([SC-RCP-042]). An error state
+proves that the content was not handed off only for the copy it describes. A sending
+implementation that passed an envelope to a transport more than once cannot tell which
+copy an error receipt describes.
+
+A copy is **passed** when the sending implementation handed it to a transport. A copy that
+the sending implementation itself saw fail before reaching a transport (`unreachable`, or
+`failed` with `transport-failure`) is not passed.
+
+[SC-RCP-085] A sending implementation MUST report, as the state of an envelope, the first
+of the following that applies to the states it holds for that envelope:
+
+1. `handed-to-harness`, when it holds that state for any copy;
+2. `duplicate`, when it holds that state for any copy;
+3. `unknown`, when it holds a receiver-observed `unknown` for any copy;
+4. the error state it received first, when it passed exactly one copy and holds an error
+   state;
+5. its own error state, when it passed no copy;
+6. otherwise `accepted-by-adapter` until the hand-off deadline (§8.1.3), and `unknown`
+   after it ([SC-RCP-010]).
+
+This is the envelope's **combined state**. In the rest of this section, the state a
+sending implementation "holds" for a message is the combined state of the message's
+envelope. Rule 1 means a late `duplicate` never overwrites `handed-to-harness`, and rule 4
+means an error receipt settles an envelope only when it can describe just one copy.
+
+[SC-RCP-086] A sending implementation that passed an envelope more than once MUST NOT
+retry the message on its own initiative.
+
+A retry is safe only when the sending implementation knows that no copy was handed off. It
+knows that only when one copy was passed and a receipt for it shows an error state, or when
+no copy was passed. A retransmission removes that knowledge for good, because no later
+receipt can be tied to a copy.
+
+#### 8.4.2 Retry and retransmission rules
 
 [SC-RCP-080] A sending implementation MUST NOT retry, on its own initiative, a message for
 which it holds `handed-to-harness`.
@@ -1129,28 +1211,32 @@ for which it holds `accepted-by-adapter` or `unknown`. A sending implementation 
 deviates: the content can be handed off twice.
 
 [SC-RCP-083] A sending implementation MAY retransmit an envelope for which it holds
-`accepted-by-adapter`, `unknown`, `unreachable` or `failed`, while a receiver can still
-hand it off (§8.1.3). A sending implementation that does not retransmit keeps reporting
-the state it holds.
+`accepted-by-adapter`, `unknown`, `unreachable` or `failed`, before its hand-off deadline
+(§8.1.3). A sending implementation that does not retransmit keeps reporting the state it
+holds.
 
 [SC-RCP-084] A sending implementation SHOULD NOT retransmit an envelope for which it holds
 `rejected` or `expired`. A sending implementation that does deviates: a retransmission is
 unchanged ([SC-ENV-102]), so the receiver repeats the same result.
 
 A retry after `rejected`, `expired`, `unreachable` or `failed` cannot hand off the content
-a second time on account of the earlier copy, because each of those states asserts that the
-earlier copy was not handed off.
+a second time, but only when that combined state came from rule 4 or rule 5 of
+[SC-RCP-085]: one copy passed, or none. After a retransmission, [SC-RCP-086] applies
+instead, whatever error receipts arrive.
 
 ### 8.5 Conformance fixtures for this section
 
 Fixtures for this section follow §3.3 and live under `tests/protocol/sc-rcp/`. Besides the
-`envelope` stage, they use three more `stage` values, with these members:
+`envelope` stage, they use five more `stage` values, with these members. In an
+`envelope`-stage fixture, the receiver supports the part type `text` and no other.
 
 | `stage` | `context` | `input` | `expected` |
 |---|---|---|---|
 | `receipt` | an empty object | `receipt`: the receipt as a JSON value | `result`: `valid` or `discarded` ([SC-RCP-032]); for `valid`, `effective_state`: the state a peer processes the receipt as ([SC-RCP-030]) |
 | `reply` | `handed_off`: an array of hand-off records, each an object with `id`, `from`, `to` and, when present, `conversation_id` and `correlation_id` | `reply_request`: an object with `from` (the replying session), `to` (the addressed session) and, optionally, `requested_target` | `reply_headers`: an object holding exactly those of `reply_to`, `conversation_id` and `correlation_id` that the implementation sets; `correlation`: `correlated` or `uncorrelated` |
 | `correlation` | `receiver_time` and `supported_major_versions` as in §3.3, and `sent`: an array of sent-envelope records, with the members of a hand-off record | `envelope`, as in §3.3 | `result`, as in §3.3; `correlation`: `matched` or `unmatched`; for `matched`, `answers`: an object with the `id` and `from` of the answered envelope |
+| `combine` | `copies_passed`: the number of copies passed to a transport; `deadline_passed`: whether the hand-off deadline has passed | `held`: an array of the states held for the envelope, in arrival order, each an object with `state`, `observer` and, when present, `error` | `state`: the combined state ([SC-RCP-085]); `retry_allowed`: whether a retry on the implementation's own initiative is permitted, which is true only when `state` is an error state and `copies_passed` is 0 or 1 ([SC-RCP-080] to [SC-RCP-082], [SC-RCP-086]) |
+| `routing` | `receiver_time` and `supported_major_versions` as in §3.3; `receiver_content_types`: the part types the receiver supports for at least one session; `sessions`: an object whose members are the session ids the receiver knows, each an object with `accepting` (a boolean) and `content_types` (an array); `authorized`: an array of objects with `from` and `to`, the sender-to-session pairs that pass authorization. Every other security-stage check is taken as passed. | `envelope`, as in §3.3 | `result`: `valid`, `rejected`, `expired` or `unreachable`; for a result other than `valid`, `error` |
 
 Every negative `envelope`-stage fixture, in `sc-rcp/` and in `sc-env/` and `sc-ver/`,
 carries `expected.error`: the code that [SC-RCP-070] and [SC-RCP-071] require.
@@ -1301,17 +1387,22 @@ no conformance fixture yet, and names the task expected to supply the test.
 | SC-RCP-060 | MUST | 8.2.3 | `sc-rcp/SC-RCP-060.p01`, `.n01`, `.n02` |
 | SC-RCP-061 | MUST NOT | 8.2.3 | `sc-rcp/SC-RCP-061.p01` |
 | SC-RCP-062 | MUST NOT | 8.2.3 | `sc-rcp/SC-RCP-062.n01` |
-| SC-RCP-070 | MUST | 8.3.1 | `expected.error` of every negative `envelope`-stage fixture in `sc-env/` and `sc-ver/`; `sc-rcp/SC-RCP-071.n01` to `.n04` |
-| SC-RCP-071 | MUST | 8.3.2 | `sc-rcp/SC-RCP-071.n01` to `.n04` |
+| SC-RCP-070 | MUST | 8.3.1 | `expected.error` of every negative `envelope`-stage fixture in `sc-env/` and `sc-ver/`; `sc-rcp/SC-RCP-071.n01` to `.n06` |
+| SC-RCP-071 | MUST | 8.3.2 | `sc-rcp/SC-RCP-071.n01` to `.n06` |
 | SC-RCP-072 | MUST NOT | 8.3.2 | TODO(fixture): needs security-stage vectors; E5, E8 |
-| SC-RCP-073 | MUST NOT | 8.3.2 | TODO(fixture): needs authorization vectors; E5, E8, H2 |
+| SC-RCP-073 | MUST NOT | 8.3.2 | `sc-rcp/SC-RCP-073.n01`, `.n02` (authorization only; signature and replay vectors: E5, E8, H2) |
 | SC-RCP-074 | MUST NOT | 8.3.2 | TODO(fixture): a runner check that every emitted code is in Table 8.3; E8, F12 |
 | SC-RCP-075 | MUST | 8.3.2 | TODO(fixture): request errors; E6 binding hooks, G5, G8 |
-| SC-RCP-080 | MUST NOT | 8.4 | TODO(fixture): sender retry behaviour; F6 |
-| SC-RCP-081 | MUST NOT | 8.4 | TODO(fixture): sender retry behaviour; F6 |
-| SC-RCP-082 | SHOULD NOT | 8.4 | none (SHOULD NOT) |
-| SC-RCP-083 | MAY | 8.4 | none (MAY) |
-| SC-RCP-084 | SHOULD NOT | 8.4 | none (SHOULD NOT) |
+| SC-RCP-076 | MUST | 8.3.2 | `sc-rcp/SC-RCP-076.p01`, `.n01` |
+| SC-RCP-077 | MUST | 8.3.2 | `sc-rcp/SC-RCP-077.n01` |
+| SC-RCP-078 | MUST | 8.3.2 | `sc-rcp/SC-RCP-078.n01`, `.n02` |
+| SC-RCP-080 | MUST NOT | 8.4.2 | `sc-rcp/SC-RCP-080.p01` (`retry_allowed`); live retry behaviour: F6 |
+| SC-RCP-081 | MUST NOT | 8.4.2 | `sc-rcp/SC-RCP-081.p01` (`retry_allowed`); live retry behaviour: F6 |
+| SC-RCP-082 | SHOULD NOT | 8.4.2 | none (SHOULD NOT) |
+| SC-RCP-083 | MAY | 8.4.2 | none (MAY) |
+| SC-RCP-084 | SHOULD NOT | 8.4.2 | none (SHOULD NOT) |
+| SC-RCP-085 | MUST | 8.4.1 | `sc-rcp/SC-RCP-085.p01` to `.p06`, `.n01`, `.n02` |
+| SC-RCP-086 | MUST NOT | 8.4.1 | `sc-rcp/SC-RCP-086.p01`, `.n01`; live retry behaviour: F6 |
 
 Retired ids: none.
 
@@ -1320,3 +1411,4 @@ Retired ids: none.
 | Revision | Date | Change |
 |---|---|---|
 | 0.1 (draft) | 2026-10-03 | E1 (#41): document skeleton for sections 1-10; sections 4 (envelope) and 5 (versioning) written; requirement-id scheme and fixture format (§3); envelope-stage fixtures under `tests/protocol/sc-env/` and `tests/protocol/sc-ver/`. Review of #258: SC-ENV-027, SC-ENV-103, SC-ENV-104 and SC-VER-003 added (retransmission and retry defined); dated notes for the operator decisions on #41. |
+| 0.1 (draft) | 2026-10-03 | E4 (#44): section 8 written: delivery states, receipts, replies and correlation, the closed error taxonomy with precedence, and the retransmission and retry rules including the combined state of an envelope; requirement area `RCP`; fixtures under `tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture (§3.3); §4.9's duplicate wording aligned with [SC-RCP-009]; dated notes for the operator decisions on #44. |

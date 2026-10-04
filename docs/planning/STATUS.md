@@ -6,15 +6,20 @@ verdict, or when a pin moves.
 
 **Last updated:** 2026-10-03 (**Issue #44 (E4): receipts, replies, correlation and the
 error taxonomy written.** `spec/session-channels.md` §8 now holds the delivery-state set
-(DESIGN's `accepted` split into `accepted-by-adapter`, `handed-to-harness` and `unknown`, per
-C5 §9; no state claims a model saw a message), the receipt format, the reply rule for a
-harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
-precedence, and the retransmission and retry rules. Requirement area `RCP`: 48 ids in
-Appendix A. New fixtures: 42 under `tests/protocol/sc-rcp/`; every negative fixture under
-`sc-env/` and `sc-ver/` gains `expected.error`. Two operator questions are open on #44 (are
-receipts across implementations promised; should an "inferred" reply mark exist), each
-marked in §8 with a dated note. No gate verdict, pin or ADR text changes, and no UNVERIFIED
-item opens or closes.)
+(DESIGN's `accepted` split into `accepted-by-adapter`, `handed-to-harness` and `unknown`, as
+C5 §9 requires; no state claims a model saw a message), the receipt format, the reply rule
+for a harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
+precedence, and the retransmission and retry rules, including how receipts for several
+copies of one envelope combine. Requirement area `RCP`: 53 ids in Appendix A. New fixtures:
+63 under `tests/protocol/sc-rcp/`; every negative fixture under `sc-env/` and `sc-ver/`
+gains `expected.error`.
+- **Departure from C5 §9, recorded:** C5 §9 defines `accepted-by-adapter` as the receiving
+  side's acceptance after verification; §8.1.2 adopts C6 §8's reading instead (the sending
+  implementation passed the envelope to a transport), because that is what `send` returns
+  and what a sender can observe. A dated forward note is added at the end of C5 §9.
+- **Operator decisions on #44**, each a dated note in §8: far-side receipts are optional
+  (MAY) for v0.1; no inferred reply links in v0.1.
+- No gate verdict, pin or ADR text changes, and no UNVERIFIED item opens or closes.)
 
 **Previously:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning
 written.** The first Stage 2 spec change. In this change:

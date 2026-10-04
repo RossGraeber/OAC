@@ -1,0 +1,36 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-086",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "retry after a retransmission",
+  "description": "Three copies were passed and two `failed` receipts arrived. The third copy may have been handed off with its receipt lost, so no retry.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 3,
+    "deadline_passed": true
+  },
+  "input": {
+    "held": [
+      {
+        "state": "accepted-by-adapter",
+        "observer": "sender"
+      },
+      {
+        "state": "failed",
+        "observer": "receiver",
+        "error": "handoff-failed"
+      },
+      {
+        "state": "failed",
+        "observer": "receiver",
+        "error": "handoff-failed"
+      }
+    ]
+  },
+  "expected": {
+    "state": "unknown",
+    "retry_allowed": false
+  }
+}
