@@ -1,10 +1,11 @@
 // g5-provenance: G5 re-run end to end through the herdr driver (Epic K, K8 #131).
 //
-// NOT VERDICT-BEARING. G5's verdict is FAIL (Codex criteria 2 and 3; docs/planning/gates/
-// G5-result.md) and this scenario never touches it: it replays the human-run G5 of 2026-09-27
-// through herdr and records the run, and tools/herdr/lib/g5-report.mjs only says whether the
-// scripted run reproduced the human run's per-criterion results. It never changes G5's
-// verdict, STATUS.md, or PINS.md.
+// NOT VERDICT-BEARING (a K8 run). G5's verdict is PASS (2026-10-03, docs/planning/gates/
+// G5-result.md: the Codex leg from the C13 E1 re-run of 2026-10-02, the Claude leg from the
+// human run of 2026-09-27), and a K8 run never touches it: it replays the human-run G5 of
+// 2026-09-27 through herdr and records the run, and tools/herdr/lib/g5-report.mjs only says
+// whether the scripted run reproduced the human run's per-criterion results. It never changes
+// G5's verdict, STATUS.md, or PINS.md.
 //
 // THE SERVER AND CLIENT ARE RECONSTRUCTIONS. The G5 spike server, client and case table were
 // never committed; this scenario runs tools/herdr/gate-servers/g5-channel.mjs, g5-codex.mjs
@@ -85,7 +86,7 @@ import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, INPUT_ROLES } from '../lib/gate-common.mjs';
-import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, loadCases, assertNoSpoof, fixtureNames, unverifiedNames, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
+import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, loadCases, assertNoSpoof, fixtureNames, unverifiedNames, parseJsonl, g5ClaudeFacts, g5CodexFacts, threadIdleOnWire, UNPROMPTED_ANSWER_POLICY } from '../lib/g5.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -122,7 +123,7 @@ export function selectClaudeCases(spec, arms) {
 
 export default {
   name: 'g5-provenance',
-  description: 'G5 re-run through herdr for comparison with the human-run 2026-09-27 run (K8). Reconstructed server and client. Not verdict-bearing; G5 stays FAIL.',
+  description: 'G5 re-run through herdr for comparison with the human-run 2026-09-27 run (K8). Reconstructed server and client. Not verdict-bearing; G5\'s verdict (PASS, 2026-10-03, G5-result.md) is unchanged by it.',
   harnesses: ['claude', 'codex'],
   defaults: {
     launch: [...G5_LAUNCH],
@@ -174,7 +175,8 @@ export default {
     const claudeCases = selectClaudeCases(params.claudeCases, arms);
 
     const g5 = {
-      nonVerdictBearing: 'K8: compared against the human-run G5 of 2026-09-27; never changes the G5 verdict (FAIL) and never rescores it',
+      nonVerdictBearing: 'K8: compared against the human-run G5 of 2026-09-27; never changes the G5 verdict (PASS since 2026-10-03, G5-result.md) and never rescores it',
+      answerPolicy: UNPROMPTED_ANSWER_POLICY,
       reconstruction: 'tools/herdr/gate-servers/g5-channel.mjs, g5-codex.mjs and g5-cases.json are REBUILT from G5-result.md and the committed fixtures; the originals were never committed, so these are not the programs that produced the baseline',
       acceptPolicy: accept,
       params: { ...params, busyPrompt },
@@ -265,6 +267,25 @@ export default {
       rec.userAgentVersion = conns[0]?.userAgentVersion ?? null;
       if (problems.length) diverge(`\`${mode}\`: ${problems.join('; ')}`);
       return rec;
+    };
+    // #253: wait until thread/turns/list shows `threadId` with no turn in progress (and, with
+    // `marker`, the marker's turn completed): the wire-level "turn finished" signal, taken
+    // before every delivery. herdr's pane state alone never establishes it.
+    // `afterLine`: the client-transcript line after the last input to the thread; a
+    // thread/turns/list answer taken after it that already shows the thread idle is used as
+    // is (no second client run).
+    const wireIdle = async (agent, threadId, { marker = null, what, afterLine = null }) => {
+      if (afterLine !== null) {
+        const fresh = threadIdleOnWire(clientFacts(), threadId, { marker, sinceLine: afterLine });
+        if (fresh) return { ...fresh, reused: true };
+      }
+      let next = 0;
+      return agent.waitFor(what, async () => {
+        if (Date.now() < next) return null;
+        next = Date.now() + num('listPollMs');
+        const { linesBefore } = await runClient('turns', [threadId]);
+        return threadIdleOnWire(clientFacts(), threadId, { marker, sinceLine: linesBefore });
+      }, num('turnTimeoutMs'), { lbl: 'codex-idle-wait' });
     };
 
     try {
@@ -423,11 +444,11 @@ export default {
           });
           out.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
           if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
-          const marker = await agent.prompt(operator.threadMarker);
+          const marker = await agent.prompt(operator.threadMarker, { wait: true });
           const markerFrom = lastLine();
-          await agent.waitState('thread-marker-turn', num('turnTimeoutMs'));
-          const mr = await agent.read('after-thread-marker');
-          if (mr.screen.dialog) await agent.handleDialog(mr, 'thread-marker');
+          // #253: typed with `herdr agent prompt --wait`, so herdr observed the marker's own turn;
+          // never a wait that returns at once with the state from before the prompt.
+          const mr = await agent.settle('thread-marker-turn', num('turnTimeoutMs'), { since: marker });
           const projectDirs = [...new Set([projectDir, realpathSync(projectDir)])];
           const attachDeadline = Date.now() + Math.min(num('attachTimeoutMs'), Math.max(0, ctx.remainingMs()));
           let found;
@@ -442,8 +463,11 @@ export default {
             }
             await sleep(num('listPollMs'));
           }
-          out.thread = { id: found.threadId, listLine: found.candidates[0]?.listLine ?? null, markerPrompt: marker, markerFromLine: markerFrom, preLaunchLoaded: preLoaded.includes(found.threadId) };
+          out.thread = { id: found.threadId, listLine: found.candidates[0]?.listLine ?? null, markerPrompt: marker, markerFromLine: markerFrom, markerSettledSeq: mr.seq, markerSettledBy: mr.settled?.turnBegunBy ?? null, preLaunchLoaded: preLoaded.includes(found.threadId) };
           if (Object.values(g5.c13.threads).some((x) => x.thread.id === out.thread.id)) throw new DriverError(`arm ${arm} found the thread of an earlier arm (${out.thread.id}); each arm needs a fresh thread`);
+          // #253: the marker's turn must be over on the wire before any delivery, or a
+          // turn/start joins it (0.X2.1 on 2026-10-02).
+          out.thread.markerIdle = await wireIdle(agent, found.threadId, { marker: operator.threadMarker, what: `arm ${arm}'s thread-marker turn to complete (thread/turns/list)` });
           return out;
         };
         // Capture names, as step 3 of the K8 path (#216: versions never gate).
@@ -469,31 +493,36 @@ export default {
               await runClient('turns', [armThread]);
               return pred(clientFacts()) ?? null;
             }, num('turnTimeoutMs'), { lbl: 'codex-turn-wait' });
+          let inputLine = t.thread.markerFromLine; // the client line after the last input to the thread
           for (const d of a.deliveries) {
+            // #253: deliver only into a thread the wire shows idle (no turn in progress).
+            const idleBefore = await wireIdle(agent, armThread, { what: `arm ${a.arm}'s thread to be idle before ${d.id} (thread/turns/list)`, afterLine: inputLine });
             sendOnce(`Codex C13 delivery ${d.id} (${d.queued ? 'setup turn/start + thread/queue/add' : 'turn/start'}, client)`);
             const rec = await c13Client(armThread, d.id);
-            const drec = { id: d.id, arm: a.arm, threadId: armThread, clientRun: g5.clientRuns.indexOf(rec), refused: rec.refused, asked: false };
+            const drec = { id: d.id, arm: a.arm, threadId: armThread, idleBefore, clientRun: g5.clientRuns.indexOf(rec), refused: rec.refused, asked: false };
             g5.c13.deliveries.push(drec);
             if (rec.refused) continue; // nothing reached Codex: no turn to wait for, no question
+            inputLine = rec.linesAfter;
             const delivered = await turnDone((f) => {
               const c = f.cases.find((x) => x.case === d.id);
               return c?.turnId && c.turnStatus === 'completed' ? c : null;
             }, `the Codex turn for ${d.id} to complete (thread/turns/list)`);
             drec.turnId = delivered.turnId;
-            drec.afterReadSeq = (await agent.read(`after-${d.id}`, { source: 'recent-unwrapped', lines: num('readLines') })).seq;
-            if (!d.ask) {
-              await agent.settle(`${d.id}-turn`, num('turnTimeoutMs')); // mechanically scored: no question
-              continue;
-            }
+            const deliveredDone = async () => `the delivered turn ${delivered.turnId} completed on the wire (thread/turns/list)`;
+            // #246: settle before the after-delivery read (herdr refuses it, agent_not_idle, while
+            // the TUI is still busy after the wire turn completed). Any answer the model gave here
+            // unprompted is supporting text only (UNPROMPTED_ANSWER_POLICY).
+            drec.afterReadSeq = (await agent.settledRead(`after-${d.id}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `${d.id}-turn`, timeoutMs: num('turnTimeoutMs'), done: deliveredDone })).seq;
+            if (!d.ask) continue; // mechanically scored: no question
             drec.asked = true;
-            drec.question = await agent.prompt(operator.question);
+            drec.question = await agent.prompt(operator.question, { wait: true });
+            inputLine = lastLine();
             const answered = await turnDone((f) => {
               const c = f.cases.find((x) => x.case === d.id);
               return c?.questionTurnId && c.questionStatus === 'completed' ? c : null;
             }, `the answer to the question after ${d.id} (thread/turns/list)`);
             drec.questionTurnId = answered.questionTurnId;
-            await agent.settle(`${d.id}-question`, num('turnTimeoutMs'));
-            drec.answerReadSeq = (await agent.read(`after-${d.id}-question`, { source: 'recent-unwrapped', lines: num('readLines') })).seq;
+            drec.answerReadSeq = (await agent.settledRead(`after-${d.id}-question`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `${d.id}-question`, timeoutMs: num('turnTimeoutMs'), since: drec.question, done: async () => `the question turn ${answered.questionTurnId} completed on the wire (thread/turns/list)` })).seq;
           }
         }
         // Step 6 of the K8 path: post-run versions.
@@ -548,11 +577,10 @@ export default {
       });
       g5.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
-      const marker = await codex.prompt(operator.threadMarker);
+      const marker = await codex.prompt(operator.threadMarker, { wait: true });
       const markerFrom = lastLine();
-      await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));
-      const mr = await codex.read('after-thread-marker');
-      if (mr.screen.dialog) await codex.handleDialog(mr, 'thread-marker');
+      // #253: typed with `herdr agent prompt --wait`, as in the arms path.
+      const mr = await codex.settle('thread-marker-turn', num('turnTimeoutMs'), { since: marker });
       const projectDirs = [...new Set([codexProjectDir, realpathSync(codexProjectDir)])];
       const attachDeadline = Date.now() + Math.min(num('attachTimeoutMs'), Math.max(0, ctx.remainingMs()));
       let found;
@@ -568,7 +596,8 @@ export default {
         await sleep(num('listPollMs'));
       }
       const threadId = found.threadId;
-      g5.thread = { id: threadId, markerPrompt: marker, markerFromLine: markerFrom, preLaunchLoaded: (g5.preLaunchLoaded ?? []).includes(threadId) };
+      g5.thread = { id: threadId, markerPrompt: marker, markerFromLine: markerFrom, markerSettledSeq: mr.seq, markerSettledBy: mr.settled?.turnBegunBy ?? null, preLaunchLoaded: (g5.preLaunchLoaded ?? []).includes(threadId) };
+      g5.thread.markerIdle = await wireIdle(codex, threadId, { marker: operator.threadMarker, what: 'the thread-marker turn to complete (thread/turns/list)' });
       // Captures name one version per harness only when every source agrees (#216: no
       // comparison with PINS.md here; that is a VERSION WARNING above, never a stop).
       const sameVersions = !!cli.claude && !!cli.codex && g5.versions.wire.claude === cli.claude && g5.versions.wire.codex === cli.codex && CODEX_DAEMON_VERSION_FIELDS.every((k) => daemonV?.[k] === cli.codex);
@@ -593,21 +622,23 @@ export default {
         const r = f.refused.find((x) => x.case === id);
         return n ? { notification: n } : r ? { refused: r } : null;
       };
-      const ask = async (agent, context) => {
-        const q = await agent.prompt(operator.question);
-        await agent.settle(`${context}-question`, num('turnTimeoutMs'));
-        const r = await agent.read(`after-${context}-question`, { source: 'recent-unwrapped', lines: num('readLines') });
+      // #253: the question's settle waits for the question's own turn (since), and the read
+      // after it is a settled read (#246).
+      const ask = async (agent, context, { done = null } = {}) => {
+        const q = await agent.prompt(operator.question, { wait: true });
+        const r = await agent.settledRead(`after-${context}-question`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `${context}-question`, timeoutMs: num('turnTimeoutMs'), since: q, done });
         return { prompt: q, answerReadSeq: r.seq };
       };
       for (const id of CLAUDE_IDLE_CASES) {
         const preRead = await claude.read(`pre-${id}-idle-check`);
         if (preRead.screen.busy || preRead.screen.dialog) stop(`the Claude session was not visibly idle before case ${id}`);
+        // #253: a baseline and an activity watch before the push, so the settle below waits
+        // for the push's own turn and the question is never typed while it runs.
+        const pushTurn = await claude.watch(`${id}-push`);
         const at = fireCase(id);
         const w = await claude.waitFor(`case ${id} on the wire`, caseOnWire(id), num('wireTimeoutMs'), { lbl: `${id}-wait` });
         if (w.refused) stop(`the channel server refused case ${id} before sending it (pre-send check); the case table or server is not as reconstructed`);
-        await sleep(num('settleMs'));
-        await claude.settle(`${id}-turn`, num('turnTimeoutMs'));
-        const after = await claude.read(`after-${id}`, { source: 'recent-unwrapped', lines: num('readLines') });
+        const after = await claude.settledRead(`after-${id}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `${id}-turn`, timeoutMs: num('turnTimeoutMs'), since: pushTurn });
         const qa = await ask(claude, id);
         g5.claudeCases.push({ id, triggeredAt: at, preReadSeq: preRead.seq, wire: { line: w.notification.line, t: w.notification.t }, afterReadSeq: after.seq, ...qa });
       }
@@ -628,12 +659,12 @@ export default {
         if (r.screen.dialog) await claude.handleDialog(r, 'busy-turn');
         await sleep(Math.min(num('pollMs'), Math.max(0, until - Date.now())));
       }
+      const c6Turn = await claude.watch('C6-push'); // the busy turn is running: its end is the floor
       const c6At = fireCase('C6');
       const c6 = await claude.waitFor('case C6 on the wire', caseOnWire('C6'), num('wireTimeoutMs'), { lbl: 'C6-wait' });
       if (c6.refused) stop('the channel server refused case C6 before sending it');
       const c6r = await claude.read('after-C6-push');
-      await claude.settle('C6-busy-turn-end', num('turnTimeoutMs'));
-      const c6after = await claude.read('after-C6', { source: 'recent-unwrapped', lines: num('readLines') });
+      const c6after = await claude.settledRead('after-C6', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'C6-busy-turn-end', timeoutMs: num('turnTimeoutMs'), since: c6Turn });
       const c6qa = await ask(claude, 'C6');
       g5.claudeCases.push({ id: 'C6', busyPrompt: bp, firstBusySeq: firstBusy.seq, triggeredAt: c6At, wire: { line: c6.notification.line, t: c6.notification.t }, readAfterPushSeq: c6r.seq, afterReadSeq: c6after.seq, ...c6qa });
 
@@ -645,22 +676,27 @@ export default {
           await runClient('turns', [threadId]);
           return pred(clientFacts()) ?? null;
         }, num('turnTimeoutMs'), { lbl: 'codex-turn-wait' });
+      let inputLine = markerFrom; // the client line after the last input to the thread
       for (const id of codexCaseIds) {
+        // #253: deliver only into a thread the wire shows idle (no turn in progress).
+        const idleBefore = await wireIdle(codex, threadId, { what: `the Codex thread to be idle before ${id} (thread/turns/list)`, afterLine: inputLine });
         sendOnce(`Codex case ${id} (${id === 'X4' ? 'turn/start + thread/queue/add' : 'turn/start'}, client)`);
         const rec = id === 'X4' ? await runClient('x4', [threadId]) : await runClient('deliver', [threadId, id]);
+        inputLine = rec.linesAfter;
         const delivered = await turnDone((f) => {
           const c = f.cases.find((x) => x.case === id);
           return c?.turnId && c.turnStatus === 'completed' ? c : null;
         }, `the Codex turn for ${id} to complete (thread/turns/list)`);
-        const r1 = await codex.read(`after-${id}`, { source: 'recent-unwrapped', lines: num('readLines') });
-        const q = await codex.prompt(operator.question);
+        // #246: settle before the after-delivery read, as in the arms path.
+        const r1 = await codex.settledRead(`after-${id}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `${id}-turn`, timeoutMs: num('turnTimeoutMs'), done: async () => `the delivered turn ${delivered.turnId} completed on the wire (thread/turns/list)` });
+        const q = await codex.prompt(operator.question, { wait: true });
+        inputLine = lastLine();
         const answered = await turnDone((f) => {
           const c = f.cases.find((x) => x.case === id);
           return c?.questionTurnId && c.questionStatus === 'completed' ? c : null;
         }, `the answer to the question after ${id} (thread/turns/list)`);
-        await codex.settle(`${id}-question`, num('turnTimeoutMs'));
-        const r2 = await codex.read(`after-${id}-question`, { source: 'recent-unwrapped', lines: num('readLines') });
-        g5.codexCases.push({ id, clientRun: g5.clientRuns.indexOf(rec), turnId: delivered.turnId, questionTurnId: answered.questionTurnId, afterReadSeq: r1.seq, question: q, answerReadSeq: r2.seq });
+        const r2 = await codex.settledRead(`after-${id}-question`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `${id}-question`, timeoutMs: num('turnTimeoutMs'), since: q, done: async () => `the question turn ${answered.questionTurnId} completed on the wire (thread/turns/list)` });
+        g5.codexCases.push({ id, clientRun: g5.clientRuns.indexOf(rec), idleBefore, turnId: delivered.turnId, questionTurnId: answered.questionTurnId, afterReadSeq: r1.seq, question: q, answerReadSeq: r2.seq });
       }
 
       // --- 6. post-run versions ----------------------------------------------------------------------

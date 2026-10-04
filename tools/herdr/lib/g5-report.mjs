@@ -15,10 +15,11 @@
 //   `equivalent` only when every case reproduces the human run's per-case result
 //   (lib/g5.mjs HUMAN_RESULTS.codexCases).
 //
-// G5's verdict is FAIL (Codex criteria 2 and 3). THIS GENERATOR NEVER RESCORES IT. A row's
-// score says only whether the scripted run reproduced the human run's recorded result for
-// that criterion and provider (lib/g5.mjs HUMAN_RESULTS): `equivalent` on row 2 means the run
-// showed Codex criterion 2 failing again, as it did. Whatever the scores, G5-result.md,
+// G5's verdict is PASS (2026-10-03, G5-result.md: the Codex leg from the C13 E1 re-run of
+// 2026-10-02). THE K8 COMPARISON NEVER RESCORES IT. A row's score says only whether the
+// scripted run reproduced the human run of 2026-09-27's recorded result for that criterion and
+// provider (lib/g5.mjs HUMAN_RESULTS, that run's FAIL): `equivalent` on row 2 means the run
+// showed Codex criterion 2 failing again, as it did then. Whatever the scores, G5-result.md,
 // STATUS.md and PINS.md are unchanged, and the record says so at its top.
 //
 // The server, client and case table are RECONSTRUCTIONS of the never-committed spike programs
@@ -582,8 +583,8 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   const out = [];
   out.push(`# G5 scripted re-run through herdr, ${date}: comparison with the human-run G5 of 2026-09-27`);
   out.push('');
-  out.push('> **Not verdict-bearing. G5 stays FAIL.** Epic K, K8 #131. This record compares a herdr-driven run of G5 against');
-  out.push('> the human run. G5\'s verdict (`docs/planning/gates/G5-result.md`: **FAIL**, Codex criteria 2 and 3) and');
+  out.push('> **Not verdict-bearing. G5\'s verdict (PASS, 2026-10-03) is unchanged by it.** Epic K, K8 #131. This record compares a herdr-driven run of G5 against');
+  out.push('> the human run of 2026-09-27 (its Codex leg FAIL). G5\'s verdict (`docs/planning/gates/G5-result.md`: **PASS** since 2026-10-03, the Codex leg from the C13 E1 re-run) and');
   out.push('> `docs/planning/STATUS.md` are unchanged by it, whatever the scores below say: a score only says whether this run');
   out.push('> reproduced the human run\'s recorded result for that criterion and provider. The operator attestation below is');
   out.push('> unticked as generated; until the operator who ran the machine ticks it, this is neither an equivalence record nor');
@@ -699,7 +700,7 @@ export function writeRefusal(manifest) {
 
 const PANE_SCHEMA = { applicable: false, reason: 'pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic' };
 
-const K8_NOTE = 'K8 scripted run through herdr; NOT verdict-bearing. G5 stays FAIL; this capture rescored nothing. The channel server, app-server client and case table are RECONSTRUCTIONS (tools/herdr/gate-servers/) of the never-committed G5 spike programs.';
+const K8_NOTE = 'K8 scripted run through herdr; NOT verdict-bearing. G5\'s verdict (PASS since 2026-10-03, G5-result.md) is unchanged; this capture rescored nothing. The channel server, app-server client and case table are RECONSTRUCTIONS (tools/herdr/gate-servers/) of the never-committed G5 spike programs.';
 export const C13_NOTE = 'C13 §11 G5 Codex-leg re-run through herdr (#220), arms 0, F and C; verdict-bearing only under the one-off E1 exception (oac-gates references/scripted-runs.md), as its herdr-runs record states. The channel server, app-server client and case table are RECONSTRUCTIONS (tools/herdr/gate-servers/) of the never-committed G5 spike programs.';
 
 export function draftManifestEntries({ manifest, fixtures, runManifestPath, texts, pinsCommit, redactSha256, manifestJson, cases, note = K8_NOTE }) {
@@ -841,7 +842,7 @@ function main(argv) {
   });
   writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
-  console.log('Next: review the draft; score rows 1, 3-claude and 4 from the pane text, and each Codex case with --case (rule (b)); the operator who ran the machine fills in the attestation; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the Codex transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G5-result.md. G5 stays FAIL.');
+  console.log('Next: review the draft; score rows 1, 3-claude and 4 from the pane text, and each Codex case with --case (rule (b)); the operator who ran the machine fills in the attestation; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the Codex transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G5-result.md. G5\'s verdict (PASS since 2026-10-03) is unchanged by a K8 run.');
   return 0;
 }
 

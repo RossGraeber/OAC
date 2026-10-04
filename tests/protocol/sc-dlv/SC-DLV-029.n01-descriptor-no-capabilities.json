@@ -1,0 +1,57 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-DLV-029",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "descriptor without capabilities",
+  "description": "The announcement's descriptor has no `capabilities` member.",
+  "stage": "presence",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "own_sessions": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": {
+        "session_id": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "capabilities": {
+          "io.github.rossgraeber/oac-session-channels": {
+            "revision": "0.1",
+            "active_inbound": true
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "events": [
+      {
+        "at_ms": 0,
+        "issuer": "B",
+        "record": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "seq": 1,
+          "present": true,
+          "issued_at": "2026-10-03T12:00:00.000Z",
+          "lifetime_ms": 60000,
+          "descriptor": {
+            "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+          }
+        }
+      }
+    ],
+    "query_at_ms": 1000
+  },
+  "expected": {
+    "discarded": [
+      0
+    ],
+    "states": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "unknown"
+    }
+  }
+}

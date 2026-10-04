@@ -4,6 +4,31 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-03 (**Issue #43 (E3): spec §7, active delivery, presence and
+discovery, written.** `spec/session-channels.md` §7 now holds the active-inbound obligation
+and the no-polling rule (push mechanisms allowed), when a session is accepting input (a
+not-now refusal is `destination-unavailable`, a failed hand-off `handoff-failed`), the
+three presence states (`online`, `unreachable`, `unknown`), presence records (announcement
+and withdrawal, `seq` ordering, a lifetime measured on the consumer's clock, carrier loss),
+discovery results (authorized `online` sessions only, scoped by the implementation holding
+the binding), and where a sender takes a capability declaration from, which makes
+SC-ID-086 satisfiable, and keeps a send request from revealing a session its requester is
+not authorized to discover (SC-DLV-075/076). Appendix A gains 56 `SC-DLV` ids; 43 fixtures land under
+`tests/protocol/sc-dlv/` and one, `SC-ID-044.p01`, under `tests/protocol/sc-id/`. It closes,
+at the neutral layer, decision C7 §4's two recorded gaps (no carriage for a session's
+descriptor, no discovery path); the transport mapping that carries presence records is
+still to be written. Operator decisions on #43: refuse at once when a session is not
+accepting input; refuse sends to `unreachable` sessions; discovery lists only `online`
+sessions; lifetime one second to one hour; no presence, discovery or sending across
+installs until `spec/security.md` (E5, #45) authenticates presence records, so v0.1
+presence and discovery are same-install only. Two constraints are recorded for E5: bound
+presence-record replay across a consumer restart, and define a publishable session-id
+binding proof that reveals neither the working directory nor the harness-native id. No
+gate verdict, pin or ADR text changes. Two UNVERIFIED items are added below and as
+`docs/planning/v0.1/11-risks.md` rows 61-62. Reconciled with E4 (#44): presence is step 2 of
+§8.3.3's sender refusal order (SC-RCP-090), and a send with no declaration held now carries
+`unknown-destination` instead of `unsupported-capability`.)
+
 **Last updated:** 2026-10-03 (**Issue #44 (E4): receipts, replies, correlation and the
 error taxonomy written.** `spec/session-channels.md` §8 now holds the delivery-state set
 (DESIGN's `accepted` split into `accepted-by-adapter`, `handed-to-harness` and `unknown`, as
@@ -1504,6 +1529,23 @@ states or that are inferred/stale). Closed when the named resolution lands.
 Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 (`docs/planning/REVERIFICATION-B2.md`). Until closed, no plan or skill may rely on them
 without an UNVERIFIED label.
+
+- **New, from E3 (#43, 2026-10-03):** whether the v0.1 transport carries presence records
+  (announcement, withdrawal, staleness, carrier loss; `spec/session-channels.md` §7.2) as
+  §7 requires, and how it would meet SC-DLV-066 (records only to authorized peers, or
+  unreadable to others) once records cross installs. Gate G3 verified only peer discovery
+  (`docs/planning/gates/G3-result.md`); presence records were not exercised. C7 §7's local
+  mode has no transport-layer authorization, so v0.1 presence and discovery are
+  same-install only (operator decision on #43). Owner: the transport binding, F6/F10, E5.
+  `11-risks.md` row 61.
+- **New, from E3 (#43, 2026-10-03):** that Codex's `thread/queue/add` keeps the order of
+  several inputs queued while a turn is running. The G2 `busyqueue` step queued exactly one
+  input, which ran after the running turn; order among several was not exercised, and no
+  first-party statement of order is cited in this repository. (Claude Code's channels
+  reference states in-order processing, `REVERIFICATION-B2.md` §3.1 re-check row 5, and G1
+  Box C saw two mid-turn notifications land in order at separate tool-call boundaries inside
+  the running turn.) `spec/session-channels.md` §7.4 makes hand-off order a SHOULD only
+  (SC-DLV-080). `11-risks.md` row 62.
 
 - **New, from the C4 revision (#236, 2026-10-02):** the hook-to-shim pairing mechanism
   that `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement" needs is

@@ -829,7 +829,10 @@ and 4 are closed: rows 13, 30, 32 and 40. The counts above are kept as written a
 time.) Row 58 was added 2026-10-02 (#236): the hook-to-shim pairing mechanism that the
 C4 §3 revision requires, under `RISK-LOCAL-IPC`. Rows 59-60 were added 2026-10-03 (#220),
 from verifying the G5 E1 findings: the old frame's X2 result not reproducing across runs,
-under `RISK-G5`, and the endpoint-only harness config hashes, under `RISK-HERDR`.
+under `RISK-G5`, and the endpoint-only harness config hashes, under `RISK-HERDR`. Rows
+61-62 were added 2026-10-03 (#43), from spec §7 (E3): transport carriage of presence
+records, under `RISK-G3`, and the order of several inputs queued in Codex during a running
+turn, under `RISK-CODEX-EXPERIMENTAL`.
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -893,6 +896,8 @@ under `RISK-G5`, and the endpoint-only harness config hashes, under `RISK-HERDR`
 | 58 | Hook-to-shim pairing by OS-reported peer PID and process ancestry: whether a Claude Code hook subprocess and its stdio MCP server subprocess share an OS-observable common ancestor on every OS, and which calls yield the peer PID (macOS) and parent PID (#236, 2026-10-02; `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement") | RISK-LOCAL-IPC |
 | 59 | The old C6 §5 frame's G5 X2 failure did not reproduce across runs. It was f on 2026-09-27 (Codex `0.157.1`) and in E1 arm 0 (`0.160.0`, fresh thread), and x in K8 (`0.160.0`, X1-then-X2 thread). Cause UNVERIFIED: model variance, or the Codex version combined with the shared-thread history (#220, 2026-10-03; C13 §9 dated note; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings) | RISK-G5 |
 | 60 | Whether a herdr run writes a harness config file and reverts it to the same bytes. The driver hashes `~/.codex/config.toml` and the other files only at run start and teardown (#220, 2026-10-03; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings) | RISK-HERDR |
+| 61 | Whether the v0.1 transport carries presence records (announcement, withdrawal, staleness, carrier loss) as `spec/session-channels.md` §7.2 requires, and how it meets SC-DLV-066 once records cross installs. G3 verified only peer discovery; presence records were not exercised. C7 §7 local mode has no transport-layer authorization, so v0.1 presence and discovery are same-install only (operator decision on #43) (#43, 2026-10-03; `docs/planning/gates/G3-result.md`) | RISK-G3 |
+| 62 | Whether Codex's `thread/queue/add` keeps the order of several inputs queued during a running turn. G2's `busyqueue` step queued one input only; no first-party statement of order is cited. Spec §7.4 makes in-order hand-off a SHOULD (SC-DLV-080) (#43, 2026-10-03; `docs/planning/gates/G2-result.md`) | RISK-CODEX-EXPERIMENTAL |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 
