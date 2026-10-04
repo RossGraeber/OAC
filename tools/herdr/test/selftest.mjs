@@ -80,6 +80,7 @@ import { g5Unit, g5Cases } from './g5-tests.mjs';
 import { l3Unit, l3ScenarioUnit, l3Cases } from './l3-tests.mjs';
 import { teardownUnit } from './teardown-tests.mjs';
 import { identityUnit } from './identity-tests.mjs';
+import { waitUnit } from './wait-tests.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -584,7 +585,7 @@ function collect(b, res) {
   };
 }
 
-function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {}, prepare, privateTmp = false }) {
+function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, stateUnder, fakeClaude, fakeCodex, nodeArgs = [], env: caseEnv = {}, prepare, privateTmp = false, caseTimeoutMs = 120000 }) {
   // prepare(): optional; returns another repository root whose run.mjs is driven instead
   // (e.g. a temporary clone with a malformed PINS.md committed, #216 review).
   const runFile = prepare ? join(prepare(), 'tools', 'herdr', 'run.mjs') : RUN;
@@ -612,7 +613,7 @@ function runDriver({ scenario = 'smoke', mode, args = [], herdrBin = FAKE, state
   const res = spawnSync(process.execPath, [...nodeArgs, runFile, '--scenario', scenario, '--herdr-bin', herdrBin, '--out', join(b.base, 'out'), ...args], {
     env: driverEnv(b, mode, { ...extra, ...caseEnv }),
     encoding: 'utf8',
-    timeout: 120000,
+    timeout: caseTimeoutMs, // #253: a long case (all three C13 arms) may set its own bound
   });
   return { b, r: collect(b, { status: res.status, stdout: res.stdout, stderr: res.stderr }) };
 }
@@ -1027,6 +1028,7 @@ export async function runSelfTest() {
   await unitGuards();
   await teardownUnit(check);
   await identityUnit(check);
+  await waitUnit(check);
   await unitScratch();
   g1Unit(check);
   g2Unit(check);
