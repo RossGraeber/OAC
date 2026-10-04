@@ -129,6 +129,21 @@
     first reply did not obey the body (record, "Codex deliveries, per arm"). Removed from
     `docs/planning/STATUS.md` "Open UNVERIFIED items" in this change. Residual: three
     trials per case, on one Codex version.
+  - **herdr identity of the E1 run (note dated 2026-10-03, #252).** The E1 run's manifest
+    (`herdr-runs/G5-c13-2026-10-02.run-manifest.json`, run `20261002T161612Z-4f2b53`) is
+    `schemaVersion` 1, written by a driver from before #140. It records no herdr executable
+    and no sha256. Its herdr identity is supported by:
+    (a) the driver-recorded version string `herdr 0.9.1` in that manifest
+    (`herdr.observedVersionOutput`), which equals the PINS.md pin;
+    (b) the sha256 `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` that
+    the driver recorded for a native, non-test-double `herdr.exe` in the same-day K8 run
+    (`herdr-runs/G5-2026-10-02.run-manifest.json`, `herdr.executable.sha256`, started
+    18:45:42Z). Both manifests record the same OS (`os`: win32, x64, release 10.0.26300).
+    That the two runs were on the same physical machine is not in either record;
+    (c) PINS.md "Expected herdr executable", row `win32-x64`, which expects that sha256.
+    Beyond that it is UNVERIFIED: no driver record says which herdr executable this run
+    spawned. The hash in "Operator attestation" below was taken by hand. That section is
+    unchanged history (#252: attestation is not the basis). The verdict is unchanged.
   - **Observed, not closed:** C13 §10 / S10, `turn/start` steering an active turn. Arm 0's
     first X2 delivery joined the still-`inProgress` marker turn (record, "Findings and
     UNVERIFIED"). One live observation at `0.160.0`; it stays in STATUS.md's ledger and
@@ -676,6 +691,11 @@ history. Two G5 records now exist: the E1 run above, and the non-verdict K8 Clau
 regression run, `docs/planning/gates/herdr-runs/G5-2026-10-02.md`. Neither is a G5
 equivalence record. Any later change to this verdict goes through the human-run procedure
 or a new, recorded operator decision; E1 does not extend to any later run.
+
+> **Pre-#252 attestation (history).** Dated note, 2026-10-03 (#252): the attestation below
+> is not the basis for this verdict. The Codex-leg scoring rests on the committed wire
+> captures. The E1 run's herdr identity is stated, with its evidence and what stays
+> UNVERIFIED, under "UNVERIFIED items" above. The section is kept unchanged as history.
 
 ## Operator attestation
 

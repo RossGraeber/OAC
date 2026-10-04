@@ -48,19 +48,22 @@ assembled from the five `G<n>-result.md` files when Epic A writes the output pac
 - **Command transcript summary:** <what was run and observed, condensed; full transcript, if
   kept, lives with the fixtures, not inline here>
 - **Pass criteria evaluated:**
-  - [x|f] <criterion 1, verbatim from the gate's reference file> — <observed result>
-  - [x|f] <criterion 2> — <observed result>
+  - [x|f] <criterion 1, verbatim from the gate's reference file> — <observed result, citing
+    the evidence it rests on>
   - ...
 - **Verdict:** PASS | PASS (FALLBACK TAKEN) | FAIL | NOT RUN
 - **Fallback taken:** <name it, or "none — not needed" or "none — no fallback exists">
 - **UNVERIFIED items:** <each item this gate was positioned to close — closed with evidence,
   or still open>
 - **Fixtures captured:** <path(s) under the fixtures location, or "none">
+- **Human actions:** <each step the agent could not do (consent step, sign-in), and who; or "none">
 ```
 
 Evaluate every pass criterion listed in the gate's reference file individually — a gate does
 not pass on a majority of its criteria. If a fallback exists for the gate (see the table
 below) and the primary path fails, run the fallback and record which path passed.
+Every finding rests on cited evidence (fixture, wire frame, pane capture, hash, rule text) or
+is UNVERIFIED. An operator's attestation is never the basis; evidence against it is a finding (#252).
 
 ## Timebox policy
 
@@ -155,11 +158,11 @@ closes (including UNVERIFIED items), and the fixtures to capture.
 A gate re-run driven through herdr (Epic K, `tools/herdr/`) also loads
 `references/scripted-runs.md`: driver identity, the scripted-run timebox, timeout means
 `NOT RUN`, no automatic re-submission, herdr state never scores a criterion, verdict
-eligibility (equivalence records), and the dialog rule. Since 2026-09-30 (#196) the driver
-accepts Claude Code's trust, MCP-approval and dev-channels dialogs by default (G1 too),
-recorded as `driver`, and refuses every other dialog. A consent step a criterion names
-(G1 criterion 5, G11) is met only by a human accept (`accept=human`). A scripted run is
-non-verdict-bearing unless that file says it may carry a verdict.
+eligibility (equivalence records), the dialog rule (#196: the driver accepts only Claude
+Code's trust, MCP-approval and dev-channels dialogs), and verification (#252): herdr,
+harness versions and dialog accepts are verified with citations, not attested; a person
+signs only for what the agent cannot do (G1 criterion 5, G11, sign-ins, credentials). A
+scripted run is non-verdict-bearing unless that file says it may carry a verdict.
 
 ## Exit criteria for a gate work item
 
@@ -195,6 +198,4 @@ recurring mistakes that cost G2 and G4 three review rounds each.
 - `docs/planning/gates/README.md` — the evidence-store naming convention, the extended
   gate-result template, and the pin-move re-run/invalidation policy (harness rows exempt).
 - `oac-boundaries`, `oac-evidence` — guardrail content, not restated here.
-- `references/writeup-pitfalls.md` — review-round pitfalls for gate write-ups, one entry
-  per recurring mistake.
-- `references/scripted-runs.md` — rules for herdr-driven gate re-runs (Epic K).
+- `references/writeup-pitfalls.md`, `references/scripted-runs.md` — linked above.

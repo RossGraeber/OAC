@@ -355,7 +355,7 @@ export function g2Unit(check) {
   check('g2 report: for a version with no schema record, the not-regenerated shape with no hash', sch2.upstream === null && sch2.local_generation === null && sch2.sha256 === null && sch2.commit === 'deadbeef' && /not regenerated/.test(sch2.note));
   check('g2 report: credential-shaped fields are found; the human run\'s client frames carry none', credentialShapedFields({ params: { apiKey: 'x', nested: [{ note: 'Bearer abcdef' }] } }).length === 2 && parseG2Transcript(BASELINE).filter((e) => e.direction === 'client->daemon').every((e) => credentialShapedFields(e.payload).length === 0));
   const tpl = renderReport({ manifest: { outcome: 'NOT RUN', scenarioData: { g2: {} } }, evaluation: nr, diffText: null, date: '2026-10-01', fixtures: null, runManifestName: 'x' });
-  check('g2 report: the record carries the operator attestation UNTICKED and no equivalence callout', /^## Operator attestation$/m.test(tpl) && (tpl.match(/^- \[ \] \*\*(?:herdr|Harness|Consent dialog):\*\*/gm) ?? []).length === 3 && !/^- \[x\]/m.test(tpl) && /^- \*\*Attested by:\*\* <operator>, <YYYY-MM-DD>$/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl) && /Not verdict-bearing/.test(tpl));
+  check('g2 report #252: the record carries a Verification section (herdr and Harness UNVERIFIED for an empty manifest, slots unfilled), no attestation and no equivalence callout', /^## Verification$/m.test(tpl) && /^- \*\*herdr:\*\* UNVERIFIED — /m.test(tpl) && /^- \*\*Harness:\*\* UNVERIFIED — /m.test(tpl) && /^- \*\*Dialogs:\*\* /m.test(tpl) && /^- \*\*Human actions:\*\* none required by a criterion: no criterion of G2 /m.test(tpl) && /^- \*\*Verified by:\*\* <TO FILL/m.test(tpl) && !/Operator attestation|Attested by|^- \[[ x]\] \*\*herdr/m.test(tpl) && !/Equivalence record\*\* for G/.test(tpl) && /Not verdict-bearing/.test(tpl));
 }
 
 // --- lifecycle cases (driver end to end against the fakes) --------------------------------
@@ -455,7 +455,7 @@ export function g2Cases(check) {
 
     // The report CLI: draft, then --write into a temporary root (never the repo).
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
-    check('g2 report CLI: draft printed, not verdict-bearing, attestation unticked, with the per-connection diff', draft.status === 0 && /Not verdict-bearing/.test(draft.stdout) && /## Method-sequence diff/.test(draft.stdout) && /^- \[ \] \*\*herdr:\*\*/m.test(draft.stdout) && /== busyqueue:/.test(draft.stdout) && new RegExp(`Criteria source:.*G2-codex-inject\\.md.*${G2_CRITERIA_SHA256}`).test(draft.stdout), draft.stderr);
+    check('g2 report CLI: draft printed, not verdict-bearing, Verification section (test-double herdr UNVERIFIED), with the per-connection diff', draft.status === 0 && /Not verdict-bearing/.test(draft.stdout) && /## Method-sequence diff/.test(draft.stdout) && /^- \*\*herdr:\*\* UNVERIFIED — .*test double/m.test(draft.stdout) && /== busyqueue:/.test(draft.stdout) && new RegExp(`Criteria source:.*G2-codex-inject\\.md.*${G2_CRITERIA_SHA256}`).test(draft.stdout), draft.stderr);
     const bad = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--score', '4=equivalent', '--note', '4=trust me'], { encoding: 'utf8', timeout: 20000 });
     check('g2 report CLI: refuses an operator score for a mechanically scored criterion', bad.status === 2 && /only criterion 3 takes an operator score/.test(bad.stderr));
     const root = mkdtempSync(join(tmpdir(), 'oac-g2-report-'));

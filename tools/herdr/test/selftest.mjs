@@ -171,11 +171,59 @@ function unitPins() {
     check('pins #139: a staged but uncommitted herdr tag change is refused too', refused(attempt()));
     git('commit', '-q', '-m', 'pin move');
     check('pins #139: once committed, the edit is the pin', readCommittedHerdrPin(dir).pin.tag === 'v9.9.9');
+    // #252: the expected herdr executable table is part of the pin, read from HEAD only.
+    check('pins #252: no expected-executable table at HEAD reads as none', readCommittedHerdrPin(dir).expectedExecutables.length === 0);
+    const withTable = (h) => writeFileSync(pinsFile, `${table(['| herdr (test tooling) | supported | `v9.9.9` | none |', HARNESS])}\n\n| Platform | Expected executable sha256 | Basis |\n|---|---|---|\n| \`linux-x64\` | \`${h}\` | test |\n`);
+    withTable('a'.repeat(64));
+    a = attempt();
+    check('pins #252: an uncommitted expected-executable table change is refused, never applied', refused(a) && /expected executable sha256 table differs/.test(a.err.message), a.err?.message ?? JSON.stringify(a.got));
+    git('add', '--', 'docs/planning/PINS.md');
+    git('commit', '-q', '-m', 'expected herdr');
+    check('pins #252: once committed, the table is read from HEAD', readCommittedHerdrPin(dir).expectedExecutables[0]?.sha256 === 'a'.repeat(64));
     rmSync(pinsFile);
     a = attempt();
     check('pins #139: a deleted working-tree PINS.md is refused', refused(a) && /missing/.test(a.err.message), a.err?.message);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// #252: run.mjs's herdr identity gate, end to end and on every platform. The "herdr" is this
+// node binary: native (pe/elf/mach-o), not run under node, so it is hashed and compared like a
+// real herdr, and nothing the driver might spawn with it can harm anything. A throwaway clone
+// carries a PINS.md whose row for this platform expects a wrong hash (mismatch: NOT RUN before
+// anything is spawned), this binary's hash (match: the gate passes, and `node --version` then
+// fails the herdr version check), or nothing (no-expected-value: a finding, and the run goes on
+// to the version check). Each run ends NOT RUN; what differs is where, and what was recorded.
+function unitHerdrGate() {
+  const plat = `${process.platform}-${process.arch}`;
+  const nodeSha = sha(readFileSync(process.execPath));
+  const withRow = (sha256) => (t) => t.split('\n').flatMap((l) => (l.startsWith(`| \`${plat}\` |`) ? (sha256 ? [`| \`${plat}\` | self-test | \`${sha256}\` | \`${sha256}\` | yes | self-test |`] : []) : [l])).join('\n');
+  const cases = [
+    ['mismatch', withRow('f'.repeat(64))],
+    ['match', withRow(nodeSha)],
+    ['no-expected-value', withRow(null)],
+  ];
+  for (const [name, mutate] of cases) {
+    let clone;
+    const out = mkdtempSync(join(tmpdir(), 'oac-herdr-gate-'));
+    try {
+      clone = cloneWithPins(mutate);
+      const res = spawnSync(process.execPath, [join(clone, 'tools', 'herdr', 'run.mjs'), '--scenario', 'smoke', '--herdr-bin', process.execPath, '--out', join(out, 'o')], { encoding: 'utf8', timeout: 60000 });
+      const mp = join(out, 'o', 'run-manifest.json');
+      const m = existsSync(mp) ? JSON.parse(readFileSync(mp, 'utf8')) : null;
+      const xc = m?.herdr?.executableCheck;
+      const ran = `${res.stdout}${res.stderr}`.slice(-400);
+      check(`#252 gate (${name}): the driver records herdr.executableCheck ${name} for this platform, on a schemaVersion 3 manifest`, res.status === 3 && m?.schemaVersion === 3 && xc?.result === name && xc.platform === plat && m.herdr.executable?.testDouble === false, `${JSON.stringify(xc)} ${ran}`);
+      if (name === 'mismatch') check('#252 gate (mismatch): NOT RUN before herdr is spawned (no --version, no command)', /Refusing to run \(#252\)/.test(m?.outcomeReason ?? '') && m.herdr.observedVersionOutput === null && m.commands.length === 0, m?.outcomeReason);
+      if (name === 'match') check('#252 gate (match): the gate passes and the run reaches the version check (first-party row, no finding)', m?.herdr?.observedVersionOutput !== null && /herdr --version printed/.test(m?.outcomeReason ?? '') && xc?.firstParty === true && !m.findings.some((f) => /#252/.test(f)), m?.outcomeReason);
+      if (name === 'no-expected-value') check('#252 gate (no-expected-value): a finding, and the run goes on to the version check', m?.findings?.some((f) => /herdr identity UNVERIFIED \(#252\)/.test(f)) && /herdr --version printed/.test(m?.outcomeReason ?? ''), JSON.stringify(m?.findings));
+    } catch (err) {
+      check(`#252 gate (${name}): test set up`, false, err.message);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+      if (clone) rmSync(clone, { recursive: true, force: true });
+    }
   }
 }
 
@@ -685,7 +733,7 @@ async function lifecycle() {
     const cap = r.capture('pane-smoke.txt');
     check('smoke PASS: pane capture written, redacted, shows the output line', cap.split('\n').some((l) => l.trim() === 'OAC-SMOKE-READY') && !cap.includes('oac-herdr-scratch-') && cap.includes('<SCRATCH>'));
     check('smoke PASS: capture redaction report is clean', m.captures[0]?.written === true && m.captures[0].redaction.residualLeaks.length === 0 && m.captures[0].redaction.residualGenericHits.length === 0);
-    check('smoke PASS #140: manifest schemaVersion 2; capture sha256 is the hash of the bytes written', m.schemaVersion === 2 && m.captures[0]?.sha256 === sha(readFileSync(join(r.base, 'out', 'pane-smoke.txt'))), JSON.stringify(m.captures[0]?.sha256));
+    check('smoke PASS #140/#252: manifest schemaVersion 3; capture sha256 is the hash of the bytes written', m.schemaVersion === 3 && m.captures[0]?.sha256 === sha(readFileSync(join(r.base, 'out', 'pane-smoke.txt'))), JSON.stringify(m.captures[0]?.sha256));
     const hx = m.herdr.executable;
     check('smoke PASS #140: the fake herdr is recorded as the node-run test double, with the sha256 of the file that ran, unchanged at teardown', hx?.testDouble === true && hx.runUnderNode === true && hx.basename === 'fake-herdr.mjs' && hx.sha256 === sha(readFileSync(FAKE)) && hx.format === 'script' && hx.unchangedAfterRun === true, JSON.stringify(hx));
     check('smoke PASS #140: no harness executable probed when the scenario launches none', /N\/A/.test(m.harnessExecutables?.note ?? ''));
@@ -1023,6 +1071,7 @@ export async function runSelfTest() {
   if (ONLY) return runOnly();
   console.log('herdr driver self-test (unit)');
   unitPins();
+  unitHerdrGate();
   unitQuoting();
   unitRedaction();
   await unitGuards();

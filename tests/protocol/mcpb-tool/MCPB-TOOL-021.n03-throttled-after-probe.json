@@ -1,0 +1,132 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-021",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "later call throttled only after probing an existing target",
+  "description": "After a refused send to an undiscoverable session, a later send to another session is throttled; after a refused send to an unknown session id the same later send is accepted.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_subsequent_messages": [
+      {
+        "from": "client",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 126,
+          "method": "tools/call",
+          "params": {
+            "name": "send",
+            "arguments": {
+              "to": "5k2m4p6q8r0s2t4v6w8x0y2z4a",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Second message."
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "from": "server",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 126,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"id\":\"msg-01hzx3k8q2v6w9m4t7p0r5s1yc\",\"state\":\"accepted-by-adapter\"}"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 125,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 125,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      },
+      "subsequent_messages": [
+        {
+          "from": "client",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 126,
+            "method": "tools/call",
+            "params": {
+              "name": "send",
+              "arguments": {
+                "to": "5k2m4p6q8r0s2t4v6w8x0y2z4a",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Second message."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "from": "server",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 126,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "internal-error: too many refused sends from this session; retry later."
+                }
+              ],
+              "isError": true
+            }
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

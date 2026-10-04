@@ -50,7 +50,7 @@ import { fileURLToPath } from 'node:url';
 
 import { L3_RECORD_VERSION, MARKER_SHAPE, TOKEN_SHAPE, sha256, compareSections, neutralizePlaceholders, assertNoMarkerLeak } from './l3.mjs';
 import { createRedactor } from './redact.mjs';
-import { describeDialogs, herdrExecutableHash } from './gate-report-common.mjs';
+import { TO_FILL, describeDialogs, harnessVerification, herdrVerificationAll, verification } from './gate-report-common.mjs';
 
 export class L3ReportError extends Error {}
 export class L3LeakAbort extends Error {}
@@ -591,7 +591,7 @@ export function renderL3Draft(ev) {
   const originText = { driver: '`accept=driver` (accepted by the driver, #196)', human: '`accept=human` (the driver sent no dialog key)', unclear: 'accept origin NOT established (see Findings)' };
   out.push(`> records them: ${drivers.map(({ phase }) => `${phase} ${originText[acceptBy[phase]]}`).join('; ') || 'no runs'}. This is not a gate result and`);
   out.push('> changes no verdict (Beacon\'s PINS.md row: `Gates affected: none`). Step results are PASS / FINDING / NOT RUN; a phase');
-  out.push('> run\'s own outcome is not a step result. The operator attestation below is unticked as generated.');
+  out.push('> run\'s own outcome is not a step result. The Verification section below is generated for the recording agent to re-check.');
   if (irreproducible.length) {
     out.push('>');
     out.push(`> **These runs cannot be reproduced:** \`tools/herdr/\` was not clean and committed for the ${irreproducible.join(', ')} run(s).`);
@@ -655,24 +655,27 @@ export function renderL3Draft(ev) {
   out.push('');
   out.push(!pr ? '- no probe record' : missing.length ? `- ${missing.join('; ')}.` : '- nothing: the probe record carries every field this draft uses.');
   out.push('');
-  out.push('### Operator attestation');
-  out.push('');
-  out.push('Generated unticked. Only the operator who ran this machine ticks these lines, each only if true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation", adapted to name Beacon).');
-  out.push('');
-  const herdrV = drivers[0]?.m?.herdr?.observedVersionOutput;
-  out.push(`- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: ${tick(herdrV ?? '?')}; sha256 of the executable: ${herdrExecutableHash(drivers[0]?.m)}`);
-  out.push(`- [ ] **Harness:** the real, logged-in Claude Code CLI (\`claude --version\`: ${val(v.claudeCli)}) and Codex CLI (\`codex --version\`: ${val(v.codex?.cli)}) ran, not test doubles.`);
-  out.push(`- [ ] **Beacon:** the real, operator-installed Beacon endpoint (\`beacon version\`: ${val(v.beacon)}) ran in Local mode, not a test double.`);
-  // #196: the consent line states the probe run's accept origin as recorded; only a human accept
-  // is offered for the operator to attest as their own.
+  // #252: herdr verified from every phase run's manifest, the rest from the L3 record, with citations, or
+  // UNVERIFIED; no operator attestation. L3 names no consent step, so no human action is
+  // asked for beyond any sign-in or credential a person supplied.
+  const daemonV = v.codex?.daemon && typeof v.codex.daemon === 'object' ? Object.values(v.codex.daemon) : [v.codex?.daemon];
+  const harnessOk = !!v.claudeCli && !!v.codex?.cli && v.codex.wire === v.codex.cli && daemonV.every((x) => x === v.codex.cli);
+  const beaconOk = !!v.beacon && BEACON_PIN_RE.test(String(v.beacon));
   const probeAccept = runs.probe ? acceptBy.probe : null;
-  const probeDialogs = dialogsOf('probe');
-  out.push(probeAccept === 'human'
-    ? '- [ ] **Consent dialog:** Claude Code\'s development-channels dialog was accepted by me, a human at the keyboard, during this run.'
-    : probeAccept === 'driver'
-      ? `- [ ] **Consent dialog:** accepted by the DRIVER (\`accept=driver\`, #196), not by me: ${describeDialogs(probeDialogs)}.`
-      : `- [ ] **Consent dialog:** accept origin not established for the probe run (${runs.probe ? 'see Findings' : 'no probe run'}); not attested as a human accept.`);
-  out.push('- **Attested by:** <operator>, <YYYY-MM-DD>');
+  out.push(...verification({
+    manifest: drivers[0]?.m,
+    herdr: herdrVerificationAll(drivers.map(({ phase, m }) => ({ label: `${phase} run`, manifest: m }))),
+    heading: '### Verification',
+    harness: harnessVerification(drivers[0]?.m, { verified: harnessOk, versions: `Claude Code: CLI ${val(v.claudeCli)}; Codex: CLI ${val(v.codex?.cli)}, daemon ${val(v.codex?.daemon)}, wire ${val(v.codex?.wire)} (L3 record \`versions\`)` }),
+    extra: [`- **Beacon:** ${beaconOk ? 'VERIFIED' : 'UNVERIFIED'} — \`beacon version\` ${val(v.beacon)} ${beaconOk ? 'carries' : 'does not carry'} the L1 §2 pin ${BEACON_PIN} (L3 record \`versions.beacon\`). That it ran in Local mode rests on the Evidence above, not on an attestation.`],
+    dialogs: dialogsOf('probe'),
+    dialogsField: 'the probe run manifest\'s scenarioData.l3 dialogs',
+    humanActions: probeAccept === 'human'
+      ? `the probe run's development-channels dialog was recorded as human (the driver sent no keystroke): accepted at the keyboard by ${TO_FILL}: the person who accepted it>.`
+      : probeAccept === 'driver'
+        ? 'none: the driver accepted the probe run\'s dialogs (`accept=driver`, #196), as listed above.'
+        : `none on record: accept origin not established for the probe run (${runs.probe ? 'see Findings' : 'no probe run'}).`,
+  }));
   // Backstop: every element is exactly one line (its leading indent kept), so no value that
   // slipped past oneLine() at its source can start a line of its own.
   return out.map((l) => {

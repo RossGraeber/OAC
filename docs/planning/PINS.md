@@ -54,7 +54,10 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-01 (issue #216, operator decision: harness versions float; warn,
+**Last updated:** 2026-10-03 (issue #252, operator decision: scripted runs are verified, not
+attested. Added the "Expected herdr executable" table under "herdr (test tooling)". The
+herdr tag is unchanged, so this is not a pin move and no record or verdict is invalidated.)
+Previously 2026-10-01 (issue #216, operator decision: harness versions float; warn,
 never gate. The `Claude Code (Channels)` and `Codex CLI / app-server` rows now record a
 **minimum version** and a **last tested version** instead of a "last observed" version.
 Claude Code: minimum `v2.1.282` (first version worked with, G1 2026-09-25), last tested
@@ -743,6 +746,53 @@ semver, and are recorded verbatim — never reformatted.
   new version and requires K3's driver version check to be updated in the same change.
   It also invalidates every herdr equivalence record, in the same commit
   (`docs/planning/gates/README.md` §f, "Scripted runs (herdr)").
+- **Expected herdr executable (#252, 2026-10-03).** The driver hashes the herdr it
+  resolved and compares the hash with this table's row for its platform
+  (`process.platform`-`process.arch`) before it spawns herdr (`tools/herdr/lib/pins.mjs`
+  `checkHerdrExecutable`, run manifest `herdr.executableCheck`). A different hash is
+  `NOT RUN`. A platform with no row is a finding, and the run's herdr identity is UNVERIFIED.
+  A match counts as VERIFIED only on a row whose `First-party` cell is `yes`. A match on a
+  `no` row (none at present) would show only that the binary is a locally observed one, so
+  the record would state herdr UNVERIFIED (first-party source UNVERIFIED).
+  The table is read from HEAD, like the tag. A pin move updates it in the same change.
+  Sources, all retrieved 2026-10-03:
+  - Asset digests: the GitHub release API `digest` field for tag `v0.9.1`
+    (`gh api repos/herdrdev/herdr/releases/tags/v0.9.1`).
+  - Release attestation: herdr publishes a *release* attestation, an in-toto Statement over
+    the release's assets. It does not publish SLSA build provenance. So
+    `gh release verify-asset v0.9.1 <file> --repo herdrdev/herdr` is the check that applies.
+    `gh attestation verify` looks for build provenance by digest, and for herdr it returns
+    `HTTP 404: Not Found`, as it did for the installed `herdr.exe` on 2026-10-03. That 404
+    means there is no build-provenance attestation. It says nothing about the release
+    attestation. `gh api repos/herdrdev/herdr/attestations/sha256:<digest>` returns one
+    attestation for each of the five asset digests.
+  - Windows (verified 2026-10-03 by the orchestrator, with the operator's permission; the
+    downloaded files were deleted afterwards):
+    1. `gh release download v0.9.1 --repo herdrdev/herdr --pattern herdr-windows-x86_64.zip`
+       gave a zip with sha256 `04ce380c…a6e`, equal to the API asset digest.
+    2. `gh release verify-asset v0.9.1 herdr-windows-x86_64.zip --repo herdrdev/herdr`
+       printed "Verification succeeded! herdr-windows-x86_64.zip is present in release
+       v0.9.1". That is the release attestation; the tag `v0.9.1` is sha1
+       `8544776216a8d28088db59a5344ea21ee2d05d2b`.
+    3. `herdr.exe` inside the zip hashes to `007781…9b6`, byte-identical to the installed
+       binary.
+  - All five assets, Linux and macOS included (verified 2026-10-03, no download):
+    `gh release verify v0.9.1 --repo herdrdev/herdr` resolved tag `v0.9.1` to sha1
+    `8544776216a8d28088db59a5344ea21ee2d05d2b`, loaded the release attestation from the
+    GitHub API, and printed "Release v0.9.1 verified!". It lists `herdr-linux-aarch64`
+    `f4ccf4de…`, `herdr-linux-x86_64` `2a02fed1…`, `herdr-macos-aarch64` `5fc7a7e7…`,
+    `herdr-macos-x86_64` `053be063…` and `herdr-windows-x86_64.zip` `04ce380c…`. Each
+    equals that row's asset digest below. For Linux and macOS the asset is the executable,
+    so the expected value is attested directly. No run has yet hashed an installed herdr on
+    those platforms. A mismatch there would be `NOT RUN`, and a finding to look into.
+
+| Platform | Release asset | Asset digest (sha256) | Expected executable sha256 | First-party | Basis |
+|---|---|---|---|---|---|
+| `win32-x64` | `herdr-windows-x86_64.zip` | `04ce380cac5af27bfcf75d0951ac49b7afe4c984aee8852985806d4f71f93a6e` | `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` | yes | First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`). |
+| `linux-x64` | `herdr-linux-x86_64` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | yes | The release's own asset digest, listed under the `v0.9.1` release attestation by `gh release verify v0.9.1 --repo herdrdev/herdr` (2026-10-03, above). The asset name has no archive extension, so it is taken to be the bare executable. No run has yet hashed an installed herdr on this platform; a mismatch there is `NOT RUN` and a finding to look into. |
+| `linux-arm64` | `herdr-linux-aarch64` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | yes | As `linux-x64`. |
+| `darwin-x64` | `herdr-macos-x86_64` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | yes | As `linux-x64`. |
+| `darwin-arm64` | `herdr-macos-aarch64` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | yes | As `linux-x64`. |
 
 ### Beacon (external memory service)
 

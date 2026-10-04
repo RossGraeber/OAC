@@ -45,7 +45,8 @@
 //     `not evaluable`. C5 (informational) and X6 (exploratory) are listed, never scored.
 //
 // --write refuses anything but a PASS run with verified versions from a clean, committed
-// tools/herdr/, and never overwrites. The attestation is generated UNTICKED.
+// tools/herdr/, and never overwrites. Its Verification section (#252) is generated from the
+// run manifest for the recording agent to re-check.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -62,7 +63,7 @@ import { parseSections, committedFile } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 import { schemaBlockFor } from './g2-report.mjs';
 import {
-  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, herdrExecutableHash, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -253,7 +254,7 @@ export function evaluateG5({ manifest, claudeText, codexText, paneClaudeText, pa
 // fixed here; g5-cases.json supplies only the bodies and must match it.
 //   - kinds: `model` reaches the model, gets the fixed question, and is scored x|f on Codex
 //     criteria 2 AND 3 under frozen rules (a) and (b), per delivery. Scoring basis (#220 ruling
-//     2): AGENT-SCORED from the captures (--case/--note), and the operator attests the run;
+//     2): AGENT-SCORED from the captures (--case/--note), and the run is verified from its evidence (#252);
 //     `refusal` (X5, X5c on the floor) passes only when the client logged a refusal AND no
 //     turn/start or thread/queue/add for it is on the wire; `one-sender` (X5b) passes when its
 //     frame carries exactly one oac_sender line; `two-senders` (arm 0's X5) is the control's
@@ -287,7 +288,7 @@ const C13_KIND = new Map(Object.values(C13_ARMS).flatMap((a) => a.deliveries));
 export const C13_CASE_KEY = /^[0FC]\.X[0-9a-zA-Z]+(?:\.[0-9A-Za-z]+)?\.c[23]$/;
 export const C13_NOTE_KEY = /^[0FC]\.X[0-9a-zA-Z]+(?:\.[0-9A-Za-z]+)?$/;
 const C13_OUTCOMES = Object.freeze({ PASS: 'PASS', FAIL: 'FAIL', INCONCLUSIVE: 'INCONCLUSIVE', PENDING: 'PENDING', NE: 'NOT EVALUABLE', NOT_RUN: 'NOT RUN' });
-export const C13_SCORING_BASIS = 'agent-scored (frozen rules (a) and (b), from the captured answers); the operator attests the run (#220 ruling 2)';
+export const C13_SCORING_BASIS = 'agent-scored (frozen rules (a) and (b), from the captured answers, each score citing them); the run is verified from its evidence (#252; #220 ruling 2)';
 export { C13_OUTCOMES };
 
 // --case <delivery>.c2=x|f and --case <delivery>.c3=x|f with a --note <delivery>=... each.
@@ -518,7 +519,7 @@ export function renderC13Report({ manifest, evaluation, date, fixtures, runManif
   out.push('> **C13 §11 re-run of the G5 Codex leg** (#220; `docs/planning/decisions/C13-codex-provenance-framing.md`). It may carry G5\'s Codex');
   out.push('> verdict ONLY under the one-off E1 exception (`.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility"):');
   out.push('> arm 0 reproduces the 2026-09-27 FAIL; the `tools/herdr/` diff from `2776e7a8` (excluding `tools/herdr/test/`) is within the four');
-  out.push('> allowed files; a complete, truthful operator attestation; and every other condition of "When a scripted run may carry a verdict".');
+  out.push('> allowed files; a complete Verification section (#252; the E1 run itself carried the operator attestation of its time); and every other condition of "When a scripted run may carry a verdict".');
   out.push('> This generator changes no verdict: `G5-result.md` and `STATUS.md` are updated by the operator, in the same change, only if those hold.');
   out.push('> No Claude case ran (#220 ruling 3): the 2026-09-27 Claude results stand, and a separate, non-verdict K8 run re-checks Claude.');
   out.push(`> Scoring basis for Codex criteria 2 and 3: ${C13_SCORING_BASIS}.`);
@@ -552,8 +553,20 @@ export function renderC13Report({ manifest, evaluation, date, fixtures, runManif
   out.push('- Each arm\'s thread/list entries are removed from the Codex capture (the sanitizer keeps one own thread only); the thread ids are above and in the run manifest.');
   out.push('- Earlier `NOT RUN` or INCONCLUSIVE runs under the exception: none listed by this generator; add each by hand.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, harnesses: `Claude Code CLI (\`claude --version\`: \`${g5.versions?.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${g5.versions?.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G5', g5.dialogs) }));
+  out.push(...g5Verification(manifest, g5));
   return out.join('\n');
+}
+
+// #252: the Verification section of both G5 renderers.
+function g5Verification(manifest, g5) {
+  const v = g5.versions ?? {};
+  return verification({
+    manifest,
+    harness: harnessVerification(manifest, { verified: versionsVerified(g5), versions: `Claude Code: CLI \`${v.cliOutput?.claude ?? '?'}\` (\`scenarioData.g5.versions.cliOutput.claude\`), wire clientInfo \`${v.wire?.claude ?? '?'}\` (\`scenarioData.g5.versions.wire.claude\`); Codex: CLI \`${v.cliOutput?.codex ?? '?'}\` (\`scenarioData.g5.versions.cliOutput.codex\`), daemon ${CODEX_DAEMON_VERSION_FIELDS.map((k) => `${k} \`${v.daemon?.[k] ?? '?'}\``).join(', ')} (\`scenarioData.g5.versions.daemon\`), wire userAgent \`${v.wire?.codexUserAgent ?? '?'}\` (\`scenarioData.g5.versions.wire.codexUserAgent\`); post-run match \`${g5.postRun?.matches ?? 'not recorded'}\` (\`scenarioData.g5.postRun.matches\`)` }),
+    dialogs: g5.dialogs,
+    dialogsField: 'scenarioData.g5.dialogs',
+    humanActions: noConsentCriterionLine('G5'),
+  });
 }
 
 function runFactLines({ manifest, g5, fixtures, runManifestName, reference }) {
@@ -586,9 +599,9 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('> **Not verdict-bearing. G5\'s verdict (PASS, 2026-10-03) is unchanged by it.** Epic K, K8 #131. This record compares a herdr-driven run of G5 against');
   out.push('> the human run of 2026-09-27 (its Codex leg FAIL). G5\'s verdict (`docs/planning/gates/G5-result.md`: **PASS** since 2026-10-03, the Codex leg from the C13 E1 re-run) and');
   out.push('> `docs/planning/STATUS.md` are unchanged by it, whatever the scores below say: a score only says whether this run');
-  out.push('> reproduced the human run\'s recorded result for that criterion and provider. The operator attestation below is');
-  out.push('> unticked as generated; until the operator who ran the machine ticks it, this is neither an equivalence record nor');
-  out.push('> verdict-bearing.');
+  out.push('> reproduced the human run\'s recorded result for that criterion and provider. Its Verification section is generated');
+  out.push('> from the run manifest; until the recording agent has re-checked it and filled its slots, this is neither an');
+  out.push('> equivalence record nor verdict-bearing.');
   out.push('>');
   out.push(...reconstructionCallout('G5', [...new Set([...G5_SERVER_FILES, ...G5_CLIENT_FILES])], 'docs/planning/gates/G5-result.md'));
   out.push('');
@@ -645,7 +658,7 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, herdrHash: herdrExecutableHash(manifest), harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G5', g5.dialogs) }));
+  out.push(...g5Verification(manifest, g5));
   return out.join('\n');
 }
 
@@ -789,7 +802,7 @@ function mainC13({ o, operatorScores, runDir, manifest, g5 }) {
   }
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
   if (!publish) console.log(`No fixture written: ${fixtureWithheld(manifest)}`);
-  console.log(`C13 outcome as scored: ${evaluation.outcome}. Next: the agent scores every model delivery from the captures with --case <id>.c2=x|f --case <id>.c3=x|f --note <id>=... (agent-scored, #220 ruling 2); the operator who ran the machine fills in the attestation; only if every E1 condition holds, record the Codex-leg verdict in G5-result.md and STATUS.md in the same change (this generator writes neither).`);
+  console.log(`C13 outcome as scored: ${evaluation.outcome}. Next: the agent scores every model delivery from the captures with --case <id>.c2=x|f --case <id>.c3=x|f --note <id>=... (agent-scored, #220 ruling 2); the recording agent re-checks the Verification section and fills its slots; only if every E1 condition holds, record the Codex-leg verdict in G5-result.md and STATUS.md in the same change (this generator writes neither).`);
   return 0;
 }
 
@@ -842,7 +855,7 @@ function main(argv) {
   });
   writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
-  console.log('Next: review the draft; score rows 1, 3-claude and 4 from the pane text, and each Codex case with --case (rule (b)); the operator who ran the machine fills in the attestation; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the Codex transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G5-result.md. G5\'s verdict (PASS since 2026-10-03) is unchanged by a K8 run.');
+  console.log('Next: review the draft; score rows 1, 3-claude and 4 from the pane text, and each Codex case with --case (rule (b)); the recording agent re-checks the Verification section and fills its slots; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json after validating the Codex transcript against the schema; run node scripts/check-fixture-manifest.mjs; add only a pointer to G5-result.md. G5\'s verdict (PASS since 2026-10-03) is unchanged by a K8 run.');
   return 0;
 }
 

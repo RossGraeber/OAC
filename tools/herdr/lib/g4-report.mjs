@@ -16,8 +16,8 @@
 // versions, from a clean, committed tools/herdr/ (like K7's generator, stricter than G1's).
 //
 // NOT VERDICT-BEARING, and a RECONSTRUCTED SERVER: the record says both at its top. It never
-// changes G4's verdict, STATUS.md or PINS.md, and it is generated with an UNTICKED operator
-// attestation.
+// changes G4's verdict, STATUS.md or PINS.md. Its Verification section (#252) is generated
+// from the run manifest for the recording agent to re-check.
 //
 // Scoring, against docs/planning/gates/fixtures/g4-mcp-dual-era/transcript-2026-09-26.jsonl
 // and G4-result.md. The five criteria are read verbatim from the oac-gates reference AS
@@ -43,7 +43,7 @@ import {
 import { parseSections, committedFile } from './g1.mjs';
 import { isLegacyRevision } from './compare-transcripts.mjs';
 import {
-  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, attestation, herdrExecutableHash, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -208,8 +208,8 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('');
   out.push('> **Not verdict-bearing.** Epic K, K8 #131. This record compares a herdr-driven run of G4 against the');
   out.push('> human-run 2026-09-26 re-run. G4\'s verdict (`docs/planning/gates/G4-result.md`, PASS) and');
-  out.push('> `docs/planning/STATUS.md` are unchanged by it. The operator attestation below is unticked as generated;');
-  out.push('> until the operator who ran the machine ticks it, this is neither an equivalence record nor verdict-bearing.');
+  out.push('> `docs/planning/STATUS.md` are unchanged by it. Its Verification section is generated from the run manifest;');
+  out.push('> until the recording agent has re-checked it and filled its slots, this is neither an equivalence record nor verdict-bearing.');
   out.push('>');
   out.push(...reconstructionCallout('G4', G4_SERVER_FILES, 'docs/planning/gates/G4-result.md'));
   out.push('');
@@ -256,10 +256,16 @@ export function renderReport({ manifest, evaluation, date, fixtures, runManifest
   out.push('- Harness versions float and are never gated (#216): a version other than PINS.md\'s last tested one, or other than the baseline run\'s, is a finding here and does not by itself disqualify this record, including as an equivalence record.');
   out.push('- The server is a reconstruction (callout above); a difference in any criterion may come from it, not from Claude Code or Codex.');
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand (run id, outcome, reason from its run manifest).');
-  out.push('- Whether Codex honors a per-invocation `-c mcp_servers.<name>.url=...` override for an HTTP server was UNVERIFIED when this scenario was written. This run\'s wire answers it only if exactly one Codex session connected (criterion 4) and the operator confirmed with `codex mcp list` (read-only) that no other Codex entry points at this run\'s port.');
+  out.push('- Whether Codex honors a per-invocation `-c mcp_servers.<name>.url=...` override for an HTTP server was UNVERIFIED when this scenario was written. This run\'s wire answers it only if exactly one Codex session connected (criterion 4) and the recording agent confirmed with `codex mcp list` (read-only) that no other Codex entry points at this run\'s port.');
   out.push('- Pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane captures.');
   out.push('');
-  out.push(...attestation({ herdrVersion: manifest?.herdr?.observedVersionOutput, herdrHash: herdrExecutableHash(manifest), harnesses: `Claude Code CLI (\`claude --version\`: \`${v.cliOutput?.claude ?? '?'}\`) and Codex CLI (\`codex --version\`: \`${v.cliOutput?.codex ?? '?'}\`)`, consent: noConsentCriterionLine('G4', g4.dialogs) }));
+  out.push(...verification({
+    manifest,
+    harness: harnessVerification(manifest, { verified: versionsVerified(g4), versions: `Claude Code: CLI \`${v.cliOutput?.claude ?? '?'}\` (\`scenarioData.g4.versions.cliOutput.claude\`), wire clientInfo \`${v.wire?.claude ?? '?'}\` (\`scenarioData.g4.versions.wire.claude\`); Codex: CLI \`${v.cliOutput?.codex ?? '?'}\` (\`scenarioData.g4.versions.cliOutput.codex\`), wire MCP user-agent \`${v.wire?.codex ?? '?'}\` (\`scenarioData.g4.versions.wire.codex\`); post-run match \`${g4.postRun?.matches ?? 'not recorded'}\` (\`scenarioData.g4.postRun.matches\`)` }),
+    dialogs: g4.dialogs,
+    dialogsField: 'scenarioData.g4.dialogs',
+    humanActions: noConsentCriterionLine('G4'),
+  }));
   return out.join('\n');
 }
 
@@ -436,7 +442,7 @@ function main(argv) {
   JSON.parse(committedFile(REPO, MANIFEST_PATH).bytes.toString('utf8')); // MANIFEST.json must parse at HEAD before a draft is offered for merging
   writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
-  console.log('Next: review the draft; score criteria 1 and 5 from the Claude pane text; the operator who ran the machine fills in the attestation; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json; run node scripts/check-fixture-manifest.mjs; add only a pointer to G4-result.md.');
+  console.log('Next: review the draft; score criteria 1 and 5 from the Claude pane text; the recording agent re-checks the Verification section and fills its slots; merge <run dir>/manifest-entries.draft.json into docs/planning/gates/fixtures/MANIFEST.json; run node scripts/check-fixture-manifest.mjs; add only a pointer to G4-result.md.');
   return 0;
 }
 
