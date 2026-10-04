@@ -5,7 +5,7 @@
   "spec_revision": "0.1",
   "kind": "negative",
   "failure_mode": "modern-era request not served",
-  "description": "The server answers a modern-era `tools/list` at `2026-07-28` with `UnsupportedProtocolVersionError` listing only the legacy revision.",
+  "description": "The server answers a modern-era `tools/list` at `2026-07-28`, from a client that declares the OAC identifier, with `UnsupportedProtocolVersionError` listing only the legacy revision.",
   "stage": "mcp-binding",
   "context": {
     "era": "modern",
@@ -20,7 +20,11 @@
         "params": {
           "_meta": {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {}
+            "io.modelcontextprotocol/clientCapabilities": {
+              "extensions": {
+                "io.github.rossgraeber/oac-session-channels": {}
+              }
+            }
           }
         }
       },

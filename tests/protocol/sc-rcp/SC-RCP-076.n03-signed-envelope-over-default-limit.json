@@ -5,7 +5,7 @@
   "spec_revision": "0.1",
   "kind": "negative",
   "failure_mode": "envelope larger than the receiver-wide size limit",
-  "description": "A correctly signed, authorized 66469-octet envelope at a receiver with no `max_envelope_octets` in its context (the default of 65536, [SC-ENV-004]). Envelope-stage step 1 rejects it with `envelope-too-large` before any security step.",
+  "description": "A correctly signed 66469-octet envelope, addressed to a session the receiver does not know, at a receiver with no `max_envelope_octets` in its context (the default of 65536, [SC-ENV-004]). Envelope-stage step 1 rejects it with `envelope-too-large` before any security step, so the limit does not depend on the addressed session.",
   "stage": "receive",
   "context": {
     "receiver_time": "2026-10-03T12:00:01.000Z",
@@ -61,9 +61,9 @@
   "input": {
     "envelope": {
       "version": "0.1",
-      "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1yf",
+      "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1yh",
       "from": "01harn7x9k2m4p6q8r0s2t4v6w",
-      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "to": "2zq7c4m1x8t5k3w9b6n0r2v7pd",
       "created_at": "2026-10-03T12:00:00.000Z",
       "ttl_ms": 300000,
       "content": [
@@ -75,8 +75,8 @@
       "security": {
         "principal": "principal-a",
         "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
-        "nonce": "eAlyD8g8WMIiu1Q-Sw4iaA",
-        "signature": "9NZMdmFyWd9Vw0BS9n6sLN_iiGcuoNFF_Q6umjsTREviq_7bzIkQtmX_EY0fXp3-vGJar39zSEOqK0NCRn7nBA"
+        "nonce": "cjPjrWRgget6scS1Xm-6xQ",
+        "signature": "FMVAyvZkjqY7_glo8naZHhlsUr8uf61F9z_ZqZj9TXiLxdwomnrFHP2d5a5O0kj0n6p7Sj6-3H4-9JxXTz2TCA"
       }
     }
   },

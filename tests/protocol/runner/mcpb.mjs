@@ -228,11 +228,15 @@ const CHECKS = {
     return rpcError(ex) !== null && rpcError(ex).code === -32602;
   },
 
-  // §4.4 attribution. A call served on an unbound connection whose request carries no
-  // session id at all can only have been attributed by the connection or process.
+  // §4.4 attribution. Whether the connection is bound comes from `context.bound`. A call
+  // served on an unbound connection was attributed to some caller; unless the client
+  // asserted its own session in `_meta`, the only basis left is the connection or process.
+  // The arguments (`to`, `in_reply_to`, `content`) name the addressee and the message,
+  // never the caller, so they are not searched.
   'MCPB-ATT-001': (ex, ctx) => {
     if (!isOacToolCall(ex) || ctx.bound !== false || successResult(ex) === null) return true;
-    return stringsIn(req(ex).params).some((s) => isSessionId(s));
+    const meta = isObj(req(ex).params._meta) ? req(ex).params._meta : {};
+    return stringsIn(meta).flatMap(wordsIn).some((w) => isSessionId(w));
   },
   'MCPB-ATT-002':(ex, ctx, env) => {
     if (!isOacToolCall(ex) || ctx.bound !== false) return true;
@@ -263,8 +267,11 @@ const CHECKS = {
     if (toolName(ex) === 'list_sessions') return CHECKS['MCPB-TOOL-015'](ex);
     return words.includes('accepted-by-adapter');
   },
+  // A result reports a delivery state only when it succeeds (§5.3): a tool execution error
+  // reports a refusal or a failure by its code ([MCPB-TOOL-010]), and its text is not
+  // searched for state names.
   'MCPB-TOOL-008': (ex) => {
-    const res = result(ex);
+    const res = successResult(ex);
     if (!['send', 'reply'].includes(toolName(ex)) || !res) return true;
     return !stringsIn(res).flatMap(wordsIn).some((w) => RECEIVER_ONLY_STATES.includes(w));
   },
