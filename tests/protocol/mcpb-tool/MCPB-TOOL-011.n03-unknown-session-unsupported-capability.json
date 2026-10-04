@@ -4,8 +4,8 @@
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
   "kind": "negative",
-  "failure_mode": "code missing",
-  "description": "The tool execution error text describes the failure in prose and carries no Table 8.3 code.",
+  "failure_mode": "wrong code for the cause",
+  "description": "A send to an unknown session carries unsupported-capability, a valid code that Table 8.3.3 does not assign to this cause.",
   "stage": "mcp-binding",
   "context": {
     "era": "legacy",
@@ -21,7 +21,7 @@
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 45,
+        "id": 46,
         "method": "tools/call",
         "params": {
           "name": "send",
@@ -38,12 +38,12 @@
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 45,
+        "id": 46,
         "result": {
           "content": [
             {
               "type": "text",
-              "text": "Could not send: the recipient was not found."
+              "text": "unsupported-capability: no capability declaration is held for the addressed session."
             }
           ],
           "isError": true

@@ -3,9 +3,8 @@
   "requirement": "MCPB-TOOL-011",
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
-  "kind": "negative",
-  "failure_mode": "code missing",
-  "description": "The tool execution error text describes the failure in prose and carries no Table 8.3 code.",
+  "kind": "positive",
+  "description": "A send to an online session the calling session is not authorized to discover is refused exactly like an unknown session, with unknown-destination (SC-DLV-075, SC-DLV-076).",
   "stage": "mcp-binding",
   "context": {
     "era": "legacy",
@@ -13,15 +12,15 @@
     "legacy_initialized": true,
     "bound": true,
     "addressed": {
-      "presence": "unknown",
-      "discoverable": true
+      "presence": "online",
+      "discoverable": false
     }
   },
   "input": {
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 45,
+        "id": 42,
         "method": "tools/call",
         "params": {
           "name": "send",
@@ -38,12 +37,12 @@
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 45,
+        "id": 42,
         "result": {
           "content": [
             {
               "type": "text",
-              "text": "Could not send: the recipient was not found."
+              "text": "unknown-destination: no session with that id is known."
             }
           ],
           "isError": true
@@ -52,6 +51,6 @@
     }
   },
   "expected": {
-    "result": "nonconformant"
+    "result": "conformant"
   }
 }

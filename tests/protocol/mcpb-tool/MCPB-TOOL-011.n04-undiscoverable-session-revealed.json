@@ -4,24 +4,23 @@
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
   "kind": "negative",
-  "failure_mode": "code missing",
-  "description": "The tool execution error text describes the failure in prose and carries no Table 8.3 code.",
+  "failure_mode": "undiscoverable session revealed",
+  "description": "A send to an online session the calling session is not authorized to discover carries destination-unavailable, which reveals a presence state the requester may not see.",
   "stage": "mcp-binding",
   "context": {
-    "era": "legacy",
+    "era": "modern",
     "server_role": "general",
-    "legacy_initialized": true,
     "bound": true,
     "addressed": {
-      "presence": "unknown",
-      "discoverable": true
+      "presence": "online",
+      "discoverable": false
     }
   },
   "input": {
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 45,
+        "id": 47,
         "method": "tools/call",
         "params": {
           "name": "send",
@@ -33,17 +32,21 @@
                 "text": "Build finished; please review."
               }
             ]
+          },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
           }
         }
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 45,
+        "id": 47,
         "result": {
           "content": [
             {
               "type": "text",
-              "text": "Could not send: the recipient was not found."
+              "text": "destination-unavailable: the addressed session is not accepting input now."
             }
           ],
           "isError": true

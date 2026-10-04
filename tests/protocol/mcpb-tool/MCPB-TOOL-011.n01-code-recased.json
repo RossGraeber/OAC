@@ -5,18 +5,22 @@
   "spec_revision": "0.1",
   "kind": "negative",
   "failure_mode": "code re-cased",
-  "description": "The tool execution error text carries Unsupported-Capability, a re-cased spelling that does not equal any Table 8.3 code.",
+  "description": "The tool execution error text carries Unknown-Destination, a re-cased spelling that does not equal the Table 8.3 code.",
   "stage": "mcp-binding",
   "context": {
     "era": "modern",
     "server_role": "general",
-    "bound": true
+    "bound": true,
+    "addressed": {
+      "presence": "unknown",
+      "discoverable": true
+    }
   },
   "input": {
     "mcp_exchange": {
       "request": {
         "jsonrpc": "2.0",
-        "id": 42,
+        "id": 44,
         "method": "tools/call",
         "params": {
           "name": "send",
@@ -37,12 +41,12 @@
       },
       "server_message": {
         "jsonrpc": "2.0",
-        "id": 42,
+        "id": 44,
         "result": {
           "content": [
             {
               "type": "text",
-              "text": "Unsupported-Capability: no capability declaration is held for the addressed session."
+              "text": "Unknown-Destination: no session with that id is known."
             }
           ],
           "isError": true

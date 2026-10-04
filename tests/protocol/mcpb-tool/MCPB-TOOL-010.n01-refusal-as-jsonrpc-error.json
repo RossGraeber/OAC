@@ -11,7 +11,11 @@
     "era": "legacy",
     "server_role": "general",
     "legacy_initialized": true,
-    "bound": true
+    "bound": true,
+    "addressed": {
+      "presence": "unknown",
+      "discoverable": true
+    }
   },
   "input": {
     "mcp_exchange": {
@@ -37,7 +41,7 @@
         "id": 32,
         "error": {
           "code": -32000,
-          "message": "unsupported-capability"
+          "message": "unknown-destination"
         }
       }
     }

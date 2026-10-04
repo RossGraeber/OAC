@@ -4,12 +4,16 @@
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "The tool execution error text carries the code unsupported-capability exactly as Table 8.3 spells it.",
+  "description": "A send to a session whose presence is unknown to the server carries unknown-destination, spelled exactly as Table 8.3 spells it (Table 8.3.3, step 2).",
   "stage": "mcp-binding",
   "context": {
     "era": "modern",
     "server_role": "general",
-    "bound": true
+    "bound": true,
+    "addressed": {
+      "presence": "unknown",
+      "discoverable": true
+    }
   },
   "input": {
     "mcp_exchange": {
@@ -41,7 +45,7 @@
           "content": [
             {
               "type": "text",
-              "text": "unsupported-capability: no capability declaration is held for the addressed session."
+              "text": "unknown-destination: no session with that id is known."
             }
           ],
           "isError": true

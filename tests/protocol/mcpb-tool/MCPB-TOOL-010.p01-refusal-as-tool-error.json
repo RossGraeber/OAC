@@ -4,13 +4,17 @@
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.1",
   "kind": "positive",
-  "description": "A send to a session for which the server holds no capability declaration is refused as a tool execution error with isError true, carrying unsupported-capability (Table 8.3.3).",
+  "description": "A send to a session the server does not know is refused as a tool execution error with isError true.",
   "stage": "mcp-binding",
   "context": {
     "era": "legacy",
     "server_role": "general",
     "legacy_initialized": true,
-    "bound": true
+    "bound": true,
+    "addressed": {
+      "presence": "unknown",
+      "discoverable": true
+    }
   },
   "input": {
     "mcp_exchange": {
@@ -38,7 +42,7 @@
           "content": [
             {
               "type": "text",
-              "text": "unsupported-capability: no capability declaration is held for the addressed session."
+              "text": "unknown-destination: no session with that id is known."
             }
           ],
           "isError": true
