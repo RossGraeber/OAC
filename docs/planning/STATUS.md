@@ -4,6 +4,21 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-03 (**Issue #43 (E3): spec §7, active delivery, presence and
+discovery, written.** `spec/session-channels.md` §7 now holds the active-inbound obligation
+and the no-polling rule (push mechanisms allowed), when a session is accepting input, the
+three presence states (`online`, `unreachable`, `unknown`), presence records (announcement
+and withdrawal, `seq` ordering, a lifetime measured on the consumer's clock, carrier loss),
+discovery results (authorized `online` sessions only), and where a sender takes a capability
+declaration from, which makes SC-ID-086 satisfiable. Appendix A gains 50 `SC-DLV` ids; 39
+fixtures land under `tests/protocol/sc-dlv/`. It closes, at the neutral layer, decision C7
+§4's two recorded gaps (no carriage for a session's descriptor, no discovery path); the
+transport mapping that carries presence records is still to be written. Five operator
+questions are open on #43 (hold vs refuse for a session not accepting input, refusing sends
+to sessions not `online`, listing only `online` sessions, the lifetime range, and no
+cross-implementation presence until `spec/security.md` authenticates records). No gate
+verdict, pin or ADR text changes. Two UNVERIFIED items are added below.)
+
 **Last updated:** 2026-10-03 (**Issue #42 (E2): spec §6, session identity, written.**
 `spec/session-channels.md` §6 now holds the session id (opaque, 26-character Crockford
 Base32, bound to one device key), the non-authoritative display form and aliases, the
@@ -1482,6 +1497,16 @@ states or that are inferred/stale). Closed when the named resolution lands.
 Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 (`docs/planning/REVERIFICATION-B2.md`). Until closed, no plan or skill may rely on them
 without an UNVERIFIED label.
+
+- **New, from E3 (#43, 2026-10-03):** whether the v0.1 transport carries presence records
+  (announcement, withdrawal, staleness, carrier loss; `spec/session-channels.md` §7.2) as
+  §7 requires. Gate G3 verified only peer discovery (`docs/planning/gates/G3-result.md`);
+  presence records were not exercised. Owner: the transport binding and F6/F10.
+- **New, from E3 (#43, 2026-10-03):** that Codex's `thread/queue/add` keeps the order of
+  inputs queued while a turn is running, as a guarantee. The G2 `busyqueue` step observed
+  order kept; no first-party statement of order is cited in this repository. (Claude
+  Code's channels reference does state in-order processing, `REVERIFICATION-B2.md` §3.1.)
+  `spec/session-channels.md` §7.4 makes hand-off order a SHOULD only (SC-DLV-080).
 
 - **New, from the C4 revision (#236, 2026-10-02):** the hook-to-shim pairing mechanism
   that `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement" needs is
