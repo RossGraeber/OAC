@@ -509,7 +509,8 @@ freeze is the operator's decision.
   Criterion 4 holds for the 475 fixtures.
 - **Open:** the executable demonstration still lacks fixtures that decide
   `envelope-too-large` and `transport-failure`, and 22 MCP binding `TODO(fixture)` rows
-  name no owner (#275).
+  name no owner (#275, addressed by PR #284, open). Binding-format fixtures count toward
+  the demonstration, by an orchestrator ruling recorded in the freeze record §2.
 
 *Dated note, 2026-10-04 (#47): two references above are M0-era.*
 

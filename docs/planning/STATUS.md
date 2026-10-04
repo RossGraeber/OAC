@@ -18,8 +18,9 @@ draft), awaits the operator's sign-off. It was re-audited after #272, #278 and #
 - **Blockers.** Closed: B1, the interface text (#273, PR #279); B2, never steer (#274,
   PR #278); B5, L9 landing before the freeze (#174, PR #272). Open: B3 and B4 (#275), no
   fixture that decides `envelope-too-large` or `transport-failure`, and 22 MCP binding
-  `TODO(fixture)` rows that name no owner. Both add fixtures and owners only, and change no
-  interface.
+  `TODO(fixture)` rows that name no owner. PR #284 (open) addresses both. Both add fixtures
+  and owners only, and change no interface. Ruling (orchestrator): binding-format fixtures
+  (`oac-mcpb-fixture/1`) count toward the Gate S2 demonstration.
 - **For the operator at sign-off.** Freezing accepts the renamed adapter and transport
   operations (`spec/interfaces.md` §9). Codex stays receive-only until #69. Traffic stays
   same-install until a transport binding meets [IFC-TRN-080].

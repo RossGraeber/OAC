@@ -7,7 +7,7 @@
   criteria 1-6).
 - **Status:** **PROPOSED, not frozen.** This record prepares the freeze for the operator.
   It does not declare it. Section 3 lists the blockers. B1, B2 and B5 are closed. B3 and B4
-  (#275) are open. Freezing is the operator's decision. It is recorded in §8, and §6 and §7
+  (#275) are open on `main`, and PR #284 addresses them but is not merged. Freezing is the operator's decision. It is recorded in §8, and §6 and §7
   take effect only after that.
 - **Skills:** `oac-spec-authoring` (§7, the interface freeze), `oac-boundaries`,
   `oac-evidence`.
@@ -48,7 +48,7 @@ item 7). That is how Stage 3 works.
 | 2 | Runner self-test (Ed25519 and JCS vectors; planted owner-index edits) | **PASS** | `node tests/protocol/runner/run.mjs --self-test`: "Result: PASS (self-test)" |
 | 3 | Every cited requirement id resolves | **PASS** | The scratch audit found every `[SC-…]`, `[SEC-…]`, `[MCPB-…]` and `[IFC-…]` citation in the four documents defined (510 ids). |
 | 4 | Every `MUST`/`MUST NOT` has a fixture, or a `TODO(fixture)` naming a task outside Stage 2 | **FAIL, B4** | SC, SEC and IFC pass. Every IFC row names an owner (F-, G- or H-tasks), and so do the new SEC-AUZ-025 to -027 (G7), SEC-PRV-015 to -018 and MCPB-CDX-002 to -005 (G7). The remaining gap is the same 22 `spec/bindings/mcp.md` §12.3 rows, which name no task (L1229-L1281) → **#275**. Seven rows say "covered by" another requirement's fixtures, which is acceptable: SC-ID-020, SC-DLV-040, SC-DLV-064, SC-RCP-032, SEC-KEY-002, SEC-SIG-020, SEC-RPL-001. |
-| 5 | Every Table 8.3 error code and Table 8.1 state decided by a fixture (`10-stages.md` §6, executable demonstration) | **FAIL, B3** | All 8 states are decided. 15 of 17 codes are decided, `invalid-request` only by binding fixtures. `envelope-too-large` (`spec/session-channels.md` L2333) appears in no fixture. `transport-failure` (L2347) appears only as input to `sc-rcp/SC-RCP-085.p06` → **#275** |
+| 5 | Every Table 8.3 error code and Table 8.1 state decided by a fixture (`10-stages.md` §6, executable demonstration) | **FAIL on `main`, B3** | All 8 states are decided. 15 of 17 codes are decided. `invalid-request` is decided only by binding fixtures (`mcpb-tool/MCPB-TOOL-005.p01`, `.n01`; `mcpb-att/MCPB-ATT-002.n02`), which count (ruling below). `envelope-too-large` (`spec/session-channels.md` L2333) appears in no fixture. `transport-failure` (L2347) appears only as input to `sc-rcp/SC-RCP-085.p06` → **#275**, addressed by PR #284 (open). |
 | 6 | Neutral vocabulary over `spec/`, with only the binding exempt; `spec/interfaces.md` is included | **PASS** | Checks 1-2 and the zero-hits group find zero hits over all three neutral documents. The read-the-hit group (`initialize`, `notifications/`) also finds zero. `spec/interfaces.md` §7 Table 7.1 lists every non-neutral value that crosses a contract, with the reason it is allowed. This meets the #47 acceptance item "any unavoidable exception is documented with its reason". |
 | 7 | No open placeholders, "planned" text or stale stubs | **PASS** | The `spec/security.md` Appendix B dated note (this change) records that its follow-ups are done. `spec/session-channels.md` §8.1.5's "carriage ... still to come" has a #273 dated note pointing at `spec/interfaces.md` §6.5. `05-interfaces.md` §13-§15 carry "Superseded, 2026-10-04 (#273)" (L468, L531, L618). |
 | 8 | Draft markers and versions are ready to finalize | **READY** | The markers, now including `spec/interfaces.md` L5, are listed in §6. Version `0.1` and the identifier are final. |
@@ -57,6 +57,13 @@ item 7). That is how Stage 3 works.
 | 11 | Operator decisions on #43, #45, #46, #174 and #224 are reflected | **PASS** | #43 (refuse at once, never hold; stale or withdrawn presence refuses; discovery lists `online` only; same-install until E5): dated notes in `spec/session-channels.md` L1405, L1560, L1756, L1785, L1849, and [IFC-TRN-026] (no persistence or offline queueing). #45 (24-hour one-message reply right; explicit grant on the same machine and folder; 5-minute cross-machine presence cap; per-session, folder or machine grants): `spec/security.md` dated notes L821, L871, L968, L1304. #46 (Codex outbound refused until #69): [MCPB-ATT-002] with its dated note, `spec/bindings/mcp.md` L387. #174 (SHOULD NOT secrets; no memory look-up by an implementation; land before the freeze): [SEC-PRV-016] to [SEC-PRV-018], dated notes L1477 and L1494, PR #272 merge `96d0b33`. #224: row 10. |
 | 12 | Open UNVERIFIED items that affect the interface are listed with owners | **PASS** | §4.1 |
 | 13 | Other CI checks (`boundary-lint.yml`) | **PASS** | Check 3, check 8 and check 11 are clean. Checks 9-10 report PENDING, which is not a pass, because no product paths exist yet; their self-test is 102/103 with 1 skipped. Fixture manifest: 211/211 entries match, self-test 73/73. `check-skills`: all 15 skills are within budget. `sync-agents-skills --check` and `--self-test` pass. |
+
+**Ruling (orchestrator, 2026-10-04, relayed on #47):** fixtures in a binding document's own
+format (`oac-mcpb-fixture/1`, `spec/bindings/mcp.md` §12.2) count toward the Gate S2
+executable demonstration, just as `oac-conformance-fixture/1` fixtures do. Both are read and
+decided by the same runner (`tests/protocol/runner/run.mjs`, which dispatches on
+`fixture_format`). So a code decided only by binding fixtures, such as `invalid-request`,
+counts as covered.
 
 Editorial fixes made in this change (no requirement added or changed):
 
@@ -73,12 +80,14 @@ Editorial fixes made in this change (no requirement added or changed):
 |---|---|---|---|
 | B1 | `ProviderAdapter`, `Transport` and the core types had no normative text; the M0 draft contradicted the merged specs | **Closed**, #273 | `spec/interfaces.md`, PR #279, merge `08ef7c5` (2026-10-04) |
 | B2 | The #224 operator decision (never steer; queue; race-free form; no override fields) was not in the spec | **Closed**, #274 | PR #278, merge `a405bfd`. See §2 row 10. |
-| B3 | `envelope-too-large` and `transport-failure` have no fixture that decides them, which fails the Gate S2 executable demonstration | **Open**, #275 | §2 row 5 |
-| B4 | 22 MCP binding `TODO(fixture)` rows name no owning task. Several can be decided from a single exchange, contrary to `spec/bindings/mcp.md` §12.2 (L1221-L1223). | **Open**, #275 | §2 row 4 |
+| B3 | `envelope-too-large` and `transport-failure` have no fixture that decides them, which fails the Gate S2 executable demonstration | **Open on `main`**: #275, addressed by PR #284 (open, not merged). That PR adds deciding `sc-rcp` and `mcpb` fixtures for both codes. | §2 row 5 |
+| B4 | 22 MCP binding `TODO(fixture)` rows name no owning task. Several can be decided from a single exchange, contrary to `spec/bindings/mcp.md` §12.2 (L1221-L1223). | **Open on `main`**: #275, addressed by PR #284 (open). That PR gives each row a fixture or an owner from a Stage 3/4 task. | §2 row 4 |
 | B5 | L9 (#174): land before the freeze, or wait for the next major version | **Closed**: landed before the freeze, per the operator decision on #174 (2026-10-04) | PR #272, merge `96d0b33`; [SEC-PRV-015] to [SEC-PRV-018] |
 
-B3 and B4 only add fixtures and owners. They change no requirement or signature. So the
-operator may choose either to sign off after #275 merges, or to sign off now and let #275
+B3 and B4 only add fixtures and owners. They change no requirement or signature. When PR
+#284 merges, §2 rows 4 and 5 must be re-run against the merged text before sign-off. A
+reviewer should not rely on the PR's own description of its effect. The operator may choose
+either to sign off after #275 closes, or to sign off now and let #275
 close after the freeze (§5.2 item 7). In the second case, Gate S2 criterion 4's
 demonstration, and with it Stage 3 entry, still waits for #275.
 
@@ -191,7 +200,7 @@ None.
 The freeze happens when the operator fills in this section and the sign-off commit
 applies §6. Until then, Gate S2 criterion 1 is not met.
 
-- B3/B4 (#275): `{{OPERATOR: closed at <merge sha> / deferred past the freeze}}`
+- B3/B4 (#275, PR #284): `{{OPERATOR: closed at <merge sha>, §2 rows 4-5 re-run / deferred past the freeze}}`
 - Renamed operations (§4.2) accepted: `{{OPERATOR: yes / no}}`
 - Decision: `{{OPERATOR: FREEZE / NOT YET}}`
 - Frozen at commit: `{{SHA}}`
