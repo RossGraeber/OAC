@@ -865,12 +865,27 @@ requirement MCPB-CLD-001 restricts where the capability is declared, not whether
 > spawned by Claude Code (C2 §1). It therefore runs as the legacy-only exception in [MCPB-CLD-003],
 > and it serves the §5 tools over the same legacy connection.
 
-**Steering.** `notifications/claude/channel` is not a steering operation under
-`spec/security.md` [SEC-AUZ-022]. The channel surface offers no other hand-off that holds
-input for a turn of its own, and Claude Code itself takes channel input in at boundaries it
-chooses: in G1, two inputs sent during a running turn were taken in at later tool-call
-boundaries of that turn, in order (`docs/planning/gates/G1-result.md`, criterion 3). The
-Codex hand-off operations are classified in §8.2.1.
+**Steering: the exception of `spec/security.md` [SEC-AUZ-022], invoked.** Channel input
+sent while Claude Code is running a turn **does join that turn**. In G1 Box C, two inputs
+sent during a running turn were taken in at two later tool-call boundaries of that same
+turn, in order (`docs/planning/gates/G1-result.md`, criterion 3, 2026-09-28, Claude Code
+`v2.1.283`). This binding nevertheless classifies `notifications/claude/channel` as not a
+steering operation, under the exception, on this evidence:
+
+- **No holding hand-off.** The channel capability defines one inbound path, the
+  `notifications/claude/channel` notification; Claude Code documents no other operation
+  that holds channel input for a turn of its own (`oac-claude-channels` §1;
+  PLANNING-PROMPT.md §3.1, retrieved 2026-09-15).
+- **The harness picks the boundary.** Claude Code's documentation says channel events queue
+  into the session and are processed in order, delivered together on the next turn when
+  Claude is busy (`channels-reference.md`; `docs/planning/REVERIFICATION-B2.md`, "§3.1
+  re-check", row 5, HOLDS, retrieved 2026-10-02). G1 instead saw them taken in at tool-call
+  boundaries of the running turn; that per-boundary pattern is UNVERIFIED as a guarantee
+  (`docs/planning/v0.1/11-risks.md` row 49). Either way Claude Code decides where the input
+  enters; the sender decides only when to send.
+
+The accepted consequence is stated in `spec/security.md` §13, steering row. The Codex
+hand-off operations are classified in §8.2.1.
 
 ### 8.2 Codex — tool path (MCP: supported; app-server inbound: experimental)
 
@@ -932,10 +947,13 @@ override fields are sent.
   (`B/app-server/src/request_processors/thread_queue_processor.rs#L77-L95`). Queued items
   are dispatched only through `start_turn_if_idle`, which checks idleness and reserves the
   turn under one lock and cannot steer (`B/core/src/codex_thread.rs#L374-L396`;
-  `turn_input.rs#L432-L437`). On an idle loaded thread the add starts a turn at once; on a
-  busy one the item waits for the next idle (`B/ext/queue/src/service.rs#L265-L280`,
-  `#L405-L482`). The G2 `busyqueue` step showed the busy case live
-  (`docs/planning/gates/G2-result.md`).
+  `turn_input.rs#L432-L437`). After enqueueing, `wake_if_loaded` dispatches at once on a
+  loaded thread that is idle, **unless the thread's agent status is `Interrupted`**, that
+  is, its last turn ended interrupted (`B/ext/queue/src/service.rs#L265-L280`, `#L472-L482`,
+  the check at `#L477`). On a busy thread, or an idle one whose last turn was interrupted,
+  the item waits for a later idle that an interrupt did not cause (`#L405-L470`,
+  `#L549-L566`). The G2 `busyqueue` step showed the busy case live
+  (`docs/planning/gates/G2-result.md`); the interrupted case is from source only.
 - **Checking for a running turn first does not help (C6).** `thread/status/changed`,
   `turn/started` and `Thread.status` all tell a client about a turn, but none is atomic
   with a later `turn/start`. The steer-or-start choice is made under Core's `active_turn`
@@ -961,8 +979,7 @@ when a turn is known to be running. No check-then-call race is left on this path
 
 [MCPB-CDX-003] The Codex adapter MUST NOT hand off an OAC message through `turn/start`.
 
-[MCPB-CDX-004] The Codex adapter MUST NOT hand off an OAC message through `turn/steer` unless
-an operator enabled steering for the addressed session (`spec/security.md` [SEC-AUZ-022]).
+[MCPB-CDX-004] The Codex adapter MUST NOT hand off an OAC message through `turn/steer`.
 
 [MCPB-CDX-005] An app-server request that the Codex adapter sends to hand off an OAC message
 MUST NOT carry a member that sets a thread or turn setting, such as `approvalPolicy`,
@@ -974,9 +991,10 @@ in a `thread/queue/add` request is UNVERIFIED (no `deny_unknown_fields` on the s
 is probably ignored; not exercised). [MCPB-CDX-005] forbids sending one either way.
 
 The `turn/steer` and `turn/start` entries in §2.3 stay because they are app-server inbound
-methods. [MCPB-CDX-003] and [MCPB-CDX-004] decide that delivery does not use them. The Codex
-`turn/steer` path also needs task G7's own authorization gate (#68) before any code can call
-it (`oac-codex-appserver`; `oac-security-work`).
+methods. [MCPB-CDX-003] and [MCPB-CDX-004] decide that delivery never uses them, whatever
+the thread's state and whatever an operator configures: this revision has no setting that
+enables steering (`spec/security.md` [SEC-AUZ-022]). Any future use of `turn/steer` would
+need its own decision and task G7's authorization gate (#68) (`oac-security-work`).
 
 **Surface label and shim.** `thread/queue/add` is experimental: it carries
 `#[experimental("thread/queue/add")]`
@@ -989,20 +1007,48 @@ is re-checked as a follow-up, never as a gate (#216).
 **Reporting a turned-away add.** When `thread/queue/add` returns a JSON-RPC error, the
 adapter does not fall back to `turn/start` or `turn/steer` ([MCPB-CDX-003],
 [MCPB-CDX-004], `spec/security.md` [SEC-AUZ-027]). It reports the outcome under
-`spec/session-channels.md` [SC-DLV-008] or [SC-DLV-009]. Two of the add's refusals are
-known from source (C5 b): an ephemeral thread is rejected
-(`thread_queue_processor.rs#L261`), and so is a host with no queue service, "user message
-queue is unavailable" (`#L246`). Neither says the thread cannot take input now, so each is
-`handoff-failed` ([SC-DLV-009]). Whether `thread/queue/add` has any refusal that means
-"not now" is UNVERIFIED; owner G7 (#68).
+`spec/session-channels.md` [SC-DLV-008] or [SC-DLV-009]. At least four of the add's
+refusals are known from source (`thread_queue_processor.rs`, retrieved 2026-10-04):
+
+- an ephemeral thread, "ephemeral thread does not support queued submissions" (`#L261`);
+- a host with no queue service, "user message queue is unavailable" (`#L246`);
+- a subagent thread that does not accept direct input: a loaded multi-agent-v2 subagent,
+  or an unloaded `ThreadSpawn` subagent (`ensure_direct_input_allowed`, `#L292-L309`,
+  called at `#L83`);
+- an archived thread (`#L282`).
+
+None says the thread cannot take input now, so each is `handoff-failed` ([SC-DLV-009]).
+Whether `thread/queue/add` has any refusal that means "not now" is UNVERIFIED; owner G7
+(#68).
+
+**Consequences of queue-only delivery, stated plainly.**
+
+- **OAC cannot deliver at all** to an ephemeral thread, to a thread on a host without the
+  queue service, to a subagent thread of either kind above, or to an archived thread. Every
+  delivery to one ends `handoff-failed`. Before this subsection, the idle path used
+  `turn/start`, which has none of these queue refusals.
+- **Every Codex delivery depends on one experimental method.** There is no
+  non-experimental path left: if `thread/queue/add` changes shape or is removed in a later
+  Codex version, Codex inbound delivery stops until the G6 shim is updated
+  (`docs/planning/v0.1/11-risks.md`, RISK-CODEX-EXPERIMENTAL).
+- **The `additionalContext` anchor is never sent.** C6 §5.0 sends the
+  `oac_provenance` anchor on `turn/start` only, and `thread/queue/add` has no such field.
+  Codex delivery therefore carries the frame alone (C13 Option A, `spec/security.md`
+  [SEC-PRV-011] is a `MAY`). G5 arm F, the frame alone, passed every required trial
+  (`docs/planning/gates/G5-result.md`).
 
 **What the harness then holds.** A successful add is a completed hand-off, reported as
-`handed-to-harness` (`spec/session-channels.md` §8.1). The input is then held by Codex, not by the receiver (`spec/session-channels.md` [SC-DLV-007]). Three
-consequences follow from source (C5) and are runtime-UNVERIFIED, owner G7 (#68):
+`handed-to-harness` (`spec/session-channels.md` §8.1). The input is then held by Codex,
+not by the receiver (`spec/session-channels.md` [SC-DLV-007]). Three consequences follow
+from source (C5) and are runtime-UNVERIFIED, owner G7 (#68):
 
-- After a turn ends **interrupted**, the queue does not dispatch. The item waits for a
-  later idle that an interrupt did not cause (`service.rs#L549-L566`, `#L477`). A delivery
-  reported as handed to the harness can therefore wait indefinitely.
+- **After an interrupt, nothing dispatches until a turn completes uninterrupted.** An item
+  already queued when a turn ends interrupted is not dispatched (`service.rs#L549-L566`).
+  An add made later, to a thread that is idle but whose last turn was interrupted, also
+  waits: `wake_if_loaded` skips a thread whose agent status is `Interrupted` (`#L477`). A
+  TUI user who interrupts a turn and walks away therefore stalls every later OAC delivery
+  to that thread, each reported as `handed-to-harness`, until some turn completes without
+  an interrupt.
 - The queue is durable and shared: any client of the daemon can list, reorder, update or
   delete queued items through `thread/queue/{list,update,delete,reorder}`. A handed-off
   item can therefore be changed or removed before it runs.
@@ -1070,7 +1116,7 @@ rows record the closure with a dated note in the same change.
 | A legacy client other than Codex `0.157.1` ignores an `extensions` member in an `initialize` result | UNVERIFIED (new, [MCPB-ERA-008]) | added to `docs/planning/STATUS.md` in this change |
 | A Codex `turn/start` sent during a regular turn steers it; `thread/queue/add` never does; a steering `turn/start` applies its setting overrides (§8.2.1) | verified from source at `rust-v0.160.0` and the upstream test; observed live once at `0.160.0` (E1 run) | #224 step-1 findings; `docs/planning/STATUS.md` (the S10 item closes in #274's change) |
 | Which `thread/queue/add` errors, if any, mean "not now" ([SC-DLV-008]) | UNVERIFIED (#274); owner G7 (#68) | added to `docs/planning/STATUS.md` in #274's change |
-| Runtime behaviour of the queue caveats of §8.2.1: no dispatch after an interrupted turn, edits by other daemon clients, unloaded threads; and what the app-server does with an extra member in a `thread/queue/add` request | UNVERIFIED (#274; source only); owner G7 (#68) | added to `docs/planning/STATUS.md` in #274's change |
+| Runtime behaviour of the queue caveats of §8.2.1: no dispatch after an interrupted turn, including adds made later to an idle thread, until a turn completes uninterrupted; edits by other daemon clients; unloaded threads; and what the app-server does with an extra member in a `thread/queue/add` request | UNVERIFIED (#274; source only); owner G7 (#68) | added to `docs/planning/STATUS.md` in #274's change |
 
 ## 11. Boundary self-check (`oac-boundaries`)
 
@@ -1233,9 +1279,9 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-CLD-002 | MUST NOT | TODO(fixture): modern-era traffic on a channel server (negative) → no `notifications/claude/channel` sent |
 | MCPB-CLD-003 | MUST | TODO(fixture): stdio `server/discover` on a channel server → JSON-RPC error that is not a recognized modern error |
 | MCPB-CDX-001 | MUST NOT | TODO(fixture): a delivery to a Codex session → no MCP notification emitted toward the Codex client |
-| MCPB-CDX-002 | MUST | TODO(fixture): app-server traffic, not an MCP exchange, so outside the `mcp-binding` stage (§12.2). Planned with G7 (#68) against the F9 fake: a delivery to an idle thread, and one to a thread with a running turn → each hand-off is one `thread/queue/add`; the busy case's input arrives in a new turn after `turn/completed`, never under the running turn's id |
+| MCPB-CDX-002 | MUST | TODO(fixture): app-server traffic, not an MCP exchange, so outside the `mcp-binding` stage (§12.2). Planned with G7 (#68) against the F9 fake: a delivery to an idle thread, one to a thread with a running turn, and one to an idle thread whose last turn ended interrupted → each hand-off is one `thread/queue/add`; the busy case's input arrives in a new turn after `turn/completed`, never under the running turn's id; the idle-after-interrupt case's input is not dispatched until a turn completes uninterrupted (source only, `service.rs` L477; UNVERIFIED live) |
 | MCPB-CDX-003 | MUST NOT | TODO(fixture): app-server traffic (§12.2). Planned with G7 (#68) against the F9 fake: deliveries to an idle thread, to a busy thread, to a thread a turn starts on just after an idle status, and after a turned-away `thread/queue/add` → no `turn/start` sent for any of them |
-| MCPB-CDX-004 | MUST NOT | TODO(fixture): app-server traffic (§12.2). Planned with G7 (#68) against the F9 fake: deliveries to a busy thread with steering not enabled, including after a turned-away `thread/queue/add` → no `turn/steer` sent |
+| MCPB-CDX-004 | MUST NOT | TODO(fixture): app-server traffic (§12.2). Planned with G7 (#68) against the F9 fake: deliveries to a busy thread, including after a turned-away `thread/queue/add` → no `turn/steer` sent |
 | MCPB-CDX-005 | MUST NOT | TODO(fixture): app-server traffic (§12.2). Planned with G7 (#68) and G6 (shim) against the F9 fake: each hand-off request → members `threadId`, `input`, `clientUserMessageId` only; a request adding `approvalPolicy`, `sandboxPolicy`, `permissions`, `model` or `cwd` (negative) → nonconformant |
 
 G4's committed transcripts are the first source of inputs for the `ERA` and `CLD`

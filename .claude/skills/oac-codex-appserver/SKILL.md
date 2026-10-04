@@ -78,14 +78,14 @@ same daemon can then deliver input to a live thread. The CLI wrapper is
 `codex queue --thread <id> --message <text>` (merged 2026-08-17, not yet in the
 CLI reference).
 
-Decision rule for which call to use, drawn strictly from §3.2 — do not invent a
-fourth option:
+App-server calls, with the OAC delivery rule (`spec/bindings/mcp.md` §8.2.1) — do not invent
+a fourth option:
 
 | Thread state | Call | Notes |
 |---|---|---|
-| Idle (no turn in flight) | `turn/start` | Starts a new turn, but **steers** a turn that is running when it lands, and no idle check is atomic with it (#224). **Never for OAC delivery:** every delivery uses `thread/queue/add` with no setting-override members (`spec/bindings/mcp.md` §8.2.1, [MCPB-CDX-002] to [MCPB-CDX-005]). |
-| A turn may be in flight and you want the input delivered once the thread goes idle | `thread/queue/add` | Experimental; queued until idle. |
-| A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7)** — gate any code path that can call this behind an explicit authorization check, and see `oac-security-work` before wiring it up. |
+| Idle (no turn in flight) | `turn/start` | Starts a new turn, but **steers** a turn running when it lands; no idle check is atomic with it (#224). **Never for OAC delivery (MCPB-CDX-003).** |
+| Every OAC delivery, idle or busy (MCPB-CDX-002) | `thread/queue/add` | Experimental (G6 shim); queued until idle; waits after an interrupted turn. |
+| A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Never for OAC delivery (MCPB-CDX-004); no setting enables it.** Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7) — see `oac-security-work`. |
 
 Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, with
 default `CODEX_HOME` in a non-elevated terminal). **Codex is now floating**: an auto-updater

@@ -8,20 +8,29 @@ verdict, or when a pin moves.
 the spec before the freeze.** Blocker B2 of the E7 freeze-readiness audit (#47, #274).
 In this change:
 
-- **Neutral (`spec/security.md` §9.6).** [SEC-AUZ-022] now judges a steering operation by
-  what the harness does with it (documented, observed, or shown by source), not only by
-  its documentation. A surface with no holding hand-off still takes ordinary input (the
-  channel surface, G1). New: SEC-AUZ-025 (a holding hand-off whenever a turn may be
+- **Neutral (`spec/security.md` §9.6).** [SEC-AUZ-022] is now unconditional and
+  behavioural: any hand-off that adds input to a running turn (documented, observed, or
+  shown by source) is a steering operation, and no operator setting enables one. The one
+  exception is an operation a binding shows, with evidence, to sit on a surface with no
+  holding hand-off and to be taken in at boundaries the harness chooses. The channel
+  surface is that case (`spec/bindings/mcp.md` §8.1), and the §13 residual says plainly
+  that its mid-turn input does join the running turn (G1 Box C). New: SEC-AUZ-025 (a holding hand-off whenever a turn may be
   running), SEC-AUZ-026 (only a check atomic with the hand-off shows no turn is running)
   and SEC-AUZ-027 (no fallback to steering). Each is `TODO(fixture)`, owned by G7 (#68)
   against the F9 fake. The §13 steering row is updated.
 - **Binding (`spec/bindings/mcp.md` §8.2.1).** The race-free form was chosen: every Codex
   delivery uses `thread/queue/add` (MCPB-CDX-002). `turn/start` is never used for delivery
-  (MCPB-CDX-003). `turn/steer` is used only with steering enabled (MCPB-CDX-004). No
+  (MCPB-CDX-003). `turn/steer` is never used for delivery (MCPB-CDX-004). No
   setting-override members are sent (MCPB-CDX-005). Each cites the #224 source findings at
   `rust-v0.160.0` and the E1 live observation. `thread/queue/add` is labelled experimental,
   behind the G6 shim. Fixtures are `TODO(fixture)` because app-server traffic is outside
-  the `mcp-binding` stage. §8.1 classifies the channel notification as not steering.
+  the `mcp-binding` stage. Consequences stated plainly: no delivery to ephemeral,
+  queue-less-host, subagent or archived threads (each `handoff-failed`); all Codex delivery
+  rests on one experimental method; after an interrupted turn, deliveries wait until a turn
+  completes uninterrupted; the C6 §5.0 anchor is never sent, so Codex delivery is in effect
+  Option A, which G5 arm F proved. Dated notes in C6 §5.0, C13 §7, §10 and §13,
+  `06-security.md` §9 and `G5-result.md`. §8.1 invokes the steering exception for the
+  channel notification, with evidence.
 - **Ledger.** The C13 item "`turn/start` sent while a turn is active steers it" is closed
   and removed from "Open UNVERIFIED items". Promotion: verified from first-party source at
   `openai/codex` `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`
@@ -1713,11 +1722,14 @@ without an UNVERIFIED label.
   Owner: backlog G7 (#68). Risk rows: `docs/planning/v0.1/11-risks.md` rows 65-66,
   RISK-CODEX-EXPERIMENTAL.
   - Which `thread/queue/add` errors, if any, mean "not now"
-    (`spec/session-channels.md` [SC-DLV-008]). The two known refusals, an ephemeral thread
-    and a host with no queue service, are failed hand-offs.
-  - Runtime behaviour of the queue: no dispatch after an interrupted turn; other daemon
-    clients can reorder, update or delete a queued item; an add to an unloaded thread
-    waits; an extra member in a `thread/queue/add` request is probably ignored.
+    (`spec/session-channels.md` [SC-DLV-008]). The at least four known refusals (ephemeral
+    thread, no queue service, subagent thread without direct input, archived thread) are
+    failed hand-offs, and OAC cannot deliver to those threads at all.
+  - Runtime behaviour of the queue: after an interrupted turn nothing dispatches until a
+    turn completes uninterrupted, including adds made later to an idle thread
+    (`wake_if_loaded`, `service.rs` L477); other daemon clients can reorder, update or
+    delete a queued item; an add to an unloaded thread waits; an extra member in a
+    `thread/queue/add` request is probably ignored.
 
 - **New, from verifying the G5 E1 findings (#220, 2026-10-03):**
   - The old C6 §5 frame's X2 failure was not reproduced across runs. The K8 run

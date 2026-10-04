@@ -269,6 +269,16 @@ oac_reply_to: <validated reply_to, or empty>
    `rust-v0.159.3`, a `turn/start` sent while a turn is active steers that turn. That is an
    open finding for backlog G7, not decided by this amendment.
 
+*Dated note, 2026-10-04 (#274): steps 4 and 5 are overtaken. On the operator decision on
+#224, every Codex delivery now uses `thread/queue/add` and never `turn/start` or
+`turn/steer` (`spec/bindings/mcp.md` §8.2.1, [MCPB-CDX-002] to [MCPB-CDX-004]). The step-4
+anchor rides only on `turn/start`, so it is never sent: Codex delivery is in effect Option A,
+steps 1-3 alone. That is allowed, because the anchor was never load-bearing and
+`spec/security.md` [SEC-PRV-011] is a `MAY`. It is also proven sufficient: G5 arm F, the
+frame alone and including a `thread/queue/add` delivery (X4), passed every required trial
+(`docs/planning/gates/G5-result.md`). The step-5 finding is settled: a mid-turn `turn/start`
+steers, and delivery no longer uses `turn/start`.*
+
 ### Original §5 text (kept as history; superseded where 5.0 conflicts)
 
 **Codex has no meta channel.** Unlike Claude's `<channel>` tag attributes, Codex's
