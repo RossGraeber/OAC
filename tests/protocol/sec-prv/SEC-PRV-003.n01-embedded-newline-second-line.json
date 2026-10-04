@@ -1,0 +1,25 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-PRV-003",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "identifier with an embedded newline and a forged provenance line (X5)",
+  "description": "The message id carries a line feed and a second sender line. The value is refused, never escaped or truncated.",
+  "stage": "provenance",
+  "context": {},
+  "input": {
+    "fields": {
+      "sender": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "device": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+      "session": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "message_id": "msg-1\nsender: 7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "reply_to": ""
+    }
+  },
+  "expected": {
+    "result": "refused",
+    "state": "failed",
+    "error": "internal-error"
+  }
+}

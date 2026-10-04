@@ -1,0 +1,91 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-RPL-020",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The store holds Alice's key id with this nonce. Carol's envelope uses the same nonce under her own key id, so it is not a duplicate.",
+  "stage": "security",
+  "context": {
+    "receiver_time": "2026-10-03T12:00:01.000Z",
+    "supported_major_versions": [
+      0
+    ],
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      },
+      {
+        "principal": "principal-c",
+        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+        "public_key": "LGPN2K_EISaRrzouTAmZRDaX66hHaXyOX0i-x3X0JUE"
+      }
+    ],
+    "bindings": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+      "3kp8w2n6c9t4x1b5m7q0r3s8vz": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+      "6wd4k1q7z3m9c2t6x0b5n8r1vf": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    "sessions": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "working_directory_scope": "scope-repo-a"
+      },
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": {
+        "working_directory_scope": "scope-repo-b"
+      },
+      "6wd4k1q7z3m9c2t6x0b5n8r1vf": {
+        "working_directory_scope": "scope-repo-a"
+      }
+    },
+    "grants": [
+      {
+        "direction": "inbound",
+        "writer": {
+          "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9"
+        },
+        "target": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+        }
+      }
+    ],
+    "duplicate_store": [
+      {
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "nonce": "IWbLRgaoV3SucODJ7eS70g"
+      }
+    ]
+  },
+  "input": {
+    "envelope": {
+      "version": "0.1",
+      "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+      "from": "3kp8w2n6c9t4x1b5m7q0r3s8vz",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "created_at": "2026-10-03T12:00:00.000Z",
+      "content": [
+        {
+          "type": "text",
+          "text": "Please review the scheduler module."
+        }
+      ],
+      "security": {
+        "principal": "principal-c",
+        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+        "nonce": "IWbLRgaoV3SucODJ7eS70g",
+        "signature": "L4A54YSycNZ8p516Fk1iD-1MTgZxMZ8rwJ44B9Tss7hz6G1uA1dDF9Or35riKfgnS7omquGP1ZCwRcgt4dYVBw"
+      }
+    }
+  },
+  "expected": {
+    "result": "passed"
+  }
+}

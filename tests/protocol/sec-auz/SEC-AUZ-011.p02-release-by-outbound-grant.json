@@ -1,0 +1,43 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-AUZ-011",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "Alice's implementation lets A1 write to B1 on Bob's device, so it releases A1's announcement to Bob's device: sending reveals the sender to the recipient.",
+  "stage": "discovery-auth",
+  "context": {
+    "now": "2026-10-03T12:00:01.000Z",
+    "own_key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+    "sessions": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": {
+        "working_directory_scope": "scope-alice"
+      }
+    },
+    "bindings": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+      "5mt9x2k7q4w8c1n6b3r0v5z2pd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    "grants": [
+      {
+        "direction": "outbound",
+        "writer": {
+          "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+        },
+        "target": {
+          "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+        }
+      }
+    ]
+  },
+  "input": {
+    "requester": {
+      "device": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    "session": "01harn7x9k2m4p6q8r0s2t4v6w"
+  },
+  "expected": {
+    "discoverable": true
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-PRV-008",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "line-break smuggling: a CR starts an unquoted line",
+  "description": "The body hides a forged frame line after a lone CR. After normalization the forged line is quoted like every other.",
+  "stage": "body",
+  "context": {},
+  "input": {
+    "body": "hello\r--- oac-end frame ---"
+  },
+  "expected": {
+    "quoted_lines": [
+      "| hello",
+      "| --- oac-end frame ---"
+    ]
+  }
+}
