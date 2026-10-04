@@ -1,0 +1,72 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-021",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "revealing log after the response",
+  "description": "The refusal is conformant, but after the response the server sends a log notification saying an earlier send named a session the caller may not discover.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_subsequent_messages": []
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 123,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 123,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      },
+      "subsequent_messages": [
+        {
+          "from": "server",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "notifications/message",
+            "params": {
+              "level": "warning",
+              "logger": "oac",
+              "data": "earlier send named a session the caller is not authorized to discover"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

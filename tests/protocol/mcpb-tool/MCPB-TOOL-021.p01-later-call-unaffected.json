@@ -1,0 +1,114 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-021",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "After refusing a send to an undiscoverable session, the server answers a later whoami exactly as it does after refusing a send to an unknown session id.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_subsequent_messages": [
+      {
+        "from": "client",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 122,
+          "method": "tools/call",
+          "params": {
+            "name": "whoami",
+            "arguments": {}
+          }
+        }
+      },
+      {
+        "from": "server",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 122,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"session_id\":\"01harn7x9k2m4p6q8r0s2t4v6w\",\"device_fingerprint\":\"SHA256:7f3a9c0e1b2d4f6a8c0e2b4d6f8a0c2e\"}"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 121,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 121,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      },
+      "subsequent_messages": [
+        {
+          "from": "client",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 122,
+            "method": "tools/call",
+            "params": {
+              "name": "whoami",
+              "arguments": {}
+            }
+          }
+        },
+        {
+          "from": "server",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 122,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"session_id\":\"01harn7x9k2m4p6q8r0s2t4v6w\",\"device_fingerprint\":\"SHA256:7f3a9c0e1b2d4f6a8c0e2b4d6f8a0c2e\"}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}
