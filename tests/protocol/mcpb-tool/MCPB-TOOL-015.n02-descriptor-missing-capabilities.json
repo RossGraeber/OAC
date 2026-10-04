@@ -1,0 +1,47 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-015",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "descriptor incomplete",
+  "description": "A list_sessions result carries a JSON array whose descriptor lacks the capabilities member a session descriptor requires.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general",
+    "bound": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 64,
+        "method": "tools/call",
+        "params": {
+          "name": "list_sessions",
+          "arguments": {},
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 64,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "[{\"session_id\":\"3m8q2r7t0v4w6x9y1z5a3b8c2d\"}]"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}
