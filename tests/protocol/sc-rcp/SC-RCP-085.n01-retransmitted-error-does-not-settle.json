@@ -1,0 +1,31 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-085",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "error receipt treated as settling a retransmitted envelope",
+  "description": "Two copies were passed and only a `failed` receipt arrived. It may describe either copy, so the state stays `accepted-by-adapter` before the deadline.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 2,
+    "deadline_passed": false
+  },
+  "input": {
+    "held": [
+      {
+        "state": "accepted-by-adapter",
+        "observer": "sender"
+      },
+      {
+        "state": "failed",
+        "observer": "receiver",
+        "error": "handoff-failed"
+      }
+    ]
+  },
+  "expected": {
+    "state": "accepted-by-adapter",
+    "retry_allowed": false
+  }
+}

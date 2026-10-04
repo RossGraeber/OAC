@@ -36,6 +36,7 @@
     }
   },
   "expected": {
-    "result": "expired"
+    "result": "expired",
+    "error": "expired"
   }
 }

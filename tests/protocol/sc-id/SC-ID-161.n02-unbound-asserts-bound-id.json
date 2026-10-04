@@ -50,6 +50,7 @@
     }
   },
   "expected": {
-    "result": "refused"
+    "result": "refused",
+    "error": "unauthorized"
   }
 }
