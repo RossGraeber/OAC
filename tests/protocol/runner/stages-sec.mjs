@@ -81,7 +81,7 @@ function replyRightCovers(state, envl, K, nowNs) {
 
 export function securityCheck(state, input, nowNs, supportedMajors, opts = {}) {
   const read = readEnvelopeInput(input);
-  const envStage = envelopeStage(read, { supportedMajors, receiverTimeNs: nowNs, supportedTypes: opts.supportedTypes });
+  const envStage = envelopeStage(read, { supportedMajors, receiverTimeNs: nowNs, supportedTypes: opts.supportedTypes, sizeLimit: opts.sizeLimit });
   if (envStage.result !== 'valid') return { ...envStage, receipt_permitted: false }; // [SEC-STG-001], [SC-RCP-041]
   const raw = read.parsed;
   const envl = toPlain(raw);

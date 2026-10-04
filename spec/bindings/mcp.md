@@ -857,6 +857,15 @@ exception to [MCPB-ERA-005]: a Claude-channel stdio process is legacy-only, by d
 `MCP_PROTOCOL_NEGOTIATION=legacy` can force the same result from the client side
 (`oac-claude-channels` §4); [MCPB-CLD-003] does not depend on the operator setting it.
 
+*Dated note, 2026-10-04 (#275): MCP `2026-07-28` leaves "recognized modern error" open. It
+gives one example only: "a recognized modern JSON-RPC error (such as
+`UnsupportedProtocolVersionError`) identifies a modern server" (MCP versioning page,
+"Backward Compatibility with Initialization-Based Versions", retrieved 2026-10-04). The
+fixtures of [MCPB-CLD-003] therefore decide three cases only: a result and `-32022`
+(`UnsupportedProtocolVersionError`) are nonconformant, and `-32601` (the code G4's channel
+server returned, after which Claude Code fell back) is conformant. The reference runner
+treats any other error code as undecided.*
+
 The 2026-07-28 schema still defines `experimental` on both `ClientCapabilities` and
 `ServerCapabilities` (schema at commit `271ecc9`, lines 720 and 797, cited in §4.3), so
 requirement MCPB-CLD-001 restricts where the capability is declared, not whether the member exists.

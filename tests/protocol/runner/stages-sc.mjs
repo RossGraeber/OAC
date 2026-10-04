@@ -15,6 +15,16 @@ import { securityStage } from './stages-sec.mjs';
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
+// The receiver-wide size limit of a fixture `context` (§3.3, [SC-RCP-076]): its
+// `max_envelope_octets`, or undefined when absent, for which envelopeStage applies the
+// default of [SC-ENV-004].
+export function receiverSizeLimit(context) {
+  if (!has(context, 'max_envelope_octets')) return undefined;
+  const v = toPlain(context.max_envelope_octets);
+  if (!Number.isSafeInteger(v) || v < 65536) throw new Error(`context.max_envelope_octets ${JSON.stringify(v)} is not an integer from 65536 to 9007199254740991`);
+  return v;
+}
+
 // ---------------------------------------------------------------------------------------
 // envelope (§3.3): envelope-stage validation; the receiver supports `text` only (§8.5).
 export function envelope(fx) {
@@ -22,6 +32,7 @@ export function envelope(fx) {
   const out = envelopeStage(readEnvelopeInput(fx.input), {
     supportedMajors: toPlain(c.supported_major_versions),
     receiverTimeNs: parseTimestamp(c.receiver_time),
+    sizeLimit: receiverSizeLimit(c),
   });
   if (out.result === 'valid') out.trusted_security = toPlain(envelopeOf(fx.input).security); // [SC-ENV-080]
   return out;
@@ -275,6 +286,7 @@ export function routing(fx) {
     supportedMajors: c.supported_major_versions,
     receiverTimeNs: parseTimestamp(c.receiver_time),
     supportedTypes: c.receiver_content_types,
+    sizeLimit: receiverSizeLimit(c),
   });
   if (out.result !== 'valid') return out;
   const envl = toPlain(input.parsed);
@@ -287,7 +299,7 @@ export function routing(fx) {
 // delivery stage, at one receiver.
 export function receive(fx, env) {
   const c = toPlain(fx.context);
-  const sec = securityStage(fx, env, { supportedTypes: c.receiver_content_types });
+  const sec = securityStage(fx, env, { supportedTypes: c.receiver_content_types, sizeLimit: receiverSizeLimit(c) });
   if (sec.result !== 'passed') return { result: sec.result, error: sec.error };
   const envl = toPlain(readEnvelopeInput(fx.input).parsed);
   const handoff = parseTimestamp(c.handoff_time || c.receiver_time);
