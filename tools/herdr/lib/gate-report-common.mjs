@@ -184,11 +184,13 @@ export function harnessVerification(manifest, { verified, versions }) {
 
 // The verification block. `humanActions`: the steps a person did that the agent could not,
 // each naming who (a `<TO FILL: ...>` slot where only the person can say).
+// Only the slot lines carry the TO_FILL token: the preamble names the slots without it, because
+// scripts/check-fixture-manifest.mjs refuses any `<TO FILL` left in a Verification section.
 export function verification({ manifest, harness, dialogs, dialogsField, humanActions, heading = '## Verification', extra = [], herdr = herdrVerification(manifest) }) {
   return [
     heading,
     '',
-    'Each line is checked from the evidence it cites (run-manifest.json fields beside this record), or marked UNVERIFIED with the reason (`.claude/skills/oac-gates/references/scripted-runs.md` "Verification"). Generated from the run manifest; the recording agent re-checks every citation and fills each `<TO FILL: ...>` slot. A herdr or Harness line that is UNVERIFIED means this record is neither an equivalence record nor verdict-bearing.',
+    'Each line is checked from the evidence it cites (run-manifest.json fields beside this record), or marked UNVERIFIED with the reason (`.claude/skills/oac-gates/references/scripted-runs.md` "Verification"). Generated from the run manifest; the recording agent re-checks every citation and fills each slot the generator left open (marked TO FILL). A herdr or Harness line that is UNVERIFIED means this record is neither an equivalence record nor verdict-bearing.',
     '',
     `- **herdr:** ${herdr.text}`,
     `- **Harness:** ${harness}`,
