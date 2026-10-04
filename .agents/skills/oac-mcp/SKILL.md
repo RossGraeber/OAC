@@ -109,6 +109,13 @@ one is in progress.
   reservation rule for any `*.modelcontextprotocol` / `*.mcp` second label; cite only the
   domain-ownership SHOULD clause that is actually present. See
   `docs/planning/REVERIFICATION-B2.md` §3.3 carry-over (b) and Drift register D2.
+  **Corrected in E6 (#46, 2026-10-03):** D2 holds for SEP-2133's own text only. The MCP
+  base spec, section "General fields" → `_meta`, states the reservation for `_meta` key
+  prefixes at both `2025-11-25` and `2026-07-28` ("Any prefix where the second label is
+  `modelcontextprotocol` or `mcp` is **reserved** for MCP use"), and at `2026-07-28`
+  extension identifiers "**MUST** follow the `_meta` key naming rules, with a mandatory
+  prefix" (`.../2026-07-28/basic/versioning`), so it binds identifiers too. Retrieved
+  2026-10-03; quoted in `spec/bindings/mcp.md` §3.2, §6.1.
 - The `subscriptions/listen` mechanism (opt-in `toolsListChanged`, `promptsListChanged`,
   `resourcesListChanged`, `resourceSubscriptions`, tagged with
   `io.modelcontextprotocol/subscriptionId`) **replaces** the older `resources/subscribe`
