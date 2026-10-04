@@ -87,7 +87,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
 import { driverAcceptDialog, recordWaitState, takeBaseline, armActivityWatch, turnFloor, pastFloor, ACTIVITY_STATES } from '../lib/gate-common.mjs';
 import {
-  G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
+  G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, mcpServerNames, dialogMatchesBoxC, DIALOG_KINDS,
   formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText, sameDialog, acceptHint,
   COMMITTED_SERVER_SHA256, PINS_PATH,
 } from '../lib/g1.mjs';
@@ -297,7 +297,7 @@ export default {
       if (accept === 'driver') {
         // Every key is sent straight after a read of AGENT; selection moves are verified by
         // reads; Enter only on the accepting option (lib/gate-common.mjs driverAcceptDialog).
-        await driverAcceptDialog({ herdr, target: AGENT, r, d, kind, dialogKinds: DIALOG_KINDS, plan: driverMayAccept(r.screen), read, stop, num, sleep, deadlineFor });
+        await driverAcceptDialog({ herdr, target: AGENT, r, d, kind, dialogKinds: DIALOG_KINDS, plan: driverMayAccept(r.screen, { expectedMcpServers: mcpServerNames(g1.mcpJson) }), read, stop, num, sleep, deadlineFor });
         return;
       }
       // Human accept: the driver sends nothing; it waits for the dialog to change.

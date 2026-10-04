@@ -569,6 +569,24 @@ the operator who signed it."
   2. the run manifest records the accept as the driver's: `acceptOrigin: driver`,
      `acceptKeys` and the `dialog-accept` commands.
 
+  **Recorded variant: the multi-select MCP approval form (#267).** Claude Code 2.1.285
+  showed MCP-server approval as a multi-select form ("<N> new MCP servers found in this
+  project / Select any you wish to enable", rows `[✔] <name>`, an "Enable selected" row,
+  footer "Space to select · Esc to reject all"). Per the orchestrator's ruling on #267 it is
+  the same dialog kind, recorded as `DIALOG_KINDS['mcp-server-approval']`'s `multi-select`
+  variant from the 2026-10-04 G4 run's pane capture. It counts as matching the recorded text
+  only when all of these hold:
+  - its heading, intro, body and footer are the recorded text, and nothing else is on screen
+    between them but server rows and the one "Enable selected" row;
+  - the listed servers equal **exactly** the scenario's expected servers (its `.mcp.json`):
+    any extra, missing or duplicate name is refused, `NOT RUN`;
+  - every listed server is shown ticked;
+  - the selection reaches "Enable selected" by `down` keys, each verified by a read, before
+    Enter. The driver never sends Space and never changes a tick.
+
+  The manifest also records the dialog's `variant`, `listedServers` and `expectedServers`.
+  Versions float (#216): the form's first-seen version is noted, never gated on.
+
   A criterion that is *about* a human consent step keeps its human accept, a human action
   the record names: G1 criterion 5, and the G11 confirmation. So an `accept=driver` G1 run
   (G1's default since the operator's second #196 decision) is never an equivalence record

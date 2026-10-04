@@ -124,13 +124,21 @@ export const DIALOG_MOVE_TIMEOUT_MS = 10000;
 export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKinds, plan, read, stop, num, sleep, deadlineFor, label = '' }) {
   const who = `${label ? `${label} ` : ''}dialog ${d.index} (${kind})`;
   d.acceptPlan = plan.ok ? plan.keys : null;
+  // #267: a recorded variant (the multi-select MCP form) records what it listed and what the
+  // scenario expected, accepted or refused.
+  if (plan.variant) Object.assign(d, { variant: plan.variant, listedServers: plan.listedServers, expectedServers: plan.expectedServers });
   if (!plan.ok) {
     d.acceptOrigin = 'none (driver refused)';
     stop(`${who}: ${plan.why}; the driver did not accept it`);
   }
+  // Only selection moves and Enter: never a key that changes a choice (Space, a digit, y/n).
+  if (plan.keys.some((k) => !['up', 'down', 'enter'].includes(k))) {
+    d.acceptOrigin = 'none (driver refused)';
+    stop(`${who}: the plan holds a key other than up/down/enter (${JSON.stringify(plan.keys)}); nothing sent`);
+  }
   d.acceptKeys = [];
   let last = r;
-  let prev = r.screen.selected?.text ?? null;
+  let prev = plan.from ?? r.screen.selected?.text ?? null;
   for (const [i, mv] of plan.moves.entries()) {
     const res = await herdr.dialogAccept(target, [mv.key]);
     const k = { key: mv.key, seq: res.entry.seq, expect: mv.expect, verifiedSeq: null };
@@ -141,7 +149,7 @@ export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKind
       const p = await read(`dialog-${d.index}-select-${i + 1}`, { keep: 'on-change' });
       if (!sameDialog(r.text, p, kind, dialogKinds)) stop(`${who}: the screen left the dialog after selection key "${mv.key}" (herdr command #${res.entry.seq}), before Enter; nothing more sent`);
       // #197 review: exactly one marker, on the expected option, with the options on record.
-      const c = selectionCheck(p.screen, kind, mv.expect, prev, dialogKinds);
+      const c = selectionCheck(p.screen, kind, mv.expect, prev, dialogKinds, plan.verify ?? null);
       if (c.state === 'ok') {
         k.verifiedSeq = p.seq;
         last = p;

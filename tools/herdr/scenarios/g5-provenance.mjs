@@ -83,7 +83,7 @@ import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVers
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
-import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
+import { committedFile, classifyScreen, driverMayAcceptExpecting, mcpServerNames, DIALOG_KINDS, parseSections, midTurnWindow } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, INPUT_ROLES } from '../lib/gate-common.mjs';
 import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, loadCases, assertNoSpoof, fixtureNames, unverifiedNames, parseJsonl, g5ClaudeFacts, g5CodexFacts, threadIdleOnWire, UNPROMPTED_ANSWER_POLICY } from '../lib/g5.mjs';
@@ -216,7 +216,7 @@ export default {
     let serverDir = null;
     let clientDir = null;
 
-    const claude = makeAgent({ ctx, g: g5, name: 'g5claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept, accept, num, stop });
+    const claude = makeAgent({ ctx, g: g5, name: 'g5claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => mcpServerNames(g5.mcpJson)), accept, num, stop });
     const codex = makeAgent({ ctx, g: g5, name: 'g5codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex, accept, num, stop });
     const codexAgents = []; // C13 arms mode only: one Codex TUI per arm
 
