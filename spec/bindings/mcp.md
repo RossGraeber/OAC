@@ -1025,10 +1025,15 @@ ones:
       or stdio pipe), `stream` (one stream, such as an SSE stream) or `session` (the
       transport session, including dropping its session id).
 
-    Re-issuing a transport session id is not expressible as an entry: whether a new id
-    reveals anything depends on how the transport binds ids, which `oac-mcpb-fixture/1`
-    does not model. It stays
-    `TODO(fixture)` under [MCPB-TOOL-021], owned by E8 (#48).
+    Re-issuing a transport session id is expressed by the action that forces it. Over
+    Streamable HTTP at `2025-11-25`, a server assigns a session id only "at initialization
+    time, by including it in an `MCP-Session-Id` header on the HTTP response containing the
+    `InitializeResult`"; after it terminates a session it "MUST respond to requests
+    containing that session ID with HTTP 404 Not Found", and the client then "MUST start a
+    new session" (https://modelcontextprotocol.io/specification/2025-11-25/basic/transports,
+    "Session Management", retrieved 2026-10-03). A re-issue therefore starts with a server
+    `http` entry with `status` 404, or a `close` entry with `scope` `session`, in one case
+    and not the other (E8, #48).
 - `expected.result` is `conformant` or `nonconformant`: whether the server's messages and actions in
   `input` meet the requirement, given `request`, the client's entries in
   `subsequent_messages` and `context`. The server's messages and actions are `server_message` and,
@@ -1082,7 +1087,7 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-TOOL-018 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-018.p01-unknown-tool-protocol-error.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-018.n01-unknown-tool-invalid-request.json` |
 | MCPB-TOOL-019 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-019.p01-same-progress-sequence.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.p02-no-related-messages.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n01-revealing-log-notification.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-019.n02-revealing-progress-notification.json` |
 | MCPB-TOOL-020 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-020.p01-no-echo.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n01-to-echoed-in-text.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-020.n02-to-echoed-in-log.json` |
-| MCPB-TOOL-021 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-021.p01-later-call-unaffected.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p02-unbound-nothing-revealed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p03-handoff-from-hidden-sender.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n01-revealing-log-after-response.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n02-list-changed-for-existing-target.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n03-throttled-after-probe.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n04-close-when-target-exists.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n05-retry-after-on-later-call.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n06-unbound-log-names-session.json`; TODO(fixture), owner E8 (#48): re-issuing a transport session id only when a hidden session exists (negative) → nonconformant; not expressible in `oac-mcpb-fixture/1` (§12.2) |
+| MCPB-TOOL-021 | MUST NOT | `tests/protocol/mcpb-tool/MCPB-TOOL-021.p01-later-call-unaffected.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p02-unbound-nothing-revealed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.p03-handoff-from-hidden-sender.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n01-revealing-log-after-response.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n02-list-changed-for-existing-target.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n03-throttled-after-probe.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n04-close-when-target-exists.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n05-retry-after-on-later-call.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n06-unbound-log-names-session.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-021.n07-session-terminated-when-target-exists.json` (a transport session terminated, and so its id re-issued, only when a hidden session exists, §12.2) |
 | MCPB-META-001 | MUST | `tests/protocol/mcpb-meta/MCPB-META-001.p01-provenance-under-identifier.json`, `tests/protocol/mcpb-meta/MCPB-META-001.n01-provenance-under-other-key.json` |
 | MCPB-META-002 | MUST | `tests/protocol/mcpb-meta/MCPB-META-002.n01-provenance-not-object.json` |
 | MCPB-META-003 | MUST | `tests/protocol/mcpb-meta/MCPB-META-003.p01-mcp-defined-key-allowed.json`, `tests/protocol/mcpb-meta/MCPB-META-003.n01-unprefixed-key.json` |

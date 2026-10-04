@@ -8,7 +8,7 @@
 # Minimal on purpose: the full CI pipeline is a separate task (F12).
 # The fixture-manifest job (#142) is not a boundary check; it shares this file's triggers,
 # permissions and pinned checkout. It needs git and Node only, and no secrets. The same
-# holds for the agents-skills-sync job (#235).
+# holds for the agents-skills-sync job (#235) and the conformance job (#48).
 name: boundary-lint
 
 on:
@@ -132,6 +132,23 @@ jobs:
 
       - name: Fixture manifest check (MANIFEST.json matches committed fixtures)
         run: node scripts/check-fixture-manifest.mjs
+
+  # Not a boundary check either (E8, #48): the reference conformance runner evaluates every
+  # fixture under tests/protocol/ from the spec text and checks the requirement indexes
+  # against the fixtures. Node built-ins only; no harness, transport, network or secrets.
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Conformance runner self-test (published Ed25519 and JCS vectors)
+        run: node tests/protocol/runner/run.mjs --self-test
+
+      - name: Conformance fixtures and requirement indexes
+        run: node tests/protocol/runner/run.mjs
 
   # Not a boundary check either (#235): the Codex copy (.agents/skills/, AGENTS.md) must be
   # an unmodified mirror of .claude/skills/ and CLAUDE.md. Node only, no secrets.
