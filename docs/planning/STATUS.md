@@ -1378,7 +1378,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 |---|---|---|
 | Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.285` (2026-09-29T19:27:30Z UTC; L3, 2026-10-01). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied. §3.1 facts re-checked at `2.1.285` on 2026-10-02 (#122, REVERIFICATION-B2.md) | PINS.md — Claude Code Channels ("Version policy") |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
-| Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.159.3`, commit `01fc69f4026735edfdf6789820549727a4867b11` (2026-09-30T22:57:34Z UTC; L3, 2026-10-01). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
+| Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc` (2026-10-01T20:19:13Z UTC; G4 herdr run, 2026-10-04). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
 | ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
@@ -2121,6 +2121,19 @@ without an UNVERIFIED label.
   G5's Codex verdict under its one-off exception, and G5 is now PASS. The G4 scenario has
   still not run live, and neither G5 record is a G5 equivalence record, so the rest of this
   item stands for G4 and for any later G5 run.
+  *Dated note, 2026-10-04 (#131):* the G4 scenario has now run live. Run
+  `20261004T093525Z` (PASS, driver `b478f2a`, Claude Code 2.1.285, Codex 0.160.0) is recorded at
+  `gates/herdr-runs/G4-2026-10-04.md` with three `-herdr` fixtures, and it is the
+  equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
+  Harness VERIFIED. Closed for G4 by that run: the G4 dialog texts and the in-progress
+  indicator match. Partly closed: whether the per-invocation `-c mcp_servers.<name>.url=...`
+  override works for an HTTP MCP server on Codex 0.160.0. Exactly one Codex HTTP session
+  connected, from a Codex launched with the `-c` override, and the Codex user config was
+  unchanged through the run. Still open on it: that the user config holds no other entry at
+  the run's port is UNVERIFIED from committed evidence. It rests on an uncommitted read-only
+  `codex mcp list`. Criterion 5 holds on both halves:
+  non-delivery, and the "g4modern ... unavailable" notice. Still open: the reconstruction
+  caveat (the server is not the original). G4's verdict is unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
   operator signs in and accepts consent dialogs (#187).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
