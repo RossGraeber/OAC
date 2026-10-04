@@ -6,7 +6,9 @@
 //   sentence uses;
 // - every fixture an index row names exists, as exactly one file;
 // - every fixture file is named by at least one index row;
-// - every fixture's `requirement` is an id its `spec` document defines.
+// - every fixture's `requirement` is an id its `spec` document defines;
+// - spec/interfaces.md Appendix C gives every MUST and MUST NOT of the four documents exactly
+//   one owner (checkOwners, below).
 
 const DOCS = [
   { prefix: 'SC', path: 'spec/session-channels.md', heading: '## Appendix A. Requirement index' },
@@ -127,11 +129,53 @@ export function checkIndexes(read, fixtures) {
     }
     for (const id of defs.keys()) if (!rowIds.has(id)) problems.push(`${doc.path}: ${id} is defined but has no index row`);
   }
+  problems.push(...checkOwners(read));
   for (const f of fixtures) {
     const key = `${f.dir}/${f.file}`;
     if (!referenced.has(key)) problems.push(`tests/protocol/${key}: named by no index row`);
     const id = f.fixture && f.fixture.requirement;
     if (id && defined.get(id) !== f.fixture.spec) problems.push(`tests/protocol/${key}: requirement ${id} is not defined in ${f.fixture.spec}`);
   }
+  return problems;
+}
+
+// spec/interfaces.md Appendix C (§3.3 there): every MUST and MUST NOT requirement of the four
+// documents has exactly one owner. Rows: `| <DOC>-<AREA> | <owner> | NNN, NNN, ... |`.
+const OWNERS = ['adapter', 'core', 'transport', 'binding'];
+const OWNER_DOC = 'spec/interfaces.md';
+const OWNER_HEADING = '## Appendix C. Owner index';
+
+export function ownerRows(text) {
+  const start = text.indexOf(OWNER_HEADING);
+  if (start < 0) throw new Error(`owner index heading not found: ${OWNER_HEADING}`);
+  const base = text.slice(0, start).split('\n').length;
+  const rows = [];
+  const lines = text.slice(start).split('\n');
+  for (let k = 1; k < lines.length; k++) {
+    if (/^#{1,3} /.test(lines[k])) break;
+    const m = /^\| ([A-Z]+-[A-Z]+) \| ([a-z]+) \| ([0-9, ]+) \|\s*$/.exec(lines[k]);
+    if (m) rows.push({ owner: m[2], ids: m[3].split(',').map((s) => `${m[1]}-${s.trim()}`), line: base + k });
+  }
+  return rows;
+}
+
+// Returns a list of problem strings: an owner outside OWNERS, a listed id that is not a MUST or
+// MUST NOT of some document, an id listed twice, and a MUST or MUST NOT listed nowhere.
+export function checkOwners(read) {
+  const problems = [];
+  const must = new Map(); // id -> doc path
+  for (const doc of DOCS) {
+    for (const [id, d] of definitions(read(doc.path), doc.prefix)) if (d.level === 'MUST' || d.level === 'MUST NOT') must.set(id, doc.path);
+  }
+  const seen = new Map();
+  for (const row of ownerRows(read(OWNER_DOC))) {
+    if (!OWNERS.includes(row.owner)) problems.push(`${OWNER_DOC}:${row.line}: owner ${row.owner} is not one of ${OWNERS.join(', ')}`);
+    for (const id of row.ids) {
+      if (!must.has(id)) problems.push(`${OWNER_DOC}:${row.line}: ${id} is not a MUST or MUST NOT requirement of any document`);
+      if (seen.has(id)) problems.push(`${OWNER_DOC}:${row.line}: ${id} has a second owner (first at line ${seen.get(id)})`);
+      else seen.set(id, row.line);
+    }
+  }
+  for (const [id, path] of must) if (!seen.has(id)) problems.push(`${OWNER_DOC}: ${id} (${path}) has no owner in Appendix C`);
   return problems;
 }

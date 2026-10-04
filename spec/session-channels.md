@@ -1287,9 +1287,9 @@ This section defines how a receiver delivers to a live session, how an implement
 announces and withdraws a session's presence, and how a sender learns which sessions exist
 and what they accept. It defines the content and meaning of a presence record (§7.2.2) and
 of a discovery result (§7.3). It does not define how either is framed or carried: the
-transport contract carries presence records (DESIGN "Transport contract",
-`announce_presence` and `watch_presence`; `spec/interfaces.md` §6.5 and §6.6), and a
-transport binding maps them onto one transport. `spec/security.md` (E5, #45) authenticates
+transport contract carries presence records (DESIGN "Transport contract";
+`spec/interfaces.md` §6.5 and §6.6, `send_presence` and `watch_presence`), and a transport
+binding maps them onto one transport. `spec/security.md` (E5, #45) authenticates
 them.
 
 ### 7.1 The active-inbound obligation and the no-polling rule

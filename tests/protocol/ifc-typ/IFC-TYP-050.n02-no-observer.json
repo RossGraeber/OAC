@@ -4,15 +4,16 @@
   "spec": "spec/interfaces.md",
   "spec_revision": "0.1",
   "kind": "negative",
-  "failure_mode": "receipt in the M0 draft shape",
-  "description": "The M0 draft shape: state, envelope_id and error only. It lacks envelope_from, observer and observed_at, and is discarded.",
+  "failure_mode": "missing observer",
+  "description": "The receipt of IFC-TYP-050.p01 with only observer removed. It is discarded.",
   "stage": "receipt",
   "context": {},
   "input": {
     "receipt": {
-      "state": "rejected",
       "envelope_id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
-      "error": "unauthorized"
+      "envelope_from": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "state": "handed-to-harness",
+      "observed_at": "2026-10-03T12:00:01.250Z"
     }
   },
   "expected": {
