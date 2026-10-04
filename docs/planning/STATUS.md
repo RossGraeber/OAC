@@ -11,8 +11,9 @@ session descriptor, the capability declaration (`active_inbound`, `content_types
 `max_envelope_octets`), version negotiation and unsupported-capability rules, C4's
 binding, re-binding and stale-binding cases (#236) in neutral terms, send-request
 attribution (the #46 operator decision, neutral), and identity-versus-presence rules.
-Appendix A gains 75 `SC-ID` ids; 63 fixtures land under `tests/protocol/sc-id/`. No gate
-verdict, pin or ADR text changes. No UNVERIFIED item opens or closes: §6 cites the existing
+Appendix A gains 84 `SC-ID` ids; 68 fixtures land under `tests/protocol/sc-id/`. Operator
+decisions on #42: no send without a capability declaration (SC-ID-086), and
+`active_inbound: false` means send-only. No gate verdict, pin or ADR text changes. No UNVERIFIED item opens or closes: §6 cites the existing
 C4 pairing-mechanism item.)
 
 **Last updated:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning

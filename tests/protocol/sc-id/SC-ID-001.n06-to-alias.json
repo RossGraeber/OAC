@@ -1,10 +1,10 @@
 {
   "fixture_format": "oac-conformance-fixture/1",
-  "requirement": "SC-ID-022",
+  "requirement": "SC-ID-001",
   "spec": "spec/session-channels.md",
   "spec_revision": "0.1",
   "kind": "negative",
-  "failure_mode": "alias on the wire",
+  "failure_mode": "alias in place of a session id",
   "description": "`to` holds a human alias. It is an identifier token but not a session id.",
   "stage": "envelope",
   "context": {

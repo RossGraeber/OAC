@@ -1,0 +1,36 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-143",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "case-folded comparison",
+  "description": "The signal carries `NATIVE-X`; B's cross-check value is `native-x`. Exact comparison finds them different.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-x"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "NATIVE-X",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "B"
+    }
+  },
+  "expected": {
+    "result": "failed-closed",
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-x"
+      }
+    ],
+    "record": "finding"
+  }
+}

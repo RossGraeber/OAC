@@ -1,0 +1,38 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-142",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "D has no cross-check value; the transition signal's own cross-check value differs from N. D binds with a diagnostic.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "D"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-q",
+      "start_kind": "transition",
+      "pairing": "paired",
+      "attachment": "D",
+      "cross_check": "native-p"
+    }
+  },
+  "expected": {
+    "result": "bound",
+    "attachments": [
+      {
+        "attachment": "D",
+        "binding": {
+          "native_id": "native-q",
+          "session_id": "new"
+        }
+      }
+    ],
+    "record": "diagnostic"
+  }
+}
