@@ -921,8 +921,9 @@ override fields are sent.
 - **Observed live once.** In the C13 E1 run of 2026-10-02 (Codex `0.160.0`, run
   `20261002T161612Z`), arm 0's first X2 delivery sent `turn/start`, got back the id of the
   marker turn that was still `inProgress` (`01a0fd67-566a-7173-a60e-2fc073ce3896`), and its
-  input joined that turn (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, "Findings
-  and UNVERIFIED"; `transcript-codex-2026-10-02-0.160.0-herdr.jsonl` L58, L66).
+  input joined that turn (the run record that `docs/planning/gates/G5-result.md` cites for
+  the Codex leg, "Findings and UNVERIFIED", transcript L58 and L66; the #224 operator
+  decision comment).
 - **A steering `turn/start` still applies its setting overrides to the thread (C3).**
   `approvalPolicy`, `sandboxPolicy`, `permissions`, `model`, `cwd` and the other overrides are
   built for every `turn/start` (`turn_processor.rs#L630-L649`) and, after a steer, applied to
