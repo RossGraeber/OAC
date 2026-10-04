@@ -9,11 +9,13 @@
 // continue (a dialog is up) and never stands in for evidence.
 //
 // One Codex dialog is accepted by the driver: the workspace-trust dialog seen live on 0.159.2
-// (#199), under the #197 rules. Two more Codex startup screens are on record (#204, seen live
+// (#199), under the #197 rules. A second, Codex's MCP tool-approval prompt (seen live on 0.160.0,
+// #271), is answered "1. Allow" only for the G4 scenario's own server and tools
+// (planCodexToolApproval); every other scenario refuses it. Two more Codex startup screens are on record (#204, seen live
 // on 0.159.2) and are NEVER answered by the driver: the startup hook review and the hooks
 // browser it opens. The in-progress indicator ("esc to interrupt") was also seen live in the
 // #204 runs. Every other Codex pane-text pattern below is UNVERIFIED against a live Codex
-// TUI, a best guess; no other Codex dialog, recognized or not, is ever accepted by the driver.
+// TUI, a best guess; no other Codex dialog, recognized or not, is ever answered by the driver.
 //
 // Credential hygiene: nothing here opens anything under the Codex home directory. The only
 // process data read is a pid's argv, from the run's process-table snapshot (lib/proc.mjs),
@@ -214,6 +216,19 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
       "Codex's startup hook review is on screen (a hook in the Codex hooks config is new or changed, so untrusted); Codex starts no session until it is answered (codex-rs/tui/src/startup_hooks_review.rs@rust-v0.159.2). The driver never answers it: review and trust the hook(s) yourself first (in a Codex session of your own: `/hooks`, or this screen), then re-run; or run with accept=human and answer it during the run",
     verified: 'herdr scratch runs 2026-09-30 (#204), Codex CLI / app-server 0.159.2 on Windows; "1. Review hooks" preselected',
   },
+  'mcp-tool-approval': {
+    // #271 (operator decision 2026-10-04, a narrow exception to #197): Codex's MCP tool-approval
+    // prompt, recorded as CODEX_TOOL_APPROVAL below. Detected by its form header ("Field 1/1")
+    // so that a reworded question is still recognized, and refused with a precise reason. It is
+    // NEVER planned by planDriverAccept (no `options`): driverMayAcceptCodex routes it to
+    // planCodexToolApproval, which refuses it unless the scenario names the MCP server and
+    // tools it registered itself (only g4-mcp-dual-era does), and then answers only "1. Allow".
+    detect: /^[ \t]*Field \d+\/\d+[ \t]*\r?$/m,
+    acceptOption: /^Allow(?:\s{2,}|$)/,
+    options: null,
+    footer: /^[ \t]*enter to submit \| esc to cancel[ \t]*\r?$/m,
+    verified: 'herdr G4 run 2026-10-04 (20261004T050646Z), Codex CLI 0.160.0 on Windows, Codex pane section seq 58; "1. Allow" preselected (#271)',
+  },
   'hooks-browser': {
     // Seen live (#204): what "1. Review hooks" (or Enter typed into the review) opens, with the
     // chat composer behind it. While it is open the TUI holds any startup submission
@@ -332,14 +347,183 @@ export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' }
   }
   if (!dialog && GENERIC_DIALOG.test(s)) dialog = 'unknown';
   const busy = busyIndicator ? s.toLowerCase().includes(busyIndicator.toLowerCase()) : false;
+  // #271: the MCP tool-approval form is read with its own parser.
+  if (dialog === 'mcp-tool-approval') return { dialog, variant: 'tool-approval', form: codexToolApprovalForm(s), selected: selectedOption(s), options: null, busy };
   return { dialog, selected: dialog ? selectedOption(s) : null, options: dialog ? dialogOptions(s, dialog, CODEX_DIALOG_KINDS) : null, busy };
 }
 
-// The driver accepts only the Codex trust dialog on record (#199), under the same rules as
-// Claude Code's (planDriverAccept): exactly its options, numbered and in order, one `›`
-// selection, on option 1. Every other Codex dialog is refused: NOT RUN, no key sent.
-export function driverMayAcceptCodex(classification) {
+// The driver accepts the Codex trust dialog on record (#199), under the same rules as Claude
+// Code's (planDriverAccept): exactly its options, numbered and in order, one `›` selection, on
+// option 1. #271: Codex's MCP tool-approval prompt is planned by planCodexToolApproval, and only
+// when the scenario passes `toolApproval` (the server and tools it registered itself; only
+// g4-mcp-dual-era does). Every other Codex dialog is refused: NOT RUN, no key sent.
+export function driverMayAcceptCodex(classification, { toolApproval = null } = {}) {
+  if (classification?.dialog === 'mcp-tool-approval') return planCodexToolApproval(classification, toolApproval);
   return planDriverAccept(classification, CODEX_DIALOG_KINDS);
+}
+// A driverMayAcceptCodex bound to a scenario's own tool-approval expectation, read when a
+// dialog is planned. getExpected() -> { server, tools, arguments } | null.
+export const driverMayAcceptCodexExpecting = (getExpected) => (classification) => driverMayAcceptCodex(classification, { toolApproval: getExpected() ?? null });
+
+// --- #271: Codex's MCP tool-approval prompt ----------------------------------------------------
+//
+// Operator decision on #271 (2026-10-04), a narrow exception to #197: the driver MAY answer this
+// prompt, only in the G4 scenario, only for the MCP server and tools that scenario registered
+// itself (from its committed config, lib/g4.mjs g4CodexToolApproval; never from the pane), and
+// only with "1. Allow" (this call only). Recorded verbatim from the live G4 herdr run
+// 20261004T050646Z (Codex CLI 0.160.0, Windows; Codex pane capture, section seq 58):
+//
+//       Field 1/1
+//       Allow the g4http MCP server to run tool "g4_echo"?
+//
+//       text: hello from codex through herdr
+//
+//       › 1. Allow                   Run the tool and continue
+//         2. Allow for this session  Run the tool and remember this choice for this session
+//         3. Always allow            Run the tool and remember this choice for future tool calls
+//         4. Cancel                  Cancel this tool call
+//       enter to submit | esc to cancel
+//
+// Source (the Codex repository at tag rust-v0.160.0, commit 79b1b666f2e8551f8abbbca34957227f67f3f553, read
+// 2026-10-04): the question is `Allow {actor} to run tool "{tool_name}"?` with actor `the
+// {server} MCP server` (codex-rs/core/src/mcp_tool_call.rs build_mcp_tool_approval_fallback_message);
+// the TUI labels come from codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs. "Allow" is an
+// elicitation Accept without a persist mode, which parse_mcp_tool_approval_elicitation_response
+// maps to ReviewDecision::Approved, and apply_mcp_tool_approval_decision does nothing for
+// Approved: nothing is remembered for the session and nothing is written to config. "Allow for
+// this session" remembers the approval for the session; "Always allow" persists it
+// (maybe_persist_mcp_tool_approval). The driver never selects either. That no persistent
+// approval was written is also checked per run: run.mjs requires the harness-config hashes
+// unchanged after any driver Allow (ctx.requireHarnessConfigUnchanged).
+//
+// The lines between the question and the options are the tool's arguments as Codex displays
+// them (`<name>: <value>`, one line each); each name must be one of the tool's declared inputs.
+export const CODEX_TOOL_APPROVAL = Object.freeze({
+  field: 'Field 1/1',
+  question: /^Allow the ([A-Za-z0-9_-]+) MCP server to run tool "([A-Za-z0-9_-]+)"\?$/,
+  argument: /^([A-Za-z_][A-Za-z0-9_]*): (\S.*)$/,
+  options: Object.freeze([
+    Object.freeze(['Allow', 'Run the tool and continue']),
+    Object.freeze(['Allow for this session', 'Run the tool and remember this choice for this session']),
+    Object.freeze(['Always allow', 'Run the tool and remember this choice for future tool calls']),
+    Object.freeze(['Cancel', 'Cancel this tool call']),
+  ]),
+  marker: '›',
+  preselected: 0,
+  accept: 0,
+  answer: '1. Allow',
+  verified: CODEX_DIALOG_KINDS['mcp-tool-approval'].verified,
+});
+
+const TA_FIELD = /^[ \t]*Field \d+\/\d+[ \t]*$/;
+const TA_FOOTER = /^[ \t]*enter to submit \| esc to cancel[ \t]*$/;
+const TA_OPTION = /^\s*([❯›▶▸→>*])?\s*(\d+)\.\s+(\S.*?)\s*$/;
+const TA_ANY_MARK = /^\s*[❯›▶▸→]/;
+
+// The tool-approval form as the pane shows it, or null when no form header is on screen.
+// -> { field, question, server, tool, arguments: [{ name, value }], options: [{ number, label,
+// description, selected, mark }], marked, footer, unknown } where `unknown` lists every line
+// from the header to the footer that is not of the recorded shape (and '(…)' notes). Lines
+// above the header are the session transcript (the operator's prompt, "• Calling …") and are
+// not part of the form; a selection marker below the footer counts.
+export function codexToolApprovalForm(text, v = CODEX_TOOL_APPROVAL) {
+  const lines = String(text ?? '').replace(/\r/g, '').split('\n');
+  const at = lines.findIndex((l) => TA_FIELD.test(l));
+  if (at === -1) return null;
+  const form = { field: lines[at].trim(), question: null, server: null, tool: null, arguments: [], options: [], marked: 0, footer: false, unknown: [] };
+  if (lines.filter((l) => TA_FIELD.test(l)).length !== 1) form.unknown.push('(more than one form header on screen)');
+  if (form.field !== v.field) form.unknown.push(`(form header ${JSON.stringify(form.field)} off record)`);
+  const foot = lines.findIndex((l, i) => i > at && TA_FOOTER.test(l));
+  form.footer = foot !== -1;
+  if (!form.footer) form.unknown.push('(recorded footer not on screen)');
+  const region = lines.slice(at + 1, form.footer ? foot : lines.length);
+  let i = 0;
+  while (i < region.length && !region[i].trim()) i += 1;
+  if (i < region.length) {
+    form.question = region[i].trim();
+    const m = v.question.exec(form.question);
+    if (m) [form.server, form.tool] = [m[1], m[2]];
+    else form.unknown.push('(question text off record)');
+    i += 1;
+  } else form.unknown.push('(no question on screen)');
+  for (; i < region.length && !TA_OPTION.test(region[i]); i += 1) {
+    const t = region[i].trim();
+    if (!t) continue;
+    const a = v.argument.exec(t);
+    if (a) form.arguments.push({ name: a[1], value: a[2] });
+    else form.unknown.push(t);
+  }
+  for (; i < region.length; i += 1) {
+    if (!region[i].trim()) continue;
+    const o = TA_OPTION.exec(region[i]);
+    if (!o) {
+      form.unknown.push(region[i].trim());
+      continue;
+    }
+    const [, mark, num, rest] = o;
+    // `>` and `*` count as selection markers only before a number, as in lib/g1.mjs.
+    const [label, ...desc] = rest.split(/\s{2,}/);
+    form.options.push({ number: Number(num), label, description: desc.join('  ') || null, selected: !!mark, mark: mark ?? null });
+    if (mark) form.marked += 1;
+  }
+  if (form.footer) for (const l of lines.slice(foot + 1)) if (TA_ANY_MARK.test(l)) form.marked += 1;
+  return form;
+}
+
+// The shape of a form's options compared with the record: null, or why not.
+function taOptionsOffRecord(f, v) {
+  const shown = f.options.map((o) => [o.label, o.description]);
+  if (JSON.stringify(shown) !== JSON.stringify(v.options)) return `the options on screen ${JSON.stringify(f.options.map((o) => `${o.number}. ${o.label}`))} are not the ones on record ${JSON.stringify(v.options.map(([l], n) => `${n + 1}. ${l}`))}`;
+  if (f.options.some((o, n) => o.number !== n + 1)) return `the options are numbered ${JSON.stringify(f.options.map((o) => o.number))}, not 1-${v.options.length} as on record`;
+  return null;
+}
+
+// How may the DRIVER answer the tool-approval prompt? Same result shape as planDriverAccept,
+// plus `toolApproval` (what the prompt asked and what the scenario expected; recorded on the
+// dialog, refused or not), `answer`, and `confirm` (the check a fresh read must pass before
+// Enter). expected: { server, tools: string[], arguments: { <tool>: string[] } } from the
+// scenario's own committed config, or null (every scenario but G4): refused.
+export function planCodexToolApproval(classification, expected, v = CODEX_TOOL_APPROVAL) {
+  const f = classification?.form ?? null;
+  const exp = expected && typeof expected.server === 'string' && Array.isArray(expected.tools) && expected.tools.length ? { server: expected.server, tools: [...expected.tools], arguments: expected.arguments ?? null } : null;
+  const toolApproval = { field: f?.field ?? null, question: f?.question ?? null, server: f?.server ?? null, tool: f?.tool ?? null, arguments: f?.arguments ?? [], expected: exp, answer: null };
+  const no = (why) => ({ ok: false, why: `Codex's MCP tool-approval prompt: ${why}; the driver does not answer it (#197 stands; #271 lets only the G4 scenario allow its own registered server's tools)`, moves: [], keys: [], toolApproval });
+  if (!f) return no('no form read');
+  if (!exp) return no('this scenario registered no MCP server and tools the driver may allow');
+  if (f.unknown.length) return no(`text off record on screen (${JSON.stringify(f.unknown)})`);
+  if (f.server !== exp.server) return no(`the server ${JSON.stringify(f.server)} is not the one this scenario registered (${JSON.stringify(exp.server)})`);
+  if (!exp.tools.includes(f.tool)) return no(`the tool ${JSON.stringify(f.tool)} is not one this scenario registered (${JSON.stringify(exp.tools)})`);
+  const declared = exp.arguments?.[f.tool];
+  const names = f.arguments.map((a) => a.name);
+  if (!Array.isArray(declared)) return no(`no declared inputs recorded for ${JSON.stringify(f.tool)}`);
+  if (names.some((n) => !declared.includes(n)) || new Set(names).size !== names.length) return no(`the arguments shown ${JSON.stringify(names)} are not the tool's declared inputs ${JSON.stringify(declared)}, each at most once`);
+  const off = taOptionsOffRecord(f, v);
+  if (off) return no(off);
+  if (f.marked !== 1) return no(`${f.marked} selection markers on screen, not exactly one`);
+  const sel = f.options.findIndex((o) => o.selected);
+  if (sel === -1) return no('no option is shown selected (the one marker is outside the options)');
+  if (f.options[sel].mark !== v.marker) return no(`the selection marker is ${JSON.stringify(f.options[sel].mark)}, not the ${JSON.stringify(v.marker)} on record`);
+  if (sel !== v.accept) return no(`the selected option is "${sel + 1}. ${f.options[sel].label}", not "${v.answer}"; the driver never moves the selection here and never answers "Allow for this session" or "Always allow"`);
+  const verify = { field: f.field, question: f.question, server: f.server, tool: f.tool, arguments: f.arguments };
+  return { ok: true, why: null, moves: [], keys: ['enter'], answer: v.answer, toolApproval, confirm: (screen) => codexToolApprovalCheck(screen, verify, v) };
+}
+
+// The fresh read before Enter (#271, as for the Claude multi-select form): the same prompt
+// (header, question, server, tool, arguments), the options on record, exactly one marker, the
+// recorded `›`, on "1. Allow". -> { state: 'ok' } | { state: 'wait', why } | { state: 'stop', why }.
+export function codexToolApprovalCheck(screen, verify, v = CODEX_TOOL_APPROVAL) {
+  const f = screen?.variant === 'tool-approval' ? screen.form : null;
+  if (!f) return { state: 'wait', why: 'no tool-approval form read' };
+  if (f.unknown.length) return { state: 'wait', why: `text off record on screen (${JSON.stringify(f.unknown)})` };
+  if (f.field !== verify.field || f.question !== verify.question || f.server !== verify.server || f.tool !== verify.tool || JSON.stringify(f.arguments) !== JSON.stringify(verify.arguments)) return { state: 'stop', why: `the prompt on screen (${JSON.stringify(f.question)}, ${JSON.stringify(f.arguments)}) is not the one planned from` };
+  const off = taOptionsOffRecord(f, v);
+  if (off) return { state: 'stop', why: off };
+  if (f.marked !== 1) return { state: 'wait', why: `${f.marked} selection markers on screen, not exactly one` };
+  const sel = f.options.findIndex((o) => o.selected);
+  if (sel === -1) return { state: 'stop', why: 'no option is shown selected' };
+  if (f.options[sel].mark !== v.marker) return { state: 'stop', why: `the selection marker is ${JSON.stringify(f.options[sel].mark)}, not ${JSON.stringify(v.marker)}` };
+  if (sel !== v.accept) return { state: 'stop', why: `the selection is "${sel + 1}. ${f.options[sel].label}", not "${v.answer}"` };
+  return { state: 'ok' };
 }
 export { normalizeDialogText };
 

@@ -25,13 +25,14 @@ import { createInterface } from 'node:readline';
 import {
   BASELINE_TRANSCRIPT, FIXTURE_DIR, G4_LAUNCH, OAC_EXT, OAC_EXT_PLACEHOLDER, G4_CRITERIA_SHA256, G4_REFERENCE, DEFAULT_PROMPTS,
   readG4Criteria, validateCodexLaunch, codexLaunchParamProblem, validatePaneEnv, defaultCodexLaunch, assertNotInjected, fixtureNames, unverifiedNames, parseG4Transcript, g4Facts,
-  modernRequests, roles, sanitizeG4Transcript, sanitizeG4Text, placeholderIntegrity, HUMAN_RUN_PORTS, DEFAULT_PORTS, codexSessions,
+  modernRequests, roles, sanitizeG4Transcript, sanitizeG4Text, placeholderIntegrity, HUMAN_RUN_PORTS, DEFAULT_PORTS, codexSessions, G4_CODEX_SERVER, G4_CODEX_TOOLS, g4CodexToolApproval,
 } from '../lib/g4.mjs';
 import { CriteriaDriftError, parseCriteriaSection, driverAcceptDialog } from '../lib/gate-common.mjs';
 import { SCORES, ReportError, evaluateG4, parseG4OperatorScores, wireEvidence, writeRefusal, fixtureWithheld, renderReport, draftManifestEntries, versionMatchesLastTested } from '../lib/g4-report.mjs';
 import { createRedactor } from '../lib/redact.mjs';
-import { paneArgv, splitCommandLine } from '../lib/g2.mjs';
-import { classifyScreen, driverMayAccept, selectionCheck, sameDialog, DIALOG_KINDS } from '../lib/g1.mjs';
+import { paneArgv, splitCommandLine, classifyCodexScreen, driverMayAcceptCodex, codexToolApprovalCheck, CODEX_DIALOG_KINDS } from '../lib/g2.mjs';
+import { describeDialogs } from '../lib/gate-report-common.mjs';
+import { classifyScreen, driverMayAccept, planDriverAccept, selectionCheck, sameDialog, DIALOG_KINDS } from '../lib/g1.mjs';
 import { processTable, spawnLongRunning } from '../lib/proc.mjs';
 import { parseClaudeVersions, parseCodexVersions } from '../lib/pins.mjs';
 
@@ -289,6 +290,101 @@ const MS_LIVE = [
 ].join('\n');
 const MS_EXPECTED = ['g4spike', 'g4modern', 'g4http'];
 
+// #271: Codex's MCP tool-approval prompt, verbatim from the live G4 herdr run 20261004T050646Z
+// (Codex CLI 0.160.0, Windows; Codex pane capture, section seq 58), from the operator's prompt
+// (a `›` line above the form, which is not part of it) to the footer.
+const TA_LIVE = [
+  '› Call the g4_echo tool with the text "hello from codex through herdr" and print its result. Then call the',
+  '  g4_relay_to_claude tool with the text "codex relay during modern session" and print its result.',
+  '',
+  '',
+  '• Hook failed',
+  '  └ hook exited with code 1',
+  '',
+  '• I’ll locate the two tools and call them in the requested order, printing each result.',
+  '',
+  '• Calling g4http.g4_echo',
+  '    + Show details',
+  '',
+  '',
+  '  Field 1/1',
+  '  Allow the g4http MCP server to run tool "g4_echo"?',
+  '',
+  '  text: hello from codex through herdr',
+  '',
+  '  › 1. Allow                   Run the tool and continue',
+  '    2. Allow for this session  Run the tool and remember this choice for this session',
+  '    3. Always allow            Run the tool and remember this choice for future tool calls',
+  '    4. Cancel                  Cancel this tool call',
+  '  enter to submit | esc to cancel',
+].join('\n');
+const taSelect = (n) => TA_LIVE.replace('  › 1. Allow', '    1. Allow').replace(new RegExp(`^    ${n}\\. `, 'm'), `  › ${n}. `);
+
+async function toolApprovalUnit(check) {
+  const G4_EXP = g4CodexToolApproval(validateCodexLaunch(defaultCodexLaunch(17458)));
+  // The expectation is the scenario's own committed config: the server its launch registers and
+  // the tools (with declared inputs) the committed reconstructed server offers.
+  const srcTools = [...read(SERVER).matchAll(/name: '(g4_[a-z_]+)',\s*\n\s*description: [^\n]*\n\s*inputSchema: \{ type: 'object', properties: \{ ([a-z_]+): /g)].map((m) => [m[1], m[2]]);
+  check('g4 #271: the allowed tools and their declared inputs are exactly the committed g4-server.mjs TOOLS', JSON.stringify(Object.entries(G4_CODEX_TOOLS).map(([t, a]) => [t, ...a])) === JSON.stringify(srcTools) && srcTools.length === 2, JSON.stringify(srcTools));
+  check('g4 #271: the expectation is g4http (the default launch\'s registration) with both tools', G4_EXP?.server === G4_CODEX_SERVER && G4_CODEX_SERVER === 'g4http' && defaultCodexLaunch(1)[2].startsWith(`mcp_servers.${G4_CODEX_SERVER}.url=`) && JSON.stringify(G4_EXP.tools) === '["g4_echo","g4_relay_to_claude"]', JSON.stringify(G4_EXP));
+  check('g4 #271: no expectation when the launch does not register g4http (or was refused)', g4CodexToolApproval(validateCodexLaunch(['codex', '-c', 'mcp_servers.other.url="http://127.0.0.1:1/mcp"'])) === null && g4CodexToolApproval({ ok: false, overrides: [] }) === null && g4CodexToolApproval(null) === null);
+
+  const live = classifyCodexScreen(TA_LIVE);
+  check('g4 #271: the live prompt is the mcp-tool-approval kind, every line accounted for; the operator\'s `›` prompt line above it is not a marker', live.dialog === 'mcp-tool-approval' && live.variant === 'tool-approval' && live.form.unknown.length === 0 && live.form.server === 'g4http' && live.form.tool === 'g4_echo' && live.form.marked === 1 && JSON.stringify(live.form.arguments) === '[{"name":"text","value":"hello from codex through herdr"}]', JSON.stringify(live.form));
+  const plan = driverMayAcceptCodex(live, { toolApproval: G4_EXP });
+  check('g4 #271: exact match (G4\'s server and tool, recorded text, "1. Allow" preselected): Enter alone, answer "1. Allow", confirmed by a fresh read', plan.ok && JSON.stringify(plan.keys) === '["enter"]' && plan.moves.length === 0 && plan.answer === '1. Allow' && typeof plan.confirm === 'function' && plan.confirm(live).state === 'ok' && plan.toolApproval.server === 'g4http' && plan.toolApproval.tool === 'g4_echo', JSON.stringify(plan));
+  const relay = classifyCodexScreen(TA_LIVE.replace('run tool "g4_echo"', 'run tool "g4_relay_to_claude"').replace('text: hello from codex through herdr', 'text: codex relay during modern session'));
+  check('g4 #271: the second registered tool (g4_relay_to_claude) is allowed the same way', driverMayAcceptCodex(relay, { toolApproval: G4_EXP }).ok);
+  const refused = (name, cls, re, exp = G4_EXP) => {
+    const p = driverMayAcceptCodex(cls, { toolApproval: exp });
+    check(`g4 #271: ${name}: refused, no key`, !p.ok && p.keys.length === 0 && re.test(p.why) && /#197 stands/.test(p.why), p.why);
+  };
+  refused('another server', classifyCodexScreen(TA_LIVE.replace('the g4http MCP', 'the g4other MCP')), /server "g4other" is not the one this scenario registered \("g4http"\)/);
+  refused('another tool', classifyCodexScreen(TA_LIVE.replace('tool "g4_echo"', 'tool "g4_shell"')), /tool "g4_shell" is not one this scenario registered/);
+  refused('"Allow for this session" highlighted', classifyCodexScreen(taSelect(2)), /selected option is "2\. Allow for this session", not "1\. Allow"/);
+  refused('"Always allow" highlighted', classifyCodexScreen(taSelect(3)), /selected option is "3\. Always allow", not "1\. Allow"/);
+  refused('"Cancel" highlighted', classifyCodexScreen(taSelect(4)), /selected option is "4\. Cancel"/);
+  refused('altered question wording', classifyCodexScreen(TA_LIVE.replace('MCP server to run tool', 'MCP server to execute tool')), /question text off record/);
+  refused('an altered option description', classifyCodexScreen(TA_LIVE.replace('Run the tool and continue', 'Run the tool and all future ones')), /not the ones on record/);
+  refused('a missing option', classifyCodexScreen(TA_LIVE.replace('    2. Allow for this session  Run the tool and remember this choice for this session\n', '').replace('3. Always', '2. Always').replace('4. Cancel', '3. Cancel')), /not the ones on record/);
+  refused('a different footer', classifyCodexScreen(TA_LIVE.replace('enter to submit | esc to cancel', 'enter to submit | esc to go back')), /recorded footer not on screen/);
+  refused('a different form header', classifyCodexScreen(TA_LIVE.replace('Field 1/1', 'Field 1/2')), /form header \\"Field 1\/2\\" off record/);
+  refused('an argument the tool does not declare', classifyCodexScreen(TA_LIVE.replace('  text: hello', '  command: hello')), /not the tool's declared inputs/);
+  refused('two selection markers', classifyCodexScreen(TA_LIVE.replace('    3. Always allow', '  › 3. Always allow')), /2 selection markers/);
+  refused('a marker other than ›', classifyCodexScreen(TA_LIVE.replace('  › 1. Allow', '  ❯ 1. Allow')), /selection marker is "❯"/);
+  // #197 stands everywhere else: a scenario that names no expectation (every scenario but G4)
+  // refuses even the exact recorded prompt, as does the generic planner.
+  refused('a non-G4 scenario (no expectation)', live, /registered no MCP server and tools/, null);
+  check('g4 #271: driverMayAcceptCodex with no options (G2, G5, L3) refuses the exact live prompt; planDriverAccept refuses its kind (not on record there)', !driverMayAcceptCodex(live).ok && !planDriverAccept(live, CODEX_DIALOG_KINDS).ok && /not on record/.test(planDriverAccept(live, CODEX_DIALOG_KINDS).why));
+  // The fresh read before Enter.
+  const v = { field: 'Field 1/1', question: live.form.question, server: 'g4http', tool: 'g4_echo', arguments: live.form.arguments };
+  check('g4 #271: a confirming read that shows the selection on "Always allow" stops (Enter never sent)', codexToolApprovalCheck(classifyCodexScreen(taSelect(3)), v).state === 'stop');
+  check('g4 #271: a confirming read naming another tool, or other arguments, stops', codexToolApprovalCheck(relay, v).state === 'stop' && codexToolApprovalCheck(classifyCodexScreen(TA_LIVE.replace('text: hello', 'text: bye')), v).state === 'stop');
+  check('g4 #271: a confirming read with two markers waits (never ok)', codexToolApprovalCheck(classifyCodexScreen(TA_LIVE.replace('    3. Always allow', '  › 3. Always allow')), v).state === 'wait');
+  // driverAcceptDialog: the confirm read comes before Enter; a failing one sends nothing.
+  const drive = async (confirmText) => {
+    const sent = [];
+    const herdrStub = { commands: [], dialogAccept: async (t, keys) => { sent.push(...keys); return { entry: { seq: 90 + sent.length, startedAt: 'x' } }; } };
+    const d = { index: 1 };
+    let stopped = null;
+    const reads = [confirmText, 'after: the tool ran'];
+    try {
+      await driverAcceptDialog({ herdr: herdrStub, target: 'g4codex', r: { seq: 1, text: TA_LIVE, screen: live }, d, kind: 'mcp-tool-approval', dialogKinds: CODEX_DIALOG_KINDS, plan, read: async () => { const t = reads.shift() ?? 'after'; return { seq: 10 + reads.length, text: t, screen: classifyCodexScreen(t) }; }, stop: (why) => { throw new Error(`STOP ${why}`); }, num: () => 1, sleep: async () => {}, deadlineFor: () => Date.now() + 1000 });
+    } catch (e) {
+      stopped = e.message;
+    }
+    return { sent, d, stopped };
+  };
+  const ok = await drive(TA_LIVE);
+  check('g4 #271: driverAcceptDialog reads again before Enter, then sends Enter alone; the dialog records prompt, server, tool, answer and acceptOrigin driver', ok.stopped === null && JSON.stringify(ok.sent) === '["enter"]' && Number.isInteger(ok.d.confirmReadSeq) && ok.d.acceptKeys[0].verifiedSeq === ok.d.confirmReadSeq && ok.d.acceptOrigin === 'driver' && ok.d.toolApproval.answer === '1. Allow' && ok.d.toolApproval.question === live.form.question && ok.d.toolApproval.server === 'g4http' && ok.d.toolApproval.tool === 'g4_echo', JSON.stringify(ok));
+  const moved = await drive(taSelect(3));
+  check('g4 #271: driverAcceptDialog sends nothing when the confirming read shows "Always allow" selected', /^STOP .*confirming read .*"3\. Always allow"/.test(moved.stopped ?? '') && moved.sent.length === 0 && moved.d.acceptOrigin !== 'driver' && moved.d.toolApproval.answer === null, JSON.stringify(moved));
+  // The Verification section's Dialogs line.
+  const line = describeDialogs([ok.d], { harnessConfig: { unchanged: true, changed: [] } });
+  const bad = describeDialogs([ok.d], { harnessConfig: { unchanged: false, changed: ['$CODEX_HOME/config.toml'] } });
+  check('g4 #271: the Dialogs line names the prompt, server, tool, answer and keys, and the harness-config check (VERIFIED unchanged, or UNVERIFIED when changed)', line.includes('Codex MCP tool approval: prompt "Allow the g4http MCP server to run tool \\"g4_echo\\"?", server "g4http", tool "g4_echo"') && /answer "1\. Allow" \(this call only\), confirmed by read #\d+ before Enter/.test(line) && /accepted by the DRIVER \(herdr dialog-accept: enter #\d+\)/.test(line) && /VERIFIED unchanged/.test(line) && bad.includes('UNVERIFIED — `harnessConfig.unchanged` is false (changed: $CODEX_HOME/config.toml): a persisted approval is not ruled out'), `${line} || ${bad}`);
+}
+
 async function multiSelectUnit(check) {
   const live = classifyScreen(MS_LIVE);
   const plan = driverMayAccept(live, { expectedMcpServers: MS_EXPECTED });
@@ -350,6 +446,7 @@ async function multiSelectUnit(check) {
 
 export async function g4Unit(check) {
   await multiSelectUnit(check);
+  await toolApprovalUnit(check);
   // --- criteria --------------------------------------------------------------------------------
   const { criteria: crit, reference } = readG4Criteria(REPO);
   check('g4: the five G4 criteria are read verbatim from the committed oac-gates reference and match the K8 pin', crit.length === 5 && /^The legacy path registers as a channel/.test(crit[0]) && /rejected as a channel/.test(crit[4]) && reference.criteriaSha256 === G4_CRITERIA_SHA256 && reference.path === G4_REFERENCE);
@@ -663,6 +760,47 @@ export function g4Cases(check) {
     const d = m.scenarioData.g4.dialogs.find((x) => x.agent === 'claude' && x.kind === 'mcp-server-approval');
     check('g4 #267 single form: PASS; accepted by the driver with up, up, enter; no variant recorded', r.status === 0 && m.outcome === 'PASS' && d?.acceptOrigin === 'driver' && !d.variant && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["up","up","enter"]', `${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
   });
+
+  // #271: Codex 0.160.0's MCP tool-approval prompt before each tool call (fake-codex
+  // FAKE_CODEX_TOOL_APPROVAL=1, the recorded text). The driver answers "1. Allow" only for g4http
+  // and its two tools, confirmed by a fresh read before Enter; anything else is NOT RUN, no key.
+  const TA = { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_TOOL_APPROVAL: '1' };
+  const taDialogs = (g4) => g4.dialogs.filter((d) => d.agent === 'codex' && d.kind === 'mcp-tool-approval');
+  run('g4 #271 tool approval: exact match allowed', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37708, 37710)], fakeCodex: TA }, (r) => {
+    const m = r.manifest;
+    const ds = taDialogs(m.scenarioData.g4);
+    check('g4 #271 allow: PASS; both prompts (g4_echo, then g4_relay_to_claude) answered by the DRIVER with Enter alone, each after a confirming read; prompt, server, tool and answer recorded', r.status === 0 && m.outcome === 'PASS' && ds.length === 2 && JSON.stringify(ds.map((d) => d.toolApproval.tool)) === '["g4_echo","g4_relay_to_claude"]' && ds.every((d) => d.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["enter"]' && Number.isInteger(d.confirmReadSeq) && d.confirmReadSeq > d.readSeq && d.confirmReadSeq < d.acceptSeq && d.toolApproval.server === 'g4http' && /^Allow the g4http MCP server to run tool "g4_/.test(d.toolApproval.question) && d.toolApproval.answer === '1. Allow' && d.inputBetweenReadAndAccept === 0), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(ds)}`);
+    check('g4 #271 allow: each Allow required the harness config unchanged, and it was (harnessConfig.mustStayUnchanged, unchanged true)', m.harnessConfig.mustStayUnchanged.length === 2 && m.harnessConfig.unchanged === true && m.harnessConfig.mustStayUnchanged.every((x) => /answered "1\. Allow" for g4http\.g4_/.test(x.why)), JSON.stringify(m.harnessConfig));
+    const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
+    const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
+    check('g4 #271 allow: the Verification section\'s Dialogs line renders each Allow (prompt, server, tool, answer, keys) and the config check VERIFIED unchanged', draft.status === 0 && (dl.match(/Codex MCP tool approval: prompt "Allow the g4http MCP server to run tool/g) ?? []).length === 2 && /answer "1\. Allow" \(this call only\)/.test(dl) && /Harness config after 2 driver "Allow" answer\(s\) \(#271\): VERIFIED unchanged/.test(dl), dl || draft.stderr);
+  });
+  // The fake Codex writes its config on each answer (FAKE_CODEX_APPROVAL_PERSIST), standing in
+  // for a Codex that persisted an approval: the config-hash requirement must turn the PASS into
+  // a FAIL (invariants expect the changed hash, on purpose).
+  cases.push({
+    name: 'g4 #271 tool approval: an Allow that changes the harness config is not a PASS',
+    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: ['--param', 'accept=driver', ...FAST, ...PORTS(37718, 37720)], fakeCodex: { ...TA, FAKE_CODEX_APPROVAL_PERSIST: '1' } },
+    invariantOpts: { configChanged: true },
+    assert: (r) => {
+      const m = r.manifest;
+      check('g4 #271 persisted: the harness config changed after a driver Allow: FAIL (not PASS), with a #271 finding naming the changed file', m.outcome === 'FAIL' && m.harnessConfig.unchanged === false && m.harnessConfig.changed.some((f) => /config\.toml$/.test(f)) && m.harnessConfig.mustStayUnchanged.length === 2 && /harness config changed during a run that required it unchanged \(#271/.test(m.outcomeReason) && m.findings.some((f) => /#271/.test(f)), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.harnessConfig)}`);
+      const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
+      const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
+      check('g4 #271 persisted: the Dialogs line marks the config check UNVERIFIED (a persisted approval is not ruled out)', /Harness config after 2 driver "Allow" answer\(s\) \(#271\): UNVERIFIED — `harnessConfig\.unchanged` is false/.test(dl), dl || draft.stderr);
+    },
+  });
+  const taRefused = (name, fake, re, port) => run(`g4 #271 tool approval: ${name} refused`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeCodex: { ...TA, ...fake } }, (r) => {
+    const m = r.manifest;
+    const d = taDialogs(m.scenarioData.g4)[0];
+    const keysAfterRead = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
+    check(`g4 #271 ${name}: NOT RUN, the driver refused the prompt and sent it no key; what it asked is recorded; nothing required of the config`, r.status === 3 && m.outcome === 'NOT RUN' && re.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && keysAfterRead.length === 0 && typeof d.toolApproval?.question === 'string' && d.toolApproval.answer === null && m.harnessConfig.mustStayUnchanged.length === 0, `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+  });
+  taRefused('another server', { FAKE_CODEX_APPROVAL_SERVER: 'g4other' }, /server "g4other" is not the one this scenario registered/, 37728);
+  taRefused('another tool', { FAKE_CODEX_APPROVAL_TOOL: 'g4_shell' }, /tool "g4_shell" is not one this scenario registered/, 37738);
+  taRefused('"Always allow" highlighted', { FAKE_CODEX_APPROVAL_SELECTED: '2' }, /selected option is "3\. Always allow"/, 37748);
+  taRefused('"Allow for this session" highlighted', { FAKE_CODEX_APPROVAL_SELECTED: '1' }, /selected option is "2\. Allow for this session"/, 37758);
+  taRefused('altered wording', { FAKE_CODEX_APPROVAL_QUESTION: 'Allow the {server} MCP server to execute tool "{tool}"?' }, /question text off record/, 37768);
 
   // #244: a codexLaunch the allowlist refuses is refused by the scenario's validateParams before
   // run.mjs creates scratch, an output directory or a manifest: usage error (exit 2), nothing

@@ -514,6 +514,15 @@ export function g5Cases(check) {
     check('g5 #253: a wait that cannot establish the agent\'s state ends the run NOT RUN with a finding; no prompt was typed', m.outcome === 'NOT RUN' && /did not report the agent's state/.test(m.outcomeReason) && m.findings.some((f) => /#253/.test(f)) && r.prompts.length === 0, `${m.outcome} ${m.outcomeReason}`);
   });
 
+  // #271: only the G4 scenario opts in to answering Codex's MCP tool-approval prompt. G5 seeing
+  // the exact recorded prompt (g4http, g4_echo, "1. Allow" preselected) still refuses it (#197).
+  run('g5 Codex MCP tool-approval prompt: refused outside G4 (#271)', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_TOOL_APPROVAL: '1' } }, (r) => {
+    const m = r.manifest;
+    const d = m.scenarioData.g5.dialogs.find((x) => x.kind === 'mcp-tool-approval');
+    const keysAfterRead = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
+    check('g5 #271: the exact G4 tool-approval prompt is refused in a non-G4 scenario: NOT RUN, no key sent, nothing required of the config', r.status === 3 && m.outcome === 'NOT RUN' && /registered no MCP server and tools the driver may allow/.test(m.outcomeReason) && /#197 stands/.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && d.toolApproval?.server === 'g4http' && d.toolApproval.answer === null && keysAfterRead.length === 0 && m.harnessConfig.mustStayUnchanged.length === 0, `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+  });
+
   run('g5 launch not verbatim', { args: [...FAST, '--launch', '["claude"]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g5 launch: a launch other than G5\'s verbatim one FAILs before anything starts', r.status === 1 && /not G5\x27s verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent') || c.argv.includes('workspace')));
   });

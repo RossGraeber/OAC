@@ -37,7 +37,8 @@ never replaces a supported interface and it decides nothing.
 Operator decision of 2026-09-30 (#196, `docs/planning/decisions/K-196-driver-accepts-dialogs.md`):
 in dev/test runs the driver accepts Claude Code's workspace-trust, project-MCP-server and
 `--dangerously-load-development-channels` dialogs itself, and, since #199, Codex's
-workspace-trust dialog: **only those four**. `accept=driver` is the default in every
+workspace-trust dialog: **only those four**, plus one G4-only exception for Codex's MCP tool
+approval (#271, below). `accept=driver` is the default in every
 scenario, `g1-claude-wake` included, and `accept=human` is still available. Each dialog is
 read verbatim before any key. It is accepted only if its options on screen are exactly the
 ones recorded in `lib/g1.mjs` `DIALOG_KINDS` (Claude Code) or `lib/g2.mjs`
@@ -93,6 +94,46 @@ does not land ends the run `NOT RUN`, with nothing guessed and nothing re-sent. 
 dialog is refused**, whatever is preselected: Claude Code's tool-permission prompt ("Do you
 want to proceed?") and every other Codex dialog (#197 review). The run ends `NOT RUN` with
 no key sent. Use `accept=human` for a run that may meet one. Each accept is recorded as `driver` with its keys, and every report says so.
+
+**One exception: Codex's MCP tool approval, in G4 only (#271).** Operator decision of
+2026-10-04 on #271, a narrow exception to #197. Codex 0.160.0 asks before each MCP tool call,
+which blocked every unattended G4 run (live run 20261004T050646Z, Codex pane section seq 58):
+
+```
+  Field 1/1
+  Allow the g4http MCP server to run tool "g4_echo"?
+
+  text: hello from codex through herdr
+
+  › 1. Allow                   Run the tool and continue
+    2. Allow for this session  Run the tool and remember this choice for this session
+    3. Always allow            Run the tool and remember this choice for future tool calls
+    4. Cancel                  Cancel this tool call
+  enter to submit | esc to cancel
+```
+
+The driver presses `enter` on "1. Allow" (this call only) only when all of these hold
+(`lib/g2.mjs` `CODEX_TOOL_APPROVAL`, `planCodexToolApproval`):
+
+- the form is exactly the recorded text: header, question wording, the four options and
+  their descriptions, numbering, `›` marker and footer. Each argument line names one of the
+  tool's declared inputs;
+- the server and tool are ones `g4-mcp-dual-era` registered itself, taken from its committed
+  config and validated launch, never from the pane (`lib/g4.mjs` `g4CodexToolApproval`:
+  `g4http`; `g4_echo`, `g4_relay_to_claude`);
+- "1. Allow" is selected, with exactly one marker, and a fresh read confirms it before
+  `enter`. The driver never moves the selection here, so it never answers "Allow for this
+  session" or "Always allow".
+
+Anything else, and the same prompt in any other scenario (G2, G5, L3), ends the run
+`NOT RUN` with no key sent. The dialog record holds `toolApproval` (prompt, server, tool,
+arguments, expected, answer), `acceptKeys`, `confirmReadSeq` and `acceptOrigin: driver`.
+The report's Verification "Dialogs" line renders them. After any driver Allow, `run.mjs`
+requires the harness-config hashes unchanged at teardown (`harnessConfig.mustStayUnchanged`).
+A change, including one from a Codex trust accept in the same run, is a finding and turns a
+PASS into FAIL. Per Codex source at `rust-v0.160.0`, "Allow" persists nothing. Rules:
+`scripted-runs.md` "Operator-consent dialogs" (#271); decision record
+`docs/planning/decisions/K-196-driver-accepts-dialogs.md` §7.
 
 **Codex startup: verified-ready before the first message (#204).** Codex 0.159.2 shows its
 composer ("› Ask Codex to do anything") *before* its session exists: the startup draft. Text

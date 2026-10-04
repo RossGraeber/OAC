@@ -225,7 +225,7 @@ async function runScenarioInner(opts, state) {
       os: osInfo(),
       session: { name: sessionName, serverPid: null, panePids: [] },
       env: { serverLaunch: launchEnv.delta, pane: null },
-      harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [] },
+      harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [], mustStayUnchanged: [] },
       timebox: { budgetMs: timeboxMs, start: iso(timeboxStart), end: null, elapsedMs: null, expired: null, teardownEnd: null },
       commands,
       teardown: null,
@@ -294,6 +294,12 @@ async function runScenarioInner(opts, state) {
       },
       finding(text) {
         manifest.findings.push(text);
+      },
+      // #271: a scenario step after which the harness config must still hash the same at
+      // teardown (a driver "Allow" on Codex's MCP tool-approval prompt: proof that no approval
+      // was persisted). A change downgrades a PASS to FAIL and is always a finding.
+      requireHarnessConfigUnchanged(why) {
+        manifest.harnessConfig.mustStayUnchanged.push({ why: String(why), at: iso(Date.now()) });
       },
       // A process outside the driver's control (e.g. the operator's shared Codex app-server
       // daemon, which the driver never stops) may keep a handle under scratch past the run.
@@ -490,6 +496,9 @@ async function runScenarioInner(opts, state) {
       }
     };
     if (!manifest.teardown.clean) downgrade(`teardown was not clean: ${JSON.stringify({ ...manifest.teardown, clean: undefined })}`);
+    if (manifest.harnessConfig.mustStayUnchanged.length && manifest.harnessConfig.unchanged !== true) {
+      downgrade(`harness config changed during a run that required it unchanged (#271: ${manifest.harnessConfig.mustStayUnchanged.map((x) => x.why).join('; ')}; changed: ${manifest.harnessConfig.changed.join(', ') || 'unknown'}): that no persistent tool approval was written is not shown`);
+    }
 
     // Redaction literals first: realpath needs the scratch dir to still exist.
     const literals = [{ value: scratch, placeholder: '<SCRATCH>' }, { value: REPO_ROOT, placeholder: '<REPO>' }, { value: outDir, placeholder: '<OUT>' }, ...extraLiterals];

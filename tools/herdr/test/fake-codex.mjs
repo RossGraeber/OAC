@@ -36,6 +36,20 @@
 //   FAKE_CODEX_DIALOG          trust (default; the 0.159.2 trust dialog, #199) | trust-note (with
 //                              its optional Note block) | trust-double-marker |
 //                              trust-extra-option | trust-back-preselected | unknown | none
+//   FAKE_CODEX_TOOL_APPROVAL   #271: 1 = before each MCP tool call (and, with no MCP server, before
+//                              each user turn) the TUI shows the MCP tool-approval prompt as seen
+//                              live on 0.160.0 (lib/g2.mjs CODEX_TOOL_APPROVAL) and waits for an
+//                              answer (up/down move, enter answers; Cancel skips the call). Shape:
+//     FAKE_CODEX_APPROVAL_SERVER    the server named in the question (default: the real one;
+//                                   g4http with no MCP server)
+//     FAKE_CODEX_APPROVAL_TOOL      the tool named in the question (default: the real one; g4_echo)
+//     FAKE_CODEX_APPROVAL_QUESTION  the question, {server}/{tool} filled in (default the recorded
+//                                   `Allow the {server} MCP server to run tool "{tool}"?`)
+//     FAKE_CODEX_APPROVAL_OPTIONS   JSON [[label, description], ...] (default the recorded four)
+//     FAKE_CODEX_APPROVAL_SELECTED  the preselected option index (default 0, "Allow")
+//     FAKE_CODEX_APPROVAL_MARKER    the selection marker (default ›)
+//     FAKE_CODEX_APPROVAL_PERSIST   1 = any answer appends a line to $CODEX_HOME/config.toml
+//                                   (stands in for a Codex that persisted an approval)
 //   FAKE_CODEX_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                              operator pressing Enter outside the driver)
 //   FAKE_CODEX_NO_ATTACH       1 = the TUI never connects to the daemon (embedded server)
@@ -534,6 +548,13 @@ async function tui(overrides = {}) {
     for (const tool of ['g4_echo', 'g4_relay_to_claude']) {
       const m = new RegExp(`${tool} tool with the text "([^"]*)"`).exec(text);
       if (!m) continue;
+      if (env.FAKE_CODEX_TOOL_APPROVAL === '1') {
+        const answer = await toolApproval(name, tool, [['text', m[1]]]);
+        if (answer === 'Cancel') {
+          history.push(`• Cancelled ${name}.${tool}`, '');
+          continue;
+        }
+      }
       const r = await mcpPost(s, { jsonrpc: '2.0', id: s.nextId++, method: 'tools/call', params: { _meta: { 'x-codex-turn-metadata': { codex_version: VERSION, model: 'fake-model' }, progressToken: s.nextId }, name: tool, arguments: { text: m[1] } } });
       const line = `• Called ${name}.${tool}\n  └ ${r?.result?.content?.[0]?.text ?? JSON.stringify(r?.error)}`;
       history.push(...line.split('\n'), '');
@@ -542,6 +563,48 @@ async function tui(overrides = {}) {
     }
     setState(env.FAKE_CODEX_POST_STATE || 'idle');
     render(false);
+  };
+
+  // #271: Codex 0.160.0's MCP tool-approval prompt (lib/g2.mjs CODEX_TOOL_APPROVAL), verbatim
+  // but for what FAKE_CODEX_APPROVAL_* changes. Resolves with the answered option's label.
+  const APPROVAL_OPTIONS = env.FAKE_CODEX_APPROVAL_OPTIONS
+    ? JSON.parse(env.FAKE_CODEX_APPROVAL_OPTIONS)
+    : [['Allow', 'Run the tool and continue'], ['Allow for this session', 'Run the tool and remember this choice for this session'], ['Always allow', 'Run the tool and remember this choice for future tool calls'], ['Cancel', 'Cancel this tool call']];
+  const toolApproval = async (server, tool, args) => {
+    const sv = env.FAKE_CODEX_APPROVAL_SERVER || server;
+    const tl = env.FAKE_CODEX_APPROVAL_TOOL || tool;
+    const question = (env.FAKE_CODEX_APPROVAL_QUESTION || 'Allow the {server} MCP server to run tool "{tool}"?').replace('{server}', sv).replace('{tool}', tl);
+    const marker = env.FAKE_CODEX_APPROVAL_MARKER || '›';
+    const width = Math.max(...APPROVAL_OPTIONS.map(([l]) => l.length)) + 2;
+    let sel = Number(env.FAKE_CODEX_APPROVAL_SELECTED || 0);
+    const form = () => [
+      HEADER, '', ...history.slice(-30), `• Calling ${sv}.${tl}`, '    + Show details', '', '',
+      '  Field 1/1', `  ${question}`, '', ...args.map(([k, v]) => `  ${k}: ${v}`), ...(args.length ? [''] : []),
+      ...APPROVAL_OPTIONS.map(([l, d], i) => `  ${i === sel ? `${marker} ` : '  '}${i + 1}. ${l.padEnd(width)}${d}`),
+      '  enter to submit | esc to cancel',
+    ].join('\n');
+    setScreen(form());
+    hist(form());
+    setState('blocked');
+    for (let done = false; !done; ) {
+      for (const k of newKeys().map((x) => x.trim())) {
+        if (k === 'enter') {
+          done = true;
+          break;
+        }
+        if (k === 'down') sel = Math.min(APPROVAL_OPTIONS.length - 1, sel + 1);
+        if (k === 'up') sel = Math.max(0, sel - 1);
+        setScreen(form());
+      }
+      if (!done) await sleep(50);
+    }
+    const answer = APPROVAL_OPTIONS[sel][0];
+    hist(`[tool approval: "${sel + 1}. ${answer}" for ${sv}.${tl}]`);
+    if (env.FAKE_CODEX_APPROVAL_PERSIST === '1') mkdirSync(HOME, { recursive: true });
+    if (env.FAKE_CODEX_APPROVAL_PERSIST === '1') appendFileSync(join(HOME, 'config.toml'), `# fake-codex: approval "${answer}" for ${sv}.${tl}\n`);
+    setState('working');
+    render(true);
+    return answer;
   };
 
   let sock = null;
@@ -649,6 +712,7 @@ async function tui(overrides = {}) {
     const text = nextPrompt();
     if (text !== null) {
       if (mcp.size) await mcpTurn(text);
+      else if (env.FAKE_CODEX_TOOL_APPROVAL === '1' && (await toolApproval('g4http', 'g4_echo', [['text', text]])) === 'Cancel') hist('[turn cancelled at the tool approval]');
       else if (sock) sock.write(`${JSON.stringify({ op: 'userTurn', text })}\n`);
       else {
         onMsg({ op: 'render', role: 'user', text });

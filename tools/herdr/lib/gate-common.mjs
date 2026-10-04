@@ -127,6 +127,8 @@ export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKind
   // #267: a recorded variant (the multi-select MCP form) records what it listed and what the
   // scenario expected, accepted or refused.
   if (plan.variant) Object.assign(d, { variant: plan.variant, listedServers: plan.listedServers, expectedServers: plan.expectedServers });
+  // #271: Codex's MCP tool-approval prompt records what it asked and what the scenario expected.
+  if (plan.toolApproval) d.toolApproval = { ...plan.toolApproval };
   if (!plan.ok) {
     d.acceptOrigin = 'none (driver refused)';
     stop(`${who}: ${plan.why}; the driver did not accept it`);
@@ -160,8 +162,29 @@ export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKind
     }
     prev = mv.expect;
   }
+  // #271: a plan that names a `confirm` check (Codex's tool-approval prompt) sends Enter only
+  // after a FRESH read of the same dialog passes it (the selection marker on the answer on
+  // record), as each selection move is verified above. A read that does not pass it is re-read
+  // until the bound; nothing is sent until then.
+  if (plan.confirm) {
+    const deadline = Date.now() + DIALOG_MOVE_TIMEOUT_MS;
+    for (;;) {
+      await sleep(Math.min(250, num('pollMs')));
+      const p = await read(`dialog-${d.index}-confirm`);
+      if (!sameDialog(r.text, p, kind, dialogKinds)) stop(`${who}: the screen left the dialog before Enter (read #${p.seq}); nothing sent`);
+      const c = plan.confirm(p.screen);
+      if (c.state === 'ok') {
+        d.confirmReadSeq = p.seq;
+        last = p;
+        break;
+      }
+      if (c.state === 'stop') stop(`${who}: the confirming read #${p.seq}: ${c.why}; Enter not sent`);
+      if (Date.now() >= deadline) stop(`${who}: no read within ${DIALOG_MOVE_TIMEOUT_MS} ms confirmed the selection before Enter (last read: ${c.why}); Enter not sent`);
+    }
+  }
   const res = await herdr.dialogAccept(target, ['enter']);
-  d.acceptKeys.push({ key: 'enter', seq: res.entry.seq, expect: null, verifiedSeq: null });
+  d.acceptKeys.push({ key: 'enter', seq: res.entry.seq, expect: null, verifiedSeq: d.confirmReadSeq ?? null });
+  if (d.toolApproval) d.toolApproval.answer = plan.answer ?? null;
   d.acceptOrigin = 'driver';
   d.acceptSeq = res.entry.seq;
   d.acceptAt = res.entry.startedAt;
@@ -219,6 +242,9 @@ export function makeAgent({ ctx, g, name, label, classify, dialogKinds, driverMa
     if (accept === 'driver') {
       // driverMayAccept is the kind table's planner (planDriverAccept for Claude, Codex).
       await driverAcceptDialog({ herdr, target: name, r, d, kind, dialogKinds, plan: driverMayAccept(r.screen), read, stop, num, sleep, deadlineFor, label });
+      // #271: a driver "Allow" on Codex's MCP tool-approval prompt must leave the harness config
+      // byte-identical (run.mjs checks the hashes at teardown): proof no approval was persisted.
+      if (d.toolApproval?.answer && d.acceptOrigin === 'driver') ctx.requireHarnessConfigUnchanged(`${label} dialog ${d.index} (${kind}): the driver answered "${d.toolApproval.answer}" for ${d.toolApproval.server}.${d.toolApproval.tool} (#271)`);
       return;
     }
     const before = herdr.commands.length;

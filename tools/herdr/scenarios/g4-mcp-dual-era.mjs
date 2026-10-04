@@ -58,7 +58,11 @@
 //   5. Codex starts in a second pane, CONCURRENTLY with the live Claude session. Its MCP
 //      client's `initialize` user-agent must equal the pinned Codex version. An operator
 //      prompt asks it to call g4_echo, then g4_relay_to_claude; the relay reaches Claude only
-//      as the server's own channel push.
+//      as the server's own channel push. Codex asks to approve each call (seen live on 0.160.0,
+//      #271): under accept=driver the driver answers "1. Allow" (this call only) when the prompt
+//      is the recorded text and names g4http and one of its two tools (lib/g4.mjs
+//      g4CodexToolApproval); anything else ends the run NOT RUN. run.mjs then requires the
+//      harness-config hashes unchanged (no persistent approval written).
 //   6. Claude's modern `tools/call` again, after the Codex traffic (no-degradation check).
 //   7. Wake 2.
 //   8. Post-run versions.
@@ -78,12 +82,12 @@ import { DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { committedFile, classifyScreen, driverMayAcceptExpecting, mcpServerNames, DIALOG_KINDS } from '../lib/g1.mjs';
-import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv } from '../lib/g2.mjs';
+import { classifyCodexScreen, driverMayAcceptCodexExpecting, CODEX_DIALOG_KINDS, paneArgv } from '../lib/g2.mjs';
 import { descendants } from '../lib/proc.mjs';
 import { makeAgent, stopper, stageGateFiles, loopbackPortFree } from '../lib/gate-common.mjs';
 import {
   G4_LAUNCH, G4_SERVER_FILES, PINS_PATH, DEFAULT_PORTS, DEFAULT_PROMPTS, g4McpJson, defaultCodexLaunch, validateCodexLaunch, codexLaunchParamProblem, validatePaneEnv, assertNotInjected,
-  fixtureNames, unverifiedNames, parseG4Transcript, g4Facts, roles, sanitizeG4Transcript, sanitizeG4Text, MODERN, LEGACY, HUMAN_RUN_PORTS, codexSessions,
+  fixtureNames, unverifiedNames, parseG4Transcript, g4Facts, roles, sanitizeG4Transcript, sanitizeG4Text, MODERN, LEGACY, HUMAN_RUN_PORTS, codexSessions, g4CodexToolApproval,
 } from '../lib/g4.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -179,7 +183,10 @@ export default {
     let serverDir = null;
 
     const claude = makeAgent({ ctx, g: g4, name: 'g4claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => mcpServerNames(g4.mcpJson)), accept, num, stop });
-    const codex = makeAgent({ ctx, g: g4, name: 'g4codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex, accept, num, stop });
+    // #271: the only scenario that opts in to answering Codex's MCP tool-approval prompt, and only
+    // "1. Allow" for the server and tools it registered itself (lib/g4.mjs g4CodexToolApproval:
+    // its committed config and validated launch, never the pane).
+    const codex = makeAgent({ ctx, g: g4, name: 'g4codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodexExpecting(() => g4CodexToolApproval(g4.codexLaunch.validation)), accept, num, stop });
 
     const transcriptPath = () => join(serverDir, 'transcript.jsonl');
     const facts = () => g4Facts(serverDir && existsSync(transcriptPath()) ? parseG4Transcript(readFileSync(transcriptPath(), 'utf8'), { completeLinesOnly: true }) : []);
