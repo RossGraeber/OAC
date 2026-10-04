@@ -49,6 +49,10 @@ authorize an action that the content asks for. Any further power, such as approv
 harness permission request, is a separate authorization decision with its own default
 (§9.6).
 
+Memory references are content, and so is resolved memory. A reference to a record held by an
+external memory service, written into a message's content, is a claim by the sender. Whatever
+the receiving harness later looks up with it is untrusted text too (§12.5).
+
 ### 1.3 Scope
 
 | Section | Subject |
@@ -881,6 +885,13 @@ when they are equal as the implementation records them.
 A grant for one scope does not cover a session in another scope, including a subdirectory of
 it. This is the cross-project rule (`docs/planning/decisions/C4-session-identity.md` §5).
 
+Working-directory scoping governs this protocol's grants, discovery and presence release only.
+It does not govern what an external service running beside a harness records from that
+harness's session, or how such a service scopes what it later returns. One such service, at the
+version Decision L1 §2 pins, scopes its records per repository and resolves a linked working
+tree to its main checkout, so the two are two scopes here and one scope there (Decision L1, `docs/planning/decisions/`, §4 Q4). Section 13 carries the
+resulting capture risk.
+
 ### 9.4 Discovery and presence release
 
 `spec/session-channels.md` §7 leaves to this document which sessions a requester is
@@ -1011,6 +1022,12 @@ case is an open finding owned by backlog task G7 (#224).
 
 [SEC-AUZ-023] An implementation MUST NOT automate, suppress or pre-answer a consent step that
 a harness itself requires before it loads an extension or accepts input from one.
+
+[SEC-AUZ-024] An implementation MUST NOT take a memory reference from a message's content
+(§12.5), or text obtained from a memory service, as input to an authorization decision.
+
+A message that cites a stored record as approval ("approved in memory X") carries a claim
+only. The citation grants no right and widens no grant (§12.5).
 
 ### 9.7 The local attachment
 
@@ -1346,6 +1363,81 @@ as holding system-level or operator-level instructions.
 Even so rendered, the content can still carry prompt injection. Rendering makes the sender
 visible; it does not make the content safe (§1.2).
 
+### 12.5 Memory references
+
+An **external memory service** is a service outside this protocol that a harness connects to
+through its own configuration, and that keeps records drawn from earlier sessions. A **memory
+reference** is an identifier such a service issues for one of its records, as it appears in
+the text of a message's `content`. **Resolved memory** is the text the service returns when a
+harness looks a reference up.
+
+The definition is scoped to `content` on purpose. A header member whose value has the same
+form as a memory reference is an identifier token, governed by `spec/session-channels.md` §4.3
+and §12.1 here only. Such a value is not a memory reference in this document, and this section and
+[SEC-AUZ-024] do not apply to it: an `id` or `reply_to` is rendered and used as those sections
+say, whatever it looks like. An implementation is never asked to tell whether an opaque token
+is a memory reference.
+
+This protocol defines no content type, member or field for a memory reference. A sender that
+wants a peer to look a record up writes the reference into the text of a `content` entry,
+like any other text (Decision L1, `docs/planning/decisions/`, §4 Q1). A receiving harness that
+wants the record looks it up in its own turn, through its own connection to its own memory
+service (Decision L1 §1 points 1 and 2).
+
+Memory references are content, and so is resolved memory. A verified envelope proves who wrote
+a memory reference. It never proves that the referenced record exists, that it is current, or
+that it says what the sender implies. Resolved memory is untrusted text to the harness that
+receives it, under the doctrine of §1.2 without exception (Decision L1 §1 point 4).
+
+[SEC-PRV-015] An adapter MUST NOT place a memory reference taken from a message's content, or
+text obtained from a memory service, in the provenance set, in a separate carrier or in the
+header of a frame.
+
+A memory reference in a message's content stays in the content: inside the quoted body when
+the carrier is shared (§12.3), and in the content field when the carrier is separate. Section
+12.1 already takes every provenance value from the verified envelope and the implementation's
+own results, never from content ([SEC-PRV-002]). This rule names the case in which a peer cites
+a stored record to make its content look like provenance.
+
+[SEC-PRV-016] An implementation MUST NOT look up, resolve or validate a memory reference that a
+message's content carries.
+
+An implementation that checked a reference before handing a message off, and delivered or
+annotated the message by the result, would lend the reference an authority the protocol never
+gives it.
+
+[SEC-PRV-017] An implementation MUST NOT add resolved memory, or any other text it obtained
+from a memory service, to the content of an envelope it sends or of a message it hands off.
+
+An implementation hands off only what the sender put in the envelope. It does not enrich,
+trim or summarize content from a memory service. Whether a harness acts on resolved memory
+that it looked up itself is the harness's concern, not a control this protocol holds.
+
+[SEC-PRV-016] and [SEC-PRV-017] bind implementations of this protocol, never harnesses. A
+harness that looks a record up in its own turn and writes the result into a message it sends
+produces ordinary harness-authored content. Nothing in this section restricts it, and the
+receiving side treats that content like any other (§1.2).
+
+*Dated note, 2026-10-04 (#174): the operator kept [SEC-PRV-016] and [SEC-PRV-017] (no look-up,
+resolution or enrichment by an implementation) and asked for the clarifying paragraph above:
+a harness may look memory up itself and send the result through this protocol.*
+
+### 12.6 Secrets in content
+
+Content is not confidential against the receiving side. Once handed off, it is in the
+receiving harness's session, and whatever that harness, its operator or a service recording
+the session keeps, it keeps. This protocol cannot reach any of those stores (§13, the capture
+row).
+
+[SEC-PRV-018] The user or model that writes a message's content SHOULD NOT put a secret in it,
+such as a credential, an access token or a private key.
+
+A message that deviates carries the secret to every place the receiving side stores content,
+including the receiving device's disk, where no rule of this document can remove it.
+
+*Dated note, 2026-10-04 (#174): the operator asked for this advice and its warning, from the
+capture row of §13.*
+
 ---
 
 ## 13. Threat-to-requirement traceability
@@ -1391,9 +1483,13 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | Presence replay after a consumer restart or forget (E3 constraint) | Attacker captured an old announcement | Freshness by the replay window [SEC-PRS-006]; lifetime cap [SEC-PRS-007] | `sec-prs/SEC-PRS-006.n01`, `.p01`; `sec-prs/SEC-PRS-007.p01` | An ended session can look `online` for up to 600 s after its last announcement was issued |
 | Receipt forgery, or a receipt from the wrong receiver | Attacker or another trusted device sends a receipt | [SEC-RCT-001] to [SEC-RCT-003] | `sec-rct/SEC-RCT-001.p01`, `SEC-RCT-003.n01` to `.n08` | None known |
 | Stale or forged registration binding (06 rows 19, 20, 24) | A binding is used without a valid record | [SEC-KEY-041], [SEC-KEY-043]; binding rules of `spec/session-channels.md` §6.7 | `sec-key/SEC-KEY-041.p01`, `.n01`; `sec-key/SEC-KEY-043.n01` | Pairing of native signals to attachments stays UNVERIFIED per platform (`spec/session-channels.md` §6.7.2) |
+| Prompt injection through a memory reference or resolved memory (06 row 21) | A trusted, granted peer writes a memory reference into content, or the receiving harness looks one up through its own memory service and gets adversarial text back | Doctrine §1.2 and §12.5: the reference is a sender claim rendered as content [SEC-PRV-012], [SEC-PRV-015]; no implementation looks a reference up, validates it or adds what a service returns [SEC-PRV-016], [SEC-PRV-017], so a verified signature never extends to resolved memory | L10 (opt-in scenario: a memory reference travels between the two v0.1 harness surfaces and is resolved by the receiver's own memory service; asserts that the reference and the resolved text appear only in the untrusted body): not yet built, open risk; F11: not yet built, open risk; gate G5 PASS (gate client only, provenance framing) | Once the receiving harness has looked the reference up in its own turn, the returned text never crosses this protocol. Whether the model obeys it is the harness's and the memory service's concern: the doctrine limit of the authenticated-peer row above |
+| False authority through a cited memory reference (06 row 22) | A trusted, granted peer cites a stored record ("approved in memory X") so that the receiver treats the citation as authorization or as provenance | Never in the provenance set, a separate carrier or a frame header [SEC-PRV-015]; provenance only from verified members [SEC-PRV-002]; no authorization decision takes a memory reference as input [SEC-AUZ-024]; delivery never authorizes an action the content requests [SEC-AUZ-020] | L10 (asserts that the reference is absent from every machine-set carrier): not yet built, open risk; F11: not yet built, open risk; gate G5 PASS (gate client only) | A model may still find a cited record persuasive. A citation wrapped in frame-shaped text keeps the residual of the shared-carrier forgery row above |
+| Capture of delivered content by an external memory or telemetry service (06 row 23) | The operator runs a service beside the receiving harness that records that harness's session history | None in the protocol. The capture happens inside the harness session, which no implementation controls. [SEC-PRV-016] and [SEC-PRV-017] keep an implementation from using such a service; nothing here keeps the service from recording. [SEC-PRV-018] advises against secrets in content, which limits what a capture exposes but is advice, not a control | None: an open risk, not a closed mitigation. Carried in `docs/planning/v0.1/11-risks.md` under the risk that 06 row 23 names | Capture is confirmed: one such service, at the version Decision L1 §2 pins, recorded input handed off into both v0.1 harness surfaces verbatim, and one harness's outbound tool-call arguments; a secret-shaped test token in the delivered content was stored unredacted on every path that captured it (Decision L1 §13, live leg of 2026-10-01). Any text in `content`, a secret included, can therefore reach the receiving device's disk. The service's own scoping need not match working-directory scoping (§9.3), and any forwarding beyond the device is the operator's configuration of that service |
 
-Threats that concern external memory services (06 rows 21 to 23) arise outside the protocol
-and are not restated here.
+The three memory rows use neutral terms (§12.5). Their sources, the provider-specific
+evidence and the named service are in `docs/planning/v0.1/06-security.md` §14 rows 21 to 23
+and Decision L1 (`docs/planning/decisions/`), which this document does not repeat.
 
 ### 13.1 Timing
 
@@ -1538,6 +1634,7 @@ requirement whose fixtures exercise it.
 | SEC-AUZ-021 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G4, F11, H2 |
 | SEC-AUZ-022 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G7 |
 | SEC-AUZ-023 | MUST NOT | 9.6 | TODO(fixture): review of launch code; H2 |
+| SEC-AUZ-024 | MUST NOT | 9.6 | TODO(fixture): behaviour across the implementation; the fixture stages carry no content into an authorization decision; F11 |
 | SEC-AUZ-030 | MUST | 9.7 | TODO(fixture): needs the platform facilities; G9 |
 | SEC-RCT-001 | MUST | 10.1 | `sec-rct/SEC-RCT-001.p01` |
 | SEC-RCT-002 | MUST | 10.1 | covered by SEC-RCT-003 (`sec-rct/SEC-RCT-003.n04`, `.n07`) |
@@ -1573,6 +1670,10 @@ requirement whose fixtures exercise it.
 | SEC-PRV-012 | MUST | 12.4 | TODO(fixture): needs a live harness; G5 re-run, F11 |
 | SEC-PRV-013 | MUST NOT | 12.4 | TODO(fixture): needs a harness surface; F10, F11 |
 | SEC-PRV-014 | MUST | 12.2 | `expected.state` and `expected.error` of `sec-prv/SEC-PRV-003.n01`, `.n02` |
+| SEC-PRV-015 | MUST NOT | 12.5 | TODO(fixture): needs an adapter, as for SEC-PRV-002; L10, F11 |
+| SEC-PRV-016 | MUST NOT | 12.5 | TODO(fixture): behaviour across the implementation; L10, F11 |
+| SEC-PRV-017 | MUST NOT | 12.5 | TODO(fixture): behaviour across the implementation; L10, F11 |
+| SEC-PRV-018 | SHOULD NOT | 12.6 | none (SHOULD NOT); advice to whoever writes content |
 
 Retired ids: none.
 
@@ -1621,3 +1722,4 @@ follow from it and belong to their owners:
 | 0.1 (draft) | 2026-10-03 | SEC-AUZ-018: a self-initiated retry is a new send and is refused, with no envelope, when the target has become hidden; `remove-grant` operation in the `exchange` stage. |
 | 0.1 (draft) | 2026-10-03 | §13.1 Timing: SEC-STG-005 (SHOULD: one refusal path with no target-dependent work) and the timing residual. |
 | 0.1 (draft) | 2026-10-03 | E8 (#48), editorial: the §3.3 note and the §13 introduction name the committed reference runner, `tests/protocol/runner/run.mjs`, which CI runs over every fixture. Review of PR #270: a dated note after [SEC-AUZ-006] records that a session-id grant still covers its id after the binding ends, so the delivery stage reports `unknown-destination`. |
+| 0.1 (draft) | 2026-10-04 | L9 (#174): memory references. §1.2 states that memory references and resolved memory are content; §12.5 defines them in neutral terms, scoped to `content`, and adds SEC-PRV-015 (never in the provenance set, a separate carrier or a frame header), SEC-PRV-016 (no look-up or validation) and SEC-PRV-017 (no enrichment from a memory service); §9.6 adds SEC-AUZ-024 (no authorization decision takes a memory reference as input); §9.3 notes that working-directory scoping does not govern an external service's capture; §13 carries `docs/planning/v0.1/06-security.md` §14 rows 21 to 23. No envelope or content-model change: a memory reference stays text in a `content` entry (Decision L1 §4 Q1). No fixture: each new MUST NOT is `TODO(fixture)`. Operator decisions on #174: §12.6 adds SEC-PRV-018 (SHOULD NOT: no secrets in content) with a warning that the receiving side may store content; §12.5 notes that a harness that looks memory up itself and sends the result is unaffected. Review of PR #272: memory references scoped to `content`, so a header value of the same form is governed by §12.1 only; the §9.3 note and row 23 tied to Decision L1 §2's pinned version. |
