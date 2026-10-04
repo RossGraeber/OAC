@@ -1,0 +1,37 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-137",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "signal cross-check mismatch at fresh start",
+  "description": "B's cross-check value equals N, but the signal's own cross-check value differs. The fresh signal fails closed.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-x"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "B",
+      "cross_check": "native-z"
+    }
+  },
+  "expected": {
+    "result": "failed-closed",
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-x"
+      }
+    ],
+    "record": "finding"
+  }
+}

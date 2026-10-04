@@ -76,8 +76,8 @@ channel messages and is not registered as a channel. Servers must negotiate a
 legacy revision (`2025-11-25` or earlier), optionally forced with
 `MCP_PROTOCOL_NEGOTIATION=legacy` for stdio servers. This collides with the
 Codex tool path, which may want current MCP — see the C5 conflict
-(PLANNING-PROMPT.md Appendix A: evidence is gate G4; resolution is Decisions
-2 and 3, open) and `oac-mcp` for the dual-era detail. Source:
+(PLANNING-PROMPT.md Appendix A: evidence is gate G4 PASS; resolved by
+`spec/bindings/mcp.md` §9, E6 #46) and `oac-mcp` for the dual-era detail. Source:
 PLANNING-PROMPT.md §3.1.
 
 ## 5. Outbound

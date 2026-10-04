@@ -1,0 +1,40 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-069",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The major-1 entry is invalid; the valid major-0 entry is still used.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      },
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels-v2",
+        "major": 1,
+        "revision": "1.0"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "io.github.rossgraeber/oac-session-channels-v2": {
+        "revision": "1.0",
+        "active_inbound": "no"
+      },
+      "io.github.rossgraeber/oac-session-channels": {
+        "revision": "0.1",
+        "active_inbound": true
+      }
+    }
+  },
+  "expected": {
+    "result": "agreed",
+    "extension": "io.github.rossgraeber/oac-session-channels",
+    "major": 0
+  }
+}

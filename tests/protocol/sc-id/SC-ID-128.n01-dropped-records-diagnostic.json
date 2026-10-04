@@ -1,0 +1,41 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-128",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "not paired within the window",
+  "description": "A transition signal for native-y is not paired before the window ends. It is dropped with a diagnostic; A is untouched.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-y",
+      "start_kind": "transition",
+      "pairing": "window-expired"
+    }
+  },
+  "expected": {
+    "result": "dropped",
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ],
+    "record": "diagnostic"
+  }
+}

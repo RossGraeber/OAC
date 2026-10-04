@@ -1,0 +1,30 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-082",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "unknown version only",
+  "description": "The declaration names only an identifier the consumer does not implement: an unknown version.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "io.github.rossgraeber/oac-session-channels-v2": {
+        "revision": "1.0",
+        "active_inbound": true
+      }
+    }
+  },
+  "expected": {
+    "result": "no-common-version"
+  }
+}

@@ -30,7 +30,7 @@
           "com.example/note"
         ]
       },
-      "8wd4k1q7z3m9c2t6x0b5n8r1vf": {
+      "6wd4k1q7z3m9c2t6x0b5n8r1vf": {
         "accepting": false,
         "content_types": [
           "text"
@@ -48,7 +48,7 @@
       },
       {
         "from": "01harn7x9k2m4p6q8r0s2t4v6w",
-        "to": "8wd4k1q7z3m9c2t6x0b5n8r1vf"
+        "to": "6wd4k1q7z3m9c2t6x0b5n8r1vf"
       },
       {
         "from": "01harn7x9k2m4p6q8r0s2t4v6w",
@@ -61,7 +61,7 @@
       "version": "0.1",
       "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
       "from": "01harn7x9k2m4p6q8r0s2t4v6w",
-      "to": "8wd4k1q7z3m9c2t6x0b5n8r1vf",
+      "to": "6wd4k1q7z3m9c2t6x0b5n8r1vf",
       "created_at": "2026-10-03T12:00:00.000Z",
       "ttl_ms": 300000,
       "content": [

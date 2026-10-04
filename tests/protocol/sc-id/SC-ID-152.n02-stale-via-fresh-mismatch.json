@@ -1,0 +1,40 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-152",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "stale binding after fail-closed",
+  "description": "B is bound to native-y with cross-check native-y. A fresh signal on B for native-x fails case 3(b); B ends unbound.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-y",
+        "binding": {
+          "native_id": "native-y",
+          "session_id": "5c8d1e4f7g0h3j6k9m2n5p8q1r"
+        }
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "B"
+    }
+  },
+  "expected": {
+    "result": "failed-closed",
+    "attachments": [
+      {
+        "attachment": "B",
+        "cross_check": "native-y"
+      }
+    ],
+    "record": "finding"
+  }
+}
