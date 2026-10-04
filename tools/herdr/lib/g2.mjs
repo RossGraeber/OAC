@@ -384,17 +384,20 @@ export const driverMayAcceptCodexExpecting = (getExpected) => (classification) =
 //         4. Cancel                  Cancel this tool call
 //       enter to submit | esc to cancel
 //
-// Source (the Codex repository at tag rust-v0.160.0, commit 79b1b666f2e8551f8abbbca34957227f67f3f553, read
-// 2026-10-04): the question is `Allow {actor} to run tool "{tool_name}"?` with actor `the
-// {server} MCP server` (codex-rs/core/src/mcp_tool_call.rs build_mcp_tool_approval_fallback_message);
-// the TUI labels come from codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs. "Allow" is an
-// elicitation Accept without a persist mode, which parse_mcp_tool_approval_elicitation_response
-// maps to ReviewDecision::Approved, and apply_mcp_tool_approval_decision does nothing for
-// Approved: nothing is remembered for the session and nothing is written to config. "Allow for
-// this session" remembers the approval for the session; "Always allow" persists it
-// (maybe_persist_mcp_tool_approval). The driver never selects either. That no persistent
-// approval was written is also checked per run: run.mjs requires the harness-config hashes
-// unchanged after any driver Allow (ctx.requireHarnessConfigUnchanged).
+// Source (the Codex repository at tag rust-v0.160.0, commit a956835d020762cb2b570053af06f643a11c0ecc,
+// read 2026-10-04): the question is `Allow {actor} to run tool "{tool_name}"?` with actor `the
+// {server} MCP server` (codex-rs/core/src/mcp_tool_call.rs:1961-1977,
+// build_mcp_tool_approval_fallback_message); the TUI options and descriptions come from
+// codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs:251-291, with option 1 the default
+// selection (:307-315, :765). "Allow" submits an elicitation Accept with no meta and no content
+// (submit_answers, :1155-1178), which parse_mcp_tool_approval_elicitation_response maps to
+// ReviewDecision::Approved (mcp_tool_call.rs:2131-2167, line 2160), and
+// apply_mcp_tool_approval_decision (:2258-2285) does nothing for Approved: nothing is remembered
+// for the session and nothing is written to config. "Allow for this session" remembers the
+// approval for the session; "Always allow" persists it (maybe_persist_mcp_tool_approval, :2287).
+// The driver never selects either. That no persistent approval was written is also checked per
+// run: just before the first driver Allow, run.mjs hashes the harness config and requires the
+// teardown hashes to equal that snapshot (ctx.requireHarnessConfigUnchanged).
 //
 // The lines between the question and the options are the tool's arguments as Codex displays
 // them (`<name>: <value>`, one line each); each name must be one of the tool's declared inputs.

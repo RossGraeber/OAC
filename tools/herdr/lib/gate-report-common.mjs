@@ -112,10 +112,14 @@ export function describeDialogs(dialogs, { harnessConfig } = {}) {
   const text = (dialogs ?? []).map(describeDialog).join('; ') || 'none';
   const allows = (dialogs ?? []).filter((d) => d.toolApproval?.answer && d.acceptOrigin === 'driver').length;
   if (!allows || harnessConfig === undefined) return text;
-  const hc = harnessConfig?.unchanged === true
-    ? 'VERIFIED unchanged (`harnessConfig.unchanged` true): no persistent approval was written to the hashed harness config'
-    : `UNVERIFIED — \`harnessConfig.unchanged\` is ${JSON.stringify(harnessConfig?.unchanged ?? null)}${harnessConfig?.changed?.length ? ` (changed: ${harnessConfig.changed.join(', ')})` : ''}: a persisted approval is not ruled out`;
-  return `${text}. Harness config after ${allows} driver "Allow" answer(s) (#271): ${hc}`;
+  // The check is against the snapshot taken just before the first Allow (sinceFirstAllow); the
+  // start-to-teardown comparison is a separate fact, shown beside it.
+  const s = harnessConfig?.sinceFirstAllow;
+  const hc = s?.unchanged === true
+    ? `VERIFIED unchanged since the snapshot before the first Allow (\`harnessConfig.sinceFirstAllow.unchanged\` true, snapshot \`harnessConfig.beforeFirstAllow\` at ${harnessConfig.beforeFirstAllow?.at ?? '?'}): no persistent approval was written to the hashed harness config`
+    : `UNVERIFIED — \`harnessConfig.sinceFirstAllow.unchanged\` is ${JSON.stringify(s?.unchanged ?? null)}${s?.changed?.length ? ` (changed: ${s.changed.join(', ')})` : ''}: a persisted approval is not ruled out`;
+  const whole = `; start to teardown: ${harnessConfig?.unchanged === true ? 'unchanged' : `changed (${(harnessConfig?.changed ?? []).join(', ') || 'not recorded'})`} (\`harnessConfig.unchanged\`)`;
+  return `${text}. Harness config after ${allows} driver "Allow" answer(s) (#271): ${hc}${whole}`;
 }
 
 // --- Verification (#252) -------------------------------------------------------------------

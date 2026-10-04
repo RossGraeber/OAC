@@ -120,7 +120,8 @@ The driver presses `enter` on "1. Allow" (this call only) only when all of these
   tool's declared inputs;
 - the server and tool are ones `g4-mcp-dual-era` registered itself, taken from its committed
   config and validated launch, never from the pane (`lib/g4.mjs` `g4CodexToolApproval`:
-  `g4http`; `g4_echo`, `g4_relay_to_claude`);
+  `g4http`; `g4_echo`, `g4_relay_to_claude`). The launch must register `g4http` once, at
+  exactly the staged server's URL `"http://127.0.0.1:<httpPort>/mcp"`;
 - "1. Allow" is selected, with exactly one marker, and a fresh read confirms it before
   `enter`. The driver never moves the selection here, so it never answers "Allow for this
   session" or "Always allow".
@@ -128,10 +129,12 @@ The driver presses `enter` on "1. Allow" (this call only) only when all of these
 Anything else, and the same prompt in any other scenario (G2, G5, L3), ends the run
 `NOT RUN` with no key sent. The dialog record holds `toolApproval` (prompt, server, tool,
 arguments, expected, answer), `acceptKeys`, `confirmReadSeq` and `acceptOrigin: driver`.
-The report's Verification "Dialogs" line renders them. After any driver Allow, `run.mjs`
-requires the harness-config hashes unchanged at teardown (`harnessConfig.mustStayUnchanged`).
-A change, including one from a Codex trust accept in the same run, is a finding and turns a
-PASS into FAIL. Per Codex source at `rust-v0.160.0`, "Allow" persists nothing. Rules:
+The report's Verification "Dialogs" line renders them. Immediately before the Enter of the
+first driver Allow, `run.mjs` hashes the harness config (`harnessConfig.beforeFirstAllow`).
+The teardown hashes must equal that snapshot (`harnessConfig.sinceFirstAllow`). A change
+since then is a finding and turns a PASS into FAIL. An earlier write, such as a Codex trust
+accept at startup, does not count. The start-to-teardown comparison stays a separate fact.
+Per Codex source at `rust-v0.160.0`, "Allow" persists nothing. Rules:
 `scripted-runs.md` "Operator-consent dialogs" (#271); decision record
 `docs/planning/decisions/K-196-driver-accepts-dialogs.md` §7.
 

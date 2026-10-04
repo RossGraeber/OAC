@@ -50,6 +50,8 @@
 //     FAKE_CODEX_APPROVAL_MARKER    the selection marker (default ›)
 //     FAKE_CODEX_APPROVAL_PERSIST   1 = any answer appends a line to $CODEX_HOME/config.toml
 //                                   (stands in for a Codex that persisted an approval)
+//   FAKE_CODEX_TRUST_PERSIST   #271: 1 = accepting the trust dialog appends a trust entry to
+//                              $CODEX_HOME/config.toml, as real Codex records trust
 //   FAKE_CODEX_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                              operator pressing Enter outside the driver)
 //   FAKE_CODEX_NO_ATTACH       1 = the TUI never connects to the daemon (embedded server)
@@ -502,6 +504,12 @@ async function tui(overrides = {}) {
     if (def.options[sel] !== 'Trust and continue') {
       hist(`[trust: "${def.options[sel]}" confirmed; leaving]`);
       process.exit(0);
+    }
+    // #271: as real Codex does (scripted-runs.md "Side effect: trust entries accumulate"), the
+    // accept writes the project's trust entry into the Codex config.
+    if (env.FAKE_CODEX_TRUST_PERSIST === '1') {
+      mkdirSync(HOME, { recursive: true });
+      appendFileSync(join(HOME, 'config.toml'), `# fake-codex: [projects.'${CWD}'] trust_level = "trusted"\n`);
     }
     hist('[dialog accepted]');
   } else if (DIALOG !== 'none') {

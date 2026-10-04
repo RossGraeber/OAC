@@ -265,8 +265,9 @@ these hold (`CODEX_TOOL_APPROVAL` and `planCodexToolApproval` in `tools/herdr/li
   numbered 1-4, and the recorded footer;
 - the server and tool are exactly ones the G4 scenario registered itself, taken from its
   committed config and validated launch, never from the pane (`g4CodexToolApproval` in
-  `tools/herdr/lib/g4.mjs`: server `g4http`, tools `g4_echo` and `g4_relay_to_claude`), and
-  each argument is one of that tool's declared inputs;
+  `tools/herdr/lib/g4.mjs`: server `g4http`, tools `g4_echo` and `g4_relay_to_claude`). The
+  launch must register `g4http` once, at exactly the staged server's URL
+  `"http://127.0.0.1:<httpPort>/mcp"`. Each argument is one of that tool's declared inputs;
 - the selection is on "1. Allow" (this call only), shown with exactly one `›`. The driver
   never moves the selection here and never answers "Allow for this session" or "Always allow".
   A fresh read must confirm all of the above before Enter (`codexToolApprovalCheck`);
@@ -277,11 +278,13 @@ Anything else (another server or tool, other wording, another selection, another
 ends the run `NOT RUN` with no key sent, as before. Each answer is recorded on the dialog
 (`toolApproval`: prompt, server, tool, arguments, expected, answer; `acceptKeys`,
 `confirmReadSeq`, `acceptOrigin: driver`). The Verification section's Dialogs line renders it.
-Codex source (`rust-v0.160.0`) shows "Allow" persists nothing. Each run also checks it: after
-any driver Allow, `run.mjs` requires the harness-config hashes unchanged at teardown
-(`harnessConfig.mustStayUnchanged`). A change is a finding, and a PASS becomes FAIL. That
-includes a change from accepting Codex's trust dialog in the same run, since the hash cannot
-tell the two apart. Decision record: `K-196-driver-accepts-dialogs.md` §7.
+Codex source (`rust-v0.160.0`) shows "Allow" persists nothing. Each run also checks it.
+Immediately before the Enter of the first driver Allow, `run.mjs` hashes the harness config
+(`harnessConfig.beforeFirstAllow`). Teardown's hashes must equal that snapshot
+(`harnessConfig.sinceFirstAllow`). A change since the snapshot is a finding, and a PASS
+becomes FAIL. An earlier write, such as a Codex trust accept at startup, is outside the window.
+The start-to-teardown comparison (`harnessConfig.unchanged`) stays a separate recorded fact.
+Decision record: `K-196-driver-accepts-dialogs.md` §7.
 
 - **Read before any keystroke.** The driver reads the dialog's pane text verbatim
   (`--source visible`) and keeps it in the pane capture before it sends any key.
@@ -456,7 +459,9 @@ signature settles.
 - **Every dialog accept, with its origin:** `driver`, its keys in the command log, or
   `human`, inferred (see "Driver identity" and "Operator-consent dialogs"). A driver "Allow"
   on Codex's MCP tool-approval prompt (#271) also names the prompt, server, tool and answer,
-  and the harness-config hash check (`harnessConfig.unchanged`) that shows nothing persisted.
+  and the harness-config hash check against the snapshot taken before the first Allow
+  (`harnessConfig.sinceFirstAllow`) that shows nothing persisted, with start-to-teardown
+  (`harnessConfig.unchanged`) beside it.
 
 **What the recording agent does.** The report libs (`g1-report` … `g5-report`,
 `l3-report`; `verification()` in `tools/herdr/lib/gate-report-common.mjs`) generate the
@@ -629,7 +634,8 @@ the operator who signed it."
   driver refuses it and the run is `NOT RUN`. The one exception is Codex's MCP
   tool-approval prompt in G4 (#271, "Operator-consent dialogs"). It counts only when it
   matched the recorded text and G4's own server and tools, was answered "1. Allow" by the
-  driver as recorded, and the harness config was unchanged afterwards. G2, G4 and G5 name no
+  driver as recorded, and the harness config was unchanged from just before the first Allow
+  to teardown. G2, G4 and G5 name no
   consent step, so for them `accept=driver` and `accept=human` are equally eligible. Their
   accept policy is still part of `scenario.params`, so a verdict-bearing run must use the
   policy of its equivalence record.

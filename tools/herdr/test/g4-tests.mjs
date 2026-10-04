@@ -321,13 +321,18 @@ const TA_LIVE = [
 const taSelect = (n) => TA_LIVE.replace('  › 1. Allow', '    1. Allow').replace(new RegExp(`^    ${n}\\. `, 'm'), `  › ${n}. `);
 
 async function toolApprovalUnit(check) {
-  const G4_EXP = g4CodexToolApproval(validateCodexLaunch(defaultCodexLaunch(17458)));
+  const G4_EXP = g4CodexToolApproval(validateCodexLaunch(defaultCodexLaunch(17458)), { httpPort: 17458 });
   // The expectation is the scenario's own committed config: the server its launch registers and
   // the tools (with declared inputs) the committed reconstructed server offers.
   const srcTools = [...read(SERVER).matchAll(/name: '(g4_[a-z_]+)',\s*\n\s*description: [^\n]*\n\s*inputSchema: \{ type: 'object', properties: \{ ([a-z_]+): /g)].map((m) => [m[1], m[2]]);
   check('g4 #271: the allowed tools and their declared inputs are exactly the committed g4-server.mjs TOOLS', JSON.stringify(Object.entries(G4_CODEX_TOOLS).map(([t, a]) => [t, ...a])) === JSON.stringify(srcTools) && srcTools.length === 2, JSON.stringify(srcTools));
   check('g4 #271: the expectation is g4http (the default launch\'s registration) with both tools', G4_EXP?.server === G4_CODEX_SERVER && G4_CODEX_SERVER === 'g4http' && defaultCodexLaunch(1)[2].startsWith(`mcp_servers.${G4_CODEX_SERVER}.url=`) && JSON.stringify(G4_EXP.tools) === '["g4_echo","g4_relay_to_claude"]', JSON.stringify(G4_EXP));
-  check('g4 #271: no expectation when the launch does not register g4http (or was refused)', g4CodexToolApproval(validateCodexLaunch(['codex', '-c', 'mcp_servers.other.url="http://127.0.0.1:1/mcp"'])) === null && g4CodexToolApproval({ ok: false, overrides: [] }) === null && g4CodexToolApproval(null) === null);
+  check('g4 #271: no expectation when the launch does not register g4http (or was refused)', g4CodexToolApproval(validateCodexLaunch(['codex', '-c', 'mcp_servers.other.url="http://127.0.0.1:17458/mcp"']), { httpPort: 17458 }) === null && g4CodexToolApproval({ ok: false, overrides: [] }, { httpPort: 17458 }) === null && g4CodexToolApproval(null, { httpPort: 17458 }) === null);
+  // PR #277 review: g4http must point at exactly the server the scenario staged.
+  const at = (url) => g4CodexToolApproval(validateCodexLaunch(['codex', '-c', `mcp_servers.g4http.url="${url}"`]), { httpPort: 17458 });
+  const otherEndpoints = ['http://127.0.0.1:9999/mcp', 'http://127.0.0.1:17459/mcp', 'http://localhost:17458/mcp', 'http://[::1]:17458/mcp', 'https://127.0.0.1:17458/mcp', 'http://127.0.0.1/mcp'];
+  check('g4 #271 review: g4http registered at any other URL, port, host or scheme than the staged server gives no expectation', otherEndpoints.every((u) => validateCodexLaunch(['codex', '-c', `mcp_servers.g4http.url="${u}"`]).ok && at(u) === null) && at('http://127.0.0.1:17458/mcp')?.server === 'g4http', JSON.stringify(otherEndpoints.map((u) => [u, at(u)])));
+  check('g4 #271 review: no expectation without the staged port, or with a second g4http registration', g4CodexToolApproval(validateCodexLaunch(defaultCodexLaunch(17458))) === null && g4CodexToolApproval(validateCodexLaunch(defaultCodexLaunch(17458)), { httpPort: 17460 }) === null && g4CodexToolApproval(validateCodexLaunch([...defaultCodexLaunch(17458), '-c', 'mcp_servers.g4http.url="http://127.0.0.1:9999/mcp"']), { httpPort: 17458 }) === null);
 
   const live = classifyCodexScreen(TA_LIVE);
   check('g4 #271: the live prompt is the mcp-tool-approval kind, every line accounted for; the operator\'s `›` prompt line above it is not a marker', live.dialog === 'mcp-tool-approval' && live.variant === 'tool-approval' && live.form.unknown.length === 0 && live.form.server === 'g4http' && live.form.tool === 'g4_echo' && live.form.marked === 1 && JSON.stringify(live.form.arguments) === '[{"name":"text","value":"hello from codex through herdr"}]', JSON.stringify(live.form));
@@ -352,6 +357,14 @@ async function toolApprovalUnit(check) {
   refused('an argument the tool does not declare', classifyCodexScreen(TA_LIVE.replace('  text: hello', '  command: hello')), /not the tool's declared inputs/);
   refused('two selection markers', classifyCodexScreen(TA_LIVE.replace('    3. Always allow', '  › 3. Always allow')), /2 selection markers/);
   refused('a marker other than ›', classifyCodexScreen(TA_LIVE.replace('  › 1. Allow', '  ❯ 1. Allow')), /selection marker is "❯"/);
+  // PR #277 review: a selection-marked line BELOW the footer (the composer, or a real dialog
+  // under form-shaped transcript text) counts as a second marker.
+  refused('the composer (›) below the footer', classifyCodexScreen(`${TA_LIVE}\n\n› Ask Codex to do anything`), /2 selection markers/);
+  refused('an exec approval option (❯) below the footer', classifyCodexScreen(`${TA_LIVE}\n  Allow command?\n  ❯ 1. Yes, proceed\n    2. No`), /2 selection markers/);
+  // PR #277 review: the recorded labels and descriptions with off-record numbering.
+  const renumber = (nums) => TA_LIVE.replace('› 1. Allow', `› ${nums[0]}. Allow`).replace('2. Allow for', `${nums[1]}. Allow for`).replace('3. Always', `${nums[2]}. Always`).replace('4. Cancel', `${nums[3]}. Cancel`);
+  refused('the recorded options numbered 0-3', classifyCodexScreen(renumber([0, 1, 2, 3])), /options are numbered \[0,1,2,3\], not 1-4/);
+  refused('the recorded options numbered 1, 2, 3, 5', classifyCodexScreen(renumber([1, 2, 3, 5])), /options are numbered \[1,2,3,5\], not 1-4/);
   // #197 stands everywhere else: a scenario that names no expectation (every scenario but G4)
   // refuses even the exact recorded prompt, as does the generic planner.
   refused('a non-G4 scenario (no expectation)', live, /registered no MCP server and tools/, null);
@@ -362,27 +375,35 @@ async function toolApprovalUnit(check) {
   check('g4 #271: a confirming read naming another tool, or other arguments, stops', codexToolApprovalCheck(relay, v).state === 'stop' && codexToolApprovalCheck(classifyCodexScreen(TA_LIVE.replace('text: hello', 'text: bye')), v).state === 'stop');
   check('g4 #271: a confirming read with two markers waits (never ok)', codexToolApprovalCheck(classifyCodexScreen(TA_LIVE.replace('    3. Always allow', '  › 3. Always allow')), v).state === 'wait');
   // driverAcceptDialog: the confirm read comes before Enter; a failing one sends nothing.
-  const drive = async (confirmText) => {
+  const drive = async (confirmText, { hook = true } = {}) => {
     const sent = [];
-    const herdrStub = { commands: [], dialogAccept: async (t, keys) => { sent.push(...keys); return { entry: { seq: 90 + sent.length, startedAt: 'x' } }; } };
+    const events = [];
+    const herdrStub = { commands: [], dialogAccept: async (t, keys) => { sent.push(...keys); events.push(`key:${keys.join()}`); return { entry: { seq: 90 + sent.length, startedAt: 'x' } }; } };
     const d = { index: 1 };
     let stopped = null;
     const reads = [confirmText, 'after: the tool ran'];
+    const beforeEnter = hook ? (dd, answer) => events.push(`snapshot:${answer}`) : null;
     try {
-      await driverAcceptDialog({ herdr: herdrStub, target: 'g4codex', r: { seq: 1, text: TA_LIVE, screen: live }, d, kind: 'mcp-tool-approval', dialogKinds: CODEX_DIALOG_KINDS, plan, read: async () => { const t = reads.shift() ?? 'after'; return { seq: 10 + reads.length, text: t, screen: classifyCodexScreen(t) }; }, stop: (why) => { throw new Error(`STOP ${why}`); }, num: () => 1, sleep: async () => {}, deadlineFor: () => Date.now() + 1000 });
+      await driverAcceptDialog({ herdr: herdrStub, target: 'g4codex', r: { seq: 1, text: TA_LIVE, screen: live }, d, kind: 'mcp-tool-approval', dialogKinds: CODEX_DIALOG_KINDS, plan, read: async () => { const t = reads.shift() ?? 'after'; return { seq: 10 + reads.length, text: t, screen: classifyCodexScreen(t) }; }, stop: (why) => { throw new Error(`STOP ${why}`); }, num: () => 1, sleep: async () => {}, deadlineFor: () => Date.now() + 1000, beforeEnter });
     } catch (e) {
       stopped = e.message;
     }
-    return { sent, d, stopped };
+    return { sent, d, stopped, events };
   };
   const ok = await drive(TA_LIVE);
   check('g4 #271: driverAcceptDialog reads again before Enter, then sends Enter alone; the dialog records prompt, server, tool, answer and acceptOrigin driver', ok.stopped === null && JSON.stringify(ok.sent) === '["enter"]' && Number.isInteger(ok.d.confirmReadSeq) && ok.d.acceptKeys[0].verifiedSeq === ok.d.confirmReadSeq && ok.d.acceptOrigin === 'driver' && ok.d.toolApproval.answer === '1. Allow' && ok.d.toolApproval.question === live.form.question && ok.d.toolApproval.server === 'g4http' && ok.d.toolApproval.tool === 'g4_echo', JSON.stringify(ok));
+  check('g4 #271 review: the harness-config snapshot hook runs immediately before the Enter, never after', JSON.stringify(ok.events) === '["snapshot:1. Allow","key:enter"]', JSON.stringify(ok.events));
+  const noHook = await drive(TA_LIVE, { hook: false });
+  check('g4 #271 review: without a snapshot hook the driver sends nothing (fail-closed)', /^STOP .*no harness-config snapshot/.test(noHook.stopped ?? '') && noHook.sent.length === 0 && noHook.d.acceptOrigin !== 'driver', JSON.stringify(noHook));
   const moved = await drive(taSelect(3));
   check('g4 #271: driverAcceptDialog sends nothing when the confirming read shows "Always allow" selected', /^STOP .*confirming read .*"3\. Always allow"/.test(moved.stopped ?? '') && moved.sent.length === 0 && moved.d.acceptOrigin !== 'driver' && moved.d.toolApproval.answer === null, JSON.stringify(moved));
   // The Verification section's Dialogs line.
-  const line = describeDialogs([ok.d], { harnessConfig: { unchanged: true, changed: [] } });
-  const bad = describeDialogs([ok.d], { harnessConfig: { unchanged: false, changed: ['$CODEX_HOME/config.toml'] } });
-  check('g4 #271: the Dialogs line names the prompt, server, tool, answer and keys, and the harness-config check (VERIFIED unchanged, or UNVERIFIED when changed)', line.includes('Codex MCP tool approval: prompt "Allow the g4http MCP server to run tool \\"g4_echo\\"?", server "g4http", tool "g4_echo"') && /answer "1\. Allow" \(this call only\), confirmed by read #\d+ before Enter/.test(line) && /accepted by the DRIVER \(herdr dialog-accept: enter #\d+\)/.test(line) && /VERIFIED unchanged/.test(line) && bad.includes('UNVERIFIED — `harnessConfig.unchanged` is false (changed: $CODEX_HOME/config.toml): a persisted approval is not ruled out'), `${line} || ${bad}`);
+  // The check is against the snapshot before the first Allow; start-to-teardown is shown apart.
+  const snap = { at: '2026-10-04T00:00:00.000Z', hashes: [] };
+  const line = describeDialogs([ok.d], { harnessConfig: { unchanged: true, changed: [], beforeFirstAllow: snap, sinceFirstAllow: { unchanged: true, changed: [] } } });
+  const trustFirst = describeDialogs([ok.d], { harnessConfig: { unchanged: false, changed: ['$CODEX_HOME/config.toml'], beforeFirstAllow: snap, sinceFirstAllow: { unchanged: true, changed: [] } } });
+  const bad = describeDialogs([ok.d], { harnessConfig: { unchanged: false, changed: ['$CODEX_HOME/config.toml'], beforeFirstAllow: snap, sinceFirstAllow: { unchanged: false, changed: ['$CODEX_HOME/config.toml'] } } });
+  check('g4 #271: the Dialogs line names the prompt, server, tool, answer and keys, and the harness-config check against the pre-Allow snapshot (VERIFIED unchanged, or UNVERIFIED when changed), with start-to-teardown as a separate fact', line.includes('Codex MCP tool approval: prompt "Allow the g4http MCP server to run tool \\"g4_echo\\"?", server "g4http", tool "g4_echo"') && /answer "1\. Allow" \(this call only\), confirmed by read #\d+ before Enter/.test(line) && /accepted by the DRIVER \(herdr dialog-accept: enter #\d+\)/.test(line) && /VERIFIED unchanged since the snapshot before the first Allow/.test(line) && /start to teardown: unchanged/.test(line) && /VERIFIED unchanged since the snapshot/.test(trustFirst) && /start to teardown: changed \(\$CODEX_HOME\/config\.toml\)/.test(trustFirst) && bad.includes('UNVERIFIED — `harnessConfig.sinceFirstAllow.unchanged` is false (changed: $CODEX_HOME/config.toml): a persisted approval is not ruled out'), `${line} || ${trustFirst} || ${bad}`);
 }
 
 async function multiSelectUnit(check) {
@@ -770,24 +791,40 @@ export function g4Cases(check) {
     const m = r.manifest;
     const ds = taDialogs(m.scenarioData.g4);
     check('g4 #271 allow: PASS; both prompts (g4_echo, then g4_relay_to_claude) answered by the DRIVER with Enter alone, each after a confirming read; prompt, server, tool and answer recorded', r.status === 0 && m.outcome === 'PASS' && ds.length === 2 && JSON.stringify(ds.map((d) => d.toolApproval.tool)) === '["g4_echo","g4_relay_to_claude"]' && ds.every((d) => d.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["enter"]' && Number.isInteger(d.confirmReadSeq) && d.confirmReadSeq > d.readSeq && d.confirmReadSeq < d.acceptSeq && d.toolApproval.server === 'g4http' && /^Allow the g4http MCP server to run tool "g4_/.test(d.toolApproval.question) && d.toolApproval.answer === '1. Allow' && d.inputBetweenReadAndAccept === 0), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(ds)}`);
-    check('g4 #271 allow: each Allow required the harness config unchanged, and it was (harnessConfig.mustStayUnchanged, unchanged true)', m.harnessConfig.mustStayUnchanged.length === 2 && m.harnessConfig.unchanged === true && m.harnessConfig.mustStayUnchanged.every((x) => /answered "1\. Allow" for g4http\.g4_/.test(x.why)), JSON.stringify(m.harnessConfig));
+    check('g4 #271 allow: each Allow required the harness config unchanged from a snapshot taken just before the first Allow, and it was (mustStayUnchanged, beforeFirstAllow, sinceFirstAllow; start to teardown also unchanged)', m.harnessConfig.mustStayUnchanged.length === 2 && m.harnessConfig.mustStayUnchanged.every((x) => /answered "1\. Allow" for g4http\.g4_/.test(x.why)) && m.harnessConfig.beforeFirstAllow?.hashes?.length === 3 && m.harnessConfig.sinceFirstAllow?.unchanged === true && m.harnessConfig.unchanged === true, JSON.stringify(m.harnessConfig));
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
     const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
-    check('g4 #271 allow: the Verification section\'s Dialogs line renders each Allow (prompt, server, tool, answer, keys) and the config check VERIFIED unchanged', draft.status === 0 && (dl.match(/Codex MCP tool approval: prompt "Allow the g4http MCP server to run tool/g) ?? []).length === 2 && /answer "1\. Allow" \(this call only\)/.test(dl) && /Harness config after 2 driver "Allow" answer\(s\) \(#271\): VERIFIED unchanged/.test(dl), dl || draft.stderr);
+    check('g4 #271 allow: the Verification section\'s Dialogs line renders each Allow (prompt, server, tool, answer, keys) and the config check VERIFIED unchanged', draft.status === 0 && (dl.match(/Codex MCP tool approval: prompt "Allow the g4http MCP server to run tool/g) ?? []).length === 2 && /answer "1\. Allow" \(this call only\)/.test(dl) && /Harness config after 2 driver "Allow" answer\(s\) \(#271\): VERIFIED unchanged since the snapshot before the first Allow/.test(dl) && /start to teardown: unchanged/.test(dl), dl || draft.stderr);
   });
-  // The fake Codex writes its config on each answer (FAKE_CODEX_APPROVAL_PERSIST), standing in
-  // for a Codex that persisted an approval: the config-hash requirement must turn the PASS into
-  // a FAIL (invariants expect the changed hash, on purpose).
+  // PR #277 review, both orderings of a config write and the Allow. (a) The fake Codex writes its
+  // config on each answer (FAKE_CODEX_APPROVAL_PERSIST), standing in for a Codex that persisted
+  // an approval: a change AFTER the first Allow turns the PASS into a FAIL. (b) The Codex trust
+  // accept at startup writes the trust entry (FAKE_CODEX_TRUST_PERSIST) BEFORE any Allow: the
+  // run stays PASS, and the start-to-teardown change is still recorded as its own fact.
+  // (Invariants expect the changed start-to-teardown hash, on purpose.)
   cases.push({
     name: 'g4 #271 tool approval: an Allow that changes the harness config is not a PASS',
     opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: ['--param', 'accept=driver', ...FAST, ...PORTS(37718, 37720)], fakeCodex: { ...TA, FAKE_CODEX_APPROVAL_PERSIST: '1' } },
     invariantOpts: { configChanged: true },
     assert: (r) => {
       const m = r.manifest;
-      check('g4 #271 persisted: the harness config changed after a driver Allow: FAIL (not PASS), with a #271 finding naming the changed file', m.outcome === 'FAIL' && m.harnessConfig.unchanged === false && m.harnessConfig.changed.some((f) => /config\.toml$/.test(f)) && m.harnessConfig.mustStayUnchanged.length === 2 && /harness config changed during a run that required it unchanged \(#271/.test(m.outcomeReason) && m.findings.some((f) => /#271/.test(f)), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.harnessConfig)}`);
+      check('g4 #271 persisted after the Allow: the harness config changed since the pre-Allow snapshot: FAIL (not PASS), with a #271 finding naming the changed file', m.outcome === 'FAIL' && m.harnessConfig.sinceFirstAllow?.unchanged === false && m.harnessConfig.sinceFirstAllow.changed.some((f) => /config\.toml$/.test(f)) && m.harnessConfig.unchanged === false && m.harnessConfig.mustStayUnchanged.length === 2 && /harness config changed after the first driver "Allow" \(#271/.test(m.outcomeReason) && m.findings.some((f) => /#271/.test(f)), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.harnessConfig)}`);
       const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
       const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
-      check('g4 #271 persisted: the Dialogs line marks the config check UNVERIFIED (a persisted approval is not ruled out)', /Harness config after 2 driver "Allow" answer\(s\) \(#271\): UNVERIFIED — `harnessConfig\.unchanged` is false/.test(dl), dl || draft.stderr);
+      check('g4 #271 persisted after the Allow: the Dialogs line marks the config check UNVERIFIED (a persisted approval is not ruled out)', /Harness config after 2 driver "Allow" answer\(s\) \(#271\): UNVERIFIED — `harnessConfig\.sinceFirstAllow\.unchanged` is false/.test(dl), dl || draft.stderr);
+    },
+  });
+  cases.push({
+    name: 'g4 #271 tool approval: a Codex trust write before the first Allow does not fail the run',
+    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: ['--param', 'accept=driver', ...FAST, ...PORTS(37778, 37780)], fakeCodex: { FAKE_CODEX_TOOL_APPROVAL: '1', FAKE_CODEX_TRUST_PERSIST: '1' } },
+    invariantOpts: { configChanged: true },
+    assert: (r) => {
+      const m = r.manifest;
+      const trust = m.scenarioData.g4.dialogs.find((d) => d.agent === 'codex' && d.kind === 'workspace-trust');
+      check('g4 #271 trust first: PASS; the trust accept preceded the Allows and changed config.toml (start to teardown recorded as changed), but nothing changed since the pre-Allow snapshot', r.status === 0 && m.outcome === 'PASS' && trust?.acceptOrigin === 'driver' && taDialogs(m.scenarioData.g4).length === 2 && trust.acceptSeq < taDialogs(m.scenarioData.g4)[0].acceptSeq && m.harnessConfig.unchanged === false && m.harnessConfig.changed.some((f) => /config\.toml$/.test(f)) && m.harnessConfig.sinceFirstAllow?.unchanged === true && m.findings.some((f) => /harness config hash changed during the run/.test(f)) && !m.findings.some((f) => /changed after the first driver "Allow"/.test(f)), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.harnessConfig)}`);
+      const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
+      const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
+      check('g4 #271 trust first: the Dialogs line shows the check VERIFIED against the pre-Allow snapshot and the start-to-teardown change as a separate fact', /VERIFIED unchanged since the snapshot before the first Allow/.test(dl) && /start to teardown: changed \([^)]*config\.toml/.test(dl), dl || draft.stderr);
     },
   });
   const taRefused = (name, fake, re, port) => run(`g4 #271 tool approval: ${name} refused`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeCodex: { ...TA, ...fake } }, (r) => {

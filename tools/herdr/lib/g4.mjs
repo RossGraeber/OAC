@@ -87,12 +87,17 @@ export const defaultCodexLaunch = (httpPort) => ['codex', '-c', `mcp_servers.${G
 
 // #271: what the driver may allow, derived from this scenario's own committed config and its
 // validated Codex launch, never from the pane: G4_CODEX_SERVER and G4_CODEX_TOOLS, and only
-// when the launch actually registers that server's URL per invocation. -> { server, tools,
-// arguments } | null (null: the driver allows nothing; the prompt ends the run NOT RUN).
-export function g4CodexToolApproval(validation) {
-  if (!validation?.ok || !Array.isArray(validation.overrides)) return null;
-  if (!validation.overrides.some((o) => o.key === `mcp_servers.${G4_CODEX_SERVER}.url`)) return null;
-  return { server: G4_CODEX_SERVER, tools: Object.keys(G4_CODEX_TOOLS), arguments: G4_CODEX_TOOLS };
+// when the launch registers that server name exactly once, pointed at exactly the server this
+// scenario staged (`"http://127.0.0.1:<httpPort>/mcp"`, as defaultCodexLaunch writes it; PR #277
+// review). Any other URL, port, host or path, or a second g4http registration, gives null.
+// -> { server, tools, arguments, url } | null (null: the driver allows nothing; the prompt ends
+// the run NOT RUN).
+export const g4StagedServerUrl = (httpPort) => `"http://127.0.0.1:${httpPort}/mcp"`;
+export function g4CodexToolApproval(validation, { httpPort } = {}) {
+  if (!validation?.ok || !Array.isArray(validation.overrides) || !Number.isInteger(httpPort)) return null;
+  const regs = validation.overrides.filter((o) => o.key === `mcp_servers.${G4_CODEX_SERVER}.url`);
+  if (regs.length !== 1 || regs[0].value !== g4StagedServerUrl(httpPort)) return null;
+  return { server: G4_CODEX_SERVER, tools: Object.keys(G4_CODEX_TOOLS), arguments: G4_CODEX_TOOLS, url: g4StagedServerUrl(httpPort) };
 }
 const ALLOWED_OVERRIDE = /^(?:mcp_servers\.[A-Za-z0-9_-]{1,64}\.(?:url|enabled|startup_timeout_sec|tool_timeout_sec)|features\.[A-Za-z0-9_]{1,64})$/;
 

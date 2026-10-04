@@ -247,7 +247,10 @@ capture section seq 58 (the run ended `NOT RUN` there: "unrecognized dialog (unk
    committed config, never from the pane: `tools/herdr/lib/g4.mjs` `g4CodexToolApproval`
    returns server `g4http` and tools `g4_echo` and `g4_relay_to_claude` (the committed
    `gate-servers/g4-server.mjs` tools, checked by a unit test), and only when the validated
-   Codex launch registers `mcp_servers.g4http.url` per invocation.
+   Codex launch registers `mcp_servers.g4http.url` exactly once, with exactly the URL of the
+   server the scenario staged: `"http://127.0.0.1:<httpPort>/mcp"` (`g4StagedServerUrl`, as
+   `defaultCodexLaunch(httpPort)` writes it). Any other URL, port, host or scheme gives no
+   expectation, so the prompt is refused (PR #277 review).
 3. The answer is option 1 "Allow", this call only. It must be the preselection, with exactly
    one marker, and a fresh read must confirm it before Enter. The driver never moves the
    selection on this prompt, so it never answers "Allow for this session" or "Always allow".
@@ -259,25 +262,39 @@ capture section seq 58 (the run ended `NOT RUN` there: "unrecognized dialog (unk
    tool, arguments, expected, answer; `acceptKeys`; `confirmReadSeq`; `acceptOrigin: driver`)
    and rendered in the Verification section's Dialogs line (`describeDialogs`,
    `tools/herdr/lib/gate-report-common.mjs`).
-6. The harness-config hashes must be unchanged afterwards. After any driver Allow, `run.mjs`
-   requires them unchanged at teardown (`harnessConfig.mustStayUnchanged`). A change is a
-   finding and turns a PASS into FAIL, and the Dialogs line marks the check UNVERIFIED. A
-   Codex trust accept in the same run also changes `config.toml`. The hash cannot tell that
-   change apart, so it fails the check too (fail-closed).
+6. The harness-config hashes must be unchanged afterwards. Immediately before the Enter of
+   the first driver Allow, `run.mjs` hashes the harness config
+   (`ctx.requireHarnessConfigUnchanged`, `harnessConfig.beforeFirstAllow`). At teardown it
+   compares its hashes with that snapshot (`harnessConfig.sinceFirstAllow`). A change since
+   the snapshot is a finding and turns a PASS into FAIL, and the Dialogs line marks the check
+   UNVERIFIED. An earlier, legitimate write, such as the trust entry from a Codex trust accept
+   at startup, is outside that window and does not fail the run (PR #277 review). The
+   start-to-teardown comparison (`harnessConfig.unchanged`) stays recorded as a separate fact
+   and finding, and the Dialogs line shows both. The driver refuses to send the Enter if no
+   snapshot can be taken.
 
 **Why "Allow" persists nothing (source, not runtime).** Read from openai/codex tag
-`rust-v0.160.0` (commit `79b1b666f2e8551f8abbbca34957227f67f3f553`) on 2026-10-04:
+`rust-v0.160.0` (commit `a956835d020762cb2b570053af06f643a11c0ecc`; `79b1b666…` is the annotated tag object) on 2026-10-04.
+Line numbers and permalinks as cited in the PR #277 review:
 
 - The question is `Allow {actor} to run tool "{tool_name}"?`, with the actor `the {server}
-  MCP server` (`codex-rs/core/src/mcp_tool_call.rs`,
-  `build_mcp_tool_approval_fallback_message`).
-- The TUI labels "Allow", "Allow for this session" and "Always allow" come from
-  `codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs`.
-- "Allow" is an elicitation Accept without a persist mode.
-  `parse_mcp_tool_approval_elicitation_response` maps it to `ReviewDecision::Approved`.
-- `apply_mcp_tool_approval_decision` does nothing for `Approved`. Only
+  MCP server` (`build_mcp_tool_approval_fallback_message`,
+  [`codex-rs/core/src/mcp_tool_call.rs:1961-1977`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/core/src/mcp_tool_call.rs#L1961-L1977)).
+- The TUI options "Allow", "Allow for this session", "Always allow" and "Cancel", with the
+  recorded descriptions, come from
+  [`codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs:251-291`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs#L251-L291).
+  Option 1 is the default selection
+  ([`:307-315`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs#L307-L315),
+  [`:765`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs#L765)).
+- "Allow" submits an elicitation Accept with no meta and no content (`submit_answers`,
+  [`mcp_server_elicitation.rs:1155-1178`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs#L1155-L1178)).
+  `parse_mcp_tool_approval_elicitation_response` maps it to `ReviewDecision::Approved`
+  ([`mcp_tool_call.rs:2131-2167`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/core/src/mcp_tool_call.rs#L2131-L2167), line 2160).
+- `apply_mcp_tool_approval_decision` does nothing for `Approved`
+  ([`mcp_tool_call.rs:2258-2285`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/core/src/mcp_tool_call.rs#L2258-L2285)). Only
   `ApprovedForSession` (remembered for the session) and `ApprovedMcpPolicyAmendment`
-  (`maybe_persist_mcp_tool_approval`) keep anything.
+  (`maybe_persist_mcp_tool_approval`,
+  [`:2287`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/core/src/mcp_tool_call.rs#L2287)) keep anything.
 
 Condition 6 checks this on every run rather than trusting the source reading.
 
@@ -287,10 +304,10 @@ code approves tools.
 
 | Attack | Precondition | Mitigation | Proving test | Residual risk |
 |---|---|---|---|---|
-| A tool call other than G4's own is approved unattended (prompt injection steers Codex to another server or tool) | A G4 run under `accept=driver`, and Codex prompts for a tool the scenario did not register | Server and tool must equal `g4CodexToolApproval`'s committed values; any other is refused, `NOT RUN` | `g4-tests.mjs` units "another server", "another tool"; lifecycle "g4 #271 tool approval: another server/tool refused" | The allowed tools themselves run with model-chosen arguments; they are the scenario's own test tools (echo, relay into the scenario's Claude session) |
-| A persistent approval is written to the operator's Codex config | The driver selects "Allow for this session" or "Always allow", or Codex persists a plain Allow | Only a preselected "1. Allow", confirmed by a fresh read, is answered; harness-config hashes must be unchanged afterwards | Units "Always allow"/"Allow for this session" highlighted, confirm-read stop; lifecycle "an Allow that changes the harness config is not a PASS" | Config outside the hashed files (`config.toml`, `hooks.json`, Claude `settings.json`) is not checked |
+| A tool call other than G4's own is approved unattended (prompt injection steers Codex to another server or tool) | A G4 run under `accept=driver`, and Codex prompts for a tool the scenario did not register | Server and tool must equal `g4CodexToolApproval`'s committed values, and g4http must be registered at exactly the staged server's URL; any other is refused, `NOT RUN` | `g4-tests.mjs` units "another server", "another tool", "g4http registered at any other URL, port, host or scheme"; lifecycle "g4 #271 tool approval: another server/tool refused" | The allowed tools themselves run with model-chosen arguments; they are the scenario's own test tools (echo, relay into the scenario's Claude session) |
+| A persistent approval is written to the operator's Codex config | The driver selects "Allow for this session" or "Always allow", or Codex persists a plain Allow | Only a preselected "1. Allow", confirmed by a fresh read, is answered; harness-config hashes at teardown must equal the snapshot taken just before the first Allow | Units "Always allow"/"Allow for this session" highlighted, confirm-read stop, snapshot hook before Enter; lifecycle "an Allow that changes the harness config is not a PASS" and "a Codex trust write before the first Allow does not fail the run" | Config outside the hashed files (`config.toml`, `hooks.json`, Claude `settings.json`) is not checked |
 | The exception spreads to other scenarios | Another scenario meets the prompt under `accept=driver` | Only `g4-mcp-dual-era` passes an expectation; without one the planner refuses | Unit "a non-G4 scenario"; lifecycle "g5 Codex MCP tool-approval prompt: refused outside G4 (#271)" | A future scenario could opt in only through a code change and a new recorded decision |
-| A reworded or restructured prompt is answered | Codex changes the form | Every line is checked against the recorded text; off-record text is refused | Units "altered question wording", option/footer/header/marker variants; lifecycle "altered wording refused" | None beyond a Codex change that keeps the recorded text but changes its meaning |
+| A reworded or restructured prompt is answered | Codex changes the form | Every line is checked against the recorded text, and a selection marker below the footer counts as a second marker; off-record text is refused | Units "altered question wording", option/footer/header/marker variants, numbering 0-3 and 1, 2, 3, 5, a marker below the footer; lifecycle "altered wording refused" | None beyond a Codex change that keeps the recorded text but changes its meaning |
 
 **Verdict eligibility.** No G4 criterion names this prompt, so a driver Allow costs G4
 nothing, provided the dialog matched the record, the answer is recorded as the driver's, and

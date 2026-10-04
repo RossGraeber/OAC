@@ -60,9 +60,10 @@
 //      prompt asks it to call g4_echo, then g4_relay_to_claude; the relay reaches Claude only
 //      as the server's own channel push. Codex asks to approve each call (seen live on 0.160.0,
 //      #271): under accept=driver the driver answers "1. Allow" (this call only) when the prompt
-//      is the recorded text and names g4http and one of its two tools (lib/g4.mjs
-//      g4CodexToolApproval); anything else ends the run NOT RUN. run.mjs then requires the
-//      harness-config hashes unchanged (no persistent approval written).
+//      is the recorded text and names g4http (registered at exactly this run's staged server
+//      URL) and one of its two tools (lib/g4.mjs g4CodexToolApproval); anything else ends the
+//      run NOT RUN. run.mjs hashes the harness config just before the first Allow and requires
+//      the teardown hashes to equal that snapshot (no persistent approval written).
 //   6. Claude's modern `tools/call` again, after the Codex traffic (no-degradation check).
 //   7. Wake 2.
 //   8. Post-run versions.
@@ -186,7 +187,7 @@ export default {
     // #271: the only scenario that opts in to answering Codex's MCP tool-approval prompt, and only
     // "1. Allow" for the server and tools it registered itself (lib/g4.mjs g4CodexToolApproval:
     // its committed config and validated launch, never the pane).
-    const codex = makeAgent({ ctx, g: g4, name: 'g4codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodexExpecting(() => g4CodexToolApproval(g4.codexLaunch.validation)), accept, num, stop });
+    const codex = makeAgent({ ctx, g: g4, name: 'g4codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodexExpecting(() => g4CodexToolApproval(g4.codexLaunch.validation, { httpPort })), accept, num, stop });
 
     const transcriptPath = () => join(serverDir, 'transcript.jsonl');
     const facts = () => g4Facts(serverDir && existsSync(transcriptPath()) ? parseG4Transcript(readFileSync(transcriptPath(), 'utf8'), { completeLinesOnly: true }) : []);
