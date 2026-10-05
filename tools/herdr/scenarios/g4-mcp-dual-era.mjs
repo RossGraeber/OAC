@@ -10,11 +10,18 @@
 // committed fixture's wire shapes. It is not the server that produced the human-run fixture
 // and cannot be verified identical to it; every comparison says so.
 //
-// LIVE STATUS: UNVERIFIED. Exercised only against the test doubles in tools/herdr/test/ (a
-// fake herdr, a fake Claude Code and a fake Codex); it has never driven a real herdr, Claude
-// Code or Codex. Every pane-text pattern it schedules on (lib/g1.mjs, lib/g2.mjs) is a guess
-// except the dev-channels dialog, and whether Codex honors a per-invocation MCP-server `-c`
-// override for an HTTP server is itself UNVERIFIED.
+// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G4-2026-10-05.md (an equivalence
+// record, not verdict-bearing): run 20261005T013347Z-6803a7, a real herdr (v0.9.1), Claude
+// Code 2.1.285 and Codex 0.160.0, run outcome PASS, driver commit de42b54. It replaces
+// G4-2026-10-04.md (run 20261004T093525Z-c9beec, driver b478f2a), kept as history. The record
+// holds for its driver commit only: a later run relies on it only under oac-gates
+// references/scripted-runs.md "When a scripted run may carry a verdict" (among other
+// conditions, an empty tools/herdr/ diff, test/ excluded, against de42b54). In that run the
+// driver accepted all five dialogs on an exact match to their recorded text (the record's
+// findings). Whether Codex honors a per-invocation MCP-server `-c` override for an HTTP
+// server is partly answered there for Codex 0.160.0 (one Codex HTTP session, the override in
+// the process argv); that no other Codex user-config entry points at the run's port is still
+// UNVERIFIED from committed evidence.
 //
 // Operator command (herdr at the PINS.md pin; Claude Code and Codex at any version, since
 // versions float and a difference from PINS.md's last tested versions is a VERSION WARNING
