@@ -3581,6 +3581,97 @@
       }
     },
     {
+      "path": "docs/planning/gates/fixtures/g2-codex-inject/transcript-2026-10-05-0.160.0-herdr.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.160.0 (codex --version `codex-cli 0.160.0`)",
+        "codex_daemon": "0.160.0/0.160.0/0.160.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "a956835d020762cb2b570053af06f643a11c0ecc",
+        "node": null,
+        "client_visible_user_agent": "oac_g2_spike/0.160.0 (Windows 10.0.26300; x86_64) unknown (oac_g2_spike; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD efb775f0e0114504c8266a80bc157a65386886a4 when the run started (working tree matched HEAD: true); last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-05",
+      "capture_utc_range": "2026-10-05T05:23:45.217Z-2026-10-05T05:26:48.349Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "efb775f0e0114504c8266a80bc157a65386886a4",
+        "run_manifest": "docs/planning/gates/herdr-runs/G2-2026-10-05.run-manifest.json"
+      },
+      "notes": [
+        "K7 scripted run through herdr; NOT verdict-bearing (G2 verdict unchanged). Compared against the human-run 0.157.1 re-run in the herdr-runs record beside the run manifest."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (19 unrelated thread/list entries removed; host, installation id, plan and credit fields replaced): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "initialize (upgrade + handshake), per connection": "list 1, list 11, list 21, list 31, watch 41, turn 50, busyqueue 79, turns 799",
+        "thread/loaded/list": "7, 17, 27, 37",
+        "thread/list": "10, 20, 30, 40",
+        "thread/resume (event subscription)": "46, 48",
+        "turn/start (injection 1, idle thread)": "55, 57",
+        "turn/start (injection 2, busy-turn setup)": "84, 86",
+        "thread/queue/add (injection 3, queued while busy)": "146, 148",
+        "thread/turns/list": "806",
+        "item/completed": "74, 766, 788",
+        "turn/completed": "78, 770, 793",
+        "thread/start": null
+      },
+      "schema": {
+        "commit": "a956835d020762cb2b570053af06f643a11c0ecc",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
+        "sha256": null,
+        "note": "Schema not regenerated at Codex 0.160.0 (no MANIFEST.json schema record for this version); regenerate and compare it (D6 procedure) before relying on this capture's message shapes.",
+        "validated_against": "not validated against a regenerated schema at this version"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g2-codex-inject/pane-2026-10-05-0.160.0-herdr.txt",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.160.0 (codex --version `codex-cli 0.160.0`)",
+        "codex_daemon": "0.160.0/0.160.0/0.160.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "a956835d020762cb2b570053af06f643a11c0ecc",
+        "node": null,
+        "client_visible_user_agent": "oac_g2_spike/0.160.0 (Windows 10.0.26300; x86_64) unknown (oac_g2_spike; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD efb775f0e0114504c8266a80bc157a65386886a4 when the run started (working tree matched HEAD: true); last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-05",
+      "capture_utc_range": "2026-10-05T05:23:45.217Z-2026-10-05T05:26:48.349Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "efb775f0e0114504c8266a80bc157a65386886a4",
+        "run_manifest": "docs/planning/gates/herdr-runs/G2-2026-10-05.run-manifest.json"
+      },
+      "notes": [
+        "K7 scripted run through herdr; NOT verdict-bearing (G2 verdict unchanged). Compared against the human-run 0.157.1 re-run in the herdr-runs record beside the run manifest."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (19 unrelated thread/list entries removed; host, installation id, plan and credit fields replaced): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads of the Codex TUI, one section per kept read, each with its herdr command seq and timestamps"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
+      }
+    },
+    {
       "path": "docs/planning/gates/fixtures/g3-zenoh-peer/extras.py.throwaway-quarantined",
       "provider": "zenoh",
       "surface": "spike-source-code (throwaway, quarantined — not a protocol fixture)",
