@@ -266,7 +266,13 @@ export async function replayG5Channel({ trigger = writeTriggerAtomically } = {})
     let lastMtime = null;
     for (const id of caseIds) {
       const before = tlines().length;
-      lastMtime = await trigger(join(dir, 'case.trigger'), id, lastMtime);
+      try {
+        lastMtime = await trigger(join(dir, 'case.trigger'), id, lastMtime);
+      } catch (e) {
+        // #298 review NB-D: a trigger that cannot be written is a dropped case, reported.
+        dropped.push(`${id} (trigger not written: ${e?.code ?? e?.message ?? e})`);
+        continue;
+      }
       const ack = await waitForAck(tlines, before, id);
       if (!ack.ok) dropped.push(`${id} (${ack.why})`);
     }
@@ -376,6 +382,14 @@ export async function g5Unit(check) {
   // as a reorder of the cases after it.
   const bad = await replayG5Channel({ trigger: (p, id, last) => writeTriggerAtomically(p, id === 'C2' ? 'not-a-case' : id, last) });
   check('g5 reconstruction (#296 mutation): a case the server never acknowledges is reported as dropped, by id', bad.dropped.length === 1 && bad.dropped[0].startsWith('C2 '), JSON.stringify(bad.dropped));
+  // #298 review NB-D: a trigger write that fails is reported as that case dropped; the replay
+  // goes on and does not throw.
+  let threw = null;
+  const unwritable = await replayG5Channel({ trigger: (p, id, last) => (id === 'C3' ? Promise.reject(Object.assign(new Error('synthetic refused rename'), { code: 'EPERM' })) : writeTriggerAtomically(p, id, last)) }).catch((e) => {
+    threw = e;
+    return { dropped: [] };
+  });
+  check('g5 reconstruction (#298 NB-D mutation): a trigger that cannot be written is reported as that case dropped, not thrown', !threw && unwritable.dropped.length === 1 && unwritable.dropped[0] === 'C3 (trigger not written: EPERM)', JSON.stringify({ threw: threw?.message, dropped: unwritable.dropped }));
 
   // --- operator texts ------------------------------------------------------------------------------
   check('g5: the fixed question, the thread marker and the busy prompt carry no spoofing body', [cases.operatorQuestion, cases.codexThreadMarker, busyPromptFor('sleep 20')].every((t) => !throws(() => assertNoSpoof('t', t, cases))));
