@@ -26,7 +26,9 @@
 // live wire traffic carrying such a value is a capture bug to investigate, not to absorb.
 //
 // After redacting, the output is scanned again: `residualLeaks` are this machine's known
-// values (home, username, hostname, caller literals) still present; `residualGenericHits`
+// values (home, username, hostname, caller literals) still present, including a home path or
+// caller literal split across two or more lines by a pane wrap (#288, "(line-wrapped)"
+// labels; text captures are also redacted across such a break); `residualGenericHits`
 // are structural leak shapes still present regardless of whose they are. Reports name a
 // rule label and a line number only -- never the matched text -- so a report can be
 // printed or committed without re-leaking what it found. withholdResiduals() is the
@@ -95,6 +97,39 @@ function callerLiteralRe(value) {
   const body = parts.map((part, i) => (i === 0 && drive ? `${escapeRe(part[0])}(?::|%3[Aa])` : escapeRe(part))).join(SEP);
   return new RegExp(body, 'gi');
 }
+
+// A path literal split by a pane wrap (#288). A terminal pane wraps a long command line at
+// its width, mid-path: `...node.exe C:\sources\OAC\.clau` / `de\worktrees\...`. Per-line
+// rules match neither half. This form of a literal (caller literal or home) allows one line
+// break between any two of its characters (and around a separator), with the horizontal
+// padding a pane adds around it: trailing spaces before, a continuation indent after. It
+// still has to spell the whole literal, and a break is never allowed before its first
+// character or after its last, so it matches only text that IS the literal, wrapped.
+// Literals shorter than WRAP_MIN_LENGTH get no wrapped form: a short value split across an
+// arbitrary line boundary is more likely chance than a wrap. Known limits: a wrap inside a
+// JSON-escaped separator (`\\`), a TUI box border around the continuation, an OS username
+// split outside a home path, and another user's home path (the generic rules) split
+// mid-name are not caught.
+const WRAP_BREAK = String.raw`(?:[ \t]*\r?\n[ \t]*)?`;
+export const WRAP_MIN_LENGTH = 6;
+function wrappedPathRe(value, { segEnd = false, caseInsensitive = true } = {}) {
+  const parts = value.split(/[\\/]+/);
+  const drive = /^[A-Za-z]:$/.test(parts[0]);
+  const atoms = [];
+  parts.forEach((part, i) => {
+    if (i > 0) atoms.push(SEP);
+    if (i === 0 && drive) atoms.push(escapeRe(part[0]), '(?::|%3[Aa])');
+    else for (const ch of part) atoms.push(escapeRe(ch));
+  });
+  return new RegExp(atoms.join(WRAP_BREAK) + (segEnd ? SEG_END : ''), caseInsensitive || drive ? 'gi' : 'g');
+}
+// Line breaks of a wrapped match, re-emitted after its placeholder so line numbers stay.
+const breaksOf = (m) => (m.match(/\r?\n/g) ?? []).join('');
+const lineAt = (text, index) => {
+  let n = 1;
+  for (let i = text.indexOf('\n'); i !== -1 && i < index; i = text.indexOf('\n', i + 1)) n += 1;
+  return n;
+};
 
 function identityMode(name) {
   if (typeof name !== 'string' || !name || COMMON_NAMES.has(name.toLowerCase())) return 'context-only';
@@ -266,6 +301,25 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
   replaceRules.push(...TOKEN_RULES);
   replaceRules.push(reRule('email', EMAIL_RE, PLACEHOLDER.email));
 
+  // Wrapped forms (#288), most specific first like the per-line rules. They act only on a
+  // match that actually crosses a line break; an unbroken one is left to the per-line rules.
+  const wrapRules = [];
+  for (const { value, placeholder } of [...lits].sort((a, b) => b.value.length - a.value.length)) {
+    if (value.length >= WRAP_MIN_LENGTH) wrapRules.push({ label: `literal ${placeholder} (line-wrapped)`, leakLabel: `literal ${placeholder} (line-wrapped)`, re: wrappedPathRe(value), placeholder });
+  }
+  if (home && home.length >= WRAP_MIN_LENGTH) wrapRules.push({ label: 'home (line-wrapped)', leakLabel: 'home path (line-wrapped)', re: wrappedPathRe(home, { segEnd: true, caseInsensitive: false }), placeholder: PLACEHOLDER.home });
+  const unwrap = (s, counts) => {
+    if (!s.includes('\n')) return s;
+    return wrapRules.reduce((acc, { label, re, placeholder }) => {
+      re.lastIndex = 0;
+      return acc.replace(re, (m) => {
+        if (!m.includes('\n')) return m;
+        counts[label] = (counts[label] ?? 0) + 1;
+        return placeholder + breaksOf(m);
+      });
+    }, s);
+  };
+
   // Residual checks: value-specific ("leaks") and structural ("generic").
   const leakRules = [];
   // Fail closed for caller literals: a plain case-insensitive substring test, plus the
@@ -290,7 +344,7 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
     ...HAZARD_RULES.map(({ label, re }) => ({ label, detect: (line) => re.test(line) })),
   ];
 
-  const scrubString = (s, counts) => replaceRules.reduce((acc, rule) => rule.apply(acc, counts), s);
+  const scrubString = (s, counts) => replaceRules.reduce((acc, rule) => rule.apply(acc, counts), unwrap(s, counts));
   const hazardOf = (line) => HAZARD_RULES.find((r) => r.re.test(line));
 
   function scan(text) {
@@ -307,6 +361,14 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
         if (TEMP_DIR_HINT_RE.test(ctx)) residualGenericHits.push({ label: 'uuid next to a scratchpad/claude temp path', line: i + 1 });
       }
     });
+    // A known value split across lines by a pane wrap (#288): reported at the line it starts on.
+    const s = String(text);
+    if (s.includes('\n')) {
+      for (const { leakLabel, re } of wrapRules) {
+        re.lastIndex = 0;
+        for (const m of s.matchAll(re)) if (m[0].includes('\n')) residualLeaks.push({ label: leakLabel, line: lineAt(s, m.index) });
+      }
+    }
     return { residualLeaks, residualGenericHits };
   }
 
@@ -339,7 +401,9 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
   function redactText(text) {
     const counts = {};
     const out = [];
-    const { dropped, unterminatedKeyBlock } = filterLines(text, (line) => {
+    // Wrapped literals first, on the whole text: per line, neither half matches (#288).
+    // Line breaks are kept, so the line filter below sees the same lines.
+    const { dropped, unterminatedKeyBlock } = filterLines(unwrap(String(text), counts), (line) => {
       if (hazardOf(line)) return 'dropped';
       out.push(scrubString(line, counts));
       return 'kept';
