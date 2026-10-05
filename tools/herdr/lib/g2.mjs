@@ -98,11 +98,15 @@ export function readG2Criteria(repoRoot, { pin = G2_CRITERIA_SHA256 } = {}) {
 // typed it. It is the operator's input to their own TUI, never a delivered message.
 export const DEFAULT_OPERATOR_PROMPT = 'Greet me in a single word.';
 
-// Injection 1 of the human 0.157.1 re-run, with "through herdr" added; the expected reply
-// is the human run's. The busy turn and the queued message are the committed client's own
+// Injection 1 of the human 0.157.1 re-run, word for word, with the observed version in place
+// of 0.157.1 (fixture transcript-2026-09-26-0.157.1.jsonl line 16); the expected reply is the
+// human run's. Until 2026-10-05 it also said "through herdr": in both live G2 runs
+// (20261005T020547Z-84b913, 20261005T041011Z-bb584c) the model took those words as a task
+// and used tools instead of replying with the acknowledgement, so the text now matches the
+// baseline it is compared with. The busy turn and the queued message are the committed client's own
 // `busyqueue` texts, unchanged.
 export const defaultInjectText = (version) =>
-  `G2 re-run on ${version} through herdr (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN RECEIVED.`;
+  `G2 re-run on ${version} (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN RECEIVED.`;
 export const EXPECTED_REPLIES = Object.freeze({ inject: 'OAC G2 RERUN RECEIVED', queued: 'OAC G2 QUEUED' });
 export const BUSY_TEXT_MARK = 'G2 spike busy-turn test';
 export const QUEUED_TEXT_MARK = 'G2 spike queued message';

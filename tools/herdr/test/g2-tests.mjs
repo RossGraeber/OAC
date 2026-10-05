@@ -337,6 +337,10 @@ export function g2Unit(check) {
   const scen = read(join(REPO, 'tools', 'herdr', 'scenarios', 'g2-codex-inject.mjs'));
   check('g2: the scenario never imports the quarantined client (static or dynamic import, require)', !/^\s*import\s[^;]*?from\s*['"][^'"]*(?:throwaway-quarantined|client\.mjs)['"]/m.test(scen) && !/\bimport\s*\(\s*[^)]*(?:throwaway-quarantined|client\.mjs)/.test(scen) && !/require\([^)]*client/.test(scen) && /\[join\(clientDir, 'client\.mjs'\), mode/.test(scen));
   check('g2: the default launch is plain `codex`', JSON.stringify(G2_LAUNCH) === '["codex"]');
+  // Injection 1 is the human 0.157.1 re-run's, word for word, with the observed version in
+  // place of 0.157.1 (no "through herdr": both live runs took it as a task).
+  const humanInject = g2Facts(parseG2Transcript(BASELINE)).turnStarts.map((t) => t.text).filter((t) => /OAC G2 RERUN RECEIVED/.test(t));
+  check('g2: the default injection 1 equals the human run\'s injected text, with the version as the only variable', humanInject.length === 1 && defaultInjectText('0.157.1') === humanInject[0] && defaultInjectText('9.9.9') === humanInject[0].replace('0.157.1', '9.9.9') && !/herdr/i.test(defaultInjectText('0.160.0')), JSON.stringify(humanInject));
   check('g2: the default operator prompt is not a delivered message; delivered texts are refused as operator input', !throws(() => assertNotInjected('p', DEFAULT_OPERATOR_PROMPT)) && throws(() => assertNotInjected('p', defaultInjectText('0.157.1'))) && throws(() => assertNotInjected('p', 'please call thread/queue/add')));
   check('g2: fixture names follow K7; unverified names are never fixture-shaped', JSON.stringify(fixtureNames('2026-10-01', '0.157.1')) === '{"transcript":"transcript-2026-10-01-0.157.1-herdr.jsonl","pane":"pane-2026-10-01-0.157.1-herdr.txt"}' && unverifiedNames('2026-10-01').transcript.startsWith('unverified-') && throws(() => fixtureNames('2026-10-01', 'latest')));
 

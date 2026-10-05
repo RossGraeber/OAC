@@ -280,7 +280,7 @@ export function renderReport({ manifest, evaluation, diffText, date, fixtures, r
   if (fixtureWithheld(manifest)) out.push(`- Finding: ${fixtureWithheld(manifest)}`);
   out.push('- Harness versions float and are never gated (#216): a version other than PINS.md\'s last tested one, or other than the baseline run\'s, is a finding here and does not by itself disqualify this record, including as an equivalence record.');
   out.push('- Earlier `NOT RUN` or `FAIL` runs of this scenario at the same pins: none listed by this generator; add each by hand (run id, outcome, reason from its run manifest).');
-  out.push('- The delivered texts are the human run\'s, with "through herdr" added to injection 1; the busy and queued texts are the committed client\'s own. The operator prompt is a scenario parameter.');
+  out.push('- The delivered texts are the human run\'s: injection 1 word for word with the observed Codex version in place of 0.157.1 (unless the run set `injectText`, see the run manifest\'s scenario params); the busy and queued texts are the committed client\'s own. The operator prompt is a scenario parameter.');
   out.push('- Codex pane-text patterns (dialogs, the in-progress indicator) were written before any live run; confirm them against this run\'s pane capture.');
   out.push('- herdr agent states are recorded above for K1 §5 item 5 (what Codex settles in after a response); they scored nothing.');
   out.push('');
