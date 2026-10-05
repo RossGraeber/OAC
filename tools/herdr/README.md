@@ -297,13 +297,16 @@ Each gate scenario replays the human-run gate spike through herdr and records th
 report generator scores every pass criterion against the human run's committed fixture and
 writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of them is
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
-`scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G4 and G5
-have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2 has run live
-twice, both on 2026-10-05 with Codex 0.160.0 and run outcome PASS, and neither is recorded or
-committed: run `20261005T020547Z-84b913` because its transcript held third-party tool output
-(#130), and run `20261005T041011Z-bb584c` because its transcript held harness-authored text in a
-daemon response that the elision did not then cover. G2 needs a fresh run under the current
-driver (see "Capture elision (#130)"). A harness-facing behavior that no committed record shows stays
+`scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G2, G4 and
+G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2's is
+`G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`, Codex 0.160.0, run outcome PASS, driver
+commit `efb775f`, PR #300). Two earlier G2 runs that day were not recorded:
+`20261005T020547Z-84b913`, whose transcript held third-party tool output (#130), and
+`20261005T041011Z-bb584c`, whose transcript held harness-authored text in a daemon response
+that the elision did not then cover. A record holds for its own driver commit: a later
+scripted run relies on it only under `scripted-runs.md` "When a scripted run may carry a
+verdict" (among other conditions, an empty `tools/herdr/` diff, `test/` excluded, against the
+record's driver commit). A harness-facing behavior that no committed record shows stays
 UNVERIFIED until a live run shows it (the commands are in each scenario's header comment; an
 agent runs them, see "Operator setup" below).
 
