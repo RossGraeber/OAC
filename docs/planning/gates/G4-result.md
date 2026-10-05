@@ -493,6 +493,26 @@ the record is not verdict-bearing, and this gate's verdict stays PASS from the h
 procedure. A later scripted G4 run may carry a verdict only under `oac-gates`
 `references/scripted-runs.md` "Verdict eligibility".
 
+*Dated note, 2026-10-05 (#131, re-record after #292):* the note above is superseded as to
+which record is current. #292 (the #288 wrapped-path redaction fix and the #290
+coverage-span fix) changed `tools/herdr/lib/`, so `herdr-runs/G4-2026-10-04.md` (driver
+`b478f2a`) can back no later run. G4 was re-recorded once at the #292 merge: run
+`20261005T013347Z-6803a7` (outcome PASS, driver commit `de42b54`, `toolsHerdrDirty` false;
+herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`; same scenario file,
+launch argv and params as `20261004T093525Z`) is recorded at `herdr-runs/G4-2026-10-05.md`,
+with its run manifest beside it and three `-herdr` fixtures under `fixtures/g4-mcp-dual-era/`.
+It is now the **equivalence record for G4 at herdr v0.9.1**: all five criteria `equivalent`,
+from the wire transcript and pane captures, with herdr and Harness VERIFIED. Criterion 5
+holds on both halves again. In this run the "g4modern ... unavailable" notice showed after
+the first Claude turn (wake g4-1), not at startup. The wrapped worktree path in the Claude
+pane fixture is now redacted to `<REPO>`, and the transcript's `MANIFEST.json` coverage is
+generated, with no hand fix. One earlier run at `de42b54`, `20261005T013103Z-b6b2cb`, ended
+FAIL: the Codex TUI exited at startup ("workspace routing discovery timed out"). The record
+lists it under Findings. The Codex-config caveat is unchanged: that the Codex user config
+registers no other entry at the run's port is UNVERIFIED from committed evidence. The
+2026-10-04 record and fixtures stay committed, marked superseded. G4's verdict stays PASS
+from the human-run procedure.
+
 ---
 
 #### Superseded: 2026-09-25/26 out-of-box run (NOT RUN)

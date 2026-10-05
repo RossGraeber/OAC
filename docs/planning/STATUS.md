@@ -2134,6 +2134,14 @@ without an UNVERIFIED label.
   `codex mcp list`. Criterion 5 holds on both halves:
   non-delivery, and the "g4modern ... unavailable" notice. Still open: the reconstruction
   caveat (the server is not the original). G4's verdict is unchanged (PASS).
+  *Dated note, 2026-10-05 (#131):* #292 changed `tools/herdr/lib/`, so G4 was re-recorded.
+  Run `20261005T013347Z-6803a7` (PASS, driver `de42b54`, Claude Code 2.1.285, Codex 0.160.0)
+  is recorded at `gates/herdr-runs/G4-2026-10-05.md` with three `-herdr` fixtures. It is now
+  the equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
+  Harness VERIFIED. `G4-2026-10-04.md` is superseded and kept as history. The dialog texts
+  match again. Claude's in-progress indicator did not appear in this run's kept Claude reads; the
+  2026-10-04 capture still shows it. The Codex-config part above stays open, unchanged.
+  G4's verdict is unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
   operator signs in and accepts consent dialogs (#187).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
