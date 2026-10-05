@@ -24,7 +24,7 @@ import {
   g5ClaudeFacts, g5CodexFacts, frameStructure, answerPart1,
 } from '../lib/g5.mjs';
 import { CriteriaDriftError } from '../lib/gate-common.mjs';
-import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, fixtureWithheld, renderReport, C13_ARMS, C13_ALLOWED_PATHS, C13_OUTCOMES, evaluateC13, parseC13CaseResults, c13TableProblems, e1PathCheck, renderC13Report, C13_SCORING_BASIS, draftManifestEntries } from '../lib/g5-report.mjs';
+import { SCORES, ReportError, ROWS, OPERATOR_ROWS, evaluateG5, parseG5OperatorScores, parseCaseResults, writeRefusal, fixtureWithheld, renderReport, C13_ARMS, C13_ALLOWED_PATHS, C13_OUTCOMES, evaluateC13, parseC13CaseResults, c13TableProblems, e1PathCheck, renderC13Report, C13_SCORING_BASIS, C13_NOTE, draftManifestEntries } from '../lib/g5-report.mjs';
 import { lineSpan } from '../lib/gate-report-common.mjs';
 import { buildFrame, crockford128, frameCase, collides, caseBody, idValueOk, validateHeader, normalizeBody, quoteBody, buildQuotedFrame, quotedFrameStructure, buildAnchor, resolveC13, frameC13, messageIdFor, LINE_BREAK_CLASSES, OAC_SCOPE, ANCHOR_KEY, HEADER_FIELDS } from '../gate-servers/g5-codex.mjs';
 import { DriverError } from '../lib/herdr.mjs';
@@ -335,24 +335,38 @@ export async function g5Unit(check) {
 
   // --- #299: draft MANIFEST.json coverage pairs request and response lines ----------------------
   // As the human-run G5 entry does ("turn/start request+response", a thread/turns/list poll as
-  // a range). Built from the committed K8 run (G5-2026-10-02) and its transcripts: the Claude
-  // entry is unchanged; each Codex request keeps its committed line and gains its response's.
-  {
-    const runManifest = JSON.parse(read(join(REPO, 'docs', 'planning', 'gates', 'herdr-runs', 'G5-2026-10-02.run-manifest.json')));
+  // a range). Built from both committed G5 runs and their transcripts, through the K8 path and
+  // the C13 path (g5-report.mjs's C13 --write passes C13_NOTE; #299 review N4): the Claude
+  // entry is unchanged; each Codex request keeps its committed line and gains its response's;
+  // a case with no request (the C13 X4 arms) stays null.
+  const coverageDraft = (run, sub, note) => {
+    const runManifest = JSON.parse(read(join(REPO, 'docs', 'planning', 'gates', 'herdr-runs', `${run}.run-manifest.json`)));
     const fx = runManifest.scenarioData.g5.fixtures;
-    const dir = join(REPO, FIXTURE_DIR, 'k8-2026-10-02');
+    const dir = sub ? `${FIXTURE_DIR}/${sub}` : FIXTURE_DIR;
     const manifestJson = JSON.parse(read(join(REPO, MANIFEST_PATH)));
-    const texts = { claude: read(join(dir, fx.transcriptClaude)), codex: read(join(dir, fx.transcriptCodex)) };
-    const [claudeEntry, codexEntry] = draftManifestEntries({ manifest: runManifest, fixtures: fx, runManifestPath: 'x', texts, pinsCommit: 'p', redactSha256: 'r', manifestJson, cases });
-    const committed = (f) => manifestJson.fixtures.find((e) => e.path === `${FIXTURE_DIR}/k8-2026-10-02/${f}`).coverage;
-    const cc = committed(fx.transcriptCodex);
+    const texts = { claude: read(join(REPO, dir, fx.transcriptClaude)), codex: read(join(REPO, dir, fx.transcriptCodex)) };
+    const entries = draftManifestEntries({ manifest: runManifest, fixtures: fx, runManifestPath: 'x', texts, pinsCommit: 'p', redactSha256: 'r', manifestJson, cases, ...(note ? { note } : {}) });
+    const committed = (f) => manifestJson.fixtures.find((e) => e.path === `${dir}/${f}`).coverage;
+    return { entries, cc: committed(fx.transcriptCodex), claudeCommitted: committed(fx.transcriptClaude) };
+  };
+  const nums = (s) => String(s).split(/, |-/).map(Number);
+  const pairedLikeCommitted = ({ entries: [claudeEntry, codexEntry], cc, claudeCommitted }) => {
     const nc = codexEntry.coverage;
-    const nums = (s) => String(s).split(/, |-/).map(Number);
     const startKeys = Object.keys(cc).filter((k) => k !== 'thread/turns/list');
-    check('#299: G5 draft coverage gives each Codex turn/start and thread/queue/add as request and response (lineSpan), and each thread/turns/list poll with its request line; the Claude entry is unchanged', JSON.stringify(claudeEntry.coverage) === JSON.stringify(committed(fx.transcriptClaude))
-      && nc['turn/start (case X1)'] === lineSpan(47, 49) && nc['thread/queue/add (case X4)'] === lineSpan(196, 197) && nc['thread/turns/list'].startsWith('55, 57, 64, 66, ')
-      && JSON.stringify(Object.keys(nc)) === JSON.stringify(Object.keys(cc)) && startKeys.every((k) => nums(nc[k]).length === 2 && nums(nc[k])[0] === Number(cc[k]))
-      && nums(nc['thread/turns/list']).length === 2 * nums(cc['thread/turns/list']).length && nums(cc['thread/turns/list']).every((n) => nums(nc['thread/turns/list']).includes(n)), JSON.stringify(nc));
+    return JSON.stringify(claudeEntry.coverage) === JSON.stringify(claudeCommitted)
+      && JSON.stringify(Object.keys(nc)) === JSON.stringify(Object.keys(cc))
+      && startKeys.every((k) => (cc[k] === null ? nc[k] === null : nums(nc[k]).length === 2 && nums(nc[k])[0] === Number(cc[k])))
+      && nums(nc['thread/turns/list']).length === 2 * nums(cc['thread/turns/list']).length && nums(cc['thread/turns/list']).every((n) => nums(nc['thread/turns/list']).includes(n));
+  };
+  {
+    const k8 = coverageDraft('G5-2026-10-02', 'k8-2026-10-02', null);
+    const nc = k8.entries[1].coverage;
+    check('#299: G5 draft coverage (K8 run) gives each Codex turn/start and thread/queue/add as request and response (lineSpan), and each thread/turns/list poll with its request line; the Claude entry is unchanged', pairedLikeCommitted(k8)
+      && nc['turn/start (case X1)'] === lineSpan(47, 49) && nc['thread/queue/add (case X4)'] === lineSpan(196, 197) && nc['thread/turns/list'].startsWith('55, 57, 64, 66, '), JSON.stringify(nc));
+    const c13 = coverageDraft('G5-c13-2026-10-02', null, C13_NOTE);
+    const xc = c13.entries[1].coverage;
+    check('#299 review N4: G5 draft coverage (C13 path, C13_NOTE) pairs the same way; the X4 arms with no request stay null', pairedLikeCommitted(c13) && c13.entries.every((e) => e.notes.join() === C13_NOTE)
+      && xc['turn/start (case 0.X2.1)'] === lineSpan(57, 58) && xc['turn/start (case F.X1)'] === lineSpan(267, 269) && xc['turn/start (case F.X4)'] === null && xc['turn/start (case C.X4a)'] === null && xc['thread/turns/list'].startsWith('65-66, 74-75, '), JSON.stringify(xc));
   }
 
   // --- the reconstructed case table against the committed fixtures -----------------------------------

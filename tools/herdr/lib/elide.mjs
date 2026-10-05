@@ -357,7 +357,13 @@ export const KEEP_NOTIFICATION_TEXT = Object.freeze({
 // keys requestedThreadId (a ThreadId: a hyphenated UUID, codex-rs/protocol/src/thread_id.rs),
 // rolloutOrdinal (u64), includeAnchor (bool) and scope, whose only key is `kind`, one of the
 // CursorScope variants (read.rs:30-36). See isHistoryCursor. The committed fixtures hold
-// 677 of them, 125-144 characters long. Anything else of LONG_TEXT_MIN characters or more in a cursor field
+// 677 of them, 125-144 characters long. Codex has a second cursor shape, ThreadTurnsCursor
+// {turnId, includeAnchor} (codex-rs/app-server/src/request_processors/thread_processor.rs:
+// 5632-5636, thread/turns/list on a non-paginated thread). It is out of scope: at most 71
+// characters with a UUID turn id, under LONG_TEXT_MIN, so the scan never reaches it (a longer
+// one would be flagged, withholding the capture). Known limit (#299 review N1): rolloutOrdinal
+// is kept only up to Number.MAX_SAFE_INTEGER (2^53 - 1), though Codex can write any u64 from an
+// i64 (read.rs:271-278); a larger one is flagged. Anything else of LONG_TEXT_MIN characters or more in a cursor field
 // is flagged: prose, whitespace or not (percent-encoded, underscore-joined), in a key or a
 // value, or hidden by padding or a duplicated key.
 export const KEEP_RESPONSE_TEXT = Object.freeze([
