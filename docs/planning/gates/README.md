@@ -303,7 +303,10 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   *Dated note, 2026-10-04 (#131):* `herdr-runs/G4-2026-10-04.md` is the first current
   equivalence record, for G4 at herdr v0.9.1 (#252 Verification, herdr and Harness
   VERIFIED). Its run, `20261004T093525Z`, ran at driver `b478f2a`, whose `tools/herdr/`
-  equals `main` after #287. G4's verdict is unchanged.
+  equals `main` after #287. G4's verdict is unchanged. *Dated note, 2026-10-05 (#131):*
+  #292 changed `tools/herdr/lib/`, so `G4-2026-10-04.md` is superseded (kept, marked so at
+  its top). The current G4 equivalence record is `herdr-runs/G4-2026-10-05.md`, run
+  `20261005T013347Z-6803a7` at driver `de42b54` (the #292 merge).
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers
@@ -332,7 +335,10 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   K8 run) and `G5-c13-2026-10-02` (the E1 run that carries G5's Codex verdict). Each has
   its run manifest beside it. All three carry pre-#252 operator attestations, kept as
   history. *Dated note, 2026-10-04 (#131):* `G4-2026-10-04` (the K8 G4 run, the
-  equivalence record for G4 at herdr v0.9.1) carries a #252 Verification section instead. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
+  equivalence record for G4 at herdr v0.9.1) carries a #252 Verification section instead.
+  *Dated note, 2026-10-05 (#131):* `G4-2026-10-05` (the G4 re-record at the #292 merge)
+  replaces it as G4's equivalence record, also with a #252 Verification section.
+  `G4-2026-10-04` stays as superseded history. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
   items", K6 entry. *Superseded text, kept as history:* "No scripted run has
   run live yet, so `herdr-runs/` does not exist yet."
 
