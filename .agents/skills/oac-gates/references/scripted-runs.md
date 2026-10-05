@@ -119,12 +119,16 @@ every #140 refusal to that WARN; refusing a v1 manifest whose `driver.commit` po
 call a tool on its own initiative while it answers a delivered message, and the wire then
 carries what came back verbatim. G2 run `20261005T020547Z-84b913` is the case: Codex read
 its bundled plugin's skill file and called that plugin's tool. Captures therefore never
-keep such text. In a wire transcript the driver replaces each Codex app-server tool-output
-body with `<ELIDED tool-output bytes=N sha256=…>`, and keeps the frame, ids, methods and
-every message text. It elides a pane line only when the same run's wire shows that line is
-tool output. Line numbers hold in both (`tools/herdr/lib/elide.mjs`; each elision is listed
-in the capture's redaction report). The residual scan refuses a known output field that
-still holds a body. No gate criterion reads a tool-output body. If one ever needs to, that
+keep such text. In a wire transcript the driver replaces with
+`<ELIDED tool-output bytes=N sha256=…>` each Codex app-server field on its elision list.
+The list was taken from the v2 schema: tool outputs, file reads, file diffs, hook output,
+process output and MCP event streams. It keeps the frame, ids, methods, paths and every
+message text. It elides a pane line only when the same run's wire shows that line is tool
+output. Line numbers hold in both (`tools/herdr/lib/elide.mjs`; each elision is listed in
+the capture's redaction report). The residual scan refuses a listed field that still holds
+a body. Independently of the list, it also refuses any long string in an app-server item or
+notification that is not on a keep-list of model, user or harness-status fields. No gate
+criterion reads a tool-output body. If one ever needs to, that
 is a finding to raise before the run, not a reason to keep the text. A capture made before
 this rule is never committed as it stands. A fixture is hash-bound to its capture
 (`captures[].sha256`), so it cannot be trimmed by hand: re-run instead.
