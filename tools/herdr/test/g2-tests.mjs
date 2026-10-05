@@ -29,7 +29,8 @@ import {
 } from '../lib/g2.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
-import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport } from '../lib/g2-report.mjs';
+import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport, draftManifestEntries } from '../lib/g2-report.mjs';
+import { lineSpan } from '../lib/gate-report-common.mjs';
 import { cloneWithPins } from './g1-tests.mjs';
 import { SYNTH } from './elide-tests.mjs';
 import { parseWin32ProcessJson, parsePsTable } from '../lib/proc.mjs';
@@ -131,6 +132,21 @@ export function g2Unit(check) {
   const of = g2Facts(parseG2Transcript(OLD_BASELINE));
   check('g2 facts: 0.154.0 fixture -- the watch connection\'s event stream: turn/started, agent message, turn/completed for injection 4', of.resumes.length === 1 && of.resumes[0].mode === 'watch' && of.events.turnCompleted.some((e) => e.mode === 'watch' && e.agentMessages.includes('OAC G2 EVENTS')) && of.events.turnStarted.length === 1 && of.connections[0].userAgentVersion === '0.154.0');
   check('g2 facts: 0.154.0 fixture -- two loaded threads at line 16 (the unidentified second thread)', of.loadedLists.find((l) => l.line === 16)?.data.length === 2);
+  // #299 (PR #300 review): the draft MANIFEST.json coverage of thread/turns/list gives the
+  // request line as well as the response (lineSpan), as the human-run entries do. Built from
+  // the committed G2-2026-10-05 run manifest and transcript, it differs from the committed
+  // entry (drafted before this fix) in that one line only.
+  {
+    const runManifest = JSON.parse(read(join(REPO, 'docs', 'planning', 'gates', 'herdr-runs', 'G2-2026-10-05.run-manifest.json')));
+    const fx = runManifest.scenarioData.g2.fixtures;
+    const manifestJson = JSON.parse(read(join(REPO, MANIFEST_PATH)));
+    const [entry] = draftManifestEntries({ manifest: runManifest, fixtures: fx, runManifestPath: 'x', transcriptText: read(join(REPO, FIXTURE_DIR, fx.transcript)), pinsCommit: 'p', redactSha256: 'r', manifestJson });
+    const committed = manifestJson.fixtures.find((e) => e.path === `${FIXTURE_DIR}/${fx.transcript}`).coverage;
+    const differing = Object.keys({ ...committed, ...entry.coverage }).filter((k) => committed[k] !== entry.coverage[k]);
+    check('#299: G2 draft coverage of thread/turns/list is request and response (804, 806), lineSpan of the pair; every other coverage line equals the committed G2-2026-10-05 entry', entry.coverage['thread/turns/list'] === '804, 806' && entry.coverage['thread/turns/list'] === lineSpan(804, 806) && committed['thread/turns/list'] === '806' && differing.join() === 'thread/turns/list', JSON.stringify({ differing, turns: entry.coverage['thread/turns/list'] }));
+    const hf = g2Facts(parseG2Transcript(read(join(REPO, FIXTURE_DIR, fx.transcript))));
+    check('#299: g2Facts pairs each thread/turns/list answer with its request line', hf.turnsLists.length === 1 && hf.turnsLists[0].reqLine === 804 && hf.turnsLists[0].line === 806 && bf.turnsLists[0].reqLine === 38 && bf.turnsLists[0].line === 40);
+  }
   const self = compareByMode(parseG2Transcript(BASELINE), parseG2Transcript(BASELINE));
   check('g2 compare: the 0.157.1 fixture against itself is the same sequence in every mode', self.modes.length === 4 && self.modes.every((m) => m.same) && self.runOnlyModes.length === 0);
   const noQueue = BASELINE.split('\n').filter((l) => !/thread\/queue\/add|queuedSubmission/.test(l)).join('\n');
