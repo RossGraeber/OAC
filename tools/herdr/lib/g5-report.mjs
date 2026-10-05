@@ -63,7 +63,7 @@ import { parseSections, committedFile } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 import { schemaBlockFor } from './g2-report.mjs';
 import {
-  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine, lineSpan,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -744,7 +744,7 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, text
       ...common,
       capture_utc_range: cf.firstT && cf.lastT ? `${cf.firstT}-${cf.lastT}` : null,
       redaction: red(fixtures.transcriptClaude),
-      coverage: Object.fromEntries([['initialize', cf.initialize.map((x) => `${x.reqLine}-${x.resLine}`).join(', ') || null], ...cf.notifications.map((n) => [`notifications/claude/channel (case ${n.case})`, String(n.line)])]),
+      coverage: Object.fromEntries([['initialize', cf.initialize.map((x) => lineSpan(x.reqLine, x.resLine)).join(', ') || null], ...cf.notifications.map((n) => [`notifications/claude/channel (case ${n.case})`, String(n.line)])]),
     },
     {
       path: `${FIXTURE_DIR}/${fixtures.transcriptCodex}`,

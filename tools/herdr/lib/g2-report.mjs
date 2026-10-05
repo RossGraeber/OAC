@@ -42,7 +42,7 @@ import {
   DEFAULT_OPERATOR_PROMPT, compareByMode, formatModeDiff, g2Facts, identifyTuiThread, parseG2Transcript, readG2Criteria, G2_CRITERIA_SHA256, CriteriaDriftError,
 } from './g2.mjs';
 import { parseSections, committedFile, sha256 } from './g1.mjs';
-import { describeDialogs, harnessVerification, noConsentCriterionLine, verification } from './gate-report-common.mjs';
+import { describeDialogs, harnessVerification, lineSpan, noConsentCriterionLine, verification } from './gate-report-common.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -383,7 +383,7 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
     const r = cap(name);
     return r ? `tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (${g2.sanitizer ? `${g2.sanitizer.threadListEntriesRemoved} unrelated thread/list entries removed; host, installation id, plan and credit fields replaced` : 'not run'}): droppedHazardLines=${r.droppedHazardLines}, hazardProtocolFrames=${r.hazardProtocolFrames.length}, residualLeaks=${r.residualLeaks.length}, residualGenericHits=${r.residualGenericHits.length}` : 'not recorded';
   };
-  const lines = (list) => list.map((x) => x.reqLine ? `${x.reqLine}-${x.line}` : `${x.line}`).join(', ') || null;
+  const lines = (list) => list.map((x) => x.reqLine ? lineSpan(x.reqLine, x.line) : `${x.line}`).join(', ') || null;
   const common = {
     provider: 'codex',
     surface: 'codex-app-server',
