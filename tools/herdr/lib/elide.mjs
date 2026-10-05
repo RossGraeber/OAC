@@ -37,15 +37,24 @@
 //     name, because a response does not name the method it answers. The keys come from one
 //     pass over every *Response definition of the v2 schema at rust-v0.160.0 (and the
 //     notifications and requests): Settings.developer_instructions (thread/resume's
-//     collaborationMode.settings), Config.developer_instructions / instructions /
+//     collaborationMode.settings, and the thread/settings/updated notification's
+//     threadSettings.collaborationMode.settings), Config.developer_instructions / instructions /
 //     compact_prompt (config/read), ConfigRequirements.additionalDeveloperInstructions,
 //     PluginInterface / SkillInterface.defaultPrompt and AppScreenshot.userPrompt (plugin,
 //     skill and app listings), TurnError.additionalDetails and the MisalignmentErrorDetails
 //     `detailedExplanation` and `steer` (a turn's error, wherever the turn sits). The schema's
 //     thread/start, thread/resume and thread/fork params name baseInstructions and
 //     developerInstructions; their snake_case forms and user_instructions are older Codex
-//     names. All are listed so that a response echoing one is elided too. Thread items are
-//     not searched by key: their fields are the per-type lists above.
+//     names. All are listed so that a response echoing one is elided too. Thread items
+//     (THREAD_ITEM_TYPES) are not searched by key: their fields are the per-type lists above.
+//     Responses in scope are those to the requests the herdr Codex clients send: the G2
+//     client and gate-servers/g5-codex.mjs send only initialize, thread/loaded/list,
+//     thread/list, thread/resume, thread/turns/list, turn/start and thread/queue/add, and the
+//     only harness-authored text in their responses is the keys above. Every other response
+//     is out of scope: it can carry harness- or third-party text on no list (model/list
+//     upgrade copy, experimental-feature announcements, workspace messages, plugin skill
+//     contents, MCP resource-read and tool-call results, app metadata and app/list/updated),
+//     which the residual scan below catches only at LONG_TEXT_MIN characters or more.
 // Out of scope, each for a reason:
 //   - results of client requests the herdr clients never send (command/exec, fs/readFile,
 //     process/spawn, skills/list). process/exited, which follows a process/spawn, is
@@ -72,7 +81,7 @@
 //     (additionalDetails) and the misalignment explanation and steer text are ELIDED (above).
 //   - mcpServer/startupStatus/updated `error`: ELIDED. An MCP server's startup error chain;
 //     it can carry the server's own reply or stderr, no criterion reads it, and it is not
-//     short (the committed D6 fixtures hold a 973-character one). Its name and status stay.
+//     short (the committed D6 fixtures hold a 971-character one). Its name and status stay.
 //   - configWarning `details`: ELIDED. It can quote the user's config file; summary and path
 //     stay.
 //   - agentMessage memoryCitation: entries[].note ELIDED (memory-file text); paths and
@@ -215,10 +224,21 @@ function elideBody(v, path, out, kind = 'tool-output') {
   return v;
 }
 
-// DAEMON_TEXT_KEYS anywhere under a daemon frame, thread items excepted.
+// The ThreadItem variants of the v2 schema at rust-v0.160.0 (ThreadItem.oneOf[].type, 19).
+// Key-name elision skips an object only when it is one of these (#298 review NB-B): other
+// objects with a string id and type, such as a ConfigLayerSource (`enterpriseManaged`:
+// id, name, type), are searched like the rest of the frame.
+export const THREAD_ITEM_TYPES = Object.freeze(new Set([
+  'userMessage', 'hookPrompt', 'agentMessage', 'functionCallOutput', 'plan', 'reasoning', 'commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall',
+  'collabAgentToolCall', 'subAgentActivity', 'webSearch', 'imageView', 'sleep', 'imageGeneration', 'enteredReviewMode', 'exitedReviewMode', 'contextCompaction',
+]));
+const isThreadItem = (o) => isItem(o) && THREAD_ITEM_TYPES.has(o.type);
+
+// DAEMON_TEXT_KEYS anywhere under a daemon frame, thread items excepted (their fields are
+// the per-type lists; an item's tool arguments are the model's input and stay).
 function elideDaemonKeys(v, path, out) {
   if (Array.isArray(v)) return v.map((x, i) => elideDaemonKeys(x, `${path}[${i}]`, out));
-  if (!isObj(v) || isItem(v)) return v;
+  if (!isObj(v) || isThreadItem(v)) return v;
   const o = {};
   for (const [k, x] of Object.entries(v)) {
     o[k] = DAEMON_TEXT_KEYS.has(k) && x !== null && x !== undefined ? elideBody(x, `${path}.${k}`, out, 'harness-text') : elideDaemonKeys(x, `${path}.${k}`, out);
@@ -331,9 +351,11 @@ export const KEEP_NOTIFICATION_TEXT = Object.freeze({
 //   - result._fixtureNote: written by OAC's fixture sanitizer (lib/g2.mjs);
 //   - error.message and a turn's error.message: Codex's status line for a failed request or
 //     turn, which the scenarios report (#297 NB3).
-// Pagination cursors (OPAQUE_RESPONSE_TOKENS) are kept only while they hold no whitespace:
-// opaque tokens the client hands back, never prose (the committed fixtures hold 147-189
-// character JSON cursors).
+// Pagination cursors (OPAQUE_RESPONSE_TOKENS) are kept only in the shape Codex writes them
+// at rust-v0.160.0 (#298 review NB-A): at most CURSOR_MAX_LENGTH characters, parsing as a
+// JSON object (thread id, ordinal, flag, scope kind) whose every string leaf is at most
+// CURSOR_LEAF_MAX characters. The committed fixtures hold 147-189 character ones. Prose in a
+// cursor, whitespace or not (percent-encoded, underscore-joined), is flagged.
 export const KEEP_RESPONSE_TEXT = Object.freeze([
   'result.userAgent',
   'result.data.*.preview', 'result.data.*.cwd', 'result.data.*.environments.*.cwd',
@@ -377,7 +399,21 @@ function longStrings(v, rel, out, stop) {
   else if (v && typeof v === 'object' && !stop(v)) for (const [k, x] of Object.entries(v)) longStrings(x, rel ? `${rel}.${k}` : k, out, stop);
 }
 
-const keptResponseText = (rel, s) => KEEP_RESPONSE_TEXT.some((g) => globMatch(g, rel)) || (OPAQUE_RESPONSE_TOKENS.includes(rel) && !/\s/.test(s));
+export const CURSOR_MAX_LENGTH = 512;
+export const CURSOR_LEAF_MAX = 64;
+function isStructuredCursor(s) {
+  if (s.length > CURSOR_MAX_LENGTH) return false;
+  let v;
+  try {
+    v = JSON.parse(s);
+  } catch {
+    return false;
+  }
+  if (!isObj(v)) return false;
+  const leavesShort = (x) => (typeof x === 'string' ? x.length <= CURSOR_LEAF_MAX : Array.isArray(x) ? x.every(leavesShort) : isObj(x) ? Object.entries(x).every(([k, y]) => k.length <= CURSOR_LEAF_MAX && leavesShort(y)) : true);
+  return leavesShort(v);
+}
+const keptResponseText = (rel, s) => KEEP_RESPONSE_TEXT.some((g) => globMatch(g, rel)) || (OPAQUE_RESPONSE_TOKENS.includes(rel) && isStructuredCursor(s));
 
 /**
  * Long strings in app-server items, notifications, and daemon->client requests and responses

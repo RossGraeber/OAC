@@ -435,7 +435,25 @@ function responses(check) {
   const u = r.redactJsonl(`${unknownField}\n`);
   check('#130 responses: a long string in a response field no list names is flagged (capture withheld)', u.report.elidedToolOutputs.length === 0 && u.report.residualGenericHits.some((h) => h.label === UNRECOGNISED_LABEL) && !reportIsClean(u.report));
   const proseCursor = rec('watch', 'daemon->client', { id: 6, result: { data: [], nextCursor: long('prose-in-a-cursor') } });
-  check('#130 responses: a cursor is kept only while it holds no whitespace; prose in one is flagged', unrecognisedLongText(JSON.parse(proseCursor)).join() === '$.payload.result.nextCursor');
+  check('#130 responses: prose in a cursor is flagged', unrecognisedLongText(JSON.parse(proseCursor)).join() === '$.payload.result.nextCursor');
+  // #298 review NB-A: a cursor is kept only in the shape Codex writes (a JSON object of short
+  // leaves, bounded length), never because it lacks whitespace.
+  const noSpace = Array.from({ length: 24 }, (_, i) => `synthetic_word_${i}`).join('_'); // > 120, no whitespace
+  const cursorCase = (v) => unrecognisedLongText(JSON.parse(rec('watch', 'daemon->client', { id: 10, result: { data: [], nextCursor: v } }))).join();
+  check('#298 NB-A: an underscore-joined or percent-encoded prose cursor (no whitespace) is flagged', cursorCase(noSpace) === '$.payload.result.nextCursor' && cursorCase(encodeURIComponent(long('percent-encoded-prose'))) === '$.payload.result.nextCursor' && !/\s/.test(noSpace));
+  check('#298 NB-A: a JSON cursor with a long string leaf, or longer than the cap, is flagged; the Codex shape is kept', cursorCase(JSON.stringify({ requestedThreadId: TH, note: noSpace })) === '$.payload.result.nextCursor' && cursorCase(JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, 'v'.repeat(12)])))) === '$.payload.result.nextCursor' && cursorCase(CURSOR) === '');
+  const unlistedToken = rec('watch', 'daemon->client', { id: 11, result: { thread, futureOpaqueField: noSpace } });
+  check('#298 NB-A: a long string with no whitespace in a response field no list names is flagged', unrecognisedLongText(JSON.parse(unlistedToken)).join() === '$.payload.result.futureOpaqueField' && !reportIsClean(r.redactJsonl(`${unlistedToken}\n`).report), JSON.stringify(unrecognisedLongText(JSON.parse(unlistedToken))));
+  // #298 review NB-B: key-name elision skips only real ThreadItem types. A ConfigLayerSource
+  // (string id and type, like an item) is searched; a thread item's tool arguments (the
+  // model's input, scored) are not touched even when a key matches.
+  const SHORT_DEV = 'synthetic short layer developer text'; // < 120: only the elision list catches it
+  const layer = rec('watch', 'daemon->client', { id: 12, result: { config: {}, origins: {}, layers: [{ name: { type: 'enterpriseManaged', id: 'synthetic-layer', name: 'synthetic', developer_instructions: SHORT_DEV }, version: '1' }] } });
+  const lo = r.redactJsonl(`${layer}\n`);
+  check('#298 NB-B: developer_instructions under a ConfigLayerSource-shaped object (string id and type) is elided', JSON.parse(lo.text).payload.result.layers[0].name.developer_instructions === harness(SHORT_DEV) && JSON.parse(lo.text).payload.result.layers[0].name.id === 'synthetic-layer' && reportIsClean(lo.report));
+  const argItem = { type: 'mcpToolCall', id: 'call_args', server: SYNTH.server, tool: SYNTH.tool, status: 'inProgress', arguments: { instructions: 'synthetic model-written tool argument', steer: 'left' }, result: null, error: null };
+  const itemFrames = [note('item/started', { item: argItem, ...ids }), rec('turns', 'daemon->client', { id: 13, result: { data: [{ id: TURN, items: [argItem], status: 'inProgress' }] } })];
+  check('#298 NB-B: a thread item\'s tool arguments are not elided by key name (notification and response)', itemFrames.every((f) => r.redactJsonl(`${f}\n`).text.trim() === f && elideToolOutputs(JSON.parse(f)).elided.length === 0));
   const jsonErr = rec('watch', 'daemon->client', { id: 7, error: { code: -32600, message: long('jsonrpc-error-message'), data: { detail: long('jsonrpc-error-data') } } });
   check('#130 responses: a JSON-RPC error keeps its message (the scenarios report it); its data is flagged', unrecognisedLongText(JSON.parse(jsonErr)).join() === '$.payload.error.data.detail');
   // A G5 spike record copying a daemon response is covered too.
