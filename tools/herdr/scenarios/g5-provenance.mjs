@@ -13,13 +13,17 @@
 // programs that produced the human-run fixtures and cannot be verified identical to them;
 // every comparison says so.
 //
-// LIVE STATUS: RUN LIVE, TWO RECORDS (docs/planning/gates/herdr-runs/), both 2026-10-02, a
-// real herdr (v0.9.1), Claude Code 2.1.285 and Codex 0.160.0, run outcome PASS:
+// LIVE STATUS: RUN LIVE, TWO RECORDS (docs/planning/gates/herdr-runs/), both 2026-10-02,
+// Claude Code 2.1.285 and Codex 0.160.0, run outcome PASS:
 //   - G5-c13-2026-10-02.md: the C13 §11 Codex-leg re-run (`--param arms=0,F,C`), run
-//     20261002T161612Z-4f2b53, driver commit a86e620. It carried G5's Codex verdict under the
-//     one-off E1 exception (G5-result.md: PASS, 2026-10-03), which it consumed.
+//     20261002T161612Z-4f2b53, driver commit a86e620, herdr reporting `herdr 0.9.1`
+//     (executable identity UNVERIFIED: schemaVersion 1 manifest, #252). It carried G5's Codex
+//     verdict under the one-off E1 exception (G5-result.md: PASS, 2026-10-03), which it
+//     consumed.
 //   - G5-2026-10-02.md: the non-verdict K8 Claude regression run (#220 ruling 3), run
-//     20261002T184542Z-bc6e10, driver commit 085befe. It carries no verdict.
+//     20261002T184542Z-bc6e10, driver commit 085befe, herdr 0.9.1: the driver recorded the
+//     sha256 of a native herdr.exe, not a test double, unchanged after the run (run manifest
+//     `herdr.executable`, schemaVersion 2). It carries no verdict.
 // A later run relies on either only under oac-gates references/scripted-runs.md "When a
 // scripted run may carry a verdict" (among other conditions, an empty tools/herdr/ diff,
 // test/ excluded, against the record's driver commit). Pane-text

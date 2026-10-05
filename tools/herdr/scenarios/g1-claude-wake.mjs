@@ -6,10 +6,11 @@
 // G1's verdict, STATUS.md, or PINS.md.
 //
 // LIVE STATUS: RUN LIVE; NO CURRENT EQUIVALENCE RECORD.
-// docs/planning/gates/herdr-runs/G1-2026-09-29.md: run 20260929T034856Z-05b135, a real herdr
-// (v0.9.1) and a real Claude Code (2.1.283), run outcome PASS, accept=human, driver commit
-// 3050ed6. Since #252 (dated note, 2026-10-03) it stays on record but is not a current
-// equivalence record: its manifest (schemaVersion 1) records no herdr executable or sha256.
+// docs/planning/gates/herdr-runs/G1-2026-09-29.md: run 20260929T034856Z-05b135, herdr
+// reporting `herdr 0.9.1` (executable identity UNVERIFIED: schemaVersion 1 manifest, #252)
+// and Claude Code 2.1.283, run outcome PASS, accept=human, driver commit 3050ed6. Since #252
+// (dated note, 2026-10-03) it stays on record but is not a current equivalence record: its
+// manifest records no herdr executable or sha256.
 // A G1 run under the current driver must re-establish equivalence; a later run relies on a
 // record only under oac-gates references/scripted-runs.md "When a scripted run may carry a
 // verdict" (among other conditions, an empty tools/herdr/ diff, test/ excluded, against the
