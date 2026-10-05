@@ -2139,7 +2139,7 @@ without an UNVERIFIED label.
   is recorded at `gates/herdr-runs/G4-2026-10-05.md` with three `-herdr` fixtures. It is now
   the equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
   Harness VERIFIED. `G4-2026-10-04.md` is superseded and kept as history. The dialog texts
-  match again. The in-progress indicator did not appear in this run's kept reads; the
+  match again. Claude's in-progress indicator did not appear in this run's kept Claude reads; the
   2026-10-04 capture still shows it. The Codex-config part above stays open, unchanged.
   G4's verdict is unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
