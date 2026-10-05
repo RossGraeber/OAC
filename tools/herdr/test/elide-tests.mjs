@@ -339,7 +339,43 @@ function independent(check) {
   check('independent scan: never flags the scored text (agent answers and deltas, delivered user messages, turn/start input, reasoning) or OAC\'s MCP channel notifications', keptHits.length === 0, JSON.stringify(keptHits.map((f) => unrecognisedLongText(JSON.parse(f)))));
 }
 
+// #130 re-review NB2: requests the Codex daemon sends its client (id + method, no "jsonrpc").
+function serverRequests(check) {
+  const r = createRedactor({ home: '/home/alice', username: 'alice', hostname: 'buildbox-7' });
+  const ELICIT = [1, 2, 3].map((n) => line('elicitation-message', n)).join('\n');
+  const SCHEMA_DESC = line('elicitation-schema-description', 1);
+  const ADDED = [1, 2, 3].map((n) => line('patch-approval-added-file', n)).join('\n');
+  const UDIFF = [1, 2, 3].map((n) => line('patch-approval-unified-diff', n)).join('\n');
+  const REASON = [1, 2, 3].map((n) => line('approval-reason-by-the-model', n)).join(' ');
+  const req = (id, method, params) => rec('watch', 'daemon->client', { id, method, params });
+  const frames = [
+    req(70, 'mcpServer/elicitation/request', { threadId: TH, turnId: TURN, serverName: SYNTH.server, mode: 'form', message: ELICIT, requestedSchema: { type: 'object', properties: { answer: { type: 'string', description: SCHEMA_DESC } } }, _meta: null }),
+    req(71, 'applyPatchApproval', { callId: 'call_p', conversationId: TH, fileChanges: { 'synthetic/new.md': { type: 'add', content: ADDED }, 'synthetic/old.md': { type: 'update', unified_diff: UDIFF, move_path: null } }, reason: null, grantRoot: null }),
+    req(72, 'item/commandExecution/requestApproval', { threadId: TH, turnId: TURN, itemId: 'call_cmd1', command: SYNTH.command, reason: REASON, startedAtMs: 1 }),
+  ];
+  const raw = `${frames.join('\n')}\n`;
+  const { text, report } = r.redactJsonl(raw);
+  const out = text.split('\n').filter(Boolean).map((l) => JSON.parse(l).payload);
+  check('NB2: an MCP elicitation request\'s message and schema text become markers; id, method, server name and mode stay', out[0].id === 70 && out[0].method === 'mcpServer/elicitation/request' && out[0].params.message === marker(ELICIT) && out[0].params.serverName === SYNTH.server && out[0].params.mode === 'form' && !text.includes(SCHEMA_DESC));
+  check('NB2: a patch approval\'s file contents and diffs become markers; the paths and change types stay', out[1].params.fileChanges['synthetic/new.md'].content === marker(ADDED) && out[1].params.fileChanges['synthetic/old.md'].unified_diff === marker(UDIFF) && out[1].params.fileChanges['synthetic/new.md'].type === 'add');
+  check('NB2: an approval request\'s command and reason (model text) stay', out[2].params.reason === REASON && out[2].params.command === SYNTH.command);
+  check('NB2: the elided requests scan clean', reportIsClean(report), JSON.stringify(report.residualGenericHits));
+  // The independent scan covers daemon requests, known and unknown.
+  const unknown = req(73, 'item/futureTool/requestSomething', { threadId: TH, payload: long('future-request') });
+  const u = r.redactJsonl(`${unknown}\n`);
+  check('NB2: a long string in an unknown daemon request is flagged by the independent scan (capture withheld)', u.report.residualGenericHits.some((h) => h.label === UNRECOGNISED_LABEL) && !reportIsClean(u.report));
+  check('NB2: the scan sees an un-elided elicitation message in a raw request', unrecognisedLongText(JSON.parse(frames[0])).includes('$.payload.params.message'));
+  // OAC's own requests (jsonrpc 2.0: turn/start, MCP tools/call) are not daemon requests.
+  const own = [
+    rec('turn', 'client->daemon', { jsonrpc: '2.0', id: 5, method: 'turn/start', params: { threadId: TH, input: [{ type: 'text', text: long('oac-delivered') }] } }),
+    JSON.stringify({ t: 't', direction: 'client->server', payload: { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'g4_relay', arguments: { text: long('oac-tool-argument') } } } }),
+  ];
+  check('NB2: OAC\'s own jsonrpc 2.0 requests (turn/start, MCP tools/call) are neither elided nor flagged', own.every((f) => elideToolOutputs(JSON.parse(f)).elided.length === 0 && unrecognisedLongText(JSON.parse(f)).length === 0));
+}
+const long = (tag) => Array.from({ length: 4 }, (_, n) => line(tag, n + 1)).join('\n');
+
 export function elideUnit(check) {
+  serverRequests(check);
   wire(check);
   scorers(check);
   pane(check);
