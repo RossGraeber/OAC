@@ -79,6 +79,10 @@
 //   FAKE_BEACON_LOG            L3b (#190): the daemon appends a Beacon-shaped event (runtime.jsonl)
 //                              for every turn's user input, whatever started it (TUI, turn/start,
 //                              thread/queue/add); the event shape is this file's invention
+//   FAKE_CODEX_TOOL_OUTPUT     #130: JSON {command, name, path, output, server, tool,
+//                              arguments, mcpResult}; in the delivered turn the daemon emits a
+//                              file read (commandExecution) and an MCP tool call with these
+//                              synthetic bodies, and the TUI shows the read's first output line
 //   FAKE_CODEX_PLANT_SECRET_FILE #232: the TUI starts one idle child process whose argv carries
 //                              a fresh random secret of no known shape (lowercase letters, which
 //                              no redaction pattern matches), and writes that secret to this file
@@ -247,6 +251,24 @@ function daemon() {
     toTui(t, { op: 'render', role: 'user', text });
     toTui(t, { op: 'status', status: 'active' });
     const ms = /lighthouses/i.test(text) ? Number(env.FAKE_CODEX_LONG_MS || 4500) : Number(env.FAKE_CODEX_TURN_MS || 400);
+    // #130: in the delivered turn, a file read and an MCP tool call the model chose on its own,
+    // shaped like the frames Codex 0.160.0 emitted (commandExecution with a read action and its
+    // output deltas, mcpToolCall with a text result). The bodies are the test's synthetic text.
+    if (env.FAKE_CODEX_TOOL_OUTPUT && /second daemon client/.test(text)) {
+      const spec = JSON.parse(env.FAKE_CODEX_TOOL_OUTPUT);
+      const ids = { threadId: t.id, turnId: tn.id };
+      const cmd = { type: 'commandExecution', id: `call_${randomUUID().replace(/-/g, '')}`, command: spec.command, cwd: null, processId: null, source: 'agent', status: 'inProgress', commandActions: [{ type: 'read', command: spec.command, name: spec.name, path: spec.path }], aggregatedOutput: null, exitCode: null, durationMs: null };
+      for (const c of subs()) notify(c, 'item/started', { item: cmd, ...ids });
+      for (const delta of spec.output.match(/[^\n]*\n?/g).filter(Boolean)) for (const c of subs()) notify(c, 'item/commandExecution/outputDelta', { ...ids, itemId: cmd.id, delta });
+      const cmdDone = { ...cmd, status: 'completed', aggregatedOutput: spec.output, exitCode: 0, durationMs: 12 };
+      for (const c of subs()) notify(c, 'item/completed', { item: cmdDone, ...ids });
+      const mcp = { type: 'mcpToolCall', id: `call_${randomUUID().replace(/-/g, '')}`, server: spec.server, tool: spec.tool, status: 'inProgress', arguments: spec.arguments, result: null, error: null, durationMs: null };
+      for (const c of subs()) notify(c, 'item/started', { item: mcp, ...ids });
+      const mcpDone = { ...mcp, status: 'completed', result: { content: [{ type: 'text', text: spec.mcpResult }], structuredContent: null }, durationMs: 30 };
+      for (const c of subs()) notify(c, 'item/completed', { item: mcpDone, ...ids });
+      tn.items.push(cmdDone, mcpDone);
+      toTui(t, { op: 'render', role: 'agent', text: `Ran ${spec.command}\n  └ ${spec.output.split('\n')[0]}` });
+    }
     setTimeout(() => {
       const agent = { type: 'agentMessage', id: `msg_${randomUUID().replace(/-/g, '')}`, text: replyFor(text, t), phase: 'final_answer' };
       tn.items.push(agent);

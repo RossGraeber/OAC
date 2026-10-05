@@ -35,6 +35,15 @@
 // backstop for structured output (run manifests): a value that still carries a residual
 // hit after redaction is replaced whole by `<WITHHELD: labels>`.
 //
+// Tool-output elision (#130, lib/elide.mjs): in JSONL, the body of every harness tool output
+// and file-read result on the Codex app-server wire (thread items such as commandExecution,
+// mcpToolCall, functionCallOutput; output-delta notifications) is replaced, after redaction,
+// by `<ELIDED tool-output bytes=N sha256=...>`, so a public fixture never republishes
+// third-party text a harness read or a tool returned. The report lists each elision (line,
+// JSON path, bytes, sha256; never the body), and the residual scan flags a known output field
+// still carrying a body (`un-elided tool output`), structurally, never by length. Pane text
+// is elided by run.mjs, which alone sees the run's wire transcripts (elide.mjs header).
+//
 // Placeholders follow the ones in the committed G1/D6 fixtures (<USER_HOME>, <HOST>,
 // <EMAIL>, <SECRET>), from docs/planning/gates/fixtures/d6-codex-protocol/
 // redact.mjs.throwaway-quarantined, which this generalizes to free text.
@@ -49,6 +58,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir, hostname as osHostname, userInfo } from 'node:os';
 import { pathToFileURL } from 'node:url';
+
+import { elideToolOutputs, unelidedToolOutputs } from './elide.mjs';
 
 export const PLACEHOLDER = {
   home: '<USER_HOME>',
@@ -239,6 +250,7 @@ const TOKEN_RULES = [
 ];
 
 const HAZARD_COUNT = 'hazard string replaced';
+export const UNELIDED_LABEL = 'un-elided tool output';
 const SECRET_KEY_COUNT = 'secret-named key value';
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
@@ -347,6 +359,16 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
   const scrubString = (s, counts) => replaceRules.reduce((acc, rule) => rule.apply(acc, counts), unwrap(s, counts));
   const hazardOf = (line) => HAZARD_RULES.find((r) => r.re.test(line));
 
+  // A JSON line whose record still carries a tool-output body in a known output field.
+  const unelidedOn = (line) => {
+    if (!/^\s*\{/.test(line)) return false;
+    try {
+      return unelidedToolOutputs(JSON.parse(line)).length > 0;
+    } catch {
+      return false;
+    }
+  };
+
   function scan(text) {
     const residualLeaks = [];
     const residualGenericHits = [];
@@ -356,6 +378,7 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
         if (r.re.test(line)) residualLeaks.push({ label: r.label, line: i + 1 });
       }
       for (const r of genericRules) if (r.detect(line)) residualGenericHits.push({ label: r.label, line: i + 1 });
+      if (unelidedOn(line)) residualGenericHits.push({ label: UNELIDED_LABEL, line: i + 1 });
       for (const m of line.matchAll(UUID_RE)) {
         const ctx = line.slice(Math.max(0, m.index - 120), m.index + m[0].length + 120);
         if (TEMP_DIR_HINT_RE.test(ctx)) residualGenericHits.push({ label: 'uuid next to a scratchpad/claude temp path', line: i + 1 });
@@ -489,6 +512,8 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
   function redactJsonl(text) {
     const counts = {};
     const hazardProtocolFrames = [];
+    const elidedToolOutputs = [];
+    const toolOutputBodies = [];
     const out = [];
     const { dropped, unterminatedKeyBlock } = filterLines(text, (line, i) => {
       if (line.trim() === '') return 'kept';
@@ -501,8 +526,9 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
         return 'kept';
       }
       const local = {};
-      const walked = walk(rec, local);
-      const changed = Object.keys(local).length > 0;
+      // Redact first, then elide: the marker's hash is of the redacted body.
+      const { value: walked, elided } = elideToolOutputs(walk(rec, local));
+      const changed = Object.keys(local).length > 0 || elided.length > 0;
       const serialized = changed ? JSON.stringify(walked) : line;
       if (local[HAZARD_COUNT] || hazardOf(serialized)) {
         if (isProtocolFrame(rec)) {
@@ -512,11 +538,17 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
         return 'dropped';
       }
       for (const [k, n] of Object.entries(local)) counts[k] = (counts[k] ?? 0) + n;
+      for (const { path, bytes, sha256, body } of elided) {
+        elidedToolOutputs.push({ line: out.length + 1, path, bytes, sha256 });
+        toolOutputBodies.push(body);
+      }
       out.push(serialized);
       return 'kept';
     });
     const redacted = out.length ? `${out.join('\n')}\n` : '';
-    return { text: redacted, report: { mode: 'jsonl', lines: out.length, droppedHazardLines: dropped, unterminatedKeyBlock, hazardProtocolFrames, replacements: counts, ...scan(redacted) } };
+    // `toolOutputBodies` (the elided bodies, redacted) is for run.mjs's pane elision only; it
+    // is never part of the report, which is written into the run manifest.
+    return { text: redacted, toolOutputBodies, report: { mode: 'jsonl', lines: out.length, droppedHazardLines: dropped, unterminatedKeyBlock, hazardProtocolFrames, elidedToolOutputs, replacements: counts, ...scan(redacted) } };
   }
 
   return {
