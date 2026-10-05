@@ -12,8 +12,8 @@ import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { createRedactor, reportIsClean, UNELIDED_LABEL } from '../lib/redact.mjs';
-import { ELIDED_RE, ITEM_OUTPUT_FIELDS, PANE_MIN_LENGTH, elideToolOutputs, elidePaneLines, keptStrings, redactCaptures } from '../lib/elide.mjs';
+import { createRedactor, reportIsClean, UNELIDED_LABEL, UNRECOGNISED_LABEL } from '../lib/redact.mjs';
+import { ELIDED_RE, ITEM_OUTPUT_FIELDS, NOTIFICATION_OUTPUT_FIELDS, PANE_MIN_LENGTH, elideToolOutputs, unrecognisedLongText, elidePaneLines, keptStrings, redactCaptures } from '../lib/elide.mjs';
 import { g2Facts, parseG2Transcript } from '../lib/g2.mjs';
 import { g5CodexFacts, parseJsonl } from '../lib/g5.mjs';
 
@@ -43,7 +43,18 @@ const WEB_OUT = line('web-result', 1);
 const PROGRESS = line('mcp-progress', 1);
 const STRUCT = line('structured-content', 1);
 const ERR = line('mcp-error', 1);
-const ALL_BODIES = [...SYNTH.output.split('\n').filter(Boolean), ...SYNTH.mcpResult.split('\n'), SHARED, FN_OUT, DYN_OUT, WEB_OUT, PROGRESS, STRUCT, ERR];
+// #130 review B1/N1/N2: file diffs, hook output, process output, MCP event streams, free-text keys.
+const DIFF = [1, 2, 3].map((n) => line('file-diff', n)).join('\n');
+const TURN_DIFF = [1, 2].map((n) => line('turn-diff', n)).join('\n');
+const PATCH_DIFF = line('patch-updated-diff', 1);
+const HOOK_OUT = line('hook-entry', 1);
+const HOOK_PROMPT = line('hook-prompt-fragment', 1);
+const PROC_OUT = line('process-stdout', 1);
+const PROC_ERR = line('process-stderr', 1);
+const MCP_EVENT = line('mcp-event-stream', 1);
+const FREE_KEY = 'a free-text key a tool chose (#130 review N2)';
+const FREE_TYPE = 'a prose type value a tool chose';
+const ALL_BODIES = [...SYNTH.output.split('\n').filter(Boolean), ...SYNTH.mcpResult.split('\n'), SHARED, FN_OUT, DYN_OUT, WEB_OUT, PROGRESS, STRUCT, ERR, ...DIFF.split('\n'), ...TURN_DIFF.split('\n'), PATCH_DIFF, HOOK_OUT, HOOK_PROMPT, PROC_OUT, PROC_ERR, MCP_EVENT, FREE_KEY, FREE_TYPE];
 
 const DELIVERED = 'G2 synthetic delivery (from a second daemon client, not typed in this TUI): reply with exactly OAC G2 SYNTHETIC';
 const ANSWER = `OAC G2 SYNTHETIC. Quoting: ${SHARED}`;
@@ -52,7 +63,7 @@ const TH = '01a00000-0000-7000-8000-000000000001';
 const TURN = '01a00000-0000-7000-8000-000000000002';
 const ids = { threadId: TH, turnId: TURN };
 const cmdItem = (done) => ({ type: 'commandExecution', id: 'call_cmd1', command: SYNTH.command, cwd: null, processId: null, source: 'agent', status: done ? 'completed' : 'inProgress', commandActions: [{ type: 'read', command: SYNTH.command, name: SYNTH.name, path: SYNTH.path }], aggregatedOutput: done ? SYNTH.output : null, exitCode: done ? 0 : null, durationMs: done ? 12 : null });
-const mcpItem = (done) => ({ type: 'mcpToolCall', id: 'call_mcp1', server: SYNTH.server, tool: SYNTH.tool, status: done ? 'completed' : 'inProgress', arguments: SYNTH.arguments, result: done ? { content: [{ type: 'text', text: SYNTH.mcpResult }, { type: 'text', text: SHARED }], structuredContent: { note: STRUCT, count: 3 }, _meta: null } : null, error: null, durationMs: done ? 30 : null });
+const mcpItem = (done) => ({ type: 'mcpToolCall', id: 'call_mcp1', server: SYNTH.server, tool: SYNTH.tool, status: done ? 'completed' : 'inProgress', arguments: SYNTH.arguments, result: done ? { content: [{ type: 'text', text: SYNTH.mcpResult }, { type: 'text', text: SHARED }], structuredContent: { note: STRUCT, count: 3, [FREE_KEY]: true, kind: { type: FREE_TYPE } }, _meta: null } : null, error: null, durationMs: done ? 30 : null });
 const mcpFailed = { type: 'mcpToolCall', id: 'call_mcp2', server: SYNTH.server, tool: SYNTH.tool, status: 'failed', arguments: {}, result: null, error: { message: ERR }, durationMs: 3 };
 const fnItem = { type: 'functionCallOutput', id: 'call_fn1', name: 'synthetic_fn', namespace: null, output: [{ type: 'input_text', text: FN_OUT }] };
 const dynItem = { type: 'dynamicToolCall', id: 'call_dyn1', tool: 'synthetic_dyn', namespace: null, arguments: {}, status: 'completed', success: true, contentItems: [{ type: 'inputText', text: DYN_OUT }], durationMs: 5 };
@@ -60,7 +71,9 @@ const webItem = { type: 'webSearch', id: 'ws_1', query: 'synthetic query', actio
 const userItem = { type: 'userMessage', id: 'u1', clientId: null, content: [{ type: 'text', text: DELIVERED, text_elements: [] }] };
 const agentItem = { type: 'agentMessage', id: 'msg_1', text: ANSWER, phase: 'final_answer' };
 const longItem = { type: 'agentMessage', id: 'msg_2', text: LONG_ANSWER, phase: 'final_answer' };
-const turnItems = [userItem, cmdItem(true), mcpItem(true), mcpFailed, fnItem, dynItem, webItem, agentItem, longItem];
+const fileItem = { type: 'fileChange', id: 'call_patch1', status: 'completed', changes: [{ path: 'synthetic/edited.md', kind: { type: 'update', move_path: null }, diff: DIFF }] };
+const hookPromptItem = { type: 'hookPrompt', id: 'hook_1', fragments: [{ hookRunId: 'run_1', text: HOOK_PROMPT }] };
+const turnItems = [userItem, cmdItem(true), mcpItem(true), mcpFailed, fnItem, dynItem, webItem, fileItem, hookPromptItem, agentItem, longItem];
 
 // G2-shaped records: {t, mode, direction, payload}.
 let tick = 0;
@@ -85,6 +98,13 @@ export function syntheticG2Transcript() {
     note('item/completed', { item: fnItem, ...ids }),
     note('item/completed', { item: dynItem, ...ids }),
     note('item/completed', { item: webItem, ...ids }),
+    note('item/completed', { item: fileItem, ...ids }),
+    note('item/fileChange/patchUpdated', { ...ids, itemId: 'call_patch1', changes: [{ path: 'synthetic/edited.md', kind: { type: 'delete' }, diff: PATCH_DIFF }] }),
+    note('turn/diff/updated', { ...ids, diff: TURN_DIFF }),
+    note('item/completed', { item: hookPromptItem, ...ids }),
+    note('hook/completed', { threadId: TH, turnId: TURN, run: { id: 'run_1', status: 'completed', eventName: 'stop', entries: [{ kind: 'stdout', text: HOOK_OUT }] } }),
+    note('process/exited', { processHandle: 'proc_1', exitCode: 0, stdout: PROC_OUT, stderr: PROC_ERR, stdoutCapReached: false, stderrCapReached: false }),
+    note('mcpServer/event/stream/notification', { subscriptionId: 'sub_1', notification: { method: 'synthetic/event', params: { detail: MCP_EVENT } } }),
     note('item/agentMessage/delta', { ...ids, itemId: 'msg_1', delta: ANSWER }),
     note('item/completed', { item: agentItem, ...ids }),
     note('item/completed', { item: longItem, ...ids }),
@@ -96,7 +116,7 @@ export function syntheticG2Transcript() {
   ];
   return `${lines.join('\n')}\n`;
 }
-const TOOL_LINES = (text) => text.split('\n').map((l, i) => [l, i + 1]).filter(([l]) => /outputDelta|mcpToolCall|commandExecution|functionCallOutput|dynamicToolCall|webSearch/.test(l)).map(([, n]) => n);
+const TOOL_LINES = (text) => text.split('\n').map((l, i) => [l, i + 1]).filter(([l]) => /outputDelta|mcpToolCall|commandExecution|functionCallOutput|dynamicToolCall|webSearch|fileChange|turn\/diff|hookPrompt|hook\/completed|process\/exited|mcpServer\/event/.test(l)).map(([, n]) => n);
 
 function wire(check) {
   const raw = syntheticG2Transcript();
@@ -111,9 +131,23 @@ function wire(check) {
   check('elide: a body the model quoted in its own answer survives only inside that answer', outLines.some((l) => l.includes(SHARED)) && outLines.every((l) => count(l, SHARED) === count(l, ANSWER)));
   check('elide: the aggregated file-read output becomes its marker (bytes and sha256 of the body)', text.includes(JSON.stringify(marker(SYNTH.output))) && text.includes(`"aggregatedOutput":${JSON.stringify(marker(SYNTH.output))}`));
   check('elide: each output delta becomes its own marker', SYNTH.output.match(/[^\n]*\n/g).every((d) => text.includes(`"delta":${JSON.stringify(marker(d))}`)));
-  check('elide: MCP result text, structuredContent leaves, error message and progress message become markers; `type` tags stay', [SYNTH.mcpResult, STRUCT, ERR, PROGRESS].every((b) => text.includes(JSON.stringify(marker(b)))) && text.includes(`{"type":"text","text":${JSON.stringify(marker(SYNTH.mcpResult))}}`) && text.includes('"count":3'));
+  check('elide: MCP result text, structuredContent leaves, error message and progress message become markers; `type` tags stay', [SYNTH.mcpResult, STRUCT, ERR, PROGRESS].every((b) => text.includes(JSON.stringify(marker(b)))) && text.includes(`{"type":"text","text":${JSON.stringify(marker(SYNTH.mcpResult))}}`) && text.includes(`${JSON.stringify(marker('count', 'tool-output-key'))}:3`));
   check('elide: functionCallOutput, dynamicToolCall and webSearch bodies become markers', [FN_OUT, DYN_OUT, WEB_OUT].every((b) => text.includes(JSON.stringify(marker(b)))) && text.includes('"type":"input_text"') && text.includes('"type":"inputText"'));
   const parsed = outLines.filter(Boolean).map((l) => JSON.parse(l));
+  const byMethod = (m) => parsed.filter((p) => p.payload?.method === m).map((p) => p.payload.params);
+  const fc = parsed.find((p) => p.payload?.params?.item?.id === 'call_patch1').payload.params.item;
+  check('review B1: a fileChange item\'s diff becomes a marker; its path and kind stay', fc.changes[0].diff === marker(DIFF) && fc.changes[0].path === 'synthetic/edited.md' && JSON.stringify(fc.changes[0].kind) === '{"type":"update","move_path":null}');
+  const pu = byMethod('item/fileChange/patchUpdated')[0];
+  check('review B1: item/fileChange/patchUpdated changes[].diff becomes a marker; path, kind and ids stay', pu.changes[0].diff === marker(PATCH_DIFF) && pu.changes[0].path === 'synthetic/edited.md' && pu.changes[0].kind.type === 'delete' && pu.itemId === 'call_patch1');
+  check('review B1: turn/diff/updated diff becomes a marker', byMethod('turn/diff/updated')[0].diff === marker(TURN_DIFF));
+  const hc = byMethod('hook/completed')[0];
+  check('review N1: hook/completed run.entries[].text becomes a marker; kind, run id and status stay', hc.run.entries[0].text === marker(HOOK_OUT) && hc.run.entries[0].kind === 'stdout' && hc.run.id === 'run_1' && hc.run.status === 'completed');
+  check('review N1: a hookPrompt item\'s fragments[].text becomes a marker; hookRunId stays', parsed.find((p) => p.payload?.params?.item?.id === 'hook_1').payload.params.item.fragments[0].text === marker(HOOK_PROMPT) && text.includes('"hookRunId":"run_1"'));
+  const pe = byMethod('process/exited')[0];
+  check('review N1: process/exited stdout and stderr become markers; exit code and handle stay', pe.stdout === marker(PROC_OUT) && pe.stderr === marker(PROC_ERR) && pe.exitCode === 0 && pe.processHandle === 'proc_1');
+  check('review N1: mcpServer/event/stream/notification\'s notification is elided whole; subscription id stays', byMethod('mcpServer/event/stream/notification')[0].subscriptionId === 'sub_1' && !text.includes(MCP_EVENT) && !text.includes('synthetic/event'));
+  check('review N2: a free-text key inside an elided body becomes a key marker; a number under it stays', !text.includes(FREE_KEY) && !text.includes('"note":') && text.includes(JSON.stringify(marker(FREE_KEY, 'tool-output-key'))) && text.includes(`${JSON.stringify(marker('count', 'tool-output-key'))}:3`));
+  check('review N2: a `type` value that is not a schema enum tag becomes a marker; enum tags (text, input_text, inputText) stay', !text.includes(FREE_TYPE) && text.includes(`"type":${JSON.stringify(marker(FREE_TYPE))}`) && text.includes('{"type":"text","text":'));
   const done = parsed.find((p) => p.payload?.params?.item?.id === 'call_cmd1' && p.payload.method === 'item/completed').payload.params.item;
   check('elide: ids, method, status, exit code, duration, command line and read action are kept', done.id === 'call_cmd1' && done.status === 'completed' && done.exitCode === 0 && done.durationMs === 12 && done.command === SYNTH.command && JSON.stringify(done.commandActions) === JSON.stringify(cmdItem(true).commandActions));
   const mcp = parsed.find((p) => p.payload?.params?.item?.id === 'call_mcp1' && p.payload.method === 'item/completed').payload.params.item;
@@ -267,12 +301,48 @@ function committed(check) {
     return elidePaneLines(t, { bodies: bodiesByDir.get(dirname(f)) ?? [], kept: [] }).text !== t;
   });
   check('committed fixtures: every committed herdr pane capture (G1, G4, G5) is unchanged by pane elision', panes.length >= 5 && paneChanged.length === 0, paneChanged.join(', '));
-  check('catalogue: the item types are the app-server v2 ThreadItem variants that carry tool output', Object.keys(ITEM_OUTPUT_FIELDS).sort().join() === 'commandExecution,dynamicToolCall,functionCallOutput,imageGeneration,mcpToolCall,webSearch');
+  check('catalogue: the item types are the app-server v2 ThreadItem variants that carry tool, file or hook text', Object.keys(ITEM_OUTPUT_FIELDS).sort().join() === 'commandExecution,dynamicToolCall,fileChange,functionCallOutput,hookPrompt,imageGeneration,mcpToolCall,webSearch');
+  check('catalogue: the notifications include the file-diff, hook, process and MCP event carriers', ['item/fileChange/patchUpdated', 'turn/diff/updated', 'hook/started', 'hook/completed', 'process/exited', 'mcpServer/event/stream/notification'].every((m) => Object.hasOwn(NOTIFICATION_OUTPUT_FIELDS, m)));
+  const unrec = jsonl.filter((f) => scanner.scan(readFileSync(f, 'utf8')).residualGenericHits.some((h) => h.label === UNRECOGNISED_LABEL));
+  check('committed fixtures: the independent long-text scan flags nothing in any committed transcript (no over-flagging)', unrec.length === 0, unrec.join(', '));
+}
+
+// #130 review N3: the residual scan does not depend on the elision list alone.
+function independent(check) {
+  const long = (tag) => Array.from({ length: 4 }, (_, n) => line(tag, n + 1)).join('\n'); // > LONG_TEXT_MIN
+  const r = createRedactor({ home: '/home/alice', username: 'alice', hostname: 'buildbox-7' });
+  const frames = [
+    // A thread item type no list knows (a future Codex), carrying a long tool body.
+    note('item/completed', { item: { type: 'futureToolCall', id: 'call_future1', status: 'completed', output: long('future-item') }, ...ids }),
+    // A notification no list knows, carrying a long body.
+    note('item/futureTool/outputChunk', { ...ids, itemId: 'call_future1', chunk: long('future-notification') }),
+    // A known item type with a long string in a field the elision list does not name.
+    note('item/completed', { item: { ...cmdItem(true), aggregatedOutput: null, extraOutput: long('unlisted-field') }, ...ids }),
+  ];
+  for (const [i, f] of frames.entries()) {
+    const { text, report } = r.redactJsonl(`${f}\n`);
+    check(`independent scan ${i + 1}: a long body the elision list misses is not elided, but the scan flags it, so run.mjs withholds the capture`, report.elidedToolOutputs.length === 0 && report.residualGenericHits.some((h) => h.label === UNRECOGNISED_LABEL) && !report.residualGenericHits.some((h) => h.label === UNELIDED_LABEL) && !reportIsClean(report) && text.length > 0);
+  }
+  check('independent scan: names a JSON path, never the text', unrecognisedLongText(JSON.parse(frames[0])).join() === '$.payload.params.item.output');
+  const raw = syntheticG2Transcript();
+  const flagged = raw.split('\n').map((l, i) => (l && unrecognisedLongText(JSON.parse(l)).length ? i + 1 : null)).filter(Boolean);
+  check('independent scan: it flags the raw synthetic transcript\'s long tool bodies by itself, without the elision list', flagged.length >= 4 && flagged.every((n) => TOOL_LINES(raw).includes(n)), JSON.stringify(flagged));
+  const kept = [
+    note('item/completed', { item: longItem, ...ids }),
+    note('item/agentMessage/delta', { ...ids, itemId: 'msg_2', delta: LONG_ANSWER }),
+    note('item/completed', { item: { ...userItem, content: [{ type: 'text', text: long('delivered-message'), text_elements: [] }] }, ...ids }),
+    rec('turn', 'client->daemon', { jsonrpc: '2.0', id: 1, method: 'turn/start', params: { threadId: TH, input: [{ type: 'text', text: long('turn-start-input') }] } }),
+    JSON.stringify({ t: 't', direction: 'server->client', payload: { jsonrpc: '2.0', method: 'notifications/claude/channel', params: { content: long('oac-channel-message'), meta: {} } } }),
+    note('item/completed', { item: { type: 'reasoning', id: 'rs_1', summary: [long('reasoning-summary')], content: [] }, ...ids }),
+  ];
+  const keptHits = kept.filter((f) => unrecognisedLongText(JSON.parse(f)).length);
+  check('independent scan: never flags the scored text (agent answers and deltas, delivered user messages, turn/start input, reasoning) or OAC\'s MCP channel notifications', keptHits.length === 0, JSON.stringify(keptHits.map((f) => unrecognisedLongText(JSON.parse(f)))));
 }
 
 export function elideUnit(check) {
   wire(check);
   scorers(check);
   pane(check);
+  independent(check);
   committed(check);
 }
