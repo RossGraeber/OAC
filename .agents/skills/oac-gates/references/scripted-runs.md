@@ -5,7 +5,7 @@ Source: Epic K #123 (non-goals; "Why this stays clear of ADR-001 boundary 4"). B
 `docs/planning/decisions/K1-herdr-evaluation.md`. This file states the rules the driver
 already enforces (`tools/herdr/run.mjs`, `tools/herdr/lib/herdr.mjs`,
 `tools/herdr/lib/manifest.mjs`, `tools/herdr/lib/pins.mjs`, `tools/herdr/lib/g1-report.mjs`,
-`tools/herdr/lib/gate-report-common.mjs`) and the rules that sit
+`tools/herdr/lib/gate-report-common.mjs`, `tools/herdr/lib/elide.mjs`) and the rules that sit
 outside the code. The evidence-store layout (the `Driver:` field, the `-herdr` fixture
 suffix, `docs/planning/gates/herdr-runs/`, what a herdr pin move invalidates) is
 `docs/planning/gates/README.md` "Scripted runs (herdr)". It is linked here, not restated.
@@ -114,6 +114,20 @@ run manifest (before #140, e.g. `G1-2026-09-29`) records no executables or captu
 at all, and the checker only WARNs on it. A hand edit to `schemaVersion: 1` would downgrade
 every #140 refusal to that WARN; refusing a v1 manifest whose `driver.commit` postdates
 #140 is an optional tightening, not done (any run manifest is forgeable by hand).
+
+**Third-party text in captures (#130).** Fixtures are public. A harness may read a file or
+call a tool on its own initiative while it answers a delivered message, and the wire then
+carries what came back verbatim. G2 run `20261005T020547Z-84b913` is the case: Codex read
+its bundled plugin's skill file and called that plugin's tool. Captures therefore never
+keep such text. In a wire transcript the driver replaces each Codex app-server tool-output
+body with `<ELIDED tool-output bytes=N sha256=…>`, and keeps the frame, ids, methods and
+every message text. It elides a pane line only when the same run's wire shows that line is
+tool output. Line numbers hold in both (`tools/herdr/lib/elide.mjs`; each elision is listed
+in the capture's redaction report). The residual scan refuses a known output field that
+still holds a body. No gate criterion reads a tool-output body. If one ever needs to, that
+is a finding to raise before the run, not a reason to keep the text. A capture made before
+this rule is never committed as it stands. A fixture is hash-bound to its capture
+(`captures[].sha256`), so it cannot be trimmed by hand: re-run instead.
 
 ## Timebox
 

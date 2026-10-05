@@ -5,10 +5,15 @@
 // against that run's fixture, criterion by criterion (tools/herdr/lib/g2-report.mjs). It
 // never changes G2's verdict, STATUS.md, or PINS.md.
 //
-// LIVE STATUS: UNVERIFIED. This scenario has only been exercised against the test doubles
-// in tools/herdr/test/ (a fake herdr and a fake Codex); it has never driven a real herdr or
-// a real Codex. Every Codex pane-text pattern it relies on is a guess to be confirmed by the
-// first operator run (lib/g2.mjs).
+// LIVE STATUS: RUN ONCE, NOT RECORDED. Run 20261005T020547Z-84b913 (2026-10-05, herdr
+// v0.9.1, Codex 0.160.0, driver commit 2fb55b1) drove a real herdr and a real Codex through
+// this scenario, run outcome PASS. Its captures are not committed: the delivered turn read a
+// file and called a tool on the model's own initiative, and the transcript carried that
+// third-party text verbatim (#130). The driver now elides tool output from captures
+// (lib/elide.mjs), so G2 needs a fresh run at the new driver commit before anything is
+// recorded. Until a committed record shows them, the Codex pane-text patterns (lib/g2.mjs) are
+// confirmed only as far as that unrecorded run showed: no trust dialog appeared in it, so the
+// trust-dialog pattern was not exercised live.
 //
 // Operator command (a machine with herdr at the PINS.md pin and a Codex CLI, any version:
 // versions float, and one other than PINS.md's last tested version is a VERSION WARNING
