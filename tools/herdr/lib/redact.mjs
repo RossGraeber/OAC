@@ -37,12 +37,13 @@
 //
 // Tool-output elision (#130, lib/elide.mjs): in JSONL, each Codex app-server field that the
 // elision list names (tool outputs, file reads, file diffs, hook and process output) is
-// replaced, after redaction, by `<ELIDED tool-output bytes=N sha256=...>`, so a public
-// fixture never republishes third-party text a harness read or a tool returned. The report
-// lists each elision (line, JSON path, bytes, sha256; never the body). The residual scan
-// flags a listed field still carrying a body (`un-elided tool output`) and, independently of
-// that list, a long string in an app-server item or notification that no keep-list of
-// model, user or harness-status fields names (`unrecognised long text ...`). Pane text is
+// replaced, after redaction, by `<ELIDED tool-output bytes=N sha256=...>`, and harness-authored
+// instruction text the daemon sends by `<ELIDED harness-text ...>`, so a public fixture never
+// republishes third-party text. The report lists each elision (line, JSON path, bytes,
+// sha256; never the body). The residual scan flags a listed field still carrying a body
+// (`un-elided tool output`, harness text included) and, independently of that list, a long
+// string in an app-server item, notification, or daemon request or response that no
+// keep-list names (`unrecognised long text ...`). Pane text is
 // elided by run.mjs, which alone sees the run's wire transcripts (elide.mjs header).
 //
 // Placeholders follow the ones in the committed G1/D6 fixtures (<USER_HOME>, <HOST>,
@@ -363,7 +364,8 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
 
   // A JSON line whose record still carries a tool-output body: in a field the elision list
   // names (UNELIDED_LABEL), or, independently of that list, a long string in an app-server
-  // item or notification that no keep-list names (UNRECOGNISED_LABEL).
+  // item, notification, or daemon request or response that no keep-list names
+  // (UNRECOGNISED_LABEL).
   const toolOutputHitsOn = (line) => {
     if (!/^\s*\{/.test(line)) return [];
     let rec;

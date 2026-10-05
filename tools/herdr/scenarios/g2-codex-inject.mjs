@@ -5,15 +5,20 @@
 // against that run's fixture, criterion by criterion (tools/herdr/lib/g2-report.mjs). It
 // never changes G2's verdict, STATUS.md, or PINS.md.
 //
-// LIVE STATUS: RUN ONCE, NOT RECORDED. Run 20261005T020547Z-84b913 (2026-10-05, herdr
-// v0.9.1, Codex 0.160.0, driver commit 2fb55b1) drove a real herdr and a real Codex through
-// this scenario, run outcome PASS. Its captures are not committed: the delivered turn read a
-// file and called a tool on the model's own initiative, and the transcript carried that
-// third-party text verbatim (#130). The driver now elides tool output from captures
-// (lib/elide.mjs), so G2 needs a fresh run at the new driver commit before anything is
-// recorded. Until a committed record shows them, the Codex pane-text patterns (lib/g2.mjs) are
-// confirmed only as far as that unrecorded run showed: no trust dialog appeared in it, so the
-// trust-dialog pattern was not exercised live.
+// LIVE STATUS: RUN TWICE, NEITHER RECORDED. Both runs drove a real herdr (v0.9.1) and a real
+// Codex (0.160.0) through this scenario on 2026-10-05, run outcome PASS, and neither run's
+// captures are committed:
+//   - 20261005T020547Z-84b913 (driver commit 2fb55b1): its transcript carried third-party
+//     tool output verbatim, from before the driver elided tool output (#130);
+//   - 20261005T041011Z-bb584c (driver commit 4f53b67): its transcript carried harness-authored
+//     instruction text in a daemon response, which that driver's elision did not cover; the
+//     driver now elides it (lib/elide.mjs DAEMON_TEXT_KEYS).
+// In both, injection 1's old wording ("through herdr") also drew tool use instead of the
+// expected reply; it now matches the human run's (lib/g2.mjs defaultInjectText). G2 needs a
+// fresh run at the current driver commit before anything is recorded. Until a committed
+// record shows them, the Codex pane-text patterns (lib/g2.mjs) are confirmed only as far as
+// those unrecorded runs showed: no trust dialog appeared in either run (each run manifest
+// records no dialog), so the trust-dialog pattern has not been exercised live.
 //
 // Operator command (a machine with herdr at the PINS.md pin and a Codex CLI, any version:
 // versions float, and one other than PINS.md's last tested version is a VERSION WARNING

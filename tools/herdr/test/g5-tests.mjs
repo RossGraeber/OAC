@@ -13,7 +13,7 @@
 // the scenario's and the driver's behavior only; a live G5 run through herdr is UNVERIFIED.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -226,8 +226,18 @@ const throws = (fn, cls, re) => {
 };
 
 // Replay the fixture's live server instance (pid 32636): its client requests, then each case
-// trigger in the fixture's order. -> { base, run } lists of comparable lines.
-export async function replayG5Channel() {
+// trigger in the fixture's order. -> { base, run, dropped } lists of comparable lines, and the
+// cases the server never acknowledged.
+//
+// #296: the server polls case.trigger's mtime every 100 ms. Each trigger is written whole to a
+// temp file and renamed over case.trigger (atomic: the server never reads a half-written id),
+// and the next one waits for this one's acknowledgement: the server's own record of the case
+// (`presend` followed by `send` or `refused`, or `unknown-case`) appended to its transcript
+// after the trigger, and, after a `send`, the notification itself. The wait is bounded
+// generously (ACK_TIMEOUT_MS); a case it never acknowledges is reported as dropped, not left
+// to shift the line-by-line comparison into a false reorder.
+const ACK_TIMEOUT_MS = 15000;
+export async function replayG5Channel({ trigger = writeTriggerAtomically } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'oac-g5-replay-'));
   for (const f of ['g5-channel.mjs', 'g5-cases.json']) copyFileSync(join(GS, f), join(dir, f));
   const child = spawn(process.execPath, [join(dir, 'g5-channel.mjs')], { cwd: dir, stdio: ['pipe', 'pipe', 'ignore'] });
@@ -251,18 +261,67 @@ export async function replayG5Channel() {
       got.delete(JSON.stringify(e.payload.id));
     }
     const caseIds = base.filter((e) => e.payload?.spike === 'send').map((e) => e.payload.case);
+    const tlines = () => (existsSync(tpath) ? read(tpath).split('\n').filter(Boolean) : []);
+    const dropped = [];
+    let lastMtime = null;
     for (const id of caseIds) {
-      const before = existsSync(tpath) ? read(tpath).split('\n').length : 0;
-      await sleep(150);
-      writeFileSync(join(dir, 'case.trigger'), `${id}\n`);
-      for (let i = 0; i < 60 && (!existsSync(tpath) || !read(tpath).split('\n').slice(before - 1).some((l) => l.includes('notifications/claude/channel'))); i++) await sleep(25);
+      const before = tlines().length;
+      try {
+        lastMtime = await trigger(join(dir, 'case.trigger'), id, lastMtime);
+      } catch (e) {
+        // #298 review NB-D: a trigger that cannot be written is a dropped case, reported.
+        dropped.push(`${id} (trigger not written: ${e?.code ?? e?.message ?? e})`);
+        continue;
+      }
+      const ack = await waitForAck(tlines, before, id);
+      if (!ack.ok) dropped.push(`${id} (${ack.why})`);
     }
     const shape = (entries) => entries.filter((e) => e.direction !== 'spike' || e.payload?.spike).map((e) => `${e.direction} ${JSON.stringify(e.payload)}`);
-    return { base: shape(base.filter((e) => e.line > live)), run: shape(parseJsonl(read(tpath)).slice(1)) };
+    return { base: shape(base.filter((e) => e.line > live)), run: shape(parseJsonl(read(tpath)).slice(1)), dropped };
   } finally {
     await killAndWait(child); // before the rm: on Windows an exiting process holds dir open (EPERM)
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+}
+
+// #296: write the case id whole, then rename it over case.trigger, so the server's poll never
+// reads a partial file. The new file's mtime must differ from the last trigger's, or the
+// server (which keys on mtime) would not see it. -> the new mtime.
+async function writeTriggerAtomically(path, id, lastMtime) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${id}\n`);
+    try {
+      renameSync(tmp, path); // Windows: may be refused while the server holds the file open for a read
+    } catch (e) {
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e;
+      await sleep(25);
+      continue;
+    }
+    const m = statSync(path).mtimeMs;
+    if (m !== lastMtime) return m;
+    await sleep(25);
+  }
+  throw new Error(`replay: could not write ${id} to the case trigger`);
+}
+
+// #296: the server's acknowledgement of one trigger, from its transcript after line `before`.
+async function waitForAck(tlines, before, id) {
+  const deadline = Date.now() + ACK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const after = tlines().slice(before).map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return {};
+      }
+    });
+    if (after.some((e) => e.payload?.spike === 'unknown-case')) return { ok: false, why: 'the server read an id that is not a case' };
+    const i = after.findIndex((e) => (e.payload?.spike === 'send' || e.payload?.spike === 'refused') && e.payload.case === id);
+    if (i >= 0 && (after[i].payload.spike === 'refused' || after.slice(i + 1).some((e) => e.direction === 'server->client' && e.payload?.method === 'notifications/claude/channel'))) return { ok: true };
+    await sleep(25);
+  }
+  return { ok: false, why: `no acknowledgement within ${ACK_TIMEOUT_MS} ms` };
 }
 
 export async function g5Unit(check) {
@@ -316,7 +375,21 @@ export async function g5Unit(check) {
   // --- replay: the reconstructed channel server against the fixture --------------------------------
   const rp = await replayG5Channel();
   const diff = rp.base.map((x, i) => (x === rp.run[i] ? null : `#${i}: fixture ${x.slice(0, 160)} | reconstruction ${String(rp.run[i]).slice(0, 160)}`)).filter(Boolean);
-  check('g5 reconstruction: replaying the fixture\'s requests and case triggers, every response, pre-send record and notification equals the fixture\'s', rp.base.length > 20 && rp.base.length === rp.run.length && diff.length === 0, `${rp.base.length} vs ${rp.run.length}; ${diff.slice(0, 3).join(' || ')}`);
+  // #296: a dropped case is reported as dropped, before (and instead of) the line-by-line diff.
+  check('g5 reconstruction: the server acknowledged every case trigger of the replay (none dropped)', rp.dropped.length === 0, `dropped: ${rp.dropped.join(', ')}`);
+  check('g5 reconstruction: replaying the fixture\'s requests and case triggers, every response, pre-send record and notification equals the fixture\'s', rp.dropped.length === 0 && rp.base.length > 20 && rp.base.length === rp.run.length && diff.length === 0, rp.dropped.length ? 'not compared: a case was dropped (above)' : `${rp.base.length} vs ${rp.run.length}; ${diff.slice(0, 3).join(' || ')}`);
+  // #296 (mutation): a trigger the server cannot act on is reported as that case dropped, not
+  // as a reorder of the cases after it.
+  const bad = await replayG5Channel({ trigger: (p, id, last) => writeTriggerAtomically(p, id === 'C2' ? 'not-a-case' : id, last) });
+  check('g5 reconstruction (#296 mutation): a case the server never acknowledges is reported as dropped, by id', bad.dropped.length === 1 && bad.dropped[0].startsWith('C2 '), JSON.stringify(bad.dropped));
+  // #298 review NB-D: a trigger write that fails is reported as that case dropped; the replay
+  // goes on and does not throw.
+  let threw = null;
+  const unwritable = await replayG5Channel({ trigger: (p, id, last) => (id === 'C3' ? Promise.reject(Object.assign(new Error('synthetic refused rename'), { code: 'EPERM' })) : writeTriggerAtomically(p, id, last)) }).catch((e) => {
+    threw = e;
+    return { dropped: [] };
+  });
+  check('g5 reconstruction (#298 NB-D mutation): a trigger that cannot be written is reported as that case dropped, not thrown', !threw && unwritable.dropped.length === 1 && unwritable.dropped[0] === 'C3 (trigger not written: EPERM)', JSON.stringify({ threw: threw?.message, dropped: unwritable.dropped }));
 
   // --- operator texts ------------------------------------------------------------------------------
   check('g5: the fixed question, the thread marker and the busy prompt carry no spoofing body', [cases.operatorQuestion, cases.codexThreadMarker, busyPromptFor('sleep 20')].every((t) => !throws(() => assertNoSpoof('t', t, cases))));

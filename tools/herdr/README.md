@@ -39,11 +39,13 @@ Captures never republish third-party text a harness read or a tool returned (#13
 - file diffs: fileChange `changes[].diff`, `turn/diff/updated`, `item/fileChange/patchUpdated`;
 - hook output (`hook/started` and `hook/completed` entries, hookPrompt fragments);
 - `process/exited` stdout and stderr, MCP event-stream notifications, and the output-delta and progress notifications;
-- requests the daemon sends its client (id and method, no `"jsonrpc"`, unlike MCP and the herdr clients' own requests): an MCP server's elicitation message and schema, and the file contents of the legacy patch approval.
+- requests the daemon sends its client, recognised by the capture record's `direction: "daemon->client"` (#297): an MCP server's elicitation message, schema and url, and the file contents of the legacy patch approval;
+- an MCP server's startup error, a config warning's details and an agent message's memory-citation notes (#297);
+- harness-authored instruction and prompt text, and upstream error detail, anywhere the daemon sends its client, results included: `<ELIDED harness-text …>`. Matched by key name (`elide.mjs` `DAEMON_TEXT_KEYS`), because a response does not name its method: developer, base and user instructions (the collaboration-mode settings of thread/resume and of the `thread/settings/updated` notification, config/read), `instructions`, `compact_prompt`, `additionalDeveloperInstructions`, plugin and skill default prompts, and a turn error's `additionalDetails` and misalignment explanation and steer text. Found by going through every response of the v2 schema at `rust-v0.160.0`. Thread items (the schema's 19 ThreadItem types) are not searched by key. In scope are the responses to what the herdr Codex clients send: `initialize`, `thread/loaded/list`, `thread/list`, `thread/resume`, `thread/turns/list`, `turn/start` and `thread/queue/add`. Every other response is out of scope: it can carry harness- or third-party text on no list, which the residual scan below catches only at 120 characters or more.
 
 Within an elided body, a free-text object key becomes a marker too; only schema keys and enum `type` tags stay. Ids, methods, statuses, paths, the command line, tool arguments and every message text stay, one record per line. A pane line is elided only when the same run's wire shows it is tool output: the line, without its indentation and TUI glyphs, is at least 16 characters, sits inside an elided body, and appears in no text the transcript keeps. Line numbers hold in both. Claude Code's captured wire is OAC's own MCP traffic, and its tools/call results are the OAC server's replies, so nothing in it is elided. The residual scan makes two checks:
 - `un-elided tool output`: a field on the list still carries a body.
-- `unrecognised long text in an app-server frame`: a check that does not depend on the list. It flags any string of 120 or more characters in an app-server item, notification or daemon request that is neither elided nor on a keep-list of fields that hold model, user or harness-status text. Kept fields include the answers and the delivered messages, so a long scored answer is never flagged. A field the list misses withholds the capture instead of reaching a fixture.
+- `unrecognised long text in an app-server frame`: a check that does not depend on the list. It flags any string of 120 or more characters in an app-server item, notification, daemon request or daemon response that is neither elided nor on a keep-list. The keep-lists hold the fields a gate criterion scores or that OAC or its client wrote, plus a few short harness-status lines decided one by one (`elide.mjs` header, #297 NB3). Kept fields include the answers and the delivered messages, so a long scored answer is never flagged; a response's pagination cursors are kept only in the shape Codex writes them (at most 512 characters, a JSON object whose string leaves are at most 64 characters). A field the list misses withholds the capture instead of reaching a fixture. Known limit: text under 120 characters in a field no list names is caught only by the list.
 
 ## Dialogs: the driver accepts them (dev/test runs, #196)
 
@@ -297,10 +299,11 @@ writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
 `scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G4 and G5
 have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2 has run live
-once: run `20261005T020547Z-84b913` (2026-10-05, Codex 0.160.0, run outcome PASS). That run is
-not recorded. Its transcript held third-party text that Codex read and a tool returned on its
-own initiative, so it is not committed (#130); G2 needs a fresh run under the driver that elides
-such text (see `lib/` above). A harness-facing behavior that no committed record shows stays
+twice, both on 2026-10-05 with Codex 0.160.0 and run outcome PASS, and neither is recorded or
+committed: run `20261005T020547Z-84b913` because its transcript held third-party tool output
+(#130), and run `20261005T041011Z-bb584c` because its transcript held harness-authored text in a
+daemon response that the elision did not then cover. G2 needs a fresh run under the current
+driver (see "Capture elision (#130)"). A harness-facing behavior that no committed record shows stays
 UNVERIFIED until a live run shows it (the commands are in each scenario's header comment; an
 agent runs them, see "Operator setup" below).
 

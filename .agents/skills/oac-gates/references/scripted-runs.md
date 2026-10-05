@@ -122,12 +122,14 @@ its bundled plugin's skill file and called that plugin's tool. Captures therefor
 keep such text. In a wire transcript the driver replaces with
 `<ELIDED tool-output bytes=N sha256=…>` each Codex app-server field on its elision list.
 The list was taken from the v2 schema: tool outputs, file reads, file diffs, hook output,
-process output and MCP event streams. It keeps the frame, ids, methods, paths and every
+process output and MCP event streams. Harness-authored instruction text the daemon sends,
+results included, becomes `<ELIDED harness-text …>`: G2 run `20261005T041011Z-bb584c` carried
+some in a `thread/resume` result. It keeps the frame, ids, methods, paths and every
 message text. It elides a pane line only when the same run's wire shows that line is tool
 output. Line numbers hold in both (`tools/herdr/lib/elide.mjs`; each elision is listed in
 the capture's redaction report). The residual scan refuses a listed field that still holds
-a body. Independently of the list, it also refuses any long string in an app-server item or
-notification that is not on a keep-list of model, user or harness-status fields. No gate
+a body. Independently of the list, it also refuses any long string in an app-server item,
+notification, or daemon request or response that is not on a keep-list. No gate
 criterion reads a tool-output body. If one ever needs to, that
 is a finding to raise before the run, not a reason to keep the text. A capture made before
 this rule is never committed as it stands. A fixture is hash-bound to its capture

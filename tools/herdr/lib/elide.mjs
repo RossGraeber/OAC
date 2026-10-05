@@ -9,7 +9,7 @@
 //
 //   <ELIDED tool-output bytes=<UTF-8 byte length> sha256=<64 hex>>
 //
-// Both are of the body after redaction (it is elided from the redacted record, so the hash
+// (`harness-text` in place of `tool-output` for DAEMON_TEXT_KEYS below.) Both are of the body after redaction (it is elided from the redacted record, so the hash
 // can disclose nothing that redaction would not have let through in the clear).
 //
 // What is elided is decided by shape, never by length or content: the fields listed in
@@ -29,7 +29,32 @@
 //     process's buffered output (process/exited) are elided like the output deltas.
 //   - A skill a user names in a turn is a `{type:"skill", name, path}` input: no body.
 //   - Requests the daemon sends its client (SERVER_REQUEST_OUTPUT_FIELDS): an MCP server's
-//     elicitation message and schema, and the file contents of the legacy patch approval.
+//     elicitation message, schema and url, and the file contents of the legacy patch approval.
+//     A daemon request, like a daemon response, is recognised by the capture record's
+//     `direction: "daemon->client"` (#297 NB5), never by the absence of `"jsonrpc"`.
+//   - Harness-authored instruction and prompt text, and upstream error detail, in anything the
+//     daemon sends its client (DAEMON_TEXT_KEYS, marker kind `harness-text`): matched by key
+//     name, because a response does not name the method it answers. The keys come from one
+//     pass over every *Response definition of the v2 schema at rust-v0.160.0 (and the
+//     notifications and requests): Settings.developer_instructions (thread/resume's
+//     collaborationMode.settings, and the thread/settings/updated notification's
+//     threadSettings.collaborationMode.settings), Config.developer_instructions / instructions /
+//     compact_prompt (config/read), ConfigRequirements.additionalDeveloperInstructions,
+//     PluginInterface / SkillInterface.defaultPrompt and AppScreenshot.userPrompt (plugin,
+//     skill and app listings), TurnError.additionalDetails and the MisalignmentErrorDetails
+//     `detailedExplanation` and `steer` (a turn's error, wherever the turn sits). The schema's
+//     thread/start, thread/resume and thread/fork params name baseInstructions and
+//     developerInstructions; their snake_case forms and user_instructions are older Codex
+//     names. All are listed so that a response echoing one is elided too. Thread items
+//     (THREAD_ITEM_TYPES) are not searched by key: their fields are the per-type lists above.
+//     Responses in scope are those to the requests the herdr Codex clients send: the G2
+//     client and gate-servers/g5-codex.mjs send only initialize, thread/loaded/list,
+//     thread/list, thread/resume, thread/turns/list, turn/start and thread/queue/add, and the
+//     only harness-authored text in their responses is the keys above. Every other response
+//     is out of scope: it can carry harness- or third-party text on no list (model/list
+//     upgrade copy, experimental-feature announcements, workspace messages, plugin skill
+//     contents, MCP resource-read and tool-call results, app metadata and app/list/updated),
+//     which the residual scan below catches only at LONG_TEXT_MIN characters or more.
 // Out of scope, each for a reason:
 //   - results of client requests the herdr clients never send (command/exec, fs/readFile,
 //     process/spawn, skills/list). process/exited, which follows a process/spawn, is
@@ -43,10 +68,24 @@
 // one line, so transcript line numbers hold.
 //
 // The residual scan does not rely on this list alone: unrecognisedLongText() flags any string
-// of LONG_TEXT_MIN characters or more in an app-server item, notification or daemon->client
-// request that is neither elided nor on a keep-list of fields known to hold model, user or
-// harness-status text. Text under that length in a field no list names is caught only by
-// the elision list (known limit).
+// of LONG_TEXT_MIN characters or more in an app-server item, notification, daemon->client
+// request or daemon->client response that is neither elided nor on a keep-list of fields
+// that a gate criterion scores or that OAC or its client wrote (or, for a few short
+// harness-status fields, decided one by one: #297 NB3, below). Text under that length in a
+// field no list names is caught only by the elision list (known limit, #297 NB4).
+//
+// #297 NB3, each keep-list field that can carry text the model did not write:
+//   - turn.error.message / error.message (turn/started, turn/completed, the error
+//     notification, and a turn inside a response): KEPT. Codex's own status line for a failed
+//     turn; the scenarios report it as the reason a run failed. Its detail
+//     (additionalDetails) and the misalignment explanation and steer text are ELIDED (above).
+//   - mcpServer/startupStatus/updated `error`: ELIDED. An MCP server's startup error chain;
+//     it can carry the server's own reply or stderr, no criterion reads it, and it is not
+//     short (the committed D6 fixtures hold a 971-character one). Its name and status stay.
+//   - configWarning `details`: ELIDED. It can quote the user's config file; summary and path
+//     stay.
+//   - agentMessage memoryCitation: entries[].note ELIDED (memory-file text); paths and
+//     thread ids stay.
 //
 // Claude Code: the herdr captures of Claude Code are the MCP traffic between Claude Code and
 // OAC's own spike server. Claude Code's own tool results (Read, Bash, ...) are not on that
@@ -64,7 +103,7 @@
 
 import { createHash } from 'node:crypto';
 
-export const ELIDED_RE = /^<ELIDED tool-output(?:-line|-key)? bytes=\d+ sha256=[0-9a-f]{64}>$/;
+export const ELIDED_RE = /^<ELIDED (?:tool-output(?:-line|-key)?|harness-text) bytes=\d+ sha256=[0-9a-f]{64}>$/;
 export const PANE_MIN_LENGTH = 16;
 export const LONG_TEXT_MIN = 120;
 
@@ -79,6 +118,7 @@ export const ITEM_OUTPUT_FIELDS = Object.freeze({
   webSearch: ['results'],
   imageGeneration: ['result'],
   hookPrompt: ['fragments.*.text'],
+  agentMessage: ['memoryCitation.entries.*.note'], // #297 NB3: memory-file text, not the answer
 });
 
 // Notification method -> its output-bearing params fields (ServerNotification, v2 schema).
@@ -94,17 +134,31 @@ export const NOTIFICATION_OUTPUT_FIELDS = Object.freeze({
   'hook/started': ['run.entries.*.text'],
   'hook/completed': ['run.entries.*.text'],
   'mcpServer/event/stream/notification': ['notification'],
+  'mcpServer/startupStatus/updated': ['error'], // #297 NB3
+  configWarning: ['details'], // #297 NB3
 });
 
 // Server request method -> its output-bearing params fields (ServerRequest, v2 schema; #130
-// review NB2). An MCP server's elicitation text and schema, and the file contents of the
-// legacy patch approval (`%`: every entry of the path -> change map; the paths stay).
-// Approval reasons, commands, questions and dynamic-tool arguments are the model's or the
-// harness's own text and are on the scan's keep-list instead.
+// review NB2). An MCP server's elicitation text, schema and url (#297 NB6: url mode), and the
+// file contents of the legacy patch approval (`%`: every entry of the path -> change map; the
+// paths stay). Approval reasons, commands, questions and dynamic-tool arguments are the
+// model's or the harness's own text and are on the scan's keep-list instead.
 export const SERVER_REQUEST_OUTPUT_FIELDS = Object.freeze({
-  'mcpServer/elicitation/request': ['message', 'requestedSchema', '_meta'],
+  'mcpServer/elicitation/request': ['message', 'requestedSchema', '_meta', 'url'],
   applyPatchApproval: ['fileChanges.%.content', 'fileChanges.%.unified_diff'],
 });
+
+// Keys whose value is elided wherever it sits in a daemon->client frame (a response's result
+// or error, a notification's or request's params), outside thread items (header). Sources
+// at rust-v0.160.0, codex-rs/app-server-protocol/schema/json/
+// codex_app_server_protocol.v2.schemas.json: Settings, Config, ConfigRequirements,
+// PluginInterface, SkillInterface, AppScreenshot, TurnError, MisalignmentErrorDetails;
+// ThreadStartParams / ThreadResumeParams / ThreadForkParams for the instruction names.
+export const DAEMON_TEXT_KEYS = Object.freeze(new Set([
+  'developer_instructions', 'developerInstructions', 'base_instructions', 'baseInstructions', 'user_instructions', 'userInstructions',
+  'instructions', 'additionalDeveloperInstructions', 'compact_prompt', 'compactPrompt', 'defaultPrompt', 'userPrompt',
+  'additionalDetails', 'detailedExplanation', 'steer',
+]));
 
 // Inside an elided body: object keys the schemas name (MCP CallToolResult and its content
 // blocks; the app-server's function and dynamic-tool content items; an error object; an MCP
@@ -128,12 +182,23 @@ export function elisionMarker(body, kind = 'tool-output') {
 
 const isItem = (o) => typeof o.type === 'string' && typeof o.id === 'string';
 const isAppServerNotification = (o) => typeof o.method === 'string' && !o.method.startsWith('notifications/') && o.id === undefined && !!o.params && typeof o.params === 'object';
-// A request the Codex daemon sends to its client (#130 review NB2). The app-server's wire
-// format leaves out `"jsonrpc"` (every daemon->client frame in the committed G2 and G5
-// fixtures does), while MCP and the herdr clients' own requests carry `"jsonrpc":"2.0"`. So an
-// id-bearing request without it is the daemon's; OAC's turn/start, thread/queue/add and the
-// MCP traffic of G1/G4 are never treated as one.
-const isServerRequest = (o) => typeof o.method === 'string' && o.id !== undefined && o.jsonrpc === undefined && !o.method.startsWith('notifications/') && !!o.params && typeof o.params === 'object';
+const isObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+// What the Codex daemon sent its client (#297 NB5): a capture record `{direction:
+// "daemon->client", payload}` (G2, G5, D6), or a G5 spike `{spike, response}` record, which
+// copies a daemon response. Keyed on the record, never on the frame's own fields: a daemon
+// request is not told from OAC's own requests (turn/start, MCP tools/call) by whether it
+// carries `"jsonrpc"`, which a future Codex may add. -> { key, kind } or null; kind is
+// 'request' (method and id), 'response' (result or error, no method), 'notification'
+// (method, no id) or 'other'.
+function daemonFrame(r) {
+  let key = null;
+  if (r.direction === 'daemon->client' && isObj(r.payload)) key = 'payload';
+  else if (typeof r.spike === 'string' && isObj(r.response) && r.response.method === undefined) key = 'response';
+  if (!key) return null;
+  const p = r[key];
+  const kind = typeof p.method === 'string' ? (p.id !== undefined ? 'request' : 'notification') : p.id !== undefined && (Object.hasOwn(p, 'result') || Object.hasOwn(p, 'error')) ? 'response' : 'other';
+  return { key, kind };
+}
 
 function elideString(v, path, out, kind = 'tool-output') {
   if (v === '' || ELIDED_RE.test(v)) return v;
@@ -143,20 +208,42 @@ function elideString(v, path, out, kind = 'tool-output') {
 
 // Every string leaf of a body becomes a marker, and so does every key the schemas do not name;
 // schema keys and enum `type` tags stay, so does the shape.
-function elideBody(v, path, out) {
-  if (typeof v === 'string') return elideString(v, path, out);
-  if (Array.isArray(v)) return v.map((x, i) => elideBody(x, `${path}[${i}]`, out));
+function elideBody(v, path, out, kind = 'tool-output') {
+  if (typeof v === 'string') return elideString(v, path, out, kind);
+  if (Array.isArray(v)) return v.map((x, i) => elideBody(x, `${path}[${i}]`, out, kind));
   if (v && typeof v === 'object') {
     const o = {};
     for (const [k, x] of Object.entries(v)) {
       const kept = BODY_KEYS.has(k) || ELIDED_RE.test(k);
       const key = kept ? k : elideString(k, `${path}.<key>`, out, 'tool-output-key');
       const sub = `${path}.${kept ? k : '<key>'}`;
-      o[key] = k === 'type' && typeof x === 'string' && BODY_TYPE_TAGS.has(x) ? x : elideBody(x, sub, out);
+      o[key] = k === 'type' && typeof x === 'string' && BODY_TYPE_TAGS.has(x) ? x : elideBody(x, sub, out, kind);
     }
     return o;
   }
   return v;
+}
+
+// The ThreadItem variants of the v2 schema at rust-v0.160.0 (ThreadItem.oneOf[].type, 19).
+// Key-name elision skips an object only when it is one of these (#298 review NB-B): other
+// objects with a string id and type, such as a ConfigLayerSource (`enterpriseManaged`:
+// id, name, type), are searched like the rest of the frame.
+export const THREAD_ITEM_TYPES = Object.freeze(new Set([
+  'userMessage', 'hookPrompt', 'agentMessage', 'functionCallOutput', 'plan', 'reasoning', 'commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall',
+  'collabAgentToolCall', 'subAgentActivity', 'webSearch', 'imageView', 'sleep', 'imageGeneration', 'enteredReviewMode', 'exitedReviewMode', 'contextCompaction',
+]));
+const isThreadItem = (o) => isItem(o) && THREAD_ITEM_TYPES.has(o.type);
+
+// DAEMON_TEXT_KEYS anywhere under a daemon frame, thread items excepted (their fields are
+// the per-type lists; an item's tool arguments are the model's input and stay).
+function elideDaemonKeys(v, path, out) {
+  if (Array.isArray(v)) return v.map((x, i) => elideDaemonKeys(x, `${path}[${i}]`, out));
+  if (!isObj(v) || isThreadItem(v)) return v;
+  const o = {};
+  for (const [k, x] of Object.entries(v)) {
+    o[k] = DAEMON_TEXT_KEYS.has(k) && x !== null && x !== undefined ? elideBody(x, `${path}.${k}`, out, 'harness-text') : elideDaemonKeys(x, `${path}.${k}`, out);
+  }
+  return o;
 }
 
 // Elide the field at a dotted spec path inside `obj`; returns a copy.
@@ -182,12 +269,22 @@ export function elideToolOutputs(value) {
     if (!v || typeof v !== 'object') return v;
     let o = v;
     if (isItem(v) && Object.hasOwn(ITEM_OUTPUT_FIELDS, v.type)) for (const f of ITEM_OUTPUT_FIELDS[v.type]) o = elideAt(o, f.split('.'), path, elided);
-    const table = isAppServerNotification(v) ? NOTIFICATION_OUTPUT_FIELDS : isServerRequest(v) ? SERVER_REQUEST_OUTPUT_FIELDS : null;
-    if (table && Object.hasOwn(table, v.method)) {
-      const fields = table[v.method];
+    const fields = (table, p) => (isObj(p.params) && Object.hasOwn(table, p.method) ? table[p.method] : []);
+    if (isAppServerNotification(v)) {
       let p = o.params;
-      for (const f of fields) p = elideAt(p, f.split('.'), `${path}.params`, elided);
+      for (const f of fields(NOTIFICATION_OUTPUT_FIELDS, v)) p = elideAt(p, f.split('.'), `${path}.params`, elided);
       o = { ...o, params: p };
+    }
+    const d = daemonFrame(v);
+    if (d) {
+      const at = `${path}.${d.key}`;
+      let p = elideDaemonKeys(o[d.key], at, elided);
+      if (d.kind === 'request') {
+        let prm = p.params;
+        for (const f of fields(SERVER_REQUEST_OUTPUT_FIELDS, p)) prm = elideAt(prm, f.split('.'), `${at}.params`, elided);
+        p = { ...p, params: prm };
+      }
+      o = { ...o, [d.key]: p };
     }
     const r = {};
     for (const [k, x] of Object.entries(o)) r[k] = visit(x, `${path}.${k}`);
@@ -210,7 +307,7 @@ export function unelidedToolOutputs(value) {
 // the capture instead of reaching a fixture.
 export const KEEP_ITEM_TEXT = Object.freeze({
   userMessage: ['content.*.text', 'content.*.path', 'content.*.url', 'content.*.name', 'content.*.text_elements.**'],
-  agentMessage: ['text', 'memoryCitation.**', 'questions.**'],
+  agentMessage: ['text', 'memoryCitation.entries.*.path', 'memoryCitation.threadIds.*', 'questions.**'],
   reasoning: ['summary.**', 'content.**'],
   plan: ['text'],
   commandExecution: ['command', 'cwd', 'scriptPath', 'commandActions.*.command', 'commandActions.*.path', 'commandActions.*.name', 'commandActions.*.query'],
@@ -232,17 +329,43 @@ export const KEEP_NOTIFICATION_TEXT = Object.freeze({
   'item/reasoning/summaryTextDelta': ['delta'],
   'item/reasoning/textDelta': ['delta'],
   'turn/plan/updated': ['explanation', 'plan.**'],
-  'turn/started': ['turn.error.**'],
-  'turn/completed': ['turn.error.**'],
+  'turn/started': ['turn.error.message', 'turn.error.misalignment.errorType'],
+  'turn/completed': ['turn.error.message', 'turn.error.misalignment.errorType'],
   'thread/started': ['thread.preview', 'thread.name', 'thread.cwd', 'thread.path'],
   'thread/name/updated': ['threadName'],
-  error: ['error.message', 'error.additionalDetails'],
+  error: ['error.message', 'error.misalignment.errorType'],
   warning: ['message'],
   guardianWarning: ['message'],
-  configWarning: ['summary', 'details', 'path'],
+  configWarning: ['summary', 'path'],
   deprecationNotice: ['summary', 'details'],
-  'mcpServer/startupStatus/updated': ['error'],
 });
+// Daemon responses (#130, run 20261005T041011Z-bb584c): a response does not name its method,
+// so its keep-list is one list of paths from the payload (`result.…`, `error.…`). Only what a
+// gate criterion scores, or what OAC or its client wrote:
+//   - result.userAgent: initialize; G2 reads the harness version from it;
+//   - result.data.*.preview / .cwd / .environments.*.cwd (thread/list) and the same fields
+//     of result.thread (thread/start, thread/resume, thread/fork, thread/read): G2 finds the
+//     TUI's thread by them; the preview is the operator's prompt, the cwd the client's choice;
+//   - result.cwd: the cwd the client asked for (thread/start, thread/resume);
+//   - result.queuedSubmission.input.*.text: thread/queue/add echoing OAC's own delivery;
+//   - result._fixtureNote: written by OAC's fixture sanitizer (lib/g2.mjs);
+//   - error.message and a turn's error.message: Codex's status line for a failed request or
+//     turn, which the scenarios report (#297 NB3).
+// Pagination cursors (OPAQUE_RESPONSE_TOKENS) are kept only in the shape Codex writes them
+// at rust-v0.160.0 (#298 review NB-A): at most CURSOR_MAX_LENGTH characters, parsing as a
+// JSON object (thread id, ordinal, flag, scope kind) whose every string leaf is at most
+// CURSOR_LEAF_MAX characters. The committed fixtures hold 147-189 character ones. Prose in a
+// cursor, whitespace or not (percent-encoded, underscore-joined), is flagged.
+export const KEEP_RESPONSE_TEXT = Object.freeze([
+  'result.userAgent',
+  'result.data.*.preview', 'result.data.*.cwd', 'result.data.*.environments.*.cwd',
+  'result.thread.preview', 'result.thread.cwd', 'result.thread.environments.*.cwd',
+  'result.cwd',
+  'result.queuedSubmission.input.*.text',
+  'result._fixtureNote',
+  'error.message', 'result.turn.error.message', 'result.data.*.error.message', 'result.thread.turns.*.error.message', 'result.data.*.turns.*.error.message',
+]);
+export const OPAQUE_RESPONSE_TOKENS = Object.freeze(['result.nextCursor', 'result.backwardsCursor', 'result.turnsBackwardsCursor', 'result.itemsBackwardsCursor']);
 // Server requests (#130 review NB2): approval reasons and commands, the model's questions and
 // dynamic-tool arguments. Any other long string in a daemon request is flagged, including
 // every field of a request method this list does not know.
@@ -271,14 +394,31 @@ const globMatch = (pattern, path) => {
 // object for which `stop` holds (a nested item, checked on its own).
 function longStrings(v, rel, out, stop) {
   if (typeof v === 'string') {
-    if (v.length >= LONG_TEXT_MIN && !ELIDED_RE.test(v)) out.push(rel);
+    if (v.length >= LONG_TEXT_MIN && !ELIDED_RE.test(v)) out.push([rel, v]);
   } else if (Array.isArray(v)) v.forEach((x, i) => longStrings(x, rel ? `${rel}.${i}` : String(i), out, stop));
   else if (v && typeof v === 'object' && !stop(v)) for (const [k, x] of Object.entries(v)) longStrings(x, rel ? `${rel}.${k}` : k, out, stop);
 }
 
+export const CURSOR_MAX_LENGTH = 512;
+export const CURSOR_LEAF_MAX = 64;
+function isStructuredCursor(s) {
+  if (s.length > CURSOR_MAX_LENGTH) return false;
+  let v;
+  try {
+    v = JSON.parse(s);
+  } catch {
+    return false;
+  }
+  if (!isObj(v)) return false;
+  const leavesShort = (x) => (typeof x === 'string' ? x.length <= CURSOR_LEAF_MAX : Array.isArray(x) ? x.every(leavesShort) : isObj(x) ? Object.entries(x).every(([k, y]) => k.length <= CURSOR_LEAF_MAX && leavesShort(y)) : true);
+  return leavesShort(v);
+}
+const keptResponseText = (rel, s) => KEEP_RESPONSE_TEXT.some((g) => globMatch(g, rel)) || (OPAQUE_RESPONSE_TOKENS.includes(rel) && isStructuredCursor(s));
+
 /**
- * Long strings in app-server items and notifications that are neither elided nor on a
- * keep-list (residual scan). Returns JSON paths, never the text.
+ * Long strings in app-server items, notifications, and daemon->client requests and responses
+ * that are neither elided nor on a keep-list (residual scan). Returns JSON paths, never the
+ * text.
  */
 export function unrecognisedLongText(value) {
   const hits = [];
@@ -289,12 +429,29 @@ export function unrecognisedLongText(value) {
       const keep = KEEP_ITEM_TEXT[v.type] ?? [];
       const found = [];
       for (const [k, x] of Object.entries(v)) longStrings(x, k, found, (o) => isItem(o));
-      for (const rel of found) if (!keep.some((g) => globMatch(g, rel))) hits.push(`${path}.${rel}`);
-    } else if (isAppServerNotification(v) || isServerRequest(v)) {
-      const keep = (isServerRequest(v) ? KEEP_SERVER_REQUEST_TEXT[v.method] : KEEP_NOTIFICATION_TEXT[v.method]) ?? [];
+      for (const [rel] of found) if (!keep.some((g) => globMatch(g, rel))) hits.push(`${path}.${rel}`);
+    } else if (isAppServerNotification(v)) {
+      const keep = KEEP_NOTIFICATION_TEXT[v.method] ?? [];
       const found = [];
       longStrings(v.params, '', found, (o) => o !== v.params && isItem(o));
-      for (const rel of found) if (!keep.some((g) => globMatch(g, rel))) hits.push(`${path}.params.${rel}`);
+      for (const [rel] of found) if (!keep.some((g) => globMatch(g, rel))) hits.push(`${path}.params.${rel}`);
+    }
+    const d = daemonFrame(v);
+    if (d && d.kind !== 'notification') {
+      const p = v[d.key];
+      const found = [];
+      const notItem = (o) => isItem(o);
+      if (d.kind === 'request') {
+        const keep = KEEP_SERVER_REQUEST_TEXT[p.method] ?? [];
+        longStrings(p.params, '', found, notItem);
+        for (const [rel] of found) if (!keep.some((g) => globMatch(g, rel))) hits.push(`${path}.${d.key}.params.${rel}`);
+      } else {
+        // A response (#130, run 20261005T041011Z-bb584c), or a daemon frame of no known shape:
+        // every field but the frame's own id and method.
+        const { id, method, ...rest } = p;
+        longStrings(rest, '', found, notItem);
+        for (const [rel, s] of found) if (!(d.kind === 'response' && keptResponseText(rel, s))) hits.push(`${path}.${d.key}.${rel}`);
+      }
     }
     for (const [k, x] of Object.entries(v)) visit(x, `${path}.${k}`);
   };

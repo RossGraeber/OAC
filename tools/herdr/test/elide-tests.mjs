@@ -277,7 +277,9 @@ function committed(check) {
   const changed = [];
   const bodiesByDir = new Map();
   for (const f of jsonl) {
+    let lineNo = 0;
     for (const l of readFileSync(f, 'utf8').split('\n')) {
+      lineNo += 1;
       if (!l.trim().startsWith('{')) continue;
       let v;
       try {
@@ -287,24 +289,44 @@ function committed(check) {
       }
       records += 1;
       const { elided } = elideToolOutputs(v);
-      if (elided.length) changed.push(f);
+      if (elided.length) changed.push({ f, n: lineNo, paths: elided.map((e) => e.path) });
       bodiesByDir.set(dirname(f), [...(bodiesByDir.get(dirname(f)) ?? []), ...elided.map((e) => e.body)]);
     }
   }
-  check('committed fixtures: elision leaves every committed transcript record unchanged (G1, G2, G4, G5, D6)', jsonl.length >= 20 && records > 1000 && changed.length === 0, `${jsonl.length} files, ${records} records, changed: ${[...new Set(changed)].join(', ')}`);
+  // #297 NB3 elides mcpServer/startupStatus/updated `error`. Two committed D6 records (not
+  // herdr captures, never re-captured) hold one: Codex's start-failure chain for OAC's own g4
+  // spike server. They are the only committed records the elision list now touches, and only
+  // that field: the server name and `failed` status, which carry the record's meaning, stay.
+  const D6_STARTUP = ['d6-codex-protocol/transcript-conn1-2026-09-28.jsonl:42', 'd6-codex-protocol/transcript-conn2-2026-09-28.jsonl:16'];
+  const rel = (f) => f.slice(FIXTURES.length + 1).replace(/\\/g, '/');
+  check('committed fixtures: elision leaves every committed transcript record unchanged (G1, G2, G4, G5, D6) except the two D6 MCP startup errors (#297 NB3)', jsonl.length >= 20 && records > 1000 && JSON.stringify(changed.map((c) => `${rel(c.f)}:${c.n}`)) === JSON.stringify(D6_STARTUP) && changed.every((c) => c.paths.join() === '$.payload.params.error'), `${jsonl.length} files, ${records} records, changed: ${JSON.stringify(changed.map((c) => [rel(c.f), c.n, c.paths]))}`);
+  check('committed fixtures: no G1, G2, G4 or G5 record (the gate scorers\' inputs) is touched', changed.every((c) => rel(c.f).startsWith('d6-codex-protocol/')));
   const scanner = createRedactor();
-  const flagged = jsonl.filter((f) => scanner.scan(readFileSync(f, 'utf8')).residualGenericHits.some((h) => h.label === UNELIDED_LABEL));
-  check('committed fixtures: the residual scan flags no committed transcript as un-elided', flagged.length === 0, flagged.join(', '));
+  const hitLines = (label) => jsonl.flatMap((f) => scanner.scan(readFileSync(f, 'utf8')).residualGenericHits.filter((h) => h.label === label).map((h) => `${rel(f)}:${h.line}`));
+  const flagged = hitLines(UNELIDED_LABEL);
+  check('committed fixtures: the residual scan flags no committed transcript as un-elided, but the two D6 MCP startup errors', JSON.stringify(flagged) === JSON.stringify(D6_STARTUP), flagged.join(', '));
   const panes = files.filter((f) => /pane-.*-herdr\.txt$/.test(f));
   const paneChanged = panes.filter((f) => {
     const t = readFileSync(f, 'utf8');
     return elidePaneLines(t, { bodies: bodiesByDir.get(dirname(f)) ?? [], kept: [] }).text !== t;
   });
   check('committed fixtures: every committed herdr pane capture (G1, G4, G5) is unchanged by pane elision', panes.length >= 5 && paneChanged.length === 0, paneChanged.join(', '));
-  check('catalogue: the item types are the app-server v2 ThreadItem variants that carry tool, file or hook text', Object.keys(ITEM_OUTPUT_FIELDS).sort().join() === 'commandExecution,dynamicToolCall,fileChange,functionCallOutput,hookPrompt,imageGeneration,mcpToolCall,webSearch');
-  check('catalogue: the notifications include the file-diff, hook, process and MCP event carriers', ['item/fileChange/patchUpdated', 'turn/diff/updated', 'hook/started', 'hook/completed', 'process/exited', 'mcpServer/event/stream/notification'].every((m) => Object.hasOwn(NOTIFICATION_OUTPUT_FIELDS, m)));
-  const unrec = jsonl.filter((f) => scanner.scan(readFileSync(f, 'utf8')).residualGenericHits.some((h) => h.label === UNRECOGNISED_LABEL));
-  check('committed fixtures: the independent long-text scan flags nothing in any committed transcript (no over-flagging)', unrec.length === 0, unrec.join(', '));
+  check('catalogue: the item types are the app-server v2 ThreadItem variants that carry tool, file or hook text, and agentMessage memory notes (#297 NB3)', Object.keys(ITEM_OUTPUT_FIELDS).sort().join() === 'agentMessage,commandExecution,dynamicToolCall,fileChange,functionCallOutput,hookPrompt,imageGeneration,mcpToolCall,webSearch' && ITEM_OUTPUT_FIELDS.agentMessage.join() === 'memoryCitation.entries.*.note');
+  check('catalogue: the notifications include the file-diff, hook, process and MCP event carriers, the MCP startup error and the config-warning details', ['item/fileChange/patchUpdated', 'turn/diff/updated', 'hook/started', 'hook/completed', 'process/exited', 'mcpServer/event/stream/notification', 'mcpServer/startupStatus/updated', 'configWarning'].every((m) => Object.hasOwn(NOTIFICATION_OUTPUT_FIELDS, m)));
+  const unrec = hitLines(UNRECOGNISED_LABEL);
+  check('committed fixtures: the independent long-text scan, responses included, flags nothing in any committed transcript but the two D6 MCP startup errors (no over-flagging)', JSON.stringify(unrec) === JSON.stringify(D6_STARTUP), unrec.join(', '));
+  // The response keep-list is not vacuous: the committed fixtures hold long cursors and an
+  // OAC delivery echoed by thread/queue/add, which the scan would flag without it.
+  let responseLong = 0;
+  for (const f of jsonl) {
+    for (const l of readFileSync(f, 'utf8').split('\n')) {
+      if (!l.includes('"direction":"daemon->client"') || !l.includes('"result"')) continue;
+      const p = JSON.parse(l).payload;
+      const r = p?.method === undefined ? p.result : null;
+      if (r && (['nextCursor', 'backwardsCursor', 'turnsBackwardsCursor', 'itemsBackwardsCursor'].some((k) => String(r[k] ?? '').length >= 120) || (r.queuedSubmission?.input ?? []).some((x) => String(x?.text ?? '').length >= 120))) responseLong += 1;
+    }
+  }
+  check('committed fixtures: daemon responses holding 120+-character cursors or a queued delivery exist, so the response keep-list is exercised', responseLong >= 3, String(responseLong));
 }
 
 // #130 review N3: the residual scan does not depend on the elision list alone.
@@ -374,7 +396,121 @@ function serverRequests(check) {
 }
 const long = (tag) => Array.from({ length: 4 }, (_, n) => line(tag, n + 1)).join('\n');
 
+// #130 (G2 run 20261005T041011Z-bb584c, transcript line 48): harness-authored instruction
+// text in a daemon->client RESPONSE. Every body here is synthetic.
+function responses(check) {
+  const r = createRedactor({ home: '/home/alice', username: 'alice', hostname: 'buildbox-7' });
+  const DEV = long('collaboration-mode-developer-instructions');
+  const CFG_DEV = long('config-developer-instructions');
+  const CFG_INSTR = long('config-instructions');
+  const CFG_COMPACT = long('config-compact-prompt');
+  const REQ_DEV = long('requirements-additional-developer-instructions');
+  const DETAILS = long('turn-error-additional-details');
+  const EXPLAIN = long('misalignment-detailed-explanation');
+  const STEER = line('misalignment-steer-message', 1);
+  const PREVIEW = long('operator-prompt-preview');
+  const CURSOR = JSON.stringify({ requestedThreadId: TH, rolloutOrdinal: 1, includeAnchor: true, scope: { kind: 'turns' }, pad: 'x'.repeat(60) });
+  const thread = { id: TH, preview: PREVIEW, cwd: '/home/alice/synthetic-project', environments: [{ environmentId: 'local', cwd: '/home/alice/synthetic-project' }], status: { type: 'idle' }, turns: [] };
+  const resume = rec('watch', 'daemon->client', { id: 1, result: { thread, model: 'synthetic-model', cwd: '/home/alice/synthetic-project', collaborationMode: { mode: 'default', settings: { model: 'synthetic-model', reasoning_effort: 'high', developer_instructions: DEV } }, turnsBackwardsCursor: CURSOR, itemsBackwardsCursor: CURSOR } });
+  const config = rec('watch', 'daemon->client', { id: 2, result: { config: { model: 'synthetic-model', developer_instructions: CFG_DEV, instructions: CFG_INSTR, compact_prompt: CFG_COMPACT }, origins: {}, layers: [] } });
+  const reqs = rec('watch', 'daemon->client', { id: 3, result: { requirements: { additionalDeveloperInstructions: REQ_DEV, logDir: null } } });
+  const turnErr = { message: 'synthetic turn failed', additionalDetails: DETAILS, misalignment: { errorType: 'synthetic', detailedExplanation: EXPLAIN, steer: { message: STEER } } };
+  const turnStart = rec('turn', 'daemon->client', { id: 4, result: { turn: { id: TURN, items: [agentItem], status: 'failed', error: turnErr } } });
+  const raw = `${[resume, config, reqs, turnStart].join('\n')}\n`;
+  const { text, report } = r.redactJsonl(raw);
+  const out = text.split('\n').filter(Boolean).map((l) => JSON.parse(l).payload.result);
+  const harness = (s) => marker(s, 'harness-text');
+  check('#130 responses: thread/resume collaborationMode developer_instructions becomes a harness-text marker; mode, model and reasoning effort stay', out[0].collaborationMode.settings.developer_instructions === harness(DEV) && out[0].collaborationMode.mode === 'default' && out[0].collaborationMode.settings.reasoning_effort === 'high' && out[0].model === 'synthetic-model');
+  check('#130 responses: the scored and client-written fields of a response stay (thread preview, cwds, opaque cursors)', out[0].thread.preview === PREVIEW && out[0].thread.environments[0].cwd === '<USER_HOME>/synthetic-project' && out[0].turnsBackwardsCursor === CURSOR);
+  check('#130 responses: config/read developer_instructions, instructions and compact_prompt, and configRequirements additionalDeveloperInstructions, become markers', out[1].config.developer_instructions === harness(CFG_DEV) && out[1].config.instructions === harness(CFG_INSTR) && out[1].config.compact_prompt === harness(CFG_COMPACT) && out[2].requirements.additionalDeveloperInstructions === harness(REQ_DEV) && out[2].requirements.logDir === null);
+  const te = out[3].turn.error;
+  check('#297 NB3: a turn error\'s additionalDetails, misalignment explanation and steer text become markers; its message and errorType stay; the turn\'s items are untouched', te.additionalDetails === harness(DETAILS) && te.misalignment.detailedExplanation === harness(EXPLAIN) && te.misalignment.steer.message === harness(STEER) && te.message === 'synthetic turn failed' && te.misalignment.errorType === 'synthetic' && JSON.stringify(out[3].turn.items) === JSON.stringify([agentItem]));
+  check('#130 responses: the elided responses scan clean', reportIsClean(report), JSON.stringify(report.residualGenericHits));
+  check('#130 responses: the report lists each harness-text elision by line and path, never a body', report.elidedToolOutputs.some((e) => e.line === 1 && e.path === '$.payload.result.collaborationMode.settings.developer_instructions') && ![DEV, CFG_DEV, DETAILS].some((b) => JSON.stringify(report).includes(b)));
+  check('#130 responses: the marker shape covers harness-text', ELIDED_RE.test(harness(DEV)));
+  // The independent scan covers responses (keyed on direction), without the elision list.
+  check('#130 responses: the raw thread/resume response is flagged by both residual labels', ((h) => h.includes(UNELIDED_LABEL) && h.includes(UNRECOGNISED_LABEL))(r.scan(resume).residualGenericHits.map((x) => x.label)));
+  check('#130 responses: the independent scan names the response path', unrecognisedLongText(JSON.parse(resume)).join() === '$.payload.result.collaborationMode.settings.developer_instructions');
+  const unknownField = rec('watch', 'daemon->client', { id: 5, result: { thread, futureHarnessText: long('future-response-field') } });
+  const u = r.redactJsonl(`${unknownField}\n`);
+  check('#130 responses: a long string in a response field no list names is flagged (capture withheld)', u.report.elidedToolOutputs.length === 0 && u.report.residualGenericHits.some((h) => h.label === UNRECOGNISED_LABEL) && !reportIsClean(u.report));
+  const proseCursor = rec('watch', 'daemon->client', { id: 6, result: { data: [], nextCursor: long('prose-in-a-cursor') } });
+  check('#130 responses: prose in a cursor is flagged', unrecognisedLongText(JSON.parse(proseCursor)).join() === '$.payload.result.nextCursor');
+  // #298 review NB-A: a cursor is kept only in the shape Codex writes (a JSON object of short
+  // leaves, bounded length), never because it lacks whitespace.
+  const noSpace = Array.from({ length: 24 }, (_, i) => `synthetic_word_${i}`).join('_'); // > 120, no whitespace
+  const cursorCase = (v) => unrecognisedLongText(JSON.parse(rec('watch', 'daemon->client', { id: 10, result: { data: [], nextCursor: v } }))).join();
+  check('#298 NB-A: an underscore-joined or percent-encoded prose cursor (no whitespace) is flagged', cursorCase(noSpace) === '$.payload.result.nextCursor' && cursorCase(encodeURIComponent(long('percent-encoded-prose'))) === '$.payload.result.nextCursor' && !/\s/.test(noSpace));
+  check('#298 NB-A: a JSON cursor with a long string leaf, or longer than the cap, is flagged; the Codex shape is kept', cursorCase(JSON.stringify({ requestedThreadId: TH, note: noSpace })) === '$.payload.result.nextCursor' && cursorCase(JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, 'v'.repeat(12)])))) === '$.payload.result.nextCursor' && cursorCase(CURSOR) === '');
+  const unlistedToken = rec('watch', 'daemon->client', { id: 11, result: { thread, futureOpaqueField: noSpace } });
+  check('#298 NB-A: a long string with no whitespace in a response field no list names is flagged', unrecognisedLongText(JSON.parse(unlistedToken)).join() === '$.payload.result.futureOpaqueField' && !reportIsClean(r.redactJsonl(`${unlistedToken}\n`).report), JSON.stringify(unrecognisedLongText(JSON.parse(unlistedToken))));
+  // #298 review NB-B: key-name elision skips only real ThreadItem types. A ConfigLayerSource
+  // (string id and type, like an item) is searched; a thread item's tool arguments (the
+  // model's input, scored) are not touched even when a key matches.
+  const SHORT_DEV = 'synthetic short layer developer text'; // < 120: only the elision list catches it
+  const layer = rec('watch', 'daemon->client', { id: 12, result: { config: {}, origins: {}, layers: [{ name: { type: 'enterpriseManaged', id: 'synthetic-layer', name: 'synthetic', developer_instructions: SHORT_DEV }, version: '1' }] } });
+  const lo = r.redactJsonl(`${layer}\n`);
+  check('#298 NB-B: developer_instructions under a ConfigLayerSource-shaped object (string id and type) is elided', JSON.parse(lo.text).payload.result.layers[0].name.developer_instructions === harness(SHORT_DEV) && JSON.parse(lo.text).payload.result.layers[0].name.id === 'synthetic-layer' && reportIsClean(lo.report));
+  const argItem = { type: 'mcpToolCall', id: 'call_args', server: SYNTH.server, tool: SYNTH.tool, status: 'inProgress', arguments: { instructions: 'synthetic model-written tool argument', steer: 'left' }, result: null, error: null };
+  const itemFrames = [note('item/started', { item: argItem, ...ids }), rec('turns', 'daemon->client', { id: 13, result: { data: [{ id: TURN, items: [argItem], status: 'inProgress' }] } })];
+  check('#298 NB-B: a thread item\'s tool arguments are not elided by key name (notification and response)', itemFrames.every((f) => r.redactJsonl(`${f}\n`).text.trim() === f && elideToolOutputs(JSON.parse(f)).elided.length === 0));
+  const jsonErr = rec('watch', 'daemon->client', { id: 7, error: { code: -32600, message: long('jsonrpc-error-message'), data: { detail: long('jsonrpc-error-data') } } });
+  check('#130 responses: a JSON-RPC error keeps its message (the scenarios report it); its data is flagged', unrecognisedLongText(JSON.parse(jsonErr)).join() === '$.payload.error.data.detail');
+  // A G5 spike record copying a daemon response is covered too.
+  const g5 = JSON.stringify({ t: 't', spike: 'turns', threadId: TH, response: { id: 8, result: { collaborationMode: { settings: { developer_instructions: DEV } } } } });
+  const g5out = r.redactJsonl(`${g5}\n`);
+  check('#130 responses: a G5 spike `response` record\'s instruction text is elided and scans clean', !g5out.text.includes(DEV) && reportIsClean(g5out.report) && unrecognisedLongText(JSON.parse(g5)).length === 1);
+  // Not the daemon's: OAC's own requests, and an OAC MCP server's own `instructions`.
+  const own = [
+    rec('turn', 'client->daemon', { jsonrpc: '2.0', id: 9, method: 'thread/start', params: { cwd: '/x', developerInstructions: long('oac-client-developer-instructions') } }),
+    JSON.stringify({ t: 't', direction: 'server->client', payload: { jsonrpc: '2.0', id: 0, result: { protocolVersion: '2025-06-18', serverInfo: { name: 'g1spike' }, instructions: long('oac-mcp-server-instructions') } } }),
+  ];
+  check('#130 responses: OAC\'s own thread/start params and an OAC MCP server\'s initialize instructions are neither elided nor flagged (not daemon->client)', own.every((f) => elideToolOutputs(JSON.parse(f)).elided.length === 0 && unrecognisedLongText(JSON.parse(f)).length === 0));
+  // The G2 scorers read nothing elided here.
+  const g2t = `${[rec('watch', 'client->daemon', { jsonrpc: '2.0', id: 1, method: 'thread/resume', params: { threadId: TH } }), resume].join('\n')}\n`;
+  check('#130 responses: g2Facts (the thread/resume record G2 reads) is identical before and after', JSON.stringify(g2Facts(parseG2Transcript(g2t))) === JSON.stringify(g2Facts(parseG2Transcript(r.redactJsonl(g2t).text))) && g2Facts(parseG2Transcript(g2t)).resumes[0]?.status === 'idle');
+}
+
+// #297: NB5 (daemon requests keyed on direction), NB6 (elicitation url), NB3 (notifications).
+function nb297(check) {
+  const r = createRedactor({ home: '/home/alice', username: 'alice', hostname: 'buildbox-7' });
+  const ELICIT = long('elicitation-message-jsonrpc');
+  const withJsonrpc = rec('watch', 'daemon->client', { jsonrpc: '2.0', id: 80, method: 'mcpServer/elicitation/request', params: { threadId: TH, serverName: SYNTH.server, mode: 'form', message: ELICIT, requestedSchema: { type: 'object', properties: {} }, _meta: null } });
+  const a = r.redactJsonl(`${withJsonrpc}\n`);
+  check('#297 NB5: a daemon request carrying "jsonrpc":"2.0" is still elided (keyed on direction)', !a.text.includes(ELICIT) && JSON.parse(a.text).payload.params.message === marker(ELICIT) && reportIsClean(a.report));
+  check('#297 NB5: and still scanned', unrecognisedLongText(JSON.parse(withJsonrpc)).join() === '$.payload.params.message');
+  const clientNoJsonrpc = rec('turn', 'client->daemon', { id: 81, method: 'mcpServer/elicitation/request', params: { message: long('client-side-text') } });
+  check('#297 NB5: a client->daemon request without "jsonrpc" is not taken for a daemon request', elideToolOutputs(JSON.parse(clientNoJsonrpc)).elided.length === 0 && unrecognisedLongText(JSON.parse(clientNoJsonrpc)).length === 0);
+  const URL = `https://example.invalid/oauth/authorize?${'q=synthetic&'.repeat(14)}end`;
+  const urlMode = rec('watch', 'daemon->client', { id: 82, method: 'mcpServer/elicitation/request', params: { threadId: TH, serverName: SYNTH.server, mode: 'url', elicitationId: 'el_1', message: 'Synthetic: open the link', url: URL, _meta: null } });
+  const b = r.redactJsonl(`${urlMode}\n`);
+  const bp = JSON.parse(b.text).payload.params;
+  check('#297 NB6: a url-mode elicitation url (120+ characters) becomes a marker and the capture is publishable; mode and elicitation id stay', URL.length >= 120 && bp.url === marker(URL) && bp.mode === 'url' && bp.elicitationId === 'el_1' && reportIsClean(b.report), JSON.stringify(b.report.residualGenericHits));
+  const STARTUP = long('mcp-startup-error-chain');
+  const CFG_DETAILS = line('config-warning-details', 1);
+  const NOTE = line('memory-citation-note', 1);
+  const ERR_DETAILS = line('error-additional-details', 1);
+  const TURN_DETAILS = line('turn-completed-error-details', 1);
+  const frames = [
+    note('mcpServer/startupStatus/updated', { threadId: TH, name: 'synthetic_server', status: 'failed', error: STARTUP }),
+    note('configWarning', { summary: 'Synthetic config warning', details: CFG_DETAILS, path: '/home/alice/.codex/config.toml' }),
+    note('item/completed', { item: { ...agentItem, memoryCitation: { entries: [{ path: 'memories/synthetic.md', lineStart: 1, lineEnd: 2, note: NOTE }], threadIds: [TH] } }, ...ids }),
+    note('error', { threadId: TH, turnId: TURN, error: { message: 'synthetic stream error', additionalDetails: ERR_DETAILS } }),
+    note('turn/completed', { threadId: TH, turn: { id: TURN, items: [], status: 'failed', error: { message: 'synthetic turn error', additionalDetails: TURN_DETAILS } } }),
+  ];
+  const c = r.redactJsonl(`${frames.join('\n')}\n`);
+  const o = c.text.split('\n').filter(Boolean).map((l) => JSON.parse(l).payload.params);
+  check('#297 NB3: the MCP startup error becomes a marker; server name and status stay', o[0].error === marker(STARTUP) && o[0].name === 'synthetic_server' && o[0].status === 'failed');
+  check('#297 NB3: configWarning details become a marker; summary and path stay', o[1].details === marker(CFG_DETAILS) && o[1].summary === 'Synthetic config warning' && o[1].path === '<USER_HOME>/.codex/config.toml');
+  check('#297 NB3: a memory citation note becomes a marker; its path, lines, thread ids and the answer stay', o[2].item.memoryCitation.entries[0].note === marker(NOTE) && o[2].item.memoryCitation.entries[0].path === 'memories/synthetic.md' && o[2].item.memoryCitation.threadIds[0] === TH && o[2].item.text === ANSWER);
+  check('#297 NB3: the error notification\'s and a turn\'s additionalDetails become markers; their messages stay', o[3].error.additionalDetails === marker(ERR_DETAILS, 'harness-text') && o[3].error.message === 'synthetic stream error' && o[4].turn.error.additionalDetails === marker(TURN_DETAILS, 'harness-text') && o[4].turn.error.message === 'synthetic turn error');
+  check('#297 NB3: the elided notifications scan clean', reportIsClean(c.report), JSON.stringify(c.report.residualGenericHits));
+  check('#297 NB3: a raw MCP startup error is flagged by the independent scan (no longer on a keep-list)', unrecognisedLongText(JSON.parse(frames[0])).join() === '$.payload.params.error');
+}
+
 export function elideUnit(check) {
+  responses(check);
+  nb297(check);
   serverRequests(check);
   wire(check);
   scorers(check);
