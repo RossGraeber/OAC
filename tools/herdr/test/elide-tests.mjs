@@ -442,6 +442,10 @@ function responses(check) {
   const cursorCase = (v) => unrecognisedLongText(JSON.parse(rec('watch', 'daemon->client', { id: 10, result: { data: [], nextCursor: v } }))).join();
   check('#298 NB-A: an underscore-joined or percent-encoded prose cursor (no whitespace) is flagged', cursorCase(noSpace) === '$.payload.result.nextCursor' && cursorCase(encodeURIComponent(long('percent-encoded-prose'))) === '$.payload.result.nextCursor' && !/\s/.test(noSpace));
   check('#298 NB-A: a JSON cursor with a long string leaf, or longer than the cap, is flagged; the Codex shape is kept', cursorCase(JSON.stringify({ requestedThreadId: TH, note: noSpace })) === '$.payload.result.nextCursor' && cursorCase(JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, 'v'.repeat(12)])))) === '$.payload.result.nextCursor' && cursorCase(CURSOR) === '');
+  // #299 (#298 review NB-E): prose can sit in a cursor's key as well as its value. Short
+  // values, under the length cap: only the key check flags it.
+  const longKey = JSON.stringify({ requestedThreadId: TH, [noSpace.slice(0, 200)]: 1 });
+  check('#299 NB-E: a JSON cursor with a long key (short values, under the length cap) is flagged', longKey.length >= 120 && longKey.length <= 512 && cursorCase(longKey) === '$.payload.result.nextCursor', `${longKey.length} chars`);
   const unlistedToken = rec('watch', 'daemon->client', { id: 11, result: { thread, futureOpaqueField: noSpace } });
   check('#298 NB-A: a long string with no whitespace in a response field no list names is flagged', unrecognisedLongText(JSON.parse(unlistedToken)).join() === '$.payload.result.futureOpaqueField' && !reportIsClean(r.redactJsonl(`${unlistedToken}\n`).report), JSON.stringify(unrecognisedLongText(JSON.parse(unlistedToken))));
   // #298 review NB-B: key-name elision skips only real ThreadItem types. A ConfigLayerSource
