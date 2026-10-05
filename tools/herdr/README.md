@@ -45,7 +45,7 @@ Captures never republish third-party text a harness read or a tool returned (#13
 
 Within an elided body, a free-text object key becomes a marker too; only schema keys and enum `type` tags stay. Ids, methods, statuses, paths, the command line, tool arguments and every message text stay, one record per line. A pane line is elided only when the same run's wire shows it is tool output: the line, without its indentation and TUI glyphs, is at least 16 characters, sits inside an elided body, and appears in no text the transcript keeps. Line numbers hold in both. Claude Code's captured wire is OAC's own MCP traffic, and its tools/call results are the OAC server's replies, so nothing in it is elided. The residual scan makes two checks:
 - `un-elided tool output`: a field on the list still carries a body.
-- `unrecognised long text in an app-server frame`: a check that does not depend on the list. It flags any string of 120 or more characters in an app-server item, notification, daemon request or daemon response that is neither elided nor on a keep-list. The keep-lists hold the fields a gate criterion scores or that OAC or its client wrote, plus a few short harness-status lines decided one by one (`elide.mjs` header, #297 NB3). Kept fields include the answers and the delivered messages, so a long scored answer is never flagged; a response's pagination cursors are kept only in the shape Codex writes them (at most 512 characters, a JSON object whose string leaves are at most 64 characters). A field the list misses withholds the capture instead of reaching a fixture. Known limit: text under 120 characters in a field no list names is caught only by the list.
+- `unrecognised long text in an app-server frame`: a check that does not depend on the list. It flags any string of 120 or more characters in an app-server item, notification, daemon request or daemon response that is neither elided nor on a keep-list. The keep-lists hold the fields a gate criterion scores or that OAC or its client wrote, plus a few short harness-status lines decided one by one (`elide.mjs` header, #297 NB3). Kept fields include the answers and the delivered messages, so a long scored answer is never flagged; a response's pagination cursors are kept only in the shape Codex writes them (the compact JSON of `HistoryCursor` at rust-v0.160.0: exactly `requestedThreadId` (a UUID), `rolloutOrdinal`, `includeAnchor` and `scope.kind` (a `CursorScope` variant), #299). A field the list misses withholds the capture instead of reaching a fixture. Known limit: text under 120 characters in a field no list names is caught only by the list.
 
 ## Dialogs: the driver accepts them (dev/test runs, #196)
 
@@ -297,13 +297,16 @@ Each gate scenario replays the human-run gate spike through herdr and records th
 report generator scores every pass criterion against the human run's committed fixture and
 writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of them is
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
-`scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G4 and G5
-have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2 has run live
-twice, both on 2026-10-05 with Codex 0.160.0 and run outcome PASS, and neither is recorded or
-committed: run `20261005T020547Z-84b913` because its transcript held third-party tool output
-(#130), and run `20261005T041011Z-bb584c` because its transcript held harness-authored text in a
-daemon response that the elision did not then cover. G2 needs a fresh run under the current
-driver (see "Capture elision (#130)"). A harness-facing behavior that no committed record shows stays
+`scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G2, G4 and
+G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2's is
+`G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`, Codex 0.160.0, run outcome PASS, driver
+commit `efb775f`, PR #300). Two earlier G2 runs that day were not recorded:
+`20261005T020547Z-84b913`, whose transcript held third-party tool output (#130), and
+`20261005T041011Z-bb584c`, whose transcript held harness-authored text in a daemon response
+that the elision did not then cover. A record holds for its own driver commit: a later
+scripted run relies on it only under `scripted-runs.md` "When a scripted run may carry a
+verdict" (among other conditions, an empty `tools/herdr/` diff, `test/` excluded, against the
+record's driver commit). A harness-facing behavior that no committed record shows stays
 UNVERIFIED until a live run shows it (the commands are in each scenario's header comment; an
 agent runs them, see "Operator setup" below).
 

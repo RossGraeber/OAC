@@ -352,10 +352,20 @@ export const KEEP_NOTIFICATION_TEXT = Object.freeze({
 //   - error.message and a turn's error.message: Codex's status line for a failed request or
 //     turn, which the scenarios report (#297 NB3).
 // Pagination cursors (OPAQUE_RESPONSE_TOKENS) are kept only in the shape Codex writes them
-// at rust-v0.160.0 (#298 review NB-A): at most CURSOR_MAX_LENGTH characters, parsing as a
-// JSON object (thread id, ordinal, flag, scope kind) whose every string leaf is at most
-// CURSOR_LEAF_MAX characters. The committed fixtures hold 147-189 character ones. Prose in a
-// cursor, whitespace or not (percent-encoded, underscore-joined), is flagged.
+// at rust-v0.160.0 (#298 review NB-A, #299 NB-F): serde_json's compact serialization of
+// HistoryCursor (codex-rs/thread-store/src/local/thread_history/read.rs:38-44), exactly the
+// keys requestedThreadId (a ThreadId: a hyphenated UUID, codex-rs/protocol/src/thread_id.rs),
+// rolloutOrdinal (u64), includeAnchor (bool) and scope, whose only key is `kind`, one of the
+// CursorScope variants (read.rs:30-36). See isHistoryCursor. The committed fixtures hold
+// 677 of them, 125-144 characters long. Codex has a second cursor shape, ThreadTurnsCursor
+// {turnId, includeAnchor} (codex-rs/app-server/src/request_processors/thread_processor.rs:
+// 5632-5636, thread/turns/list on a non-paginated thread). It is out of scope: at most 71
+// characters with a UUID turn id, under LONG_TEXT_MIN, so the scan never reaches it (a longer
+// one would be flagged, withholding the capture). Known limit (#299 review N1): rolloutOrdinal
+// is kept only up to Number.MAX_SAFE_INTEGER (2^53 - 1), though Codex can write any u64 from an
+// i64 (read.rs:271-278); a larger one is flagged. Anything else of LONG_TEXT_MIN characters or more in a cursor field
+// is flagged: prose, whitespace or not (percent-encoded, underscore-joined), in a key or a
+// value, or hidden by padding or a duplicated key.
 export const KEEP_RESPONSE_TEXT = Object.freeze([
   'result.userAgent',
   'result.data.*.preview', 'result.data.*.cwd', 'result.data.*.environments.*.cwd',
@@ -399,21 +409,31 @@ function longStrings(v, rel, out, stop) {
   else if (v && typeof v === 'object' && !stop(v)) for (const [k, x] of Object.entries(v)) longStrings(x, rel ? `${rel}.${k}` : k, out, stop);
 }
 
-export const CURSOR_MAX_LENGTH = 512;
-export const CURSOR_LEAF_MAX = 64;
-function isStructuredCursor(s) {
-  if (s.length > CURSOR_MAX_LENGTH) return false;
+// HistoryCursor at rust-v0.160.0 (read.rs:38-44), in serde's field order; CursorScope's
+// variants, camelCase (read.rs:30-36). (#299 NB-F, replacing #298 NB-A's length and
+// key/leaf-length caps: a cursor of this shape is at most 159 characters, with no room for
+// text, so the caps are subsumed.)
+export const HISTORY_CURSOR_KEYS = Object.freeze(['requestedThreadId', 'rolloutOrdinal', 'includeAnchor', 'scope']);
+export const CURSOR_SCOPE_KINDS = Object.freeze(new Set(['turns', 'itemsByCreatedAtOrdinal', 'itemsByUpdatedAtOrdinal']));
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const sameKeys = (o, keys) => isObj(o) && Object.keys(o).join() === keys.join();
+/** True when `s` is a HistoryCursor exactly as Codex serializes one (header). */
+export function isHistoryCursor(s) {
   let v;
   try {
     v = JSON.parse(s);
   } catch {
     return false;
   }
-  if (!isObj(v)) return false;
-  const leavesShort = (x) => (typeof x === 'string' ? x.length <= CURSOR_LEAF_MAX : Array.isArray(x) ? x.every(leavesShort) : isObj(x) ? Object.entries(x).every(([k, y]) => k.length <= CURSOR_LEAF_MAX && leavesShort(y)) : true);
-  return leavesShort(v);
+  return sameKeys(v, HISTORY_CURSOR_KEYS)
+    && typeof v.requestedThreadId === 'string' && UUID_RE.test(v.requestedThreadId)
+    && Number.isSafeInteger(v.rolloutOrdinal) && v.rolloutOrdinal >= 0
+    && typeof v.includeAnchor === 'boolean'
+    && sameKeys(v.scope, ['kind']) && CURSOR_SCOPE_KINDS.has(v.scope.kind)
+    // serde_json's compact form: no padding, no duplicated key, no alternative number spelling.
+    && JSON.stringify(v) === s;
 }
-const keptResponseText = (rel, s) => KEEP_RESPONSE_TEXT.some((g) => globMatch(g, rel)) || (OPAQUE_RESPONSE_TOKENS.includes(rel) && isStructuredCursor(s));
+const keptResponseText = (rel, s) => KEEP_RESPONSE_TEXT.some((g) => globMatch(g, rel)) || (OPAQUE_RESPONSE_TOKENS.includes(rel) && isHistoryCursor(s));
 
 /**
  * Long strings in app-server items, notifications, and daemon->client requests and responses

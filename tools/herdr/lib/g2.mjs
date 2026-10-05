@@ -740,6 +740,7 @@ export function g2Facts(entries) {
       else if (e.answers === 'thread/turns/list') {
         f.turnsLists.push({
           ...base,
+          reqLine: req.line,
           threadId: req.params?.threadId,
           error: err,
           turns: (p.result?.data ?? []).map((tn) => ({

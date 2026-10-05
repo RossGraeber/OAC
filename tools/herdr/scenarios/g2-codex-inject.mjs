@@ -5,20 +5,18 @@
 // against that run's fixture, criterion by criterion (tools/herdr/lib/g2-report.mjs). It
 // never changes G2's verdict, STATUS.md, or PINS.md.
 //
-// LIVE STATUS: RUN TWICE, NEITHER RECORDED. Both runs drove a real herdr (v0.9.1) and a real
-// Codex (0.160.0) through this scenario on 2026-10-05, run outcome PASS, and neither run's
-// captures are committed:
-//   - 20261005T020547Z-84b913 (driver commit 2fb55b1): its transcript carried third-party
-//     tool output verbatim, from before the driver elided tool output (#130);
-//   - 20261005T041011Z-bb584c (driver commit 4f53b67): its transcript carried harness-authored
-//     instruction text in a daemon response, which that driver's elision did not cover; the
-//     driver now elides it (lib/elide.mjs DAEMON_TEXT_KEYS).
-// In both, injection 1's old wording ("through herdr") also drew tool use instead of the
-// expected reply; it now matches the human run's (lib/g2.mjs defaultInjectText). G2 needs a
-// fresh run at the current driver commit before anything is recorded. Until a committed
-// record shows them, the Codex pane-text patterns (lib/g2.mjs) are confirmed only as far as
-// those unrecorded runs showed: no trust dialog appeared in either run (each run manifest
-// records no dialog), so the trust-dialog pattern has not been exercised live.
+// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G2-2026-10-05.md (an equivalence
+// record, not verdict-bearing; PR #300): run 20261005T052341Z-eb6c5a, a real herdr (v0.9.1)
+// and a real Codex (0.160.0), run outcome PASS, driver commit efb775f. The record holds for
+// that driver commit only: a later run relies on it only under oac-gates
+// references/scripted-runs.md "When a scripted run may carry a verdict" (among other
+// conditions, an empty tools/herdr/ diff, test/ excluded, against efb775f). No dialog
+// appeared in that run (its manifest records none), so the Codex trust-dialog pattern
+// (lib/g2.mjs) has not been exercised live in a G2 run. Two earlier runs that day were not
+// recorded:
+//   - 20261005T020547Z-84b913: its transcript carried third-party tool output (#130);
+//   - 20261005T041011Z-bb584c: its transcript carried harness-authored text in a daemon
+//     response that the elision did not then cover.
 //
 // Operator command (a machine with herdr at the PINS.md pin and a Codex CLI, any version:
 // versions float, and one other than PINS.md's last tested version is a VERSION WARNING

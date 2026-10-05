@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { createRedactor, reportIsClean, UNELIDED_LABEL, UNRECOGNISED_LABEL } from '../lib/redact.mjs';
-import { ELIDED_RE, ITEM_OUTPUT_FIELDS, NOTIFICATION_OUTPUT_FIELDS, PANE_MIN_LENGTH, elideToolOutputs, unrecognisedLongText, elidePaneLines, keptStrings, redactCaptures } from '../lib/elide.mjs';
+import { ELIDED_RE, ITEM_OUTPUT_FIELDS, NOTIFICATION_OUTPUT_FIELDS, PANE_MIN_LENGTH, elideToolOutputs, unrecognisedLongText, isHistoryCursor, elidePaneLines, keptStrings, redactCaptures } from '../lib/elide.mjs';
 import { g2Facts, parseG2Transcript } from '../lib/g2.mjs';
 import { g5CodexFacts, parseJsonl } from '../lib/g5.mjs';
 
@@ -327,6 +327,25 @@ function committed(check) {
     }
   }
   check('committed fixtures: daemon responses holding 120+-character cursors or a queued delivery exist, so the response keep-list is exercised', responseLong >= 3, String(responseLong));
+  // #299 NB-F: every JSON cursor Codex wrote into a committed fixture is a HistoryCursor (so
+  // the allow-list keeps it), in at least two scope kinds.
+  const cursors = [];
+  for (const f of jsonl) {
+    for (const l of readFileSync(f, 'utf8').split('\n')) {
+      if (!l.includes('Cursor')) continue;
+      const visit = (v) => {
+        if (!v || typeof v !== 'object') return;
+        for (const [k, x] of Object.entries(v)) {
+          if (/Cursor$/.test(k) && typeof x === 'string' && x.startsWith('{')) cursors.push(x);
+          else visit(x);
+        }
+      };
+      visit(JSON.parse(l));
+    }
+  }
+  const notKept = cursors.filter((s) => !isHistoryCursor(s));
+  const kinds = new Set(cursors.map((s) => JSON.parse(s).scope?.kind));
+  check('#299 NB-F: every JSON cursor in the committed fixtures is a HistoryCursor (kept), turns and item scopes both present', cursors.length >= 600 && notKept.length === 0 && kinds.has('turns') && kinds.has('itemsByCreatedAtOrdinal'), `${cursors.length} cursors, ${notKept.length} not kept, kinds ${[...kinds]}`);
 }
 
 // #130 review N3: the residual scan does not depend on the elision list alone.
@@ -409,7 +428,7 @@ function responses(check) {
   const EXPLAIN = long('misalignment-detailed-explanation');
   const STEER = line('misalignment-steer-message', 1);
   const PREVIEW = long('operator-prompt-preview');
-  const CURSOR = JSON.stringify({ requestedThreadId: TH, rolloutOrdinal: 1, includeAnchor: true, scope: { kind: 'turns' }, pad: 'x'.repeat(60) });
+  const CURSOR = JSON.stringify({ requestedThreadId: TH, rolloutOrdinal: 1, includeAnchor: true, scope: { kind: 'turns' } }); // 125 characters: scanned
   const thread = { id: TH, preview: PREVIEW, cwd: '/home/alice/synthetic-project', environments: [{ environmentId: 'local', cwd: '/home/alice/synthetic-project' }], status: { type: 'idle' }, turns: [] };
   const resume = rec('watch', 'daemon->client', { id: 1, result: { thread, model: 'synthetic-model', cwd: '/home/alice/synthetic-project', collaborationMode: { mode: 'default', settings: { model: 'synthetic-model', reasoning_effort: 'high', developer_instructions: DEV } }, turnsBackwardsCursor: CURSOR, itemsBackwardsCursor: CURSOR } });
   const config = rec('watch', 'daemon->client', { id: 2, result: { config: { model: 'synthetic-model', developer_instructions: CFG_DEV, instructions: CFG_INSTR, compact_prompt: CFG_COMPACT }, origins: {}, layers: [] } });
@@ -436,12 +455,36 @@ function responses(check) {
   check('#130 responses: a long string in a response field no list names is flagged (capture withheld)', u.report.elidedToolOutputs.length === 0 && u.report.residualGenericHits.some((h) => h.label === UNRECOGNISED_LABEL) && !reportIsClean(u.report));
   const proseCursor = rec('watch', 'daemon->client', { id: 6, result: { data: [], nextCursor: long('prose-in-a-cursor') } });
   check('#130 responses: prose in a cursor is flagged', unrecognisedLongText(JSON.parse(proseCursor)).join() === '$.payload.result.nextCursor');
-  // #298 review NB-A: a cursor is kept only in the shape Codex writes (a JSON object of short
-  // leaves, bounded length), never because it lacks whitespace.
+  // #298 review NB-A, #299 NB-F: a cursor is kept only in the shape Codex writes, the compact
+  // serde_json form of HistoryCursor at rust-v0.160.0, never because it lacks whitespace.
   const noSpace = Array.from({ length: 24 }, (_, i) => `synthetic_word_${i}`).join('_'); // > 120, no whitespace
   const cursorCase = (v) => unrecognisedLongText(JSON.parse(rec('watch', 'daemon->client', { id: 10, result: { data: [], nextCursor: v } }))).join();
-  check('#298 NB-A: an underscore-joined or percent-encoded prose cursor (no whitespace) is flagged', cursorCase(noSpace) === '$.payload.result.nextCursor' && cursorCase(encodeURIComponent(long('percent-encoded-prose'))) === '$.payload.result.nextCursor' && !/\s/.test(noSpace));
-  check('#298 NB-A: a JSON cursor with a long string leaf, or longer than the cap, is flagged; the Codex shape is kept', cursorCase(JSON.stringify({ requestedThreadId: TH, note: noSpace })) === '$.payload.result.nextCursor' && cursorCase(JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, 'v'.repeat(12)])))) === '$.payload.result.nextCursor' && cursorCase(CURSOR) === '');
+  const FLAG = '$.payload.result.nextCursor';
+  check('#298 NB-A: an underscore-joined or percent-encoded prose cursor (no whitespace) is flagged', cursorCase(noSpace) === FLAG && cursorCase(encodeURIComponent(long('percent-encoded-prose'))) === FLAG && !/\s/.test(noSpace));
+  // Codex's shape, every scope kind and both anchors, each at least LONG_TEXT_MIN long (so
+  // scanned): kept. isHistoryCursor agrees.
+  const hc = (o = {}) => ({ requestedThreadId: TH, rolloutOrdinal: 1, includeAnchor: true, scope: { kind: 'turns' }, ...o });
+  const codexShapes = [hc(), hc({ includeAnchor: false, rolloutOrdinal: 1234567 }), hc({ scope: { kind: 'itemsByCreatedAtOrdinal' } }), hc({ rolloutOrdinal: Number.MAX_SAFE_INTEGER, includeAnchor: false, scope: { kind: 'itemsByUpdatedAtOrdinal' } })].map((o) => JSON.stringify(o));
+  check('#299 NB-F: the HistoryCursor shape (requestedThreadId, rolloutOrdinal, includeAnchor, scope.kind) is kept for every CursorScope kind', codexShapes.every((s) => s.length >= 120 && cursorCase(s) === '' && isHistoryCursor(s)) && cursorCase(CURSOR) === '', codexShapes.map((s) => `${s.length}:${cursorCase(s)}`).join());
+  // One case per rule of isHistoryCursor; each is scanned (>= 120 characters) and would be
+  // kept if that rule were dropped.
+  const prose = noSpace.slice(0, 100);
+  const dupKey = JSON.stringify(hc()).replace('{', `{"requestedThreadId":"${prose}",`); // JSON.parse keeps the last
+  const flagCases = {
+    'an extra key': JSON.stringify({ ...hc(), note: prose }),
+    'a long key (#299 NB-E)': JSON.stringify({ requestedThreadId: TH, [noSpace.slice(0, 200)]: 1 }),
+    'keys of a different object': JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, 'v'.repeat(12)]))),
+    'a requestedThreadId that is not a UUID': JSON.stringify(hc({ requestedThreadId: prose })),
+    'a rolloutOrdinal that is not an integer': JSON.stringify(hc({ rolloutOrdinal: prose })),
+    'a negative rolloutOrdinal (u64)': JSON.stringify(hc({ rolloutOrdinal: -1234567 })),
+    'an includeAnchor that is not a boolean': JSON.stringify(hc({ includeAnchor: prose })),
+    'a scope.kind that is not a CursorScope variant': JSON.stringify(hc({ scope: { kind: prose } })),
+    'an extra key in scope': JSON.stringify(hc({ scope: { kind: 'turns', note: prose } })),
+    'padding (not compact)': JSON.stringify(hc(), null, 1),
+    'a duplicated key hiding text': dupKey,
+  };
+  const missed = Object.entries(flagCases).filter(([, s]) => !(s.length >= 120 && cursorCase(s) === FLAG && !isHistoryCursor(s))).map(([k, s]) => `${k} (${s.length})`);
+  check('#299 NB-F: a JSON cursor off the HistoryCursor shape is flagged: an extra or long key, a non-UUID thread id, a non-u64 ordinal, a non-boolean anchor, an unknown scope kind or scope key, padding, a duplicated key', missed.length === 0 && JSON.parse(dupKey).requestedThreadId === TH, missed.join(', '));
   const unlistedToken = rec('watch', 'daemon->client', { id: 11, result: { thread, futureOpaqueField: noSpace } });
   check('#298 NB-A: a long string with no whitespace in a response field no list names is flagged', unrecognisedLongText(JSON.parse(unlistedToken)).join() === '$.payload.result.futureOpaqueField' && !reportIsClean(r.redactJsonl(`${unlistedToken}\n`).report), JSON.stringify(unrecognisedLongText(JSON.parse(unlistedToken))));
   // #298 review NB-B: key-name elision skips only real ThreadItem types. A ConfigLayerSource
