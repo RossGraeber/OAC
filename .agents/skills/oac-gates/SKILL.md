@@ -94,7 +94,8 @@ A fixture must contain:
 - The pinned version and capture date (matches the gate result's pin and date).
 - The literal wire traffic (JSON-RPC frames, MCP notifications/requests, or equivalent) for
   the exchange it documents — not a paraphrase.
-- No credentials, tokens, or private filesystem paths (redact before committing).
+- No credentials, tokens, or private filesystem paths (redact before committing), and no
+  third-party text a harness read or a tool returned (`references/scripted-runs.md`, #130).
 - For Codex: reference the checked-in schema (`codex-rs/app-server-protocol/schema/json`)
   rather than hand-transcribing method shapes.
 

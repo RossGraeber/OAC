@@ -31,6 +31,7 @@ import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
 import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport } from '../lib/g2-report.mjs';
 import { cloneWithPins } from './g1-tests.mjs';
+import { SYNTH } from './elide-tests.mjs';
 import { parseWin32ProcessJson, parsePsTable } from '../lib/proc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -476,6 +477,33 @@ export function g2Cases(check) {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  // #130: in the delivered turn the fake Codex reads a file and calls an MCP tool on its own
+  // (synthetic bodies, shaped like the 2026-10-05 run's frames). The captures written must
+  // carry neither body, and the report must score exactly as without them.
+  const TOOL_BODIES = SYNTH;
+  run('g2 #130: a file read and an MCP tool call in the delivered turn are elided from both captures', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_TOOL_OUTPUT: JSON.stringify(TOOL_BODIES) } }, (r) => {
+    const m = r.manifest;
+    check('g2 #130: PASS', r.status === 0 && m.outcome === 'PASS', `${m.outcome} ${m.outcomeReason}`);
+    const cap = r.capture(names().transcript) ?? '';
+    const pane = r.capture(names().pane) ?? '';
+    const bodyLines = [...TOOL_BODIES.output.split('\n'), ...TOOL_BODIES.mcpResult.split('\n')].filter(Boolean);
+    const leaks = bodyLines.filter((l) => cap.includes(l) || pane.includes(l) || r.manifestText.includes(l));
+    check('g2 #130: no tool-output body line in the transcript, the pane or the run manifest', cap.length > 0 && pane.length > 0 && leaks.length === 0, leaks.join(' | '));
+    const marker = (s, kind = 'tool-output') => `<ELIDED ${kind} bytes=${Buffer.byteLength(s, 'utf8')} sha256=${sha256(s)}>`;
+    check('g2 #130: the transcript carries the read\'s and the MCP result\'s markers, the command and tool kept', cap.includes(JSON.stringify(marker(TOOL_BODIES.output))) && cap.includes(JSON.stringify(marker(TOOL_BODIES.mcpResult))) && cap.includes(JSON.stringify(TOOL_BODIES.command)) && cap.includes(JSON.stringify(TOOL_BODIES.tool)));
+    const firstLine = TOOL_BODIES.output.split('\n')[0];
+    check('g2 #130: the pane shows the read\'s first output line as a marker, on its own line, glyph kept', pane.split('\n').some((l) => l.includes(`└ ${marker(firstLine, 'tool-output-line')}`)) && pane.includes(`Ran ${TOOL_BODIES.command}`));
+    const capT = m.captures.find((c) => c.file === names().transcript);
+    const capP = m.captures.find((c) => c.file === names().pane);
+    check('g2 #130: the redaction reports list the elisions (line, bytes, sha256), both captures written clean', capT?.written && capP?.written && capT.redaction.elidedToolOutputs.length >= 6 && capP.redaction.elidedToolOutputLines.length >= 1 && reportIsClean(capT.redaction) && reportIsClean(capP.redaction));
+    const f = g2Facts(parseG2Transcript(cap));
+    const delivered = f.turnsLists.at(-1)?.turns.find((t) => t.userTexts.some((u) => /second daemon client/.test(u)));
+    check('g2 #130: the daemon turn record still lists the delivered turn, its message and answer', !!delivered && delivered.status === 'completed' && delivered.agentMessages.length === 1);
+    const ev = evalRun(r);
+    check('g2 #130: report scores C1, C2, C4 equivalent; C3 pending the operator (as without tool output)', ev.rows.map((x) => x.score).join('|') === [SCORES.EQ, SCORES.EQ, SCORES.NE, SCORES.EQ].join('|'), JSON.stringify(ev.rows.map((x) => [x.score, x.reason])));
+    check('g2 #130: an operator score for C3 applies, from the kept pane lines', evalRun(r, parseOperatorScores([{ n: 3, score: 'equivalent', note: 'pane read shows both messages and answers' }])).rows[2].score === SCORES.EQ);
   });
 
   // #232: this case also plants a random, unknown-shaped secret in the argv of a pane
