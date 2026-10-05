@@ -43,7 +43,7 @@ import {
 import { parseSections, committedFile } from './g1.mjs';
 import { isLegacyRevision } from './compare-transcripts.mjs';
 import {
-  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine, lineSpan,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -336,7 +336,7 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
     const r = manifest.captures.find((c) => c.file === name)?.redaction;
     return { script: 'tools/herdr/lib/redact.mjs', script_sha256: redactSha256, residual_scan_result: r ? `tools/herdr/lib/redact.mjs (run.mjs), after lib/g4.mjs sanitizeG4Transcript (extension identifier -> ${OAC_EXT_PLACEHOLDER}, ${g4.sanitizer?.extensionIdReplaced ?? 0}x): droppedHazardLines=${r.droppedHazardLines}, hazardProtocolFrames=${r.hazardProtocolFrames.length}, residualLeaks=${r.residualLeaks.length}, residualGenericHits=${r.residualGenericHits.length}` : 'not recorded' };
   };
-  const lines = (xs) => xs.map((x) => (x.resLine ? `${x.reqLine}-${x.resLine}` : `${x.line ?? x.reqLine}`)).join(', ') || null;
+  const lines = (xs) => xs.map((x) => (x.resLine ? lineSpan(x.reqLine, x.resLine) : `${x.line ?? x.reqLine}`)).join(', ') || null;
   const common = {
     pins_as_of: `PINS.md as committed at HEAD ${v.pins?.headCommit ?? '?'} when the run started; last commit touching PINS.md at report time: ${pinsCommit ?? 'unknown'}`,
     version_matches_pin: versionMatchesLastTested(g4),

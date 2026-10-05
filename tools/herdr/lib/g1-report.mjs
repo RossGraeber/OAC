@@ -44,7 +44,7 @@ import { fileURLToPath } from 'node:url';
 
 import { compareTranscripts, formatDiff, parseTranscript, selectSegment, transcriptFacts, isLegacyRevision } from './compare-transcripts.mjs';
 import { BOX_C_TRANSCRIPT, BOX_C_WAKE_ATTRIBUTES, FIXTURE_DIR, G1_CRITERIA, HERDR_RUNS_DIR, dialogMatchesBoxC, midTurnWindow, parseSections } from './g1.mjs';
-import { TO_FILL, describeDialog, describeDialogs, harnessVerification, verification } from './gate-report-common.mjs';
+import { TO_FILL, describeDialog, describeDialogs, harnessVerification, lineSpan, verification } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -375,7 +375,7 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, tran
   };
   const redaction = (name) => ({ script: 'tools/herdr/lib/redact.mjs', script_sha256: redactSha256, residual_scan_result: residual(name) });
   return [
-    { path: `${FIXTURE_DIR}/${fixtures.transcript}`, ...common, redaction: redaction(fixtures.transcript), coverage: { 'channel notifications': facts.channelNotifications.map((n) => `${n.id} line ${n.line}`).join('; '), 'reply tool calls': facts.replyCalls.map((c) => `lines ${c.line}-${c.resultLine}`).join('; ') } },
+    { path: `${FIXTURE_DIR}/${fixtures.transcript}`, ...common, redaction: redaction(fixtures.transcript), coverage: { 'channel notifications': facts.channelNotifications.map((n) => `${n.id} line ${n.line}`).join('; '), 'reply tool calls': facts.replyCalls.map((c) => `lines ${lineSpan(c.line, c.resultLine)}`).join('; ') } },
     { path: `${FIXTURE_DIR}/${fixtures.pane}`, ...common, redaction: redaction(fixtures.pane), coverage: { 'pane reads': 'verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps' } },
   ];
 }

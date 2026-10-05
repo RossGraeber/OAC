@@ -14,6 +14,15 @@ export const failed = (row) => required(row).filter((c) => !c.ok).map((c) => c.n
 export const allRequired = (row) => required(row).every((c) => c.ok);
 export const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
+// The transcript lines of one exchange (request line, response line) as a MANIFEST.json
+// coverage item (#290). A range only when the lines are adjacent; otherwise a list, because
+// a range would claim the lines of whatever was interleaved between them (another server's
+// probe, a push). `last` missing or equal to `first` is a single line.
+export function lineSpan(first, last) {
+  if (last == null || last === first) return `${first}`;
+  return Number.isInteger(first) && Number.isInteger(last) && last === first + 1 ? `${first}-${last}` : `${first}, ${last}`;
+}
+
 // Operator scores, only for the rows that take one; each needs a note.
 export function parseOperatorScores(pairs, allowed, why) {
   const out = {};
