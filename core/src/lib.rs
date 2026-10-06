@@ -28,11 +28,19 @@
 //! - [`registration`]: the registration record that binds a session to the device key
 //!   (§5.4).
 //!
+//! Added by #53 (F4), against `spec/security.md` revision 0.1:
+//!
+//! - [`replay`]: security-stage step 3 (the replay window), step 5 (the duplicate store)
+//!   and the hand-off deadline (§8; `spec/session-channels.md` §8.1.3). Step 4,
+//!   authorization, is F5's.
+//! - [`clock`]: the injectable receiver clock those checks read.
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 mod base64url;
 pub mod canonical;
 pub mod capabilities;
+pub mod clock;
 pub mod delivery;
 pub mod envelope;
 pub mod ids;
@@ -41,5 +49,6 @@ pub mod keys;
 pub mod presence;
 pub mod receipt;
 pub mod registration;
+pub mod replay;
 pub mod signing;
 pub mod trust;

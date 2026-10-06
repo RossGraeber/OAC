@@ -3,7 +3,8 @@
 //! Signature verification (`spec/security.md` §6.3) and steps 1 and 2 of the security stage
 //! (§7.1, Table 7.1): key resolution and signature.
 //!
-//! Steps 3 to 5 (replay window, authorization, duplicate suppression) are tasks F4 and F5.
+//! Steps 3 and 5 (replay window, duplicate suppression) are in [`crate::replay`] (F4);
+//! step 4, authorization, is F5's.
 //! An envelope that passes [`authenticate`] is **verified** ([SEC-STG-003]): its header
 //! members and `security.principal` may be treated as authenticated. It is not yet
 //! authorized, and its content stays untrusted whatever the signature says
@@ -145,12 +146,13 @@ fn verify_with_requirement<'k>(
 
 /// Why the security stage did not pass an envelope: the delivery state, the Table 7.1 code
 /// and, for a log line, the requirement that failed. The code is the earliest failing
-/// step's ([SEC-STG-002]).
+/// step's ([SEC-STG-002]). [`crate::replay`] uses it for step 3, and for the `failed`,
+/// `internal-error` refusal of a full duplicate store or an unverified message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SecurityRejection {
-    /// `rejected`, for steps 1 and 2.
+    /// `rejected` for steps 1 and 2, `expired` for step 3, `failed` for `internal-error`.
     pub state: DeliveryState,
-    /// `unknown-key` or `signature-invalid`.
+    /// `unknown-key`, `signature-invalid`, `outside-replay-window` or `internal-error`.
     pub error: ErrorCode,
     /// The requirement id that failed. Not sent to a peer.
     pub requirement: &'static str,
@@ -170,7 +172,8 @@ impl std::error::Error for SecurityRejection {}
 /// signed by this device's own key included ([SEC-STG-004]).
 ///
 /// On success the message comes back with `verified_by` set to the entry step 1 resolved
-/// ([IFC-TYP-042]). Steps 3 to 5 come next (F4, F5).
+/// ([IFC-TYP-042]). Steps 3 to 5 come next: [`crate::replay::check_replay_window`],
+/// authorization (F5), [`crate::replay::DuplicateStore::admit`].
 ///
 /// # Errors
 ///
