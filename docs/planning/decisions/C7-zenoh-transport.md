@@ -89,6 +89,10 @@ expressions, `zid`, config structs, and session handles stay inside `transports/
 zenoh/`. A `core/` type, the spec text under `spec/`, or a provider adapter must never
 reference any of them."
 
+(Dated note, 2026-10-05, #305: the operation list above is the pre-freeze DESIGN sketch.
+The frozen list is `spec/interfaces.md` Table 6.4, where `announce_presence` became
+`send_presence`. The containment sentence is unchanged.)
+
 **The lint's literal form — cross-referencing `oac-boundaries`, not inventing a second
 grep set.** `oac-boundaries` `references/mechanical-checks.md` check 1 is this
 boundary's mechanical enforcement, quoted verbatim rather than restated:

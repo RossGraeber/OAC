@@ -7,8 +7,9 @@ PLANNING-PROMPT.md §9.8, §5.12, `docs/planning/DESIGN.md` "Suggested repositor
 **Scope.** This file has two jobs: the module layout with ownership boundaries, and the
 third-party dependency inventory with licenses. It does not restate `docs/planning/
 DESIGN.md` or `docs/planning/v0.1/04-architecture.md` prose beyond what a table needs —
-cite those files by path instead. It does not define interface signatures
-(`docs/planning/v0.1/05-interfaces.md`'s job) or the threat model
+cite those files by path instead. It does not define interface signatures (the frozen
+`spec/interfaces.md`'s job; it supersedes `docs/planning/v0.1/05-interfaces.md` §13-§15)
+or the threat model
 (`docs/planning/v0.1/06-security.md`'s job).
 
 **Cite-not-re-derive rule, stated up front.** Every dependency fact in §5-§9 comes from
@@ -101,8 +102,8 @@ its own prose.
 | `spec/` | The neutral OAC Session Channels specification text | Normative spec prose (04-architecture.md §2) | Implementation code; provider-specific or transport-specific vocabulary (04-architecture.md §2) | Nothing in-repo |
 | `adapters/claude/` | Translating neutral envelopes to/from Claude Code's provider-native wake and reply operations | Claude-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions — routes through core policy/security instead (04-architecture.md §2, quoting `docs/planning/DESIGN.md`) | `core/` only (§3) |
 | `adapters/codex/` | Translating neutral envelopes to/from the Codex app-server's provider-native turn/thread operations | Codex-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions; OpenAI model-API credentials (04-architecture.md §2) | `core/` only (§3) |
-| `transports/zenoh/` | Every Zenoh-specific type, identifier, and concept, behind the `Transport` contract | The `Transport` contract's seven operations over neutral types only (05-interfaces.md §15) | Policy/authorization decisions; signature verification; anything visible outside `start`/`publish`/`subscribe`/`announce_presence`/`watch_presence`/`health`/`shutdown` (05-interfaces.md §15) | `core/` only (§3) |
-| `cli/` (including `mcp-shim`) | User-facing commands, and the thin stdio shim a harness spawns | `oac start`, `status`, `sessions`, `doctor`, `mcp-shim` — the `mcp-shim` subcommand carries nothing beyond a thin stdio connection to the daemon over local IPC (04-architecture.md §2) | Long-lived process state; the transport peer; policy decisions; key material (04-architecture.md §2) | `core/` |
+| `transports/zenoh/` | Every Zenoh-specific type, identifier, and concept, behind the `Transport` contract | The `Transport` contract's operations over neutral types only (`spec/interfaces.md` Table 6.4) | Policy/authorization decisions; signature verification; anything visible outside the operations of `spec/interfaces.md` Table 6.4 | `core/` only (§3) |
+| `cli/` (including `mcp-shim`) | User-facing commands, the thin stdio shim a harness spawns, and the `oac` binary's entry point | `oac start`, `status`, `sessions`, `doctor`, `mcp-shim` — the `mcp-shim` subcommand carries nothing beyond a thin stdio connection to the daemon over local IPC (04-architecture.md §2); the daemon's start-up glue (§1, §3) | Long-lived process state; the transport peer; policy decisions; key material (04-architecture.md §2). Hosting the start-up glue is not owning: `cli/` constructs the adapters and the transport and hands them to `core/`, while the state and the peer stay in `core/` and the transport module (§3) | `core/`, `adapters/*`, `transports/*` (§3) |
 | `tests/` | Protocol, security, and integration test suites (`tests/{protocol,security,integration}/`) | Fixtures and fake endpoints for provider/transport contract tests (`docs/planning/DESIGN.md` "Testing"; `docs/planning/v0.1/09-test-strategy.md`, A10, not yet landed) | Production code; anything shipped in the `oac` binary | `core/`, and whichever module a given test targets |
 
 **Acceptance box 1 ticked here** — "Every module has one named responsibility and a
@@ -117,20 +118,51 @@ stated ownership boundary": every row above states exactly one responsibility, a
 Allowed edges, as a text diagram:
 
 ```text
-cli/              -> core/
+cli/              -> core/, adapters/*, transports/*
 adapters/*        -> core/           (only)
 transports/zenoh/ -> core/           (only)
 core/             -> (nothing in-repo)
+(nothing)         -> cli/
 ```
+
+(Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305
+widened it to the edges above, for the reasons below.)
+
+**Why `cli/` has the adapter and transport edges.** `cli/` is where the `oac` binary's
+entry point lives, and that binary is also the daemon, so `cli/` is the one module that
+puts the daemon together:
+
+- `docs/planning/DESIGN.md` §Components, "CLI / supervisor": it "Starts configuration,
+  device identity, adapters, transport, diagnostics, and clean shutdown."
+- `docs/planning/decisions/C1-language-runtime.md` §1: one OAC binary, `oac`, per platform.
+- `docs/planning/decisions/C2-process-model.md` §1 and §6: the daemon is that binary,
+  started by `oac start`; harnesses spawn the same binary as `oac mcp-shim`. The daemon
+  owns the transport peer (C2 §1, item 1).
+- `docs/planning/v0.1/04-architecture.md` §2: the `oac` binary's repo path is `cli/`, and
+  the daemon hosts `core/` and starts the transport module.
+- §1 above: the daemon's transport-start glue lives with the binary's own entry point, and
+  there is no `daemon/` module.
+
+Starting adapters and a transport needs both modules in scope, and `core/` cannot be the
+one to name them (it depends on nothing in-repo). That leaves `cli/`.
+
+These edges are for construction only. `cli/` builds the adapters and the transport and
+hands them to `core/`; `core/` makes every contract call. In `spec/interfaces.md`, the
+caller of every operation in Table 5.2 (`ProviderAdapter`) and Table 6.4 (`Transport`) is
+the core, and its §1.1 makes the core the only route from an adapter to a transport.
 
 **Explicit MUST NOTs.**
 
 - `core/` MUST NOT depend on `adapters/*` or `transports/*`.
+- `core/`, `adapters/*` and `transports/*` MUST NOT depend on `cli/`.
 - An adapter MUST NOT depend on another adapter.
-- An adapter MUST NOT depend on `transports/zenoh/` — adapters route through core policy,
-  per `docs/planning/DESIGN.md`'s "Adapters should route through core policy/security
-  rather than directly through transports," already cited normatively at
-  `docs/planning/v0.1/05-interfaces.md` §13.
+- An adapter MUST NOT depend on `transports/zenoh/`, or on any other transport. Adapters
+  route through core policy (`docs/planning/DESIGN.md`: "Adapters should route through
+  core policy/security rather than directly through transports"). The frozen normative
+  rule is `spec/interfaces.md` [IFC-ADP-001], "An adapter MUST NOT invoke an operation of
+  a transport."
+- `cli/` MUST NOT invoke an operation of `spec/interfaces.md` Table 5.2 or Table 6.4. The
+  core is the caller of all of them.
 
 **Stage 3 enforcement owner.** `oac-implementation`'s module-dependency-direction rule
 is the Stage 3 owner of enforcing this diagram in the actual workspace (lint/CI check);
@@ -144,18 +176,9 @@ this file states the rule, not the enforcement mechanism.
 
 Every Zenoh type, identifier, and key expression stays inside `transports/zenoh/`, per
 `docs/planning/decisions/C7-zenoh-transport.md` §2 and DESIGN acceptance criterion 9.
-The `Transport` contract's seven operations (`docs/planning/v0.1/05-interfaces.md` §15)
-are the only visible surface crossing this module's boundary:
-
-```text
-start
-publish
-subscribe
-announce_presence
-watch_presence
-health
-shutdown
-```
+The `Transport` contract's operations, frozen in `spec/interfaces.md` Table 6.4, are the
+only visible surface crossing this module's boundary. Table 6.4 is the list; this file
+does not copy it.
 
 Nothing outside `transports/zenoh/` names a Zenoh type, `zid`, a key expression, or a
 liveliness term — per `[ADR-001 Boundary]` "MUST NOT leak Zenoh-specific concepts into
@@ -182,8 +205,8 @@ Per `oac-evidence` §4/§5:
   went floating 2026-09-26. Dated note, 2026-10-01, #216: the row now records minimum `0.154.0` and last tested `0.159.3`
   ("Version policy"); a version change warns, never gates.)
 
-Cross-reference `docs/planning/v0.1/05-interfaces.md` for the adapter contract itself
-(`ProviderAdapter`'s seven members) — not restated here.
+Cross-reference `spec/interfaces.md` §5 for the adapter contract itself
+(`ProviderAdapter`'s operations, Table 5.2) — not restated here.
 
 ---
 
@@ -352,7 +375,8 @@ Every reference below is a repo-relative path; no prior context is assumed.
 - `docs/planning/decisions/C7-zenoh-transport.md`
 - `docs/planning/v0.1/03-decisions-and-amendments.md`
 - `docs/planning/v0.1/04-architecture.md`
-- `docs/planning/v0.1/05-interfaces.md`
+- `docs/planning/v0.1/05-interfaces.md` (§13-§15 superseded by `spec/interfaces.md`)
+- `spec/interfaces.md` (frozen: Table 5.2, Table 6.4, [IFC-ADP-001])
 - `docs/planning/v0.1/06-security.md`
 - `docs/planning/v0.1/09-test-strategy.md` (A10, not yet landed)
 - `docs/planning/v0.1/12-deferred.md` (not yet landed)
@@ -391,8 +415,9 @@ Per `oac-boundaries`' pre-commit self-check:
 - House naming resolution applied throughout: "Open Agent Channel (OAC)", "OAC Session
   Channels", `oac` binary; no "Session Channels" or `sessionchannels` spelling appears
   outside the §1 verbatim quote (marked as such).
-- No code blocks appear except §1's repository-tree sketch and §4(a)'s seven interface
-  operation names.
+- No code blocks appear except §1's repository-tree sketch and §3's dependency diagram.
+  §4(a) points at `spec/interfaces.md` Table 6.4 for the operation names rather than
+  copying them.
 - Every cross-reference is a repo-relative path (§11).
 - No dependency fact is re-derived or given a new retrieval date not already present in
   C1/C2/C4.
