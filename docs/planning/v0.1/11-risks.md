@@ -341,8 +341,8 @@ list.
   (`docs/planning/gates/G2-result.md`), then re-confirmed on Windows on the Codex row's
   then last-observed version, `0.157.1` (re-run 2026-09-26, same result file). Since
   2026-09-26 the Codex version is **floating**. Since 2026-10-01 (#216) a further release
-  no longer invalidates the gate: PINS.md records a minimum (`0.154.0`) and a last tested
-  version (`0.159.3`), and a different version is a warning, never a gate. (Superseded
+  no longer invalidates the gate: PINS.md records a minimum and a last tested version
+  ("Codex CLI and app-server", "Version policy"), and a different version is a warning, never a gate. (Superseded
   text: "so any further release again invalidates the gate until re-run".) It remains
   unconfirmed on macOS and Linux at every version observed so far. A design consequence: the planned git dependencies
   `codex-app-server-{client,protocol,transport}` are pinned to the 0.154.0 commit

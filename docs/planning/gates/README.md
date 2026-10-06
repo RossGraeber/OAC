@@ -369,10 +369,9 @@ which are likeliest to force a re-run.
   ships releases at high cadence and the channel surface is preview, so expect frequent
   version warnings here. A version change no longer invalidates a verdict (§a).
 - **Codex CLI / app-server — `experimental` (per-method gating)** is **floating** by
-  operator decision (2026-09-26). Since #216 it records minimum `@openai/codex@0.154.0`
-  and last tested `@openai/codex@0.159.3`, commit
-  `01fc69f4026735edfdf6789820549727a4867b11` (`docs/planning/PINS.md`, Codex CLI and
-  app-server, "Version policy"). An auto-updater moves it with every release. Relied on
+  operator decision (2026-09-26). Since #216 it records a minimum and a last tested
+  version (`docs/planning/PINS.md`, Codex CLI and app-server, "Version policy"; not
+  restated here). An auto-updater moves it with every release. Relied on
   by **G2**, **G5** and **G4** (Codex leg). Expect a version warning on most runs. A
   version change no longer invalidates a verdict (§a).
 - Contrast: Zenoh, MCP revisions, and the Rust toolchain are `supported` and move on
