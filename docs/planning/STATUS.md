@@ -4,6 +4,34 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #55 (F6): the presence registry and the delivery
+receipt state machine land in `core/`**, against `spec/session-channels.md` §7 and §8 and
+`spec/security.md` §8.4, §10 and §11, revision 0.1. No `spec/` file, gate verdict, pin,
+dependency or ADR text changes.
+
+- **What landed.** `core/src/registry.rs`: the presence registry (three states, lifetimes
+  from acceptance on a monotonic clock, carrier loss, `seq` order, forgetting, the 300-second
+  cross-implementation cap of [SEC-PRS-007]), own sessions (online while bound, unreachable
+  when withheld or ended, so one session's exit leaves every other session's presence as it
+  was, C2 §5), the issuer of own records ([SC-DLV-050] to [SC-DLV-057]), discovery (online
+  only) and the presence step of a send. `core/src/presence_auth.rs`: the authenticated
+  presence record and the consumer's checks in the §11.4 order. `core/src/sender.rs`: the
+  send decision of §8.3.3 and the per-envelope state machine ([SC-RCP-085], §8.4.2).
+  `core/src/receiver.rs`: security step 5 and the delivery stage through
+  `DuplicateStore::try_admit` (an in-flight copy is re-queued, never parked), the
+  hand-off-deadline re-check right before the hand-off call, Table 5.3 outcomes, a
+  reservation settled on every path, and the receipt gate with a per-device rate limit
+  ([SEC-RPL-030], [SEC-RPL-031], [SEC-RCT-004], [SEC-RCT-005]). `core/src/receipt_auth.rs`:
+  the authenticated receipt. The PR #317 (N2) caller obligations are met in `receiver.rs`.
+- **Seams for F5 (#54, PR #316).** The binding table, the [SEC-AUZ-017] relation test and
+  the sent records are reached through the `ConsumerBindings` and `SentEnvelopes` traits,
+  which F5's engine implements when the two land together; `receive`-stage step 4 still
+  takes the fixture's verdict, as `security` and `replay` do.
+- **Conformance.** `core/tests/conformance.rs` now runs `presence` in full (`discarded`,
+  `states`, `send`), `discovery`, `send`, `routing`, `receive`, `combine`, `reply`,
+  `correlation` (`core/src/reply.rs`, §8.2), `presence-auth` and `receipt-auth`, and
+  `receipt_permitted` of the `security` stage.)
+
 **Last updated:** 2026-10-06 (**Issue #58 (F9): the fake Codex app-server endpoint lands
 at `tests/fakes/codex-app-server/`**, a dev/test-only Node process (built-ins only) over
 stdio and loopback WebSocket. No `spec/` file, gate verdict, pin or ADR text changes, and
