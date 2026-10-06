@@ -263,6 +263,12 @@ struct Inner {
 
 impl Inner {
     /// Removes every settled entry whose deadline is at or before `now` ([SEC-RPL-024]).
+    ///
+    /// An in-flight entry is skipped even past its deadline: a copy waiting on it in
+    /// [`DuplicateStore::admit`] must see its outcome ([SEC-RPL-026]). No fixture covers
+    /// this guard; the unit test `an_in_flight_entry_is_not_evicted` does. It is defence in
+    /// depth, since the hand-off re-check ([SC-RCP-091]) also stops a copy that waited past
+    /// the deadline.
     fn evict(&mut self, now: i128) {
         let due: Vec<(i128, DuplicateKey)> = self
             .by_deadline
@@ -382,14 +388,18 @@ impl DuplicateStore {
         self.lock().evict(now);
     }
 
-    /// Records that a copy with `key`, whose hand-off deadline is `deadline`, was handed off
-    /// by other means than [`DuplicateStore::admit`]. The conformance runner uses it for a
-    /// fixture's `duplicate_store` (`spec/security.md` §3.3). Holds an existing entry as it
-    /// is.
+    /// **Test-only. Production code must not call it.** It seeds an entry with no
+    /// verification: it records that a copy with `key`, whose hand-off deadline is
+    /// `deadline`, was handed off. It exists for the conformance runner
+    /// (`core/tests/conformance.rs`), which preloads a fixture's `duplicate_store`
+    /// (`spec/security.md` §3.3). As an integration test, the runner can reach only the
+    /// public API, so this is hidden from the documentation rather than `pub(crate)`. An
+    /// existing entry is kept as it is.
     ///
     /// # Errors
     ///
     /// `failed` with `internal-error` when the store is full.
+    #[doc(hidden)]
     pub fn insert_handed_off(
         &self,
         key: DuplicateKey,
@@ -417,6 +427,20 @@ impl DuplicateStore {
     /// ([SEC-RPL-026]): the copy is a duplicate only if the entry remains. The wait is
     /// bounded by that hand-off call. A receiver that holds the message across the wait
     /// re-checks the hand-off deadline before its own hand-off ([SC-RCP-091]).
+    ///
+    /// The caller's obligations (PR #317 review, N2):
+    ///
+    /// - **No re-entry before settling.** A thread that holds an unsettled [`Reservation`]
+    ///   for a key and calls `admit` again for the same key deadlocks: it waits for a
+    ///   settlement only it can make. Settle the reservation first, or use
+    ///   [`DuplicateStore::try_admit`], which never waits.
+    /// - **Re-check the deadline before every hand-off.** Call [`HandOffDeadline::refusal_at`]
+    ///   right before each hand-off call. A copy admitted after waiting may already be past
+    ///   its deadline.
+    /// - **Bound the wait.** Every replayed copy of an envelope whose hand-off is running
+    ///   parks one thread here, and replays of a captured envelope pass step 4. Either put a
+    ///   time limit on the hand-off call, so its reservation settles, or use `try_admit` and
+    ///   re-queue the copy.
     ///
     /// # Errors
     ///
@@ -812,9 +836,18 @@ mod tests {
     /// is admitted per hand-off; the others wait for its outcome ([SEC-RPL-026]); when the
     /// first hand-off fails, exactly one waiter takes over; once one succeeds, every other
     /// copy is a duplicate, and exactly one of them may draw a receipt.
+    ///
+    /// One round catches a test-and-add split with no gap about half the time (PR #317
+    /// review, N4), so the test runs 20 rounds, each with a fresh store and envelope.
     #[test]
     fn concurrent_copies_are_admitted_once() {
         let f = fx();
+        for _ in 0..20 {
+            concurrent_round(&f);
+        }
+    }
+
+    fn concurrent_round(f: &Fx) {
         let store = f.store(16);
         let env = f.signed("2026-10-03T12:00:00.000Z", None);
         let copies: Vec<ChannelMessage> = (0..16).map(|_| f.arrive(&env)).collect();
