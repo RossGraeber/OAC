@@ -31,6 +31,13 @@
 //! Added by #56 (F7): [`transport`], the `Transport` contract and the transport-boundary
 //! types (`spec/interfaces.md` §4.11, §6), and [`health`], `HealthStatus` (§4.10).
 //!
+//! Added by #53 (F4), against `spec/security.md` revision 0.1:
+//!
+//! - [`replay`]: security-stage step 3 (the replay window), step 5 (the duplicate store)
+//!   and the hand-off deadline (§8; `spec/session-channels.md` §8.1.3). Step 4,
+//!   authorization, is [`authorization`]'s.
+//! - [`clock`]: the injectable receiver clock those checks read.
+//!
 //! Added by #54 (F5), against `spec/security.md` revision 0.1 and `spec/interfaces.md` §4.9:
 //!
 //! - [`authorization`]: grants, the binding table, reply rights, `AuthorizationRequest` and
@@ -44,6 +51,7 @@ pub mod authorization;
 mod base64url;
 pub mod canonical;
 pub mod capabilities;
+pub mod clock;
 pub mod delivery;
 pub mod envelope;
 pub mod health;
@@ -54,6 +62,7 @@ pub mod pairing;
 pub mod presence;
 pub mod receipt;
 pub mod registration;
+pub mod replay;
 pub mod signing;
 pub mod transport;
 pub mod trust;

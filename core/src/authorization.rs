@@ -40,6 +40,7 @@
 //! concerns and the session ids involved, never with a message body: a [`DecisionRecord`]
 //! is built from the request, which has no slot for content.
 
+use crate::clock::Clock;
 use crate::delivery::{DeliveryState, ErrorCode};
 use crate::envelope::{ChannelMessage, Envelope, SecurityPrincipal};
 use crate::ids::{KeyId, SessionId, Timestamp, Token};
@@ -685,6 +686,53 @@ pub struct KeyRemoval {
     pub bindings: Vec<SessionId>,
 }
 
+/// A message that passed security step 4: the only input step 5,
+/// [`crate::replay::DuplicateStore::admit`], takes. Only
+/// [`AuthorizationEngine::authorize_delivery`] builds one, so an envelope refused at step 4
+/// can never reserve a duplicate-store entry ([SEC-RPL-022]: "the entry is added only once
+/// the copy has passed authorization").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthorizedMessage {
+    message: ChannelMessage,
+    decision: AuthorizationDecision,
+}
+
+impl AuthorizedMessage {
+    /// The verified message.
+    pub fn message(&self) -> &ChannelMessage {
+        &self.message
+    }
+
+    /// The `deliver` decision that permitted it, with its basis.
+    pub fn decision(&self) -> &AuthorizationDecision {
+        &self.decision
+    }
+
+    /// The message, for the delivery stage.
+    pub fn into_message(self) -> ChannelMessage {
+        self.message
+    }
+
+    /// A message taken as authorized without a decision, for unit tests of later steps.
+    #[cfg(test)]
+    pub(crate) fn for_tests(message: ChannelMessage) -> AuthorizedMessage {
+        let key = message.verified_by().map_or_else(
+            || KeyId::parse(&"0".repeat(64)).unwrap(),
+            |p| p.key_id().clone(),
+        );
+        AuthorizedMessage {
+            message,
+            decision: AuthorizationDecision {
+                kind: Kind::Deliver,
+                outcome: Outcome::Permit(Basis::InboundGrant(Grant::Inbound {
+                    writer: PeerSide::device(key),
+                    target: LocalSide::Device,
+                })),
+            },
+        }
+    }
+}
+
 /// The authorization engine: the trusted key set, the grants, the binding table, the
 /// own-session facts, the sent and hand-off records and the operator's relay settings,
 /// and the decisions of Table 4.9 over them.
@@ -702,6 +750,7 @@ pub struct AuthorizationEngine {
     sent: Vec<SentRecord>,
     handed_off: Vec<HandOffRecord>,
     relay: BTreeSet<SessionId>,
+    clock: Arc<dyn Clock>,
     log: Box<dyn DecisionLog>,
 }
 
@@ -725,7 +774,14 @@ impl AuthorizationEngine {
     /// Two harnesses on this device need no pairing: their sessions are bound to this one
     /// device key, which is always trusted (`docs/planning/decisions/C5-envelope-auth.md`
     /// §10(a)). They still need a grant to reach each other ([SEC-AUZ-007]).
-    pub fn new(own: &DeviceIdentity, log: Box<dyn DecisionLog>) -> AuthorizationEngine {
+    ///
+    /// Every decision reads the time from `clock`, the receiver clock the replay checks read
+    /// too ([`crate::replay`]).
+    pub fn new(
+        own: &DeviceIdentity,
+        clock: Arc<dyn Clock>,
+        log: Box<dyn DecisionLog>,
+    ) -> AuthorizationEngine {
         AuthorizationEngine {
             own_key: own.key_id().clone(),
             trusted: TrustedKeySet::new(own),
@@ -736,6 +792,7 @@ impl AuthorizationEngine {
             sent: Vec::new(),
             handed_off: Vec::new(),
             relay: BTreeSet::new(),
+            clock,
             log,
         }
     }
@@ -749,10 +806,11 @@ impl AuthorizationEngine {
     pub fn restore(
         own: &DeviceIdentity,
         store: &dyn PairingStore,
+        clock: Arc<dyn Clock>,
         log: Box<dyn DecisionLog>,
     ) -> Result<AuthorizationEngine, RestoreError> {
         let snapshot = store.load().map_err(RestoreError::Store)?;
-        let mut engine = AuthorizationEngine::new(own, log);
+        let mut engine = AuthorizationEngine::new(own, clock, log);
         for record in snapshot.paired {
             let key_id = record.key_id();
             engine
@@ -1085,9 +1143,14 @@ impl AuthorizationEngine {
         }
     }
 
-    /// Forgets sent and hand-off records whose reply period has ended at `now`. They no
-    /// longer count after that instant anyway.
-    pub fn prune(&mut self, now: &Timestamp) {
+    /// Forgets sent and hand-off records whose reply period has ended on the engine's
+    /// clock. They no longer count after that instant anyway.
+    pub fn prune(&mut self) {
+        let now = self.clock.now();
+        self.prune_at(&now);
+    }
+
+    fn prune_at(&mut self, now: &Timestamp) {
         self.sent
             .retain(|r| within_reply_period(&r.created_at, now));
         self.handed_off
@@ -1096,9 +1159,14 @@ impl AuthorizationEngine {
 
     // ---- Decisions --------------------------------------------------------------------
 
-    /// Answers `request` at `now` and logs the decision. Default deny: the decision is
-    /// `permit` only with a basis among the recorded facts its kind may read.
-    pub fn decide(
+    /// Answers `request` at the engine clock's time and logs the decision. Default deny: the
+    /// decision is `permit` only with a basis among the recorded facts its kind may read.
+    pub fn decide(&mut self, request: &AuthorizationRequest) -> AuthorizationDecision {
+        let now = self.clock.now();
+        self.decide_at(request, &now)
+    }
+
+    fn decide_at(
         &mut self,
         request: &AuthorizationRequest,
         now: &Timestamp,
@@ -1307,8 +1375,16 @@ impl AuthorizationEngine {
     pub fn authorize_delivery(
         &mut self,
         msg: ChannelMessage,
+    ) -> Result<AuthorizedMessage, AuthorizationRefusal> {
+        let now = self.clock.now();
+        self.authorize_delivery_at(msg, &now)
+    }
+
+    fn authorize_delivery_at(
+        &mut self,
+        msg: ChannelMessage,
         now: &Timestamp,
-    ) -> Result<(ChannelMessage, AuthorizationDecision), AuthorizationRefusal> {
+    ) -> Result<AuthorizedMessage, AuthorizationRefusal> {
         let refuse = |requirement, finding| AuthorizationRefusal {
             state: DeliveryState::Rejected,
             error: ErrorCode::Unauthorized,
@@ -1322,7 +1398,7 @@ impl AuthorizationEngine {
             unreachable!("AuthorizationRequest::deliver builds a Deliver request")
         };
         let (from, key) = (q.from.clone(), q.verifying_key.clone());
-        let decision = self.decide(&request, now);
+        let decision = self.decide_at(&request, now);
         match self.bindings.get(&from) {
             Some(Binding::Key(bound)) if bound != &key => {
                 let finding = BindingFinding {
@@ -1340,7 +1416,10 @@ impl AuthorizationEngine {
             return Err(refuse("SEC-AUZ-001", None));
         }
         self.bindings.entry(from).or_insert(Binding::Key(key));
-        Ok((msg, decision))
+        Ok(AuthorizedMessage {
+            message: msg,
+            decision,
+        })
     }
 }
 
@@ -1407,6 +1486,10 @@ mod tests {
         authenticate(msg, receiver.trusted_keys()).unwrap()
     }
 
+    fn clock() -> Arc<dyn Clock> {
+        Arc::new(crate::clock::ManualClock::new(now()))
+    }
+
     fn now() -> Timestamp {
         ts("2026-10-03T12:00:01.000Z")
     }
@@ -1426,7 +1509,7 @@ mod tests {
         let bob = identity("principal-b");
         let log = MemoryDecisionLog::new();
         let store = MemoryPairingStore::new();
-        let mut bob_engine = AuthorizationEngine::new(&bob, Box::new(log.clone()));
+        let mut bob_engine = AuthorizationEngine::new(&bob, clock(), Box::new(log.clone()));
         bob_engine
             .pair(
                 PairedPeer::confirmed(alice.principal().clone(), *alice.public_key(), now()),
@@ -1457,7 +1540,7 @@ mod tests {
     fn denies_by_default_with_no_configuration() {
         let mut p = pair();
         let msg = message(&p.alice, &p.bob_engine, A1, B1, None);
-        let r = p.bob_engine.authorize_delivery(msg, &now()).unwrap_err();
+        let r = p.bob_engine.authorize_delivery_at(msg, &now()).unwrap_err();
         assert_eq!(
             (r.state, r.error, r.requirement),
             (
@@ -1469,7 +1552,8 @@ mod tests {
         // No binding was created by the refused envelope ([SEC-PRS-005]).
         assert!(p.bob_engine.binding(&sid(A1)).is_none());
         // Every kind is deny with nothing recorded.
-        let mut fresh = AuthorizationEngine::new(&p.bob, Box::new(MemoryDecisionLog::new()));
+        let mut fresh =
+            AuthorizationEngine::new(&p.bob, clock(), Box::new(MemoryDecisionLog::new()));
         register(&mut fresh, &p.bob, B1, "/src/repo-a");
         register(&mut fresh, &p.bob, B2, "/src/repo-a");
         for req in [
@@ -1491,7 +1575,7 @@ mod tests {
             },
             AuthorizationRequest::RelayPermission { session: sid(B1) },
         ] {
-            let d = fresh.decide(&req, &now());
+            let d = fresh.decide_at(&req, &now());
             assert_eq!(d.outcome(), &Outcome::Deny, "{req:?}");
             assert!(d.basis().is_none());
         }
@@ -1501,15 +1585,15 @@ mod tests {
     fn same_device_sessions_need_no_pairing_but_need_a_grant() {
         let me = identity("principal-me");
         let store = MemoryPairingStore::new();
-        let mut e = AuthorizationEngine::new(&me, Box::new(MemoryDecisionLog::new()));
+        let mut e = AuthorizationEngine::new(&me, clock(), Box::new(MemoryDecisionLog::new()));
         register(&mut e, &me, B1, "/src/repo-a");
         register(&mut e, &me, B2, "/src/repo-a");
         // Steps 1 and 2 pass with no pairing: the device key is trusted ([SEC-KEY-031]).
         let msg = message(&me, &e, B1, B2, None);
         // Same device, same working directory: still no implicit grant ([SEC-AUZ-007]).
-        assert!(e.authorize_delivery(msg.clone(), &now()).is_err());
+        assert!(e.authorize_delivery_at(msg.clone(), &now()).is_err());
         assert!(
-            !e.decide(
+            !e.decide_at(
                 &AuthorizationRequest::Discover {
                     requester: Requester::Session(sid(B1)),
                     session: sid(B2)
@@ -1523,10 +1607,14 @@ mod tests {
             LocalSide::Scope(WorkingDirectoryScope::new("/src/repo-a")),
         );
         assert!(e.add_grant(g.clone(), ok(), &store).unwrap());
-        let (_, d) = e.authorize_delivery(msg, &now()).unwrap();
+        let d = e
+            .authorize_delivery_at(msg, &now())
+            .unwrap()
+            .decision()
+            .clone();
         assert_eq!(d.basis(), Some(&Basis::InboundGrant(g)));
         assert!(
-            e.decide(
+            e.decide_at(
                 &AuthorizationRequest::Discover {
                     requester: Requester::Session(sid(B1)),
                     session: sid(B2)
@@ -1547,9 +1635,9 @@ mod tests {
         p.bob_engine.add_grant(g, ok(), &p.store).unwrap();
         // B3 is in repo-b: not deliverable, not released, not discoverable by Alice.
         let msg = message(&p.alice, &p.bob_engine, A1, B3, None);
-        assert!(p.bob_engine.authorize_delivery(msg, &now()).is_err());
+        assert!(p.bob_engine.authorize_delivery_at(msg, &now()).is_err());
         let release = |e: &mut AuthorizationEngine, s: &str, k: &KeyId| {
-            e.decide(
+            e.decide_at(
                 &AuthorizationRequest::ReleasePresence {
                     session: sid(s),
                     device: k.clone(),
@@ -1588,7 +1676,7 @@ mod tests {
         );
         p.bob_engine.add_grant(g, ok(), &p.store).unwrap();
         let msg = message(&p.alice, &p.bob_engine, A1, B1, None);
-        p.bob_engine.authorize_delivery(msg, &now()).unwrap();
+        p.bob_engine.authorize_delivery_at(msg, &now()).unwrap();
         let entries = p.log.entries();
         let LogEntry::Decision(d) = entries
             .iter()
@@ -1626,7 +1714,12 @@ mod tests {
         );
         p.bob_engine.add_grant(g, ok(), &p.store).unwrap();
         let msg = message(&p.alice, &p.bob_engine, A1, B1, None);
-        let (_, d) = p.bob_engine.authorize_delivery(msg, &now()).unwrap();
+        let d = p
+            .bob_engine
+            .authorize_delivery_at(msg, &now())
+            .unwrap()
+            .decision()
+            .clone();
         assert!(d.permits(Kind::Deliver));
         for other in [
             Kind::Discover,
@@ -1637,7 +1730,7 @@ mod tests {
             assert!(!d.permits(other), "a deliver permit read as {other}");
         }
         // A delivery grant never enables relay ([SEC-AUZ-020], [SEC-AUZ-021]).
-        let relay = p.bob_engine.decide(
+        let relay = p.bob_engine.decide_at(
             &AuthorizationRequest::RelayPermission { session: sid(B1) },
             &now(),
         );
@@ -1645,7 +1738,7 @@ mod tests {
         p.bob_engine
             .set_relay(sid(B1), true, ok(), &p.store)
             .unwrap();
-        let relay = p.bob_engine.decide(
+        let relay = p.bob_engine.decide_at(
             &AuthorizationRequest::RelayPermission { session: sid(B1) },
             &now(),
         );
@@ -1654,7 +1747,7 @@ mod tests {
         // Relay for B1 does not extend to B2.
         assert!(
             !p.bob_engine
-                .decide(
+                .decide_at(
                     &AuthorizationRequest::RelayPermission { session: sid(B2) },
                     &now()
                 )
@@ -1678,7 +1771,7 @@ mod tests {
         let msg = receive_envelope(env.octets(), &EnvelopeLimits::default(), &now()).unwrap();
         assert!(AuthorizationRequest::deliver(&msg).is_none());
         let mut e = p.bob_engine;
-        let r = e.authorize_delivery(msg, &now()).unwrap_err();
+        let r = e.authorize_delivery_at(msg, &now()).unwrap_err();
         assert_eq!(r.requirement, "SEC-STG-003");
     }
 
@@ -1699,31 +1792,33 @@ mod tests {
         p.bob_engine
             .record_sent(SentRecord::of(&to_alice, p.alice.key_id().clone()));
         let reply = message(&p.alice, &p.bob_engine, A1, B1, Some("msg-b"));
-        let (_, d) = p
+        let d = p
             .bob_engine
-            .authorize_delivery(reply.clone(), &now())
-            .unwrap();
+            .authorize_delivery_at(reply.clone(), &now())
+            .unwrap()
+            .decision()
+            .clone();
         assert!(matches!(d.basis(), Some(Basis::ReplyRight(_))));
         // Uncorrelated, or to another session: refused.
         let other = message(&p.alice, &p.bob_engine, A1, B2, Some("msg-b"));
-        assert!(p.bob_engine.authorize_delivery(other, &now()).is_err());
+        assert!(p.bob_engine.authorize_delivery_at(other, &now()).is_err());
         let plain = message(&p.alice, &p.bob_engine, A1, B1, None);
-        assert!(p.bob_engine.authorize_delivery(plain, &now()).is_err());
+        assert!(p.bob_engine.authorize_delivery_at(plain, &now()).is_err());
         // Exactly 24 hours after msg-b's created_at the right has ended ([SEC-AUZ-015]).
         let late = ts("2026-10-04T11:30:00.000Z");
         assert!(
             p.bob_engine
-                .authorize_delivery(reply.clone(), &late)
+                .authorize_delivery_at(reply.clone(), &late)
                 .is_err()
         );
         assert!(
             p.bob_engine
-                .authorize_delivery(reply.clone(), &ts("2026-10-04T11:29:59.999Z"))
+                .authorize_delivery_at(reply.clone(), &ts("2026-10-04T11:29:59.999Z"))
                 .is_ok()
         );
         // It also ends with the sending session's binding.
         p.bob_engine.end_session(&sid(B1));
-        assert!(p.bob_engine.authorize_delivery(reply, &now()).is_err());
+        assert!(p.bob_engine.authorize_delivery_at(reply, &now()).is_err());
     }
 
     /// The reply right checks the verifying key itself ([SEC-AUZ-014]), not only through
@@ -1757,14 +1852,22 @@ mod tests {
         );
         assert!(p.bob_engine.forget_binding(&sid(A1)));
         let forged = message(&carol, &p.bob_engine, A1, B1, Some("msg-b"));
-        let r = p.bob_engine.authorize_delivery(forged, &now()).unwrap_err();
+        let r = p
+            .bob_engine
+            .authorize_delivery_at(forged, &now())
+            .unwrap_err();
         assert_eq!(r.requirement, "SEC-AUZ-001");
         assert!(
             p.bob_engine.binding(&sid(A1)).is_none(),
             "a refusal binds nothing"
         );
         let genuine = message(&p.alice, &p.bob_engine, A1, B1, Some("msg-b"));
-        let (_, d) = p.bob_engine.authorize_delivery(genuine, &now()).unwrap();
+        let d = p
+            .bob_engine
+            .authorize_delivery_at(genuine, &now())
+            .unwrap()
+            .decision()
+            .clone();
         assert!(matches!(d.basis(), Some(Basis::ReplyRight(_))));
         assert_eq!(
             p.bob_engine.binding(&sid(A1)),
@@ -1792,14 +1895,17 @@ mod tests {
                 .unwrap();
         }
         let msg = message(&p.alice, &p.bob_engine, A1, B1, None);
-        p.bob_engine.authorize_delivery(msg, &now()).unwrap();
+        p.bob_engine.authorize_delivery_at(msg, &now()).unwrap();
         assert_eq!(
             p.bob_engine.binding(&sid(A1)),
             Some(&Binding::Key(p.alice.key_id().clone()))
         );
         // Carol claims A1: refused with a finding, binding unchanged, no conflict mark.
         let spoof = message(&carol, &p.bob_engine, A1, B1, None);
-        let r = p.bob_engine.authorize_delivery(spoof, &now()).unwrap_err();
+        let r = p
+            .bob_engine
+            .authorize_delivery_at(spoof, &now())
+            .unwrap_err();
         assert_eq!(r.requirement, "SEC-AUZ-003");
         assert_eq!(
             r.finding,
@@ -1824,7 +1930,7 @@ mod tests {
         let msg = message(&p.alice, &p.bob_engine, A1, B1, None);
         assert_eq!(
             p.bob_engine
-                .authorize_delivery(msg, &now())
+                .authorize_delivery_at(msg, &now())
                 .unwrap_err()
                 .requirement,
             "SEC-PRS-012"
@@ -1852,9 +1958,13 @@ mod tests {
         );
         assert!(p.bob_engine.trusted_keys().get(carol.key_id()).is_none());
         // The store holds the change too.
-        let back =
-            AuthorizationEngine::restore(&p.bob, &p.store, Box::new(MemoryDecisionLog::new()))
-                .unwrap();
+        let back = AuthorizationEngine::restore(
+            &p.bob,
+            &p.store,
+            clock(),
+            Box::new(MemoryDecisionLog::new()),
+        )
+        .unwrap();
         assert!(back.trusted_keys().get(carol.key_id()).is_none());
         assert!(back.trusted_keys().get(p.alice.key_id()).is_some());
         assert_eq!(back.grants(), p.bob_engine.grants());
@@ -1916,7 +2026,7 @@ mod tests {
             )
             .unwrap();
         let discover = |e: &mut AuthorizationEngine, l: &str, s: &str, at: &Timestamp| {
-            e.decide(
+            e.decide_at(
                 &AuthorizationRequest::Discover {
                     requester: Requester::Session(sid(l)),
                     session: sid(s),
@@ -1928,7 +2038,11 @@ mod tests {
         // Handed a message from A1, B1 may discover A1 for the reply period
         // ([SEC-AUZ-016]); B2 may not.
         let msg = message(&p.alice, &p.bob_engine, A1, B1, None);
-        let (msg, _) = p.bob_engine.authorize_delivery(msg, &now()).unwrap();
+        let msg = p
+            .bob_engine
+            .authorize_delivery_at(msg, &now())
+            .unwrap()
+            .into_message();
         p.bob_engine.record_handoff(
             HandOffRecord::of(msg.envelope()),
             DeliveryState::HandedToHarness,
@@ -1939,7 +2053,7 @@ mod tests {
         let end = ts("2026-10-04T12:00:00.000Z");
         assert!(!discover(&mut p.bob_engine, B1, A1, &end).permits(Kind::Discover));
         // A failed hand-off records nothing.
-        p.bob_engine.prune(&end);
+        p.bob_engine.prune_at(&end);
         p.bob_engine
             .record_handoff(HandOffRecord::of(msg.envelope()), DeliveryState::Failed);
         assert!(!discover(&mut p.bob_engine, B1, A1, &now()).permits(Kind::Discover));
@@ -1958,7 +2072,7 @@ mod tests {
         // ... and relates Alice's key to A1 for accepting its announcement ([SEC-AUZ-017]).
         assert!(
             p.bob_engine
-                .decide(
+                .decide_at(
                     &AuthorizationRequest::AcceptPresence {
                         signing_key: ak,
                         session: sid(A1)
@@ -1985,7 +2099,7 @@ mod tests {
         for (to, pass) in [(B1, true), (B2, false), (B3, false)] {
             let m = message(&p.alice, &p.bob_engine, A1, to, None);
             assert_eq!(
-                p.bob_engine.authorize_delivery(m, &now()).is_ok(),
+                p.bob_engine.authorize_delivery_at(m, &now()).is_ok(),
                 pass,
                 "{to}"
             );
@@ -2007,9 +2121,9 @@ mod tests {
             B1,
             None,
         );
-        assert!(q.bob_engine.authorize_delivery(other, &now()).is_err());
+        assert!(q.bob_engine.authorize_delivery_at(other, &now()).is_err());
         let m = message(&q.alice, &q.bob_engine, A1, B3, None);
-        assert!(q.bob_engine.authorize_delivery(m, &now()).is_ok());
+        assert!(q.bob_engine.authorize_delivery_at(m, &now()).is_ok());
         // Duplicate grants are not added twice; removal reports what it did.
         let g = q.bob_engine.grants()[0].clone();
         assert!(!q.bob_engine.add_grant(g.clone(), ok(), &q.store).unwrap());

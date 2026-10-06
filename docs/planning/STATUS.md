@@ -19,10 +19,18 @@ dependency is added.
   never a message body. `core/src/pairing.rs`: the pairing exchange and the `PairingStore`
   seam with an in-memory test double. No store on disk is added; one belongs to `cli/`,
   opt-in, as F3's key stores do.
-- **Conformance.** `core/tests/conformance.rs` now runs security step 4 on every `security`
-  fixture that steps 3 and 5 (F4) do not decide, and the stages `discovery-auth`,
-  `key-removal` and `exchange` in full, and `presence-auth` for the `sec-auz` fixtures. All
-  34 `sec-auz` fixtures and `sec-key/SEC-KEY-035.p01` run through `oac-core`.
+- **Conformance, integrated with F4 (#53, merged first).** `core/tests/conformance.rs` now
+  runs all five steps of Table 7.1 through `oac-core`. Step 4 is
+  `AuthorizationEngine::authorize_delivery`, between F4's `check_replay_window` and
+  `DuplicateStore::admit`, and it replaces F4's interim verdict taken from the fixture
+  (described in the #53 entry below). `admit` and `try_admit` take only the
+  `AuthorizedMessage` that step 4 produces, so a copy refused at step 4 cannot reserve a
+  store entry. The engine reads F4's `Clock`. The `replay` stage keeps one engine across
+  arrivals and applies each arrival's `grants_add` (`SEC-RPL-022.p03`). The `exchange`
+  stage's receive runs steps 3 and 5. Hand-offs feed `record_handoff`. The stages
+  `discovery-auth`, `key-removal` and `exchange` run in full, and `presence-auth` runs for
+  the `sec-auz` fixtures. All 34 `sec-auz` fixtures and `sec-key/SEC-KEY-035.p01` run
+  through `oac-core`.
 - **Finding F5-1 (pairing code).** `docs/planning/decisions/C5-envelope-auth.md` §10(b)
   derives the six-digit code from the two keys' fingerprints alone. Its MITM argument does
   not hold for a code of about 2^20 values: an attacker on the exchange channel can generate
@@ -48,6 +56,31 @@ dependency is added.
   always trusted ([SEC-KEY-031]). They still need a grant to reach each other
   ([SEC-AUZ-007], the #45 operator decision), so "no configuration" in #54's acceptance holds
   for pairing, not for authorization.)
+
+**Last updated:** 2026-10-06 (**Issue #53 (F4): replay defence and duplicate suppression
+land in `core/`**, against `spec/security.md` revision 0.1. No `spec/` file, gate verdict,
+pin, dependency or ADR text changes.
+
+- **What landed.** `core/src/replay.rs`: security-stage step 3 (the 300-second replay
+  window, open at both ends, compared in nanoseconds; [SEC-RPL-001] to [SEC-RPL-003]),
+  step 5 (the duplicate store keyed by (`key_id`, `nonce`), test-and-add as one step, an
+  entry removed when its copy is not handed off, a copy that finds an in-flight entry
+  waiting for its outcome, one `duplicate` receipt per entry; [SEC-RPL-020] to
+  [SEC-RPL-023], [SEC-RPL-026], [SEC-RPL-030]) and the hand-off deadline with its binding
+  bound (`spec/session-channels.md` [SC-RCP-091], [SC-RCP-092]). `core/src/clock.rs`: an
+  injectable clock (`SystemClock`, and `ManualClock` for tests). Step 4, authorization, is
+  F5 (#54) and is not in this change.
+- **Store policy (C5 §8).** Entries are evicted at the hand-off deadline ([SEC-RPL-024]);
+  an in-flight entry is never evicted. A hard cap (65536 entries by default) refuses a new
+  copy with `failed` / `internal-error` when every entry is still live, rather than evicting
+  one early. The store is process memory: a restart starts it empty, and only the window
+  bounds the accepted residual ([SEC-RPL-025]). Unit tests cover each, and the atomicity of
+  [SEC-RPL-021] under real threads, which Appendix A left `TODO(fixture), F4`.
+- **Conformance.** `core/tests/conformance.rs` now runs Table 7.1 steps 3 and 5 for every
+  `security` fixture and the whole `replay` stage (the ten `sec-rpl` sequences and
+  `ifc-trn/IFC-TRN-011.n02`) on a scripted clock, and the hand-off-deadline re-check of
+  `sc-rcp/SC-RCP-091.*` and `SC-RCP-092.n01`. Until F5 lands, step 4's verdict is taken
+  from the fixture (`unauthorized` expected).)
 
 **Last updated:** 2026-10-06 (**Issue #52 (F3): device identity, key storage, signing and
 verification land in `core/` and `cli/`**, against `spec/security.md` revision 0.1. No

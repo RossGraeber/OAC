@@ -18,36 +18,54 @@
 //!
 //! Stages of `spec/security.md` §3.3 run here (#52, F3):
 //!
-//! - `security`: envelope-stage validation, then steps 1 and 2 of Table 7.1 (key
-//!   resolution, signature) through [`authenticate`], then (#54, F5) step 4, authorization,
-//!   through `AuthorizationEngine::authorize_delivery`. Steps 3 and 5 are F4: a fixture
-//!   whose outcome step 3 decides is checked to pass steps 1 and 2 under the right entry,
-//!   and one that step 5 decides, to pass step 4.
+//! - `security`: envelope-stage validation, then Table 7.1: steps 1 and 2 (key resolution,
+//!   signature) through [`authenticate`] (#52, F3); step 3 (replay window) through
+//!   [`check_replay_window`] (#53, F4); step 4 (authorization) through
+//!   `AuthorizationEngine::authorize_delivery` (#54, F5); and step 5 (duplicate store,
+//!   preloaded from `context.duplicate_store`) through [`DuplicateStore::admit`] (#53, F4),
+//!   which takes only the `AuthorizedMessage` step 4 produces.
+//! - `replay` (#53, F4): a sequence of arrivals at one receiver, on a scripted
+//!   [`ManualClock`], through the same steps, one [`DuplicateStore`] and one
+//!   `AuthorizationEngine`, both reading that clock. An arrival's `grants_add` is added to
+//!   the engine just before it. A copy that arrives `during_previous_handoff` must stay
+//!   undecided ([`DuplicateStore::try_admit`] returns `None`) until the earlier copy's
+//!   reservation is settled with its `delivery`.
 //! - `key-id` (§5.2) and `registration` (§5.4), in full.
 //! - [`verify_strict_alone_gives_the_sec_sig_verdicts`]: every `sec-sig` fixture through
 //!   `ed25519-dalek`'s `VerifyingKey::verify_strict` with no other check, the run that
 //!   `spec/security.md` §6.3 left UNVERIFIED.
+//! - [`handoff_deadline_fixtures`]: the hand-off-deadline re-check (delivery stage step 4,
+//!   [SC-RCP-091], [SC-RCP-092]) of the `routing` fixtures that test it.
 //!
 //! Stages run in [`authorization`] (#54, F5): `discovery-auth`, `key-removal` and `exchange`
-//! in full, and `presence-auth` for the `sec-auz` fixtures.
+//! in full (an `exchange` receive runs all five steps of Table 7.1), and `presence-auth` for
+//! the `sec-auz` fixtures. A copy refused at step 4 is checked to add no duplicate-store
+//! entry, which a later arrival of the same envelope observes (`SEC-RPL-022.p03`).
 //!
-//! Other stages (binding, send, routing, replay, receipt-auth, presence-auth outside
-//! `sec-auz`, ...) exercise logic later tasks own.
+//! Other stages (binding, send, routing, receipt-auth, presence-auth outside `sec-auz`,
+//! ...) exercise logic later tasks own.
 
+use oac_core::authorization::{AuthorizationEngine, HandOffRecord, Kind};
 use oac_core::canonical::{SigningDomain, signed_text, signing_input};
 use oac_core::capabilities::{Implemented, SessionCapabilities};
+use oac_core::clock::{Clock, ManualClock};
 use oac_core::delivery::DeliveryState;
-use oac_core::envelope::{EnvelopeLimits, receive_envelope};
+use oac_core::envelope::{ChannelMessage, EnvelopeLimits, receive_envelope};
 use oac_core::ids::{Timestamp, Token, Version};
 use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::{DeviceIdentity, DeviceKey, PublicKey};
 use oac_core::presence::PresenceRecord;
 use oac_core::receipt::DeliveryReceipt;
 use oac_core::registration::RegistrationRecord;
+use oac_core::replay::{
+    Admission, DuplicateKey, DuplicateStore, HandOffDeadline, REPLAY_WINDOW_MS, Reservation,
+    check_replay_window,
+};
 use oac_core::signing::authenticate;
 use oac_core::trust::TrustedKeySet;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 // A crate root resolves `mod` beside itself, so the path is given; tests/conformance/ is
 // not a test target of its own.
@@ -164,6 +182,12 @@ fn input_octets(input: &JsonObject) -> Vec<u8> {
 }
 
 fn limits(context: &JsonObject) -> (EnvelopeLimits, Timestamp) {
+    let now = Timestamp::parse(str_of(context, "receiver_time").unwrap()).unwrap();
+    (envelope_limits(context), now)
+}
+
+/// The receiver-wide limits of a fixture's `context` (§3.3).
+fn envelope_limits(context: &JsonObject) -> EnvelopeLimits {
     let majors = context
         .get("supported_major_versions")
         .and_then(Json::as_array)
@@ -179,8 +203,7 @@ fn limits(context: &JsonObject) -> (EnvelopeLimits, Timestamp) {
             .with_max_envelope_octets(uint(m))
             .expect("§3.3: max_envelope_octets from 65536 to 9007199254740991");
     }
-    let now = Timestamp::parse(str_of(context, "receiver_time").unwrap()).unwrap();
-    (l, now)
+    l
 }
 
 fn run_envelope(fx: &Fixture) -> Result<(), String> {
@@ -392,11 +415,13 @@ fn trusted_keys(context: &JsonObject) -> Result<TrustedKeySet, String> {
     Ok(set)
 }
 
-/// Stage `security` (`spec/security.md` §3.3), steps 1 and 2 of Table 7.1: envelope-stage
-/// validation, then [`authenticate`]. A fixture whose expected code is an envelope-stage
-/// code, `unknown-key` or `signature-invalid` must give exactly that. Every other fixture
-/// (`passed`, or a code of steps 3 to 5, which are F4 and F5) must pass steps 1 and 2, with
-/// `verified_by` the entry the envelope names.
+/// Stage `security` (`spec/security.md` §3.3): envelope-stage validation, then the five
+/// steps of Table 7.1 in order, the first failing step's code reported ([SEC-STG-002]).
+/// Steps 1 and 2: [`authenticate`], whose `verified_by` must be the entry the envelope
+/// names. Step 3: [`check_replay_window`] at `receiver_time`. Step 4:
+/// `AuthorizationEngine::authorize_delivery`, with the fixture's sessions, bindings, grants
+/// and sent records, on the same clock. Step 5: [`DuplicateStore::admit`] on a store holding
+/// `context.duplicate_store`.
 fn run_security(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     if context.contains("max_envelope_octets") {
@@ -409,37 +434,305 @@ fn run_security(fx: &Fixture) -> Result<(), String> {
         str_of(expected, "result").unwrap(),
         str_of(expected, "error"),
     );
-    let msg = match receive_envelope(&octets, &l, &now) {
-        Ok(msg) => msg,
-        Err(rej) => {
-            return if (rej.state.as_str(), Some(rej.error.as_str())) == want {
-                Ok(())
-            } else {
-                Err(format!("envelope stage: {rej}; expected {want:?}"))
-            };
+    // The trusted keys pass admission and hash to their listed ids (checked here as in
+    // F3); the engine below pairs the same keys.
+    trusted_keys(context)?;
+    let clock = Arc::new(ManualClock::new(now));
+    let (mut engine, _) = authorization::security_engine(context, clock.clone());
+    let store = DuplicateStore::new(clock.clone());
+    // The fixture gives an entry no deadline; it is live until the window has passed.
+    let until = Timestamp::from_unix_nanos(
+        clock.now().unix_nanos() + i128::from(REPLAY_WINDOW_MS) * 1_000_000,
+    )
+    .unwrap();
+    for e in context
+        .get("duplicate_store")
+        .and_then(Json::as_array)
+        .ok_or("context.duplicate_store")?
+    {
+        let e = e
+            .as_object()
+            .ok_or("duplicate_store entry is not an object")?;
+        let key = DuplicateKey::new(
+            str_of(e, "key_id").ok_or("entry key_id")?,
+            str_of(e, "nonce").ok_or("entry nonce")?,
+        );
+        store
+            .insert_handed_off(key, &until)
+            .map_err(|e| e.to_string())?;
+    }
+    let before = store.len();
+    let steps = security_steps(&octets, &l, &mut engine, &clock.now(), &store, || {
+        Some("an entry is in flight with no earlier copy".into())
+    })?;
+    let got = (steps.state.as_str(), steps.error.as_deref());
+    if got != want {
+        return Err(format!("got {got:?}; expected {want:?}"));
+    }
+    authorization::check_step_4_record(expected, &engine, steps.finding)?;
+    match steps.reservation {
+        Some(r) => {
+            if store.len() != before + 1 {
+                return Err("a passed envelope added no store entry".into());
+            }
+            r.handed_off();
         }
-    };
-    let keys = trusted_keys(context)?;
-    let decided_by_steps_1_2 = matches!(want.1, Some("unknown-key" | "signature-invalid"));
-    match authenticate(msg, &keys) {
-        Err(rej) if (rej.state.as_str(), Some(rej.error.as_str())) == want => Ok(()),
-        Err(rej) => Err(format!("security steps 1-2: {rej}; expected {want:?}")),
-        Ok(_) if decided_by_steps_1_2 => Err(format!("passed steps 1-2; expected {want:?}")),
-        Ok(msg) => {
-            let sec = msg.envelope().security();
-            let by = msg.verified_by().ok_or("verified_by not set")?;
-            if (by.principal().as_str(), by.key_id().as_str()) != (sec.principal(), sec.key_id()) {
-                return Err(format!(
-                    "verified_by {by:?} is not the entry the envelope names"
-                ));
-            }
-            // Step 3, the replay window, is F4's; a fixture it decides stops here.
-            if want.1 == Some("outside-replay-window") {
-                return Ok(());
-            }
-            authorization::step_4(fx, msg, want)
+        None if store.len() != before => {
+            return Err("a refused envelope changed the duplicate store".into());
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+/// What the receiver did with one copy, up to the end of the security stage.
+struct Steps {
+    state: String,
+    error: Option<String>,
+    /// For `duplicate`: whether the copy may draw the entry's one receipt ([SEC-RPL-030]).
+    receipt_allowed: Option<bool>,
+    /// For a copy that passed all five steps: the entry step 5 added, in flight.
+    reservation: Option<Reservation>,
+    /// For a copy that passed all five steps: the message, for the hand-off record.
+    message: Option<ChannelMessage>,
+    /// Whether step 4 recorded a finding ([SEC-PRS-004]).
+    finding: bool,
+}
+
+impl Steps {
+    fn refused(state: &str, error: &str) -> Steps {
+        Steps {
+            state: state.to_owned(),
+            error: Some(error.to_owned()),
+            receipt_allowed: None,
+            reservation: None,
+            message: None,
+            finding: false,
         }
     }
+
+    /// Whether the copy reached step 5.
+    fn reached_step_5(&self) -> bool {
+        self.reservation.is_some() || self.state == "duplicate"
+    }
+}
+
+/// Envelope stage, then Table 7.1, for one copy arriving at `now`, which is also the time
+/// `engine`'s clock reads. `in_flight` is called when step 5 finds the entry of an earlier
+/// copy whose hand-off is still running: it must let that hand-off return and give `None`,
+/// after which step 5 decides ([SEC-RPL-026]); `Some` is a runner error.
+fn security_steps(
+    octets: &[u8],
+    l: &EnvelopeLimits,
+    engine: &mut AuthorizationEngine,
+    now: &Timestamp,
+    store: &DuplicateStore,
+    in_flight: impl FnOnce() -> Option<String>,
+) -> Result<Steps, String> {
+    let msg = match receive_envelope(octets, l, now) {
+        Ok(msg) => msg,
+        Err(rej) => return Ok(Steps::refused(rej.state.as_str(), rej.error.as_str())),
+    };
+    // Steps 1 and 2.
+    let msg: ChannelMessage = match authenticate(msg, engine.trusted_keys()) {
+        Ok(msg) => msg,
+        Err(rej) => return Ok(Steps::refused(rej.state.as_str(), rej.error.as_str())),
+    };
+    let sec = msg.envelope().security();
+    let by = msg.verified_by().ok_or("verified_by not set")?;
+    if (by.principal().as_str(), by.key_id().as_str()) != (sec.principal(), sec.key_id()) {
+        return Err(format!(
+            "verified_by {by:?} is not the entry the envelope names"
+        ));
+    }
+    // Step 3.
+    if let Err(rej) = check_replay_window(&msg, now) {
+        return Ok(Steps::refused(rej.state.as_str(), rej.error.as_str()));
+    }
+    // Step 4. A refused copy has no `AuthorizedMessage`, so it cannot reach step 5.
+    let msg = match engine.authorize_delivery(msg) {
+        Ok(authorized) => authorized,
+        Err(rej) => {
+            let mut steps = Steps::refused(rej.state.as_str(), rej.error.as_str());
+            steps.finding = rej.finding.is_some();
+            return Ok(steps);
+        }
+    };
+    if msg.decision().basis().is_none() || !msg.decision().permits(Kind::Deliver) {
+        return Err("step 4 passed without a deliver basis".into());
+    }
+    // Step 5.
+    let admission = match store.try_admit(&msg).map_err(|e| e.to_string())? {
+        Some(a) => a,
+        None => {
+            if let Some(e) = in_flight() {
+                return Err(e);
+            }
+            store.admit(&msg).map_err(|e| e.to_string())?
+        }
+    };
+    Ok(match admission {
+        Admission::Admitted(r) => Steps {
+            state: "passed".into(),
+            error: None,
+            receipt_allowed: None,
+            reservation: Some(r),
+            message: Some(msg.into_message()),
+            finding: false,
+        },
+        Admission::Duplicate { receipt_allowed } => Steps {
+            state: "duplicate".into(),
+            error: Some("duplicate".into()),
+            receipt_allowed: Some(receipt_allowed),
+            reservation: None,
+            message: None,
+            finding: false,
+        },
+    })
+}
+
+/// The state and code a receiver reports for a copy that passed the security stage, by
+/// the arrival's `delivery` outcome (`spec/security.md` §3.3, stage `replay`), and whether
+/// the copy counts as handed off for the duplicate store ([SEC-RPL-022]).
+type Outcome = (&'static str, Option<&'static str>, bool);
+
+fn delivery_outcome(delivery: &str) -> Result<Outcome, String> {
+    Ok(match delivery {
+        "handed-to-harness" => ("handed-to-harness", None, true),
+        "unknown" => ("unknown", None, true),
+        "destination-unavailable" => ("unreachable", Some("destination-unavailable"), false),
+        "handoff-failed" => ("failed", Some("handoff-failed"), false),
+        other => return Err(format!("unknown delivery outcome {other}")),
+    })
+}
+
+/// Settles an admitted copy's reservation: its hand-off call has returned.
+fn settle(pending: Option<(Reservation, bool)>) {
+    if let Some((r, handed_off)) = pending {
+        if handed_off {
+            r.handed_off();
+        } else {
+            r.not_handed_off();
+        }
+    }
+}
+
+/// Stage `replay` (`spec/security.md` §3.3): arrivals at one receiver, in order, from an
+/// empty duplicate store, on a [`ManualClock`] set to each arrival's `at`.
+///
+/// An admitted copy's hand-off call returns just before the next arrival, unless that
+/// arrival is `during_previous_handoff`: then step 5 must find the earlier copy's entry in
+/// flight and leave the copy undecided ([`DuplicateStore::try_admit`] gives `None`), and it
+/// decides only once the earlier call has returned ([SEC-RPL-026]).
+fn run_replay(fx: &Fixture) -> Result<(), String> {
+    let context = obj(&fx.v, "context");
+    if context.get("replay_window_ms").map(uint) != Some(REPLAY_WINDOW_MS) {
+        return Err("context.replay_window_ms is not 300000 ([SEC-RPL-001])".into());
+    }
+    let l = envelope_limits(context);
+    trusted_keys(context)?;
+    let input = obj(&fx.v, "input");
+    let envelopes = obj(input, "envelopes");
+    let arrivals = input
+        .get("arrivals")
+        .and_then(Json::as_array)
+        .ok_or("input.arrivals")?;
+    let results = obj(&fx.v, "expected")
+        .get("results")
+        .and_then(Json::as_array)
+        .ok_or("expected.results")?;
+    if arrivals.len() != results.len() {
+        return Err("one expected result per arrival".into());
+    }
+    let first = arrivals
+        .first()
+        .and_then(Json::as_object)
+        .and_then(|a| str_of(a, "at"))
+        .and_then(Timestamp::parse)
+        .ok_or("no arrival")?;
+    let clock = Arc::new(ManualClock::new(first));
+    let store = DuplicateStore::new(clock.clone());
+    // One engine across the arrivals: a copy that passes binds `from` before step 5, and
+    // `grants_add` adds to it.
+    let (mut engine, grant_store) = authorization::security_engine(context, clock.clone());
+    let mut pending: Option<(Reservation, bool)> = None;
+    for (i, (a, want)) in arrivals.iter().zip(results).enumerate() {
+        let (a, want) = (
+            a.as_object().ok_or("arrival")?,
+            want.as_object().ok_or("result")?,
+        );
+        let at = str_of(a, "at")
+            .and_then(Timestamp::parse)
+            .ok_or("arrival at")?;
+        let during = a.get("during_previous_handoff") == Some(&Json::Bool(true));
+        if !during {
+            settle(pending.take());
+        }
+        clock.set(at.clone());
+        authorization::add_grants(&mut engine, &grant_store, a.get("grants_add"));
+        let label = str_of(a, "envelope").ok_or("arrival envelope")?;
+        let octets = envelopes
+            .get(label)
+            .ok_or_else(|| format!("no envelope {label}"))?
+            .to_compact()
+            .into_bytes();
+        let want_error = str_of(want, "error");
+        let had_earlier = pending.is_some();
+        let mut waited = false;
+        let before = store.len();
+        let steps = security_steps(&octets, &l, &mut engine, &at, &store, || {
+            waited = true;
+            if had_earlier {
+                settle(pending.take());
+                None
+            } else {
+                Some("an entry is in flight with no earlier hand-off running".into())
+            }
+        })
+        .map_err(|e| format!("arrival {i}: {e}"))?;
+        // A copy refused before step 5 leaves the earlier call running; it returns now.
+        settle(pending.take());
+        // A copy that reached step 5 while an earlier hand-off was running must have waited
+        // for it ([SEC-RPL-026]).
+        if had_earlier && steps.reached_step_5() && !waited {
+            return Err(format!(
+                "arrival {i}: decided while the earlier hand-off was running"
+            ));
+        }
+        // A copy refused at step 4, or earlier, adds no store entry ([SEC-RPL-022]).
+        if !steps.reached_step_5() && store.len() > before {
+            return Err(format!(
+                "arrival {i}: a refused copy changed the duplicate store"
+            ));
+        }
+        let (state, error, receipt) = match (steps.reservation, steps.message) {
+            (Some(r), Some(msg)) => {
+                let delivery = str_of(a, "delivery")
+                    .ok_or_else(|| format!("arrival {i}: passed, but no delivery outcome"))?;
+                let (state, error, handed_off) = delivery_outcome(delivery)?;
+                // [SEC-AUZ-016]: the receiving session may now discover the sender.
+                engine.record_handoff(
+                    HandOffRecord::of(msg.envelope()),
+                    DeliveryState::parse(state).unwrap(),
+                );
+                pending = Some((r, handed_off));
+                (state.to_owned(), error.map(str::to_owned), None)
+            }
+            _ => (steps.state, steps.error, steps.receipt_allowed),
+        };
+        let want_receipt = match want.get("duplicate_receipt_allowed") {
+            Some(Json::Bool(b)) => Some(*b),
+            _ => None,
+        };
+        let want_all = (str_of(want, "result"), want_error, want_receipt);
+        if (Some(state.as_str()), error.as_deref(), receipt) != want_all {
+            return Err(format!(
+                "arrival {i}: got ({state}, {error:?}, receipt {receipt:?}); expected {want_all:?}"
+            ));
+        }
+    }
+    settle(pending);
+    Ok(())
 }
 
 /// Stage `key-id` (`spec/security.md` §5.2).
@@ -500,6 +793,7 @@ fn conformance_fixtures() {
             "negotiation" => Some(run_negotiation(&fx)),
             "presence" => Some(run_presence(&fx)),
             "security" => Some(run_security(&fx)),
+            "replay" => Some(run_replay(&fx)),
             "key-id" => Some(run_key_id(&fx)),
             "registration" => Some(run_registration(&fx)),
             "discovery-auth" => Some(authorization::run_discovery_auth(&fx)),
@@ -537,6 +831,8 @@ fn conformance_fixtures() {
         "presence negative",
         "security positive",
         "security negative",
+        "replay positive",
+        "replay negative",
         "key-id positive",
         "registration positive",
         "registration negative",
@@ -717,4 +1013,44 @@ fn error_table_matches_the_spec() {
             (code.as_str(), stage, state, scope.join(", ").as_str())
         );
     }
+}
+
+/// The hand-off-deadline re-check of the `routing` fixtures that test it
+/// (`spec/session-channels.md` [SC-RCP-091], [SC-RCP-092]; delivery stage, step 4): the
+/// envelope passes the envelope stage at `receiver_time`, and [`HandOffDeadline`] at
+/// `handoff_time` gives the expected state and code, or lets it through for `valid`. The
+/// rest of the `routing` stage (sessions, availability, capabilities) is F6's; in these
+/// fixtures every one of those checks passes. Their signatures are placeholders, since the
+/// stage takes the sender's authorization as given, so the security stage is not run.
+#[test]
+fn handoff_deadline_fixtures() {
+    let mut ran = Vec::new();
+    for fx in fixtures() {
+        let name = fx.path.replace('\\', "/");
+        if !(name.starts_with("sc-rcp/SC-RCP-091.") || name.starts_with("sc-rcp/SC-RCP-092.")) {
+            continue;
+        }
+        assert_eq!(fx.stage, "routing", "{name}");
+        let context = obj(&fx.v, "context");
+        assert_eq!(
+            context.get("replay_window_ms").map(uint),
+            Some(REPLAY_WINDOW_MS),
+            "{name}"
+        );
+        let (l, now) = limits(context);
+        let msg = receive_envelope(&input_octets(obj(&fx.v, "input")), &l, &now)
+            .unwrap_or_else(|e| panic!("{name}: envelope stage {e}"));
+        let handoff = Timestamp::parse(str_of(context, "handoff_time").unwrap()).unwrap();
+        let got = HandOffDeadline::of(msg.envelope())
+            .refusal_at(&handoff)
+            .map(|(s, e)| (s.as_str(), e.as_str()));
+        let expected = obj(&fx.v, "expected");
+        let want = match str_of(expected, "result").unwrap() {
+            "valid" => None,
+            r => Some((r, str_of(expected, "error").unwrap())),
+        };
+        assert_eq!(got, want, "{name}");
+        ran.push(name);
+    }
+    assert_eq!(ran.len(), 4, "hand-off-deadline fixtures run: {ran:?}");
 }

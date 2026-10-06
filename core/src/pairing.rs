@@ -881,7 +881,9 @@ impl PairingStore for MemoryPairingStore {
 mod tests {
     use super::*;
     use crate::authorization::{AuthorizationEngine, MemoryDecisionLog};
+    use crate::clock::SystemClock;
     use crate::keys::DeviceKey;
+    use std::sync::Arc;
 
     fn identity(p: &str) -> DeviceIdentity {
         DeviceIdentity::new(DeviceKey::generate(), Token::parse(p).unwrap())
@@ -1031,7 +1033,11 @@ mod tests {
         );
         // Each engine trusts the other's key, and grants nothing.
         let store = MemoryPairingStore::new();
-        let mut eb = AuthorizationEngine::new(&b, Box::new(MemoryDecisionLog::new()));
+        let mut eb = AuthorizationEngine::new(
+            &b,
+            Arc::new(SystemClock),
+            Box::new(MemoryDecisionLog::new()),
+        );
         eb.pair(peer_a, &store).unwrap();
         assert!(
             eb.trusted_keys()
@@ -1040,15 +1046,24 @@ mod tests {
         );
         assert!(eb.grants().is_empty());
         let ea_store = MemoryPairingStore::new();
-        let mut ea = AuthorizationEngine::new(&a, Box::new(MemoryDecisionLog::new()));
+        let mut ea = AuthorizationEngine::new(
+            &a,
+            Arc::new(SystemClock),
+            Box::new(MemoryDecisionLog::new()),
+        );
         ea.pair(peer_b.clone(), &ea_store).unwrap();
         assert!(matches!(
             ea.pair(peer_b, &ea_store),
             Err(crate::authorization::PairError::AlreadyTrusted(_))
         ));
         // The store restores the pairing after a restart.
-        let back =
-            AuthorizationEngine::restore(&b, &store, Box::new(MemoryDecisionLog::new())).unwrap();
+        let back = AuthorizationEngine::restore(
+            &b,
+            &store,
+            Arc::new(SystemClock),
+            Box::new(MemoryDecisionLog::new()),
+        )
+        .unwrap();
         assert!(back.trusted_keys().get(a.key_id()).is_some());
         assert_eq!(store.load().unwrap().paired[0].paired_at(), &at(10_000));
     }
@@ -1174,8 +1189,13 @@ mod tests {
         let store = MemoryPairingStore::new();
         assert_eq!(store.load().unwrap(), PairingSnapshot::default());
         let me = identity("principal-me");
-        let e =
-            AuthorizationEngine::restore(&me, &store, Box::new(MemoryDecisionLog::new())).unwrap();
+        let e = AuthorizationEngine::restore(
+            &me,
+            &store,
+            Arc::new(SystemClock),
+            Box::new(MemoryDecisionLog::new()),
+        )
+        .unwrap();
         assert_eq!(e.trusted_keys().len(), 1);
         assert!(e.grants().is_empty());
     }

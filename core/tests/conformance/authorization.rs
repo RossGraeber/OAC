@@ -19,21 +19,24 @@
 //! [`PairedPeer::by_key_id_comparison`] (the operator compared each key id), and its grants
 //! through [`AuthorizationEngine::add_grant`].
 
-use super::{Fixture, obj, protocol_dir, str_of};
+use super::{Fixture, delivery_outcome, obj, protocol_dir, security_steps, str_of};
 use oac_core::authorization::{
     AuthorizationEngine, AuthorizationRequest, BindOutcome, Binding, Grant, HandOffRecord, Kind,
     LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide, Requester, SentRecord,
     WorkingDirectoryScope,
 };
 use oac_core::canonical::SigningDomain;
+use oac_core::clock::{Clock, ManualClock};
 use oac_core::delivery::DeliveryState;
-use oac_core::envelope::{ChannelMessage, EnvelopeLimits, receive_envelope};
+use oac_core::envelope::{EnvelopeLimits, receive_envelope};
 use oac_core::ids::{KeyId, SessionId, Timestamp, Token};
 use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::{DeviceIdentity, DeviceKey, PublicKey, SecretSeed};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
-use oac_core::signing::{authenticate, verify_signed};
+use oac_core::replay::DuplicateStore;
+use oac_core::signing::verify_signed;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 struct TestKey {
     principal: String,
@@ -138,20 +141,27 @@ fn grant(v: &Json) -> Grant {
     }
 }
 
-fn grants(context: &JsonObject) -> Vec<Grant> {
-    context
-        .get("grants")
-        .and_then(Json::as_array)
-        .map(|a| a.iter().map(grant).collect())
-        .unwrap_or_default()
+/// Adds the grants of a grant list (§3.3), as an operator would.
+pub(super) fn add_grants(
+    e: &mut AuthorizationEngine,
+    store: &MemoryPairingStore,
+    list: Option<&Json>,
+) {
+    for g in list.and_then(Json::as_array).into_iter().flatten() {
+        e.add_grant(grant(g), ok(), store).unwrap();
+    }
 }
 
 /// The engine of one implementation in a fixture: `own`, the trusted keys (the context's
 /// `trusted_keys`, or every test key), the own sessions of `sessions`, the bindings of
 /// `bindings` for other sessions, the `grants`, and the `sent` and `handed_off` records.
-fn engine(own: &DeviceIdentity, context: &JsonObject) -> (AuthorizationEngine, MemoryPairingStore) {
+fn engine(
+    own: &DeviceIdentity,
+    context: &JsonObject,
+    clock: Arc<dyn Clock>,
+) -> (AuthorizationEngine, MemoryPairingStore) {
     let store = MemoryPairingStore::new();
-    let mut e = AuthorizationEngine::new(own, Box::new(MemoryDecisionLog::new()));
+    let mut e = AuthorizationEngine::new(own, clock, Box::new(MemoryDecisionLog::new()));
     let listed: Vec<(String, String, String)> = match context.get("trusted_keys") {
         Some(list) => list
             .as_array()
@@ -226,9 +236,7 @@ fn engine(own: &DeviceIdentity, context: &JsonObject) -> (AuthorizationEngine, M
             }
         }
     }
-    for g in grants(context) {
-        e.add_grant(g, ok(), &store).unwrap();
-    }
+    add_grants(&mut e, &store, context.get("grants"));
     for r in context
         .get("sent")
         .and_then(Json::as_array)
@@ -335,47 +343,31 @@ fn security_own_key(context: &JsonObject) -> Option<String> {
     keys.into_iter().next().map(str::to_owned)
 }
 
-/// Stage `security`, step 4 of Table 7.1, for a message that passed steps 1 and 2. `want`
-/// is the fixture's (`result`, `error`). Step 3 has already been ruled out by the caller.
-/// A permit must meet `passed`, or `duplicate`, which step 5 decides (F4).
-pub(super) fn step_4(
-    fx: &Fixture,
-    msg: ChannelMessage,
-    want: (&str, Option<&str>),
-) -> Result<(), String> {
-    let context = obj(&fx.v, "context");
-    let expected = obj(&fx.v, "expected");
+/// The receiver's engine for a `security` or `replay` fixture: its own key is the one its
+/// own sessions are bound to (a fresh key when the fixture names none), and it reads
+/// `clock`, the same clock the replay checks read.
+pub(super) fn security_engine(
+    context: &JsonObject,
+    clock: Arc<dyn Clock>,
+) -> (AuthorizationEngine, MemoryPairingStore) {
     let own = own_identity(security_own_key(context).as_deref());
-    let (mut e, _) = engine(&own, context);
-    let now = ts(str_of(context, "receiver_time").unwrap());
-    let record = match e.authorize_delivery(msg, &now) {
-        Ok((_, decision)) => {
-            if decision.basis().is_none() || !decision.permits(Kind::Deliver) {
-                return Err("a pass without a deliver basis".into());
-            }
-            if !matches!(want, ("passed", None) | ("duplicate", Some("duplicate"))) {
-                return Err(format!("passed step 4; expected {want:?}"));
-            }
-            "none"
-        }
-        Err(r) => {
-            let got = (r.state.as_str(), Some(r.error.as_str()));
-            if got != want {
-                return Err(format!("step 4: {r}; expected {want:?}"));
-            }
-            if r.finding.is_some() {
-                "finding"
-            } else {
-                "none"
-            }
-        }
-    };
+    engine(&own, context, clock)
+}
+
+/// The `record` and `bindings_after` members of a `security` fixture's `expected`, after
+/// the envelope: `finding` is whether step 4 recorded one ([SEC-PRS-004]).
+pub(super) fn check_step_4_record(
+    expected: &JsonObject,
+    e: &AuthorizationEngine,
+    finding: bool,
+) -> Result<(), String> {
+    let record = if finding { "finding" } else { "none" };
     if let Some(w) = str_of(expected, "record")
         && w != record
     {
         return Err(format!("record {record}, expected {w}"));
     }
-    check_bindings_after(&e, expected, true)
+    check_bindings_after(e, expected, true)
 }
 
 /// Stage `discovery-auth` (§9.4, §9.5).
@@ -383,20 +375,18 @@ pub(super) fn run_discovery_auth(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let input = obj(&fx.v, "input");
     let own = own_identity(str_of(context, "own_key_id"));
-    let (mut e, _) = engine(&own, context);
+    let clock = Arc::new(ManualClock::new(ts(str_of(context, "now").unwrap())));
+    let (mut e, _) = engine(&own, context, clock);
     let requester = obj(input, "requester");
     let requester = match (str_of(requester, "session_id"), str_of(requester, "device")) {
         (Some(s), None) => Requester::Session(sid(s)),
         (None, Some(k)) => Requester::Device(kid(k)),
         _ => return Err(format!("requester {requester:?}")),
     };
-    let d = e.decide(
-        &AuthorizationRequest::Discover {
-            requester,
-            session: sid(str_of(input, "session").unwrap()),
-        },
-        &ts(str_of(context, "now").unwrap()),
-    );
+    let d = e.decide(&AuthorizationRequest::Discover {
+        requester,
+        session: sid(str_of(input, "session").unwrap()),
+    });
     let want = obj(&fx.v, "expected").get("discoverable") == Some(&Json::Bool(true));
     if d.permits(Kind::Discover) != want {
         return Err(format!("decision {d:?}, expected discoverable {want}"));
@@ -409,7 +399,8 @@ pub(super) fn run_key_removal(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let expected = obj(&fx.v, "expected");
     let own = own_identity(None);
-    let (mut e, store) = engine(&own, context);
+    let clock: Arc<dyn Clock> = Arc::new(ManualClock::new(ts("2026-10-03T12:00:00Z")));
+    let (mut e, store) = engine(&own, context, clock.clone());
     let key = kid(str_of(obj(&fx.v, "input"), "remove_key_id").unwrap());
     e.remove_key(&key, ok(), &store)
         .map_err(|r| format!("remove_key: {r}"))?;
@@ -425,8 +416,9 @@ pub(super) fn run_key_removal(fx: &Fixture) -> Result<(), String> {
         return Err(format!("grants_after {:?}, expected {want:?}", e.grants()));
     }
     // The store holds the removal too.
-    let back = AuthorizationEngine::restore(&own, &store, Box::new(MemoryDecisionLog::new()))
-        .map_err(|r| r.to_string())?;
+    let back =
+        AuthorizationEngine::restore(&own, &store, clock, Box::new(MemoryDecisionLog::new()))
+            .map_err(|r| r.to_string())?;
     if back.trusted_keys().get(&key).is_some() || back.grants() != want.as_slice() {
         return Err("the store still holds the removed key or its grants".into());
     }
@@ -437,11 +429,7 @@ pub(super) fn run_key_removal(fx: &Fixture) -> Result<(), String> {
 /// signature under `oac-presence-v1` ([SEC-PRS-002]), the audience is this device
 /// ([SEC-PRS-013]), and the relation test ([SEC-AUZ-017]). An accepted announcement binds
 /// its unbound session id ([SEC-PRS-005]).
-fn accept_presence(
-    e: &mut AuthorizationEngine,
-    record: &JsonObject,
-    now: &Timestamp,
-) -> &'static str {
+fn accept_presence(e: &mut AuthorizationEngine, record: &JsonObject) -> &'static str {
     let Ok(entry) = verify_signed(e.trusted_keys(), SigningDomain::Presence, record) else {
         return "discarded";
     };
@@ -451,13 +439,10 @@ fn accept_presence(
     }
     let inner = obj(record, "record");
     let session = sid(str_of(inner, "session_id").unwrap());
-    let d = e.decide(
-        &AuthorizationRequest::AcceptPresence {
-            signing_key: signer.clone(),
-            session: session.clone(),
-        },
-        now,
-    );
+    let d = e.decide(&AuthorizationRequest::AcceptPresence {
+        signing_key: signer.clone(),
+        session: session.clone(),
+    });
     if !d.permits(Kind::AcceptPresence) {
         return "discarded";
     }
@@ -472,13 +457,12 @@ pub(super) fn run_presence_auth(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let expected = obj(&fx.v, "expected");
     let own = own_identity(str_of(context, "own_key_id"));
-    let (mut e, _) = engine(&own, context);
+    let clock = Arc::new(ManualClock::new(ts(
+        str_of(context, "consumer_time").unwrap()
+    )));
+    let (mut e, _) = engine(&own, context, clock);
     let record = obj(obj(&fx.v, "input"), "authenticated_record");
-    let got = accept_presence(
-        &mut e,
-        record,
-        &ts(str_of(context, "consumer_time").unwrap()),
-    );
+    let got = accept_presence(&mut e, record);
     let want = str_of(expected, "result").unwrap();
     if got != want {
         return Err(format!("{got}, expected {want}"));
@@ -496,11 +480,30 @@ fn envelope_octets(step: &JsonObject) -> Vec<u8> {
 /// Stage `exchange` (§9): two implementations, one sequence of operations.
 pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
-    let mut impls: BTreeMap<String, (AuthorizationEngine, MemoryPairingStore)> = BTreeMap::new();
+    // Each implementation: its engine, pairing store, clock and duplicate store.
+    struct Impl {
+        engine: AuthorizationEngine,
+        store: MemoryPairingStore,
+        clock: Arc<ManualClock>,
+        duplicates: DuplicateStore,
+    }
+    let start = ts("2026-01-01T00:00:00Z");
+    let mut impls: BTreeMap<String, Impl> = BTreeMap::new();
     for (label, c) in obj(context, "implementations").iter() {
         let c = c.as_object().unwrap();
         let own = own_identity(str_of(c, "own_key_id"));
-        impls.insert(label.to_owned(), engine(&own, c));
+        let clock = Arc::new(ManualClock::new(start.clone()));
+        let (engine, store) = engine(&own, c, clock.clone());
+        let duplicates = DuplicateStore::new(clock.clone());
+        impls.insert(
+            label.to_owned(),
+            Impl {
+                engine,
+                store,
+                clock,
+                duplicates,
+            },
+        );
     }
     // (actor, session, device): announcements each actor issued ([SEC-PRS-010]).
     let mut issued: BTreeSet<(String, String, String)> = BTreeSet::new();
@@ -516,7 +519,9 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
         let step = step.as_object().unwrap();
         let at = ts(str_of(step, "at").unwrap());
         let actor = str_of(step, "actor").unwrap().to_owned();
-        let (e, store) = impls.get_mut(&actor).unwrap();
+        let imp = impls.get_mut(&actor).unwrap();
+        imp.clock.set(at.clone());
+        let (e, store) = (&mut imp.engine, &imp.store);
         let mut out: BTreeMap<String, String> = BTreeMap::new();
         match str_of(step, "op").unwrap() {
             "release" => {
@@ -524,13 +529,10 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
                     str_of(step, "session").unwrap(),
                     str_of(step, "to_device").unwrap(),
                 );
-                let d = e.decide(
-                    &AuthorizationRequest::ReleasePresence {
-                        session: sid(s),
-                        device: kid(k),
-                    },
-                    &at,
-                );
+                let d = e.decide(&AuthorizationRequest::ReleasePresence {
+                    session: sid(s),
+                    device: kid(k),
+                });
                 let released = d.permits(Kind::ReleasePresence);
                 if released {
                     issued.insert((actor.clone(), s.to_owned(), k.to_owned()));
@@ -538,17 +540,14 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
                 out.insert("released".into(), released.to_string());
             }
             "accept-presence" => {
-                let r = accept_presence(e, obj(step, "authenticated_record"), &at);
+                let r = accept_presence(e, obj(step, "authenticated_record"));
                 out.insert("result".into(), r.to_string());
             }
             "discover" => {
-                let d = e.decide(
-                    &AuthorizationRequest::Discover {
-                        requester: Requester::Session(sid(str_of(step, "requester").unwrap())),
-                        session: sid(str_of(step, "session").unwrap()),
-                    },
-                    &at,
-                );
+                let d = e.decide(&AuthorizationRequest::Discover {
+                    requester: Requester::Session(sid(str_of(step, "requester").unwrap())),
+                    session: sid(str_of(step, "session").unwrap()),
+                });
                 out.insert("discoverable".into(), d.permits(Kind::Discover).to_string());
             }
             "remove-grant" => {
@@ -561,13 +560,10 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
                 let msg = receive_envelope(&envelope_octets(step), &limits, &at)
                     .map_err(|r| format!("step {i}: envelope stage {r}"))?;
                 let env = msg.envelope();
-                let d = e.decide(
-                    &AuthorizationRequest::Discover {
-                        requester: Requester::Session(env.from().clone()),
-                        session: env.to().clone(),
-                    },
-                    &at,
-                );
+                let d = e.decide(&AuthorizationRequest::Discover {
+                    requester: Requester::Session(env.from().clone()),
+                    session: env.to().clone(),
+                });
                 let to_key = match e.binding(env.to()) {
                     Some(Binding::Key(k)) => Some(k.clone()),
                     _ => None,
@@ -594,22 +590,40 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
                 }
             }
             "receive" => {
-                let msg = receive_envelope(&envelope_octets(step), &limits, &at)
-                    .map_err(|r| format!("step {i}: envelope stage {r}"))?;
-                let msg = authenticate(msg, e.trusted_keys())
-                    .map_err(|r| format!("step {i}: steps 1-2 {r}"))?;
-                // Steps 3 and 5 (F4) decide no exchange fixture.
-                match e.authorize_delivery(msg, &at) {
-                    Ok((msg, _)) => {
-                        let state = str_of(step, "delivery")
-                            .map(|s| DeliveryState::parse(s).unwrap())
-                            .ok_or(format!("step {i}: no delivery outcome"))?;
-                        e.record_handoff(HandOffRecord::of(msg.envelope()), state);
-                        out.insert("result".into(), state.as_str().to_string());
+                // All five steps of Table 7.1, then the delivery outcome.
+                let steps = security_steps(
+                    &envelope_octets(step),
+                    &limits,
+                    e,
+                    &at,
+                    &imp.duplicates,
+                    || Some("an entry is in flight with no earlier copy".into()),
+                )
+                .map_err(|r| format!("step {i}: {r}"))?;
+                match (steps.reservation, steps.message) {
+                    (Some(r), Some(msg)) => {
+                        let delivery = str_of(step, "delivery")
+                            .ok_or(format!("step {i}: passed, but no delivery outcome"))?;
+                        let (state, error, handed_off) = delivery_outcome(delivery)?;
+                        if handed_off {
+                            r.handed_off();
+                        } else {
+                            r.not_handed_off();
+                        }
+                        e.record_handoff(
+                            HandOffRecord::of(msg.envelope()),
+                            DeliveryState::parse(state).unwrap(),
+                        );
+                        out.insert("result".into(), state.to_string());
+                        if let Some(err) = error {
+                            out.insert("error".into(), err.to_string());
+                        }
                     }
-                    Err(r) => {
-                        out.insert("result".into(), r.state.as_str().to_string());
-                        out.insert("error".into(), r.error.as_str().to_string());
+                    _ => {
+                        out.insert("result".into(), steps.state);
+                        if let Some(err) = steps.error {
+                            out.insert("error".into(), err);
+                        }
                     }
                 }
             }
