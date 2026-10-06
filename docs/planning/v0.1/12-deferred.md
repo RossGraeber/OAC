@@ -127,7 +127,7 @@ model router").
 - **Shared context management.** OAC MUST NOT implement context management
   (`docs/planning/ADR-001.md` line 24, `docs/planning/DESIGN.md` line 15). Each
   harness keeps its own context; OAC's neutral types
-  (`docs/planning/v0.1/05-interfaces.md` §14) carry no session-context payload,
+  (`spec/interfaces.md` §4) carry no session-context payload,
   only messages, identity, and delivery state. OAC as a shared memory layer
   (storing, fetching, attaching or injecting memory such as Beacon's) is
   boundary, not backlog: each harness reaches such a service natively, and OAC

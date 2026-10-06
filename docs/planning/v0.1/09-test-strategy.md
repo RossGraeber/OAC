@@ -10,6 +10,10 @@ C5-envelope-auth.md` §7-§8, §13; `docs/planning/decisions/C7-zenoh-transport.
 04-tasks-EF.json` tasks E8, F8-F12; `docs/planning/backlog/05-tasks-GHIJ.json` tasks
 H1-H5.
 
+(Dated note, 2026-10-05, #305: the `05-interfaces.md` §13 and §15 sources above are the M0
+draft of the adapter and transport contracts. The frozen `spec/interfaces.md` supersedes
+`05-interfaces.md` §13-§15 (its §9), and the live contract citations below point there.)
+
 **Scope.** This file owns four things: the eight-tier test taxonomy (§2), the
 CI-default-versus-opt-in split and its mechanics (§3-§4), the fixture capture and
 refresh process (§13), and the two mandatory traceability tables — DESIGN acceptance
@@ -95,7 +99,7 @@ mitigation's proof across two tiers.
 |---|---|---|---|---|---|---|
 | 1 | Unit | Module-level logic: envelope encode/decode, replay/dedup logic, the delivery-receipt state machine (F2/F4/F6 acceptance boxes) | In-process code only | CI-default | F2-F7 (each carries its own unit-test acceptance box); wired into the default pipeline by F12 | Stage 3 |
 | 2 | Spec conformance | Wire representation matches the frozen closed error taxonomy (`05-interfaces.md` §10, 10 rows), the delivery-state set (`05-interfaces.md` §9, 8 states), and the `ttl_ms`-before-replay-window precedence rule (`05-interfaces.md` §10) — detail at §6 below | The E8 conformance fixture set | CI-default | E8; wired into CI by F12 | Stage 2 (fixture set built); wired into CI at Stage 3 |
-| 3 | Contract — adapter + transport | The `ProviderAdapter` (`05-interfaces.md` §13) and `Transport` (§15) contracts are obeyed identically by every implementation, including the no-polling rule (§5 below) | Adapter sub-row: fake Claude/Codex endpoints (F8/F9) at Stage 3, real adapters unchanged at Stage 4. Transport sub-row: the in-memory transport (F7) at Stage 3, real Zenoh over loopback unchanged at Stage 4 | CI-default against fakes/in-memory; against real adapters it is the provider-integration tier (row 6), opt-in, pinned — but real Zenoh over loopback stays CI-default (§3's loopback rule: no live provider, no API key, no network beyond loopback) | F10 | Stage 3 (fakes/in-memory, adapter sub-row real at Stage 4 opt-in); Stage 4 (transport sub-row real, CI-default) |
+| 3 | Contract — adapter + transport | The `ProviderAdapter` (`spec/interfaces.md` §5, Table 5.2) and `Transport` (`spec/interfaces.md` §6, Table 6.4) contracts are obeyed identically by every implementation, including the no-polling rule (§5 below) | Adapter sub-row: fake Claude/Codex endpoints (F8/F9) at Stage 3, real adapters unchanged at Stage 4. Transport sub-row: the in-memory transport (F7) at Stage 3, real Zenoh over loopback unchanged at Stage 4 | CI-default against fakes/in-memory; against real adapters it is the provider-integration tier (row 6), opt-in, pinned — but real Zenoh over loopback stays CI-default (§3's loopback rule: no live provider, no API key, no network beyond loopback) | F10 | Stage 3 (fakes/in-memory, adapter sub-row real at Stage 4 opt-in); Stage 4 (transport sub-row real, CI-default) |
 | 4 | Security (resilience folded in, see above) | Spoof, replay, duplicate-suppression-including-across-restart, unauthorized-routing, cross-project-leakage, `zid`-never-an-identity, and local-IPC-peer-auth mitigations from `06-security.md` §14 — detail at §7 below | Fakes (F11) at Stage 3; real transport/adapters (H2, and H3 for the resilience sub-row) at Stage 5 | CI-default against fakes; against real adapters (Claude Code, Codex) it is opt-in, pinned — but against real Zenoh over loopback, with no live adapter in the path, it stays CI-default (§3's loopback rule) | F11; H2; H3 | Stage 3 (fakes); Stage 5 (real adapters, opt-in; real-Zenoh-only cases CI-default) |
 | 5 | Fake-harness integration | Core + adapter + transport wired together with no live provider — the Stage 3 exit condition | Fake Claude endpoint (F8), fake Codex endpoint (F9), in-memory or loopback transport (F7) | CI-default | F12 | Stage 3 |
 | 6 | Provider integration | Real adapter behaviour against a real, pinned harness version — the runtime half of gates G1/G2 | Real Claude Code / real Codex, on pinned versions (`docs/planning/PINS.md`), driven through herdr by default (Epic K; §4), the operator attending only for sign-in (#187); since 2026-09-30 the driver accepts harness dialogs in dev/test runs, recorded as `driver`, except a consent step a gate criterion names (#196, `oac-gates` `references/scripted-runs.md`) | Opt-in only, explicit flag, pinned versions — never the default `test` run (F12 acceptance: "Provider integration tests exist but are opt-in and pinned"). Real Zenoh over loopback is not this row — it needs no live provider, so it is CI-default under row 3/4 (§3's loopback rule), never this opt-in tier | F12 isolates it as its own target; exercised at Stage 4 | Stage 4 |
@@ -452,8 +456,8 @@ Gate verdicts table. This table's statuses are not re-authored here.)*
 | # | Criterion (verbatim) | Named test | Tier | CI-default / opt-in | Current status |
 |---|---|---|---|---|---|
 | 1 | "One-command local startup." | Cross-platform CLI smoke — one-command start (§10) | CLI smoke | CI-default | not-yet-written |
-| 2 | "Claude and Codex adapters expose distinct neutral sessions." | `contract/adapter/discover-sessions-attach` (`ProviderAdapter.discover_sessions`/`attach`, `05-interfaces.md` §13) | Contract — adapter | CI-default (fakes); opt-in (real, row 6) | not-yet-written |
-| 3 | "Sessions discover one another through neutral APIs." | `contract/transport/presence-discovery` (`05-interfaces.md` §6, §15's `watch_presence`) | Contract — transport | CI-default (in-memory and real Zenoh over loopback — §3's loopback rule) | not-yet-written |
+| 2 | "Claude and Codex adapters expose distinct neutral sessions." | `contract/adapter/session-binding-signals` (`ProviderAdapter`'s session binding signals, `spec/interfaces.md` §5.4) | Contract — adapter | CI-default (fakes); opt-in (real, row 6) | not-yet-written |
+| 3 | "Sessions discover one another through neutral APIs." | `contract/transport/presence-discovery` (`05-interfaces.md` §6; the `Transport` presence operations, `spec/interfaces.md` §6.5-§6.6) | Contract — transport | CI-default (in-memory and real Zenoh over loopback — §3's loopback rule) | not-yet-written |
 | 4 | "Claude actively messages Codex without receiver polling." | `contract/adapter/no-polling` (§5) + H1's clause 1 (§9) | Contract (CI-default) + end-to-end (opt-in) | CI-default for the contract half; opt-in for the E2E half | not-yet-written |
 | 5 | "Codex actively replies to Claude." | H1's clause 2 (§9) | End-to-end | Opt-in | not-yet-written |
 | 6 | "Authenticated provenance and authorization are enforced." | Security tier's spoof + unauthorized-routing tests (§7) | Security | CI-default (fakes); opt-in (real, H2) | not-yet-written |
@@ -769,7 +773,8 @@ Every reference below is a repo-relative path; no prior context is assumed.
 - `docs/planning/DESIGN.md`
 - `docs/planning/PLANNING-PROMPT.md` §6, §8, §9 item 10, §11 item 2
 - `docs/planning/v0.1/03-decisions-and-amendments.md`
-- `docs/planning/v0.1/05-interfaces.md`
+- `docs/planning/v0.1/05-interfaces.md` (§13-§15 superseded by `spec/interfaces.md`)
+- `spec/interfaces.md` (frozen: §5, §6)
 - `docs/planning/v0.1/06-security.md`
 - `docs/planning/v0.1/07-repository-and-dependencies.md`
 - `docs/planning/v0.1/08-cli-and-deployment.md`
