@@ -497,12 +497,14 @@ cannot be frozen without freezing the leak; the offending text is corrected and 
 is re-attempted. A failing criterion 4 (a fixture nothing can execute) blocks Stage 3,
 which loads those fixtures as its CI-default spec-conformance tier.
 
-**Current verdict (2026-10-04, #47): Gate S2 is not met until the operator signs. The
-freeze is ready, not declared.** The proposed freeze record is
-`docs/planning/decisions/E7-interface-freeze.md`.
-It holds the readiness audit (§2), the blockers (§3), the markers edited at sign-off (§6),
-the change-control rule after the freeze (§7) and the operator sign-off block (§8). The
-freeze is the operator's decision.
+**Current verdict (2026-10-06, #47): Gate S2 criterion 1 is met. The operator decided
+FREEZE at revision 0.1**
+(https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771).
+The freeze record is `docs/planning/decisions/E7-interface-freeze.md`. It holds the
+readiness audit (§2), the blockers and the sign-off re-run (§3), the markers the sign-off
+commit applied (§6), the change-control rule (§7) and the operator's answers (§8). The
+freeze is in force from the merge of PR #276, which carries the sign-off commit and which
+the operator approves.
 
 - **All five blockers are closed:**
   - the interface text, `spec/interfaces.md` (#273, PR #279);
@@ -510,17 +512,19 @@ freeze is the operator's decision.
   - L9 (#174, PR #272), landed before the freeze;
   - the deciding fixtures for `envelope-too-large` and `transport-failure`, and owners for
     every MCP binding `TODO(fixture)` row (#275, PR #284, merge `3e4471e`).
-- **Criteria:** 2-6 hold. Criterion 4's demonstration now covers every error code and
-  delivery state over 527 fixtures. Binding-format fixtures count, by an orchestrator ruling
-  recorded in the freeze record §2.
-- **Only criterion 1 remains, and it is the operator's.** The operator signs the record's
-  §8, and the sign-off commit applies its §6 marker edits.
+- **Criteria 1-6 hold.** Criterion 4's demonstration covers every error code and delivery
+  state over 527 fixtures. Binding-format fixtures count, by an orchestrator ruling
+  recorded in the freeze record §2. §2 rows 1, 4, 5 and 6 were re-run at sign-off.
+- **Change control (record §7).** A frozen item changes only by a PR containing the change
+  and a version bump, approved by the lead. No separate amendment document is written.
 
 *Dated note, 2026-10-04 (#47): two references above are M0-era.*
 
 - *Criterion 1's "spec-revision event under `docs/planning/v0.1/05-interfaces.md` §11" is
   now governed by `spec/session-channels.md` §5, which supersedes `05-interfaces.md`, and
-  by the freeze record's §7.*
+  by the freeze record's §7. (2026-10-06, #47: under the operator's §7 rule, the
+  spec-revision event is the PR itself: the change, a version bump, and the lead's
+  approval. It needs no separate amendment record.)*
 - *The "closed error taxonomy (`05-interfaces.md` §10, ten rows)" in the executable
   demonstration is now `spec/session-channels.md` Table 8.3, with seventeen codes.*
 
@@ -703,7 +707,8 @@ no `zenohd`), decision 2 (process model, for the daemon and IPC work in G9), dec
 **Gate S4 — acceptance criteria.**
 
 1. The contract suites pass on the real modules **without modification** — a suite edited
-   to make a real module pass is a contract change, therefore a Stage 2 freeze violation.
+   to make a real module pass is a contract change, therefore a Stage 2 freeze violation
+   unless landed under the E7 §7 rule (`docs/planning/decisions/E7-interface-freeze.md`).
 2. Provider integration tests pass, and each records the exact version string it ran
    against: the pin for a fixed row; for the floating Claude Code and Codex rows, the
    installed version, with a `VERSION WARNING` (never a failure) when it differs from the
