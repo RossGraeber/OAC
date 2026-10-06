@@ -574,6 +574,27 @@ list.
   decisions on #45 (reply rights, the presence lifetime cap, no implicit same-device grant,
   grant granularity) are recorded in the spec as dated notes.
 
+### RISK-REPLAY-STORE — An authorized peer exhausts the duplicate store
+
+- **Risk.** `core::replay::DuplicateStore` (F4, #53) has one cap for the whole device
+  (`DEFAULT_CAPACITY`, 65536 entries). When every entry is still live, it refuses a new copy
+  with `failed` / `internal-error`, and it never evicts an entry before that entry's hand-off
+  deadline, because early eviction would break [SEC-RPL-023]. Entries are added only after
+  security step 4, so only an authorized sender can fill the store. Captured replays share
+  one key, so they add at most one entry per captured envelope. But one trusted, granted
+  device that sends many unique envelopes within the 300-second window can fill the store.
+  Other senders' new envelopes are then refused until entries reach their deadline. The
+  spec sets no per-sender bound; [SEC-RPL-031] is a per-device SHOULD for receipts only
+  (PR #317 review, N3).
+- **What it invalidates.** Nothing in the ADR-001 validation criterion. While the store is
+  full, a misbehaving authorized peer can deny delivery to every other sender on that
+  receiver.
+- **Early-warning signal.** A receiver reports `internal-error` refusals from step 5, or its
+  store length stays near the cap.
+- **Response.** Follow-up #320 gives each `key_id` a bounded share of the cap, so one key
+  exhausts only its own share. Until it lands, an operator can remove the misbehaving
+  device's grants or key ([SEC-KEY-035]); its entries then age out within the window.
+
 ## R5 — Low-impact / non-dependency risks
 
 ### RISK-ACP — ACP schema v2 alpha status unconfirmed

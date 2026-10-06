@@ -282,6 +282,26 @@ impl Timestamp {
         Timestamp::parse(&text)
     }
 
+    /// The timestamp for `unix_nanos` nanoseconds since the epoch, written with nine fraction
+    /// digits, for example `2026-10-03T12:00:00.000000001Z`, so no precision is lost
+    /// ([SEC-RPL-003]). `None` outside the years 0000 to 9999.
+    pub fn from_unix_nanos(unix_nanos: i128) -> Option<Timestamp> {
+        let secs = i64::try_from(unix_nanos.div_euclid(NANOS_PER_SEC)).ok()?;
+        let ns = unix_nanos.rem_euclid(NANOS_PER_SEC);
+        let (days, sod) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+        let (y, m, d) = civil_from_days(days);
+        if !(0..=9999).contains(&y) {
+            return None;
+        }
+        let text = format!(
+            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{ns:09}Z",
+            sod / 3600,
+            sod / 60 % 60,
+            sod % 60
+        );
+        Timestamp::parse(&text)
+    }
+
     /// The timestamp as written.
     pub fn as_str(&self) -> &str {
         &self.text
