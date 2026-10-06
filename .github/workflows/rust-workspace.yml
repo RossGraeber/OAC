@@ -54,6 +54,13 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all --check
 
+      # Downloads every package in Cargo.lock, optional ones included. The two checks below
+      # run `cargo metadata --offline --all-features`, which needs the manifests of optional
+      # packages that no build compiles (serde's derive feature, #51); a build alone does
+      # not download those.
+      - name: cargo fetch
+        run: cargo fetch --locked
+
       - name: cargo build
         run: cargo build --workspace --all-targets --locked
 
