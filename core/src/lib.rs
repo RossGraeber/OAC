@@ -19,13 +19,18 @@
 //! - [`receipt`] and [`delivery`]: `DeliveryReceipt`, `DeliveryState` and `ErrorCode`
 //!   (§8.1, §8.3).
 //!
+//! Added by #56 (F7): [`transport`], the `Transport` contract and the transport-boundary
+//! types (`spec/interfaces.md` §4.11, §6), and [`health`], `HealthStatus` (§4.10).
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 pub mod canonical;
 pub mod capabilities;
 pub mod delivery;
 pub mod envelope;
+pub mod health;
 pub mod ids;
 pub mod json;
 pub mod presence;
 pub mod receipt;
+pub mod transport;
