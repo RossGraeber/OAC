@@ -665,11 +665,22 @@ fn no_handler_runs_after_shutdown_or_unsubscribe_returns() {
 
 /// A handler that blocks until released. `entered` fires when a call starts, one message
 /// on `release` lets it finish, and `done` counts finished calls.
+///
+/// Dropping it releases the handler. A test rebinds it (`let b = b;`) after its
+/// subscriptions, so that on a failing assert it drops first: the handler is released
+/// before a subscription's end or the transport's shutdown waits for it, and the test
+/// fails by name instead of hanging.
 struct Blocking {
     handler: InboundHandler,
     entered: mpsc::Receiver<()>,
     release: mpsc::Sender<()>,
     done: Arc<AtomicUsize>,
+}
+
+impl Drop for Blocking {
+    fn drop(&mut self) {
+        let _ = self.release.send(());
+    }
 }
 
 fn blocking() -> Blocking {
@@ -702,6 +713,7 @@ fn shutdown_waits_for_a_running_handler() {
     let t = Arc::new(started(&network, '1'));
     let b = blocking();
     let _s = t.subscribe(&session(1), b.handler.clone()).unwrap();
+    let b = b; // dropped before `_s`: see `Blocking`
     t.publish(&session(1), envelope("x"), deadline(&network, 60 * SEC));
     b.entered.recv_timeout(BOUND).unwrap();
 
@@ -840,6 +852,7 @@ fn a_copy_is_dropped_at_its_deadline_while_a_handler_runs() {
     let _busy = t.subscribe(&session(1), b.handler.clone()).unwrap();
     let seen = Seen::<Inbound>::default();
     let _s = t.subscribe(&session(2), seen.handler()).unwrap();
+    let b = b; // dropped before the subscriptions: see `Blocking`
     t.publish(&session(1), envelope("busy"), deadline(&network, 60 * SEC));
     b.entered.recv_timeout(BOUND).unwrap();
     t.publish(&session(2), envelope("held"), deadline(&network, 5 * SEC));
@@ -868,12 +881,17 @@ fn a_copy_is_dropped_at_its_deadline_while_a_handler_runs_real_clock() {
     let _busy = t.subscribe(&session(1), b.handler.clone()).unwrap();
     let seen = Seen::<Inbound>::default();
     let _s = t.subscribe(&session(2), seen.handler()).unwrap();
+    let b = b; // dropped before the subscriptions: see `Blocking`
     t.publish(&session(1), envelope("busy"), deadline(&network, 60 * SEC));
     b.entered.recv_timeout(BOUND).unwrap();
-    t.publish(
-        &session(2),
-        envelope("held"),
-        deadline(&network, Duration::from_millis(50)),
+    // Taken, so a copy really is queued and only the purge thread can remove it.
+    assert_eq!(
+        t.publish(
+            &session(2),
+            envelope("held"),
+            deadline(&network, Duration::from_millis(50)),
+        ),
+        PublishResult::Taken
     );
     // A bounded wait for the purge thread, with the handler still blocked throughout.
     let give_up = std::time::Instant::now() + BOUND;
