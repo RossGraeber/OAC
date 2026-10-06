@@ -8,7 +8,8 @@
 # Minimal on purpose: the full CI pipeline is a separate task (F12).
 # The fixture-manifest job (#142) is not a boundary check; it shares this file's triggers,
 # permissions and pinned checkout. It needs git and Node only, and no secrets. The same
-# holds for the agents-skills-sync job (#235) and the conformance job (#48).
+# holds for the agents-skills-sync job (#235), the conformance job (#48) and the fake-codex
+# job (#58).
 name: boundary-lint
 
 on:
@@ -149,6 +150,25 @@ jobs:
 
       - name: Conformance fixtures and requirement indexes
         run: node tests/protocol/runner/run.mjs
+
+  # Not a boundary check either (F9, #58): the fake Codex app-server test double replays the
+  # recorded fixtures and runs its self-test, including its stdio and loopback WebSocket
+  # transports, on all three OS images. Node built-ins only; no Codex, credential, secrets
+  # or network beyond loopback.
+  fake-codex:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Fake Codex app-server self-test (replay, behaviours, transports)
+        run: node tests/fakes/codex-app-server/self-test.mjs
 
   # Not a boundary check either (#235): the Codex copy (.agents/skills/, AGENTS.md) must be
   # an unmodified mirror of .claude/skills/ and CLAUDE.md. Node only, no secrets.
