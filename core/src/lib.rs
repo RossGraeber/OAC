@@ -28,6 +28,9 @@
 //! - [`registration`]: the registration record that binds a session to the device key
 //!   (§5.4).
 //!
+//! Added by #56 (F7): [`transport`], the `Transport` contract and the transport-boundary
+//! types (`spec/interfaces.md` §4.11, §6), and [`health`], `HealthStatus` (§4.10).
+//!
 //! Added by #54 (F5), against `spec/security.md` revision 0.1 and `spec/interfaces.md` §4.9:
 //!
 //! - [`authorization`]: grants, the binding table, reply rights, `AuthorizationRequest` and
@@ -43,6 +46,7 @@ pub mod canonical;
 pub mod capabilities;
 pub mod delivery;
 pub mod envelope;
+pub mod health;
 pub mod ids;
 pub mod json;
 pub mod keys;
@@ -51,4 +55,5 @@ pub mod presence;
 pub mod receipt;
 pub mod registration;
 pub mod signing;
+pub mod transport;
 pub mod trust;
