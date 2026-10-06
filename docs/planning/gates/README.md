@@ -340,7 +340,11 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   replaces it as G4's equivalence record, also with a #252 Verification section.
   `G4-2026-10-04` stays as superseded history. *Dated note, 2026-10-05 (#130):*
   `G2-2026-10-05` (the K7 G2 run, run `20261005T052341Z-eb6c5a` at driver `efb775f`) is the
-  equivalence record for G2 at herdr v0.9.1, with a #252 Verification section. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
+  equivalence record for G2 at herdr v0.9.1, with a #252 Verification section.
+  *Dated note, 2026-10-06 (#130):* #301 changed `tools/herdr/` outside `tools/herdr/test/`,
+  so `G2-2026-10-05` is superseded (kept, marked so at its top). The current G2 equivalence
+  record is `G2-2026-10-06` (run `20261006T000900Z-51a348` at driver `c4def66`, the #301
+  merge), also with a #252 Verification section. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
   items", K6 entry. *Superseded text, kept as history:* "No scripted run has
   run live yet, so `herdr-runs/` does not exist yet."
 
