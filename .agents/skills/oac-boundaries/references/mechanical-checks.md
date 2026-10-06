@@ -176,7 +176,7 @@ if [ "${#files[@]}" -eq 0 ]; then echo "check 11 PENDING"; else
 fi
 ```
 
-A clean run is zero hits on checks 1 and 2 (on `spec/`; `core/` still errors as missing), 3
-and 8 today, `Result: PENDING` (zero violations) on checks 9 and 10, and `check 11 clean` on
-check 11; checks 4, 5, 6 and 7 report the
-missing-path error until the corresponding tree exists, at which point zero hits (and `Result: CLEAN`) is the bar.
+A clean run, as of the F1 scaffold (#50, 2026-10-05), is zero hits on checks 1 and 2 (on
+`spec/` and `core/`), 3, 4, 5, 6, 7 and 8; `Result: CLEAN` (zero violations, no target
+pending) on checks 9 and 10; and `check 11 clean` on check 11. A product path that is
+removed again makes ripgrep error as missing, and that is pending, not a pass.

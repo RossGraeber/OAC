@@ -5,7 +5,8 @@
 #                                 (07 section 3), with its self-test and a mutation test
 #                                 that plants violations in real Cargo.toml copies;
 #   scripts/check-licenses.mjs    SPDX headers and the dependency license inventory
-#                                 (C1 section 10, 07 sections 5-7), with its self-test.
+#                                 (C1 section 10, 07 sections 5-7), with its self-test
+#                                 and a mutation test planting GPL dependencies.
 # The toolchain comes from rust-toolchain.toml (1.98.1, docs/planning/PINS.md) through the
 # rustup already on the hosted images; no toolchain action and no cargo plugin is used.
 #
@@ -14,8 +15,10 @@
 # required. No secrets, no provider, no network beyond fetching the toolchain.
 name: rust-workspace
 
+# Pull requests, plus pushes to main, so each PR runs every job once, not twice.
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -71,6 +74,9 @@ jobs:
 
       - name: License check self-test (each planted violation must fail)
         run: node scripts/check-licenses.mjs --self-test
+
+      - name: License check mutation test (planted GPL dependencies must fail)
+        run: node scripts/check-licenses.mjs --mutation-test
 
       - name: License headers and dependency inventory
         run: node scripts/check-licenses.mjs

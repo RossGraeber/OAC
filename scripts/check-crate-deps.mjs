@@ -13,7 +13,8 @@
 //
 // What is checked, for every workspace member, over every dependency kind (normal, build
 // and dev: cargo itself allows a dev-dependency cycle, so a core/ dev-dependency on an
-// adapter would otherwise go unnoticed) and every target platform:
+// adapter would otherwise go unnoticed), every target platform, and every feature
+// (`--all-features`, so an optional dependency behind a non-default feature is seen):
 //   1. The member sits in the module layout: core, cli, adapters/<name> or
 //      transports/<name>. Anything else fails.
 //   2. Reachability, not just direct edges: the member's transitive closure contains no
@@ -24,6 +25,7 @@
 //      direct dependency of transports/zenoh only, the Codex app-server crates of
 //      adapters/codex only (07 section 5, "Consuming module"); and neither may be reachable
 //      from any member other than its owner and cli/. So none is reachable from core/.
+//      Names match with `_` folded to `-`.
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
 //   node scripts/check-crate-deps.mjs --metadata <file>  # check a saved metadata JSON
@@ -31,14 +33,16 @@
 //                                                        # violation must fail
 //   node scripts/check-crate-deps.mjs --mutation-test    # copy the real workspace to a
 //                                                        # temp dir, plant violations in its
-//                                                        # Cargo.toml files, run real cargo
+//                                                        # Cargo.toml files, run real cargo;
+//                                                        # a cargo error counts as caught
+//                                                        # only if it is a dependency cycle
 //
 // Node built-ins only; no cargo plugin. `cargo metadata` runs with --offline, so the check
 // needs no network. Exit codes: 0 = clean; 1 = violation (or failed self/mutation test);
 // 2 = usage or environment error.
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,11 +50,19 @@ import { fileURLToPath } from 'node:url';
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(scriptPath), '..');
 
-// External crates owned by one module (07 section 5). Matched on the package name.
+// External crates owned by one module (07 section 5). Matched on the package name with `_`
+// folded to `-` (crates.io treats the two as the same name: zenoh_backend_traits,
+// codex_app_server_protocol).
 const OWNED_EXTERNAL = [
   { family: 'zenoh', re: /^zenoh(?:-|$)/, owner: 'transports/zenoh' },
   { family: 'Codex app-server', re: /^codex-app-server(?:-|$)/, owner: 'adapters/codex' },
 ];
+export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(String(name).replace(/_/g, '-')));
+
+// Every cargo metadata call resolves with --all-features: an optional dependency behind a
+// non-default feature is still a dependency the build can compile in, so it must be in
+// the graph both checks read (#311 review B1).
+export const METADATA_ARGS = ['metadata', '--format-version', '1', '--offline', '--all-features'];
 
 // Module of a workspace member, from its manifest directory relative to the workspace root.
 export function moduleOf(relDir) {
@@ -120,10 +132,9 @@ export function checkMetadata(meta) {
     for (const d of depsOf(id)) {
       if (members.has(d.id)) continue;
       const pname = pkgById.get(d.id)?.name ?? '';
-      for (const o of OWNED_EXTERNAL) {
-        if (o.re.test(pname) && mod.path !== o.owner) {
-          violations.push(`${name}: direct dependency on ${pname} (${o.family}); only ${o.owner} may depend on it`);
-        }
+      const o = ownedFamily(pname);
+      if (o && mod.path !== o.owner) {
+        violations.push(`${name}: direct dependency on ${pname} (${o.family}); only ${o.owner} may depend on it`);
       }
     }
     // 2 and 4b. reachability (BFS with parent links, for a readable path).
@@ -150,18 +161,17 @@ export function checkMetadata(meta) {
         continue;
       }
       const pname = pkgById.get(reached)?.name ?? '';
-      for (const o of OWNED_EXTERNAL) {
-        if (o.re.test(pname) && mod.path !== o.owner && mod.kind !== 'cli') {
-          violations.push(`${name} reaches ${pname} (${o.family}, owned by ${o.owner}): ${pathTo(reached)}`);
-        }
+      const o = ownedFamily(pname);
+      if (o && mod.path !== o.owner && mod.kind !== 'cli') {
+        violations.push(`${name} reaches ${pname} (${o.family}, owned by ${o.owner}): ${pathTo(reached)}`);
       }
     }
   }
   return violations;
 }
 
-function cargoMetadata(cwd, extra = []) {
-  const r = spawnSync('cargo', ['metadata', '--format-version', '1', '--offline', ...extra], {
+export function cargoMetadata(cwd, extra = []) {
+  const r = spawnSync('cargo', [...METADATA_ARGS, ...extra], {
     cwd,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
@@ -267,6 +277,18 @@ const SELF_TEST_CASES = [
   },
   { name: 'workspace member outside the module layout', meta: synth({ members: { ...BASE_MEMBERS, 'oac-extra': 'tools/extra' }, edges: BASE_EDGES }) },
   { name: 'nested module path (adapters/claude/inner)', meta: synth({ members: { ...BASE_MEMBERS, 'oac-inner': 'adapters/claude/inner' }, edges: [...BASE_EDGES, ['oac-inner', 'oac-core']] }) },
+  // N1: `_` spellings of the owned families.
+  { name: 'core depends on zenoh_backend_traits (underscore spelling)', meta: synth({ members: BASE_MEMBERS, externals: ['zenoh_backend_traits'], edges: [...BASE_EDGES, ['oac-core', 'zenoh_backend_traits']] }) },
+  { name: 'adapter depends on codex_app_server_protocol outside adapters/codex', meta: synth({ members: BASE_MEMBERS, externals: ['codex_app_server_protocol'], edges: [...BASE_EDGES, ['oac-adapter-claude', 'codex_app_server_protocol']] }) },
+  {
+    name: 'control: adapters/codex may depend on codex_app_server_protocol',
+    expectClean: true,
+    meta: synth({ members: BASE_MEMBERS, externals: ['codex_app_server_protocol'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex_app_server_protocol']] }),
+  },
+  // B1: an optional dependency behind a non-default feature. With --all-features (see the
+  // METADATA_ARGS case below) cargo puts that edge in the resolve graph, as here.
+  { name: 'optional feature-gated edge: adapters/claude -> adapters/codex', meta: synth({ members: BASE_MEMBERS, edges: [...BASE_EDGES, ['oac-adapter-claude', 'oac-adapter-codex']] }) },
+  { name: 'optional feature-gated edge: core -> zenoh', meta: synth({ members: BASE_MEMBERS, externals: ['zenoh'], edges: [...BASE_EDGES, ['oac-core', 'zenoh']] }) },
 ];
 
 function selfTest() {
@@ -280,15 +302,72 @@ function selfTest() {
       for (const x of v) console.log(`        ${x}`);
     }
   }
-  console.log(`self-test: ${SELF_TEST_CASES.length - failed}/${SELF_TEST_CASES.length} cases pass`);
+  // B1: every metadata call must resolve optional dependencies too.
+  const allFeatures = METADATA_ARGS.includes('--all-features');
+  console.log(`${allFeatures ? 'pass' : 'FAIL'}  cargo metadata runs with --all-features (optional dependencies are in the graph)`);
+  if (!allFeatures) failed++;
+  const total = SELF_TEST_CASES.length + 1;
+  console.log(`self-test: ${total - failed}/${total} cases pass`);
   return failed ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------------------
 // --mutation-test: plant violations in a copy of the real workspace and run real cargo.
 
-const addDep = (section, line) => (text) =>
-  text.includes(`[${section}]`) ? text.replace(`[${section}]\n`, `[${section}]\n${line}\n`) : `${text}\n[${section}]\n${line}\n`;
+const addLine = (section, line, text) =>
+  text.includes(`[${section}]\n`) ? text.replace(`[${section}]\n`, `[${section}]\n${line}\n`) : `${text}\n[${section}]\n${line}\n`;
+export const addDep = (section, line) => (text) => addLine(section, line, text);
+// An optional dependency behind a non-default feature (`leak`), which a default-feature
+// resolve would not see (#311 review B1).
+export const addOptionalDep = (line) => (text) => addLine('features', 'leak = ["dep:stub"]', addLine('dependencies', line, text));
+
+// Stub crates outside the workspace root (so they are not implicit members), referenced
+// from mutated manifests as `<ws>/../stubs/<dir>`.
+export const STUBS = {
+  zenoh: { name: 'zenoh', license: 'EPL-2.0 OR Apache-2.0' },
+  'zenoh-backend-traits': { name: 'zenoh_backend_traits', license: 'EPL-2.0 OR Apache-2.0' },
+  'codex-app-server-protocol': { name: 'codex_app_server_protocol', license: 'Apache-2.0' },
+  'gpl-stub': { name: 'gpl-stub', license: 'GPL-3.0-only' },
+};
+
+// Copy the real workspace (manifests, lockfile, toolchain file, member sources) to
+// <tmp>/ws, write the stubs to <tmp>/stubs, apply `edit` to one manifest, run `fn(wsDir)`,
+// and always remove the temp dir.
+export function withWorkspaceCopy(edit, fn) {
+  const real = cargoMetadata(repoRoot, ['--no-deps']);
+  if (real.status !== 0) throw new Error(`cargo metadata failed: ${real.stderr}`);
+  const meta = JSON.parse(real.stdout);
+  const memberDirs = meta.packages
+    .filter((p) => meta.workspace_members.includes(p.id))
+    .map((p) => relative(meta.workspace_root, dirname(p.manifest_path)));
+  const tmp = mkdtempSync(join(tmpdir(), 'oac-crate-deps-'));
+  try {
+    const ws = join(tmp, 'ws');
+    for (const f of ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml']) {
+      if (existsSync(join(repoRoot, f))) cpSync(join(repoRoot, f), join(ws, f));
+    }
+    for (const d of memberDirs) {
+      cpSync(join(repoRoot, d, 'Cargo.toml'), join(ws, d, 'Cargo.toml'));
+      cpSync(join(repoRoot, d, 'src'), join(ws, d, 'src'), { recursive: true });
+    }
+    for (const [dir, s] of Object.entries(STUBS)) {
+      mkdirSync(join(tmp, 'stubs', dir, 'src'), { recursive: true });
+      writeFileSync(join(tmp, 'stubs', dir, 'Cargo.toml'),
+        `[package]\nname = "${s.name}"\nversion = "0.0.1"\nedition = "2024"\nlicense = "${s.license}"\n`);
+      writeFileSync(join(tmp, 'stubs', dir, 'src', 'lib.rs'), '');
+    }
+    if (edit) {
+      const p = join(ws, edit.file);
+      const before = readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+      const after = edit.edit(before);
+      if (after === before) throw new Error(`mutation "${edit.name}" did not change ${edit.file}`);
+      writeFileSync(p, after);
+    }
+    return fn(ws);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
 
 const MUTATIONS = [
   { name: 'core/ depends on transports/zenoh', file: 'core/Cargo.toml', edit: addDep('dependencies', 'oac-transport-zenoh = { path = "../transports/zenoh" }') },
@@ -297,32 +376,33 @@ const MUTATIONS = [
   { name: 'adapters/codex depends on adapters/claude', file: 'adapters/codex/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../claude" }') },
   { name: 'transports/zenoh depends on cli/', file: 'transports/zenoh/Cargo.toml', edit: addDep('dependencies', 'oac-cli = { path = "../../cli" }') },
   { name: 'adapters/claude drops its core/ dependency', file: 'adapters/claude/Cargo.toml', edit: (t) => t.replace(/^oac-core\.workspace = true\n/m, '') },
+  // B1: optional dependencies behind a non-default feature.
+  {
+    name: 'adapters/claude optionally depends on adapters/codex (feature "leak")',
+    file: 'adapters/claude/Cargo.toml',
+    edit: addOptionalDep('stub = { package = "oac-adapter-codex", path = "../codex", optional = true }'),
+  },
+  {
+    name: 'core/ optionally depends on zenoh (feature "leak")',
+    file: 'core/Cargo.toml',
+    edit: addOptionalDep('stub = { package = "zenoh", path = "../../stubs/zenoh", optional = true }'),
+  },
+  // N1: underscore spellings of the owned families.
+  { name: 'core/ depends on zenoh_backend_traits', file: 'core/Cargo.toml', edit: addDep('dependencies', 'zenoh_backend_traits = { path = "../../stubs/zenoh-backend-traits" }') },
+  { name: 'adapters/claude depends on codex_app_server_protocol', file: 'adapters/claude/Cargo.toml', edit: addDep('dependencies', 'codex_app_server_protocol = { path = "../../../stubs/codex-app-server-protocol" }') },
 ];
 
+// Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error
+// means the mutation itself is malformed, and the case fails (#311 review N4).
+const CARGO_CYCLE = 'cyclic package dependency';
+
 function mutationTest() {
-  const real = cargoMetadata(repoRoot, ['--no-deps']);
-  if (real.status !== 0) {
-    console.error(real.stderr);
-    return 2;
-  }
-  const meta = JSON.parse(real.stdout);
-  const memberDirs = meta.packages
-    .filter((p) => meta.workspace_members.includes(p.id))
-    .map((p) => relative(meta.workspace_root, dirname(p.manifest_path)));
-  const copyWorkspace = (dest) => {
-    for (const f of ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml']) {
-      if (existsSync(join(repoRoot, f))) cpSync(join(repoRoot, f), join(dest, f));
-    }
-    for (const d of memberDirs) {
-      cpSync(join(repoRoot, d, 'Cargo.toml'), join(dest, d, 'Cargo.toml'));
-      cpSync(join(repoRoot, d, 'src'), join(dest, d, 'src'), { recursive: true });
-    }
-  };
   const runCheck = (dir) => {
     const m = cargoMetadata(dir);
     if (m.status !== 0) {
-      const why = (m.stderr.split(/\r?\n/).find((l) => /error/i.test(l)) ?? 'cargo metadata failed').trim();
-      return { failed: true, by: `cargo refused the manifest: ${why}` };
+      const line = (m.stderr.split(/\r?\n/).find((l) => /error/i.test(l)) ?? 'cargo metadata failed').trim();
+      if (m.stderr.includes(CARGO_CYCLE)) return { failed: true, by: `cargo refused the manifest: ${line}` };
+      return { failed: false, malformed: true, by: `cargo error that is not a cycle (malformed mutation?): ${line}` };
     }
     const v = checkMetadata(JSON.parse(m.stdout));
     return v.length ? { failed: true, by: `checker: ${v[0]}${v.length > 1 ? ` (+${v.length - 1} more)` : ''}` } : { failed: false };
@@ -330,23 +410,10 @@ function mutationTest() {
   let bad = 0;
   const cases = [{ name: 'control: unmodified copy of the workspace', control: true }, ...MUTATIONS];
   for (const c of cases) {
-    const dir = mkdtempSync(join(tmpdir(), 'oac-crate-deps-'));
-    try {
-      copyWorkspace(dir);
-      if (!c.control) {
-        const p = join(dir, c.file);
-        const before = readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
-        const after = c.edit(before);
-        if (after === before) throw new Error(`mutation "${c.name}" did not change ${c.file}`);
-        writeFileSync(p, after);
-      }
-      const r = runCheck(dir);
-      const ok = c.control ? !r.failed : r.failed;
-      if (!ok) bad++;
-      console.log(`${ok ? 'pass' : 'FAIL'}  ${c.name}${r.by ? ` -- ${r.by}` : ''}`);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const r = withWorkspaceCopy(c.control ? null : c, runCheck);
+    const ok = !r.malformed && (c.control ? !r.failed : r.failed);
+    if (!ok) bad++;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${c.name}${r.by ? ` -- ${r.by}` : ''}`);
   }
   console.log(`mutation test: ${cases.length - bad}/${cases.length} cases pass`);
   return bad ? 1 : 0;

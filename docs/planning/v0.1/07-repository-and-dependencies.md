@@ -236,6 +236,24 @@ license, reason": every row above carries all four, plus the copyleft flag, the
 Apache-2.0 compatibility verdict, the source decision citation, and the consuming
 module — the last of which is this file's own addition over C1's table.
 
+### Accepted licenses
+
+(Dated note, 2026-10-05, #50 / PR #311 review N3.) A dependency of the `oac` binary
+passes `scripts/check-licenses.mjs` only if its SPDX license expression has an OR-arm made
+only of licenses on this list. The list is exactly the licenses the table above already
+records as acceptable. It adds none:
+
+| SPDX identifier | Recorded in the table above by |
+|---|---|
+| `Apache-2.0` | `rmcp`, the three Codex app-server crates, and the elected arm of every dual |
+| `MIT` | the MIT arm of `keyring`, `keyring-core`, `windows-native-keyring-store`, `age` |
+| `0BSD` | the 0BSD arm of `interprocess` |
+
+`EPL-2.0` is not on the list. `zenoh` passes because its expression offers `Apache-2.0`,
+the arm OAC elects (§6). When an expression offers `Apache-2.0`, the script records that
+arm as elected (§6; C1 §10). Adding a license to the list is a license-policy change: add
+it here in the same PR that adds it to the script's list.
+
 ### Dev/test tooling — not shipped (outside this inventory)
 
 The tool below is recorded here only so its license is on file. It is **not** a
@@ -307,7 +325,8 @@ deferred to Stage 6 (`oac-release` license inventory), because no workspace or
 `Cargo.lock` exists yet — `docs/planning/STATUS.md`, "Pre-Stage 0."
 (Dated note, 2026-10-05, #50: the workspace and `Cargo.lock` now exist, with no third-party
 dependency yet. `scripts/check-licenses.mjs` lists every resolved package with its declared
-license and fails one with no permissive OR-arm. It is not the Stage 6 sweep: it reads each
+license, including optional dependencies (`--all-features`), and fails one with no OR-arm
+on §5's "Accepted licenses" list. It is not the Stage 6 sweep: it reads each
 crate's declared license field only, and NOTICE stays with I2.)
 
 **Packaging consequence, carried from C1 §6.** The three Codex git-dep crates
