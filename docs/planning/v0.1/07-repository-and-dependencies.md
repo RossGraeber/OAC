@@ -103,7 +103,7 @@ its own prose.
 | `adapters/claude/` | Translating neutral envelopes to/from Claude Code's provider-native wake and reply operations | Claude-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions — routes through core policy/security instead (04-architecture.md §2, quoting `docs/planning/DESIGN.md`) | `core/` only (§3) |
 | `adapters/codex/` | Translating neutral envelopes to/from the Codex app-server's provider-native turn/thread operations | Codex-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions; OpenAI model-API credentials (04-architecture.md §2) | `core/` only (§3) |
 | `transports/zenoh/` | Every Zenoh-specific type, identifier, and concept, behind the `Transport` contract | The `Transport` contract's operations over neutral types only (`spec/interfaces.md` Table 6.4) | Policy/authorization decisions; signature verification; anything visible outside the operations of `spec/interfaces.md` Table 6.4 | `core/` only (§3) |
-| `cli/` (including `mcp-shim`) | User-facing commands, the thin stdio shim a harness spawns, and the `oac` binary's entry point | `oac start`, `status`, `sessions`, `doctor`, `mcp-shim` — the `mcp-shim` subcommand carries nothing beyond a thin stdio connection to the daemon over local IPC (04-architecture.md §2); the daemon's start-up glue (§1, §3) | Long-lived process state; the transport peer; policy decisions; key material (04-architecture.md §2) | `core/`, `adapters/*`, `transports/*` (§3) |
+| `cli/` (including `mcp-shim`) | User-facing commands, the thin stdio shim a harness spawns, and the `oac` binary's entry point | `oac start`, `status`, `sessions`, `doctor`, `mcp-shim` — the `mcp-shim` subcommand carries nothing beyond a thin stdio connection to the daemon over local IPC (04-architecture.md §2); the daemon's start-up glue (§1, §3) | Long-lived process state; the transport peer; policy decisions; key material (04-architecture.md §2). Hosting the start-up glue is not owning: `cli/` constructs the adapters and the transport and hands them to `core/`, while the state and the peer stay in `core/` and the transport module (§3) | `core/`, `adapters/*`, `transports/*` (§3) |
 | `tests/` | Protocol, security, and integration test suites (`tests/{protocol,security,integration}/`) | Fixtures and fake endpoints for provider/transport contract tests (`docs/planning/DESIGN.md` "Testing"; `docs/planning/v0.1/09-test-strategy.md`, A10, not yet landed) | Production code; anything shipped in the `oac` binary | `core/`, and whichever module a given test targets |
 
 **Acceptance box 1 ticked here** — "Every module has one named responsibility and a
@@ -124,6 +124,9 @@ transports/zenoh/ -> core/           (only)
 core/             -> (nothing in-repo)
 (nothing)         -> cli/
 ```
+
+(Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305
+widened it to the edges above, for the reasons below.)
 
 **Why `cli/` has the adapter and transport edges.** `cli/` is where the `oac` binary's
 entry point lives, and that binary is also the daemon, so `cli/` is the one module that

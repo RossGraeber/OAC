@@ -12,7 +12,7 @@ H1-H5.
 
 (Dated note, 2026-10-05, #305: the `05-interfaces.md` §13 and §15 sources above are the M0
 draft of the adapter and transport contracts. The frozen `spec/interfaces.md` supersedes
-`05-interfaces.md` §13-§15 (its §9), and the live contract citations below point there.)
+`05-interfaces.md` §13-§15 (`spec/interfaces.md` §9), and the live contract citations below point there.)
 
 **Scope.** This file owns four things: the eight-tier test taxonomy (§2), the
 CI-default-versus-opt-in split and its mechanics (§3-§4), the fixture capture and
