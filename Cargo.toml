@@ -19,6 +19,7 @@ members = [
     "core",
     "cli",
     "transports/zenoh",
+    "transports/memory",
     "adapters/claude",
     "adapters/codex",
 ]
