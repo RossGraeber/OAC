@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# core/: neutral types and policy/authorization. It depends on nothing in-repo, and no
+# provider or transport crate may be reachable from it (07 section 3;
+# scripts/check-crate-deps.mjs).
+
+[package]
+name = "oac-core"
+description = "OAC neutral core: session types, policy and authorization"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]

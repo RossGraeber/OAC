@@ -1,0 +1,76 @@
+# Rust workspace build (#50, F1): the scaffold must build clean on all three hosted OS
+# images. Every image runs fmt, build, test and clippy (-D warnings), plus the two
+# workspace checks F1 adds:
+#   scripts/check-crate-deps.mjs  dependency direction over `cargo metadata`
+#                                 (07 section 3), with its self-test and a mutation test
+#                                 that plants violations in real Cargo.toml copies;
+#   scripts/check-licenses.mjs    SPDX headers and the dependency license inventory
+#                                 (C1 section 10, 07 sections 5-7), with its self-test.
+# The toolchain comes from rust-toolchain.toml (1.98.1, docs/planning/PINS.md) through the
+# rustup already on the hosted images; no toolchain action and no cargo plugin is used.
+#
+# Minimal on purpose. F12 (#61) owns the full default-tier pipeline: the contract,
+# conformance, security and fake-integration tiers, caching, and making these checks
+# required. No secrets, no provider, no network beyond fetching the toolchain.
+name: rust-workspace
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        shell: bash
+        run: |
+          set -eu
+          rustup toolchain install
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+          rustc --version | grep -q '^rustc 1\.98\.1 ' || { echo "toolchain is not the 1.98.1 pin"; exit 1; }
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: cargo build
+        run: cargo build --workspace --all-targets --locked
+
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+      - name: cargo clippy -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Dependency direction self-test (each planted violation must fail)
+        run: node scripts/check-crate-deps.mjs --self-test
+
+      - name: Dependency direction
+        run: node scripts/check-crate-deps.mjs
+
+      - name: Dependency direction mutation test (planted Cargo.toml violations must fail)
+        run: node scripts/check-crate-deps.mjs --mutation-test
+
+      - name: License check self-test (each planted violation must fail)
+        run: node scripts/check-licenses.mjs --self-test
+
+      - name: License headers and dependency inventory
+        run: node scripts/check-licenses.mjs

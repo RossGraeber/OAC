@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# adapters/claude/: depends on core/ only. Never on another adapter, a transport, or cli/
+# (07 section 3; scripts/check-crate-deps.mjs).
+
+[package]
+name = "oac-adapter-claude"
+description = "OAC provider adapter for Claude Code Channels"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+oac-core.workspace = true

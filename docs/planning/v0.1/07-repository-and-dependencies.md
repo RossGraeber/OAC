@@ -167,6 +167,8 @@ the core, and its §1.1 makes the core the only route from an adapter to a trans
 **Stage 3 enforcement owner.** `oac-implementation`'s module-dependency-direction rule
 is the Stage 3 owner of enforcing this diagram in the actual workspace (lint/CI check);
 this file states the rule, not the enforcement mechanism.
+(Dated note, 2026-10-05, #50: the mechanism is `scripts/check-crate-deps.mjs`, which checks
+these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.yml`.)
 
 ---
 
@@ -303,6 +305,10 @@ inventory": this section's stated conclusion, immediately above.
 `cargo deny` / `cargo license` over the resolved dependency graph is **not run** and is
 deferred to Stage 6 (`oac-release` license inventory), because no workspace or
 `Cargo.lock` exists yet — `docs/planning/STATUS.md`, "Pre-Stage 0."
+(Dated note, 2026-10-05, #50: the workspace and `Cargo.lock` now exist, with no third-party
+dependency yet. `scripts/check-licenses.mjs` lists every resolved package with its declared
+license and fails one with no permissive OR-arm. It is not the Stage 6 sweep: it reads each
+crate's declared license field only, and NOTICE stays with I2.)
 
 **Packaging consequence, carried from C1 §6.** The three Codex git-dep crates
 (`codex-app-server-client`, `codex-app-server-protocol`, `codex-app-server-transport`)

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# transports/zenoh/: the reference transport. Depends on core/ only; every Zenoh type stays
+# inside this crate (07 sections 3 and 4a; scripts/check-crate-deps.mjs). The zenoh crate
+# is not a dependency yet. When it lands it is pinned per docs/planning/PINS.md and used
+# under its Apache-2.0 arm (C1 section 7).
+
+[package]
+name = "oac-transport-zenoh"
+description = "OAC reference transport over Zenoh"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+oac-core.workspace = true
