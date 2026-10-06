@@ -12,7 +12,8 @@
 #
 # Minimal on purpose. F12 (#61) owns the full default-tier pipeline: the contract,
 # conformance, security and fake-integration tiers, caching, and making these checks
-# required. No secrets, no provider, no network beyond fetching the toolchain.
+# required. No secrets, no provider, no network beyond fetching the toolchain
+# and the crates in Cargo.lock from crates.io (#51).
 name: rust-workspace
 
 # Pull requests, plus pushes to main, so each PR runs every job once, not twice.
@@ -53,6 +54,13 @@ jobs:
 
       - name: cargo fmt --check
         run: cargo fmt --all --check
+
+      # Downloads every package in Cargo.lock, optional ones included. The two checks below
+      # run `cargo metadata --offline --all-features`, which needs the manifests of optional
+      # packages that no build compiles (serde's derive feature, #51); a build alone does
+      # not download those.
+      - name: cargo fetch
+        run: cargo fetch --locked
 
       - name: cargo build
         run: cargo build --workspace --all-targets --locked

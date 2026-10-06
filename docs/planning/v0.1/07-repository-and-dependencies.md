@@ -230,6 +230,21 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `windows-native-keyring-store` | `1.1.0` | MIT OR Apache-2.0 | The Windows Credential Manager backend `keyring`'s `v1`/default feature pulls in | No | Yes | C1 §10 | Daemon binary's own identity code (not `core/`) |
 | `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, C2 §4) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` | No | Yes — OAC elects the Apache-2.0 arm | C2 §4 | `cli/` (`mcp-shim`) + daemon binary |
 | `age` | `0.12.1` | MIT OR Apache-2.0 | Encrypted-file key fallback for the device key when no OS credential store is reachable | No | Yes — OAC elects the Apache-2.0 arm | C4 §11 | Daemon binary's own identity code (not `core/`) |
+| `serde_jcs` | `0.2.0` | MIT OR Apache-2.0 | RFC 8785 (JCS) canonical form of the signing input, `spec/security.md` §6.2 | No | Yes — OAC elects the Apache-2.0 arm | C5 §3; `PINS.md` "`serde_jcs`" | `core/` (`canonical`) |
+
+(Dated note, 2026-10-06, #51 / F2.) `serde_jcs` brings these transitive packages, each
+built: `serde` and `serde_core` `1.0.229` (MIT OR Apache-2.0), `serde_json` `1.0.151` (MIT OR
+Apache-2.0; features `std`, `float_roundtrip`), `ryu-js` `0.2.2` (Apache-2.0 OR BSL-1.0),
+`itoa` `1.0.18` (MIT OR Apache-2.0), `memchr` `2.8.3` (Unlicense OR MIT; the script elects
+MIT) and `zmij` `1.0.23` (MIT). `serde`'s optional `derive` feature, which nothing in the
+workspace enables, also puts `serde_derive` `1.0.229`, `proc-macro2` `1.0.107`, `quote`
+`1.0.47`, `syn` `3.0.6` (each MIT OR Apache-2.0) and `unicode-ident` `1.0.26` ((MIT OR
+Apache-2.0) AND Unicode-3.0) in the `--all-features` graph that `scripts/check-licenses.mjs`
+reads. None of them is compiled into the `oac` binary. No package is copyleft.
+`core/` parses JSON with its own strict I-JSON reader (`core/src/json.rs`), not with
+`serde_json`: the envelope rules need duplicate member names reported (RFC 7493 §2.3) and
+each number's spelling kept ([SC-ENV-050], [SEC-SIG-013]), which `serde_json`'s value type
+discards.
 
 **Acceptance box 2 ticked here** — "Every third-party dependency: name, version,
 license, reason": every row above carries all four, plus the copyleft flag, the
@@ -241,13 +256,28 @@ module — the last of which is this file's own addition over C1's table.
 (Dated note, 2026-10-05, #50 / PR #311 review N3.) A dependency of the `oac` binary
 passes `scripts/check-licenses.mjs` only if its SPDX license expression has an OR-arm made
 only of licenses on this list. The list is exactly the licenses the table above already
-records as acceptable. It adds none:
+records as acceptable, plus `Unicode-3.0` (dated note below the list):
 
 | SPDX identifier | Recorded in the table above by |
 |---|---|
 | `Apache-2.0` | `rmcp`, the three Codex app-server crates, and the elected arm of every dual |
-| `MIT` | the MIT arm of `keyring`, `keyring-core`, `windows-native-keyring-store`, `age` |
+| `MIT` | the MIT arm of `keyring`, `keyring-core`, `windows-native-keyring-store`, `age`; `memchr` (Unlicense OR MIT, MIT elected) and `zmij` (MIT), transitive packages of `serde_jcs` (dated note above) |
 | `0BSD` | the 0BSD arm of `interprocess` |
+| `Unicode-3.0` | `unicode-ident` `1.0.26`, whose expression is (MIT OR Apache-2.0) AND Unicode-3.0; operator decision https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (dated note below) |
+
+(Dated note, 2026-10-06, #51 / F2. Approved by the operator:
+https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192, "Unicode-3.0 is
+acceptable"; permissive licenses on par with MIT are acceptable, and GPL, LGPL, AGPL and
+other copyleft-only licenses are not. Only the licenses a dependency actually needs are
+added to this list, so this PR adds Unicode-3.0 alone.) `Unicode-3.0` is added
+for `unicode-ident`, the Unicode identifier tables under `proc-macro2` and `syn`. It
+reaches the `--all-features` graph through `serde`'s optional `derive` feature, by way of
+`serde_jcs` (C5 §3, `PINS.md`); nothing in the workspace enables that feature, so
+`unicode-ident` is not compiled into the `oac` binary today. The Unicode License v3 is a
+permissive, OSI-approved license with no copyleft term; it asks that its notice travel with
+copies of the Unicode data, which I2's NOTICE work covers. `unicode-ident`'s other licenses
+are MIT OR Apache-2.0, of which OAC elects Apache-2.0, so the elected form is
+`Apache-2.0 AND Unicode-3.0`.
 
 `EPL-2.0` is not on the list. `zenoh` passes because its expression offers `Apache-2.0`,
 the arm OAC elects (§6). When an expression offers `Apache-2.0`, the script records that
@@ -294,7 +324,7 @@ elects the Apache-2.0 arm**, per `docs/planning/decisions/C1-language-runtime.md
 
 No other row in §5's inventory carries a copyleft arm. The same election pattern
 applies to the MIT-or-Apache duals (`keyring`, `keyring-core`,
-`windows-native-keyring-store`, `age`) and the 0BSD-or-Apache dual (`interprocess`):
+`windows-native-keyring-store`, `age`, `serde_jcs`) and the 0BSD-or-Apache dual (`interprocess`):
 these are permissive either way, and OAC elects Apache-2.0 for uniformity across the
 whole inventory, not because either arm of those duals is copyleft.
 
@@ -310,7 +340,7 @@ Apache-2.0 or an Apache-2.0-compatible permissive license. The whole direct inve
 is distributable under Apache-2.0.
 
 **Limit, stated honestly.** This verdict covers **direct named dependencies only** —
-the ten rows in §5's table. It does not cover the transitive dependency graph each of
+the rows in §5's table. It does not cover the transitive dependency graph each of
 these crates pulls in; that sweep is deferred (§8).
 
 **Acceptance box 4 ticked here** — "Apache-2.0 compatibility stated for the whole

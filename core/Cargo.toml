@@ -15,3 +15,4 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde_jcs = "=0.2.0"
