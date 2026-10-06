@@ -6,10 +6,11 @@
 //!
 //! Every test runs in process, with no network and no clock but the network's own: a
 //! `ManualClock` where deadlines or delays matter, and `MemoryNetwork::settle` to wait for
-//! the delivery thread, never a sleep.
+//! the delivery thread. The one exception is the real-clock purge test, which waits for
+//! the system clock in a bounded loop; elsewhere waits are bounded channel receives.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -662,33 +663,231 @@ fn no_handler_runs_after_shutdown_or_unsubscribe_returns() {
     assert!(watched.get().is_empty());
 }
 
-#[test]
-fn shutdown_waits_for_a_running_handler() {
-    // [IFC-TRN-071] with a handler running on the delivery thread when shutdown is called.
-    let network = MemoryNetwork::new();
-    let t = Arc::new(started(&network, '1'));
-    let (entered_tx, entered_rx) = std::sync::mpsc::channel::<()>();
-    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+/// A handler that blocks until released. `entered` fires when a call starts, one message
+/// on `release` lets it finish, and `done` counts finished calls.
+struct Blocking {
+    handler: InboundHandler,
+    entered: mpsc::Receiver<()>,
+    release: mpsc::Sender<()>,
+    done: Arc<AtomicUsize>,
+}
+
+fn blocking() -> Blocking {
+    let (entered_tx, entered) = mpsc::channel::<()>();
+    let (release, release_rx) = mpsc::channel::<()>();
     let entered_tx = Mutex::new(entered_tx);
     let release_rx = Mutex::new(release_rx);
-    let finished = Arc::new(AtomicUsize::new(0));
-    let f = finished.clone();
-    let handler: InboundHandler = Arc::new(move |_| {
-        entered_tx.lock().unwrap().send(()).unwrap();
-        release_rx.lock().unwrap().recv().unwrap();
-        f.fetch_add(1, Ordering::SeqCst);
-    });
-    let _s = t.subscribe(&session(1), handler).unwrap();
+    let done = Arc::new(AtomicUsize::new(0));
+    let d = done.clone();
+    Blocking {
+        handler: Arc::new(move |_| {
+            entered_tx.lock().unwrap().send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+            d.fetch_add(1, Ordering::SeqCst);
+        }),
+        entered,
+        release,
+        done,
+    }
+}
+
+/// Long enough for an unwaiting call to return; a bounded wait, never a sleep.
+const NOT_RETURNED: Duration = Duration::from_millis(300);
+const BOUND: Duration = Duration::from_secs(10);
+
+#[test]
+fn shutdown_waits_for_a_running_handler() {
+    // [IFC-TRN-071]: shutdown, called while a handler runs, returns only after it ends.
+    let network = MemoryNetwork::new();
+    let t = Arc::new(started(&network, '1'));
+    let b = blocking();
+    let _s = t.subscribe(&session(1), b.handler.clone()).unwrap();
     t.publish(&session(1), envelope("x"), deadline(&network, 60 * SEC));
-    entered_rx.recv().unwrap();
-    let t2 = t.clone();
+    b.entered.recv_timeout(BOUND).unwrap();
+
+    let (returned_tx, returned) = mpsc::channel();
+    let (t2, done) = (t.clone(), b.done.clone());
     let stopper = thread::spawn(move || {
         t2.shutdown();
+        returned_tx.send(done.load(Ordering::SeqCst)).unwrap();
     });
-    // shutdown cannot return while the handler runs.
-    release_tx.send(()).unwrap();
+    assert!(
+        returned.recv_timeout(NOT_RETURNED).is_err(),
+        "shutdown returned while the handler was still running"
+    );
+    b.release.send(()).unwrap();
+    assert_eq!(
+        returned.recv_timeout(BOUND).unwrap(),
+        1,
+        "handler's work done"
+    );
     stopper.join().unwrap();
-    assert_eq!(finished.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn ending_a_subscription_waits_for_its_running_handler() {
+    // Once `end` returns, the subscription's handler is not running and is not called.
+    let network = MemoryNetwork::new();
+    let t = started(&network, '1');
+    let b = blocking();
+    let sub = t.subscribe(&session(1), b.handler.clone()).unwrap();
+    t.publish(&session(1), envelope("x"), deadline(&network, 60 * SEC));
+    b.entered.recv_timeout(BOUND).unwrap();
+
+    let (returned_tx, returned) = mpsc::channel();
+    let done = b.done.clone();
+    let ender = thread::spawn(move || {
+        sub.end();
+        returned_tx.send(done.load(Ordering::SeqCst)).unwrap();
+    });
+    assert!(
+        returned.recv_timeout(NOT_RETURNED).is_err(),
+        "end returned while the handler was still running"
+    );
+    b.release.send(()).unwrap();
+    assert_eq!(
+        returned.recv_timeout(BOUND).unwrap(),
+        1,
+        "handler's work done"
+    );
+    ender.join().unwrap();
+}
+
+#[test]
+fn a_panicking_watcher_does_not_stop_the_other_watchers() {
+    let network = MemoryNetwork::new();
+    let t = started(&network, '1');
+    t.watch_presence(Arc::new(|_| panic!("watcher fails")))
+        .unwrap();
+    let seen = Seen::<PresenceEvent>::default();
+    t.watch_presence(seen.handler()).unwrap();
+    let record = Payload::new(PayloadKind::Presence, b"r".to_vec());
+    assert_eq!(
+        t.send_presence(
+            &Destination::Device(key('1')),
+            record.clone(),
+            deadline(&network, 60 * SEC)
+        ),
+        PublishResult::Taken
+    );
+    network.settle();
+    let got = seen.get();
+    assert_eq!(got.len(), 1);
+    assert!(matches!(&got[0], PresenceEvent::Record { payload, .. } if *payload == record));
+}
+
+#[test]
+fn a_huge_scripted_delay_drops_the_copy_without_panicking() {
+    let faults = ScriptedFaults::new();
+    let network = MemoryNetwork::builder()
+        .faults(faults.clone())
+        .manual_clock()
+        .build();
+    let t = started(&network, '1');
+    let seen = Seen::<Inbound>::default();
+    let _s = t.subscribe(&session(1), seen.handler()).unwrap();
+    let d = deadline(&network, 60 * SEC);
+    faults.delay(Duration::MAX);
+    faults.push(vec![Duration::MAX, Duration::ZERO]);
+    assert_eq!(
+        t.publish(&session(1), envelope("never"), d),
+        PublishResult::Taken
+    );
+    assert_eq!(network.in_flight(), 0);
+    assert_eq!(
+        t.publish(&session(1), envelope("once"), d),
+        PublishResult::Taken
+    );
+    network.settle();
+    assert_eq!(seen.octets(), vec![b"once".to_vec()]);
+}
+
+#[test]
+fn a_huge_clock_advance_saturates_without_panicking() {
+    let network = MemoryNetwork::builder().manual_clock().build();
+    let clock = network.manual_clock().unwrap();
+    let t = started(&network, '1');
+    let seen = Seen::<Inbound>::default();
+    let _s = t.subscribe(&session(1), seen.handler()).unwrap();
+    let earlier = deadline(&network, 60 * SEC);
+    clock.advance(Duration::MAX);
+    clock.advance(Duration::MAX);
+    let now = network.now();
+    assert_eq!(clock.now(), now);
+    assert!(earlier.has_passed_at(now));
+    // The network still answers, and still refuses what cannot be delivered.
+    assert_eq!(
+        t.publish(&session(1), envelope("late"), earlier),
+        PublishResult::NotTaken
+    );
+    assert_eq!(
+        t.publish(&session(1), envelope("late"), Deadline::at(now)),
+        PublishResult::NotTaken
+    );
+    network.settle();
+    assert!(seen.get().is_empty());
+    assert_eq!(t.health().state, HealthState::Healthy);
+}
+
+#[test]
+fn a_copy_is_dropped_at_its_deadline_while_a_handler_runs() {
+    // [IFC-TRN-034] "hold": the delivery thread is busy, the copy still goes at its
+    // deadline, on the manual clock (synchronously in `advance`).
+    let network = MemoryNetwork::builder().manual_clock().build();
+    let clock = network.manual_clock().unwrap();
+    let t = started(&network, '1');
+    let b = blocking();
+    let _busy = t.subscribe(&session(1), b.handler.clone()).unwrap();
+    let seen = Seen::<Inbound>::default();
+    let _s = t.subscribe(&session(2), seen.handler()).unwrap();
+    t.publish(&session(1), envelope("busy"), deadline(&network, 60 * SEC));
+    b.entered.recv_timeout(BOUND).unwrap();
+    t.publish(&session(2), envelope("held"), deadline(&network, 5 * SEC));
+    assert_eq!(
+        network.in_flight(),
+        1,
+        "due, but the delivery thread is busy"
+    );
+    clock.advance(5 * SEC);
+    assert_eq!(
+        network.in_flight(),
+        0,
+        "dropped at its deadline, handler still running"
+    );
+    b.release.send(()).unwrap();
+    network.settle();
+    assert!(seen.get().is_empty());
+}
+
+#[test]
+fn a_copy_is_dropped_at_its_deadline_while_a_handler_runs_real_clock() {
+    // The same on the system clock: the purge thread drops it, not the delivery thread.
+    let network = MemoryNetwork::new();
+    let t = started(&network, '1');
+    let b = blocking();
+    let _busy = t.subscribe(&session(1), b.handler.clone()).unwrap();
+    let seen = Seen::<Inbound>::default();
+    let _s = t.subscribe(&session(2), seen.handler()).unwrap();
+    t.publish(&session(1), envelope("busy"), deadline(&network, 60 * SEC));
+    b.entered.recv_timeout(BOUND).unwrap();
+    t.publish(
+        &session(2),
+        envelope("held"),
+        deadline(&network, Duration::from_millis(50)),
+    );
+    // A bounded wait for the purge thread, with the handler still blocked throughout.
+    let give_up = std::time::Instant::now() + BOUND;
+    while network.in_flight() != 0 {
+        assert!(
+            std::time::Instant::now() < give_up,
+            "copy held past its deadline"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(b.done.load(Ordering::SeqCst), 0, "handler still running");
+    b.release.send(()).unwrap();
+    network.settle();
+    assert!(seen.get().is_empty());
 }
 
 #[test]

@@ -29,7 +29,9 @@ pub struct PublishInfo<'a> {
 /// Decides the copies of each payload a network takes.
 pub trait FaultInjector: Send {
     /// One delay per copy to carry: empty loses the payload, one entry delivers it once,
-    /// more entries duplicate it.
+    /// more entries duplicate it. Any delay is accepted: one that reaches the payload's
+    /// deadline, or that no instant can represent (such as `Duration::MAX`), drops that
+    /// copy.
     fn copies(&mut self, info: PublishInfo<'_>) -> Vec<Duration>;
 
     /// True only if this injector never delivers two payloads from one source to one

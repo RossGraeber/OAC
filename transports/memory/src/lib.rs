@@ -6,7 +6,8 @@
 //!
 //! A [`MemoryNetwork`] is the medium. Each [`MemoryTransport`] is one endpoint: `start`
 //! joins it to a network for one device key, and `shutdown` leaves. One delivery thread per
-//! network hands copies to handlers. Fault injection ([`faults`]) loses, duplicates,
+//! network hands copies to handlers, and one purge thread drops copies at their deadline.
+//! Fault injection ([`faults`]) loses, duplicates,
 //! delays and reorders copies for tests of [IFC-TRN-011], and a [`ManualClock`] makes
 //! deadlines testable.
 //!
@@ -69,8 +70,11 @@
 //! **What it holds** ([IFC-TRN-033] to [IFC-TRN-036]). A copy is in flight from `publish`
 //! or `send_presence` until a handler has it or it is dropped (`spec/interfaces.md` §2.3).
 //! It is dropped when its deadline comes ([IFC-TRN-034]): a copy whose delay would reach the
-//! deadline is never queued, a queued copy is removed when the deadline comes, and none is
-//! handed over at or after it. It is dropped when its sending or its receiving endpoint
+//! deadline (or past every instant the platform represents) is never queued, a queued copy
+//! is removed when the deadline comes, and none is handed over at or after it. Removal at
+//! the deadline does not wait for the delivery thread: a separate purge thread drops
+//! expired copies even while a handler runs, and on a manual clock `advance` drops them
+//! before it returns. It is dropped when its sending or its receiving endpoint
 //! leaves, so it never crosses a restart of either ([IFC-TRN-035]), and when its
 //! subscription ends. `publish` refuses (`not-taken`) only a payload of which no copy can be
 //! delivered: before `start` or after `shutdown`, a kind that does not fit its destination
@@ -98,7 +102,8 @@
 //! handlers on its own initiative; the core never asks for payloads. Once `shutdown`, or the
 //! ending of a subscription, returns, the handlers concerned are not called again: each waits
 //! for a running call to finish, unless it is made from inside that call. A panicking
-//! handler does not stop delivery to others.
+//! handler, including one of several presence watchers, does not stop delivery to others:
+//! each call is isolated.
 
 pub mod faults;
 mod network;

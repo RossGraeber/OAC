@@ -165,11 +165,17 @@ impl Transport for MemoryTransport {
     }
 
     fn shutdown(&self) {
-        let previous = std::mem::replace(&mut *self.phase(), Phase::ShutDown);
-        match previous {
-            Phase::Running { network, endpoint } => network.shared().leave(endpoint),
-            Phase::NotStarted => *self.phase() = Phase::NotStarted,
-            Phase::ShutDown => {}
+        // One guard decides and writes: a transport that is not running stays as it is.
+        let previous = {
+            let mut phase = self.phase();
+            if !matches!(*phase, Phase::Running { .. }) {
+                return;
+            }
+            std::mem::replace(&mut *phase, Phase::ShutDown)
+        };
+        // `leave` runs with the phase lock released (lock order: phase, then network).
+        if let Phase::Running { network, endpoint } = previous {
+            network.shared().leave(endpoint);
         }
     }
 }

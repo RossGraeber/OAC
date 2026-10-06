@@ -113,10 +113,22 @@ pub(crate) struct Shared {
     wake: Condvar,
     /// Wakes callers waiting for the delivery thread to be idle or to leave a handler.
     idle: Condvar,
+    /// Wakes the purge thread, which drops copies at their deadline even while the
+    /// delivery thread is inside a handler ([IFC-TRN-034]).
+    reap: Condvar,
     reach: Reach,
     max_payload_octets: u64,
     ordering: bool,
     manual_base: Option<Instant>,
+}
+
+/// Hand an event to each presence watcher. Each call is isolated, so one watcher that
+/// panics does not stop the others.
+fn call_each(watchers: &[PresenceHandler], event: impl Fn() -> PresenceEvent) {
+    for w in watchers {
+        let e = event();
+        let _ = catch_unwind(AssertUnwindSafe(|| w(e)));
+    }
 }
 
 fn carrier(source: EndpointId, target: EndpointId) -> CarrierHandle {
@@ -133,8 +145,69 @@ impl Shared {
 
     fn now(&self, st: &State) -> Instant {
         match self.manual_base {
-            Some(base) => base + st.manual_offset,
+            // `advance` keeps `base + manual_offset` representable.
+            Some(base) => base.checked_add(st.manual_offset).unwrap_or(base),
             None => Instant::now(),
+        }
+    }
+
+    /// Drop every copy whose deadline has come ([IFC-TRN-034]); wake `settle` if any went.
+    fn purge_expired(&self, st: &mut State, now: Instant) {
+        let before = st.queue.len();
+        st.queue.retain(|_, item| !item.expired(now));
+        if st.queue.len() != before {
+            self.idle.notify_all();
+        }
+    }
+
+    /// The earliest instant at which something in the queue comes due or expires.
+    fn next_event(st: &State) -> Option<Instant> {
+        let due = st.queue.keys().next().map(|k| k.0);
+        let deadline = Self::next_deadline(st);
+        match (due, deadline) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    fn next_deadline(st: &State) -> Option<Instant> {
+        st.queue
+            .values()
+            .filter_map(|item| match item {
+                Item::Copy { deadline, .. } => Some(deadline.instant()),
+                Item::CarrierLoss { .. } => None,
+            })
+            .min()
+    }
+
+    /// Wait on `cv` until `at` on the network's clock, or until notified. A manual clock
+    /// only moves through `advance`, which notifies.
+    fn wait_until<'a>(
+        &self,
+        cv: &Condvar,
+        st: MutexGuard<'a, State>,
+        now: Instant,
+        at: Option<Instant>,
+    ) -> MutexGuard<'a, State> {
+        match (self.manual_base, at) {
+            (None, Some(at)) => {
+                cv.wait_timeout(st, at.saturating_duration_since(now))
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0
+            }
+            _ => cv.wait(st).unwrap_or_else(|e| e.into_inner()),
+        }
+    }
+
+    /// The purge thread: drops each copy when its deadline comes, whether or not the
+    /// delivery thread is busy in a handler ([IFC-TRN-034]). It runs no handler.
+    fn reap(self: Arc<Shared>) {
+        let mut st = self.lock();
+        while !st.closed {
+            let now = self.now(&st);
+            self.purge_expired(&mut st, now);
+            let next = Self::next_deadline(&st);
+            st = self.wait_until(&self.reap, st, now, next);
         }
     }
 
@@ -266,7 +339,10 @@ impl Shared {
             }
         }
         for delay in delays {
-            let due = now + delay;
+            // A delay past every representable instant is past the deadline too.
+            let Some(due) = now.checked_add(delay) else {
+                continue;
+            };
             if deadline.has_passed_at(due) {
                 continue; // it would be held to its deadline and dropped ([IFC-TRN-034])
             }
@@ -283,6 +359,7 @@ impl Shared {
             );
         }
         self.wake.notify_all();
+        self.reap.notify_all();
         PublishResult::Taken
     }
 
@@ -385,12 +462,10 @@ impl Shared {
                         e.links_from.insert(source);
                         Some((
                             Box::new(move || {
-                                for w in watchers {
-                                    w(PresenceEvent::Record {
-                                        payload: payload.clone(),
-                                        carrier: carrier.clone(),
-                                    });
-                                }
+                                call_each(&watchers, || PresenceEvent::Record {
+                                    payload: payload.clone(),
+                                    carrier: carrier.clone(),
+                                })
                             }),
                             (target, None),
                         ))
@@ -402,11 +477,9 @@ impl Shared {
                 let carrier = carrier(source, target);
                 Some((
                     Box::new(move || {
-                        for w in watchers {
-                            w(PresenceEvent::CarrierLoss {
-                                carrier: carrier.clone(),
-                            });
-                        }
+                        call_each(&watchers, || PresenceEvent::CarrierLoss {
+                            carrier: carrier.clone(),
+                        })
                     }),
                     (target, None),
                 ))
@@ -425,7 +498,7 @@ impl Shared {
                 break;
             }
             let now = self.now(&st);
-            st.queue.retain(|_, item| !item.expired(now));
+            self.purge_expired(&mut st, now);
             let first = st.queue.keys().next().copied();
             if let Some(key) = first.filter(|k| k.0 <= now) {
                 if let Some((call, running)) = Shared::resolve(&mut st, key) {
@@ -440,27 +513,8 @@ impl Shared {
                 continue;
             }
             self.idle.notify_all();
-            let next_deadline = st
-                .queue
-                .values()
-                .filter_map(|item| match item {
-                    Item::Copy { deadline, .. } => Some(deadline.instant()),
-                    Item::CarrierLoss { .. } => None,
-                })
-                .min();
-            let next = match (first.map(|k| k.0), next_deadline) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
-            st = match (self.manual_base, next) {
-                (None, Some(at)) => {
-                    self.wake
-                        .wait_timeout(st, at.saturating_duration_since(now))
-                        .unwrap_or_else(|e| e.into_inner())
-                        .0
-                }
-                _ => self.wake.wait(st).unwrap_or_else(|e| e.into_inner()),
-            };
+            let next = Self::next_event(&st);
+            st = self.wait_until(&self.wake, st, now, next);
         }
     }
 }
@@ -512,6 +566,7 @@ impl MemoryNetworkBuilder {
             manual_base: self.manual_clock.then(Instant::now),
             wake: Condvar::new(),
             idle: Condvar::new(),
+            reap: Condvar::new(),
             state: Mutex::new(State {
                 endpoints: HashMap::new(),
                 local_key: None,
@@ -525,14 +580,20 @@ impl MemoryNetworkBuilder {
             }),
         });
         let runner = shared.clone();
-        let thread = thread::Builder::new()
+        let delivery = thread::Builder::new()
             .name("oac-memory-transport".into())
             .spawn(move || runner.run())
             .expect("spawn the in-memory transport's delivery thread");
+        let reaper = shared.clone();
+        let purge = thread::Builder::new()
+            .name("oac-memory-transport-purge".into())
+            .spawn(move || reaper.reap())
+            .expect("spawn the in-memory transport's purge thread");
         MemoryNetwork {
             inner: Arc::new(Owner {
                 shared,
-                thread: Mutex::new(Some(thread)),
+                delivery: Mutex::new(Some(delivery)),
+                purge: Mutex::new(Some(purge)),
             }),
         }
     }
@@ -540,7 +601,8 @@ impl MemoryNetworkBuilder {
 
 struct Owner {
     shared: Arc<Shared>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    delivery: Mutex<Option<JoinHandle<()>>>,
+    purge: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Drop for Owner {
@@ -551,8 +613,13 @@ impl Drop for Owner {
             self.shared.on_delivery_thread(&st)
         };
         self.shared.wake.notify_all();
-        let thread = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let (Some(t), false) = (thread, on_delivery_thread) {
+        self.shared.reap.notify_all();
+        let take =
+            |m: &Mutex<Option<JoinHandle<()>>>| m.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(t) = take(&self.purge) {
+            let _ = t.join(); // runs no handler, so never this thread
+        }
+        if let (Some(t), false) = (take(&self.delivery), on_delivery_thread) {
             let _ = t.join();
         }
     }
@@ -667,12 +734,24 @@ impl ManualClock {
         self.shared.now(&st)
     }
 
-    /// Move the clock forward by `by`. Copies that come due are then handed over, and
-    /// copies whose deadline comes are dropped, by the delivery thread;
-    /// [`MemoryNetwork::settle`] waits for that.
+    /// Move the clock forward by `by`, saturating at the latest instant the platform can
+    /// represent. Copies whose deadline comes are dropped before this returns
+    /// ([IFC-TRN-034]), even while a handler runs. Copies that come due are handed over by
+    /// the delivery thread; [`MemoryNetwork::settle`] waits for that.
     pub fn advance(&self, by: Duration) {
-        self.shared.lock().manual_offset += by;
-        self.shared.wake.notify_all();
+        let shared = &self.shared;
+        let mut st = shared.lock();
+        let base = shared.manual_base.expect("a manual clock has a base");
+        let mut offset = st.manual_offset.saturating_add(by);
+        // Halve the step until `base + offset` is representable: at most ~100 rounds.
+        while base.checked_add(offset).is_none() {
+            offset = st.manual_offset + (offset - st.manual_offset) / 2;
+        }
+        st.manual_offset = offset;
+        let now = shared.now(&st);
+        shared.purge_expired(&mut st, now);
+        shared.wake.notify_all();
+        shared.reap.notify_all();
     }
 }
 
