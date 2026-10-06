@@ -50,6 +50,11 @@ docs/
 **Resolved v0.1 layout.** `core/`, `spec/`, `adapters/claude/`, `adapters/codex/`,
 `transports/zenoh/`, `cli/`, `tests/{protocol,security,integration}/`, `examples/`,
 `docs/`, `ADR/`.
+(Dated note, 2026-10-06, #56: `transports/memory/` joins as a sibling of
+`transports/zenoh/`, the in-memory transport of F7, a workspace member under the same
+rule: it depends on `core/` only (§3), and on no third-party crate. The `Transport`
+contract and the §4.11 transport-boundary types it implements live in `core/`, which
+calls them; `spec/interfaces.md` §6.1 notes the in-memory transport.)
 
 **Dev/test tooling in the tree, outside the product layout.** `tools/herdr/` is the herdr
 test driver (Epic K #123, K3 #126), run as `node tools/herdr/run.mjs --scenario <name>`.
