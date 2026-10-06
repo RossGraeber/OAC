@@ -469,10 +469,16 @@ a document, not a demonstration.
   specification (E5).
 - The frozen adapter contract, transport contract, and core types (E7).
 - The conformance fixture set under `tests/protocol/` (E8).
-- The design-for-replacement proofs (E9), which
+- The design-for-replacement proofs (E9): **written**,
+  `docs/planning/decisions/E9-replacement-proofs.md` (#49), argued from the frozen
+  `spec/interfaces.md` §4-§7. All four #49 acceptance items are met (record §7): the ACP
+  adapter proof, the NATS and MQTT transport proofs with the capabilities each lacks, and
+  the second-backend proof for DESIGN criterion 10. Every NATS and MQTT capability cell is
+  cited to first-party sources. No amendment to a frozen item is proposed (record §8).
+  *(Dated note, 2026-10-06, #49: until now this bullet read "which
   `docs/planning/v0.1/05-interfaces.md` §22 currently records as **NOT MET as of the M0
   draft** — every NATS and MQTT capability cell in §17's proof is `UNVERIFIED` (carried
-  from `docs/planning/STATUS.md`, not resolved here).
+  from `docs/planning/STATUS.md`, not resolved here)".)*
 
 **Gate S2 — acceptance criteria.**
 
@@ -805,8 +811,10 @@ clean shutdown on all three platforms (H4).
    `oac-boundaries` CI lint with its scope gap carried
    (`docs/planning/v0.1/09-test-strategy.md` §8), and criterion 10 (transport contract
    documented enough to add a second backend) is proven by the E9 design-for-replacement
-   doc proof, which `docs/planning/v0.1/05-interfaces.md` §22 currently records as **NOT
-   MET**, with every NATS and MQTT capability cell `UNVERIFIED`.
+   doc proof, `docs/planning/decisions/E9-replacement-proofs.md` §6, which records it as
+   **MET** (#49, 2026-10-06). *(Dated note, 2026-10-06, #49: until now this item said
+   `docs/planning/v0.1/05-interfaces.md` §22 recorded the proof as NOT MET, with every NATS
+   and MQTT capability cell `UNVERIFIED`.)*
 
 **Go/no-go condition.** **H1 is the v0.1 go/no-go.** If the end-to-end criterion does not
 pass on any platform, v0.1 does not ship: the ADR's validation criterion is the definition
@@ -905,7 +913,7 @@ verbatim from `docs/planning/DESIGN.md` "v0.1 acceptance criteria". The named te
 | 7 | "Replay/duplicate handling exists." | Stage 3 (§7, F4 against the fakes) | Stage 5 (§9, H2 and H3 across a restart) |
 | 8 | "No cross-provider model API invocation." | Stage 1 (§5, G2's no-credentials criterion) | Stage 5 (§9, H1 clause 3), plus the CI-default boundary lint from Stage 3 on |
 | 9 | "Zenoh-specific types stay inside its transport module." | Stage 3 (§7, the lint exists and passes over an empty tree) | Stage 4 (§8, the lint over a real `transports/zenoh/`) — **lint, not a runtime test**, with the scope gap carried |
-| 10 | "Transport contract is documented enough to independently add a second backend." | Stage 2 (§6, E9) | Stage 2 — **a doc proof, not a test**; currently **NOT MET**, every NATS/MQTT cell `UNVERIFIED` |
+| 10 | "Transport contract is documented enough to independently add a second backend." | Stage 2 (§6, E9) | Stage 2 — **a doc proof, not a test**; **MET** by `docs/planning/decisions/E9-replacement-proofs.md` §6 (#49, 2026-10-06; until then NOT MET, every NATS/MQTT cell `UNVERIFIED`) |
 
 **Two criteria are not proven by a runtime test, and that is recorded rather than
 papered over** — 9 (lint) and 10 (doc proof), per
@@ -977,6 +985,9 @@ Every reference is a repo-relative path; no prior context is assumed.
 - **No `UNVERIFIED` label is dropped.** Four are carried into this file with their reasons
   intact: the two shim-boundary items (§8), the E9 NATS/MQTT design-for-replacement cells
   (§6, §9, §11), and the Zenoh-containment lint's recorded scope gap (§8, §9).
+  *(Dated note, 2026-10-06, #49: the E9 NATS/MQTT cells are no longer UNVERIFIED. E9
+  re-verified them against first-party sources and promoted them
+  (`docs/planning/decisions/E9-replacement-proofs.md` §9), and §6, §9 and §11 say so.)*
 - **The timebox values in §3 are OAC's own scheduling parameters**, not claims about an
   external system, and carry a stated reversal condition instead of a citation.
 - **No gate verdict is changed.** All five remain `NOT RUN`.

@@ -102,6 +102,12 @@ change, but neither is built. Reconsider once a concrete deployment need names
 a capability Zenoh's peer-mode profile lacks (routing/federation, broker-backed
 offline queueing) — see `docs/planning/v0.1/11-risks.md` RISK-NATS and
 RISK-MQTT for the open evidence gap that must close first.
+*(Dated note, 2026-10-06, #49: the proof now argues from the frozen `spec/interfaces.md` §6,
+in `docs/planning/decisions/E9-replacement-proofs.md` §3-§6, and RISK-NATS and RISK-MQTT are
+closed. Neither candidate provides offline queueing in a profile the contract allows
+([IFC-TRN-026]), so that reason to reconsider is gone. A broker transport would also need a
+server someone runs, which ADR-001's "Decision" section rules out for normal local use
+(record F-T1).)*
 
 ## 2. Boundary, not backlog — permanent, never a v0.2 candidate
 

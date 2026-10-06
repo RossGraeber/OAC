@@ -243,6 +243,13 @@ items" list):**
 - ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md §3.5 only,
   not independently re-confirmed on agentclientprotocol.com in B1 or B2; low priority,
   ACP is not a v0.1 dependency; see `docs/planning/REVERIFICATION-B2.md` §3.5).
+  *(Dated note, 2026-10-06, #49: closed with drift. ACP v2 was published "in Draft" on
+  2026-07-20, and v1 stays the stable version. Source:
+  https://github.com/agentclientprotocol/agent-client-protocol, commit `487ad3ea`,
+  `docs/announcements/acp-v2-draft.mdx`, retrieved 2026-10-06. The two "schema v2 alpha,
+  UNVERIFIED" cells of §1 and §3.1 should be read as "v2 in Draft". E9 also re-checked the
+  §4 framing against the protocol's own architecture and transport pages, and it holds:
+  `docs/planning/decisions/E9-replacement-proofs.md` §1.3, §2.2.)*
 - `codex mcp-server` deprecation date (2026-08-20) and deletion date (2026-09-05)
   (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
   re-confirmed against the CLI reference in B1 or B2; see §3.4's removed-surface row and

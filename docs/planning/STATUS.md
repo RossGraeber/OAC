@@ -4,6 +4,31 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #49 (E9): the design-for-replacement proofs are
+written**, `docs/planning/decisions/E9-replacement-proofs.md`, argued from the frozen
+`spec/interfaces.md` §4-§7 at `20482f1`.
+
+- **Verdicts.** A third adapter over ACP: HOLDS, with no transport, core-type or `spec/`
+  change. ACP is a client-owned-session protocol, not a channel; its only route that keeps
+  ADR-001 is a proxy (a Draft RFD), and its sessions are send-only under [SEC-AUZ-022] and
+  [SEC-AUZ-026]. NATS and MQTT each replace the v0.1 transport: HOLDS, with no adapter,
+  core-type or `spec/` change. NATS lacks reliability, persistence, offline queueing and
+  multicast discovery; MQTT lacks the same four and, in the protocol, routing/federation.
+  DESIGN acceptance criterion 10 (a second backend from the contract alone): MET. All four
+  #49 acceptance items are met (record §7).
+- **Evidence.** First-party sources fetched 2026-10-06: the NATS docs (`nats-io/nats.docs`
+  at `f115becf`), the MQTT 5.0 OASIS Standard, the Mosquitto configuration reference, and
+  the ACP source repository at `487ad3ea` (record §1).
+- **UNVERIFIED ledger.** Closed: the NATS and the MQTT capability items (all twelve
+  cells), ACP protocol version `1`, and ACP schema v2 "alpha" (drift: v2 is "Draft").
+  Added: whether each NATS client library can disable its reconnect buffer; what an ACP v1
+  agent does with a `session/prompt` during a running turn. RISK-NATS and RISK-MQTT are
+  closed, RISK-ACP is narrowed (`11-risks.md`).
+- **No amendment** to a frozen item is proposed (record §8); no file under `spec/`
+  changes. `10-stages.md` §6, §9 and §11 now record E9 as written and criterion 10 as met.
+  The ACP pin does not move (`PINS.md` "ACP" dated note). No gate verdict changes, and
+  Stage 3 is not declared open here.)
+
 **Last updated:** 2026-10-06 (**Issue #47 (E7): the Stage 2 interfaces are frozen at
 revision 0.1.** The operator decided FREEZE on #47
 (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771). The sign-off commit
@@ -1320,8 +1345,8 @@ amendments A1-A3 issued)
 | | |
 |---|---|
 | Milestone | M3 — Stage 2 normative spec (Epic E, #5). *(Dated note, 2026-10-03, #40: was "M2 — Stage 1 gate spikes (Epic D)" until D7. Earlier dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
-| Stage | **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). **Interfaces frozen at revision 0.1 (E7, #47; signed off 2026-10-06).** The operator decided FREEZE (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771), so Gate S2 criterion 1 is met and criteria 1-6 hold (`docs/planning/decisions/E7-interface-freeze.md` §5); the freeze is in force from the merge of PR #276. Stage 2's remaining exit artifact is E9 (#49), which is not a Gate S2 criterion. This change does not declare Stage 3 open. *(Dated note, 2026-10-06, #47: until now this cell ended at "Stage 2's exit is Gate S2".)* *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
-| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. Progress: E1-E6 (#41-#46) and E8 (#48) closed. `spec/session-channels.md`, `spec/security.md`, `spec/bindings/mcp.md` and `spec/interfaces.md` (#273) are frozen at revision 0.1 (signed off 2026-10-06; in force from the merge of PR #276), and the conformance runner runs in CI. E7 (#47): FREEZE decided by the operator on 2026-10-06 (`docs/planning/decisions/E7-interface-freeze.md` §8, PR #276; closes on that PR's merge). Changes to frozen items follow record §7: a PR with the change and a version bump, approved by the lead. E9 (#49) is open and follows E7. *(Dated note, 2026-10-06, #47: until now this cell read "merged at revision 0.1 (draft) ... E7 (#47): freeze prepared, not declared ... the freeze is ready for the operator's sign-off (record §8)".)* *(Dated note, 2026-10-04, #47: until now this cell read "E1 (#41) in review, ... E2-E9 open".)* D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
+| Stage | **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). **Interfaces frozen at revision 0.1 (E7, #47; signed off 2026-10-06).** The operator decided FREEZE (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771), so Gate S2 criterion 1 is met and criteria 1-6 hold (`docs/planning/decisions/E7-interface-freeze.md` §5); the freeze is in force from the merge of PR #276. Stage 2's remaining exit artifact is E9 (#49), which is not a Gate S2 criterion. E9's proofs are written (`docs/planning/decisions/E9-replacement-proofs.md`, 2026-10-06): all four acceptance items met, no amendment proposed. This change does not declare Stage 3 open. *(Dated note, 2026-10-06, #49: the sentence on E9's proofs is new.)* *(Dated note, 2026-10-06, #47: until now this cell ended at "Stage 2's exit is Gate S2".)* *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
+| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. Progress: E1-E6 (#41-#46) and E8 (#48) closed. `spec/session-channels.md`, `spec/security.md`, `spec/bindings/mcp.md` and `spec/interfaces.md` (#273) are frozen at revision 0.1 (signed off 2026-10-06; in force from the merge of PR #276), and the conformance runner runs in CI. E7 (#47): FREEZE decided by the operator on 2026-10-06 (`docs/planning/decisions/E7-interface-freeze.md` §8, PR #276; closes on that PR's merge). Changes to frozen items follow record §7: a PR with the change and a version bump, approved by the lead. E9 (#49): design-for-replacement proofs written, `docs/planning/decisions/E9-replacement-proofs.md` (2026-10-06); closes on its PR's merge. *(Dated note, 2026-10-06, #49: until now this read "E9 (#49) is open and follows E7.")* *(Dated note, 2026-10-06, #47: until now this cell read "merged at revision 0.1 (draft) ... E7 (#47): freeze prepared, not declared ... the freeze is ready for the operator's sign-off (record §8)".)* *(Dated note, 2026-10-04, #47: until now this cell read "E1 (#41) in review, ... E2-E9 open".)* D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
 | Blocked | Stages 3-6. Stage 3 starts only after Gate S2, Stage 2's exit (`docs/planning/v0.1/10-stages.md` §6), and each later stage after its own gate. Stage 0 (Gate S0, #228) and Stage 1 (Gate S1, D7 #40) are complete. That meets the rule that no substantial core or transport code starts before both complete. The risk-first ordering (`10-stages.md` §2) still applies. No gate verdict blocks Stage 2: G5 is PASS and C13 is closed. *(Dated note, 2026-10-03, #40: until D7 this cell read "Stages 2-6, and the rest of Stage 1 pending D7"; C13 had closed on 2026-10-02, #220.)* |
 
 ## ADR amendments
@@ -1439,7 +1464,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
 | Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc` (2026-10-01T20:19:13Z UTC; G4 herdr run, 2026-10-04). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
-| ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
+| ACP | protocol version `1` (v2 in Draft since 2026-07-20; re-checked 2026-10-06, #49); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
 | Rust MCP SDK | `rmcp` `3.4.0` (2026-09-15); legacy revision `2025-11-25` supported and is the SDK's default | PINS.md — Rust MCP SDK (`rmcp`) |
 | `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
@@ -1774,9 +1799,13 @@ without an UNVERIFIED label.
   - the loopback fix's attribution to PR #2671 (the behavior itself is confirmed by G3);
   - the §3.4 multi-fact row (Windows scouting bind, dynamic listen ports, liveliness
     history, storage/plugins in `zenohd`, `zenoh-ext` `unstable`, TLS/mTLS and QUIC
-    certificates, ACL subjects, `zid` unauthenticated, no message signing);
-  - ACP protocol version `1`, since the literal `protocolVersion` field was not observed
-    (`PINS.md` "ACP").
+    certificates, ACL subjects, `zid` unauthenticated, no message signing).
+
+  *(Dated note, 2026-10-06, #49: this list also held "ACP protocol version `1`, since the
+  literal `protocolVersion` field was not observed (`PINS.md` "ACP")". It is closed: the
+  v1 initialization page of the protocol's source repository, commit `487ad3ea`, shows
+  `"protocolVersion": 1`, retrieved 2026-10-06
+  (`docs/planning/decisions/E9-replacement-proofs.md` §1.3 A4; `PINS.md` "ACP").)*
 
   None of these is a G1-G5 pass criterion, and ACP is not a v0.1 dependency. They stay
   open until re-checked against a pin. This entry gates nothing. Risk entry:
@@ -1894,9 +1923,16 @@ without an UNVERIFIED label.
   decision or a DESIGN.md update; see REVERIFICATION-B2.md "Carried to 11-risks.md").
 - The named compatibility shim boundary for the Codex experimental live-inject surface
   (UNVERIFIED — same reason; see REVERIFICATION-B2.md "Carried to 11-risks.md").
-- ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md §3.5 only,
-  not independently re-confirmed on agentclientprotocol.com in B1 or B2; low priority,
-  ACP is not a v0.1 dependency).
+- **New, from E9 (#49, 2026-10-06):** what an ACP v1 agent does with a `session/prompt`
+  received while a turn is running: rejects it, holds it, or adds it to the running turn
+  (UNVERIFIED — the v1 protocol pages say nothing about it,
+  `docs/planning/decisions/E9-replacement-proofs.md` §1.3 A6, finding F-A2; it decides
+  whether an ACP hand-off could be non-steering under [SEC-AUZ-022]; ACP is not a v0.1
+  dependency). Risk entry: RISK-ACP. *(Dated note, 2026-10-06, #49: this bullet replaces
+  "ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md §3.5 only,
+  not independently re-confirmed ...)". That item is closed with drift: ACP v2 was
+  published "in Draft" on 2026-07-20, and v1 stays the stable version (record §1.3 A8;
+  `PINS.md` "ACP").)*
 - Zenoh crate version/date read from GitHub releases rather than crates.io directly,
   because the crates.io page did not return content in B1 and was not re-attempted in B2
   (UNVERIFIED — re-confirm on crates.io when reachable; see PINS.md).
@@ -2064,17 +2100,17 @@ without an UNVERIFIED label.
   design parameters, not a claim about an external system; runtime validation is a Stage
   3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16).
 
-- NATS reliability, persistence, offline queueing, ordering, multicast discovery, and
-  routing/federation capability claims, for the `05-interfaces.md` transport
-  design-for-replacement proof (task A6, issue #26) (UNVERIFIED — not independently
-  checked against first-party NATS specification/documentation this pass; see
-  `docs/planning/v0.1/05-interfaces.md` §17).
-- MQTT reliability, persistence, offline queueing, ordering, multicast discovery, and
-  routing/federation capability claims, for the same proof (UNVERIFIED — not
-  independently checked against first-party MQTT specification/broker documentation
-  this pass; the multicast-discovery cell additionally carries a structural, unverified
-  observation about MQTT's broker-based client model; see
-  `docs/planning/v0.1/05-interfaces.md` §17).
+- **New, from E9 (#49, 2026-10-06):** whether each NATS client library can disable its
+  reconnect buffer, not only resize it (UNVERIFIED — the first-party page documents the
+  buffer size only, `nats-io/nats.docs` at `f115becf`,
+  `using-nats/developing-with-nats/reconnect/buffer.md`; a NATS transport needs it off to
+  meet [IFC-TRN-036]; `docs/planning/decisions/E9-replacement-proofs.md` F-T3; NATS is not
+  a v0.1 dependency). Risk entry: RISK-NATS (closed, with this item carried).
+  *(Dated note, 2026-10-06, #49: two items stood here: "NATS reliability, persistence,
+  offline queueing, ordering, multicast discovery, and routing/federation capability
+  claims" and the same six for MQTT, both for the `05-interfaces.md` §17 proof. Both are
+  closed. E9 checked all twelve cells against the NATS docs and the MQTT 5.0 OASIS
+  Standard, retrieved 2026-10-06 (record §1.1, §1.2, §5).)*
 - **New, from G1 Box C (issue #39, 2026-09-28):** whether mid-turn `notifications/
   claude/channel` deliveries are batched together at a single tool-call boundary, or can
   arrive at separate boundaries one at a time, is UNVERIFIED as a guarantee — it may
