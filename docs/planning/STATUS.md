@@ -18,6 +18,15 @@ verification land in `core/` and `cli/`**, against `spec/security.md` revision 0
   Rust 1.98.1 on Windows and Linux. `11-risks.md` row 63 is closed with the same evidence.
   The `spec/security.md` §6.3 note and §13 row that still say "UNVERIFIED until F4" are
   frozen text, left for the #308 editorial batch.
+- **Key storage on real credential stores.** The opt-in workflow
+  `.github/workflows/keystore-optin.yml` (manual dispatch; never the default tier) ran once
+  on this branch through a temporary push trigger, removed before merge: run
+  https://github.com/RossGraeber/OAC/actions/runs/37421973245 at `371d6f2`. Its four jobs
+  passed: a device key saved to and read back from Credential Manager (windows-latest),
+  Keychain (macos-latest) and the Secret Service under gnome-keyring (ubuntu-latest), and,
+  on an ubuntu-latest job with no session bus, the store reported unavailable and the
+  `age`-encrypted file held the key. The Credential Manager round trip and the headless
+  fallback (WSL with no session bus) were also run locally.
 - **Dependencies.** `ed25519-dalek` `3.0.0` (BSD-3-Clause, now on the accepted list under
   the #51 operator decision), `sha2` `0.11.0`, `getrandom` `0.4.3` and `zeroize` `1.9.0` in
   `core/`; `keyring` `4.2.0` and `age` `0.12.1` in `cli/`. `07-repository-and-dependencies.md`
