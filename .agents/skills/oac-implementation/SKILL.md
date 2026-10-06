@@ -12,22 +12,16 @@ you are touching. Boundary text lives in `oac-boundaries`; test taxonomy lives i
 
 ## 0. Check before writing code
 
-`docs/planning/STATUS.md` shows Stage 0 and Stage 1 as not complete, and PLANNING-PROMPT.md
-§5 decisions 1 (language/runtime) and 2 (process model) are **presumptive, not recorded**:
-Rust / single static binary is the working assumption (§5.1), reversible if the Rust MCP
-SDK's legacy-revision support or Windows keychain access turns out disqualifying; the
-process model (daemon-plus-shims vs. self-contained per-session server, §5.2) is not chosen
-at all. Read `docs/planning/STATUS.md` "Current stage" and "Open epics" before starting.
-If Stage 0/1 are still open or these decisions are still undecided, no substantial `core/`
-or `transports/zenoh/` code starts. Check the task's `depends` list in
-`docs/planning/backlog/04-tasks-EF.json` / `05-tasks-GHIJ.json` before assuming any Epic F
-or G task is startable: today F1 depends on `["C1","E7"]` and C1 is exactly the
-language/runtime/packaging decision, F2 depends on F1, and F8/F9/F10 chain through F2 and
-D6 (Stage 1 fixtures, not yet captured) — every current F task chains to C1 and/or D6,
-including scaffolding, which is the most C1-dependent task of all. The correct action is to
-stop and route the item to the blocking decision or spike instead (`type:decision` /
-`oac-evidence` for C1/C2, or the Stage 0/1 owner for D6) — do not start code because a task
-"looks like" scaffolding or fixture work.
+`docs/planning/STATUS.md` ("Current stage", "Open epics", "Blocked") decides whether code
+may start; read it, not this skill, before starting. At the time of writing: Stage 1 exited
+via D7 (`docs/planning/decisions/D7-stage1-exit.md`); Gate S2's freeze criterion is met,
+in force from the merge of PR #276 (`docs/planning/decisions/E7-interface-freeze.md` §5,
+§8); Stage 3 is not open until STATUS declares it. Language/runtime and process model are
+recorded decisions (`docs/planning/decisions/C1-language-runtime.md`, `C2-process-model.md`);
+follow them, not PLANNING-PROMPT.md §5's presumptions. Check the task's `depends` list in
+`docs/planning/backlog/04-tasks-EF.json` / `05-tasks-GHIJ.json`: if a dependency (a
+decision, a spike's fixtures such as D6, or E7) is not closed, stop and route the item to
+its owner — do not start code because a task "looks like" scaffolding or fixture work.
 
 ## 1. Workspace layout (DESIGN "Suggested repository shape" — suggested, not frozen)
 
@@ -152,8 +146,8 @@ dependency without an inventory entry.
 
 ## 7. Exit criteria for a `type:code` work item
 
-- [ ] Checked `docs/planning/STATUS.md`; if Stage 0/1 are open or §5 decisions 1-2 are
-      still undecided, confirmed the specific task does not require them before proceeding.
+- [ ] Checked `docs/planning/STATUS.md` shows the task's stage open, and every item in the
+      task's `depends` list is closed (§0).
 - [ ] New/changed files sit in the module their responsibility (§1) says they belong in.
 - [ ] Dependency direction (§2) holds; ran the `oac-boundaries` mechanical checks with zero
       unexplained hits.
