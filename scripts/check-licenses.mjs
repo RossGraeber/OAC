@@ -48,9 +48,10 @@ const HEADER_LINES = 5;
 // The accepted licenses: exactly the list recorded in
 // docs/planning/v0.1/07-repository-and-dependencies.md section 5, "Accepted licenses".
 // Adding one is a license-policy change: record it there first, in the same PR.
-// Unicode-3.0: unicode-ident, #51; operator decision
+// Unicode-3.0: unicode-ident, #51; BSD-3-Clause: ed25519-dalek and its curve25519-dalek,
+// x25519-dalek and subtle, #52 (C5 section 2). Both under the operator decision
 // https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (07 section 5).
-const PERMISSIVE = new Set(['Apache-2.0', 'MIT', '0BSD', 'Unicode-3.0']);
+const PERMISSIVE = new Set(['Apache-2.0', 'MIT', '0BSD', 'Unicode-3.0', 'BSD-3-Clause']);
 // Copyleft families, flagged wherever they appear (oac-release section 2 item 3).
 const COPYLEFT = /^(?:A?GPL|LGPL|MPL|EPL|EUPL|CDDL|OSL|CPL|CECILL|CC-BY-SA|SSPL)\b/i;
 
@@ -207,7 +208,11 @@ function selfTest() {
   expect('control: (MIT OR Apache-2.0) AND Unicode-3.0 passes, electing Apache-2.0 AND Unicode-3.0',
     licenseVerdict('(MIT OR Apache-2.0) AND Unicode-3.0').elected === 'Apache-2.0 AND Unicode-3.0');
   expect('Unicode-DFS-2016 fails (not in 07 section 5)', !ok('Unicode-DFS-2016'));
-  expect('BSD-3-Clause fails (not in 07 section 5)', !ok('BSD-3-Clause'));
+  // #52: BSD-3-Clause is on the 07 section 5 list (ed25519-dalek, C5 section 2); a single
+  // license with no OR-arm, so it is elected as is. BSD-2-Clause is not on the list.
+  expect('control: BSD-3-Clause passes, electing BSD-3-Clause', licenseVerdict('BSD-3-Clause').elected === 'BSD-3-Clause');
+  expect('BSD-2-Clause fails (not in 07 section 5)', !ok('BSD-2-Clause'));
+  expect('BSD-3-Clause AND GPL-2.0-only fails', !ok('BSD-3-Clause AND GPL-2.0-only'));
   expect('Apache-2.0 WITH LLVM-exception fails (not in 07 section 5)', !ok('Apache-2.0 WITH LLVM-exception'));
   // B1: optional dependencies are in the graph the inventory reads.
   expect('cargo metadata runs with --all-features', METADATA_ARGS.includes('--all-features'));

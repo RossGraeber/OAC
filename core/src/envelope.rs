@@ -10,25 +10,26 @@
 //!   and nowhere else ([SC-ENV-080]). A member named `security` inside a content part is
 //!   part of that content part, and no accessor reaches it.
 //! - [`SecurityMetadata`] has no public constructor. A received one comes from
-//!   [`receive_envelope`]; an outbound envelope's comes from [`EnvelopeDraft::seal`],
-//!   which takes only a [`SecurityPrincipal`] (a trusted-key-set entry), a [`Nonce`] built
-//!   from 16 octets, and a [`Signature`] built from 64 octets. No content type converts
-//!   into any of them, and an [`EnvelopeDraft`] has no member through which a request
-//!   could add a top-level `security` member or any other top-level member
-//!   ([SC-ENV-081]).
+//!   [`receive_envelope`]; an outbound envelope's comes from
+//!   [`crate::keys::DeviceIdentity::sign_envelope`], which signs the draft with the device
+//!   key and fills `security` from the device's own trusted-key-set entry, a fresh
+//!   [`Nonce`] and the signature it computed. No content type converts into any of them,
+//!   and an [`EnvelopeDraft`] has no member through which a request could add a top-level
+//!   `security` member or any other top-level member ([SC-ENV-081]).
 //! - Content is [`ContentPart`] values, a type of its own; nothing derives provenance from
 //!   it ([SC-ENV-082]).
 //! - A top-level member this revision does not define is kept in the envelope, because
 //!   the signature covers it ([IFC-TYP-040], [SEC-SIG-011]), but no accessor returns it,
 //!   so it is neither rendered nor used as provenance ([SC-ENV-090] to [SC-ENV-092]).
-//! - [`ChannelMessage::verified_by`] is empty until the security stage succeeds
-//!   ([IFC-TYP-041]). This crate has no security stage yet (task F3), so nothing sets it.
+//! - [`ChannelMessage::verified_by`] is empty until security steps 1 and 2 succeed
+//!   ([IFC-TYP-041]); only [`crate::signing::authenticate`] sets it.
 //!
 //! ```compile_fail,E0451
 //! // SecurityMetadata cannot be built outside this crate, from content or anything else.
 //! let _ = oac_core::envelope::SecurityMetadata { principal: String::new(), key_id: String::new(), nonce: String::new(), signature: String::new() };
 //! ```
 
+use crate::base64url::encode;
 use crate::canonical::{CanonicalError, SigningDomain, signing_input};
 use crate::capabilities::{DEFAULT_MAX_ENVELOPE_OCTETS, MAX_ENVELOPE_OCTETS_LIMIT};
 use crate::delivery::{DeliveryState, ErrorCode};
@@ -60,8 +61,21 @@ pub const DEFINED_MEMBERS: [&str; 11] = [
 const SECURITY_MEMBERS: [&str; 4] = ["principal", "key_id", "nonce", "signature"];
 
 /// A `SecurityPrincipal` (`spec/interfaces.md` §4.8): the `principal` and `key_id` of one
-/// entry of the implementation's trusted key set ([IFC-TYP-070]). The trusted key set
-/// itself is task F3.
+/// entry of the implementation's trusted key set ([IFC-TYP-070]).
+///
+/// Only a trusted-key-set entry produces one
+/// ([`crate::trust::TrustedKey::security_principal`]): the constructor is private to this
+/// crate, so no caller can mint a principal from an arbitrary token and hand it to
+/// [`crate::keys::DeviceIdentity::sign_envelope`] or put it in
+/// [`ChannelMessage::verified_by`] ([IFC-TYP-042], [SC-ENV-081]).
+///
+/// ```compile_fail,E0624
+/// use oac_core::ids::{KeyId, Token};
+/// let _ = oac_core::envelope::SecurityPrincipal::new(
+///     Token::parse("principal-a").unwrap(),
+///     KeyId::parse(&"ab".repeat(32)).unwrap(),
+/// );
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SecurityPrincipal {
     principal: Token,
@@ -71,7 +85,7 @@ pub struct SecurityPrincipal {
 impl SecurityPrincipal {
     /// The principal of a trusted-key-set entry. The principal label is an identifier
     /// token ([SEC-KEY-020]).
-    pub fn new(principal: Token, key_id: KeyId) -> SecurityPrincipal {
+    pub(crate) fn new(principal: Token, key_id: KeyId) -> SecurityPrincipal {
         SecurityPrincipal { principal, key_id }
     }
 
@@ -86,21 +100,6 @@ impl SecurityPrincipal {
     }
 }
 
-fn base64url(octets: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity(octets.len().div_ceil(3) * 4);
-    for chunk in octets.chunks(3) {
-        let n = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |a, (k, &b)| a | (u32::from(b) << (16 - 8 * k)));
-        for k in 0..=chunk.len() {
-            out.push(A[((n >> (18 - 6 * k)) & 63) as usize] as char);
-        }
-    }
-    out
-}
-
 /// A `security.nonce`: the unpadded base64url encoding of 16 octets ([SEC-SIG-003]). The
 /// octets come from the caller's cryptographically secure random number generator.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,7 +108,7 @@ pub struct Nonce(String);
 impl Nonce {
     /// The nonce for `octets`.
     pub fn from_octets(octets: [u8; 16]) -> Nonce {
-        Nonce(base64url(&octets))
+        Nonce(encode(&octets))
     }
 
     /// The encoded nonce.
@@ -125,7 +124,7 @@ pub struct Signature(String);
 impl Signature {
     /// The signature for `octets`.
     pub fn from_octets(octets: [u8; 64]) -> Signature {
-        Signature(base64url(&octets))
+        Signature(encode(&octets))
     }
 
     /// The encoded signature.
@@ -259,10 +258,15 @@ impl Default for EnvelopeLimits {
 }
 
 impl EnvelopeLimits {
-    /// The limits with `majors` as the supported major versions ([SC-VER-001]).
-    pub fn with_supported_majors(mut self, majors: Vec<u16>) -> Self {
+    /// The limits with `majors` as the supported major versions ([SC-VER-001]). `None`
+    /// when `majors` is empty: a receiver that supports no major version would refuse
+    /// every envelope with `unsupported-version`.
+    pub fn with_supported_majors(mut self, majors: Vec<u16>) -> Option<Self> {
+        if majors.is_empty() {
+            return None;
+        }
         self.supported_majors = majors;
-        self
+        Some(self)
     }
 
     /// The limits with a receiver-wide size limit of `octets`. `None` below 65536, which
@@ -463,6 +467,15 @@ impl ChannelMessage {
     /// The envelope, without the local member.
     pub fn into_envelope(self) -> Envelope {
         self.envelope
+    }
+
+    /// The message with `verified_by` set. Called only by the security stage, once steps 1
+    /// and 2 have succeeded under `entry` ([IFC-TYP-041], [IFC-TYP-042]).
+    pub(crate) fn verified(self, entry: SecurityPrincipal) -> ChannelMessage {
+        ChannelMessage {
+            envelope: self.envelope,
+            verified_by: Some(entry),
+        }
     }
 }
 
@@ -785,8 +798,15 @@ impl EnvelopeDraft {
 
     /// The signed envelope: the draft with `security` set from `signer`, `nonce` and
     /// `signature` ([SEC-SIG-001], [SEC-SIG-002]). It is serialized once, here, and never
-    /// changed afterwards ([SEC-SIG-012]).
-    pub fn seal(self, signer: &SecurityPrincipal, nonce: Nonce, signature: Signature) -> Envelope {
+    /// changed afterwards ([SEC-SIG-012]). Private to this crate: the one caller is
+    /// [`crate::keys::DeviceIdentity::sign_envelope`], so every envelope this crate builds
+    /// carries a signature its device key made ([SEC-SIG-010]).
+    pub(crate) fn seal(
+        self,
+        signer: &SecurityPrincipal,
+        nonce: Nonce,
+        signature: Signature,
+    ) -> Envelope {
         let mut sec = Self::security(signer, &nonce);
         sec.insert("signature", signature.as_str().into());
         let wire = self.wire(sec);
@@ -847,8 +867,6 @@ mod tests {
             "_____________________w"
         );
         assert_eq!(Signature::from_octets([0xfb; 64]).as_str().len(), 86);
-        assert_eq!(base64url(b"foobar"), "Zm9vYmFy");
-        assert_eq!(base64url(b"fo"), "Zm8");
     }
 
     #[test]
@@ -924,6 +942,15 @@ mod tests {
             l.clone()
                 .with_max_envelope_octets(9_007_199_254_740_992)
                 .is_none()
+        );
+        // #52, PR #312 review R2-2: a receiver supports at least one major version.
+        assert!(l.clone().with_supported_majors(vec![]).is_none());
+        assert_eq!(
+            l.clone()
+                .with_supported_majors(vec![0, 1])
+                .unwrap()
+                .supported_majors(),
+            &[0, 1]
         );
         let raised = l.clone().with_max_envelope_octets(131_072).unwrap();
         assert_eq!(raised.max_envelope_octets(), 131_072);
