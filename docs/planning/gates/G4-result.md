@@ -470,11 +470,48 @@ fixtures and cannot be verified identical to it. Codex's MCP registration there 
 invocation (the operator's global Codex config is never edited); because this run's own
 global `g4` entry for `127.0.0.1:17448` may still be present, the scenario refuses this run's
 ports and its report requires exactly one Codex HTTP session before attributing any Codex
-traffic to the per-invocation registration. It has **never run live**:
-it is exercised only against test doubles (`node tools/herdr/run.mjs --self-test`), so no
-`-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md` record exist. When one
-does, it is linked here and changes nothing above: this gate's verdict comes only from the
-human-run procedure (`oac-gates` `references/scripted-runs.md` "Verdict eligibility").
+traffic to the per-invocation registration. *Superseded text, kept as history:* "It has
+**never run live**: it is exercised only against test doubles (`node tools/herdr/run.mjs
+--self-test`), so no `-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md`
+record exist."
+
+*Dated note, 2026-10-04 (#131):* the scenario ran live. Run `20261004T093525Z` (outcome
+PASS, driver commit `b478f2a`, whose `tools/herdr/` (excluding `test/`) equals `main` after
+#287; herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`) is recorded at `herdr-runs/G4-2026-10-04.md`, with its run manifest beside
+it and three `-herdr` fixtures under `fixtures/g4-mcp-dual-era/`. It is the **equivalence
+record for G4 at herdr v0.9.1**: all five criteria scored `equivalent` to the 2026-09-26
+re-run above, from the wire transcript and pane captures. That includes criterion 5's
+refusal notice, "Channel messages from "g4modern" are unavailable" (UI observation 1). The
+notice was captured after the first typed prompt (the second Claude turn), not at startup. An earlier PASS run of the
+same day, `20261004T085601Z` at driver `b9a9afe`, is superseded: its driver predates #287,
+and the notice was hidden in its captures. Exactly one Codex HTTP session connected, from a Codex
+process launched with the per-invocation `-c mcp_servers.g4http.url=...`, and the Codex user
+config was unchanged through the run (same sha256). That the config registers no other
+entry at the run's port rests on an uncommitted `codex mcp list` read, so it is UNVERIFIED
+from committed evidence. This changes nothing above:
+the record is not verdict-bearing, and this gate's verdict stays PASS from the human-run
+procedure. A later scripted G4 run may carry a verdict only under `oac-gates`
+`references/scripted-runs.md` "Verdict eligibility".
+
+*Dated note, 2026-10-05 (#131, re-record after #292):* the note above is superseded as to
+which record is current. #292 (the #288 wrapped-path redaction fix and the #290
+coverage-span fix) changed `tools/herdr/lib/`, so `herdr-runs/G4-2026-10-04.md` (driver
+`b478f2a`) can back no later run. G4 was re-recorded once at the #292 merge: run
+`20261005T013347Z-6803a7` (outcome PASS, driver commit `de42b54`, `toolsHerdrDirty` false;
+herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`; same scenario file,
+launch argv and params as `20261004T093525Z`) is recorded at `herdr-runs/G4-2026-10-05.md`,
+with its run manifest beside it and three `-herdr` fixtures under `fixtures/g4-mcp-dual-era/`.
+It is now the **equivalence record for G4 at herdr v0.9.1**: all five criteria `equivalent`,
+from the wire transcript and pane captures, with herdr and Harness VERIFIED. Criterion 5
+holds on both halves again. In this run the "g4modern ... unavailable" notice showed after
+the first Claude turn (wake g4-1), not at startup. The wrapped worktree path in the Claude
+pane fixture is now redacted to `<REPO>`, and the transcript's `MANIFEST.json` coverage is
+generated, with no hand fix. One earlier run at `de42b54`, `20261005T013103Z-b6b2cb`, ended
+FAIL: the Codex TUI exited at startup ("workspace routing discovery timed out"). The record
+lists it under Findings. The Codex-config caveat is unchanged: that the Codex user config
+registers no other entry at the run's port is UNVERIFIED from committed evidence. The
+2026-10-04 record and fixtures stay committed, marked superseded. G4's verdict stays PASS
+from the human-run procedure.
 
 ---
 

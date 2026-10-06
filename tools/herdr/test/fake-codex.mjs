@@ -59,6 +59,13 @@
 //                              no loaded thread; a prompt typed then is held) (default 0)
 //   FAKE_CODEX_STARTUP_HANG    1 = the startup draft never ends
 //   FAKE_CODEX_PRELOADED       1 = the daemon starts with another client's thread loaded
+//   FAKE_CODEX_MCP_CONNECT_MS  #282 (with a per-invocation MCP server): the idle composer is shown
+//                              (state idle) for N ms before the MCP client connects; the TUI then
+//                              reports `working` (busy screen) while its startup finishes
+//   FAKE_CODEX_POST_CONNECT_MS #282: how long that `working` lasts before the TUI goes idle
+//   FAKE_CODEX_POST_CONNECT_HANG #282: 1 = that `working` never ends (nothing is ever typed)
+//   FAKE_CODEX_READY_WORKING_MS #282 (daemon-attached TUI): once its session is loaded and the
+//                              idle composer shown, the TUI still reports `working` for N ms
 //   FAKE_CODEX_HOOKS_REVIEW    1 = the startup hook review (seen live on 0.159.2, #204) follows
 //                              the draft and holds the session start until answered (esc);
 //                              FAKE_CODEX_SELF_ACCEPT_MS also answers it (stands in for the operator)
@@ -72,6 +79,10 @@
 //   FAKE_BEACON_LOG            L3b (#190): the daemon appends a Beacon-shaped event (runtime.jsonl)
 //                              for every turn's user input, whatever started it (TUI, turn/start,
 //                              thread/queue/add); the event shape is this file's invention
+//   FAKE_CODEX_TOOL_OUTPUT     #130: JSON {command, name, path, output, server, tool,
+//                              arguments, mcpResult}; in the delivered turn the daemon emits a
+//                              file read (commandExecution) and an MCP tool call with these
+//                              synthetic bodies, and the TUI shows the read's first output line
 //   FAKE_CODEX_PLANT_SECRET_FILE #232: the TUI starts one idle child process whose argv carries
 //                              a fresh random secret of no known shape (lowercase letters, which
 //                              no redaction pattern matches), and writes that secret to this file
@@ -240,6 +251,24 @@ function daemon() {
     toTui(t, { op: 'render', role: 'user', text });
     toTui(t, { op: 'status', status: 'active' });
     const ms = /lighthouses/i.test(text) ? Number(env.FAKE_CODEX_LONG_MS || 4500) : Number(env.FAKE_CODEX_TURN_MS || 400);
+    // #130: in the delivered turn, a file read and an MCP tool call the model chose on its own,
+    // shaped like the frames Codex 0.160.0 emitted (commandExecution with a read action and its
+    // output deltas, mcpToolCall with a text result). The bodies are the test's synthetic text.
+    if (env.FAKE_CODEX_TOOL_OUTPUT && /second daemon client/.test(text)) {
+      const spec = JSON.parse(env.FAKE_CODEX_TOOL_OUTPUT);
+      const ids = { threadId: t.id, turnId: tn.id };
+      const cmd = { type: 'commandExecution', id: `call_${randomUUID().replace(/-/g, '')}`, command: spec.command, cwd: null, processId: null, source: 'agent', status: 'inProgress', commandActions: [{ type: 'read', command: spec.command, name: spec.name, path: spec.path }], aggregatedOutput: null, exitCode: null, durationMs: null };
+      for (const c of subs()) notify(c, 'item/started', { item: cmd, ...ids });
+      for (const delta of spec.output.match(/[^\n]*\n?/g).filter(Boolean)) for (const c of subs()) notify(c, 'item/commandExecution/outputDelta', { ...ids, itemId: cmd.id, delta });
+      const cmdDone = { ...cmd, status: 'completed', aggregatedOutput: spec.output, exitCode: 0, durationMs: 12 };
+      for (const c of subs()) notify(c, 'item/completed', { item: cmdDone, ...ids });
+      const mcp = { type: 'mcpToolCall', id: `call_${randomUUID().replace(/-/g, '')}`, server: spec.server, tool: spec.tool, status: 'inProgress', arguments: spec.arguments, result: null, error: null, durationMs: null };
+      for (const c of subs()) notify(c, 'item/started', { item: mcp, ...ids });
+      const mcpDone = { ...mcp, status: 'completed', result: { content: [{ type: 'text', text: spec.mcpResult }], structuredContent: null }, durationMs: 30 };
+      for (const c of subs()) notify(c, 'item/completed', { item: mcpDone, ...ids });
+      tn.items.push(cmdDone, mcpDone);
+      toTui(t, { op: 'render', role: 'agent', text: `Ran ${spec.command}\n  └ ${spec.output.split('\n')[0]}` });
+    }
     setTimeout(() => {
       const agent = { type: 'agentMessage', id: `msg_${randomUUID().replace(/-/g, '')}`, text: replyFor(text, t), phase: 'final_answer' };
       tn.items.push(agent);
@@ -537,6 +566,16 @@ async function tui(overrides = {}) {
     if (!s.session && r.headers.get('mcp-session-id')) s.session = r.headers.get('mcp-session-id');
     return r.status === 202 ? null : r.json();
   };
+  // #282: a slow startup, as live G4 run 20261004T075757Z saw on Codex 0.160.0: the idle
+  // composer first (herdr idle), the MCP connect late, then `working` while startup finishes.
+  const slowStart = mcp.size > 0 && (env.FAKE_CODEX_MCP_CONNECT_MS || env.FAKE_CODEX_POST_CONNECT_MS || env.FAKE_CODEX_POST_CONNECT_HANG === '1');
+  if (slowStart) {
+    setState('idle');
+    render(false);
+    await sleep(Number(env.FAKE_CODEX_MCP_CONNECT_MS || 0));
+    setState('working');
+    render(true);
+  }
   for (const [name, s] of mcp) {
     try {
       await mcpPost(s, { jsonrpc: '2.0', id: s.nextId++, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: { elicitation: { form: {}, url: {} } }, clientInfo: { name: 'codex-mcp-client', title: 'Codex', version: VERSION } } });
@@ -547,6 +586,10 @@ async function tui(overrides = {}) {
     } catch (e) {
       hist(`[mcp ${name} failed: ${e.message}]`);
     }
+  }
+  if (slowStart) {
+    const until = env.FAKE_CODEX_POST_CONNECT_HANG === '1' ? Infinity : Date.now() + Number(env.FAKE_CODEX_POST_CONNECT_MS || 0);
+    while (Date.now() < until) await sleep(50);
   }
   const mcpTurn = async (text) => {
     const [name, s] = [...mcp.entries()][0];
@@ -711,6 +754,13 @@ async function tui(overrides = {}) {
   }
   if (sock) sock.write(`${JSON.stringify({ op: 'threadStart' })}\n`);
   render(false);
+  // #282: the session is loaded and the idle composer is on screen, but the TUI reports
+  // `working` for N ms more (its startup finishing); a prompt typed then is not read until after.
+  if (Number(env.FAKE_CODEX_READY_WORKING_MS || 0) > 0) {
+    setState('working');
+    await sleep(Number(env.FAKE_CODEX_READY_WORKING_MS));
+    setState('idle');
+  }
   if (held !== null) {
     hist(`[session started: held draft "${held}" submitted]`);
     if (sock) sock.write(`${JSON.stringify({ op: 'userTurn', text: held })}\n`);

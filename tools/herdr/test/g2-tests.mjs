@@ -29,8 +29,10 @@ import {
 } from '../lib/g2.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { sha256, parseSections } from '../lib/g1.mjs';
-import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport } from '../lib/g2-report.mjs';
+import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport, draftManifestEntries } from '../lib/g2-report.mjs';
+import { lineSpan } from '../lib/gate-report-common.mjs';
 import { cloneWithPins } from './g1-tests.mjs';
+import { SYNTH } from './elide-tests.mjs';
 import { parseWin32ProcessJson, parsePsTable } from '../lib/proc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -130,6 +132,21 @@ export function g2Unit(check) {
   const of = g2Facts(parseG2Transcript(OLD_BASELINE));
   check('g2 facts: 0.154.0 fixture -- the watch connection\'s event stream: turn/started, agent message, turn/completed for injection 4', of.resumes.length === 1 && of.resumes[0].mode === 'watch' && of.events.turnCompleted.some((e) => e.mode === 'watch' && e.agentMessages.includes('OAC G2 EVENTS')) && of.events.turnStarted.length === 1 && of.connections[0].userAgentVersion === '0.154.0');
   check('g2 facts: 0.154.0 fixture -- two loaded threads at line 16 (the unidentified second thread)', of.loadedLists.find((l) => l.line === 16)?.data.length === 2);
+  // #299 (PR #300 review): the draft MANIFEST.json coverage of thread/turns/list gives the
+  // request line as well as the response (lineSpan), as the human-run entries do. Built from
+  // the committed G2-2026-10-05 run manifest and transcript, it differs from the committed
+  // entry (drafted before this fix) in that one line only.
+  {
+    const runManifest = JSON.parse(read(join(REPO, 'docs', 'planning', 'gates', 'herdr-runs', 'G2-2026-10-05.run-manifest.json')));
+    const fx = runManifest.scenarioData.g2.fixtures;
+    const manifestJson = JSON.parse(read(join(REPO, MANIFEST_PATH)));
+    const [entry] = draftManifestEntries({ manifest: runManifest, fixtures: fx, runManifestPath: 'x', transcriptText: read(join(REPO, FIXTURE_DIR, fx.transcript)), pinsCommit: 'p', redactSha256: 'r', manifestJson });
+    const committed = manifestJson.fixtures.find((e) => e.path === `${FIXTURE_DIR}/${fx.transcript}`).coverage;
+    const differing = Object.keys({ ...committed, ...entry.coverage }).filter((k) => committed[k] !== entry.coverage[k]);
+    check('#299: G2 draft coverage of thread/turns/list is request and response (804, 806), lineSpan of the pair; every other coverage line equals the committed G2-2026-10-05 entry', entry.coverage['thread/turns/list'] === '804, 806' && entry.coverage['thread/turns/list'] === lineSpan(804, 806) && committed['thread/turns/list'] === '806' && differing.join() === 'thread/turns/list', JSON.stringify({ differing, turns: entry.coverage['thread/turns/list'] }));
+    const hf = g2Facts(parseG2Transcript(read(join(REPO, FIXTURE_DIR, fx.transcript))));
+    check('#299: g2Facts pairs each thread/turns/list answer with its request line', hf.turnsLists.length === 1 && hf.turnsLists[0].reqLine === 804 && hf.turnsLists[0].line === 806 && bf.turnsLists[0].reqLine === 38 && bf.turnsLists[0].line === 40);
+  }
   const self = compareByMode(parseG2Transcript(BASELINE), parseG2Transcript(BASELINE));
   check('g2 compare: the 0.157.1 fixture against itself is the same sequence in every mode', self.modes.length === 4 && self.modes.every((m) => m.same) && self.runOnlyModes.length === 0);
   const noQueue = BASELINE.split('\n').filter((l) => !/thread\/queue\/add|queuedSubmission/.test(l)).join('\n');
@@ -336,6 +353,10 @@ export function g2Unit(check) {
   const scen = read(join(REPO, 'tools', 'herdr', 'scenarios', 'g2-codex-inject.mjs'));
   check('g2: the scenario never imports the quarantined client (static or dynamic import, require)', !/^\s*import\s[^;]*?from\s*['"][^'"]*(?:throwaway-quarantined|client\.mjs)['"]/m.test(scen) && !/\bimport\s*\(\s*[^)]*(?:throwaway-quarantined|client\.mjs)/.test(scen) && !/require\([^)]*client/.test(scen) && /\[join\(clientDir, 'client\.mjs'\), mode/.test(scen));
   check('g2: the default launch is plain `codex`', JSON.stringify(G2_LAUNCH) === '["codex"]');
+  // Injection 1 is the human 0.157.1 re-run's, word for word, with the observed version in
+  // place of 0.157.1 (no "through herdr": both live runs took it as a task).
+  const humanInject = g2Facts(parseG2Transcript(BASELINE)).turnStarts.map((t) => t.text).filter((t) => /OAC G2 RERUN RECEIVED/.test(t));
+  check('g2: the default injection 1 equals the human run\'s injected text, with the version as the only variable', humanInject.length === 1 && defaultInjectText('0.157.1') === humanInject[0] && defaultInjectText('9.9.9') === humanInject[0].replace('0.157.1', '9.9.9') && !/herdr/i.test(defaultInjectText('0.160.0')), JSON.stringify(humanInject));
   check('g2: the default operator prompt is not a delivered message; delivered texts are refused as operator input', !throws(() => assertNotInjected('p', DEFAULT_OPERATOR_PROMPT)) && throws(() => assertNotInjected('p', defaultInjectText('0.157.1'))) && throws(() => assertNotInjected('p', 'please call thread/queue/add')));
   check('g2: fixture names follow K7; unverified names are never fixture-shaped', JSON.stringify(fixtureNames('2026-10-01', '0.157.1')) === '{"transcript":"transcript-2026-10-01-0.157.1-herdr.jsonl","pane":"pane-2026-10-01-0.157.1-herdr.txt"}' && unverifiedNames('2026-10-01').transcript.startsWith('unverified-') && throws(() => fixtureNames('2026-10-01', 'latest')));
 
@@ -476,6 +497,33 @@ export function g2Cases(check) {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  // #130: in the delivered turn the fake Codex reads a file and calls an MCP tool on its own
+  // (synthetic bodies, shaped like the 2026-10-05 run's frames). The captures written must
+  // carry neither body, and the report must score exactly as without them.
+  const TOOL_BODIES = SYNTH;
+  run('g2 #130: a file read and an MCP tool call in the delivered turn are elided from both captures', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_TOOL_OUTPUT: JSON.stringify(TOOL_BODIES) } }, (r) => {
+    const m = r.manifest;
+    check('g2 #130: PASS', r.status === 0 && m.outcome === 'PASS', `${m.outcome} ${m.outcomeReason}`);
+    const cap = r.capture(names().transcript) ?? '';
+    const pane = r.capture(names().pane) ?? '';
+    const bodyLines = [...TOOL_BODIES.output.split('\n'), ...TOOL_BODIES.mcpResult.split('\n')].filter(Boolean);
+    const leaks = bodyLines.filter((l) => cap.includes(l) || pane.includes(l) || r.manifestText.includes(l));
+    check('g2 #130: no tool-output body line in the transcript, the pane or the run manifest', cap.length > 0 && pane.length > 0 && leaks.length === 0, leaks.join(' | '));
+    const marker = (s, kind = 'tool-output') => `<ELIDED ${kind} bytes=${Buffer.byteLength(s, 'utf8')} sha256=${sha256(s)}>`;
+    check('g2 #130: the transcript carries the read\'s and the MCP result\'s markers, the command and tool kept', cap.includes(JSON.stringify(marker(TOOL_BODIES.output))) && cap.includes(JSON.stringify(marker(TOOL_BODIES.mcpResult))) && cap.includes(JSON.stringify(TOOL_BODIES.command)) && cap.includes(JSON.stringify(TOOL_BODIES.tool)));
+    const firstLine = TOOL_BODIES.output.split('\n')[0];
+    check('g2 #130: the pane shows the read\'s first output line as a marker, on its own line, glyph kept', pane.split('\n').some((l) => l.includes(`└ ${marker(firstLine, 'tool-output-line')}`)) && pane.includes(`Ran ${TOOL_BODIES.command}`));
+    const capT = m.captures.find((c) => c.file === names().transcript);
+    const capP = m.captures.find((c) => c.file === names().pane);
+    check('g2 #130: the redaction reports list the elisions (line, bytes, sha256), both captures written clean', capT?.written && capP?.written && capT.redaction.elidedToolOutputs.length >= 6 && capP.redaction.elidedToolOutputLines.length >= 1 && reportIsClean(capT.redaction) && reportIsClean(capP.redaction));
+    const f = g2Facts(parseG2Transcript(cap));
+    const delivered = f.turnsLists.at(-1)?.turns.find((t) => t.userTexts.some((u) => /second daemon client/.test(u)));
+    check('g2 #130: the daemon turn record still lists the delivered turn, its message and answer', !!delivered && delivered.status === 'completed' && delivered.agentMessages.length === 1);
+    const ev = evalRun(r);
+    check('g2 #130: report scores C1, C2, C4 equivalent; C3 pending the operator (as without tool output)', ev.rows.map((x) => x.score).join('|') === [SCORES.EQ, SCORES.EQ, SCORES.NE, SCORES.EQ].join('|'), JSON.stringify(ev.rows.map((x) => [x.score, x.reason])));
+    check('g2 #130: an operator score for C3 applies, from the kept pane lines', evalRun(r, parseOperatorScores([{ n: 3, score: 'equivalent', note: 'pane read shows both messages and answers' }])).rows[2].score === SCORES.EQ);
   });
 
   // #232: this case also plants a random, unknown-shaped secret in the argv of a pane
@@ -630,6 +678,16 @@ export function g2Cases(check) {
     const ready = g2.codexReady;
     check('g2 #204 draft: PASS; the ready wait first saw the startup-draft composer (no new loaded thread), then a ready session', r.status === 0 && ready && ready.observations.some((o) => /startup draft/.test(o.why ?? '')) && ready.observations.at(-1).why === null && ready.newThreads === 1 && ready.waitedMs >= 1500, `${r.status} ${m.outcomeReason} ${JSON.stringify(ready)}`);
     check('g2 #204 draft: the message was typed once, only after the ready read; nothing was held as "Waiting for startup"', r.prompts.length === 1 && promptSeq(m) > ready.readSeq && !/Waiting for startup/.test(r.capture(names().pane)), String(promptSeq(m)));
+  });
+
+  // #282: the session is loaded on the wire (and the composer idle) while herdr still reports
+  // Codex working: the startup settle waits it out, re-checks, and only then is the message typed
+  // (after its own #253 baseline).
+  run('g2 #282 working after the session is ready: settled, then typed', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_STARTUP_MS: '2500', FAKE_CODEX_READY_WORKING_MS: '5000' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    const s = g2.codexStartupSettle;
+    check('g2 #282: PASS; herdr reported Codex working once its session was ready, the driver settled it (idle past that, re-checked), then took an idle #253 baseline and typed once', r.status === 0 && s?.outcome === 'settled' && s.observed.state === 'working' && s.settled.stateChangeSeq > s.observed.stateChangeSeq && g2.operatorInput?.baseline?.state === 'idle' && g2.operatorInput.baseline.seq > s.settled.recheckSeq && promptSeq(m) > g2.operatorInput.baseline.seq && r.prompts.length === 1, `${r.status} ${m.outcomeReason} ${JSON.stringify(s)}`);
   });
 
   run('g2 #204 hook review: NOT RUN naming it; nothing typed, no key sent to it', { args: ['--param', 'accept=driver', ...FAST], fakeCodex: { FAKE_CODEX_STARTUP_MS: '500', FAKE_CODEX_HOOKS_REVIEW: '1' } }, (r) => {

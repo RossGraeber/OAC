@@ -30,6 +30,11 @@
 // harnessExecutables (basename, sha256, format; never a directory), and each written
 // capture's sha256.
 //
+// Captures never republish third-party text a harness read or a tool returned (#130): each
+// tool-output body on a wire transcript is elided to `<ELIDED tool-output bytes=N sha256=...>`
+// (lib/redact.mjs, lib/elide.mjs), and a pane line is elided only when that wire shows it is
+// tool output. Each elision is listed in the capture's redaction report.
+//
 // Test tooling only. Node built-ins only; no package.json. herdr is an external process,
 // never linked. The driver never reads harness credentials, never writes harness config
 // (it hashes it before and after), and never runs the herdr subcommand that adds hooks
@@ -50,6 +55,7 @@ import {
   probeHarnesses, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV, resolveHerdr, herdrIdentity, sha256Text,
 } from './lib/manifest.mjs';
 import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './lib/redact.mjs';
+import { redactCaptures } from './lib/elide.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
 import { removeScratch } from './lib/scratch.mjs';
@@ -548,8 +554,10 @@ async function runScenarioInner(opts, state) {
     state.phase = 'record';
 
     const redactor = createRedactor({ literals });
+    const redactedCaptures = redactCaptures(redactor, captures);
     for (const c of captures) {
-      const { text, report } = c.format === 'jsonl' ? redactor.redactJsonl(c.text) : redactor.redactText(c.text);
+      const res = redactedCaptures.get(c);
+      const { text, report } = res;
       const ok = reportIsClean(report);
       if (ok) writeFileSync(join(outDir, c.name), text);
       // sha256 of the bytes written (#140): binds a committed fixture to this capture.

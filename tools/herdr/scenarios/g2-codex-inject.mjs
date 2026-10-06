@@ -5,10 +5,18 @@
 // against that run's fixture, criterion by criterion (tools/herdr/lib/g2-report.mjs). It
 // never changes G2's verdict, STATUS.md, or PINS.md.
 //
-// LIVE STATUS: UNVERIFIED. This scenario has only been exercised against the test doubles
-// in tools/herdr/test/ (a fake herdr and a fake Codex); it has never driven a real herdr or
-// a real Codex. Every Codex pane-text pattern it relies on is a guess to be confirmed by the
-// first operator run (lib/g2.mjs).
+// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G2-2026-10-05.md (an equivalence
+// record, not verdict-bearing; PR #300): run 20261005T052341Z-eb6c5a, a real herdr (v0.9.1)
+// and a real Codex (0.160.0), run outcome PASS, driver commit efb775f. The record holds for
+// that driver commit only: a later run relies on it only under oac-gates
+// references/scripted-runs.md "When a scripted run may carry a verdict" (among other
+// conditions, an empty tools/herdr/ diff, test/ excluded, against efb775f). No dialog
+// appeared in that run (its manifest records none), so the Codex trust-dialog pattern
+// (lib/g2.mjs) has not been exercised live in a G2 run. Two earlier runs that day were not
+// recorded:
+//   - 20261005T020547Z-84b913: its transcript carried third-party tool output (#130);
+//   - 20261005T041011Z-bb584c: its transcript carried harness-authored text in a daemon
+//     response that the elision did not then cover.
 //
 // Operator command (a machine with herdr at the PINS.md pin and a Codex CLI, any version:
 // versions float, and one other than PINS.md's last tested version is a VERSION WARNING
@@ -86,7 +94,7 @@ import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, spawnLongRunning, killTree, descendants, within } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, formatSection, sameDialog, acceptHint } from '../lib/g1.mjs';
-import { driverAcceptDialog, recordWaitState } from '../lib/gate-common.mjs';
+import { driverAcceptDialog, recordWaitState, settleAfterObservation, pastFloor, refuseRunningTurn } from '../lib/gate-common.mjs';
 import {
   G2_LAUNCH, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, PINS_PATH, DEFAULT_OPERATOR_PROMPT, defaultInjectText, assertNotInjected, stageClientCopy,
   fixtureNames, unverifiedNames, classifyCodexScreen, driverMayAcceptCodex, normalizeDialogText, paneArgv, parseG2Transcript,
@@ -350,8 +358,9 @@ export default {
     // Wait until the pane shows neither a dialog nor work in progress. `done` (#253) is the
     // wire-level "turn finished" signal when the scenario has one: with it, a herdr `unknown`
     // counts as settled (recorded with a finding); without it, `unknown` is never settled.
-    const settle = async (context, timeoutMs, { done = null } = {}) => {
-      await sleep(num('settleMs'));
+    // #282: `floor` (a state_change_seq) is a settle that must be at or past it.
+    const settle = async (context, timeoutMs, { done = null, floor = null } = {}) => {
+      if (floor === null) await sleep(num('settleMs'));
       const deadline = deadlineFor(timeoutMs);
       const waited0 = humanWaitMs;
       let blockedUnseen = 0;
@@ -361,7 +370,7 @@ export default {
         const st = await waitState(context, left);
         const state = st.state;
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
-        if (state === 'unknown' && !(done && done())) {
+        if ((state === 'unknown' && !(done && done())) || !pastFloor(st, { floor })) {
           await sleep(pollMs);
           continue;
         }
@@ -380,7 +389,7 @@ export default {
           await sleep(pollMs);
           continue;
         }
-        return { read: r, state };
+        return { read: r, state, stateChangeSeq: st.stateChangeSeq, waitSeq: st.seq };
       }
     };
 
@@ -573,10 +582,22 @@ export default {
       });
       g2.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
+      // #282: the session loaded on the wire is not the end of Codex's startup: settle (idle at
+      // or past herdr's state at this observation, still idle on a re-check) before typing.
+      g2.codexStartupSettle = await settleAfterObservation({
+        herdr, name: AGENT, g: g2, context: 'codex-ready-settle', what: `the Codex session loaded in the daemon (pane read #${ready.readSeq})`,
+        timeoutMs: num('turnTimeoutMs'), settleMs: num('settleMs'), ctx, stop, sleep,
+        settleTo: async ({ floor, timeoutMs }) => {
+          const s = await settle('codex-ready-settle', timeoutMs, { floor });
+          return { state: s.state, stateChangeSeq: s.stateChangeSeq, waitSeq: s.waitSeq, readSeq: s.read.seq };
+        },
+      });
 
       // --- 4. the operator's own message; find the TUI's thread on the wire ----------------
+      // #253 (#282 review): never typed into a running turn; an `agent get` baseline first.
+      const promptBase = await refuseRunningTurn({ herdr, name: AGENT, g: g2, context: 'operator-prompt', ctx, stop });
       const res = await herdr.agentPrompt(AGENT, operatorPrompt);
-      g2.operatorInput = { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text: operatorPrompt };
+      g2.operatorInput = { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, text: operatorPrompt, baseline: { seq: promptBase.seq, state: promptBase.state, stateChangeSeq: promptBase.stateChangeSeq } };
       const listFrom = lineCount();
       // This wait only schedules the next read: it can return at once, with the state from
       // before the prompt was picked up (#253). The operator's turn being over is established

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd } from '../lib/manifest.mjs';
-import { herdrVerification } from '../lib/gate-report-common.mjs';
+import { herdrVerification, verification, TO_FILL } from '../lib/gate-report-common.mjs';
 import { checkHerdrExecutable, herdrCheckDecision, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -141,6 +141,14 @@ export async function identityUnit(check) {
     check('#252 verification: a version off the pin is UNVERIFIED', !hv({ herdr: { ...man({}).herdr, observedVersionOutput: 'herdr 0.9.2' } }).verified);
     check('#252 check: a match on a locally observed (not first-party) row says so', xc({}, 'win32-x64').result === 'match' && xc({}, 'win32-x64').firstParty === false && /first-party source UNVERIFIED/.test(xc({}, 'win32-x64').detail) && xc({}).firstParty === true);
     check('#252 verification: a match on a locally observed value is UNVERIFIED, worded as such', (() => { const v = hv(man({}, xc({}, 'win32-x64'))); return !v.verified && /matches the locally observed value .*first-party source UNVERIFIED/.test(v.text); })());
+    // The generated Verification section: only its slot lines carry the TO_FILL token, so a
+    // recording agent that fills the slots leaves nothing scripts/check-fixture-manifest.mjs
+    // refuses (the preamble once named the token itself and could never pass the checker).
+    const vs = verification({ manifest: man({}), harness: 'VERIFIED — h', dialogs: [], dialogsField: 'dialogs', humanActions: 'none.' });
+    const slotLines = vs.filter((l) => l.includes(TO_FILL));
+    check('#252 verification: only the Human actions and Verified by slot lines carry the TO_FILL token, never the preamble', slotLines.length === 2 && slotLines[0].startsWith('- **Human actions:** ') && slotLines[1].startsWith('- **Verified by:** '), slotLines.join(' || '));
+    const filled = vs.map((l) => (l.startsWith('- **Human actions:** ') ? '- **Human actions:** none.' : l.startsWith('- **Verified by:** ') ? '- **Verified by:** agent, 2026-10-04' : l)).join('\n');
+    check('#252 verification: once the slots are filled no `<TO FILL` remains in the section', !filled.includes(TO_FILL) && filled.includes('(marked TO FILL)'));
     // herdrCheckDecision: what run.mjs does with each result (NOT RUN before spawn, or a finding).
     const dec = (x, platform) => herdrCheckDecision(xc(x, platform));
     check('#252 decision: mismatch and unhashed are NOT RUN, with no finding', /Refusing to run \(#252\)/.test(dec({ sha256: otherHex }).notRun ?? '') && /Refusing to run/.test(dec({ sha256: null }).notRun ?? '') && dec({ sha256: otherHex }).finding === null);

@@ -14,6 +14,15 @@ export const failed = (row) => required(row).filter((c) => !c.ok).map((c) => c.n
 export const allRequired = (row) => required(row).every((c) => c.ok);
 export const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
+// The transcript lines of one exchange (request line, response line) as a MANIFEST.json
+// coverage item (#290). A range only when the lines are adjacent; otherwise a list, because
+// a range would claim the lines of whatever was interleaved between them (another server's
+// probe, a push). `last` missing or equal to `first` is a single line.
+export function lineSpan(first, last) {
+  if (last == null || last === first) return `${first}`;
+  return Number.isInteger(first) && Number.isInteger(last) && last === first + 1 ? `${first}-${last}` : `${first}, ${last}`;
+}
+
 // Operator scores, only for the rows that take one; each needs a note.
 export function parseOperatorScores(pairs, allowed, why) {
   const out = {};
@@ -184,11 +193,13 @@ export function harnessVerification(manifest, { verified, versions }) {
 
 // The verification block. `humanActions`: the steps a person did that the agent could not,
 // each naming who (a `<TO FILL: ...>` slot where only the person can say).
+// Only the slot lines carry the TO_FILL token: the preamble names the slots without it, because
+// scripts/check-fixture-manifest.mjs refuses any `<TO FILL` left in a Verification section.
 export function verification({ manifest, harness, dialogs, dialogsField, humanActions, heading = '## Verification', extra = [], herdr = herdrVerification(manifest) }) {
   return [
     heading,
     '',
-    'Each line is checked from the evidence it cites (run-manifest.json fields beside this record), or marked UNVERIFIED with the reason (`.claude/skills/oac-gates/references/scripted-runs.md` "Verification"). Generated from the run manifest; the recording agent re-checks every citation and fills each `<TO FILL: ...>` slot. A herdr or Harness line that is UNVERIFIED means this record is neither an equivalence record nor verdict-bearing.',
+    'Each line is checked from the evidence it cites (run-manifest.json fields beside this record), or marked UNVERIFIED with the reason (`.claude/skills/oac-gates/references/scripted-runs.md` "Verification"). Generated from the run manifest; the recording agent re-checks every citation and fills each slot the generator left open (marked TO FILL). A herdr or Harness line that is UNVERIFIED means this record is neither an equivalence record nor verdict-bearing.',
     '',
     `- **herdr:** ${herdr.text}`,
     `- **Harness:** ${harness}`,

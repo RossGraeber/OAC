@@ -27,10 +27,25 @@ never replaces a supported interface and it decides nothing.
 |---|---|
 | `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). Executable identity (#140, `lib/manifest.mjs`, run-manifest `schemaVersion` 2): herdr is resolved once and spawned only by that path (unresolved: NOT RUN, nothing spawned), its sha256 compared with PINS.md's expected one for the platform before it is spawned (#252, run-manifest `schemaVersion` 3, `herdr.executableCheck`, `lib/pins.mjs` `herdrCheckDecision`: a mismatch is NOT RUN, no expected value or a match on a locally observed, not first-party, value is a finding), and re-hashed at teardown; `herdr.executable` and `harnessExecutables` record basename, sha256, format and (herdr) `testDouble`, never a directory, and each written capture records its `sha256` (`oac-gates` `references/scripted-runs.md` "Executables and capture hashes"). Teardown process accounting (#136, `lib/herdr.mjs` `teardown`, `lib/proc.mjs` `processTable`): every pane `workspaceCreate` returned is queried with `pane process-info` whether or not the scenario asked, and the pane processes' and the herdr server's descendants are recorded from one process table (Linux `/proc`, macOS `ps`, Windows `Get-CimInstance Win32_Process`: pid, parent pid, creation time, argv). After the stop a recorded pid still alive is killed, that pid only and never its tree, only if its creation time is unchanged, it is no older than the driver process, and it is not the Codex app-server (the shared daemon is never stopped). Anything it cannot verify is not killed: it is listed in `teardown.leftoverProcesses` (`unverifiedPids`), and teardown is not clean. This covers a live pid missing from the process table and a creation time that cannot be compared with the driver's. By design, `teardown.protectedProcesses` (an app-server the run's panes started, left running) does not affect `clean`; a scenario that expects no daemon checks `protectedProcesses.length === 0` itself. Known limits: the `app-server` match is UNVERIFIED against a live daemon's argv (the operator's own daemon predates the driver and is excluded before that match; if a pane-started daemon lacks the token, teardown kills that run-started daemon). A GUI process a pane started (a browser opened for a login, if none was running) is a pane descendant created after the driver and is killed, as POSIX group kills already did. The third-signal emergency exit in `run.mjs` still kills the server tree (`taskkill /T` on Windows). No teardown step throws (#239): a herdr call that cannot be started is recorded and teardown goes on to the server kill and the process checks, and if the scratch directory (herdr's working directory) was removed under the run, teardown's herdr calls run in `os.tmpdir()` (`teardown.cwdFallback`), and the run manifest carries a finding that `HERDR_CONFIG_PATH` then names a config inside the removed directory (real herdr's handling of that is UNVERIFIED, #249). A process whose command line could not be read (Windows `Win32_Process.CommandLine` null, Linux `/proc/<pid>/cmdline` unreadable) is unverified and never killed (#249). |
 | `ci.mjs`, `runner-hooks/` | The opt-in CI entry point and runner hooks (K6). |
-| `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). |
+| `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). `redact.mjs` also redacts a home path or caller literal (`<REPO>`, `<SCRATCH>`, ...) that a pane wrap split across lines, keeping the line break, and its residual scan reports one that survives (`(line-wrapped)` labels, #288). Captures never republish third-party text a harness read or a tool returned: see "Capture elision (#130)" below. Report generators write a MANIFEST.json coverage exchange as a range only when its lines are adjacent, otherwise as a list (`gate-report-common.mjs` `lineSpan`, #290). |
 | `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8), `l3-beacon` (L3b; the Beacon live leg, not a gate). |
 | `gate-servers/` | K8: the G4 and G5 gate servers, **reconstructed** (see below). |
-| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`, and `fake-rm-eperm.mjs`, which makes scratch removal throw EPERM, #202) and the file-access tracer (`fs-trace.mjs`). |
+| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`, and `fake-rm-eperm.mjs`, which makes scratch removal throw EPERM, #202) and the file-access tracer (`fs-trace.mjs`). `wrap-coverage-tests.mjs` holds the #288 and #290 tests, built on the committed G4 Claude pane fixture and run manifest. |
+
+### Capture elision (#130)
+
+Captures never republish third-party text a harness read or a tool returned (#130, `elide.mjs`). In a wire transcript, each Codex app-server field on the elision list becomes `<ELIDED tool-output bytes=N sha256=…>` (hash of the redacted body). The list is the fields that carry tool, file or hook text, found by going through every ThreadItem and ServerNotification of the v2 schema at `rust-v0.160.0`; it is not the whole protocol:
+- the outputs of commandExecution (file reads included), mcpToolCall, functionCallOutput, dynamicToolCall, webSearch and imageGeneration items;
+- file diffs: fileChange `changes[].diff`, `turn/diff/updated`, `item/fileChange/patchUpdated`;
+- hook output (`hook/started` and `hook/completed` entries, hookPrompt fragments);
+- `process/exited` stdout and stderr, MCP event-stream notifications, and the output-delta and progress notifications;
+- requests the daemon sends its client, recognised by the capture record's `direction: "daemon->client"` (#297): an MCP server's elicitation message, schema and url, and the file contents of the legacy patch approval;
+- an MCP server's startup error, a config warning's details and an agent message's memory-citation notes (#297);
+- harness-authored instruction and prompt text, and upstream error detail, anywhere the daemon sends its client, results included: `<ELIDED harness-text …>`. Matched by key name (`elide.mjs` `DAEMON_TEXT_KEYS`), because a response does not name its method: developer, base and user instructions (the collaboration-mode settings of thread/resume and of the `thread/settings/updated` notification, config/read), `instructions`, `compact_prompt`, `additionalDeveloperInstructions`, plugin and skill default prompts, and a turn error's `additionalDetails` and misalignment explanation and steer text. Found by going through every response of the v2 schema at `rust-v0.160.0`. Thread items (the schema's 19 ThreadItem types) are not searched by key. In scope are the responses to what the herdr Codex clients send: `initialize`, `thread/loaded/list`, `thread/list`, `thread/resume`, `thread/turns/list`, `turn/start` and `thread/queue/add`. Every other response is out of scope: it can carry harness- or third-party text on no list, which the residual scan below catches only at 120 characters or more.
+
+Within an elided body, a free-text object key becomes a marker too; only schema keys and enum `type` tags stay. Ids, methods, statuses, paths, the command line, tool arguments and every message text stay, one record per line. A pane line is elided only when the same run's wire shows it is tool output: the line, without its indentation and TUI glyphs, is at least 16 characters, sits inside an elided body, and appears in no text the transcript keeps. Line numbers hold in both. Claude Code's captured wire is OAC's own MCP traffic, and its tools/call results are the OAC server's replies, so nothing in it is elided. The residual scan makes two checks:
+- `un-elided tool output`: a field on the list still carries a body.
+- `unrecognised long text in an app-server frame`: a check that does not depend on the list. It flags any string of 120 or more characters in an app-server item, notification, daemon request or daemon response that is neither elided nor on a keep-list. The keep-lists hold the fields a gate criterion scores or that OAC or its client wrote, plus a few short harness-status lines decided one by one (`elide.mjs` header, #297 NB3). Kept fields include the answers and the delivered messages, so a long scored answer is never flagged; a response's pagination cursors are kept only in the shape Codex writes them (the compact JSON of `HistoryCursor` at rust-v0.160.0: exactly `requestedThreadId` (a UUID), `rolloutOrdinal`, `includeAnchor` and `scope.kind` (a `CursorScope` variant), #299). A field the list misses withholds the capture instead of reaching a fixture. Known limit: text under 120 characters in a field no list names is caught only by the list.
 
 ## Dialogs: the driver accepts them (dev/test runs, #196)
 
@@ -246,6 +261,24 @@ herdr's state is a scheduling signal only, never evidence; these rules make it a
   - Wire evidence comes in two kinds. `begun` (a tool call on the wire) only shows that a
     turn started. `done` (the turn completed on the wire) shows that it is over, and only
     `done` lets herdr's `unknown` count as settled.
+- **A startup seen on the wire is not a finished startup (#282).** Live G4 run
+  20261004T075757Z (Codex 0.160.0) saw Codex's MCP connect ~13 s after launch, and the
+  pre-prompt `agent get` 1.1 s later read `working`, so the driver refused to type. After such
+  an observation (Codex's MCP connect in G4; its session loaded in the daemon in G2, G5 and L3)
+  the driver settles once more before the first prompt (`lib/gate-common.mjs`
+  `settleAfterObservation`, `makeAgent().startupSettle`): `agent get` right after the
+  observation sets the floor, a settle must be idle at or past it, and a re-check `agent get`
+  after `settleMs` must still be idle at the same `state_change_seq` (a change raises the floor
+  and repeats). Bounded by `turnTimeoutMs`; never settled is NOT RUN with a finding naming the
+  startup settle. It types nothing, and the first prompt keeps its own #253 baseline and
+  refusal: `prompt(text, { wait: true })` in G4, G5 and L3, and since #282 also before G2's
+  plain operator prompt (`refuseRunningTurn`: an `agent get` reporting working or blocked is
+  NOT RUN, nothing typed).
+  Codex startup timing varies widely: the MCP connect came ~2 s after launch in run 050646Z
+  and ~13 s in 075757Z, and in 075322Z the TUI exited unprompted before connecting (cause
+  UNVERIFIED; Codex's own log store, `logs_2.sqlite` under the Codex home, not examined).
+  Claude's handshakes were already followed by a settle (`post-handshake`, G4's
+  `after-startup` settled read), so they are unchanged.
 - **"Turn finished" comes from the wire where one exists.** Codex: `thread/turns/list`
   showing no turn `inProgress` (`lib/g5.mjs` `threadIdleOnWire`), taken after the thread
   marker and before every delivery (G5 both paths, L3); G2 already waits for the thread's
@@ -264,10 +297,18 @@ Each gate scenario replays the human-run gate spike through herdr and records th
 report generator scores every pass criterion against the human run's committed fixture and
 writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of them is
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
-`scripted-runs.md` "Verdict eligibility" says otherwise. **None has run live**: each is
-exercised only against the test doubles, so every harness-facing behavior is UNVERIFIED until
-it runs live (the commands are in each scenario's header comment; an agent runs them,
-see "Operator setup" below).
+`scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G2, G4 and
+G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2's is
+`G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`, Codex 0.160.0, run outcome PASS, driver
+commit `efb775f`, PR #300). Two earlier G2 runs that day were not recorded:
+`20261005T020547Z-84b913`, whose transcript held third-party tool output (#130), and
+`20261005T041011Z-bb584c`, whose transcript held harness-authored text in a daemon response
+that the elision did not then cover. A record holds for its own driver commit: a later
+scripted run relies on it only under `scripted-runs.md` "When a scripted run may carry a
+verdict" (among other conditions, an empty `tools/herdr/` diff, `test/` excluded, against the
+record's driver commit). A harness-facing behavior that no committed record shows stays
+UNVERIFIED until a live run shows it (the commands are in each scenario's header comment; an
+agent runs them, see "Operator setup" below).
 
 ```bash
 node tools/herdr/run.mjs --scenario g4-mcp-dual-era --out <run dir>   # accept=driver (default, #196)

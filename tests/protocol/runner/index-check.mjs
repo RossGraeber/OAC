@@ -163,20 +163,33 @@ export function ownerRows(text) {
   let comment = false; // inside an HTML comment
   for (let k = 1; k < lines.length; k++) {
     const raw = lines[k].replace(/\s+$/, '');
-    if (/^## /.test(raw)) break;
     // GitHub renders a table row with up to three leading spaces and without outer pipes.
     const line = raw.replace(/^ {0,3}/, '');
+    // Block state comes before headings: inside a fenced code block or an HTML comment a `## `
+    // line is literal text, not a heading, and does not end the appendix (#291).
+    // CommonMark §4.5: a fence opens with three or more backticks or tildes; a backtick fence's
+    // info string may not contain a backtick (```a`b is a paragraph, not a fence). It closes on
+    // a line of the same character, at least as long, with nothing after it but spaces.
     if (fence) {
-      if (line.startsWith(fence)) fence = null;
+      const c = /^(`{3,}|~{3,})$/.exec(line);
+      if (c && c[1][0] === fence[0] && c[1].length >= fence.length) fence = null;
       continue;
     }
-    const f = /^(`{3,}|~{3,})/.exec(line);
-    if (f) {
-      fence = f[1];
+    // CommonMark §4.6, HTML block type 2: it starts on a line that begins with `<!--` and ends on
+    // the first line that contains `-->`, which may be the start line. Every line of it is inert,
+    // so a fence marker or a `## ` line inside it changes nothing (#291).
+    if (comment) {
+      if (line.includes('-->')) comment = false;
       continue;
     }
-    if (comment || line.startsWith('<!--')) {
+    if (/^## /.test(raw)) break;
+    if (line.startsWith('<!--')) {
       comment = !line.includes('-->');
+      continue;
+    }
+    const f = /^(?:(`{3,})[^`]*|(~{3,}).*)$/.exec(line);
+    if (f) {
+      fence = f[1] ?? f[2];
       continue;
     }
     if (!line.includes('|')) continue;

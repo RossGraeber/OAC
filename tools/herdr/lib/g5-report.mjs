@@ -63,7 +63,7 @@ import { parseSections, committedFile } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 import { schemaBlockFor } from './g2-report.mjs';
 import {
-  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine,
+  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine, lineSpan,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -744,7 +744,7 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, text
       ...common,
       capture_utc_range: cf.firstT && cf.lastT ? `${cf.firstT}-${cf.lastT}` : null,
       redaction: red(fixtures.transcriptClaude),
-      coverage: Object.fromEntries([['initialize', cf.initialize.map((x) => `${x.reqLine}-${x.resLine}`).join(', ') || null], ...cf.notifications.map((n) => [`notifications/claude/channel (case ${n.case})`, String(n.line)])]),
+      coverage: Object.fromEntries([['initialize', cf.initialize.map((x) => lineSpan(x.reqLine, x.resLine)).join(', ') || null], ...cf.notifications.map((n) => [`notifications/claude/channel (case ${n.case})`, String(n.line)])]),
     },
     {
       path: `${FIXTURE_DIR}/${fixtures.transcriptCodex}`,
@@ -755,7 +755,8 @@ export function draftManifestEntries({ manifest, fixtures, runManifestPath, text
       ...common,
       capture_utc_range: xf.firstT && xf.lastT ? `${xf.firstT}-${xf.lastT}` : null,
       redaction: red(fixtures.transcriptCodex),
-      coverage: Object.fromEntries([...xf.cases.map((c) => [`${c.call} (case ${c.case})`, c.startLine ? String(c.startLine) : null]), ['thread/turns/list', xf.turnsLists.map((t) => t.line).join(', ') || null]]),
+      // Request and response lines of each exchange (#299), as the human-run entry gives them.
+      coverage: Object.fromEntries([...xf.cases.map((c) => [`${c.call} (case ${c.case})`, c.startLine ? lineSpan(c.startLine, c.startResLine) : null]), ['thread/turns/list', xf.turnsLists.map((t) => lineSpan(t.reqLine, t.line)).join(', ') || null]]),
       schema: schemaBlockFor({ version: v.cli.codex, codexCommit: versionMatchesLastTested(g5) ? v.pins?.codexCommit : null, manifestJson }),
     },
     { path: `${FIXTURE_DIR}/${fixtures.paneClaude}`, provider: 'claude', surface: 'claude-code TUI pane text (herdr agent read)', observed_version: { claude_code: v.cli.claude, node: null }, pins_row: 'Claude Code (Channels)', ...common, capture_utc_range: null, redaction: red(fixtures.paneClaude), coverage: { 'pane reads': 'verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps' } },

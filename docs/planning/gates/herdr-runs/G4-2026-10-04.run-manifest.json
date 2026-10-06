@@ -1,0 +1,4904 @@
+{
+  "schemaVersion": 3,
+  "runId": "20261004T093525Z-c9beec",
+  "outcome": "PASS",
+  "outcomeReason": null,
+  "scenario": {
+    "name": "g4-mcp-dual-era",
+    "file": "tools/herdr/scenarios/g4-mcp-dual-era.mjs",
+    "description": "G4 re-run through herdr for comparison with the human-run 2026-09-26 re-run (K8). Reconstructed server. Not verdict-bearing.",
+    "params": {
+      "accept": "driver",
+      "httpPort": "17458",
+      "modernHttpPort": "17460",
+      "codexLaunch": "",
+      "claudeEnv": "{\"MCP_SDK_GENERATION\":\"v2\"}",
+      "claudeEchoPrompt": "Call the g4_echo tool from the g4http MCP server with the text \"hello from claude over http\", and show me the full result including _meta.",
+      "codexToolsPrompt": "Call the g4_echo tool with the text \"hello from codex through herdr\" and print its result. Then call the g4_relay_to_claude tool with the text \"codex relay during modern session\" and print its result.",
+      "claudeEchoAfterPrompt": "Call the g4_echo tool from the g4http MCP server again, with the text \"modern still healthy after codex traffic\", and show me the full result.",
+      "startupTimeoutMs": "120000",
+      "humanAcceptTimeoutMs": "300000",
+      "handshakeTimeoutMs": "90000",
+      "wireTimeoutMs": "15000",
+      "turnTimeoutMs": "300000",
+      "settleMs": "3000",
+      "pollMs": "1000",
+      "busyIndicator": "esc to interrupt",
+      "readLines": "2000",
+      "maxDialogs": "12"
+    }
+  },
+  "launch": {
+    "argv": [
+      "claude",
+      "--dangerously-load-development-channels",
+      "server:g4spike",
+      "server:g4modern"
+    ],
+    "herdrReportedArgv": null
+  },
+  "driver": {
+    "entry": "tools/herdr/run.mjs",
+    "commit": "b478f2a6d78714ddf04caaf5e6f03c9a9fec6f85",
+    "toolsHerdrDirty": false,
+    "node": "v25.2.1"
+  },
+  "herdr": {
+    "pinRow": "herdr (test tooling)",
+    "executable": {
+      "requested": "herdr",
+      "resolved": true,
+      "basename": "herdr.exe",
+      "realBasename": "herdr.exe",
+      "sha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "bytes": 25562624,
+      "format": "pe",
+      "runUnderNode": false,
+      "testDouble": false,
+      "unchangedAfterRun": true
+    },
+    "executableCheck": {
+      "platform": "win32-x64",
+      "expectedSha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "firstParty": true,
+      "basis": "First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`).",
+      "result": "match",
+      "detail": "herdr executable sha256 equals PINS.md's expected value for win32-x64"
+    },
+    "pinnedTag": "v0.9.1",
+    "pinsSource": {
+      "path": "docs/planning/PINS.md",
+      "headCommit": "b478f2a6d78714ddf04caaf5e6f03c9a9fec6f85",
+      "committedSha256": "b306e04cf897aa21edd92b91f7d5e6f021efb1bbdaf47cd820604714dcc9a30e",
+      "workingTreeMatchesHead": true
+    },
+    "expectedVersionOutput": "herdr 0.9.1",
+    "observedVersionOutput": "herdr 0.9.1",
+    "serverStatus": {
+      "status": "running",
+      "running": true,
+      "version": "0.9.1",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": false,
+        "detached_server_daemon": false,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true
+      },
+      "compatible": true,
+      "endpoint_compatible": true,
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693\\herdr.sock",
+      "session": "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+      "restart_needed": false,
+      "server_binary_stale": false
+    },
+    "config": {
+      "path": "<SCRATCH>\\herdr-config.toml",
+      "contents": "[update]\nversion_check = false\nmanifest_check = false\n"
+    },
+    "agentManifests": {
+      "id": "cli:server:agent-manifests",
+      "result": {
+        "last_check_unix": 1790783747,
+        "last_result": "failed: failed to fetch https://herdr.dev/agent-detection/index.toml",
+        "manifests": [
+          {
+            "active_version": "2026.09.14.1",
+            "agent": "pi",
+            "cached_remote_version": "2026.09.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\pi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "claude",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\claude.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.23.1",
+            "agent": "codex",
+            "cached_remote_version": "2026.09.23.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\codex.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "gemini",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\gemini.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.03.1",
+            "agent": "cursor",
+            "cached_remote_version": "2026.08.03.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cursor.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.15.1",
+            "agent": "devin",
+            "cached_remote_version": "2026.06.15.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\devin.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.24.1",
+            "agent": "agy",
+            "cached_remote_version": "2026.06.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\agy.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "cline",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cline.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "opencode",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\opencode.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.29.1",
+            "agent": "copilot",
+            "cached_remote_version": "2026.08.29.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\copilot.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kimi",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kimi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.19.1",
+            "agent": "kiro",
+            "cached_remote_version": "2026.09.19.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kiro.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "droid",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\droid.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.1",
+            "agent": "amp",
+            "cached_remote_version": "2026.07.09.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\amp.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.18.1",
+            "agent": "grok",
+            "cached_remote_version": "2026.09.18.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\grok.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.24.1",
+            "agent": "hermes",
+            "cached_remote_version": "2026.07.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\hermes.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kilo",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kilo.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "qodercli",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qodercli.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.14.1",
+            "agent": "qwen",
+            "cached_remote_version": "2026.08.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qwen.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.24.1",
+            "agent": "letta",
+            "cached_remote_version": "2026.08.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\letta.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.2",
+            "agent": "maki",
+            "cached_remote_version": "2026.07.09.2",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\maki.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.26.1",
+            "agent": "muse",
+            "cached_remote_version": "2026.08.26.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\muse.toml",
+            "source_kind": "remote"
+          }
+        ],
+        "type": "agent_manifest_status"
+      }
+    }
+  },
+  "harnessVersions": {
+    "claude": "2.1.285 (Claude Code)",
+    "codex": "codex-cli 0.160.0"
+  },
+  "harnessExecutables": {
+    "claude": {
+      "requested": "claude",
+      "resolved": true,
+      "basename": "claude.exe",
+      "realBasename": "claude.exe",
+      "sha256": "121fc8151ed40bd9c144d68aa1cea23427803628ffab65e23da1cceda155697e",
+      "bytes": 243751072,
+      "format": "pe"
+    },
+    "codex": {
+      "requested": "codex",
+      "resolved": true,
+      "basename": "codex.exe",
+      "realBasename": "codex.exe",
+      "sha256": "fdda5fa3cf3fb3d000b876720742857676293e4315e4b045fae6f8bd7e866d1d",
+      "bytes": 326872368,
+      "format": "pe"
+    }
+  },
+  "os": {
+    "platform": "win32",
+    "type": "Windows_NT",
+    "release": "10.0.26300",
+    "arch": "x64"
+  },
+  "session": {
+    "name": "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+    "serverPid": 9012,
+    "panePids": [
+      23536,
+      20720,
+      16236,
+      9932,
+      23640,
+      21424,
+      7236,
+      7516,
+      22572,
+      5016,
+      968,
+      22432,
+      24456,
+      8424,
+      22544,
+      3556,
+      20260
+    ]
+  },
+  "env": {
+    "serverLaunch": {
+      "added": {
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml"
+      },
+      "removed": [
+        "ANTHROPIC_BASE_URL",
+        "CLAUDECODE",
+        "CLAUDE_AGENT_SDK_VERSION",
+        "CLAUDE_CODE_ACCOUNT_UUID",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_DESKTOP_APP_VERSION",
+        "CLAUDE_CODE_DISABLE_CRON",
+        "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+        "CLAUDE_CODE_EAGER_FLUSH",
+        "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES",
+        "CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL",
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+        "CLAUDE_CODE_ENABLE_TELEMETRY",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_HOST_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "CLAUDE_CODE_OAUTH_SCOPES",
+        "CLAUDE_CODE_ORGANIZATION_UUID",
+        "CLAUDE_CODE_REPORT_FINDINGS",
+        "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+        "CLAUDE_CODE_USER_EMAIL",
+        "CLAUDE_PID",
+        "CLAUDE_PREVIEW_CLASSIFIER_FLOOR"
+      ]
+    },
+    "pane": {
+      "paneId": "w1:p1",
+      "added": [
+        "COLORTERM",
+        "ComSpec",
+        "HERDR_BIN_PATH",
+        "HERDR_ENV",
+        "HERDR_PANE_ID",
+        "HERDR_SESSION",
+        "HERDR_SOCKET_PATH",
+        "HERDR_TAB_ID",
+        "HERDR_WORKSPACE_ID",
+        "MCP_SDK_GENERATION",
+        "Path",
+        "windir"
+      ],
+      "removed": [
+        "COMSPEC",
+        "PATH",
+        "WINDIR"
+      ],
+      "values": {
+        "COLORTERM": "truecolor",
+        "HERDR_BIN_PATH": "<USER_HOME>\\.herdr\\packages\\standalone\\releases\\0.9.1-x86_64-pc-windows-msvc\\herdr.exe",
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml",
+        "HERDR_ENV": "1",
+        "HERDR_PANE_ID": "w1:p1",
+        "HERDR_SESSION": "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "HERDR_SOCKET_PATH": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693\\herdr.sock",
+        "HERDR_TAB_ID": "w1:t1",
+        "HERDR_WORKSPACE_ID": "w1",
+        "TERM": "xterm-256color"
+      },
+      "note": "Names compared against the herdr server launch env. Values recorded for HERDR_*, TERM and COLORTERM only. Additions can also come from the pane shell's own startup files."
+    }
+  },
+  "harnessConfig": {
+    "before": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "f5a3bb4c05f6e4adbe1acda493a683b80530205fb6299f5dc3beed0849899c00"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "9bf4886bd8926f659f363510695499ec5f0668a8d426ec01acf509c5f36bb927"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "after": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "f5a3bb4c05f6e4adbe1acda493a683b80530205fb6299f5dc3beed0849899c00"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "9bf4886bd8926f659f363510695499ec5f0668a8d426ec01acf509c5f36bb927"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "unchanged": true,
+    "changed": [],
+    "mustStayUnchanged": [
+      {
+        "why": "codex dialog 4 (mcp-tool-approval): the driver answered \"1. Allow\" for g4http.g4_echo (#271)",
+        "at": "2026-10-04T09:36:57.160Z"
+      },
+      {
+        "why": "codex dialog 5 (mcp-tool-approval): the driver answered \"1. Allow\" for g4http.g4_relay_to_claude (#271)",
+        "at": "2026-10-04T09:36:59.664Z"
+      }
+    ],
+    "beforeFirstAllow": {
+      "at": "2026-10-04T09:36:57.159Z",
+      "hashes": [
+        {
+          "file": "~/.claude/settings.json",
+          "present": true,
+          "sha256": "f5a3bb4c05f6e4adbe1acda493a683b80530205fb6299f5dc3beed0849899c00"
+        },
+        {
+          "file": "~/.codex/config.toml",
+          "present": true,
+          "sha256": "9bf4886bd8926f659f363510695499ec5f0668a8d426ec01acf509c5f36bb927"
+        },
+        {
+          "file": "~/.codex/hooks.json",
+          "present": true,
+          "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+        }
+      ]
+    },
+    "sinceFirstAllow": {
+      "unchanged": true,
+      "changed": []
+    }
+  },
+  "timebox": {
+    "budgetMs": 3600000,
+    "start": "2026-10-04T09:35:25.538Z",
+    "end": "2026-10-04T09:37:22.221Z",
+    "elapsedMs": 116683,
+    "expired": false,
+    "teardownEnd": "2026-10-04T09:37:25.621Z"
+  },
+  "commands": [
+    {
+      "seq": 1,
+      "role": "preflight",
+      "argv": [
+        "herdr",
+        "--version"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:35:25.862Z",
+      "endedAt": "2026-10-04T09:35:25.916Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 12,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 2,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "server"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:35:28.330Z",
+      "endedAt": null,
+      "durationMs": null,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": null,
+        "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
+      },
+      "pid": 9012
+    },
+    {
+      "seq": 3,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "status",
+        "server",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:35:28.338Z",
+      "endedAt": "2026-10-04T09:35:28.386Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 5000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 490,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 4,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "server",
+        "agent-manifests",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:35:28.386Z",
+      "endedAt": "2026-10-04T09:35:28.721Z",
+      "durationMs": 335,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 7198,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 5,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "workspace",
+        "create",
+        "--no-focus",
+        "--cwd",
+        "<SCRATCH>\\g4-project",
+        "--label",
+        "oac-g4-claude",
+        "--env",
+        "MCP_SDK_GENERATION=v2"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:35:29.001Z",
+      "endedAt": "2026-10-04T09:35:29.094Z",
+      "durationMs": 93,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 678,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 6,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-04T09:35:29.095Z",
+      "endedAt": "2026-10-04T09:35:29.149Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1458,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 7,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "run",
+        "w1:p1",
+        "C:\\nvm4w\\nodejs\\node.exe <REPO>\\tools\\herdr\\lib\\env-probe.mjs <SCRATCH>\\env-probe-d4e8bd7e.json d4e8bd7e"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-04T09:35:30.208Z",
+      "endedAt": "2026-10-04T09:35:30.255Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 0,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 8,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "wait-output",
+        "w1:p1",
+        "--regex",
+        "^\\s*ENVPROBE-OK-d4e8bd7e\\s*$",
+        "--timeout",
+        "20000"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-04T09:35:30.255Z",
+      "endedAt": "2026-10-04T09:35:30.402Z",
+      "durationMs": 147,
+      "bound": {
+        "herdrTimeoutMs": 20000,
+        "driverDeadlineMs": 25000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 608,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 9,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "start",
+        "g4claude",
+        "--kind",
+        "claude",
+        "--pane",
+        "w1:p1",
+        "--timeout",
+        "120000",
+        "--",
+        "--dangerously-load-development-channels",
+        "server:g4spike",
+        "server:g4modern"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:30.403Z",
+      "endedAt": "2026-10-04T09:35:34.156Z",
+      "durationMs": 3753,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 1,
+      "signal": null,
+      "errorCode": "agent_not_ready",
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 0,
+      "stderrBytes": 142
+    },
+    {
+      "seq": 10,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-04T09:35:34.157Z",
+      "endedAt": "2026-10-04T09:35:34.207Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 616,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 11,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "116987"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:38.187Z",
+      "endedAt": "2026-10-04T09:35:38.253Z",
+      "durationMs": 66,
+      "bound": {
+        "herdrTimeoutMs": 116987,
+        "driverDeadlineMs": 121987,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 433,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 12,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:38.254Z",
+      "endedAt": "2026-10-04T09:35:38.297Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1516,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 13,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4claude",
+        "down"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:38.300Z",
+      "endedAt": "2026-10-04T09:35:38.354Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 14,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:38.617Z",
+      "endedAt": "2026-10-04T09:35:38.658Z",
+      "durationMs": 41,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1516,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 15,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4claude",
+        "enter"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:38.659Z",
+      "endedAt": "2026-10-04T09:35:38.708Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 16,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:39.722Z",
+      "endedAt": "2026-10-04T09:35:39.789Z",
+      "durationMs": 67,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1375,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 17,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "115383"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:39.790Z",
+      "endedAt": "2026-10-04T09:35:39.833Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": 115383,
+        "driverDeadlineMs": 120383,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 433,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 18,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:39.833Z",
+      "endedAt": "2026-10-04T09:35:39.874Z",
+      "durationMs": 41,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1375,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 19,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4claude",
+        "down"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:39.874Z",
+      "endedAt": "2026-10-04T09:35:39.925Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 20,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:40.189Z",
+      "endedAt": "2026-10-04T09:35:40.263Z",
+      "durationMs": 74,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1375,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 21,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4claude",
+        "down"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:40.264Z",
+      "endedAt": "2026-10-04T09:35:40.313Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 22,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:40.575Z",
+      "endedAt": "2026-10-04T09:35:40.621Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1375,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 23,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4claude",
+        "down"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:40.622Z",
+      "endedAt": "2026-10-04T09:35:40.674Z",
+      "durationMs": 52,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 24,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:40.933Z",
+      "endedAt": "2026-10-04T09:35:40.982Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1375,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 25,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4claude",
+        "enter"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:40.983Z",
+      "endedAt": "2026-10-04T09:35:41.027Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 26,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:42.030Z",
+      "endedAt": "2026-10-04T09:35:42.074Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1454,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 27,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "113099"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:42.074Z",
+      "endedAt": "2026-10-04T09:35:42.123Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": 113099,
+        "driverDeadlineMs": 118099,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 436,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 28,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:42.123Z",
+      "endedAt": "2026-10-04T09:35:42.168Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1454,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 29,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4claude",
+        "enter"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:42.168Z",
+      "endedAt": "2026-10-04T09:35:42.225Z",
+      "durationMs": 57,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 30,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:43.232Z",
+      "endedAt": "2026-10-04T09:35:43.297Z",
+      "durationMs": 65,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1353,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 31,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "111876"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:43.297Z",
+      "endedAt": "2026-10-04T09:35:43.380Z",
+      "durationMs": 83,
+      "bound": {
+        "herdrTimeoutMs": 111876,
+        "driverDeadlineMs": 116876,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 447,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 32,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:43.380Z",
+      "endedAt": "2026-10-04T09:35:43.442Z",
+      "durationMs": 62,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1353,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 33,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:43.464Z",
+      "endedAt": "2026-10-04T09:35:43.528Z",
+      "durationMs": 64,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1353,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 34,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "116998"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:46.742Z",
+      "endedAt": "2026-10-04T09:35:46.804Z",
+      "durationMs": 62,
+      "bound": {
+        "herdrTimeoutMs": 116998,
+        "driverDeadlineMs": 121998,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 447,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 35,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:46.804Z",
+      "endedAt": "2026-10-04T09:35:46.844Z",
+      "durationMs": 40,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1353,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 36,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:46.844Z",
+      "endedAt": "2026-10-04T09:35:47.274Z",
+      "durationMs": 430,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1353,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 37,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:47.274Z",
+      "endedAt": "2026-10-04T09:35:47.318Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1353,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 38,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4claude"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:47.319Z",
+      "endedAt": "2026-10-04T09:35:47.363Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 446,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 39,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:48.396Z",
+      "endedAt": "2026-10-04T09:35:48.454Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1353,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 40,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "working",
+        "--until",
+        "blocked",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:47.364Z",
+      "endedAt": "2026-10-04T09:35:48.615Z",
+      "durationMs": 1251,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 450,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 41,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:48.668Z",
+      "endedAt": "2026-10-04T09:35:53.438Z",
+      "durationMs": 4770,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 447,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 42,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:53.438Z",
+      "endedAt": "2026-10-04T09:35:53.485Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1725,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 43,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:53.485Z",
+      "endedAt": "2026-10-04T09:35:53.937Z",
+      "durationMs": 452,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1725,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 44,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4claude"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:53.938Z",
+      "endedAt": "2026-10-04T09:35:53.977Z",
+      "durationMs": 39,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 446,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 45,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "prompt",
+        "g4claude",
+        "Call the g4_echo tool from the g4http MCP server with the text \"hello from claude over http\", and show me the full result including _meta.",
+        "--wait",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:35:53.978Z",
+      "endedAt": "2026-10-04T09:36:05.382Z",
+      "durationMs": 11404,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 497,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 46,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:36:05.384Z",
+      "endedAt": "2026-10-04T09:36:05.450Z",
+      "durationMs": 66,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 491,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 47,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:36:05.450Z",
+      "endedAt": "2026-10-04T09:36:05.492Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2490,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 48,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:36:05.492Z",
+      "endedAt": "2026-10-04T09:36:05.940Z",
+      "durationMs": 448,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2602,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 49,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "workspace",
+        "create",
+        "--no-focus",
+        "--cwd",
+        "<SCRATCH>\\g4-codex-project",
+        "--label",
+        "oac-g4-codex"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:36:05.940Z",
+      "endedAt": "2026-10-04T09:36:06.018Z",
+      "durationMs": 78,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 686,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 50,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "process-info",
+        "--pane",
+        "w2:p1"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-04T09:36:06.018Z",
+      "endedAt": "2026-10-04T09:36:06.064Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 121,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 51,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "start",
+        "g4codex",
+        "--kind",
+        "codex",
+        "--pane",
+        "w2:p1",
+        "--timeout",
+        "120000",
+        "--",
+        "-c",
+        "mcp_servers.g4http.url=\"http://127.0.0.1:17458/mcp\""
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:07.009Z",
+      "endedAt": "2026-10-04T09:36:32.815Z",
+      "durationMs": 25806,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 541,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 52,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "process-info",
+        "--pane",
+        "w2:p1"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-04T09:36:32.815Z",
+      "endedAt": "2026-10-04T09:36:32.866Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 692,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 53,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "116991"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:36.811Z",
+      "endedAt": "2026-10-04T09:36:36.864Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": 116991,
+        "driverDeadlineMs": 121991,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 459,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 54,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:36.864Z",
+      "endedAt": "2026-10-04T09:36:36.914Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 730,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 55,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4codex"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:36.915Z",
+      "endedAt": "2026-10-04T09:36:36.970Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 458,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 56,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "299945"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:36.971Z",
+      "endedAt": "2026-10-04T09:36:37.022Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": 299945,
+        "driverDeadlineMs": 304945,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 459,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 57,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:37.022Z",
+      "endedAt": "2026-10-04T09:36:37.074Z",
+      "durationMs": 52,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 730,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 58,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4codex"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:40.082Z",
+      "endedAt": "2026-10-04T09:36:40.130Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 458,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 59,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4claude"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:36:40.132Z",
+      "endedAt": "2026-10-04T09:36:40.173Z",
+      "durationMs": 41,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 490,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 60,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4codex"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:41.191Z",
+      "endedAt": "2026-10-04T09:36:41.256Z",
+      "durationMs": 65,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 458,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 61,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "prompt",
+        "g4codex",
+        "Call the g4_echo tool with the text \"hello from codex through herdr\" and print its result. Then call the g4_relay_to_claude tool with the text \"codex relay during modern session\" and print its result.",
+        "--wait",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:41.256Z",
+      "endedAt": "2026-10-04T09:36:56.788Z",
+      "durationMs": 15532,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 516,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 62,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:56.790Z",
+      "endedAt": "2026-10-04T09:36:56.837Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1311,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 63,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:57.098Z",
+      "endedAt": "2026-10-04T09:36:57.158Z",
+      "durationMs": 60,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1311,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 64,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4codex",
+        "enter"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:57.160Z",
+      "endedAt": "2026-10-04T09:36:57.206Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 65,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:58.220Z",
+      "endedAt": "2026-10-04T09:36:58.279Z",
+      "durationMs": 59,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1329,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 66,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:59.310Z",
+      "endedAt": "2026-10-04T09:36:59.356Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1329,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 67,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:59.618Z",
+      "endedAt": "2026-10-04T09:36:59.664Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1329,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 68,
+      "role": "dialog-accept",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "send-keys",
+        "g4codex",
+        "enter"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:36:59.664Z",
+      "endedAt": "2026-10-04T09:36:59.708Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 52,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 69,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "working",
+        "--until",
+        "blocked",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:36:40.173Z",
+      "endedAt": "2026-10-04T09:36:59.909Z",
+      "durationMs": 19736,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 495,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 70,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:37:00.717Z",
+      "endedAt": "2026-10-04T09:37:00.761Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1337,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 71,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "299999"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:37:00.969Z",
+      "endedAt": "2026-10-04T09:37:03.144Z",
+      "durationMs": 2175,
+      "bound": {
+        "herdrTimeoutMs": 299999,
+        "driverDeadlineMs": 304999,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 460,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 72,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:37:03.144Z",
+      "endedAt": "2026-10-04T09:37:03.191Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1389,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 73,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4codex",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g4codex",
+      "startedAt": "2026-10-04T09:37:03.191Z",
+      "endedAt": "2026-10-04T09:37:03.583Z",
+      "durationMs": 392,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1487,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 74,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:03.583Z",
+      "endedAt": "2026-10-04T09:37:03.728Z",
+      "durationMs": 145,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 492,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 75,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:03.729Z",
+      "endedAt": "2026-10-04T09:37:03.774Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2349,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 76,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:03.774Z",
+      "endedAt": "2026-10-04T09:37:04.246Z",
+      "durationMs": 472,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2996,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 77,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4claude"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:04.248Z",
+      "endedAt": "2026-10-04T09:37:04.292Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 491,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 78,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "prompt",
+        "g4claude",
+        "Call the g4_echo tool from the g4http MCP server again, with the text \"modern still healthy after codex traffic\", and show me the full result.",
+        "--wait",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:04.292Z",
+      "endedAt": "2026-10-04T09:37:10.176Z",
+      "durationMs": 5884,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 498,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 79,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:10.177Z",
+      "endedAt": "2026-10-04T09:37:10.220Z",
+      "durationMs": 43,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 492,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 80,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:10.220Z",
+      "endedAt": "2026-10-04T09:37:10.261Z",
+      "durationMs": 41,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2413,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 81,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:10.261Z",
+      "endedAt": "2026-10-04T09:37:10.898Z",
+      "durationMs": 637,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 3511,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 82,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:10.898Z",
+      "endedAt": "2026-10-04T09:37:10.946Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2413,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 83,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "get",
+        "g4claude"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:10.947Z",
+      "endedAt": "2026-10-04T09:37:10.991Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 491,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 84,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:12.000Z",
+      "endedAt": "2026-10-04T09:37:12.056Z",
+      "durationMs": 56,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2390,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 85,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "working",
+        "--until",
+        "blocked",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:10.991Z",
+      "endedAt": "2026-10-04T09:37:12.143Z",
+      "durationMs": 1152,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 495,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 86,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "wait",
+        "g4claude",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:12.261Z",
+      "endedAt": "2026-10-04T09:37:17.643Z",
+      "durationMs": 5382,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 492,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 87,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "visible"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:17.644Z",
+      "endedAt": "2026-10-04T09:37:17.703Z",
+      "durationMs": 59,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2241,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 88,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "agent",
+        "read",
+        "g4claude",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g4claude",
+      "startedAt": "2026-10-04T09:37:17.703Z",
+      "endedAt": "2026-10-04T09:37:18.440Z",
+      "durationMs": 737,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 3906,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 89,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-04T09:37:21.177Z",
+      "endedAt": "2026-10-04T09:37:21.232Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 616,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 90,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-04T09:37:22.223Z",
+      "endedAt": "2026-10-04T09:37:22.281Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 616,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 91,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "pane",
+        "process-info",
+        "--pane",
+        "w2:p1"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-04T09:37:22.281Z",
+      "endedAt": "2026-10-04T09:37:22.329Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 692,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 92,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "stop",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:37:23.382Z",
+      "endedAt": "2026-10-04T09:37:24.520Z",
+      "durationMs": 1138,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 25000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 358,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 93,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "delete",
+        "oac-k-g4-mcp-dual-era-20261004T093525Z-0b0693",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-04T09:37:25.475Z",
+      "endedAt": "2026-10-04T09:37:25.519Z",
+      "durationMs": 44,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 358,
+      "stderrBytes": 0
+    }
+  ],
+  "teardown": {
+    "sessionStop": "ok",
+    "serverExited": true,
+    "panes": {
+      "created": 2,
+      "queried": [
+        "w1:p1",
+        "w2:p1"
+      ],
+      "notQueried": []
+    },
+    "forcedKills": [],
+    "leftoverProcesses": [],
+    "unverifiedPids": [],
+    "skippedReusedPids": [],
+    "skippedPreexistingPids": [],
+    "protectedProcesses": [],
+    "processScan": "process table (pid, parent pid, creation time, argv) checked for --session <name>",
+    "sessionDelete": "ok",
+    "clean": true
+  },
+  "scratch": {
+    "location": "os.tmpdir(), outside the repository",
+    "path": "<SCRATCH>",
+    "removed": true,
+    "holders": [],
+    "removal": {
+      "attempts": 1,
+      "errors": []
+    }
+  },
+  "captures": [
+    {
+      "file": "pane-claude-2026-10-04-2.1.285-herdr.txt",
+      "format": "text",
+      "written": true,
+      "sha256": "e660104df6b57ec6d171f1b2cd1719bdcb492e9994530b0354e1df182512e69d",
+      "redaction": {
+        "mode": "text",
+        "lines": 929,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {
+          "literal <SCRATCH>": 20,
+          "home": 9
+        },
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    },
+    {
+      "file": "pane-codex-2026-10-04-0.160.0-herdr.txt",
+      "format": "text",
+      "written": true,
+      "sha256": "db6c30daa1ab2f83925e716b1e762d8a2e246e38af42a047c799e417cadd6de8",
+      "redaction": {
+        "mode": "text",
+        "lines": 377,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {},
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    },
+    {
+      "file": "transcript-2026-10-04-claude-2.1.285-codex-0.160.0-herdr.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "sha256": "d30e1674bf8203d44bd36c2b1b12868d137326e997fb7c00599501252cab623b",
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 41,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {},
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    }
+  ],
+  "redaction": {
+    "runLiteralPlaceholders": []
+  },
+  "scenarioData": {
+    "workspace": {
+      "workspaceId": "w1",
+      "tabId": "w1:t1",
+      "paneId": "w1:p1"
+    },
+    "codexWorkspace": {
+      "workspaceId": "w2",
+      "tabId": "w2:t1",
+      "paneId": "w2:p1"
+    },
+    "g4": {
+      "nonVerdictBearing": "K8: compared against the human-run G4 2026-09-26 re-run; never changes the G4 verdict",
+      "reconstruction": "tools/herdr/gate-servers/g4-server.mjs is REBUILT from G4-result.md and the committed fixture; the original spike server was never committed, so this is not the server that produced the baseline",
+      "acceptPolicy": "driver",
+      "params": {
+        "accept": "driver",
+        "httpPort": "17458",
+        "modernHttpPort": "17460",
+        "codexLaunch": "",
+        "claudeEnv": "{\"MCP_SDK_GENERATION\":\"v2\"}",
+        "claudeEchoPrompt": "Call the g4_echo tool from the g4http MCP server with the text \"hello from claude over http\", and show me the full result including _meta.",
+        "codexToolsPrompt": "Call the g4_echo tool with the text \"hello from codex through herdr\" and print its result. Then call the g4_relay_to_claude tool with the text \"codex relay during modern session\" and print its result.",
+        "claudeEchoAfterPrompt": "Call the g4_echo tool from the g4http MCP server again, with the text \"modern still healthy after codex traffic\", and show me the full result.",
+        "startupTimeoutMs": "120000",
+        "humanAcceptTimeoutMs": "300000",
+        "handshakeTimeoutMs": "90000",
+        "wireTimeoutMs": "15000",
+        "turnTimeoutMs": "300000",
+        "settleMs": "3000",
+        "pollMs": "1000",
+        "busyIndicator": "esc to interrupt",
+        "readLines": "2000",
+        "maxDialogs": "12"
+      },
+      "launch": {
+        "expected": [
+          "claude",
+          "--dangerously-load-development-channels",
+          "server:g4spike",
+          "server:g4modern"
+        ],
+        "actual": [
+          "claude",
+          "--dangerously-load-development-channels",
+          "server:g4spike",
+          "server:g4modern"
+        ],
+        "verbatim": true
+      },
+      "codexLaunch": {
+        "argv": [
+          "codex",
+          "-c",
+          "mcp_servers.g4http.url=\"http://127.0.0.1:17458/mcp\""
+        ],
+        "validation": {
+          "ok": true,
+          "why": null,
+          "overrides": [
+            {
+              "key": "mcp_servers.g4http.url",
+              "value": "\"http://127.0.0.1:17458/mcp\""
+            }
+          ]
+        },
+        "herdrReportedArgv": [
+          "codex",
+          "-c",
+          "mcp_servers.g4http.url=\"http://127.0.0.1:17458/mcp\""
+        ],
+        "paneArgv": {
+          "argv": [
+            {
+              "pid": 5016,
+              "argv": [
+                "codex.exe",
+                "-c",
+                "mcp_servers.g4http.url=\"http://127.0.0.1:17458/mcp\""
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            },
+            {
+              "pid": 968,
+              "argv": [
+                "node.exe",
+                "<arg len=124>"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            },
+            {
+              "pid": 22432,
+              "argv": [
+                "<arg0 len=94>"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            },
+            {
+              "pid": 24456,
+              "argv": [
+                "<arg0 len=35>",
+                "<arg len=3>"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            },
+            {
+              "pid": 8424,
+              "argv": [
+                "<arg0 len=94>"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            },
+            {
+              "pid": 22544,
+              "argv": [
+                "<arg0 len=35>",
+                "<arg len=3>"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            }
+          ],
+          "proof": {
+            "found": true,
+            "pid": 5016,
+            "codexToken": "<SECRET>",
+            "argsAfterCodex": [
+              "-c",
+              "mcp_servers.g4http.url=\"http://127.0.0.1:17458/mcp\""
+            ],
+            "plain": false,
+            "matchesExpected": true
+          },
+          "matchesLaunch": true
+        },
+        "globalConfigEdited": false,
+        "codexHomeCopied": false
+      },
+      "claudeEnv": {
+        "MCP_SDK_GENERATION": "v2"
+      },
+      "ports": {
+        "httpPort": 17458,
+        "modernHttpPort": 17460,
+        "freeBefore": {
+          "17458": true,
+          "17460": true
+        }
+      },
+      "versions": {
+        "pins": {
+          "claudeRow": "Claude Code (Channels)",
+          "claudeMinimum": "2.1.282",
+          "claudeLastTested": "2.1.285",
+          "codexRow": "Codex CLI / app-server",
+          "codexMinimum": "0.154.0",
+          "codexLastTested": "0.160.0",
+          "codexCommit": "a956835d020762cb2b570053af06f643a11c0ecc",
+          "headCommit": "b478f2a6d78714ddf04caaf5e6f03c9a9fec6f85",
+          "workingTreeMatchesHead": true
+        },
+        "cliOutput": {
+          "claude": "2.1.285 (Claude Code)",
+          "codex": "codex-cli 0.160.0"
+        },
+        "cli": {
+          "claude": "2.1.285",
+          "codex": "0.160.0"
+        },
+        "wire": {
+          "claude": "2.1.285",
+          "codex": "0.160.0"
+        },
+        "verified": true,
+        "matchesLastTested": true,
+        "warnings": []
+      },
+      "server": [
+        {
+          "path": "tools/herdr/gate-servers/g4-server.mjs",
+          "headCommit": "b478f2a6d78714ddf04caaf5e6f03c9a9fec6f85",
+          "committedSha256": "5aeaae9db1ebb4cfd23e79206991cfdb5757d30dfc20ab4423752a6cf986c382",
+          "workingTreeSha256": "a1cc91ca6a825a6b27f0588618dd89443d6d5b5ebf99f0234c6163ce0724380c",
+          "workingTreeMatchesHead": true,
+          "copy": "<SCRATCH>\\g4-server\\g4-server.mjs",
+          "copySha256": "5aeaae9db1ebb4cfd23e79206991cfdb5757d30dfc20ab4423752a6cf986c382",
+          "match": true
+        }
+      ],
+      "mcpJson": {
+        "path": "<SCRATCH>\\g4-project\\.mcp.json",
+        "contents": {
+          "mcpServers": {
+            "g4spike": {
+              "command": "C:\\nvm4w\\nodejs\\node.exe",
+              "args": [
+                "<SCRATCH>\\g4-server\\g4-server.mjs"
+              ],
+              "env": {
+                "G4_HTTP_PORT": "17458"
+              }
+            },
+            "g4modern": {
+              "command": "C:\\nvm4w\\nodejs\\node.exe",
+              "args": [
+                "<SCRATCH>\\g4-server\\g4-server.mjs"
+              ],
+              "env": {
+                "G4_STDIO_MODERN": "1",
+                "G4_HTTP_PORT": "17460"
+              }
+            },
+            "g4http": {
+              "type": "http",
+              "url": "http://127.0.0.1:17458/mcp"
+            }
+          }
+        }
+      },
+      "date": "2026-10-04",
+      "fixtures": {
+        "transcript": "transcript-2026-10-04-claude-2.1.285-codex-0.160.0-herdr.jsonl",
+        "paneClaude": "pane-claude-2026-10-04-2.1.285-herdr.txt",
+        "paneCodex": "pane-codex-2026-10-04-0.160.0-herdr.txt"
+      },
+      "captureNames": {
+        "transcript": "transcript-2026-10-04-claude-2.1.285-codex-0.160.0-herdr.jsonl",
+        "paneClaude": "pane-claude-2026-10-04-2.1.285-herdr.txt",
+        "paneCodex": "pane-codex-2026-10-04-0.160.0-herdr.txt"
+      },
+      "dialogs": [
+        {
+          "agent": "claude",
+          "index": 1,
+          "kind": "workspace-trust",
+          "context": "startup",
+          "patternVerified": "herdr runs 2026-09-29 (#156) and 2026-09-30 (L3 probe run 3), Claude Code v2.1.283 on Windows; \"No, exit\" preselected",
+          "readSeq": 12,
+          "readAt": "2026-10-04T09:35:38.254Z",
+          "selected": {
+            "number": null,
+            "text": "No, exit"
+          },
+          "acceptOrigin": "driver",
+          "acceptSeq": 15,
+          "resolvedSeq": 16,
+          "inputBetweenReadAndAccept": 0,
+          "acceptPlan": [
+            "down",
+            "enter"
+          ],
+          "acceptKeys": [
+            {
+              "key": "down",
+              "seq": 13,
+              "expect": "Yes, I trust this folder",
+              "verifiedSeq": 14
+            },
+            {
+              "key": "enter",
+              "seq": 15,
+              "expect": null,
+              "verifiedSeq": null
+            }
+          ],
+          "acceptAt": "2026-10-04T09:35:38.659Z",
+          "lastReadBeforeAcceptSeq": 14,
+          "selectionKeys": 1
+        },
+        {
+          "agent": "claude",
+          "index": 2,
+          "kind": "mcp-server-approval",
+          "context": "startup",
+          "patternVerified": "herdr runs 2026-09-29 (#161) and 2026-09-30 (L3 probe runs), Claude Code v2.1.283 on Windows; \"Continue without using this MCP server\" preselected",
+          "readSeq": 18,
+          "readAt": "2026-10-04T09:35:39.833Z",
+          "selected": {
+            "number": null,
+            "text": "[✔] g4spike"
+          },
+          "acceptOrigin": "driver",
+          "acceptSeq": 25,
+          "resolvedSeq": 26,
+          "inputBetweenReadAndAccept": 0,
+          "acceptPlan": [
+            "down",
+            "down",
+            "down",
+            "enter"
+          ],
+          "variant": "multi-select",
+          "listedServers": [
+            "g4spike",
+            "g4modern",
+            "g4http"
+          ],
+          "expectedServers": [
+            "g4spike",
+            "g4modern",
+            "g4http"
+          ],
+          "acceptKeys": [
+            {
+              "key": "down",
+              "seq": 19,
+              "expect": "g4modern",
+              "verifiedSeq": 20
+            },
+            {
+              "key": "down",
+              "seq": 21,
+              "expect": "g4http",
+              "verifiedSeq": 22
+            },
+            {
+              "key": "down",
+              "seq": 23,
+              "expect": "Enable selected",
+              "verifiedSeq": 24
+            },
+            {
+              "key": "enter",
+              "seq": 25,
+              "expect": null,
+              "verifiedSeq": null
+            }
+          ],
+          "acceptAt": "2026-10-04T09:35:40.983Z",
+          "lastReadBeforeAcceptSeq": 24,
+          "selectionKeys": 3
+        },
+        {
+          "agent": "claude",
+          "index": 3,
+          "kind": "dev-channels",
+          "context": "startup",
+          "patternVerified": "G1-result.md Box C (criterion 5), Claude Code v2.1.283; again in the 2026-09-30 L3 probe runs",
+          "readSeq": 28,
+          "readAt": "2026-10-04T09:35:42.123Z",
+          "selected": {
+            "number": 1,
+            "text": "I am using this for local development"
+          },
+          "acceptOrigin": "driver",
+          "acceptSeq": 29,
+          "resolvedSeq": 30,
+          "inputBetweenReadAndAccept": 0,
+          "acceptPlan": [
+            "enter"
+          ],
+          "acceptKeys": [
+            {
+              "key": "enter",
+              "seq": 29,
+              "expect": null,
+              "verifiedSeq": null
+            }
+          ],
+          "acceptAt": "2026-10-04T09:35:42.168Z",
+          "lastReadBeforeAcceptSeq": 28,
+          "selectionKeys": 0
+        },
+        {
+          "agent": "codex",
+          "index": 4,
+          "kind": "mcp-tool-approval",
+          "context": "Codex's g4_echo and g4_relay_to_claude calls and the relay push",
+          "patternVerified": "herdr G4 run 2026-10-04 (20261004T050646Z), Codex CLI 0.160.0 on Windows, Codex pane section seq 58; \"1. Allow\" preselected (#271)",
+          "readSeq": 62,
+          "readAt": "2026-10-04T09:36:56.790Z",
+          "selected": {
+            "number": 1,
+            "text": "Allow                   Run the tool and continue"
+          },
+          "acceptOrigin": "driver",
+          "acceptSeq": 64,
+          "resolvedSeq": 65,
+          "inputBetweenReadAndAccept": 0,
+          "acceptPlan": [
+            "enter"
+          ],
+          "toolApproval": {
+            "field": "Field 1/1",
+            "question": "Allow the g4http MCP server to run tool \"g4_echo\"?",
+            "server": "g4http",
+            "tool": "g4_echo",
+            "arguments": [
+              {
+                "name": "text",
+                "value": "hello from codex through herdr"
+              }
+            ],
+            "expected": {
+              "server": "g4http",
+              "tools": [
+                "g4_echo",
+                "g4_relay_to_claude"
+              ],
+              "arguments": {
+                "g4_echo": [
+                  "text"
+                ],
+                "g4_relay_to_claude": [
+                  "text"
+                ]
+              }
+            },
+            "answer": "1. Allow"
+          },
+          "acceptKeys": [
+            {
+              "key": "enter",
+              "seq": 64,
+              "expect": null,
+              "verifiedSeq": 63
+            }
+          ],
+          "confirmReadSeq": 63,
+          "acceptAt": "2026-10-04T09:36:57.160Z",
+          "lastReadBeforeAcceptSeq": 63,
+          "selectionKeys": 0
+        },
+        {
+          "agent": "codex",
+          "index": 5,
+          "kind": "mcp-tool-approval",
+          "context": "Codex's g4_echo and g4_relay_to_claude calls and the relay push",
+          "patternVerified": "herdr G4 run 2026-10-04 (20261004T050646Z), Codex CLI 0.160.0 on Windows, Codex pane section seq 58; \"1. Allow\" preselected (#271)",
+          "readSeq": 66,
+          "readAt": "2026-10-04T09:36:59.310Z",
+          "selected": {
+            "number": 1,
+            "text": "Allow                   Run the tool and continue"
+          },
+          "acceptOrigin": "driver",
+          "acceptSeq": 68,
+          "resolvedSeq": 70,
+          "inputBetweenReadAndAccept": 0,
+          "acceptPlan": [
+            "enter"
+          ],
+          "toolApproval": {
+            "field": "Field 1/1",
+            "question": "Allow the g4http MCP server to run tool \"g4_relay_to_claude\"?",
+            "server": "g4http",
+            "tool": "g4_relay_to_claude",
+            "arguments": [
+              {
+                "name": "text",
+                "value": "codex relay during modern session"
+              }
+            ],
+            "expected": {
+              "server": "g4http",
+              "tools": [
+                "g4_echo",
+                "g4_relay_to_claude"
+              ],
+              "arguments": {
+                "g4_echo": [
+                  "text"
+                ],
+                "g4_relay_to_claude": [
+                  "text"
+                ]
+              }
+            },
+            "answer": "1. Allow"
+          },
+          "acceptKeys": [
+            {
+              "key": "enter",
+              "seq": 68,
+              "expect": null,
+              "verifiedSeq": 67
+            }
+          ],
+          "confirmReadSeq": 67,
+          "acceptAt": "2026-10-04T09:36:59.664Z",
+          "lastReadBeforeAcceptSeq": 67,
+          "selectionKeys": 0
+        }
+      ],
+      "herdrStates": [
+        {
+          "agent": "claude",
+          "context": "startup",
+          "seq": 11,
+          "command": "agent wait",
+          "state": "blocked",
+          "stateChangeSeq": 1,
+          "durationMs": 66
+        },
+        {
+          "agent": "claude",
+          "context": "startup",
+          "seq": 17,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 2,
+          "durationMs": 43
+        },
+        {
+          "agent": "claude",
+          "context": "startup",
+          "seq": 27,
+          "command": "agent wait",
+          "state": "blocked",
+          "stateChangeSeq": 3,
+          "durationMs": 49
+        },
+        {
+          "agent": "claude",
+          "context": "startup",
+          "seq": 31,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 4,
+          "durationMs": 83
+        },
+        {
+          "agent": "claude",
+          "context": "post-handshake",
+          "seq": 34,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 4,
+          "durationMs": 62
+        },
+        {
+          "agent": "claude",
+          "context": "wake-1-push:baseline (agent get)",
+          "seq": 38,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 4,
+          "durationMs": 44
+        },
+        {
+          "agent": "claude",
+          "context": "wake-1-turn:activity",
+          "seq": 40,
+          "command": "agent wait",
+          "state": "working",
+          "stateChangeSeq": 5,
+          "durationMs": 1251
+        },
+        {
+          "agent": "claude",
+          "context": "wake-1-turn",
+          "seq": 41,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 6,
+          "durationMs": 4770
+        },
+        {
+          "agent": "claude",
+          "context": "prompt:baseline (agent get)",
+          "seq": 44,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 6,
+          "durationMs": 39
+        },
+        {
+          "agent": "claude",
+          "context": "prompt --wait",
+          "seq": 45,
+          "command": "agent prompt",
+          "state": "idle",
+          "stateChangeSeq": 8,
+          "durationMs": 11404
+        },
+        {
+          "agent": "claude",
+          "context": "claude-echo",
+          "seq": 46,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 8,
+          "durationMs": 66
+        },
+        {
+          "agent": "codex",
+          "context": "codex-startup",
+          "seq": 53,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 10,
+          "durationMs": 53
+        },
+        {
+          "agent": "codex",
+          "context": "codex-mcp-settle:observed:baseline (agent get)",
+          "seq": 55,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 10,
+          "durationMs": 55
+        },
+        {
+          "agent": "codex",
+          "context": "codex-mcp-settle",
+          "seq": 56,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 10,
+          "durationMs": 51
+        },
+        {
+          "agent": "codex",
+          "context": "codex-mcp-settle:re-check:baseline (agent get)",
+          "seq": 58,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 10,
+          "durationMs": 48
+        },
+        {
+          "agent": "claude",
+          "context": "relay-push:baseline (agent get)",
+          "seq": 59,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 8,
+          "durationMs": 41
+        },
+        {
+          "agent": "codex",
+          "context": "prompt:baseline (agent get)",
+          "seq": 60,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 10,
+          "durationMs": 65
+        },
+        {
+          "agent": "codex",
+          "context": "prompt --wait",
+          "seq": 61,
+          "command": "agent prompt",
+          "state": "blocked",
+          "stateChangeSeq": 12,
+          "durationMs": 15532
+        },
+        {
+          "agent": "codex",
+          "context": "codex-tools",
+          "seq": 71,
+          "command": "agent wait",
+          "state": "done",
+          "stateChangeSeq": 15,
+          "durationMs": 2175
+        },
+        {
+          "agent": "claude",
+          "context": "relay-turn:activity",
+          "seq": 69,
+          "command": "agent wait",
+          "state": "working",
+          "stateChangeSeq": 13,
+          "durationMs": 19736
+        },
+        {
+          "agent": "claude",
+          "context": "relay-turn",
+          "seq": 74,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 16,
+          "durationMs": 145
+        },
+        {
+          "agent": "claude",
+          "context": "prompt:baseline (agent get)",
+          "seq": 77,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 16,
+          "durationMs": 44
+        },
+        {
+          "agent": "claude",
+          "context": "prompt --wait",
+          "seq": 78,
+          "command": "agent prompt",
+          "state": "idle",
+          "stateChangeSeq": 18,
+          "durationMs": 5884
+        },
+        {
+          "agent": "claude",
+          "context": "claude-echo-after",
+          "seq": 79,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 18,
+          "durationMs": 43
+        },
+        {
+          "agent": "claude",
+          "context": "wake-2-push:baseline (agent get)",
+          "seq": 83,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 18,
+          "durationMs": 44
+        },
+        {
+          "agent": "claude",
+          "context": "wake-2-turn:activity",
+          "seq": 85,
+          "command": "agent wait",
+          "state": "working",
+          "stateChangeSeq": 19,
+          "durationMs": 1152
+        },
+        {
+          "agent": "claude",
+          "context": "wake-2-turn",
+          "seq": 86,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 20,
+          "durationMs": 5382
+        }
+      ],
+      "handshake": {
+        "legacyPid": 23640,
+        "modernPid": 21424,
+        "legacyInitialize": {
+          "pid": 23640,
+          "surface": "stdio",
+          "era": "legacy",
+          "reqLine": 14,
+          "resLine": 15,
+          "t": "2026-10-04T09:35:43.444Z",
+          "error": null,
+          "requested": "2025-11-25",
+          "negotiated": "2025-11-25",
+          "channelCap": true,
+          "clientInfo": {
+            "name": "claude-code",
+            "title": "Claude Code",
+            "version": "2.1.285",
+            "description": "Anthropic's agentic coding tool",
+            "websiteUrl": "https://claude.com/claude-code"
+          }
+        },
+        "httpDiscover": {
+          "pid": 23640,
+          "surface": "http",
+          "era": "modern",
+          "reqLine": 10,
+          "resLine": 11,
+          "t": "2026-10-04T09:35:43.242Z",
+          "error": null,
+          "supportedVersions": [
+            "2026-07-28",
+            "2025-11-25"
+          ],
+          "channelCap": false,
+          "resultType": "complete"
+        },
+        "modernDiscover": {
+          "pid": 21424,
+          "surface": "stdio",
+          "era": "modern",
+          "reqLine": 6,
+          "resLine": 8,
+          "t": "2026-10-04T09:35:43.171Z",
+          "error": null,
+          "supportedVersions": [
+            "2026-07-28"
+          ],
+          "channelCap": true,
+          "resultType": "complete"
+        },
+        "instances": [
+          {
+            "pid": 23640,
+            "stdioModern": false,
+            "line": 1,
+            "t": "2026-10-04T09:35:43.075Z"
+          },
+          {
+            "pid": 21424,
+            "stdioModern": true,
+            "line": 2,
+            "t": "2026-10-04T09:35:43.088Z"
+          }
+        ]
+      },
+      "triggers": [
+        {
+          "at": "2026-10-04T09:35:48.379Z"
+        },
+        {
+          "at": "2026-10-04T09:37:11.999Z"
+        }
+      ],
+      "wakes": [
+        {
+          "n": 1,
+          "trigger": {
+            "at": "2026-10-04T09:35:48.379Z"
+          },
+          "preReadSeq": 37,
+          "pushes": [
+            {
+              "pid": 23640,
+              "era": "legacy",
+              "line": 22,
+              "t": "2026-10-04T09:35:48.455Z",
+              "id": "g4-1"
+            },
+            {
+              "pid": 21424,
+              "era": "modern",
+              "line": 23,
+              "t": "2026-10-04T09:35:48.485Z",
+              "id": "g4-1"
+            }
+          ],
+          "afterReadSeq": 43
+        },
+        {
+          "n": 2,
+          "trigger": {
+            "at": "2026-10-04T09:37:11.999Z"
+          },
+          "preReadSeq": 82,
+          "pushes": [
+            {
+              "pid": 23640,
+              "era": "legacy",
+              "line": 40,
+              "t": "2026-10-04T09:37:12.015Z",
+              "id": "g4-3"
+            },
+            {
+              "pid": 21424,
+              "era": "modern",
+              "line": 41,
+              "t": "2026-10-04T09:37:12.047Z",
+              "id": "g4-2"
+            }
+          ],
+          "afterReadSeq": 88
+        }
+      ],
+      "claudeEcho": {
+        "prompt": {
+          "kind": "prompt-wait",
+          "seq": 45,
+          "startedAt": "2026-10-04T09:35:53.978Z",
+          "endedAt": "2026-10-04T09:36:05.382Z",
+          "text": "Call the g4_echo tool from the g4http MCP server with the text \"hello from claude over http\", and show me the full result including _meta.",
+          "baseline": {
+            "agent": "claude",
+            "context": "prompt:baseline (agent get)",
+            "seq": 44,
+            "command": "agent get",
+            "state": "idle",
+            "stateChangeSeq": 6,
+            "durationMs": 39
+          },
+          "settledAtReturn": {
+            "state": "idle",
+            "stateChangeSeq": 8
+          }
+        },
+        "call": {
+          "reqLine": 24,
+          "resLine": 25,
+          "pid": 23640,
+          "text": "hello from claude over http"
+        },
+        "afterReadSeq": 48
+      },
+      "codex": {
+        "sessions": [
+          {
+            "reqLine": 26,
+            "sessionId": "6fb86873-f926-4f59-8cfb-d715cefd5246"
+          }
+        ],
+        "prompt": {
+          "kind": "prompt-wait",
+          "seq": 61,
+          "startedAt": "2026-10-04T09:36:41.256Z",
+          "endedAt": "2026-10-04T09:36:56.788Z",
+          "text": "Call the g4_echo tool with the text \"hello from codex through herdr\" and print its result. Then call the g4_relay_to_claude tool with the text \"codex relay during modern session\" and print its result.",
+          "baseline": {
+            "agent": "codex",
+            "context": "prompt:baseline (agent get)",
+            "seq": 60,
+            "command": "agent get",
+            "state": "idle",
+            "stateChangeSeq": 10,
+            "durationMs": 65
+          },
+          "settledAtReturn": {
+            "state": "blocked",
+            "stateChangeSeq": 12
+          }
+        },
+        "mcpInitialize": {
+          "reqLine": 26,
+          "resLine": 27,
+          "requested": "2025-06-18",
+          "negotiated": "2025-11-25",
+          "userAgent": "codex-mcp-client/0.160.0"
+        },
+        "echo": {
+          "reqLine": 33,
+          "resLine": 34,
+          "era": "legacy"
+        },
+        "relay": {
+          "reqLine": 35,
+          "resLine": 37,
+          "era": "legacy"
+        },
+        "relayPush": {
+          "line": 36,
+          "pid": 23640,
+          "id": "g4-2"
+        },
+        "afterReadSeq": 73,
+        "claudeAfterRelayReadSeq": 76
+      },
+      "claudeEchoAfter": {
+        "prompt": {
+          "kind": "prompt-wait",
+          "seq": 78,
+          "startedAt": "2026-10-04T09:37:04.292Z",
+          "endedAt": "2026-10-04T09:37:10.176Z",
+          "text": "Call the g4_echo tool from the g4http MCP server again, with the text \"modern still healthy after codex traffic\", and show me the full result.",
+          "baseline": {
+            "agent": "claude",
+            "context": "prompt:baseline (agent get)",
+            "seq": 77,
+            "command": "agent get",
+            "state": "idle",
+            "stateChangeSeq": 16,
+            "durationMs": 44
+          },
+          "settledAtReturn": {
+            "state": "idle",
+            "stateChangeSeq": 18
+          }
+        },
+        "call": {
+          "reqLine": 38,
+          "resLine": 39,
+          "pid": 23640,
+          "text": "modern still healthy after codex traffic"
+        },
+        "afterReadSeq": 81
+      },
+      "postRun": {
+        "cliOutput": {
+          "claude": "2.1.285 (Claude Code)",
+          "codex": "codex-cli 0.160.0"
+        },
+        "claude": "2.1.285",
+        "codex": "0.160.0",
+        "matches": true
+      },
+      "sanitizer": {
+        "extensionIdReplaced": 7,
+        "paneClaude": 0,
+        "paneCodex": 0
+      },
+      "stoppedAt": null,
+      "claudeStart": {
+        "seq": 9,
+        "errorCode": "agent_not_ready",
+        "herdrReportedArgv": null
+      },
+      "afterStartupReadSeq": 36,
+      "startupSettles": [
+        {
+          "agent": "codex",
+          "context": "codex-mcp-settle",
+          "what": "Codex's MCP connect (initialize at transcript line 26)",
+          "timeoutMs": 300000,
+          "observed": {
+            "seq": 55,
+            "state": "idle",
+            "stateChangeSeq": 10
+          },
+          "settles": [
+            {
+              "floor": 10,
+              "state": "idle",
+              "stateChangeSeq": 10,
+              "waitSeq": 56,
+              "readSeq": 57
+            }
+          ],
+          "rechecks": [
+            {
+              "seq": 58,
+              "state": "idle",
+              "stateChangeSeq": 10
+            }
+          ],
+          "settled": {
+            "state": "idle",
+            "stateChangeSeq": 10,
+            "settleWaitSeq": 56,
+            "recheckSeq": 58
+          },
+          "waitedMs": 3216,
+          "outcome": "settled"
+        }
+      ],
+      "codexStartupSettle": {
+        "agent": "codex",
+        "context": "codex-mcp-settle",
+        "what": "Codex's MCP connect (initialize at transcript line 26)",
+        "timeoutMs": 300000,
+        "observed": {
+          "seq": 55,
+          "state": "idle",
+          "stateChangeSeq": 10
+        },
+        "settles": [
+          {
+            "floor": 10,
+            "state": "idle",
+            "stateChangeSeq": 10,
+            "waitSeq": 56,
+            "readSeq": 57
+          }
+        ],
+        "rechecks": [
+          {
+            "seq": 58,
+            "state": "idle",
+            "stateChangeSeq": 10
+          }
+        ],
+        "settled": {
+          "state": "idle",
+          "stateChangeSeq": 10,
+          "settleWaitSeq": 56,
+          "recheckSeq": 58
+        },
+        "waitedMs": 3216,
+        "outcome": "settled"
+      },
+      "summary": {
+        "legacyPid": 23640,
+        "modernPid": 21424,
+        "era": {
+          "claudeHttp": "2026-07-28",
+          "legacyStdio": "2025-11-25"
+        },
+        "codexEras": [
+          "2025-11-25"
+        ],
+        "httpSessions": 1
+      }
+    }
+  },
+  "findings": [
+    "the driver was started from inside a Claude Code session: 28 of its variables (names in env.serverLaunch.removed) were removed so the harness under test does not run as that session's child or through its relay (#163)"
+  ],
+  "manifestRedaction": {
+    "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",
+    "replacements": {
+      "home": 25,
+      "literal <SCRATCH>": 11,
+      "literal <REPO>": 1,
+      "secret-named key value": 1
+    },
+    "withheld": [],
+    "writtenClean": true
+  }
+}

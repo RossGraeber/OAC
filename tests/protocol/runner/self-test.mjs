@@ -179,9 +179,52 @@ export function selfTest() {
     'row without outer pipes': iface.replace(rct, `${rct}\nSEC-STG | adapter | 001`),
     'row with two leading spaces': iface.replace(rct, `${rct}\n  | SEC-STG | adapter | 001 |`),
   };
+  // Code fences follow CommonMark §4.5 (#283) and HTML comments §4.6 (#291). These cases append
+  // after Appendix C's last row, which is inside the appendix only while no top-level `## `
+  // heading follows it; appended() asserts that. A malformed row after a line that is not a
+  // fence opener must be checked; one inside a real fence, up to a line that is a valid closer,
+  // must not.
+  const BAD = '| SEC-STG | adapter | 001 |';
+  const ownerHeading = iface.indexOf('\n## Appendix C. Owner index\n');
+  const appendixCLast = ownerHeading >= 0 && !/^## /m.test(iface.slice(ownerHeading + 2));
+  const appended = (block) => {
+    if (!appendixCLast) throw new Error('self-test: appended() needs Appendix C to be the last ## section of spec/interfaces.md');
+    return `${iface.replace(/\n+$/, '')}\n\n${block}\n`;
+  };
+  // Not fences: a backtick in a backtick fence's info string makes the line a paragraph, so the
+  // row after it is rendered and must fail; the trailing ``` then opens a fence to the end.
+  planted['row after ```a`b (not a fence)'] = appended(`\`\`\`a\`b\n\n${BAD}\n\n\`\`\``);
+  planted['row after ```js `x` (not a fence)'] = appended(`\`\`\`js \`x\`\n\n${BAD}\n\n\`\`\``);
+  // #291: a `## ` line inside a fence or an HTML comment is not a heading, so it does not end the
+  // appendix, and the row after the block must still be checked.
+  planted['row after a fence holding a ## line'] = appended(`\`\`\`\n## x\n\`\`\`\n\n${BAD}`);
+  planted['row after a comment holding a ## line'] = appended(`<!--\n## x\n-->\n\n${BAD}`);
+  // #291: a fence marker inside an HTML comment opens no fence, so the row after the comment must
+  // still be checked.
+  planted['row after a comment holding ```'] = appended(`<!--\n\`\`\`\n-->\n\n${BAD}`);
+  planted['row after a comment holding ~~~ on its last line'] = appended(`<!-- x\n~~~ -->\n\n${BAD}`);
+  planted['row after a one-line comment'] = appended(`<!-- \`\`\` -->\n${BAD}`);
+  planted['row after a fence holding <!--'] = appended(`\`\`\`\n<!--\n\`\`\`\n\n${BAD}`);
   for (const [name, text] of Object.entries(planted)) {
     expect(`owner index: planted ${name} is applied`, text !== iface);
     expect(`owner index: planted ${name} fails`, checkOwners(withInterfaces(text)).length > 0);
+  }
+  const fenced = {
+    'backtick fence with an info string': `\`\`\`text\n${BAD}\n\`\`\``,
+    'tilde fence with a backtick in its info string': `~~~a\`b\n${BAD}\n~~~`,
+    'longer closing fence': `\`\`\`\n${BAD}\n\`\`\`\`\``,
+    'indented fence and closer': `   \`\`\`\n${BAD}\n  \`\`\``,
+    '```js inside a fence is not a closer': `\`\`\`\n${BAD}\n\`\`\`js\n${BAD}\n\`\`\``,
+    'shorter run inside a fence is not a closer': `\`\`\`\`\n${BAD}\n\`\`\`\n${BAD}\n\`\`\`\``,
+    'other fence character is not a closer': `\`\`\`\n${BAD}\n~~~\n${BAD}\n\`\`\``,
+    'row inside a comment': `<!--\n${BAD}\n-->`,
+    'row inside a comment after ```': `<!--\n\`\`\`\n${BAD}\n-->`,
+    'row on a comment\'s closing line': `<!--\n${BAD} -->`,
+  };
+  // Control: the row with no fence around it fails, so a clean result below is the fence's doing.
+  expect('owner index: appended unfenced row fails', checkOwners(withInterfaces(appended(BAD))).length > 0);
+  for (const [name, block] of Object.entries(fenced)) {
+    expect(`owner index: ${name} stays clean`, checkOwners(withInterfaces(appended(block))).length === 0);
   }
   return failures;
 }

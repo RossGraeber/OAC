@@ -950,6 +950,8 @@ export default {
       }
       l3.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) finding(multipleNewThreadsFinding(ready.newThreads.length));
+      // #282: the session loaded on the wire is not the end of Codex's startup; settle first.
+      l3.codexStartupSettle = await codex.startupSettle('codex-ready-settle', `the Codex session loaded in the daemon (pane read #${ready.readSeq})`, num('turnTimeoutMs'));
       const tm = await codex.prompt(operator.threadMarker, { wait: true });
       // #253: typed with `herdr agent prompt --wait`, so herdr observed the marker's own turn;
       // never a wait that returns at once with the state from before the prompt.

@@ -1,0 +1,1106 @@
+### oac-herdr-pane-section {"seq":12,"label":"startup-settled?","source":"visible","startedAt":"2026-10-05T05:23:55.670Z","endedAt":"2026-10-05T05:23:55.720Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":12}
+### oac-herdr-pane-section {"seq":21,"label":"after-operator-turn","source":"visible","startedAt":"2026-10-05T05:24:00.061Z","endedAt":"2026-10-05T05:24:00.125Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":21}
+### oac-herdr-pane-section {"seq":22,"label":"attach-wait","source":"visible","startedAt":"2026-10-05T05:24:03.728Z","endedAt":"2026-10-05T05:24:03.780Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":22}
+### oac-herdr-pane-section {"seq":24,"label":"inject-turn","source":"visible","startedAt":"2026-10-05T05:24:05.202Z","endedAt":"2026-10-05T05:24:05.246Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":24}
+### oac-herdr-pane-section {"seq":25,"label":"inject-turn","source":"visible","startedAt":"2026-10-05T05:24:06.299Z","endedAt":"2026-10-05T05:24:06.384Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+
+
+
+• Working (1s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":25}
+### oac-herdr-pane-section {"seq":27,"label":"inject-turn-settled?","source":"visible","startedAt":"2026-10-05T05:24:10.322Z","endedAt":"2026-10-05T05:24:10.375Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":27}
+### oac-herdr-pane-section {"seq":28,"label":"after-inject","source":"recent-unwrapped","startedAt":"2026-10-05T05:24:10.375Z","endedAt":"2026-10-05T05:24:10.732Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":28}
+### oac-herdr-pane-section {"seq":29,"label":"busy-start","source":"visible","startedAt":"2026-10-05T05:24:10.753Z","endedAt":"2026-10-05T05:24:10.803Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":29}
+### oac-herdr-pane-section {"seq":30,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:11.012Z","endedAt":"2026-10-05T05:24:11.075Z"}
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":30}
+### oac-herdr-pane-section {"seq":31,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:12.129Z","endedAt":"2026-10-05T05:24:12.180Z"}
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• Working (1s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":31}
+### oac-herdr-pane-section {"seq":32,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:13.245Z","endedAt":"2026-10-05T05:24:13.325Z"}
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":32}
+### oac-herdr-pane-section {"seq":33,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:14.211Z","endedAt":"2026-10-05T05:24:14.258Z"}
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":33}
+### oac-herdr-pane-section {"seq":34,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:15.313Z","endedAt":"2026-10-05T05:24:15.369Z"}
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":34}
+### oac-herdr-pane-section {"seq":35,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:16.431Z","endedAt":"2026-10-05T05:24:16.488Z"}
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":35}
+### oac-herdr-pane-section {"seq":36,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:17.555Z","endedAt":"2026-10-05T05:24:17.602Z"}
+› Greet me in a single word.
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":36}
+### oac-herdr-pane-section {"seq":37,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:18.670Z","endedAt":"2026-10-05T05:24:18.724Z"}
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be seen.
+  16. Lighthouse sounds can have distinctive patterns, much like their light signals.
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":37}
+### oac-herdr-pane-section {"seq":38,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:19.784Z","endedAt":"2026-10-05T05:24:19.834Z"}
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be seen.
+  16. Lighthouse sounds can have distinctive patterns, much like their light signals.
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":38}
+### oac-herdr-pane-section {"seq":39,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:20.909Z","endedAt":"2026-10-05T05:24:20.958Z"}
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERU…
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be seen.
+  16. Lighthouse sounds can have distinctive patterns, much like their light signals.
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":39}
+### oac-herdr-pane-section {"seq":40,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:22.059Z","endedAt":"2026-10-05T05:24:22.116Z"}
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be seen.
+  16. Lighthouse sounds can have distinctive patterns, much like their light signals.
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed from masonry.
+  27. Other lighthouse towers are made from cast iron, steel, or concrete.
+  28. Spiral staircases are common inside lighthouse towers because they fit within narrow spaces.
+  29. The lantern room is the glazed enclosure that houses a lighthouse’s light and lens.
+  30. A gallery is an exterior platform around the lantern room or tower
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":40}
+### oac-herdr-pane-section {"seq":41,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:23.181Z","endedAt":"2026-10-05T05:24:23.225Z"}
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any …
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be seen.
+  16. Lighthouse sounds can have distinctive patterns, much like their light signals.
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed from masonry.
+  27. Other lighthouse towers are made from cast iron, steel, or concrete.
+  28. Spiral staircases are common inside lighthouse towers because they fit within narrow spaces.
+  29. The lantern room is the glazed enclosure that houses a lighthouse’s light and lens.
+  30. A gallery is an exterior platform around the lantern room or tower.
+  31. Lighthouse windows are designed to admit light while protecting the lantern room from weather.
+  32. Some historic lighthouse stations include keeper’s houses near the tower.
+  33. Lighthouse keepers often recorded weather and vessel observations as part of their duties.
+  34. A lighthouse can help mark a safe channel
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":41}
+### oac-herdr-pane-section {"seq":42,"label":"busy-poll","source":"visible","startedAt":"2026-10-05T05:24:24.307Z","endedAt":"2026-10-05T05:24:24.358Z"}
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any …
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be seen.
+  16. Lighthouse sounds can have distinctive patterns, much like their light signals.
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed from masonry.
+  27. Other lighthouse towers are made from cast iron, steel, or concrete.
+  28. Spiral staircases are common inside lighthouse towers because they fit within narrow spaces.
+  29. The lantern room is the glazed enclosure that houses a lighthouse’s light and lens.
+  30. A gallery is an exterior platform around the lantern room or tower.
+  31. Lighthouse windows are designed to admit light while protecting the lantern room from weather.
+  32. Some historic lighthouse stations include keeper’s houses near the tower.
+  33. Lighthouse keepers often recorded weather and vessel observations as part of their duties.
+  34. A lighthouse can help mark a safe channel into a harbor.
+  35. Some lighthouses are maintained as museums or historic sites.
+  36. Lighthouse preservation groups work to protect many retired and active stations.
+  37. The Statue of Liberty served as a lighthouse for a period after its dedication.
+  38. The first lighthouse at Alexandria, known as the Pharos, was one of
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":42}
+### oac-herdr-pane-section {"seq":43,"label":"queued-poll","source":"visible","startedAt":"2026-10-05T05:24:25.467Z","endedAt":"2026-10-05T05:24:25.514Z"}
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any …
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed from masonry.
+  27. Other lighthouse towers are made from cast iron, steel, or concrete.
+  28. Spiral staircases are common inside lighthouse towers because they fit within narrow spaces.
+  29. The lantern room is the glazed enclosure that houses a lighthouse’s light and lens.
+  30. A gallery is an exterior platform around the lantern room or tower.
+  31. Lighthouse windows are designed to admit light while protecting the lantern room from weather.
+  32. Some historic lighthouse stations include keeper’s houses near the tower.
+  33. Lighthouse keepers often recorded weather and vessel observations as part of their duties.
+  34. A lighthouse can help mark a safe channel into a harbor.
+  35. Some lighthouses are maintained as museums or historic sites.
+  36. Lighthouse preservation groups work to protect many retired and active stations.
+  37. The Statue of Liberty served as a lighthouse for a period after its dedication.
+  38. The first lighthouse at Alexandria, known as the Pharos, was one of the Seven Wonders of the Ancient World.
+  39. Lighthouse lights may use colored sectors to indicate different navigational directions or hazards.
+  40. Mariners should use lighthouse signals together with charts and other navigation information.
+
+  Worked for 14s • 12:24 AM
+
+
+› G2 spike queued message (sent via thread/queue/add while the previous turn was still running): after finishing,
+  reply with exactly the words OAC G2 QUEUED.
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":43}
+### oac-herdr-pane-section {"seq":44,"label":"queued-poll","source":"visible","startedAt":"2026-10-05T05:24:26.604Z","endedAt":"2026-10-05T05:24:26.673Z"}
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any …
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed from masonry.
+  27. Other lighthouse towers are made from cast iron, steel, or concrete.
+  28. Spiral staircases are common inside lighthouse towers because they fit within narrow spaces.
+  29. The lantern room is the glazed enclosure that houses a lighthouse’s light and lens.
+  30. A gallery is an exterior platform around the lantern room or tower.
+  31. Lighthouse windows are designed to admit light while protecting the lantern room from weather.
+  32. Some historic lighthouse stations include keeper’s houses near the tower.
+  33. Lighthouse keepers often recorded weather and vessel observations as part of their duties.
+  34. A lighthouse can help mark a safe channel into a harbor.
+  35. Some lighthouses are maintained as museums or historic sites.
+  36. Lighthouse preservation groups work to protect many retired and active stations.
+  37. The Statue of Liberty served as a lighthouse for a period after its dedication.
+  38. The first lighthouse at Alexandria, known as the Pharos, was one of the Seven Wonders of the Ancient World.
+  39. Lighthouse lights may use colored sectors to indicate different navigational directions or hazards.
+  40. Mariners should use lighthouse signals together with charts and other navigation information.
+
+  Worked for 14s • 12:24 AM
+
+
+› G2 spike queued message (sent via thread/queue/add while the previous turn was still running): after finishing,
+  reply with exactly the words OAC G2 QUEUED.
+
+
+• OAC
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":44}
+### oac-herdr-pane-section {"seq":46,"label":"busy-and-queued-turns-settled?","source":"visible","startedAt":"2026-10-05T05:26:47.394Z","endedAt":"2026-10-05T05:26:47.444Z"}
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any …
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed from masonry.
+  27. Other lighthouse towers are made from cast iron, steel, or concrete.
+  28. Spiral staircases are common inside lighthouse towers because they fit within narrow spaces.
+  29. The lantern room is the glazed enclosure that houses a lighthouse’s light and lens.
+  30. A gallery is an exterior platform around the lantern room or tower.
+  31. Lighthouse windows are designed to admit light while protecting the lantern room from weather.
+  32. Some historic lighthouse stations include keeper’s houses near the tower.
+  33. Lighthouse keepers often recorded weather and vessel observations as part of their duties.
+  34. A lighthouse can help mark a safe channel into a harbor.
+  35. Some lighthouses are maintained as museums or historic sites.
+  36. Lighthouse preservation groups work to protect many retired and active stations.
+  37. The Statue of Liberty served as a lighthouse for a period after its dedication.
+  38. The first lighthouse at Alexandria, known as the Pharos, was one of the Seven Wonders of the Ancient World.
+  39. Lighthouse lights may use colored sectors to indicate different navigational directions or hazards.
+  40. Mariners should use lighthouse signals together with charts and other navigation information.
+
+  Worked for 14s • 12:24 AM
+
+
+› G2 spike queued message (sent via thread/queue/add while the previous turn was still running): after finishing,
+  reply with exactly the words OAC G2 QUEUED.
+
+
+• OAC G2 QUEUED
+
+  Worked for 1s • 12:24 AM
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":46}
+### oac-herdr-pane-section {"seq":47,"label":"after-busy-and-queued","source":"recent-unwrapped","startedAt":"2026-10-05T05:26:47.444Z","endedAt":"2026-10-05T05:26:48.122Z"}
+
+  >_ OpenAI Codex (v0.160.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project
+
+  Hello, world. Hello, you.
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ hook exited with code 1
+
+• Hello
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN
+  RECEIVED.
+
+
+• OAC G2 RERUN RECEIVED
+
+  Worked for 2s • 12:24 AM
+
+
+› G2 spike busy-turn test: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any
+  tools.
+
+
+• 1. Lighthouses help vessels navigate by marking coastlines, hazards, and harbor entrances.
+  2. A lighthouse’s light is often positioned high above the water to make it visible from farther away.
+  3. Fresnel lenses use concentric rings of glass to focus light into a powerful beam.
+  4. French physicist Augustin-Jean Fresnel developed the lighthouse lens that bears his name.
+  5. Lighthouse lights can flash in patterns that identify individual stations.
+  6. Mariners can use a light’s flash pattern to distinguish it from nearby lights.
+  7. Some lighthouses use fixed lights that shine continuously rather than flashing.
+  8. Lighthouse towers are often painted in contrasting colors to stand out in daylight.
+  9. A lighthouse’s daytime appearance is sometimes called its daymark.
+  10. Coastal lighthouses may be built on cliffs, islands, reefs, or artificial foundations.
+  11. Offshore lighthouses can stand on submerged rocks surrounded by open water.
+  12. Lighthouse keepers once maintained lamps, lenses, and fuel by hand.
+  13. Many lighthouses are now automated and monitored remotely.
+  14. Some lighthouse stations include fog signals for use when visibility is poor.
+  15. A foghorn can warn ships even when a lighthouse’s light cannot be seen.
+  16. Lighthouse sounds can have distinctive patterns, much like their light signals.
+  17. Before electric lamps became common, many lighthouses used oil or other fuels.
+  18. Rotating lighthouse lights can be produced by turning a lens assembly around a stationary lamp.
+  19. Some lighthouses use a rotating screen or shutter to create flashes.
+  20. Lighthouse range depends partly on the height of the light and the observer’s elevation.
+  21. Atmospheric conditions can affect how far a lighthouse beam is visible.
+  22. The apparent height of a lighthouse’s light above sea level is called its focal plane.
+  23. Lighthouse charts and lists describe lights to help mariners identify them.
+  24. A beacon is a navigational aid that may be mounted on a structure smaller than a lighthouse.
+  25. Lightships once served as floating lighthouses where building a tower was impractical.
+  26. Some lighthouse towers are constructed from masonry.
+  27. Other lighthouse towers are made from cast iron, steel, or concrete.
+  28. Spiral staircases are common inside lighthouse towers because they fit within narrow spaces.
+  29. The lantern room is the glazed enclosure that houses a lighthouse’s light and lens.
+  30. A gallery is an exterior platform around the lantern room or tower.
+  31. Lighthouse windows are designed to admit light while protecting the lantern room from weather.
+  32. Some historic lighthouse stations include keeper’s houses near the tower.
+  33. Lighthouse keepers often recorded weather and vessel observations as part of their duties.
+  34. A lighthouse can help mark a safe channel into a harbor.
+  35. Some lighthouses are maintained as museums or historic sites.
+  36. Lighthouse preservation groups work to protect many retired and active stations.
+  37. The Statue of Liberty served as a lighthouse for a period after its dedication.
+  38. The first lighthouse at Alexandria, known as the Pharos, was one of the Seven Wonders of the Ancient World.
+  39. Lighthouse lights may use colored sectors to indicate different navigational directions or hazards.
+  40. Mariners should use lighthouse signals together with charts and other navigation information.
+
+  Worked for 14s • 12:24 AM
+
+
+› G2 spike queued message (sent via thread/queue/add while the previous turn was still running): after finishing,
+  reply with exactly the words OAC G2 QUEUED.
+
+
+• OAC G2 QUEUED
+
+  Worked for 1s • 12:24 AM
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-tqwC9b\g2-project · Greet me
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":47}

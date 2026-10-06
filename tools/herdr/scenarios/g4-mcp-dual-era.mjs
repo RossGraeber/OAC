@@ -10,11 +10,18 @@
 // committed fixture's wire shapes. It is not the server that produced the human-run fixture
 // and cannot be verified identical to it; every comparison says so.
 //
-// LIVE STATUS: UNVERIFIED. Exercised only against the test doubles in tools/herdr/test/ (a
-// fake herdr, a fake Claude Code and a fake Codex); it has never driven a real herdr, Claude
-// Code or Codex. Every pane-text pattern it schedules on (lib/g1.mjs, lib/g2.mjs) is a guess
-// except the dev-channels dialog, and whether Codex honors a per-invocation MCP-server `-c`
-// override for an HTTP server is itself UNVERIFIED.
+// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G4-2026-10-05.md (an equivalence
+// record, not verdict-bearing): run 20261005T013347Z-6803a7, a real herdr (v0.9.1), Claude
+// Code 2.1.285 and Codex 0.160.0, run outcome PASS, driver commit de42b54. It replaces
+// G4-2026-10-04.md (run 20261004T093525Z-c9beec, driver b478f2a), kept as history. The record
+// holds for its driver commit only: a later run relies on it only under oac-gates
+// references/scripted-runs.md "When a scripted run may carry a verdict" (among other
+// conditions, an empty tools/herdr/ diff, test/ excluded, against de42b54). In that run the
+// driver accepted all five dialogs on an exact match to their recorded text (the record's
+// findings). Whether Codex honors a per-invocation MCP-server `-c` override for an HTTP
+// server is partly answered there for Codex 0.160.0 (one Codex HTTP session, the override in
+// the process argv); that no other Codex user-config entry points at the run's port is still
+// UNVERIFIED from committed evidence.
 //
 // Operator command (herdr at the PINS.md pin; Claude Code and Codex at any version, since
 // versions float and a difference from PINS.md's last tested versions is a VERSION WARNING
@@ -56,7 +63,10 @@
 //      both copies push; the Claude pane is read.
 //   4. Claude's modern HTTP `tools/call` (an operator prompt).
 //   5. Codex starts in a second pane, CONCURRENTLY with the live Claude session. Its MCP
-//      client's `initialize` user-agent must equal the pinned Codex version. An operator
+//      client's `initialize` user-agent must equal the pinned Codex version. Once that MCP
+//      connect is seen, the driver settles Codex again before typing (#282: idle at or past
+//      herdr's state at the connect, still idle on a re-check; never settled within
+//      turnTimeoutMs -> NOT RUN with a startup-settle finding). An operator
 //      prompt asks it to call g4_echo, then g4_relay_to_claude; the relay reaches Claude only
 //      as the server's own channel push. Codex asks to approve each call (seen live on 0.160.0,
 //      #271): under accept=driver the driver answers "1. Allow" (this call only) when the prompt
@@ -358,6 +368,12 @@ export default {
       } else {
         ctx.finding(`a harness's CLI and wire versions differ (CLI ${JSON.stringify(g4.versions.cliOutput)}, wire ${JSON.stringify(g4.versions.wire)}); the run continues, but its captures stay unverified-* because they cannot name one version per harness`);
       }
+
+      // #282: Codex's MCP connect shows only that its startup reached the server, not that the
+      // startup is over (live run 20261004T075757Z: connect ~13 s after launch, `working` 1.1 s
+      // later). Settle (idle at or past herdr's state at this observation, then idle on a
+      // re-check) before the first prompt; never settled within the turn bound -> NOT RUN.
+      g4.codexStartupSettle = await codex.startupSettle('codex-mcp-settle', `Codex's MCP connect (initialize at transcript line ${cinit.reqLine})`, num('turnTimeoutMs'));
 
       const callsBefore = facts().toolCalls.length;
       const pushesBefore = facts().pushes.length;

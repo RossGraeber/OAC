@@ -238,6 +238,7 @@ export function g5CodexFacts(entries, { question } = {}) {
       text: d.text,
       call: d.case === 'X4' ? 'thread/queue/add' : 'turn/start',
       startLine: start?.reqLine ?? null,
+      startResLine: start?.line ?? null,
       startError: start?.error ?? null,
       additionalContextSent: d.additionalContext !== null,
       turnId: turn?.id ?? null,
