@@ -900,8 +900,8 @@ hand-off operations are classified in §8.2.1.
 
 - **Surface labels:** `codex mcp add` external MCP server registration, supported
   (PLANNING-PROMPT.md §3.2; C6 §9). App-server live inject, experimental (per-method
-  gating) (`oac-codex-appserver`). Pin: Codex floating, minimum `0.154.0`, last tested
-  `0.159.3` (`docs/planning/STATUS.md` "Pins").
+  gating) (`oac-codex-appserver`). Pin: Codex floating; minimum and last tested versions
+  in `docs/planning/PINS.md` "Codex CLI and app-server", "Version policy".
 - **Inbound:** not MCP. The Codex adapter uses the app-server methods named in §2.3.
   `codex mcp-server` is deleted and is not a path (C6 §9).
 - **Outbound:** Codex calls the four tools of §5 on an OAC server registered with

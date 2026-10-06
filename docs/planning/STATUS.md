@@ -548,7 +548,9 @@ first version worked with (G1, 2026-09-25: `G1-result.md` "Original run", fixtur
 minimum `@openai/codex@0.154.0`, the first version worked with (G2, 2026-09-25:
 `G2-result.md` "Re-run history", fixture `g2-codex-inject/transcript.jsonl`). Last tested
 `@openai/codex@0.159.3` (commit `01fc69f4026735edfdf6789820549727a4867b11`, L3,
-2026-10-01). The pin-move checklist and `docs/planning/gates/README.md` §a no longer apply
+2026-10-01; *dated note, 2026-10-06: superseded on 2026-10-04 by `@openai/codex@0.160.0`.
+The current last tested version is in `docs/planning/PINS.md` "Codex CLI and app-server"*).
+The pin-move checklist and `docs/planning/gates/README.md` §a no longer apply
 to these rows. A harness version other than the last tested one, or below the minimum, is
 a `VERSION WARNING` finding. It never stops a run, never makes it `NOT RUN`, never blocks
 CI and never by itself invalidates a gate verdict. The herdr scenarios (g1, g2, g4, g5, l3),
