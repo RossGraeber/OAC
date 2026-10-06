@@ -4,6 +4,30 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #58 (F9): the fake Codex app-server endpoint lands
+at `tests/fakes/codex-app-server/`**, a dev/test-only Node process (built-ins only) over
+stdio and loopback WebSocket. No `spec/` file, gate verdict, pin or ADR text changes, and
+no dependency is added.
+
+- **Replay.** It loads the D6 `d6-codex-protocol/` transcripts and the G2 and G5 Codex
+  transcripts in place from `docs/planning/gates/fixtures/` (no fixture is added, copied or
+  changed). Its self-test drives it through the D6 attempt-2 sequence and checks every frame
+  each connection receives against the recorded one: order, kind and JSON shape. The README
+  maps each behaviour to its fixture.
+- **Ledger.** New "Open UNVERIFIED items" entry, from #58 below, and
+  `docs/planning/v0.1/11-risks.md` row 67: the experimental-API gate's refusal, the
+  "Not initialized" refusal, the frames of an interrupted turn and the resume error for an
+  unknown thread id are modelled from source at `rust-v0.160.0` only. The queue refusals and the wait after an interrupt stay under the
+  #274 entry (rows 65-66). Every other unrecorded behaviour, `turn/steer` included, is
+  answered with the fake's own `NOT_MODELLED` error, never an invented Codex frame.
+- **For F10/F11.** A call log flags every `turn/steer` and `turn/start` (steering,
+  [MCPB-CDX-003]/[MCPB-CDX-004]), every hand-off and every override member
+  ([MCPB-CDX-005]), so a suite can assert that an adapter hands off through
+  `thread/queue/add` only ([MCPB-CDX-002]). Turns end only when a test says so
+  (`oacFake/turn/complete`), with no timer.
+- **CI.** Job `fake-codex` in `.github/workflows/boundary-lint.yml`, on Linux, Windows and
+  macOS.)
+
 **Last updated:** 2026-10-06 (**Issue #53 (F4): replay defence and duplicate suppression
 land in `core/`**, against `spec/security.md` revision 0.1. No `spec/` file, gate verdict,
 pin, dependency or ADR text changes.
@@ -1906,6 +1930,24 @@ without an UNVERIFIED label.
     (`wake_if_loaded`, `service.rs` L477); other daemon clients can reorder, update or
     delete a queued item; an add to an unloaded thread waits; an extra member in a
     `thread/queue/add` request is probably ignored.
+
+- **New, from #58 (F9, 2026-10-06):** four app-server behaviours that the fake Codex
+  app-server models from source at `rust-v0.160.0` (commit
+  `a956835d020762cb2b570053af06f643a11c0ecc`, retrieved 2026-10-06) because no fixture
+  records them (`tests/fakes/codex-app-server/README.md` "Source-only behaviours"):
+  - a `thread/queue/add` on a connection whose `initialize` did not set
+    `capabilities.experimentalApi` is refused `-32600 "thread/queue/add requires
+    experimentalApi capability"` (`app-server/src/message_processor.rs` L975-L979,
+    `app-server-protocol/src/experimental_api.rs` L30-L32);
+  - a request before `initialize` is refused `-32600 "Not initialized"`
+    (`message_processor.rs` L971-L972);
+  - the frames of a turn that ends `interrupted`: only the `TurnStatus` value is in source;
+  - `thread/resume` of an unknown thread id gets the `-32600 "no rollout found for thread
+    id <id>"` that D6 recorded only for a known thread before its first turn
+    (`thread-store/src/local/read_thread.rs` L97-L102; `thread_processor.rs` L3194-L3195).
+
+  Owner G6 (#67) for the first, G7 (#68) for the others. `11-risks.md` row 67,
+  RISK-CODEX-EXPERIMENTAL.
 
 - **New, from verifying the G5 E1 findings (#220, 2026-10-03):**
   - The old C6 §5 frame's X2 failure was not reproduced across runs. The K8 run
