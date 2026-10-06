@@ -513,6 +513,27 @@ registers no other entry at the run's port is UNVERIFIED from committed evidence
 2026-10-04 record and fixtures stay committed, marked superseded. G4's verdict stays PASS
 from the human-run procedure.
 
+*Dated note, 2026-10-06 (#131, re-record at the #301 merge):* the note above is superseded
+as to which record is current. #295, #298 (capture elision) and #301 (the #299 fixes)
+changed `tools/herdr/` outside `tools/herdr/test/`, so `herdr-runs/G4-2026-10-05.md` (driver
+`de42b54`) can back no later run. G4 was re-recorded at the #301 merge: run
+`20261006T022052Z-00cdd3` (outcome PASS, driver commit `c4def66`, `toolsHerdrDirty` false;
+herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`; same scenario file,
+launch argv and params as `20261005T013347Z-6803a7`) is recorded at
+`herdr-runs/G4-2026-10-06.md`, with its run manifest beside it and three `-herdr` fixtures
+under `fixtures/g4-mcp-dual-era/`. It is now the **equivalence record for G4 at herdr
+v0.9.1**: all five criteria `equivalent`, from the wire transcript and pane captures, with
+herdr and Harness VERIFIED, after 9 driver dialog accepts and with the harness config
+unchanged since the snapshot before the first Allow. In this run the "g4modern ...
+unavailable" notice showed after the first typed Claude prompt, not at startup. One earlier
+run at `c4def66`, `20261006T001351Z-5b2e11`, ended NOT RUN: Codex 0.160.0 opened with an
+"Update available 0.160.0 → 0.160.1" prompt the scenario does not recognise (#303), so its MCP
+connect timed out after 90 s. Before the retry, the recording agent answered that prompt
+once in Codex's own TUI, outside any scenario, with "Skip until next version"
+(operator-authorized); Codex was not updated. The record lists both under Findings. The
+Codex-config caveat is unchanged. The 2026-10-05 record and fixtures stay committed, marked
+superseded. G4's verdict stays PASS from the human-run procedure.
+
 ---
 
 #### Superseded: 2026-09-25/26 out-of-box run (NOT RUN)
