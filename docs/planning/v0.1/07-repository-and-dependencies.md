@@ -230,6 +230,22 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `windows-native-keyring-store` | `1.1.0` | MIT OR Apache-2.0 | The Windows Credential Manager backend `keyring`'s `v1`/default feature pulls in | No | Yes | C1 §10 | Daemon binary's own identity code (not `core/`) |
 | `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, C2 §4) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` | No | Yes — OAC elects the Apache-2.0 arm | C2 §4 | `cli/` (`mcp-shim`) + daemon binary |
 | `age` | `0.12.1` | MIT OR Apache-2.0 | Encrypted-file key fallback for the device key when no OS credential store is reachable | No | Yes — OAC elects the Apache-2.0 arm | C4 §11 | Daemon binary's own identity code (not `core/`) |
+| `serde_jcs` | `0.2.0` | MIT OR Apache-2.0 | RFC 8785 (JCS) canonical form of the signing input, `spec/security.md` §6.2 | No | Yes — OAC elects the Apache-2.0 arm | C5 §3; `PINS.md` "`serde_jcs`" | `core/` (`canonical`) |
+| `serde` | `1.0.229` | MIT OR Apache-2.0 | The `Serialize` trait through which `core/` hands its JSON tree to `serde_jcs`; default features off, `std` on, no `derive` | No | Yes — OAC elects the Apache-2.0 arm | #51 (F2): the interface `serde_jcs` takes | `core/` (`canonical`) |
+
+(Dated note, 2026-10-06, #51 / F2.) `serde_jcs` brings these transitive packages, each
+built: `serde_core` `1.0.229` (MIT OR Apache-2.0), `serde_json` `1.0.151` (MIT OR
+Apache-2.0; features `std`, `float_roundtrip`), `ryu-js` `0.2.2` (Apache-2.0 OR BSL-1.0),
+`itoa` `1.0.18` (MIT OR Apache-2.0), `memchr` `2.8.3` (Unlicense OR MIT; the script elects
+MIT) and `zmij` `1.0.23` (MIT). `serde`'s optional `derive` feature, which nothing in the
+workspace enables, also puts `serde_derive` `1.0.229`, `proc-macro2` `1.0.107`, `quote`
+`1.0.47`, `syn` `3.0.6` (each MIT OR Apache-2.0) and `unicode-ident` `1.0.26` ((MIT OR
+Apache-2.0) AND Unicode-3.0) in the `--all-features` graph that `scripts/check-licenses.mjs`
+reads. None of them is compiled into the `oac` binary. No package is copyleft.
+`core/` parses JSON with its own strict I-JSON reader (`core/src/json.rs`), not with
+`serde_json`: the envelope rules need duplicate member names reported (RFC 7493 §2.3) and
+each number's spelling kept ([SC-ENV-050], [SEC-SIG-013]), which `serde_json`'s value type
+discards.
 
 **Acceptance box 2 ticked here** — "Every third-party dependency: name, version,
 license, reason": every row above carries all four, plus the copyleft flag, the
@@ -294,7 +310,7 @@ elects the Apache-2.0 arm**, per `docs/planning/decisions/C1-language-runtime.md
 
 No other row in §5's inventory carries a copyleft arm. The same election pattern
 applies to the MIT-or-Apache duals (`keyring`, `keyring-core`,
-`windows-native-keyring-store`, `age`) and the 0BSD-or-Apache dual (`interprocess`):
+`windows-native-keyring-store`, `age`, `serde_jcs`, `serde`) and the 0BSD-or-Apache dual (`interprocess`):
 these are permissive either way, and OAC elects Apache-2.0 for uniformity across the
 whole inventory, not because either arm of those duals is copyleft.
 
@@ -310,7 +326,7 @@ Apache-2.0 or an Apache-2.0-compatible permissive license. The whole direct inve
 is distributable under Apache-2.0.
 
 **Limit, stated honestly.** This verdict covers **direct named dependencies only** —
-the ten rows in §5's table. It does not cover the transitive dependency graph each of
+the rows in §5's table. It does not cover the transitive dependency graph each of
 these crates pulls in; that sweep is deferred (§8).
 
 **Acceptance box 4 ticked here** — "Apache-2.0 compatibility stated for the whole
