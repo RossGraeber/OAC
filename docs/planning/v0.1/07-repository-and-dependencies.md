@@ -55,6 +55,12 @@ docs/
 rule: it depends on `core/` only (§3), and adds no third-party crate of its own. The `Transport`
 contract and the §4.11 transport-boundary types it implements live in `core/`, which
 calls them; `spec/interfaces.md` §6.1 notes the in-memory transport.)
+(Dated note, 2026-10-06, #58: fake harness endpoints live under `tests/fakes/<name>/`,
+inside the `tests/` row of §2. F9's fake Codex app-server is
+`tests/fakes/codex-app-server/`: Node built-ins only, no `package.json`, never a workspace
+member or a dependency of any manifest, and not shipped. It is outside `tests/integration/`,
+the opt-in leaf that no product path may reference, so a CI-default test in a product
+crate may spawn it by path.)
 
 **Dev/test tooling in the tree, outside the product layout.** `tools/herdr/` is the herdr
 test driver (Epic K #123, K3 #126), run as `node tools/herdr/run.mjs --scenario <name>`.
