@@ -1317,7 +1317,12 @@ issue #35/D2), was invalidated when the Codex row went floating, and has been **
 PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
 the environment both report `0.157.1`, so the verdict is current. (Dated note, 2026-10-01,
 #216: currency no longer depends on the environment's version; the last tested Codex
-version is now `0.159.3`, and G2 stands on `0.157.1`.) G3 has run on two of its three platforms
+version is now `0.159.3`, and G2 stands on `0.157.1`.) (Dated note, 2026-10-06, #130: G2's
+herdr equivalence record is now `gates/herdr-runs/G2-2026-10-06.md`, run
+`20261006T000900Z-51a348` at driver `c4def66` (the #301 merge), Codex `0.160.0`, all four
+criteria `equivalent`, herdr and Harness VERIFIED. It supersedes `G2-2026-10-05.md` (driver
+`efb775f`), kept as history. Neither record is verdict-bearing; G2's verdict is unchanged.)
+G3 has run on two of its three platforms
 (2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
 gate-level verdict stays `NOT RUN` until the macOS leg runs. (Note 2026-10-02, #219: the
 macOS leg ran on a GitHub-hosted VM and passed; **G3 is now PASS** at gate level.) G4 spiked on 2026-09-25/26
