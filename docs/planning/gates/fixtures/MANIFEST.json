@@ -6658,14 +6658,15 @@
       "pins_as_of": "PINS.md as committed at HEAD de42b540eb88ed156fcde0fcb8e1081891c2ea2e when the run started; last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
       "version_matches_pin": true,
       "capture_date": "2026-10-05",
-      "superseded_by": null,
+      "superseded_by": "docs/planning/gates/fixtures/g4-mcp-dual-era/transcript-2026-10-06-claude-2.1.285-codex-0.160.0-herdr.jsonl",
       "driver": {
         "herdr_version": "herdr 0.9.1",
         "driver_commit": "de42b540eb88ed156fcde0fcb8e1081891c2ea2e",
         "run_manifest": "docs/planning/gates/herdr-runs/G4-2026-10-05.run-manifest.json"
       },
       "notes": [
-        "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures."
+        "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures.",
+        "Superseded 2026-10-06 (#131 re-record at the #301 merge): run 20261005T013347Z-6803a7 (driver de42b54) can no longer back a later G4 run, because #295, #298 and #301 changed tools/herdr/ outside tools/herdr/test/ (lib/elide.mjs, lib/redact.mjs, run.mjs and others). Kept as history. Current record: docs/planning/gates/herdr-runs/G4-2026-10-06.md."
       ],
       "capture_utc_range": "2026-10-05T01:34:06.370Z-2026-10-05T01:36:33.172Z",
       "redaction": {
@@ -6701,14 +6702,15 @@
       "pins_as_of": "PINS.md as committed at HEAD de42b540eb88ed156fcde0fcb8e1081891c2ea2e when the run started; last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
       "version_matches_pin": true,
       "capture_date": "2026-10-05",
-      "superseded_by": null,
+      "superseded_by": "docs/planning/gates/fixtures/g4-mcp-dual-era/pane-claude-2026-10-06-2.1.285-herdr.txt",
       "driver": {
         "herdr_version": "herdr 0.9.1",
         "driver_commit": "de42b540eb88ed156fcde0fcb8e1081891c2ea2e",
         "run_manifest": "docs/planning/gates/herdr-runs/G4-2026-10-05.run-manifest.json"
       },
       "notes": [
-        "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures."
+        "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures.",
+        "Superseded 2026-10-06 (#131 re-record at the #301 merge): run 20261005T013347Z-6803a7 (driver de42b54) can no longer back a later G4 run, because #295, #298 and #301 changed tools/herdr/ outside tools/herdr/test/ (lib/elide.mjs, lib/redact.mjs, run.mjs and others). Kept as history. Current record: docs/planning/gates/herdr-runs/G4-2026-10-06.md."
       ],
       "capture_utc_range": null,
       "redaction": {
@@ -6732,11 +6734,93 @@
       "pins_as_of": "PINS.md as committed at HEAD de42b540eb88ed156fcde0fcb8e1081891c2ea2e when the run started; last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
       "version_matches_pin": true,
       "capture_date": "2026-10-05",
-      "superseded_by": null,
+      "superseded_by": "docs/planning/gates/fixtures/g4-mcp-dual-era/pane-codex-2026-10-06-0.160.0-herdr.txt",
       "driver": {
         "herdr_version": "herdr 0.9.1",
         "driver_commit": "de42b540eb88ed156fcde0fcb8e1081891c2ea2e",
         "run_manifest": "docs/planning/gates/herdr-runs/G4-2026-10-05.run-manifest.json"
+      },
+      "notes": [
+        "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures.",
+        "Superseded 2026-10-06 (#131 re-record at the #301 merge): run 20261005T013347Z-6803a7 (driver de42b54) can no longer back a later G4 run, because #295, #298 and #301 changed tools/herdr/ outside tools/herdr/test/ (lib/elide.mjs, lib/redact.mjs, run.mjs and others). Kept as history. Current record: docs/planning/gates/herdr-runs/G4-2026-10-06.md."
+      ],
+      "capture_utc_range": null,
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "57acccb89a246aa766616d84aa42760697c879cc8df947db8d75ac251b3611c1",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after lib/g4.mjs sanitizeG4Transcript (extension identifier -> <#OAC_EXT_ID#>, 7x): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads of the Codex TUI, one section per kept read, each with its herdr command seq and timestamps"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g4-mcp-dual-era/transcript-2026-10-06-claude-2.1.285-codex-0.160.0-herdr.jsonl",
+      "provider": "claude+codex",
+      "surface": "claude-channels (server) + codex MCP client (reconstructed G4 server)",
+      "observed_version": {
+        "claude_code": "2.1.285 (claude --version; wire clientInfo.version 2.1.285)",
+        "codex_cli": "0.160.0 (codex --version; MCP user-agent codex-mcp-client/0.160.0)",
+        "mcp_current_era": "2026-07-28",
+        "mcp_legacy_era": "2025-11-25",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels); Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD c4def66fc62f84673bf3c31aeef648cf2ef3a162 when the run started; last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-06",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c4def66fc62f84673bf3c31aeef648cf2ef3a162",
+        "run_manifest": "docs/planning/gates/herdr-runs/G4-2026-10-06.run-manifest.json"
+      },
+      "notes": [
+        "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures."
+      ],
+      "capture_utc_range": "2026-10-06T02:21:16.677Z-2026-10-06T02:22:17.463Z",
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after lib/g4.mjs sanitizeG4Transcript (extension identifier -> <#OAC_EXT_ID#>, 7x): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "server/discover (stdio, modern-only negative-case copy)": "5, 7",
+        "server/discover (stdio probe, rejected -32601)": "6, 8",
+        "server/discover (HTTP, modern)": "10-11",
+        "initialize (legacy stdio)": "12-13",
+        "tools/list": "14-15, 20-21, 16-17, 31-32",
+        "initialize (Codex HTTP legacy)": "26-27",
+        "tools/call (Claude HTTP-modern)": "24-25, 38-39",
+        "tools/call (Codex HTTP legacy)": "33-34, 35, 37",
+        "notifications/claude/channel": "22, 23, 36, 40, 41"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "Codex appears here only as an outbound MCP client (codex-mcp-client) calling tools on the reconstructed G4 MCP server, not as the Codex app-server JSON-RPC protocol; codex-rs/app-server-protocol/schema/json does not describe this exchange."
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g4-mcp-dual-era/pane-claude-2026-10-06-2.1.285-herdr.txt",
+      "provider": "claude",
+      "surface": "claude-code TUI pane text (herdr agent read)",
+      "observed_version": {
+        "claude_code": "2.1.285",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at HEAD c4def66fc62f84673bf3c31aeef648cf2ef3a162 when the run started; last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-06",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c4def66fc62f84673bf3c31aeef648cf2ef3a162",
+        "run_manifest": "docs/planning/gates/herdr-runs/G4-2026-10-06.run-manifest.json"
       },
       "notes": [
         "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures."
@@ -6744,7 +6828,38 @@
       "capture_utc_range": null,
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
-        "script_sha256": "57acccb89a246aa766616d84aa42760697c879cc8df947db8d75ac251b3611c1",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after lib/g4.mjs sanitizeG4Transcript (extension identifier -> <#OAC_EXT_ID#>, 7x): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads of the Claude Code TUI, one section per kept read, each with its herdr command seq and timestamps"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g4-mcp-dual-era/pane-codex-2026-10-06-0.160.0-herdr.txt",
+      "provider": "codex",
+      "surface": "codex TUI pane text (herdr agent read)",
+      "observed_version": {
+        "codex_cli": "0.160.0",
+        "node": null
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD c4def66fc62f84673bf3c31aeef648cf2ef3a162 when the run started; last commit touching PINS.md at report time: 75b12dd817ddbd7e7e5e8bc672ae695653973bf5",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-06",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c4def66fc62f84673bf3c31aeef648cf2ef3a162",
+        "run_manifest": "docs/planning/gates/herdr-runs/G4-2026-10-06.run-manifest.json"
+      },
+      "notes": [
+        "K8 scripted run through herdr; NOT verdict-bearing (G4 verdict unchanged). The server is tools/herdr/gate-servers/g4-server.mjs, a RECONSTRUCTION of the never-committed G4 spike server, not the server that produced the human-run fixtures."
+      ],
+      "capture_utc_range": null,
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
         "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after lib/g4.mjs sanitizeG4Transcript (extension identifier -> <#OAC_EXT_ID#>, 7x): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
       },
       "coverage": {
