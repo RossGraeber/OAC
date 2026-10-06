@@ -922,8 +922,8 @@ turn, under `RISK-CODEX-EXPERIMENTAL`.
 | 22 | Codex `thread.sessionId` vs. `thread.id` | RISK-CODEX-EXPERIMENTAL |
 | 23 | `ed25519-dalek` `3.0.0` on `x86_64-pc-windows-msvc` | RISK-CRYPTO-BUILD |
 | 24 | `curve25519-dalek` repository MSRV policy | RISK-CRYPTO-BUILD |
-| 25 | Device-key fingerprint truncation length | RISK-PAIRING |
-| 26 | 6-digit/120s/5-attempt pairing parameters | RISK-PAIRING |
+| 25 | Device-key fingerprint truncation length | RISK-PAIRING — narrowed (2026-10-06, #54): the pairing code hashes the full public keys (`core/src/pairing.rs`); only the certificate common-name use stays open |
+| 26 | 6-digit/120s/5-attempt pairing parameters | RISK-PAIRING — narrowed (2026-10-06, #54): implemented in `core/src/pairing.rs`, with a commit-then-reveal exchange so the code cannot be ground offline (STATUS.md finding F5-1); unit tests cover the 120-second expiry and the five-attempt abort. The live-network half stays open until a `cli/` pairing verb runs on a LAN |
 | 27 | NATS capability claims | RISK-NATS — narrowed (2026-10-06, #49; E9 record §3.2): capability cells closed; the reconnect-buffer item (F-T3) and the slow-consumer buffer-age item (F-T5) stay open |
 | 28 | MQTT capability claims | RISK-MQTT — **CLOSED** (2026-10-06, #49; E9 record §4.2) |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |

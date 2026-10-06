@@ -4,6 +4,40 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #54 (F5): the authorization engine and the pairing
+store land in `core/`**, against `spec/security.md` revision 0.1 §9 and §5.3 and
+`spec/interfaces.md` §4.9. No `spec/` file, gate verdict, pin or ADR text changes, and no
+dependency is added.
+
+- **What landed.** `core/src/authorization.rs`: one-way inbound and outbound grants naming a
+  session, a working-directory scope or the whole device; the binding table with conflict
+  marks; reply rights (24 hours, one correlated reply) and hand-off records; the five
+  decision kinds of Table 4.9, each `deny` unless a recorded basis permits it; security step
+  4 of Table 7.1; key removal that drops the key's grants, bindings and conflict marks in the
+  same step ([SEC-KEY-035]); and a decision log that records the principal and session ids,
+  never a message body. `core/src/pairing.rs`: the pairing exchange and the `PairingStore`
+  seam with an in-memory test double. No store on disk is added; one belongs to `cli/`,
+  opt-in, as F3's key stores do.
+- **Conformance.** `core/tests/conformance.rs` now runs security step 4 on every `security`
+  fixture that steps 3 and 5 (F4) do not decide, and the stages `discovery-auth`,
+  `key-removal` and `exchange` in full, and `presence-auth` for the `sec-auz` fixtures. All
+  34 `sec-auz` fixtures and `sec-key/SEC-KEY-035.p01` run through `oac-core`.
+- **Finding F5-1 (pairing code).** `docs/planning/decisions/C5-envelope-auth.md` §10(b)
+  derives the six-digit code from the two keys' fingerprints alone. Its MITM argument does
+  not hold for a code of about 2^20 values: an attacker on the exchange channel can generate
+  key pairs offline until its substituted keys give both devices the same code. The
+  reference implementation therefore adds a commit-then-reveal nonce exchange, as
+  numeric-comparison pairing does, and derives the code from both principals, both public
+  keys and both nonces (`core/src/pairing.rs` module documentation; unit test
+  `substituted_key_or_nonce_changes_the_code_or_fails`). The 6-digit, 120-second and
+  5-attempt parameters are unchanged. `spec/security.md` §5.3 fixes what pairing establishes
+  and not the exchange, and its reference implementation note stays accurate, so no `spec/`
+  change is needed. `11-risks.md` rows 25 and 26 are updated.
+- **Same-device harnesses.** They need no pairing: they share the device key, which is
+  always trusted ([SEC-KEY-031]). They still need a grant to reach each other
+  ([SEC-AUZ-007], the #45 operator decision), so "no configuration" in #54's acceptance holds
+  for pairing, not for authorization.)
+
 **Last updated:** 2026-10-06 (**Issue #52 (F3): device identity, key storage, signing and
 verification land in `core/` and `cli/`**, against `spec/security.md` revision 0.1. No
 `spec/` file, gate verdict, pin or ADR text changes.
@@ -2153,11 +2187,19 @@ without an UNVERIFIED label.
   2026-10-03, #45: narrowed. `spec/security.md` §5.2 fixes the key id, the envelope's
   `security.key_id` and the rendered device provenance, as the full 256-bit SHA-256 in
   lower-case hex, so no truncation applies there. The pairing-code and certificate uses
-  stay open.)*
+  stay open.)* *(Dated note, 2026-10-06, #54: narrowed again. The pairing code hashes the
+  full 32-octet public keys, not a truncated fingerprint (`core/src/pairing.rs`), and the
+  key-id comparison flow compares the full key id. The certificate use stays open.)*
 - Whether the 6-digit/120-second/5-attempt LAN pairing-code parameters hold up against a
   live implementation's actual network conditions (UNVERIFIED — these are OAC's own
   design parameters, not a claim about an external system; runtime validation is a Stage
-  3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16).
+  3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16). *(Dated note,
+  2026-10-06, #54: narrowed. `core/src/pairing.rs` implements the three parameters, and
+  its unit tests show the expiry at 120 seconds and the abort after five wrong entries.
+  Brute force is bounded by a commit-then-reveal exchange (finding F5-1, in the #54
+  entry above): five online guesses per session, against 10^6 codes. What stays open is
+  the network half: no live LAN pairing has run, because the `cli/` pairing verb does
+  not exist yet.)*
 
 - **New, from E9 (#49, 2026-10-06):** whether each NATS client library can disable its
   reconnect buffer, not only resize it (UNVERIFIED — the first-party page documents the
