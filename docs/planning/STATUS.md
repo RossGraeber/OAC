@@ -23,8 +23,9 @@ written**, `docs/planning/decisions/E9-replacement-proofs.md`, argued from the f
 - **UNVERIFIED ledger.** Closed: the NATS and the MQTT capability items (all twelve
   cells), ACP protocol version `1`, and ACP schema v2 "alpha" (verified, no drift: prerelease
   `schema-v2.0.0-alpha.7`; the v2 protocol docs are Draft).
-  Added: whether each NATS client library can disable its reconnect buffer; what an ACP v1
-  agent does with a `session/prompt` during a running turn. RISK-MQTT is closed; RISK-NATS
+  Added: whether each NATS client library can disable its reconnect buffer; how long a copy
+  can wait in a NATS server's slow-consumer buffer; what an ACP v1 agent does with a
+  `session/prompt` during a running turn. RISK-MQTT is closed; RISK-NATS
   and RISK-ACP are narrowed (`11-risks.md`).
 - **No amendment** to a frozen item is proposed (record §8); no file under `spec/`
   changes. `10-stages.md` §6, §9 and §11 now record E9 as written and criterion 10 as met.
@@ -2116,7 +2117,11 @@ without an UNVERIFIED label.
   buffer size only, `nats-io/nats.docs` at `f115becf`,
   `using-nats/developing-with-nats/reconnect/buffer.md`; a NATS transport needs it off to
   meet [IFC-TRN-036]; `docs/planning/decisions/E9-replacement-proofs.md` F-T3; NATS is not
-  a v0.1 dependency). Risk entry: RISK-NATS (narrowed to this item).
+  a v0.1 dependency). Also UNVERIFIED: how long a copy can wait in a NATS server's buffer
+  for a slow subscriber. `write_deadline` bounds one blocked write and `max_pending` the
+  buffered bytes (`running-a-nats-service/configuration/README.md` L308, L317), but neither
+  bounds a copy's age; a binding has to state a time bound (record F-T5). Risk entry:
+  RISK-NATS (narrowed to these two items).
   *(Dated note, 2026-10-06, #49: two items stood here: "NATS reliability, persistence,
   offline queueing, ordering, multicast discovery, and routing/federation capability
   claims" and the same six for MQTT, both for the `05-interfaces.md` §17 proof. Both are

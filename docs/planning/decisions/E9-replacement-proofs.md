@@ -351,13 +351,25 @@ are valid subject tokens in any case.
   receiver's clock is for the binding document to state; the core re-checks the hand-off
   deadline in any case ([SC-RCP-091]).
 - [IFC-TRN-034] at the server: Core NATS has no expiry per message, so a copy can wait in the
-  server's buffer for a slow subscriber after its deadline. The server bounds that wait: it
-  closes a connection whose writes block longer than `write_deadline` (default 10 seconds)
-  and caps each connection's buffer at `max_pending` bytes (N16). The binding states these
-  bounds and sets them. A copy that waits past its deadline is still dropped by the receiving
-  transport before it reaches a handler, so none is delivered at or after its deadline. The
-  copy held in the server is a copy in flight ([IFC-TRN-033]), and the bound is the
-  binding's statement of how long that can last.
+  server's buffer for a slow subscriber after its deadline. The two server settings of N16
+  do not bound how long. `write_deadline` (default 10 seconds) bounds how long one blocked
+  write may last before the server closes the connection, and `max_pending` bounds how many
+  bytes a connection may have buffered. A subscriber whose writes each finish in time can
+  still drain a full buffer slowly, so a buffered copy can grow older than `write_deadline`
+  without the connection closing. Any time bound on a buffered copy has to come from the
+  binding, for example from `max_pending` and a minimum drain rate the binding enforces.
+  Until a binding states one, it is UNVERIFIED (§9).
+- [IFC-TRN-033], [IFC-TRN-034] and the copy in the server's buffer: [IFC-TRN-034] forbids
+  both delivering and holding a copy at or after its deadline. Delivering is covered: the
+  receiving transport drops any copy whose carried deadline has passed before it reaches a
+  handler. Holding is met only by a reading of the frozen text, stated here: the copy in the
+  server's buffer, waiting to be written to the subscriber, is a copy **in flight**
+  (`spec/interfaces.md` §2.3: in flight "until the transport hands it to the destination's
+  handler, or drops it"; [IFC-TRN-033]). The transport, and not only its client library,
+  includes the relay that carries the payload. The same reading is needed for any
+  transport's network and relay buffers. MQTT needs it too, for a copy whose onward delivery
+  has started: after that point the Server no longer deletes it on expiry (M7, §4.3). This
+  record takes that reading; it does not add a requirement.
 - [IFC-TRN-036]: the client reconnect buffer (N11) holds payloads while the connection is
   down and sends them later. That is holding a payload for a destination that is not
   reachable. The binding sets the buffer so that no payload is held while disconnected, and
@@ -444,7 +456,9 @@ module from the `Destination` by the same one-way hash as §3.1.
   Server deletes a copy whose expiry passes before onward delivery starts, and forwards the
   remaining lifetime, not an absolute time (M7). The receiving transport drops a copy whose
   forwarded lifetime is zero. This bounds the deadline without comparing two clocks, to
-  within one second and the network delay.
+  within one second and the network delay. A copy whose onward delivery has already started
+  is no longer deleted on expiry (M7). It is held under the "in flight" reading of
+  [IFC-TRN-033] stated in §3.3, and the receiving transport's drop covers delivery.
 - [IFC-TRN-043], [IFC-TRN-044]: MQTT 5.0 lets a Server answer a QoS 1 or QoS 2 PUBLISH with
   `0x10` "No matching subscribers" (M9). That tells the publishing implementation whether
   anyone subscribes to the destination, which [IFC-TRN-043] forbids. QoS 0 has no
@@ -556,7 +570,7 @@ or the decision it belongs to carries it.
 | F-T2 | Neither broker transport is `destination_restricted` until a device key is provisioned to a broker identity, which neither protocol defines (N9, M11). Until then [IFC-TRN-081] keeps all cross-implementation traffic off it, as it does for the v0.1 transport today (`spec/interfaces.md` §6.7 note). | Binding | The transport binding document ([IFC-TRN-090]) |
 | F-T3 | The NATS client reconnect buffer must hold nothing while disconnected ([IFC-TRN-036]). The docs show only how to size it (N11); whether each client library can disable it is UNVERIFIED. | Binding; UNVERIFIED | §3.3; `docs/planning/STATUS.md` |
 | F-T4 | MQTT QoS 1 and 2 can reveal whether a destination is subscribed (`0x10`, M9), so an MQTT binding is QoS 0 only and therefore not reliable. | Binding | §4.3 |
-| F-T5 | Core NATS has no expiry per message, so a copy can sit in the server's slow-consumer buffer past its deadline. The binding states the bound (`write_deadline`, `max_pending`, N16), and the receiving transport drops late copies ([IFC-TRN-034]). | Binding | §3.3 |
+| F-T5 | Core NATS has no expiry per message, so a copy can sit in the server's slow-consumer buffer past its deadline. `write_deadline` bounds one blocked write and `max_pending` bounds buffered bytes (N16), but neither bounds how old a buffered copy can get. Any time bound has to come from the binding (for example `max_pending` with an enforced minimum drain rate) and is UNVERIFIED until one states it. The receiving transport drops late copies, which covers delivering under [IFC-TRN-034]. Holding is met only by reading the buffered copy as in flight ([IFC-TRN-033]; §3.3), the same reading an MQTT copy needs once onward delivery has started (M7). | Binding; UNVERIFIED | §3.3 |
 
 **No amendment is proposed.** The procedure of
 `docs/planning/decisions/E7-interface-freeze.md` §7 and `oac-spec-authoring` §7 applies when
@@ -592,6 +606,10 @@ Added by this record (in `docs/planning/STATUS.md` in the same change):
 - Whether each NATS client library can disable the reconnect buffer, not only resize it
   (F-T3). Missing: a first-party statement per client library. Owner: a future NATS
   transport binding; not a v0.1 dependency.
+- How long a copy can wait in a NATS server's buffer for a slow subscriber (F-T5). Missing:
+  the N16 settings bound one blocked write and the buffered bytes, not the age of a copy; a
+  binding has to state and enforce a time bound. Owner: a future NATS transport binding;
+  not a v0.1 dependency.
 - What an ACP v1 agent does with a `session/prompt` received while a turn is running:
   rejects it, holds it, or adds it to the running turn, and if so at which boundary (F-A2).
   Missing: a statement in the v1 protocol pages (A6 has none). It decides whether a v1

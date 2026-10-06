@@ -708,8 +708,10 @@ list.
 - **Status: narrowed** (2026-10-06, #49). E9 checked all six capability cells against the
   first-party NATS docs (`nats-io/nats.docs` at `f115becf`, retrieved 2026-10-06):
   `docs/planning/decisions/E9-replacement-proofs.md` §1.1, §3.2. One narrower item stays
-  open: whether each NATS client library can disable its reconnect buffer (record F-T3;
-  `docs/planning/STATUS.md`). NATS is not a v0.1 dependency.
+  open: whether each NATS client library can disable its reconnect buffer (record F-T3);
+  and how long a copy can wait in the server's buffer for a slow subscriber, which the
+  server settings `write_deadline` and `max_pending` do not bound, so a binding has to
+  (record F-T5). Both are in `docs/planning/STATUS.md`. NATS is not a v0.1 dependency.
 
 ### RISK-MQTT — MQTT capability claims unverified
 
@@ -922,7 +924,7 @@ turn, under `RISK-CODEX-EXPERIMENTAL`.
 | 24 | `curve25519-dalek` repository MSRV policy | RISK-CRYPTO-BUILD |
 | 25 | Device-key fingerprint truncation length | RISK-PAIRING |
 | 26 | 6-digit/120s/5-attempt pairing parameters | RISK-PAIRING |
-| 27 | NATS capability claims | RISK-NATS — narrowed (2026-10-06, #49; E9 record §3.2): capability cells closed; the reconnect-buffer item (F-T3) stays open |
+| 27 | NATS capability claims | RISK-NATS — narrowed (2026-10-06, #49; E9 record §3.2): capability cells closed; the reconnect-buffer item (F-T3) and the slow-consumer buffer-age item (F-T5) stay open |
 | 28 | MQTT capability claims | RISK-MQTT — **CLOSED** (2026-10-06, #49; E9 record §4.2) |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
 | 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`). Dated note, 2026-10-01, #216: that mechanism is retired for this row; a future release is a version warning and invalidates no verdict | **CLOSED** (2026-10-02, #122). The one §3.1 re-check the operator decided on #122 ran at `2.1.285` (`docs/planning/REVERIFICATION-B2.md` "§3.1 re-check at Claude Code `2.1.285`"). 18 of 23 rows hold and three drifted (D4-D6); rows 1-2 of this table stay open. Newer versions are version warnings only. RISK-CLAUDE-PREVIEW stays open |
