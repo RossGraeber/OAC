@@ -264,9 +264,13 @@ records as acceptable, plus `Unicode-3.0` (dated note below the list):
 | `Apache-2.0` | `rmcp`, the three Codex app-server crates, and the elected arm of every dual |
 | `MIT` | the MIT arm of `keyring`, `keyring-core`, `windows-native-keyring-store`, `age` |
 | `0BSD` | the 0BSD arm of `interprocess` |
-| `Unicode-3.0` | `unicode-ident` `1.0.26`, whose expression is (MIT OR Apache-2.0) AND Unicode-3.0 (dated note below) |
+| `Unicode-3.0` | `unicode-ident` `1.0.26`, whose expression is (MIT OR Apache-2.0) AND Unicode-3.0; operator decision https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (dated note below) |
 
-(Dated note, 2026-10-06, #51 / F2. Needs the operator's approval.) `Unicode-3.0` is added
+(Dated note, 2026-10-06, #51 / F2. Approved by the operator:
+https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192, "Unicode-3.0 is
+acceptable"; permissive licenses on par with MIT are acceptable, and GPL, LGPL, AGPL and
+other copyleft-only licenses are not. Only the licenses a dependency actually needs are
+added to this list, so this PR adds Unicode-3.0 alone.) `Unicode-3.0` is added
 for `unicode-ident`, the Unicode identifier tables under `proc-macro2` and `syn`. It
 reaches the `--all-features` graph through `serde`'s optional `derive` feature, by way of
 `serde_jcs` (C5 §3, `PINS.md`); nothing in the workspace enables that feature, so

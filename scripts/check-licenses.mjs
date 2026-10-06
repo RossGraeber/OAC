@@ -48,7 +48,8 @@ const HEADER_LINES = 5;
 // The accepted licenses: exactly the list recorded in
 // docs/planning/v0.1/07-repository-and-dependencies.md section 5, "Accepted licenses".
 // Adding one is a license-policy change: record it there first, in the same PR.
-// Unicode-3.0: unicode-ident, #51 (needs the operator's approval; 07 section 5 dated note).
+// Unicode-3.0: unicode-ident, #51; operator decision
+// https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (07 section 5).
 const PERMISSIVE = new Set(['Apache-2.0', 'MIT', '0BSD', 'Unicode-3.0']);
 // Copyleft families, flagged wherever they appear (oac-release section 2 item 3).
 const COPYLEFT = /^(?:A?GPL|LGPL|MPL|EPL|EUPL|CDDL|OSL|CPL|CECILL|CC-BY-SA|SSPL)\b/i;
