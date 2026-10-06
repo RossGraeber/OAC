@@ -19,15 +19,20 @@
 //! Stages of `spec/security.md` §3.3 run here (#52, F3):
 //!
 //! - `security`: envelope-stage validation, then steps 1 and 2 of Table 7.1 (key
-//!   resolution, signature) through [`authenticate`]. Steps 3 to 5 are F4 and F5: a fixture
-//!   whose outcome they decide is checked to pass steps 1 and 2 under the right entry.
+//!   resolution, signature) through [`authenticate`], then (#54, F5) step 4, authorization,
+//!   through `AuthorizationEngine::authorize_delivery`. Steps 3 and 5 are F4: a fixture
+//!   whose outcome step 3 decides is checked to pass steps 1 and 2 under the right entry,
+//!   and one that step 5 decides, to pass step 4.
 //! - `key-id` (§5.2) and `registration` (§5.4), in full.
+//!
+//! Stages run in [`authorization`] (#54, F5): `discovery-auth`, `key-removal` and `exchange`
+//! in full, and `presence-auth` for the `sec-auz` fixtures.
 //! - [`verify_strict_alone_gives_the_sec_sig_verdicts`]: every `sec-sig` fixture through
 //!   `ed25519-dalek`'s `VerifyingKey::verify_strict` with no other check, the run that
 //!   `spec/security.md` §6.3 left UNVERIFIED.
 //!
-//! Other stages (binding, send, routing, replay, key-removal, receipt-auth, presence-auth,
-//! ...) exercise logic later tasks own.
+//! Other stages (binding, send, routing, replay, receipt-auth, presence-auth outside
+//! `sec-auz`, ...) exercise logic later tasks own.
 
 use oac_core::canonical::{SigningDomain, signed_text, signing_input};
 use oac_core::capabilities::{Implemented, SessionCapabilities};
@@ -43,6 +48,11 @@ use oac_core::signing::authenticate;
 use oac_core::trust::TrustedKeySet;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+
+// A crate root resolves `mod` beside itself, so the path is given; tests/conformance/ is
+// not a test target of its own.
+#[path = "conformance/authorization.rs"]
+mod authorization;
 
 fn protocol_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -423,7 +433,11 @@ fn run_security(fx: &Fixture) -> Result<(), String> {
                     "verified_by {by:?} is not the entry the envelope names"
                 ));
             }
-            Ok(())
+            // Step 3, the replay window, is F4's; a fixture it decides stops here.
+            if want.1 == Some("outside-replay-window") {
+                return Ok(());
+            }
+            authorization::step_4(fx, msg, want)
         }
     }
 }
@@ -488,6 +502,12 @@ fn conformance_fixtures() {
             "security" => Some(run_security(&fx)),
             "key-id" => Some(run_key_id(&fx)),
             "registration" => Some(run_registration(&fx)),
+            "discovery-auth" => Some(authorization::run_discovery_auth(&fx)),
+            "key-removal" => Some(authorization::run_key_removal(&fx)),
+            "exchange" => Some(authorization::run_exchange(&fx)),
+            "presence-auth" if fx.path.starts_with("sec-auz") => {
+                Some(authorization::run_presence_auth(&fx))
+            }
             _ => None,
         };
         if let Some(r) = outcome {
@@ -520,6 +540,13 @@ fn conformance_fixtures() {
         "key-id positive",
         "registration positive",
         "registration negative",
+        "discovery-auth positive",
+        "discovery-auth negative",
+        "key-removal positive",
+        "exchange positive",
+        "exchange negative",
+        "presence-auth positive",
+        "presence-auth negative",
         "canonical",
     ] {
         assert!(

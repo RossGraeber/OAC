@@ -28,8 +28,16 @@
 //! - [`registration`]: the registration record that binds a session to the device key
 //!   (§5.4).
 //!
+//! Added by #54 (F5), against `spec/security.md` revision 0.1 and `spec/interfaces.md` §4.9:
+//!
+//! - [`authorization`]: grants, the binding table, reply rights, `AuthorizationRequest` and
+//!   `AuthorizationDecision`, security step 4, key removal, and the decision log (§9).
+//! - [`pairing`]: the operator-confirmed pairing exchange and the [`pairing::PairingStore`]
+//!   seam (§5.3).
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
+pub mod authorization;
 mod base64url;
 pub mod canonical;
 pub mod capabilities;
@@ -38,6 +46,7 @@ pub mod envelope;
 pub mod ids;
 pub mod json;
 pub mod keys;
+pub mod pairing;
 pub mod presence;
 pub mod receipt;
 pub mod registration;
