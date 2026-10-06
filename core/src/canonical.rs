@@ -13,8 +13,8 @@
 //! value ([SEC-SIG-013]), never as an integer type, so `9007199254740993` canonicalizes as
 //! `9007199254740992`, and `1E-7`, `0.10` and `-0` as `1e-7`, `0.1` and `0`.
 //!
-//! Signing and verification themselves are task F3. This module only produces the octets
-//! they work on.
+//! Signing and verification themselves are in [`crate::keys`] and [`crate::signing`]. This
+//! module only produces the octets they work on.
 
 use crate::json::{Json, JsonObject, write_events};
 use std::fmt;
@@ -50,6 +50,11 @@ impl SigningDomain {
 pub enum CanonicalError {
     /// A number is beyond the IEEE 754 double range; RFC 8785 §3.2.2.3 has no form for it.
     NumberOutOfRange(String),
+    /// A signed object's `security` member is not an object. Every signed object of
+    /// `spec/security.md` carries `security` as an object (§5.4, §6.1, §10.1, §11.1), so
+    /// such an object has no signing input: it is refused, never signed or verified with
+    /// the member dropped.
+    SecurityNotObject,
     /// The canonicalizer failed for another reason.
     Serializer(String),
 }
@@ -59,6 +64,9 @@ impl fmt::Display for CanonicalError {
         match self {
             CanonicalError::NumberOutOfRange(n) => {
                 write!(f, "number {n} is beyond the double range")
+            }
+            CanonicalError::SecurityNotObject => {
+                f.write_str("the security member is not an object")
             }
             CanonicalError::Serializer(e) => write!(f, "canonicalization failed: {e}"),
         }
@@ -108,10 +116,13 @@ pub fn canonical(v: &Json) -> Result<String, CanonicalError> {
 ///
 /// # Errors
 ///
-/// As [`canonical`].
+/// As [`canonical`], and [`CanonicalError::SecurityNotObject`] when `obj` has a `security`
+/// member that is not an object (#52, PR #312 review R2-1: the member is never dropped
+/// silently).
 pub fn signed_text(obj: &JsonObject) -> Result<String, CanonicalError> {
     let mut copy = obj.clone();
-    if let Some(mut sec) = copy.remove("security").and_then(Json::into_object) {
+    if let Some(sec) = copy.remove("security") {
+        let mut sec = sec.into_object().ok_or(CanonicalError::SecurityNotObject)?;
         sec.remove("signature");
         copy.insert("security", Json::Object(sec));
     }
@@ -192,6 +203,29 @@ mod tests {
             ",\"b\":1}]".repeat(depth)
         );
         assert_eq!(c(&text), want);
+    }
+
+    #[test]
+    fn security_that_is_not_an_object_has_no_signing_input() {
+        for text in [
+            r#"{"x":1,"security":"s"}"#,
+            r#"{"x":1,"security":[]}"#,
+            r#"{"x":1,"security":null}"#,
+        ] {
+            let obj = parse(text.as_bytes()).unwrap();
+            for domain in [
+                SigningDomain::Envelope,
+                SigningDomain::Registration,
+                SigningDomain::Receipt,
+                SigningDomain::Presence,
+            ] {
+                assert_eq!(
+                    signing_input(domain, obj.as_object().unwrap()),
+                    Err(CanonicalError::SecurityNotObject),
+                    "{text}"
+                );
+            }
+        }
     }
 
     #[test]

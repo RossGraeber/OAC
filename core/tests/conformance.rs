@@ -16,16 +16,31 @@
 //! - Every fixture, of any stage, whose `expected` holds `canonical`: the canonical text
 //!   of `spec/security.md` §6.2 for its signed object.
 //!
-//! Other stages (binding, send, routing, security, ...) exercise logic later tasks own.
+//! Stages of `spec/security.md` §3.3 run here (#52, F3):
+//!
+//! - `security`: envelope-stage validation, then steps 1 and 2 of Table 7.1 (key
+//!   resolution, signature) through [`authenticate`]. Steps 3 to 5 are F4 and F5: a fixture
+//!   whose outcome they decide is checked to pass steps 1 and 2 under the right entry.
+//! - `key-id` (§5.2) and `registration` (§5.4), in full.
+//! - [`verify_strict_alone_gives_the_sec_sig_verdicts`]: every `sec-sig` fixture through
+//!   `ed25519-dalek`'s `VerifyingKey::verify_strict` with no other check, the run that
+//!   `spec/security.md` §6.3 left UNVERIFIED.
+//!
+//! Other stages (binding, send, routing, replay, key-removal, receipt-auth, presence-auth,
+//! ...) exercise logic later tasks own.
 
-use oac_core::canonical::signed_text;
+use oac_core::canonical::{SigningDomain, signed_text, signing_input};
 use oac_core::capabilities::{Implemented, SessionCapabilities};
 use oac_core::delivery::DeliveryState;
 use oac_core::envelope::{EnvelopeLimits, receive_envelope};
-use oac_core::ids::{Timestamp, Version};
+use oac_core::ids::{Timestamp, Token, Version};
 use oac_core::json::{self, Json, JsonObject};
+use oac_core::keys::{DeviceIdentity, DeviceKey, PublicKey};
 use oac_core::presence::PresenceRecord;
 use oac_core::receipt::DeliveryReceipt;
+use oac_core::registration::RegistrationRecord;
+use oac_core::signing::authenticate;
+use oac_core::trust::TrustedKeySet;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -146,7 +161,9 @@ fn limits(context: &JsonObject) -> (EnvelopeLimits, Timestamp) {
         .iter()
         .map(|m| u16::try_from(uint(m)).unwrap())
         .collect();
-    let mut l = EnvelopeLimits::default().with_supported_majors(majors);
+    let mut l = EnvelopeLimits::default()
+        .with_supported_majors(majors)
+        .expect("§3.3: supported_major_versions is not empty");
     if let Some(m) = context.get("max_envelope_octets") {
         l = l
             .with_max_envelope_octets(uint(m))
@@ -340,6 +357,100 @@ fn run_presence(fx: &Fixture) -> Result<(), String> {
     Ok(())
 }
 
+/// The trusted key set of a fixture's `context.trusted_keys` (`spec/security.md` §3.3).
+/// Each entry is added as a paired key; its public key must pass admission ([SEC-KEY-034])
+/// and hash to the listed key id ([SEC-KEY-010]). The set's own device key is a fresh one
+/// that no fixture names, so it changes no verdict.
+fn trusted_keys(context: &JsonObject) -> Result<TrustedKeySet, String> {
+    let own = DeviceIdentity::new(DeviceKey::generate(), Token::parse("oac-test-own").unwrap());
+    let mut set = TrustedKeySet::new(&own);
+    for k in context
+        .get("trusted_keys")
+        .and_then(Json::as_array)
+        .ok_or("context.trusted_keys")?
+    {
+        let k = k.as_object().ok_or("trusted key is not an object")?;
+        let public = PublicKey::from_base64url(str_of(k, "public_key").unwrap())
+            .ok_or_else(|| format!("trusted key {:?} refused at admission", k.get("key_id")))?;
+        if Some(public.key_id().as_str()) != str_of(k, "key_id") {
+            return Err(format!("key id of {:?} differs", k.get("key_id")));
+        }
+        let principal = Token::parse(str_of(k, "principal").unwrap()).ok_or("principal")?;
+        set.add_paired_key(principal, public)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(set)
+}
+
+/// Stage `security` (`spec/security.md` §3.3), steps 1 and 2 of Table 7.1: envelope-stage
+/// validation, then [`authenticate`]. A fixture whose expected code is an envelope-stage
+/// code, `unknown-key` or `signature-invalid` must give exactly that. Every other fixture
+/// (`passed`, or a code of steps 3 to 5, which are F4 and F5) must pass steps 1 and 2, with
+/// `verified_by` the entry the envelope names.
+fn run_security(fx: &Fixture) -> Result<(), String> {
+    let context = obj(&fx.v, "context");
+    if context.contains("max_envelope_octets") {
+        return Err("context.max_envelope_octets is not a member of the security stage".into());
+    }
+    let (l, now) = limits(context);
+    let octets = input_octets(obj(&fx.v, "input"));
+    let expected = obj(&fx.v, "expected");
+    let want = (
+        str_of(expected, "result").unwrap(),
+        str_of(expected, "error"),
+    );
+    let msg = match receive_envelope(&octets, &l, &now) {
+        Ok(msg) => msg,
+        Err(rej) => {
+            return if (rej.state.as_str(), Some(rej.error.as_str())) == want {
+                Ok(())
+            } else {
+                Err(format!("envelope stage: {rej}; expected {want:?}"))
+            };
+        }
+    };
+    let keys = trusted_keys(context)?;
+    let decided_by_steps_1_2 = matches!(want.1, Some("unknown-key" | "signature-invalid"));
+    match authenticate(msg, &keys) {
+        Err(rej) if (rej.state.as_str(), Some(rej.error.as_str())) == want => Ok(()),
+        Err(rej) => Err(format!("security steps 1-2: {rej}; expected {want:?}")),
+        Ok(_) if decided_by_steps_1_2 => Err(format!("passed steps 1-2; expected {want:?}")),
+        Ok(msg) => {
+            let sec = msg.envelope().security();
+            let by = msg.verified_by().ok_or("verified_by not set")?;
+            if (by.principal().as_str(), by.key_id().as_str()) != (sec.principal(), sec.key_id()) {
+                return Err(format!(
+                    "verified_by {by:?} is not the entry the envelope names"
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Stage `key-id` (`spec/security.md` §5.2).
+fn run_key_id(fx: &Fixture) -> Result<(), String> {
+    let public = PublicKey::from_base64url(str_of(obj(&fx.v, "input"), "public_key").unwrap())
+        .ok_or("public key refused at admission")?;
+    let want = str_of(obj(&fx.v, "expected"), "key_id").unwrap();
+    if public.key_id().as_str() != want {
+        return Err(format!("key id {}, expected {want}", public.key_id()));
+    }
+    Ok(())
+}
+
+/// Stage `registration` (`spec/security.md` §5.4).
+fn run_registration(fx: &Fixture) -> Result<(), String> {
+    let keys = trusted_keys(obj(&fx.v, "context"))?;
+    let record = obj(&fx.v, "input").get("record").unwrap();
+    let verified = RegistrationRecord::from_json(record).is_some_and(|r| r.verify(&keys).is_ok());
+    let want = str_of(obj(&fx.v, "expected"), "result").unwrap();
+    match (verified, want) {
+        (true, "verified") | (false, "invalid") => Ok(()),
+        (got, _) => Err(format!("verified: {got}; expected {want}")),
+    }
+}
+
 fn run_canonical(fx: &Fixture, want: &str) -> Result<(), String> {
     let input = obj(&fx.v, "input");
     if input.len() != 1 {
@@ -374,6 +485,9 @@ fn conformance_fixtures() {
             "receipt" => Some(run_receipt(&fx)),
             "negotiation" => Some(run_negotiation(&fx)),
             "presence" => Some(run_presence(&fx)),
+            "security" => Some(run_security(&fx)),
+            "key-id" => Some(run_key_id(&fx)),
+            "registration" => Some(run_registration(&fx)),
             _ => None,
         };
         if let Some(r) = outcome {
@@ -401,6 +515,11 @@ fn conformance_fixtures() {
         "negotiation negative",
         "presence positive",
         "presence negative",
+        "security positive",
+        "security negative",
+        "key-id positive",
+        "registration positive",
+        "registration negative",
         "canonical",
     ] {
         assert!(
@@ -414,6 +533,99 @@ fn conformance_fixtures() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+fn base64url_decode(s: &str) -> Vec<u8> {
+    base64_decode(&s.replace('-', "+").replace('_', "/"))
+}
+
+/// `spec/security.md` §6.3 states that `VerifyingKey::verify_strict` of `ed25519-dalek`
+/// 3.0.0 meets [SEC-SIG-020] to [SEC-SIG-024] on every `sec-sig` fixture, UNVERIFIED until a
+/// Rust build ran them. This runs them: for every `sec-sig` fixture whose signature and
+/// nonce have the forms of [SEC-SIG-003] and [SEC-SIG-004] (the form fixtures are a
+/// separate check, made before any arithmetic), the trusted key the envelope names is
+/// decoded with `VerifyingKey::from_bytes` and the signature checked with `verify_strict`
+/// alone, over this crate's signing input. Its verdict must be the fixture's:
+/// `signature-invalid` exactly when it rejects. Each trusted key must also pass admission
+/// ([SEC-KEY-034]), which holds [SEC-SIG-023]'s canonical-encoding half.
+///
+/// This is evidence about the library. The production path, `oac_core::signing`, is guarded
+/// by [`conformance_fixtures`] (stage `security`, every `sec-sig` fixture through
+/// [`authenticate`]) and by `signing.rs`'s unit tests, which build an unreduced scalar and
+/// small-order `R` values. Of the fixtures, `SEC-SIG-022.n01` (`R` the identity) is the one
+/// the library's non-strict `verify` also accepts, so it is what tells the two calls apart.
+#[test]
+fn verify_strict_alone_gives_the_sec_sig_verdicts() {
+    let mut ran = Vec::new();
+    for fx in fixtures() {
+        if !fx.path.starts_with("sec-sig") || fx.stage != "security" {
+            continue;
+        }
+        let context = obj(&fx.v, "context");
+        let (l, now) = limits(context);
+        let msg = receive_envelope(&input_octets(obj(&fx.v, "input")), &l, &now)
+            .unwrap_or_else(|e| panic!("{}: envelope stage {e}", fx.path));
+        let env = msg.envelope();
+        let sec = env.security();
+        let form = |s: &str, n: usize, last: &str| {
+            s.len() == n
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                && last.contains(&s[n - 1..])
+        };
+        if !form(sec.nonce(), 22, "AQgw") || !form(sec.signature(), 86, "AQgw") {
+            continue; // SEC-SIG-003.n*, SEC-SIG-004.n01: refused on form.
+        }
+        let key = context
+            .get("trusted_keys")
+            .and_then(Json::as_array)
+            .unwrap()
+            .iter()
+            .map(|k| k.as_object().unwrap())
+            .find(|k| {
+                str_of(k, "principal") == Some(sec.principal())
+                    && str_of(k, "key_id") == Some(sec.key_id())
+            })
+            .unwrap_or_else(|| panic!("{}: the envelope names no trusted key", fx.path));
+        let public = str_of(key, "public_key").unwrap();
+        assert!(
+            PublicKey::from_base64url(public).is_some(),
+            "{}: trusted key refused at admission",
+            fx.path
+        );
+        let vk =
+            ed25519_dalek::VerifyingKey::from_bytes(&base64url_decode(public).try_into().unwrap())
+                .unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(
+            &base64url_decode(sec.signature()).try_into().unwrap(),
+        );
+        let input = signing_input(SigningDomain::Envelope, env.as_json()).unwrap();
+        let accepted = vk.verify_strict(&input, &sig).is_ok();
+        let want_reject = str_of(obj(&fx.v, "expected"), "error") == Some("signature-invalid");
+        assert_eq!(
+            accepted, !want_reject,
+            "{}: verify_strict gives the wrong verdict",
+            fx.path
+        );
+        ran.push(fx.path);
+    }
+    eprintln!("verify_strict ran {} sec-sig fixtures: {ran:?}", ran.len());
+    for id in [
+        "SEC-SIG-010.p01",
+        "SEC-SIG-021.n01",
+        "SEC-SIG-021.n02",
+        "SEC-SIG-022.n01",
+        "SEC-SIG-022.n02",
+        "SEC-SIG-022.n03",
+        "SEC-SIG-024.n03",
+        "SEC-SIG-024.n04",
+        "SEC-SIG-024.n05",
+    ] {
+        assert!(
+            ran.iter().any(|p| p.contains(id)),
+            "{id} did not run through verify_strict"
+        );
+    }
 }
 
 /// Table 8.3 of `spec/session-channels.md`, read from the spec text, matches

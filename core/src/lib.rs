@@ -19,13 +19,27 @@
 //! - [`receipt`] and [`delivery`]: `DeliveryReceipt`, `DeliveryState` and `ErrorCode`
 //!   (§8.1, §8.3).
 //!
+//! Added by #52 (F3), against `spec/security.md` revision 0.1:
+//!
+//! - [`keys`]: the device key, its public key and key id, the device identity that signs
+//!   envelopes, and the [`keys::KeyStore`] seam for the private seed (§5.1, §5.2).
+//! - [`trust`]: the trusted key set and `SecurityPrincipal`'s only source (§5.3).
+//! - [`signing`]: strict Ed25519 verification and security-stage steps 1 and 2 (§6, §7).
+//! - [`registration`]: the registration record that binds a session to the device key
+//!   (§5.4).
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
+mod base64url;
 pub mod canonical;
 pub mod capabilities;
 pub mod delivery;
 pub mod envelope;
 pub mod ids;
 pub mod json;
+pub mod keys;
 pub mod presence;
 pub mod receipt;
+pub mod registration;
+pub mod signing;
+pub mod trust;

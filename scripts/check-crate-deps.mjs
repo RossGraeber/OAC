@@ -25,6 +25,8 @@
 //      direct dependency of transports/zenoh only, the Codex app-server crates of
 //      adapters/codex only (07 section 5, "Consuming module"); and neither may be reachable
 //      from any member other than its owner and cli/. So none is reachable from core/.
+//      The device-key storage crates (keyring and its backends, age) are owned by cli/
+//      the same way (#52, #315 review N-b).
 //      Names match case-insensitively, with `_` folded to `-`.
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
@@ -53,9 +55,21 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 // External crates owned by one module (07 section 5). Matched on the package name
 // lowercased and with `_` folded to `-` (crates.io treats these spellings as the same
 // name: Zenoh, zenoh_backend_traits, codex_app_server_protocol).
+// The OS credential store and encrypted-file crates (#52; 07 section 5, consuming module
+// cli/): keyring, keyring-core, every *-keyring-store backend, and the platform clients
+// beneath them (secret-service, security-framework); age and age-core. Only cli/ builds the
+// device-key stores, and core/ holds the key behind its KeyStore trait (#315 review N-b).
+// The signature crates (ed25519-dalek and its curve crates) are core/'s own (C5 section 2)
+// and stay unrestricted.
 const OWNED_EXTERNAL = [
   { family: 'zenoh', re: /^zenoh(?:-|$)/, owner: 'transports/zenoh' },
   { family: 'Codex app-server', re: /^codex-app-server(?:-|$)/, owner: 'adapters/codex' },
+  {
+    family: 'OS credential store',
+    re: /^(?:keyring(?:-core)?|[a-z0-9-]+-keyring-store|secret-service|security-framework(?:-sys)?)$/,
+    owner: 'cli',
+  },
+  { family: 'encrypted-file key store', re: /^age(?:-core)?$/, owner: 'cli' },
 ];
 export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(String(name).toLowerCase().replace(/_/g, '-')));
 
@@ -291,6 +305,29 @@ const SELF_TEST_CASES = [
   // METADATA_ARGS case below) cargo puts that edge in the resolve graph, as here.
   { name: 'optional feature-gated edge: adapters/claude -> adapters/codex', meta: synth({ members: BASE_MEMBERS, edges: [...BASE_EDGES, ['oac-adapter-claude', 'oac-adapter-codex']] }) },
   { name: 'optional feature-gated edge: core -> zenoh', meta: synth({ members: BASE_MEMBERS, externals: ['zenoh'], edges: [...BASE_EDGES, ['oac-core', 'zenoh']] }) },
+  // #315 review N-b: the key-storage crates are cli/'s.
+  {
+    name: 'control: cli/ may depend on keyring and age; core/ on ed25519-dalek',
+    expectClean: true,
+    meta: synth({
+      members: BASE_MEMBERS,
+      externals: ['keyring', 'keyring-core', 'windows-native-keyring-store', 'age', 'age-core', 'ed25519-dalek'],
+      edges: [...BASE_EDGES, ['oac-cli', 'keyring'], ['keyring', 'keyring-core'], ['keyring', 'windows-native-keyring-store'],
+        ['oac-cli', 'age'], ['age', 'age-core'], ['oac-core', 'ed25519-dalek']],
+    }),
+  },
+  { name: 'core depends on keyring', meta: synth({ members: BASE_MEMBERS, externals: ['keyring'], edges: [...BASE_EDGES, ['oac-core', 'keyring']] }) },
+  { name: 'core depends on age', meta: synth({ members: BASE_MEMBERS, externals: ['age'], edges: [...BASE_EDGES, ['oac-core', 'age']] }) },
+  {
+    name: 'adapter reaches zbus-secret-service-keyring-store transitively',
+    meta: synth({
+      members: BASE_MEMBERS,
+      externals: ['helper', 'zbus-secret-service-keyring-store'],
+      edges: [...BASE_EDGES, ['oac-adapter-claude', 'helper'], ['helper', 'zbus-secret-service-keyring-store']],
+    }),
+  },
+  { name: 'transport depends on security-framework', meta: synth({ members: BASE_MEMBERS, externals: ['security-framework'], edges: [...BASE_EDGES, ['oac-transport-zenoh', 'security-framework']] }) },
+  { name: 'core depends on keyring_core (underscore spelling)', meta: synth({ members: BASE_MEMBERS, externals: ['keyring_core'], edges: [...BASE_EDGES, ['oac-core', 'keyring_core']] }) },
 ];
 
 function selfTest() {
@@ -330,6 +367,8 @@ export const STUBS = {
   'zenoh-backend-traits': { name: 'zenoh_backend_traits', license: 'EPL-2.0 OR Apache-2.0' },
   'codex-app-server-protocol': { name: 'codex_app_server_protocol', license: 'Apache-2.0' },
   'gpl-stub': { name: 'gpl-stub', license: 'GPL-3.0-only' },
+  keyring: { name: 'keyring', license: 'MIT OR Apache-2.0' },
+  age: { name: 'age', license: 'MIT OR Apache-2.0' },
 };
 
 // Copy the real workspace (manifests, lockfile, toolchain file, member sources) to
@@ -392,6 +431,9 @@ const MUTATIONS = [
   // N1: underscore spellings of the owned families.
   { name: 'core/ depends on zenoh_backend_traits', file: 'core/Cargo.toml', edit: addDep('dependencies', 'zenoh_backend_traits = { path = "../../stubs/zenoh-backend-traits" }') },
   { name: 'adapters/claude depends on codex_app_server_protocol', file: 'adapters/claude/Cargo.toml', edit: addDep('dependencies', 'codex_app_server_protocol = { path = "../../../stubs/codex-app-server-protocol" }') },
+  // #315 review N-b: the key-storage crates are cli/'s.
+  { name: 'core/ depends on keyring', file: 'core/Cargo.toml', edit: addDep('dependencies', 'keyring = { path = "../../stubs/keyring" }') },
+  { name: 'adapters/codex depends on age', file: 'adapters/codex/Cargo.toml', edit: addDep('dependencies', 'age = { path = "../../../stubs/age" }') },
 ];
 
 // Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error

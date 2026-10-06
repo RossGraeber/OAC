@@ -231,6 +231,47 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, C2 §4) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` | No | Yes — OAC elects the Apache-2.0 arm | C2 §4 | `cli/` (`mcp-shim`) + daemon binary |
 | `age` | `0.12.1` | MIT OR Apache-2.0 | Encrypted-file key fallback for the device key when no OS credential store is reachable | No | Yes — OAC elects the Apache-2.0 arm | C4 §11 | Daemon binary's own identity code (not `core/`) |
 | `serde_jcs` | `0.2.0` | MIT OR Apache-2.0 | RFC 8785 (JCS) canonical form of the signing input, `spec/security.md` §6.2 | No | Yes — OAC elects the Apache-2.0 arm | C5 §3; `PINS.md` "`serde_jcs`" | `core/` (`canonical`) |
+| `ed25519-dalek` | `3.0.0` | BSD-3-Clause | Ed25519 device key, signing and strict verification (`verify_strict`), `spec/security.md` §5.1, §6.3 | No | Yes — permissive, a single license with no arm to elect (C5 §2) | C5 §2; `PINS.md` "`ed25519-dalek`" | `core/` (`keys`, `signing`) |
+| `sha2` | `0.11.0` | MIT OR Apache-2.0 | SHA-256 key ids, `spec/security.md` §5.2. Already in the graph as `ed25519-dalek`'s own SHA-512 dependency, same version | No | Yes — OAC elects the Apache-2.0 arm | #52 (no decision names a hash crate; RustCrypto `hashes`, the crate `ed25519-dalek` itself uses) | `core/` (`keys`) |
+| `getrandom` | `0.4.3` | MIT OR Apache-2.0 | The operating system's CSPRNG for device-key seeds ([SEC-KEY-003]) and envelope nonces ([SEC-SIG-003]) | No | Yes — OAC elects the Apache-2.0 arm | #52 (no decision names an RNG crate; `rust-random/getrandom`, the OS-source crate under `rand`) | `core/` (`keys`) |
+| `zeroize` | `1.9.0` | Apache-2.0 OR MIT | Zeroizing buffers for the private seed ([SEC-KEY-004]). Already in the graph through `ed25519-dalek`'s default `zeroize` feature, same version | No | Yes — OAC elects the Apache-2.0 arm | #52 | `core/` (`keys`), `cli/` (`keystore`) |
+| `subtle` | `2.6.1` | BSD-3-Clause | Constant-time comparison of the read-back seed (#315 review N-e). Already in the graph under `ed25519-dalek`, same version | No | Yes — permissive (see the accepted list) | #52 | `core/` (`keys`) |
+| `curve25519-dalek` | `5.0.0` | BSD-3-Clause | Dev-dependency only: scalar arithmetic that builds malleable and small-order signatures in `signing.rs`'s tests (#315 review N-g). Already `ed25519-dalek`'s curve crate, same version; not a new crate in the build | No | Yes — permissive | #52 | `core/` (tests only) |
+
+(Dated note, 2026-10-06, #52 / F3.) **Consuming module of the key-storage crates.** The
+`keyring`, `keyring-core`, `windows-native-keyring-store` and `age` rows above say "daemon
+binary's own identity code (not `core/`)". That code is `cli/src/keystore.rs`, in a library
+target of `cli/` (`oac_cli`) that the `oac` binary builds: the operating system's credential
+store through `keyring` (default feature `v1`) and, on Unix, the `age`-encrypted file
+fallback. Both implement `core/`'s `KeyStore` trait, so `cli/` constructs them and hands them
+to the core, and the seed lives in `core/`'s `DeviceKey` (§2: `cli/` hosts start-up glue and
+owns no key material). `keyring`'s `v1` feature also builds `apple-native-keyring-store`
+`1.0.2` and `zbus-secret-service-keyring-store` `1.0.1` (both MIT OR Apache-2.0) on their
+platforms. `age` is a Unix-only target dependency of `cli/`, since the fallback is built only
+there (#315 review N-d), and `cli/` takes `libc` `0.2.190` (MIT OR Apache-2.0, already in the
+graph) on Unix for the file store's ownership check.
+
+(Dated note, 2026-10-06, #315 review N-b.) **Owner enforced.** `scripts/check-crate-deps.mjs`
+now treats these crates as owned by `cli/`, as it does the zenoh crates for
+`transports/zenoh/` and the Codex app-server crates for `adapters/codex/`: `keyring`,
+`keyring-core`, every `*-keyring-store`, `secret-service` and `security-framework(-sys)`, and
+`age` and `age-core` may be a dependency of `cli/` only, and none may be reachable from any
+other member. The signature crates in the rows below (`ed25519-dalek` and its curve crates,
+`sha2`, `getrandom`, `zeroize`, `subtle`) are `core/`'s and are not restricted.
+
+(Dated note, 2026-10-06, #52 / F3.) **Transitive packages.** The rows above bring 241 new
+packages into the `--all-features` graph that `scripts/check-licenses.mjs` reads, most of
+them under `age` (its `i18n-embed`/`fluent` localisation stack, `scrypt`, `chacha20poly1305`,
+the `ml-kem`/`hpke` post-quantum recipients) and the per-platform `keyring` backends (`zbus`,
+`security-framework`). Their licenses: MIT OR Apache-2.0 or Apache-2.0 OR MIT (the large
+majority; Apache-2.0 elected), MIT, Unicode-3.0 (`tinystr`, `zerofrom`, `zerovec`), Unlicense
+OR MIT (MIT elected), BSD-2-Clause OR Apache-2.0 OR MIT and MIT OR Apache-2.0 OR BSD-1-Clause
+(Apache-2.0 elected), and BSD-3-Clause (`curve25519-dalek` `4.1.3` and `5.0.0`, `x25519-dalek`
+`2.0.1`, `subtle` `2.6.1`, besides `ed25519-dalek`). Two are dual-licensed with a copyleft
+arm, flagged by the script and passed on their Apache-2.0 arm, as `zenoh` is (§6):
+`r-efi` `6.0.0` (MIT OR Apache-2.0 OR LGPL-2.1-or-later) and `self_cell` `1.3.0` (Apache-2.0
+OR GPL-2.0-only). No package is copyleft-only. The full per-package listing is the script's
+output; the transitive audit and NOTICE stay I2's.
 
 (Dated note, 2026-10-06, #51 / F2.) `serde_jcs` brings these transitive packages, each
 built: `serde` and `serde_core` `1.0.229` (MIT OR Apache-2.0), `serde_json` `1.0.151` (MIT OR
@@ -264,6 +305,7 @@ records as acceptable, plus `Unicode-3.0` (dated note below the list):
 | `MIT` | the MIT arm of `keyring`, `keyring-core`, `windows-native-keyring-store`, `age`; `memchr` (Unlicense OR MIT, MIT elected) and `zmij` (MIT), transitive packages of `serde_jcs` (dated note above) |
 | `0BSD` | the 0BSD arm of `interprocess` |
 | `Unicode-3.0` | `unicode-ident` `1.0.26`, whose expression is (MIT OR Apache-2.0) AND Unicode-3.0; operator decision https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (dated note below) |
+| `BSD-3-Clause` | `ed25519-dalek` `3.0.0` (C5 §2), and `curve25519-dalek`, `x25519-dalek` and `subtle` beneath it and `age`; same operator decision (dated note below) |
 
 (Dated note, 2026-10-06, #51 / F2. Approved by the operator:
 https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192, "Unicode-3.0 is
@@ -278,6 +320,16 @@ permissive, OSI-approved license with no copyleft term; it asks that its notice 
 copies of the Unicode data, which I2's NOTICE work covers. `unicode-ident`'s other licenses
 are MIT OR Apache-2.0, of which OAC elects Apache-2.0, so the elected form is
 `Apache-2.0 AND Unicode-3.0`.
+
+(Dated note, 2026-10-06, #52 / F3.) `BSD-3-Clause` is added for `ed25519-dalek` `3.0.0`, the
+signature crate decision C5 §2 chose and recorded as BSD-3-Clause, "permissive and
+Apache-2.0-compatible". It is a permissive, OSI-approved license with no copyleft term, on
+par with MIT, so it falls under the operator decision on #51 cited above
+(https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192: permissive licenses
+on par with MIT are acceptable; GPL, LGPL, AGPL and other copyleft-only licenses are not).
+It asks that its copyright notice and disclaimer travel with binary redistributions, which
+I2's NOTICE work covers. Only this one license is added; `BSD-2-Clause` and `BSD-1-Clause`
+appear only as non-elected arms and stay off the list.
 
 `EPL-2.0` is not on the list. `zenoh` passes because its expression offers `Apache-2.0`,
 the arm OAC elects (§6). When an expression offers `Apache-2.0`, the script records that
