@@ -21,14 +21,16 @@
 //    has at least one OR-arm made only of the accepted licenses (07 section 5). The
 //    listing records the elected arm: Apache-2.0 whenever the expression offers it (07
 //    section 6, C1 sections 7 and 10), otherwise the first accepted arm. A copyleft
-//    identifier in a non-elected arm is flagged in the listing, never passed silently. No license expression (only license-file), or no accepted arm,
-//    fails: that dependency needs a recorded decision before it lands.
+//    identifier in a non-elected arm is flagged in the listing, never passed silently.
+//    No license expression (only license-file), or no accepted arm, fails: that
+//    dependency needs a recorded decision before it lands.
 //
 // Limits, stated plainly: the inventory reads the license field each crate declares; it
 // does not read license files or scan source. Git dependencies (the Codex app-server
 // crates, 07 section 8) are listed from their own manifests. The full transitive audit and
 // NOTICE remain I2 (Stage 6). Node built-ins only; no cargo plugin; `cargo metadata` runs
-// with --offline (the shared METADATA_ARGS of scripts/check-crate-deps.mjs). Exit codes: 0 = clean; 1 = violation; 2 = usage or environment error.
+// with --offline (the shared METADATA_ARGS of scripts/check-crate-deps.mjs).
+// Exit codes: 0 = clean; 1 = violation; 2 = usage or environment error.
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

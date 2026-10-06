@@ -25,7 +25,7 @@
 //      direct dependency of transports/zenoh only, the Codex app-server crates of
 //      adapters/codex only (07 section 5, "Consuming module"); and neither may be reachable
 //      from any member other than its owner and cli/. So none is reachable from core/.
-//      Names match with `_` folded to `-`.
+//      Names match case-insensitively, with `_` folded to `-`.
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
 //   node scripts/check-crate-deps.mjs --metadata <file>  # check a saved metadata JSON
@@ -50,14 +50,14 @@ import { fileURLToPath } from 'node:url';
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(scriptPath), '..');
 
-// External crates owned by one module (07 section 5). Matched on the package name with `_`
-// folded to `-` (crates.io treats the two as the same name: zenoh_backend_traits,
-// codex_app_server_protocol).
+// External crates owned by one module (07 section 5). Matched on the package name
+// lowercased and with `_` folded to `-` (crates.io treats these spellings as the same
+// name: Zenoh, zenoh_backend_traits, codex_app_server_protocol).
 const OWNED_EXTERNAL = [
   { family: 'zenoh', re: /^zenoh(?:-|$)/, owner: 'transports/zenoh' },
   { family: 'Codex app-server', re: /^codex-app-server(?:-|$)/, owner: 'adapters/codex' },
 ];
-export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(String(name).replace(/_/g, '-')));
+export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(String(name).toLowerCase().replace(/_/g, '-')));
 
 // Every cargo metadata call resolves with --all-features: an optional dependency behind a
 // non-default feature is still a dependency the build can compile in, so it must be in
@@ -280,6 +280,8 @@ const SELF_TEST_CASES = [
   // N1: `_` spellings of the owned families.
   { name: 'core depends on zenoh_backend_traits (underscore spelling)', meta: synth({ members: BASE_MEMBERS, externals: ['zenoh_backend_traits'], edges: [...BASE_EDGES, ['oac-core', 'zenoh_backend_traits']] }) },
   { name: 'adapter depends on codex_app_server_protocol outside adapters/codex', meta: synth({ members: BASE_MEMBERS, externals: ['codex_app_server_protocol'], edges: [...BASE_EDGES, ['oac-adapter-claude', 'codex_app_server_protocol']] }) },
+  // N8: owner rules are case-insensitive.
+  { name: 'core depends on a crate named Zenoh (mixed case)', meta: synth({ members: BASE_MEMBERS, externals: ['Zenoh'], edges: [...BASE_EDGES, ['oac-core', 'Zenoh']] }) },
   {
     name: 'control: adapters/codex may depend on codex_app_server_protocol',
     expectClean: true,
