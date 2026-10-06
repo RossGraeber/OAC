@@ -19,7 +19,7 @@
 
 import { createInterface } from 'node:readline';
 import { FakeCodexAppServer } from './lib/model.mjs';
-import { listen } from './lib/ws.mjs';
+import { MAX_UNFRAGMENTED, listen } from './lib/ws.mjs';
 
 function usage(msg) {
   if (msg) process.stderr.write(`${msg}\n`);
@@ -42,16 +42,8 @@ async function main(argv) {
   if (listenUrl) {
     ws = await listen(listenUrl, (ch) => {
       const conn = fake.connect((obj) => ch.send(JSON.stringify(obj)), { transport: 'websocket' });
-      ch.on('message', (text) => {
-        let msg;
-        try {
-          msg = JSON.parse(text);
-        } catch {
-          process.stderr.write('oac fake codex: dropped a WebSocket message that is not JSON\n');
-          return;
-        }
-        conn.receive(msg);
-      });
+      ch.on('message', (text) => conn.receiveText(text));
+      ch.on('tooLarge', (bytes) => conn.tooLarge(bytes));
       ch.on('close', () => conn.close());
     });
     process.stderr.write(`${JSON.stringify({ oacFakeCodex: 'listening', url: ws.url })}\n`);
@@ -68,14 +60,11 @@ async function main(argv) {
     const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
     rl.on('line', (line) => {
       if (!line.trim()) return;
-      let msg;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        process.stderr.write('oac fake codex: dropped a stdin line that is not JSON\n');
+      if (Buffer.byteLength(line) > MAX_UNFRAGMENTED) {
+        conn.tooLarge(Buffer.byteLength(line));
         return;
       }
-      conn.receive(msg);
+      conn.receiveText(line);
     });
     rl.on('close', () => {
       conn.close();

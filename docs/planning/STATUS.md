@@ -16,8 +16,8 @@ no dependency is added.
   maps each behaviour to its fixture.
 - **Ledger.** New "Open UNVERIFIED items" entry, from #58 below, and
   `docs/planning/v0.1/11-risks.md` row 67: the experimental-API gate's refusal, the
-  "Not initialized" refusal and the frames of an interrupted turn are modelled from source
-  at `rust-v0.160.0` only. The queue refusals and the wait after an interrupt stay under the
+  "Not initialized" refusal, the frames of an interrupted turn and the resume error for an
+  unknown thread id are modelled from source at `rust-v0.160.0` only. The queue refusals and the wait after an interrupt stay under the
   #274 entry (rows 65-66). Every other unrecorded behaviour, `turn/steer` included, is
   answered with the fake's own `NOT_MODELLED` error, never an invented Codex frame.
 - **For F10/F11.** A call log flags every `turn/steer` and `turn/start` (steering,
@@ -1906,7 +1906,7 @@ without an UNVERIFIED label.
     delete a queued item; an add to an unloaded thread waits; an extra member in a
     `thread/queue/add` request is probably ignored.
 
-- **New, from #58 (F9, 2026-10-06):** three app-server behaviours that the fake Codex
+- **New, from #58 (F9, 2026-10-06):** four app-server behaviours that the fake Codex
   app-server models from source at `rust-v0.160.0` (commit
   `a956835d020762cb2b570053af06f643a11c0ecc`, retrieved 2026-10-06) because no fixture
   records them (`tests/fakes/codex-app-server/README.md` "Source-only behaviours"):
@@ -1916,7 +1916,10 @@ without an UNVERIFIED label.
     `app-server-protocol/src/experimental_api.rs` L30-L32);
   - a request before `initialize` is refused `-32600 "Not initialized"`
     (`message_processor.rs` L971-L972);
-  - the frames of a turn that ends `interrupted`: only the `TurnStatus` value is in source.
+  - the frames of a turn that ends `interrupted`: only the `TurnStatus` value is in source;
+  - `thread/resume` of an unknown thread id gets the `-32600 "no rollout found for thread
+    id <id>"` that D6 recorded only for a known thread before its first turn
+    (`thread-store/src/local/read_thread.rs` L97-L102; `thread_processor.rs` L3194-L3195).
 
   Owner G6 (#67) for the first, G7 (#68) for the others. `11-risks.md` row 67,
   RISK-CODEX-EXPERIMENTAL.

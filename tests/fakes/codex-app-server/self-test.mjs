@@ -110,7 +110,19 @@ function compareConnection(label, key, got, { dropQueueChanged = false } = {}) {
   let have = got;
   if (dropQueueChanged) {
     // Recorded thread/queue/changed timing interleaves with model-paced item events the
-    // fake emits at once; compared separately below.
+    // fake emits at once, so its position is checked by the caller. Its shape is checked
+    // here, against every recorded thread/queue/changed frame.
+    const recordedQc = want.filter((f) => f.payload.method === 'thread/queue/changed');
+    const fakeQc = have.filter((p) => p.method === 'thread/queue/changed');
+    assert(recordedQc.length > 0 && fakeQc.length > 0, `${label}: thread/queue/changed present`);
+    for (const p of fakeQc) {
+      for (const w of recordedQc) {
+        assert(
+          JSON.stringify(shape(p)) === JSON.stringify(shape(w.payload)),
+          `${label}: thread/queue/changed shape differs from ${fixturePath(key)}:${w.line}`,
+        );
+      }
+    }
     want = want.filter((f) => f.payload.method !== 'thread/queue/changed');
     have = have.filter((p) => p.method !== 'thread/queue/changed');
   }
@@ -232,7 +244,7 @@ await test('experimental gate: thread/queue/add without capabilities.experimenta
   eq(control(fake, 'oacFake/thread/state', { threadId }).queue, [], 'nothing queued');
 });
 
-await test('experimental gate: a request before initialize is refused "Not initialized"', () => {
+await test('initialize gate: a request before initialize is refused "Not initialized"', () => {
   const fake = new FakeCodexAppServer();
   const c = client(fake, 'x', { init: false });
   eq(c.request('thread/loaded/list', {}).error, { code: -32600, message: 'Not initialized' }, 'error');
@@ -344,6 +356,77 @@ await test('overrides: thread/queue/add members beyond threadId, input, clientUs
   const clean = add(adapter, threadId, 'y');
   assert(clean.result, 'a clean add succeeds');
   eq(log.overrideMembers.length, 1, 'only the first add is flagged');
+});
+
+await test('hand-off flag: exactly the thread/queue/add, turn/start and turn/steer calls are hand-offs', () => {
+  const fake = new FakeCodexAppServer();
+  const { threadId } = idleThread(fake);
+  const adapter = client(fake, 'adapter');
+  adapter.ok('thread/loaded/list', {});
+  add(adapter, threadId, 'a');
+  control(fake, 'oacFake/turn/complete', { threadId });
+  adapter.request('turn/steer', { threadId, input: [{ type: 'text', text: 's' }] });
+  adapter.ok('turn/start', { threadId, input: [{ type: 'text', text: 't' }] });
+  adapter.ok('thread/turns/list', { threadId, limit: 5, sortDirection: 'desc', itemsView: 'full' });
+  const log = control(fake, 'oacFake/calls', { clientName: 'adapter' });
+  const bySeq = new Map(log.calls.map((c) => [c.seq, c.method]));
+  eq(log.handOffs.map((s) => bySeq.get(s)), ['thread/queue/add', 'turn/steer', 'turn/start'], 'hand-off calls');
+});
+
+await test('robustness: non-object params are logged and answered NOT_MODELLED, and the fake keeps serving', () => {
+  const fake = new FakeCodexAppServer();
+  const { threadId } = idleThread(fake);
+  const adapter = client(fake, 'adapter');
+  for (const [i, params] of [null, [], 'x', 7].entries()) {
+    adapter.conn.receive({ jsonrpc: '2.0', id: 100 + i, method: 'thread/start', params });
+    const r = adapter.frames.find((f) => f.id === 100 + i);
+    eq([r.error?.code, r.error?.data?.oacFake], [NOT_MODELLED, 'not-modelled'], `params ${JSON.stringify(params)}`);
+  }
+  adapter.conn.receive({ jsonrpc: '2.0', id: 200, method: 'turn/steer', params: null });
+  adapter.conn.receive({ jsonrpc: '2.0', method: 'initialized', params: null });
+  const log = control(fake, 'oacFake/calls', { clientName: 'adapter' });
+  eq(log.calls.filter((c) => c.flags.malformedParams).length, 6, 'four requests, the turn/steer and the notification logged as malformed params');
+  assert(log.calls.find((c) => c.id === 200).flags.steering, 'a turn/steer with null params is still flagged as steering');
+  assert(add(adapter, threadId, 'after').result, 'still serving');
+});
+
+await test('robustness: batches, non-object and unparseable frames are logged; steering inside a batch is flagged', () => {
+  const fake = new FakeCodexAppServer();
+  const { threadId } = idleThread(fake);
+  const adapter = client(fake, 'adapter');
+  const before = control(fake, 'oacFake/thread/state', { threadId });
+  adapter.conn.receive([
+    { jsonrpc: '2.0', id: 1, method: 'turn/steer', params: { threadId, input: [{ type: 'text', text: 'b1' }] } },
+    { jsonrpc: '2.0', id: 2, method: 'turn/start', params: { threadId, input: [{ type: 'text', text: 'b2' }] } },
+    { jsonrpc: '2.0', id: 3, method: 'thread/queue/add', params: { threadId, clientUserMessageId: 'b3', input: [{ type: 'text', text: 'b3' }] } },
+    42,
+  ]);
+  adapter.conn.receive(42);
+  adapter.conn.receive(null);
+  adapter.conn.receiveText('{not json');
+  adapter.conn.receive({ jsonrpc: '2.0', id: 9 });
+  const errors = adapter.frames.filter((f) => f.error && f.id === null);
+  eq(errors.length, 4, 'batch, 42, null and unparseable answered with id null');
+  assert(errors.every((e) => e.error.code === NOT_MODELLED), 'with NOT_MODELLED');
+  const log = control(fake, 'oacFake/calls', { clientName: 'adapter' });
+  eq(log.calls.filter((c) => c.kind === 'malformed').map((c) => c.flags.malformed), ['batch', 'not-an-object', 'not-an-object', 'unparseable', 'no-method'], 'malformed frames logged');
+  const batchSeq = log.calls.find((c) => c.flags.malformed === 'batch').seq;
+  const members = log.calls.filter((c) => c.flags.inBatch === batchSeq);
+  eq(members.map((c) => [c.method, Boolean(c.flags.steering), c.outcome]), [['turn/steer', true, 'error'], ['turn/start', true, 'error'], ['thread/queue/add', false, 'error']], 'batch members');
+  eq(log.steering.length, 2, 'both steering members are in the steering list');
+  const after = control(fake, 'oacFake/thread/state', { threadId });
+  eq([after.activeTurnId, after.queue.length, after.turns.length], [before.activeTurnId, before.queue.length, before.turns.length], 'no batch member was dispatched');
+});
+
+await test('control log: oacFake/* calls are logged apart from Codex calls, with their client name', () => {
+  const fake = new FakeCodexAppServer();
+  const { threadId } = idleThread(fake);
+  const adapter = client(fake, 'adapter');
+  adapter.request('oacFake/thread/state', { threadId });
+  const log = control(fake, 'oacFake/calls', { clientName: 'adapter' });
+  eq(log.control.map((c) => [c.method, c.clientName]), [['oacFake/thread/state', 'adapter']], 'adapter control calls');
+  eq(log.calls.some((c) => c.method?.startsWith('oacFake/')), false, 'not in the Codex call log');
+  eq(control(fake, 'oacFake/calls', {}).control.length > 3, true, 'all control calls are logged');
 });
 
 await test('lists: thread/loaded/list, thread/list (no unmaterialized thread), thread/turns/list', () => {
@@ -458,6 +541,10 @@ await test('transports: stdio JSONL and a loopback WebSocket share one fake; std
     assert(init.result.userAgent.endsWith('(adapter; 1)'), `userAgent ${init.result.userAgent}`);
     await s.nextStdout((f) => f.method === 'remoteControl/status/changed');
     s.write({ jsonrpc: '2.0', method: 'initialized', params: {} });
+    // A malformed request must not take the process down (review item 1).
+    s.write({ jsonrpc: '2.0', id: 50, method: 'thread/start', params: null });
+    eq((await s.nextStdout((f) => f.id === 50)).error.code, NOT_MODELLED, 'params null answered');
+    s.p.stdin.write('[{"jsonrpc":"2.0","id":51,"method":"turn/steer","params":null}]\nnot json\n');
     s.write({ jsonrpc: '2.0', id: 1, method: 'thread/start', params: {} });
     const threadId = (await s.nextStdout((f) => f.id === 1)).result.thread.id;
 
@@ -477,7 +564,12 @@ await test('transports: stdio JSONL and a loopback WebSocket share one fake; std
     const dispatched = await s.nextStdout((f) => f.method === 'item/started' && f.params.item.clientId === 'c1');
     assert(dispatched.params.item.content[0].text === big, 'dispatched input over stdio');
     const calls = (await ws.request('oacFake/calls', { clientName: 'adapter' })).result;
-    eq(calls.calls.map((c) => [c.transport, c.method]), [['stdio', 'initialize'], ['stdio', 'initialized'], ['stdio', 'thread/start'], ['stdio', 'thread/queue/add']], 'stdio call log');
+    eq(
+      calls.calls.map((c) => [c.transport, c.method ?? c.flags.malformed]),
+      [['stdio', 'initialize'], ['stdio', 'initialized'], ['stdio', 'thread/start'], ['stdio', 'batch'], ['stdio', 'turn/steer'], ['stdio', 'unparseable'], ['stdio', 'thread/start'], ['stdio', 'thread/queue/add']],
+      'stdio call log',
+    );
+    eq(calls.steering.length, 1, 'the batched turn/steer is flagged');
     ch.close();
     s.p.stdin.end();
     const code = await new Promise((r) => s.p.once('exit', r));
@@ -487,12 +579,46 @@ await test('transports: stdio JSONL and a loopback WebSocket share one fake; std
   }
 });
 
-await test('transports: a non-loopback --listen address is refused', async () => {
-  const p = spawn(process.execPath, [SERVER, '--listen', 'ws://0.0.0.0:0'], { stdio: ['ignore', 'ignore', 'pipe'] });
-  let err = '';
-  p.stderr.on('data', (d) => (err += d));
-  const code = await new Promise((r) => p.once('exit', r));
-  assert(code !== 0 && /non-loopback/.test(err), `exit ${code}: ${err}`);
+await test('transports: a non-loopback or name-resolved --listen address is refused (0.0.0.0, localhost)', async () => {
+  for (const url of ['ws://0.0.0.0:0', 'ws://localhost:0']) {
+    const p = spawn(process.execPath, [SERVER, '--listen', url], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.stderr.on('data', (d) => (err += d));
+    const code = await new Promise((r) => p.once('exit', r));
+    assert(code !== 0 && /non-loopback/.test(err), `${url}: exit ${code}: ${err}`);
+  }
+});
+
+await test('transports: a WebSocket frame over the 16 MiB cap is refused (close 1009) and logged, unbuffered', async () => {
+  const s = startServer(['--listen', 'ws://127.0.0.1:0']);
+  try {
+    const url = await s.url;
+    const ch = await connectWs(url);
+    const got = [];
+    ch.on('message', (t) => got.push(JSON.parse(t)));
+    const closed = new Promise((r) => ch.on('close', r));
+    const rawClose = new Promise((r) => {
+      let b = Buffer.alloc(0);
+      ch.socket.on('data', (d) => {
+        b = Buffer.concat([b, d]);
+        const i = b.indexOf(Buffer.from([0x88, 0x02]));
+        if (i >= 0 && b.length >= i + 4) r(b.readUInt16BE(i + 2));
+      });
+    });
+    const header = Buffer.alloc(14);
+    header[0] = 0x81;
+    header[1] = 0x80 | 127;
+    header.writeBigUInt64BE(BigInt(16777217), 2); // declared length only; no payload follows
+    ch.socket.write(header);
+    eq(await rawClose, 1009, 'close code');
+    await closed;
+    eq(got.map((f) => [f.id, f.error?.code]), [[null, NOT_MODELLED]], 'error frame before the close');
+    const ctl = wsRequests(await connectWs(url));
+    const log = (await ctl.request('oacFake/calls', {})).result;
+    eq(log.calls.map((c) => c.flags.malformed), ['too-large'], 'logged as too-large');
+  } finally {
+    s.p.kill();
+  }
 });
 
 for (const r of results) console.log(r);

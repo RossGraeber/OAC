@@ -18,8 +18,10 @@
 import { randomBytes } from 'node:crypto';
 import { loadTemplates } from './fixtures.mjs';
 
-// JSON-RPC code in the implementation-defined server-error range, used only by the fake.
+// JSON-RPC codes in the implementation-defined server-error range, used only by the fake.
 export const NOT_MODELLED = -32099;
+export const FAKE_INTERNAL = -32098;
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 export const CONTROL_PREFIX = 'oacFake/';
 
 // From upstream source (README "Source-only behaviours"); code -32600 is
@@ -86,6 +88,7 @@ export class FakeCodexAppServer {
     this.threads = new Map();
     this.queueServiceAvailable = true;
     this.calls = [];
+    this.controlCalls = [];
     this.nextConnId = 1;
   }
 
@@ -105,6 +108,12 @@ export class FakeCodexAppServer {
     return {
       id: conn.id,
       receive: (msg) => this.receive(conn, msg),
+      receiveText: (text) => this.receiveText(conn, text),
+      // A frame the transport refused for its size: logged, answered, never parsed.
+      tooLarge: (bytes) => {
+        const e = this.logMalformed(conn, 'too-large', { bytes });
+        this.reply(conn, null, e, notModelled('(frame)', `a frame of ${bytes} bytes is over the fake's size cap`));
+      },
       close: () => {
         conn.open = false;
         this.connections.delete(conn);
@@ -123,41 +132,127 @@ export class FakeCodexAppServer {
     for (const c of thread.subscribers) this.notify(c, template, params);
   }
 
-  receive(conn, msg) {
-    if (!msg || typeof msg !== 'object' || typeof msg.method !== 'string') {
-      if (msg && typeof msg === 'object' && msg.id !== undefined && msg.method === undefined) return; // a client response: nothing is modelled to ask
-      return; // not a JSON-RPC request or notification: nothing recorded to react to
+  // One frame as text, as a transport received it. A frame that is not JSON is logged
+  // (flags.malformed "unparseable") and answered with the fake's own error.
+  receiveText(conn, text) {
+    let msg;
+    try {
+      msg = JSON.parse(text);
+    } catch {
+      const e = this.logMalformed(conn, 'unparseable', String(text));
+      this.reply(conn, null, e, notModelled('(frame)', 'a frame that is not JSON is not recorded'));
+      return;
     }
-    const { method, params = {} } = msg;
+    this.receive(conn, msg);
+  }
+
+  // One decoded frame. Nothing a client sends can crash the fake: every frame is logged
+  // before anything else, and every frame the fake cannot model gets its own error.
+  receive(conn, msg) {
+    if (Array.isArray(msg)) {
+      // A JSON-RPC batch: no fixture records one, so no member is dispatched. Each member
+      // that names a method is still logged, so a turn/steer or turn/start inside a batch
+      // is flagged as steering like any other.
+      const batch = this.logMalformed(conn, 'batch', msg);
+      for (const m of msg) {
+        if (isPlainObject(m) && typeof m.method === 'string' && !m.method.startsWith(CONTROL_PREFIX)) {
+          const e = this.logCall(conn, m);
+          e.flags.inBatch = batch.seq;
+          e.outcome = 'error';
+          e.error = { code: NOT_MODELLED, message: 'not dispatched: inside a JSON-RPC batch' };
+        }
+      }
+      this.reply(conn, null, batch, notModelled('(batch)', 'JSON-RPC batches are not recorded; no member was dispatched'));
+      return;
+    }
+    if (!isPlainObject(msg)) {
+      const e = this.logMalformed(conn, 'not-an-object', msg);
+      this.reply(conn, null, e, notModelled('(frame)', 'a frame that is not a JSON object is not recorded'));
+      return;
+    }
+    if (typeof msg.method !== 'string') {
+      // A client response (to a server request; none is modelled) or a malformed frame.
+      const isResponse = msg.id !== undefined && ('result' in msg || 'error' in msg);
+      const e = this.logMalformed(conn, isResponse ? 'unsolicited-response' : 'no-method', msg);
+      if (!isResponse && msg.id !== undefined) this.reply(conn, msg.id, e, notModelled('(frame)', 'a request with no method is not recorded'));
+      return;
+    }
+    const { method } = msg;
+    const params = msg.params === undefined ? {} : msg.params;
     const isRequest = msg.id !== undefined;
     const control = method.startsWith(CONTROL_PREFIX);
-    const entry = control ? null : this.logCall(conn, msg);
+    const entry = control ? this.logControl(conn, msg) : this.logCall(conn, msg);
     try {
+      if (!isPlainObject(params)) {
+        entry.flags.malformedParams = true;
+        throw notModelled(method, 'params that are not a JSON object are not recorded');
+      }
       const result = control ? this.control(method, params) : this.dispatch(conn, method, params, isRequest, entry);
       if (isRequest && result !== undefined) {
-        if (entry) entry.outcome = 'result';
+        entry.outcome = 'result';
         this.out(conn, { id: msg.id, result: result.result });
         result.after?.();
       }
     } catch (e) {
-      if (!(e instanceof RpcError)) throw e;
-      if (entry) {
-        entry.outcome = 'error';
-        entry.error = { code: e.code, message: e.message };
+      let err = e;
+      if (!(e instanceof RpcError)) {
+        process.stderr.write(`oac fake codex: internal error on ${method}: ${e?.stack ?? e}\n`);
+        err = new RpcError(FAKE_INTERNAL, `oac fake Codex app-server: internal error in the fake on ${method}`, { oacFake: 'internal-error', method });
       }
-      if (isRequest) this.out(conn, { error: { code: e.code, message: e.message, ...(e.data ? { data: e.data } : {}) }, id: msg.id });
+      this.reply(conn, isRequest ? msg.id : undefined, entry, err);
     }
   }
 
+  // Record the error on the log entry, and answer it when the frame had an id (or null).
+  reply(conn, id, entry, err) {
+    entry.outcome = 'error';
+    entry.error = { code: err.code, message: err.message };
+    if (id !== undefined) this.out(conn, { error: { code: err.code, message: err.message, ...(err.data ? { data: err.data } : {}) }, id });
+  }
+
+  logMalformed(conn, reason, frame) {
+    const entry = {
+      seq: this.calls.length + 1,
+      connection: conn.id,
+      transport: conn.transport,
+      clientName: conn.clientName,
+      kind: 'malformed',
+      method: null,
+      id: null,
+      params: null,
+      frame: structuredClone(frame),
+      flags: { malformed: reason },
+      outcome: 'logged',
+    };
+    this.calls.push(entry);
+    return entry;
+  }
+
+  logControl(conn, msg) {
+    const entry = {
+      seq: this.controlCalls.length + 1,
+      connection: conn.id,
+      transport: conn.transport,
+      clientName: conn.clientName,
+      method: msg.method,
+      id: msg.id ?? null,
+      params: structuredClone(msg.params ?? {}),
+      flags: {},
+      outcome: msg.id !== undefined ? 'pending' : 'notification',
+    };
+    this.controlCalls.push(entry);
+    return entry;
+  }
+
   logCall(conn, msg) {
-    const params = msg.params ?? {};
+    const params = msg.params === undefined ? {} : msg.params;
     const flags = {};
     if (HANDOFF_METHODS.has(msg.method)) flags.handOff = true;
     // [SEC-AUZ-022] / spec/bindings/mcp.md 8.2.1: both are steering operations, whatever the
     // thread state, so every call is flagged even when the fake refuses it.
     if (STEERING_METHODS.has(msg.method)) flags.steering = true;
     const allowed = msg.method === 'thread/queue/add' ? QUEUE_ADD_MEMBERS : msg.method === 'turn/start' ? TURN_START_MEMBERS : null;
-    if (allowed && params && typeof params === 'object') {
+    if (allowed && isPlainObject(params)) {
       const extra = Object.keys(params).filter((k) => !allowed.has(k));
       if (extra.length) flags.overrideMembers = extra;
     }
@@ -295,6 +390,10 @@ export class FakeCodexAppServer {
     if (extra.length) throw notModelled('thread/resume', `only threadId and excludeTurns are recorded, got ${extra.join(', ')}`);
     if (params.excludeTurns !== true) throw notModelled('thread/resume', 'only excludeTurns: true is recorded');
     const th = this.threads.get(params.threadId);
+    // Recorded for a thread before its first turn (D6 attempt 1). For an unknown id the
+    // same message is source-only: thread-store read_thread.rs L97-L102 returns it whenever
+    // no rollout resolves for the id, and thread_processor.rs L3194-L3195 maps
+    // ThreadNotFound to it (README "Source-only behaviours").
     if (!th || !th.materialized) {
       const e = this.t.resumeFail;
       throw new RpcError(e.code, e.message.split(this.t.resumeFailThreadId).join(String(params.threadId)));
@@ -561,12 +660,16 @@ export class FakeCodexAppServer {
   }
 
   callReport({ clientName } = {}) {
-    const calls = clientName === undefined ? this.calls : this.calls.filter((c) => c.clientName === clientName);
+    const mine = (list) => (clientName === undefined ? list : list.filter((c) => c.clientName === clientName));
+    const calls = mine(this.calls);
     return {
       calls: structuredClone(calls),
       steering: calls.filter((c) => c.flags.steering).map((c) => c.seq),
       overrideMembers: calls.filter((c) => c.flags.overrideMembers).map((c) => c.seq),
       handOffs: calls.filter((c) => c.flags.handOff).map((c) => c.seq),
+      malformed: calls.filter((c) => c.flags.malformed || c.flags.malformedParams).map((c) => c.seq),
+      // oacFake/* calls, numbered separately: an adapter should never make one.
+      control: structuredClone(mine(this.controlCalls)),
     };
   }
 }

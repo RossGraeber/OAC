@@ -20,9 +20,15 @@ node tests/fakes/codex-app-server/self-test.mjs
 
 - `--stdio`: one connection on stdin/stdout, one JSON message per line. The process exits
   when stdin closes.
-- `--listen ws://127.0.0.1:<port>` (port `0` picks one): a WebSocket listener. A
-  non-loopback host is refused. The first stderr line is
+- `--listen ws://127.0.0.1:<port>` (port `0` picks one): a WebSocket listener. Only the
+  literal loopback addresses `127.0.0.1` and `[::1]` are accepted. `localhost` is refused,
+  because what it binds to depends on name resolution. The first stderr line is
   `{"oacFakeCodex":"listening","url":"ws://127.0.0.1:<port>"}`.
+- Size cap: a WebSocket message over 16 MiB (`16777216` bytes, the limit the recorded
+  handshake advertises) is refused from its frame header, without buffering it, with close
+  code `1009`. A stdin line over the same size is refused too, but only after readline has
+  read it. Either way it is logged as `too-large` and answered with the fake's own error.
+  There is no `Origin` check; the listener is loopback-only and holds no secret.
 - Every connection shares one state, as clients of one Codex daemon do. A test can give
   the adapter the stdio connection and drive the fake (`oacFake/*`) and a "TUI user" over
   WebSocket connections of its own.
@@ -33,15 +39,16 @@ Node built-ins only; no `package.json`. Rust tests spawn it with `node` and the 
 
 ## Control methods (`oacFake/*`)
 
-These are the fake's own methods, never Codex methods. Any connection may call them, and
-they are left out of the call log.
+These are the fake's own methods, never Codex methods. Any connection may call them. They
+are logged in a separate control log (`control` in the `oacFake/calls` result, with its own
+`seq` and the caller's `clientName`), so a suite can assert that an adapter never makes one.
 
 | Method | Params | Result |
 |---|---|---|
 | `oacFake/turn/complete` | `threadId`; `status` `"completed"` (default) or `"interrupted"`; `agentText` (optional) | `{threadId, turnId, status, dispatched}`: ends the running turn. With `agentText` it first emits the agent message item. On `"completed"` the queue head is dispatched (`dispatched` is the new turn id, or `null`) |
 | `oacFake/thread/create` | `cwd`, `ephemeral`, `archived`, `subagent` (`"multi-agent-v2"` or `"thread-spawn"`), `loaded` (default `true`), `materialized` (default `true`) | `{threadId}`: a thread in a state the fixtures could not create, for the queue refusals |
 | `oacFake/queue/setAvailable` | `available` | `{available}`: `false` models a host with no queue service |
-| `oacFake/calls` | `clientName` (optional filter) | `{calls, steering, overrideMembers, handOffs}`: the call log (below); the last three are `seq` lists |
+| `oacFake/calls` | `clientName` (optional filter) | `{calls, steering, overrideMembers, handOffs, malformed, control}`: the call log (below); `steering` to `malformed` are `seq` lists; `control` is the control log |
 | `oacFake/thread/state` | `threadId` | `{loaded, materialized, activeTurnId, lastTurnInterrupted, queue, turns, subscribers}` |
 | `oacFake/templates` | none | which fixture file and line each replayed template came from |
 
@@ -62,9 +69,21 @@ the adapter's calls from the "TUI user" connection's. Flags:
 | `overrideMembers` | a `thread/queue/add` or `turn/start` with members beyond the hand-off's own | [MCPB-CDX-005] |
 | `handOff` | `thread/queue/add`, `turn/start`, `turn/steer` | [MCPB-CDX-002]: every adapter hand-off is `thread/queue/add`; [IFC-ADP-057]: at most one per `HandOff` |
 | `experimentalGateRefused` | a `thread/queue/add` refused for a missing `experimentalApi` | the G6 shim declares the capability |
+| `malformedParams` | a call whose `params` is present and not a JSON object | the adapter sends well-formed requests |
+| `malformed` (entry `kind: "malformed"`, `method: null`, the raw `frame`) | `batch`, `not-an-object`, `unparseable`, `no-method`, `unsolicited-response`, `too-large` | the `malformed` list is empty |
+| `inBatch` (the batch entry's `seq`) | each member of a JSON-RPC batch that names a method | a steering call cannot hide in a batch |
 
 `turn/steer` itself is answered with the fake's `NOT_MODELLED` error (no fixture records
 it), and the call is still logged and flagged.
+
+Nothing a client sends can stop the fake. Every frame is logged before anything else
+happens to it, including frames that are not JSON, not objects, or JSON-RPC batches.
+Each member of a batch that names a method gets its own entry, with `steering` and the
+other flags set as for a single call. No batch member is dispatched, and the batch is
+answered with one `NOT_MODELLED` error with `id: null`. A call whose `params` is not an
+object gets `NOT_MODELLED`. An unexpected exception in the fake is answered with code
+`-32098` (`data.oacFake: "internal-error"`) and written to stderr, and the process keeps
+serving.
 
 ## Provenance
 
@@ -101,12 +120,14 @@ No fixture records these. Each is modelled from first-party source, `github.com/
 tag `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`, retrieved
 2026-10-06 (`B` = `https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs`).
 They are listed in `docs/planning/STATUS.md` "Open UNVERIFIED items" and
-`docs/planning/v0.1/11-risks.md` rows 65-67; owner G7 (#68).
+`docs/planning/v0.1/11-risks.md` rows 65-67. The owner is G6 (#67) for the
+experimental-API gate and G7 (#68) for the rest.
 
 | Behaviour | Source |
 |---|---|
 | Experimental-API gate: a `thread/queue/add` on a connection whose `initialize` did not set `capabilities.experimentalApi: true` gets `-32600 "thread/queue/add requires experimentalApi capability"` | `B/app-server/src/message_processor.rs` L975-L979; `B/app-server-protocol/src/experimental_api.rs` L30-L32; `#[experimental("thread/queue/add")]` at `B/app-server-protocol/src/protocol/common.rs` L623; `-32600` at `B/app-server/src/error_code.rs` |
 | A request before `initialize`: `-32600 "Not initialized"` | `B/app-server/src/message_processor.rs` L971-L972 |
+| `thread/resume` of an id the fake has never seen gets the recorded `-32600 "no rollout found for thread id <id>"` (the recording covers only a known thread before its first turn) | `B/thread-store/src/local/read_thread.rs` L97-L102 returns this message whenever no rollout resolves for the id; `B/app-server/src/request_processors/thread_processor.rs` L3194-L3195 maps `ThreadNotFound` to the same message |
 | `thread/queue/add` refusals, all `-32600`, in handler order: an ephemeral loaded thread, an unknown thread (`thread not found: <id>`), an archived unloaded thread, a loaded multi-agent v2 subagent, an unloaded spawned subagent, no queue service | `B/app-server/src/request_processors/thread_queue_processor.rs` `add()`, `require_thread()`, `ensure_direct_input_allowed()`, `service()`, and L49-L50; `B/app-server/src/request_processors/thread_input.rs` L8-L9 |
 | After a turn ends `interrupted`, nothing is dispatched; an add to an idle thread whose last turn was interrupted also waits, until a turn completes uninterrupted | `B/ext/queue/src/service.rs` `on_thread_idle` (skips `ThreadIdleCause::Interrupted`) and `wake_if_loaded` (skips `AgentStatus::Interrupted`); `spec/bindings/mcp.md` §8.2.1 |
 | One queued item per idle, from the head of the queue | `B/ext/queue/src/service.rs` `dispatch_if_idle` (`list_page(.., 0, 1)`); order among several adds stays open as `11-risks.md` row 62 |
@@ -124,6 +145,11 @@ error message or frame for these:
   `thread/queue/{list,update,delete,reorder,start}`, and every other method no fixture
   records;
 - server-to-client requests (approvals) and client responses to them;
+- events for a `turn/start` that joins a running turn: the fake adds the input to that turn
+  (G5 L66) and returns its id (G5 L58), but sends subscribers no `item/started` or
+  `item/completed` for it. The G5 steering connection was not subscribed, so no such event
+  was recorded;
+- JSON-RPC batches (logged and flagged, never dispatched);
 - `thread/resume` without `excludeTurns: true`, or of an ephemeral, archived or subagent
   thread; `thread/start` with members other than `cwd`; `turn/start` with setting overrides;
   non-text input items; paging by cursor; `thread/turns/list` other than `desc`/`full`;
@@ -154,6 +180,10 @@ Dev/test only (`docs/planning/v0.1/07-repository-and-dependencies.md` §2, `test
   product crate may spawn it by path, which `scripts/check-herdr-containment.mjs` check 9
   forbids for the opt-in `tests/integration/` leaf;
 - it is never invoked by the `oac` binary and is not shipped.
+
+Unlike `tests/integration/`, which check 9 guards, nothing yet stops a product path from
+*importing* code from `tests/fakes/` (spawning it by path from a test is the intended use).
+A check-9 sibling for that is left to F12 (#61).
 
 Its CI job is `fake-codex` in `.github/workflows/boundary-lint.yml`, on Linux, Windows and
 macOS.

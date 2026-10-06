@@ -15,7 +15,9 @@ import { connect as netConnect } from 'node:net';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 export const MAX_UNFRAGMENTED = 16777216;
-const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
+// Literal loopback addresses only. `localhost` is refused: what it binds to depends on name
+// resolution, which a test double has no reason to trust.
+const LOOPBACK = new Set(['127.0.0.1', '::1']);
 
 export const acceptKey = (key) => createHash('sha1').update(key + GUID).digest('base64');
 
@@ -45,9 +47,10 @@ function encodeFrame(opcode, payload, mask) {
 
 // Wrap a raw duplex socket (after the handshake) as a message channel.
 function channel(socket, { masked, head }) {
-  const listeners = { message: [], close: [] };
+  const listeners = { message: [], close: [], tooLarge: [] };
   let buf = head && head.length ? Buffer.from(head) : Buffer.alloc(0);
   let fragments = null;
+  let fragmentBytes = 0;
   let closed = false;
   const emit = (ev, arg) => listeners[ev].forEach((f) => f(arg));
   const finish = () => {
@@ -59,8 +62,20 @@ function channel(socket, { masked, head }) {
     if (closed || socket.destroyed) return;
     socket.write(encodeFrame(opcode, data, masked));
   };
+  // Size cap: a message over MAX_UNFRAGMENTED bytes (the limit the recorded handshake
+  // advertises) is refused with close code 1009 and never buffered in full.
+  const refuseTooLarge = (bytes) => {
+    emit('tooLarge', bytes);
+    const code = Buffer.alloc(2);
+    code.writeUInt16BE(1009);
+    send(0x8, code);
+    socket.end();
+    buf = Buffer.alloc(0);
+    finish();
+  };
   const parse = () => {
     for (;;) {
+      if (closed) return;
       if (buf.length < 2) return;
       const fin = (buf[0] & 0x80) !== 0;
       const opcode = buf[0] & 0x0f;
@@ -75,6 +90,10 @@ function channel(socket, { masked, head }) {
         if (buf.length < 10) return;
         len = Number(buf.readBigUInt64BE(2));
         off = 10;
+      }
+      if (len > MAX_UNFRAGMENTED || ((opcode === 0x0 || opcode === 0x1) && (opcode === 0x0 ? fragmentBytes : 0) + len > MAX_UNFRAGMENTED)) {
+        refuseTooLarge(opcode === 0x0 ? fragmentBytes + len : len);
+        return;
       }
       const maskKey = isMasked ? buf.subarray(off, off + 4) : null;
       if (isMasked) off += 4;
@@ -94,12 +113,17 @@ function channel(socket, { masked, head }) {
       }
       if (opcode === 0xa) continue;
       if (opcode === 0x1 || opcode === 0x0) {
-        if (opcode === 0x1) fragments = [];
+        if (opcode === 0x1) {
+          fragments = [];
+          fragmentBytes = 0;
+        }
         if (!fragments) continue;
         fragments.push(payload);
+        fragmentBytes += payload.length;
         if (fin) {
           const text = Buffer.concat(fragments).toString('utf8');
           fragments = null;
+          fragmentBytes = 0;
           emit('message', text);
         }
         continue;
@@ -114,6 +138,7 @@ function channel(socket, { masked, head }) {
     }
   };
   socket.on('data', (d) => {
+    if (closed) return;
     buf = Buffer.concat([buf, d]);
     parse();
   });
@@ -214,6 +239,7 @@ export function connectWs(url) {
       }
       const ch = channel(socket, { masked: true, head: rest });
       ch.handshake = status;
+      ch.socket = socket; // raw access, for tests that send hand-built frames
       resolve(ch);
     };
     socket.on('data', onData);
