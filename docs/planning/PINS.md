@@ -54,7 +54,11 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-04 (issue #131: the `Codex CLI / app-server` row's last tested
+**Last updated:** 2026-10-06 (issue #131, PR #304 review: the 2026-10-01 entry below gets
+a dated note that its last tested Codex `0.159.3` was superseded by `0.160.0` on 2026-10-04,
+and the Codex record's version history lists the 2026-10-05 and 2026-10-06 herdr re-records.
+No version changes: minimum and last tested are as before, so this is not a pin move and no
+verdict or record is invalidated.) Previously 2026-10-04 (issue #131: the `Codex CLI / app-server` row's last tested
 version is now `@openai/codex@0.160.0`, from the G4 herdr run of 2026-10-04. Routine
 record-keeping for a floating harness row (#216): not a pin move, no verdict or record is
 invalidated.) Previously 2026-10-03 (issue #252, operator decision: scripted runs are verified, not
@@ -65,7 +69,9 @@ never gate. The `Claude Code (Channels)` and `Codex CLI / app-server` rows now r
 **minimum version** and a **last tested version** instead of a "last observed" version.
 Claude Code: minimum `v2.1.282` (first version worked with, G1 2026-09-25), last tested
 `v2.1.285` (L3, 2026-10-01). Codex: minimum `@openai/codex@0.154.0` (first version worked
-with, G2 2026-09-25), last tested `@openai/codex@0.159.3` (L3, 2026-10-01). Citations are
+with, G2 2026-09-25), last tested `@openai/codex@0.159.3` (L3, 2026-10-01; *dated note,
+2026-10-06: superseded on 2026-10-04 by `@openai/codex@0.160.0`, the current last tested
+version; see the 2026-10-04 entry above, the table row and the record's version history*). Citations are
 under "Version policy" in each record. The pin-move checklist no longer applies to these two
 rows, so no gate verdict is invalidated. G1, G2, G4 and G5 keep their recorded verdicts and
 the versions they ran on.) Previously 2026-09-29 (L1, issue #166: added row `Beacon (external memory
@@ -370,7 +376,11 @@ anything:
   Codex re-run (2026-10-02, `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`) and the
   G4 herdr run
   (2026-10-04, `docs/planning/gates/herdr-runs/G4-2026-10-04.md`); `0.160.0` is the last
-  tested version from 2026-10-04.
+  tested version from 2026-10-04. `0.160.0` again in the G2 and G4 herdr re-records
+  (2026-10-05, `G2-2026-10-05.md` and `G4-2026-10-05.md`; 2026-10-06, `G2-2026-10-06.md` and
+  `G4-2026-10-06.md`, all under `docs/planning/gates/herdr-runs/`). On 2026-10-06 Codex
+  offered `0.160.1`; it was skipped in Codex's own TUI, not installed or tested
+  (`G4-2026-10-06.md` Findings), so the last tested version stays `0.160.0`.
 
 #### Floating-version policy (operator decision, 2026-09-26)
 
