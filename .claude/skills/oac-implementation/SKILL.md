@@ -50,11 +50,11 @@ Additional transports are siblings of `transports/zenoh/` under the identical co
 rule — e.g. F7's in-memory transport lives at `transports/memory/`, a NATS/MQTT transport
 at `transports/<name>/`.
 
-DESIGN calls this shape "suggested," not decided: it is F1's output, not yet built
-(STATUS.md: Pre-Stage 0; interfaces don't freeze until Stage 2). Do not create modules
-outside this shape without recording why in the work item, but treat the shape itself as
-pending F1, and carry DESIGN.md:142 verbatim when reasoning about it: "Do not choose
-implementation language solely from this sketch."
+DESIGN calls this shape "suggested," not decided: it is F1's output, not yet built. The
+frozen interfaces (`spec/interfaces.md`, revision 0.1) fix the contracts, not these paths.
+Do not create modules outside this shape without recording why in the work item, but treat
+the shape itself as pending F1, and carry DESIGN.md:142 verbatim when reasoning about it:
+"Do not choose implementation language solely from this sketch."
 
 **`cli/` verb set (PLANNING-PROMPT §5.11):** `start`, `status`, `sessions`, `doctor`, plus
 whatever the process model needs. The binary name and the daemon-vs-embedded-per-session
@@ -97,12 +97,10 @@ From PLANNING-PROMPT.md §6, restated as conditions any code change must satisfy
   and, if a genuinely new core concept is needed, `core/` — never `transports/zenoh/`.
 - **NATS or MQTT can replace Zenoh with no change to any `adapters/*` module or to
   `spec/`.** Concretely: a second transport module implementing the same `Transport`
-  contract (`start`, `publish`, `subscribe`, `announce_presence`, `watch_presence`,
-  `health`, `shutdown`, per DESIGN "Transport contract") must be pluggable without editing
-  adapter code. Any optional capability (reliability, persistence, offline queueing,
-  ordering, multicast discovery, routing/federation) that the new transport lacks must be
-  declared through the contract's capability negotiation, not hidden behind an adapter
-  special-case.
+  contract (the operations of `spec/interfaces.md` §6.4, Table 6.4) must be pluggable
+  without editing adapter code. An optional capability the new transport lacks is
+  declared absent through the capability declaration of `spec/interfaces.md` §6.3, not
+  hidden behind an adapter special-case.
 - If a change you are making would violate either condition, it is a boundary drift — stop
   and follow the `oac-boundaries` "stop, cite the boundary" protocol rather than landing it.
 
@@ -125,22 +123,20 @@ From PLANNING-PROMPT.md §6, restated as conditions any code change must satisfy
 
 ## 5. Error handling conventions
 
-- Errors cross a module boundary only as the neutral `core/` error/result types defined by
-  the frozen spec interfaces (DESIGN "Core", "Provider adapter contract", "Transport
-  contract"). No provider-specific error type (a Codex JSON-RPC error object, a Claude MCP
-  error) and no transport-specific error type (a Zenoh error) may cross out of its own
-  adapter/transport module — translate at the boundary.
+- Errors cross a module boundary only as the neutral `core/` types of the frozen
+  `spec/interfaces.md` (§4 core types, including §4.6 `DeliveryReceipt`/`ErrorCode`, and the
+  §4.10-§4.11 boundary types). No provider-specific error type (a Codex JSON-RPC error
+  object, a Claude MCP error) and no transport-specific error type (a Zenoh error) may cross
+  out of its own adapter/transport module — translate at the boundary.
 - No silent failure of a delivery path. A `Transport.publish` or adapter `deliver` failure
   must surface as one of the defined delivery states, not be swallowed or logged-only.
 - Report delivery state honestly against what is actually knowable (PLANNING-PROMPT.md §5
   decision 5, Appendix A C6): a resolved "handed to transport/harness" call is reported as
   such, never as "delivered" or "seen by the model," because several providers (Claude Code
-  channels) give no acknowledgement. The authoritative delivery-state vocabulary is the
-  frozen spec's set (DESIGN "Delivery semantics": `accepted`, `rejected`, `unreachable`,
-  `expired`, `duplicate`, `failed` — normative, C5/Stage 2 output, implemented by F6); do
-  not substitute a different vocabulary. Within that set, "accepted by adapter," "handed to
-  harness," and "unknown" are the minimum honesty distinctions §5 decision 5 demands when
-  reporting what actually happened — not a replacement for the spec's states.
+  channels) give no acknowledgement. The delivery-state vocabulary is the frozen
+  `spec/session-channels.md` Table 8.1 (§8.1.2, and §8.1.3 for what each state proves;
+  `spec/interfaces.md` [IFC-TYP-051]); error codes are its Table 8.3. Implemented by F6. Do
+  not substitute DESIGN's "Delivery semantics" set or any other vocabulary.
 
 ## 6. Dependency policy (PLANNING-PROMPT.md §5 decision 12)
 
@@ -176,8 +172,10 @@ dependency without an inventory entry.
 
 ## Where the content lives
 
-- `docs/planning/DESIGN.md` — "Suggested repository shape," adapter/transport contracts,
-  Zenoh containment rule.
+- `spec/interfaces.md` (core types, adapter and transport contracts) and
+  `spec/session-channels.md` (delivery states, errors), frozen at revision 0.1 (E7, #47).
+- `docs/planning/DESIGN.md` — "Suggested repository shape," Zenoh containment rule; its
+  contract sketches are superseded by the frozen `spec/` text.
 - `docs/planning/PLANNING-PROMPT.md` §5 (decisions 1, 2, 10, 11, 12), §6 (design-for-
   replacement), §8 Stages 3-4, Appendix A (C6).
 - `docs/planning/ADR-001.md` — Boundary.
