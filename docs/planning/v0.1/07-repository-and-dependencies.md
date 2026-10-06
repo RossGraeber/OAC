@@ -235,6 +235,8 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `sha2` | `0.11.0` | MIT OR Apache-2.0 | SHA-256 key ids, `spec/security.md` §5.2. Already in the graph as `ed25519-dalek`'s own SHA-512 dependency, same version | No | Yes — OAC elects the Apache-2.0 arm | #52 (no decision names a hash crate; RustCrypto `hashes`, the crate `ed25519-dalek` itself uses) | `core/` (`keys`) |
 | `getrandom` | `0.4.3` | MIT OR Apache-2.0 | The operating system's CSPRNG for device-key seeds ([SEC-KEY-003]) and envelope nonces ([SEC-SIG-003]) | No | Yes — OAC elects the Apache-2.0 arm | #52 (no decision names an RNG crate; `rust-random/getrandom`, the OS-source crate under `rand`) | `core/` (`keys`) |
 | `zeroize` | `1.9.0` | Apache-2.0 OR MIT | Zeroizing buffers for the private seed ([SEC-KEY-004]). Already in the graph through `ed25519-dalek`'s default `zeroize` feature, same version | No | Yes — OAC elects the Apache-2.0 arm | #52 | `core/` (`keys`), `cli/` (`keystore`) |
+| `subtle` | `2.6.1` | BSD-3-Clause | Constant-time comparison of the read-back seed (#315 review N-e). Already in the graph under `ed25519-dalek`, same version | No | Yes — permissive (see the accepted list) | #52 | `core/` (`keys`) |
+| `curve25519-dalek` | `5.0.0` | BSD-3-Clause | Dev-dependency only: scalar arithmetic that builds malleable and small-order signatures in `signing.rs`'s tests (#315 review N-g). Already `ed25519-dalek`'s curve crate, same version; not a new crate in the build | No | Yes — permissive | #52 | `core/` (tests only) |
 
 (Dated note, 2026-10-06, #52 / F3.) **Consuming module of the key-storage crates.** The
 `keyring`, `keyring-core`, `windows-native-keyring-store` and `age` rows above say "daemon
@@ -245,7 +247,17 @@ fallback. Both implement `core/`'s `KeyStore` trait, so `cli/` constructs them a
 to the core, and the seed lives in `core/`'s `DeviceKey` (§2: `cli/` hosts start-up glue and
 owns no key material). `keyring`'s `v1` feature also builds `apple-native-keyring-store`
 `1.0.2` and `zbus-secret-service-keyring-store` `1.0.1` (both MIT OR Apache-2.0) on their
-platforms.
+platforms. `age` is a Unix-only target dependency of `cli/`, since the fallback is built only
+there (#315 review N-d), and `cli/` takes `libc` `0.2.190` (MIT OR Apache-2.0, already in the
+graph) on Unix for the file store's ownership check.
+
+(Dated note, 2026-10-06, #315 review N-b.) **Owner enforced.** `scripts/check-crate-deps.mjs`
+now treats these crates as owned by `cli/`, as it does the zenoh crates for
+`transports/zenoh/` and the Codex app-server crates for `adapters/codex/`: `keyring`,
+`keyring-core`, every `*-keyring-store`, `secret-service` and `security-framework(-sys)`, and
+`age` and `age-core` may be a dependency of `cli/` only, and none may be reachable from any
+other member. The signature crates in the rows below (`ed25519-dalek` and its curve crates,
+`sha2`, `getrandom`, `zeroize`, `subtle`) are `core/`'s and are not restricted.
 
 (Dated note, 2026-10-06, #52 / F3.) **Transitive packages.** The rows above bring 241 new
 packages into the `--all-features` graph that `scripts/check-licenses.mjs` reads, most of

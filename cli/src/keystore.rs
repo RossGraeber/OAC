@@ -69,16 +69,30 @@ impl Default for OsKeyStore {
 
 /// A `keyring` error as a [`KeyStoreError`], never with the stored octets that two of its
 /// variants carry.
+///
+/// Only the two errors that mean "this host has no credential store" are
+/// [`KeyStoreError::Unavailable`], the one error [`FallbackKeyStore`] falls back on:
+/// `NoDefaultStore` (`keyring` 4.2.0 `v1.rs`: store initialisation failed, as on a host
+/// with no session bus) and `Invalid("platform", _)` (an unsupported platform).
+///
+/// `NoStorageAccess` is [`KeyStoreError::Locked`]. `keyring-core` 1.0.0 documents it as
+/// the store being inaccessible, "for example, ... the credential store is locked", and
+/// `zbus-secret-service-keyring-store` 1.0.1 returns it for a locked collection and a
+/// dismissed unlock prompt. Such a store may hold the device key, so falling back would
+/// create a second one ([SEC-KEY-002]; #315 review B1). Every other error is
+/// [`KeyStoreError::Failed`] or, for unreadable content, [`KeyStoreError::Corrupt`].
 fn map_error(e: keyring::Error) -> KeyStoreError {
     use keyring::Error as E;
     match e {
         E::NoDefaultStore => KeyStoreError::Unavailable("no credential store on this host".into()),
-        E::NoStorageAccess(p) => KeyStoreError::Unavailable(format!("credential store: {p}")),
-        E::BadEncoding(_) | E::BadDataFormat(..) => {
-            KeyStoreError::Corrupt("the credential entry is not a device key".into())
-        }
         E::Invalid(attr, _) if attr == "platform" => {
             KeyStoreError::Unavailable("no credential store for this platform".into())
+        }
+        E::NoStorageAccess(p) => {
+            KeyStoreError::Locked(format!("credential store not accessible: {p}"))
+        }
+        E::BadEncoding(_) | E::BadDataFormat(..) => {
+            KeyStoreError::Corrupt("the credential entry is not a device key".into())
         }
         E::PlatformFailure(p) => KeyStoreError::Failed(format!("credential store: {p}")),
         other => KeyStoreError::Failed(format!("credential store: {other}")),
@@ -99,6 +113,12 @@ impl KeyStore for OsKeyStore {
         }
     }
 
+    /// Refuses when the entry already holds a key. `keyring` offers no create-only write, so
+    /// this is a read, then a write, and two writers could race between them. One process
+    /// per device holds key material: the daemon, which `oac start` runs once per user
+    /// (`docs/planning/decisions/C2-process-model.md` §1, §5), so OAC has no second writer.
+    /// [`oac_core::keys::DeviceKey::load_or_generate`] reads the key back after saving, so
+    /// a lost race is still detected before the key is used.
     fn save(&self, seed: &SecretSeed) -> Result<(), KeyStoreError> {
         if self.load()?.is_some() {
             return Err(KeyStoreError::Failed(
@@ -111,8 +131,8 @@ impl KeyStore for OsKeyStore {
 
 /// The store that tries `primary` first and uses `fallback` only while `primary` reports
 /// itself [`KeyStoreError::Unavailable`] (C4 §11, "When the fallback engages"). Any other
-/// error of `primary` stops there, so a locked or failing credential store never silently
-/// produces a second device key in the file.
+/// error of `primary`, [`KeyStoreError::Locked`] included, stops there, so a locked or
+/// failing credential store never silently produces a second device key in the file.
 pub struct FallbackKeyStore<P, F> {
     primary: P,
     fallback: Option<F>,
@@ -155,21 +175,71 @@ pub use file::{FileKeyStore, PASSPHRASE_CREDENTIAL, PASSPHRASE_ENV};
 mod file {
     use super::{KeyStore, KeyStoreError, SecretSeed, Zeroizing};
     use age::secrecy::SecretString;
-    use std::fs::{self, DirBuilder, OpenOptions};
-    use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    use std::fs::{self, DirBuilder, File, Metadata, OpenOptions};
+    use std::io::{ErrorKind, Write};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
     use std::path::{Path, PathBuf};
+    use std::sync::OnceLock;
 
     /// The environment variable a deployment may use to hand the file's passphrase to the
-    /// process (C4 §11: the host's own secret management protects it).
+    /// process (C4 §11: the host's own secret management protects it). A last resort:
+    /// [`PASSPHRASE_CREDENTIAL`] is preferred. It is removed from the process environment
+    /// when read, so no child process inherits it.
     pub const PASSPHRASE_ENV: &str = "OAC_DEVICE_KEY_PASSPHRASE";
 
     /// The systemd credential name of the passphrase, read from `$CREDENTIALS_DIRECTORY`.
     pub const PASSPHRASE_CREDENTIAL: &str = "oac-device-key-passphrase";
 
+    /// [`PASSPHRASE_ENV`]'s value, taken once.
+    static ENV_PASSPHRASE: OnceLock<Option<SecretString>> = OnceLock::new();
+
+    fn failed(e: std::io::Error) -> KeyStoreError {
+        KeyStoreError::Failed(format!("key file: {e}"))
+    }
+
+    /// This process's effective user id.
+    fn euid() -> u32 {
+        // SAFETY: geteuid has no preconditions, cannot fail and touches no memory of ours.
+        unsafe { libc::geteuid() }
+    }
+
+    /// `meta` is owned by this user and gives no access to anyone else.
+    fn check_private(meta: &Metadata, what: &str) -> Result<(), KeyStoreError> {
+        if meta.uid() != euid() {
+            return Err(KeyStoreError::Failed(format!(
+                "{what} is not owned by this user"
+            )));
+        }
+        if meta.mode() & 0o077 != 0 {
+            return Err(KeyStoreError::Failed(format!(
+                "{what} is accessible to other users"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The key file's directory, checked: a real directory (not a link), owned by this
+    /// user, mode `0700` or stricter.
+    fn check_dir(dir: &Path) -> Result<(), KeyStoreError> {
+        let meta = fs::symlink_metadata(dir).map_err(failed)?;
+        if !meta.is_dir() {
+            return Err(KeyStoreError::Failed(
+                "key directory is not a directory".into(),
+            ));
+        }
+        check_private(&meta, "key directory")
+    }
+
     /// The device key's seed in an `age` file (`age-encryption.org/v1`), encrypted to an
-    /// `age::scrypt` passphrase recipient (C4 §11). The directory is created `0700` and the
-    /// file `0600`; a file other users can read or write is refused.
+    /// `age::scrypt` passphrase recipient (C4 §11).
+    ///
+    /// The file's directory is OAC's own: [`KeyStore::save`] creates it `0700` when it does
+    /// not exist and refuses one that exists but is not owned by this user or is open to
+    /// others; it never changes the mode of an existing directory. The file is `0600`,
+    /// written to a temporary file in the same directory, synced, then linked into place,
+    /// so a failed write never leaves a partial key file, and an existing key file is never
+    /// replaced. [`KeyStore::load`] refuses a key file or directory that is a link, is not
+    /// owned by this user, or is open to others.
     pub struct FileKeyStore {
         path: PathBuf,
         passphrase: SecretString,
@@ -177,7 +247,8 @@ mod file {
     }
 
     impl FileKeyStore {
-        /// The store at `path`, encrypted under `passphrase`.
+        /// The store at `path`, encrypted under `passphrase`. `path`'s directory is OAC's
+        /// own (above).
         pub fn new(path: PathBuf, passphrase: SecretString) -> FileKeyStore {
             FileKeyStore {
                 path,
@@ -207,7 +278,29 @@ mod file {
         /// The passphrase the deployment provides: the systemd credential
         /// [`PASSPHRASE_CREDENTIAL`], else the environment variable [`PASSPHRASE_ENV`].
         /// `None` when neither is set: the fallback is then not available.
-        pub fn passphrase_from_environment() -> Option<SecretString> {
+        ///
+        /// The environment variable is read once, on the first call, and removed from the
+        /// process environment then, whichever source wins, so no child process this
+        /// process starts (a harness, and any shell a model runs inside it) inherits the
+        /// passphrase (#315 review N-a; [SEC-KEY-004]). Later calls return the value taken
+        /// on the first.
+        ///
+        /// # Safety
+        ///
+        /// The first call runs `std::env::remove_var`, which is sound only while no other
+        /// thread reads or writes the process environment. Call this at start-up, before
+        /// the process starts any other thread; after the first call it touches the
+        /// environment only to read `$CREDENTIALS_DIRECTORY`.
+        pub unsafe fn passphrase_from_environment() -> Option<SecretString> {
+            let from_env = ENV_PASSPHRASE.get_or_init(|| {
+                let value = std::env::var(PASSPHRASE_ENV).ok();
+                if std::env::var_os(PASSPHRASE_ENV).is_some() {
+                    // SAFETY: the caller guarantees no other thread uses the environment
+                    // during this first call (see the function's Safety section).
+                    unsafe { std::env::remove_var(PASSPHRASE_ENV) };
+                }
+                value.filter(|p| !p.is_empty()).map(SecretString::from)
+            });
             let credential = std::env::var_os("CREDENTIALS_DIRECTORY")
                 .and_then(|dir| {
                     fs::read_to_string(Path::new(&dir).join(PASSPHRASE_CREDENTIAL)).ok()
@@ -219,36 +312,64 @@ mod file {
                     return Some(SecretString::from(p.to_owned()));
                 }
             }
-            std::env::var(PASSPHRASE_ENV)
-                .ok()
-                .filter(|p| !p.is_empty())
-                .map(SecretString::from)
+            from_env.clone()
         }
 
         /// The default store, when the deployment provides a passphrase and a home or data
         /// directory.
-        pub fn from_environment() -> Option<FileKeyStore> {
-            Some(FileKeyStore::new(
-                FileKeyStore::default_path()?,
-                FileKeyStore::passphrase_from_environment()?,
-            ))
+        ///
+        /// # Safety
+        ///
+        /// As [`FileKeyStore::passphrase_from_environment`].
+        pub unsafe fn from_environment() -> Option<FileKeyStore> {
+            // SAFETY: the caller upholds passphrase_from_environment's contract.
+            let passphrase = unsafe { FileKeyStore::passphrase_from_environment() }?;
+            Some(FileKeyStore::new(FileKeyStore::default_path()?, passphrase))
+        }
+
+        fn dir(&self) -> Result<&Path, KeyStoreError> {
+            self.path
+                .parent()
+                .filter(|d| !d.as_os_str().is_empty())
+                .ok_or_else(|| KeyStoreError::Failed("key file path has no directory".into()))
+        }
+
+        /// Creates the key directory `0700` if it does not exist; otherwise checks it.
+        fn ensure_dir(&self) -> Result<(), KeyStoreError> {
+            let dir = self.dir()?;
+            match fs::symlink_metadata(dir) {
+                Ok(_) => {}
+                Err(e) if e.kind() == ErrorKind::NotFound => {
+                    if let Some(up) = dir.parent().filter(|u| !u.as_os_str().is_empty()) {
+                        fs::create_dir_all(up).map_err(failed)?;
+                    }
+                    match DirBuilder::new().mode(0o700).create(dir) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
+                        Err(e) => return Err(failed(e)),
+                    }
+                }
+                Err(e) => return Err(failed(e)),
+            }
+            check_dir(dir)
         }
     }
 
     impl KeyStore for FileKeyStore {
         fn load(&self) -> Result<Option<SecretSeed>, KeyStoreError> {
-            let meta = match fs::metadata(&self.path) {
+            let meta = match fs::symlink_metadata(&self.path) {
                 Ok(m) => m,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(e) => return Err(KeyStoreError::Failed(format!("key file: {e}"))),
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+                Err(e) => return Err(failed(e)),
             };
-            if meta.permissions().mode() & 0o077 != 0 {
+            check_dir(self.dir()?)?;
+            if !meta.file_type().is_file() {
                 return Err(KeyStoreError::Failed(
-                    "key file is readable or writable by other users".into(),
+                    "key file is not a regular file".into(),
                 ));
             }
-            let ciphertext = fs::read(&self.path)
-                .map_err(|e| KeyStoreError::Failed(format!("key file: {e}")))?;
+            check_private(&meta, "key file")?;
+            let ciphertext = fs::read(&self.path).map_err(failed)?;
             let identity = age::scrypt::Identity::new(self.passphrase.clone());
             let plain = Zeroizing::new(
                 age::decrypt(&identity, &ciphertext)
@@ -260,30 +381,41 @@ mod file {
         }
 
         fn save(&self, seed: &SecretSeed) -> Result<(), KeyStoreError> {
-            let fail = |e: std::io::Error| KeyStoreError::Failed(format!("key file: {e}"));
-            if let Some(dir) = self.path.parent() {
-                DirBuilder::new()
-                    .recursive(true)
-                    .mode(0o700)
-                    .create(dir)
-                    .map_err(fail)?;
-                fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(fail)?;
-            }
+            self.ensure_dir()?;
+            let dir = self.dir()?;
             let mut recipient = age::scrypt::Recipient::new(self.passphrase.clone());
             if let Some(log_n) = self.work_factor {
                 recipient.set_work_factor(log_n);
             }
             let ciphertext = age::encrypt(&recipient, seed.expose())
                 .map_err(|e| KeyStoreError::Failed(format!("encrypting the key file: {e}")))?;
-            // create_new: an existing key is never replaced ([SEC-KEY-002]).
-            let mut f = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&self.path)
-                .map_err(fail)?;
-            f.write_all(&ciphertext).map_err(fail)?;
-            f.sync_all().map_err(fail)
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let tmp = dir.join(format!(".device-key.{}.{nanos}.tmp", std::process::id()));
+            let written = (|| {
+                let mut f = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&tmp)?;
+                f.write_all(&ciphertext)?;
+                f.sync_all()?;
+                // A hard link never replaces: an existing key file makes it fail
+                // ([SEC-KEY-002]), and the key file appears complete or not at all.
+                fs::hard_link(&tmp, &self.path)
+            })();
+            let _ = fs::remove_file(&tmp);
+            match written {
+                Ok(()) => {}
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                    return Err(KeyStoreError::Failed(
+                        "a device key is already stored".into(),
+                    ));
+                }
+                Err(e) => return Err(failed(e)),
+            }
+            File::open(dir).and_then(|d| d.sync_all()).map_err(failed)
         }
     }
 }
@@ -347,6 +479,77 @@ mod tests {
         assert!(both.fallback.as_ref().unwrap().load().unwrap().is_none());
     }
 
+    /// Every `keyring` error variant's classification, pinned (#315 review B1). Only the two
+    /// "no credential store here" errors may fall back.
+    #[test]
+    fn map_error_classifies_every_keyring_error() {
+        use keyring::Error as E;
+        let unavailable = |e| matches!(map_error(e), KeyStoreError::Unavailable(_));
+        let locked = |e| matches!(map_error(e), KeyStoreError::Locked(_));
+        let corrupt = |e| matches!(map_error(e), KeyStoreError::Corrupt(_));
+        let failed = |e| matches!(map_error(e), KeyStoreError::Failed(_));
+        assert!(unavailable(E::NoDefaultStore));
+        assert!(unavailable(E::Invalid("platform".into(), "x".into())));
+        assert!(locked(E::NoStorageAccess("locked".into())));
+        assert!(corrupt(E::BadEncoding(vec![1])));
+        assert!(corrupt(E::BadDataFormat(vec![1], "x".into())));
+        assert!(failed(E::PlatformFailure("x".into())));
+        assert!(failed(E::NoEntry));
+        assert!(failed(E::BadStoreFormat("x".into())));
+        assert!(failed(E::TooLong("service".into(), 1)));
+        assert!(failed(E::Invalid("service".into(), "x".into())));
+        assert!(failed(E::Ambiguous(Vec::new())));
+        assert!(failed(E::NotSupportedByStore("x".into())));
+    }
+
+    /// An OS store that holds a device key but is locked, as a Secret Service collection
+    /// is before its unlock prompt is answered.
+    struct LockableOsStore {
+        inner: MemoryKeyStore,
+        locked: std::cell::Cell<bool>,
+    }
+
+    impl KeyStore for LockableOsStore {
+        fn load(&self) -> Result<Option<SecretSeed>, KeyStoreError> {
+            if self.locked.get() {
+                return Err(map_error(keyring::Error::NoStorageAccess("locked".into())));
+            }
+            self.inner.load()
+        }
+        fn save(&self, seed: &SecretSeed) -> Result<(), KeyStoreError> {
+            if self.locked.get() {
+                return Err(map_error(keyring::Error::NoStorageAccess("locked".into())));
+            }
+            self.inner.save(seed)
+        }
+    }
+
+    /// #315 review B1: a locked store that holds the device key never leads to a second key
+    /// in the fallback; once unlocked, the original key is the one used.
+    #[test]
+    fn a_locked_store_never_falls_back_to_a_second_key() {
+        let os = LockableOsStore {
+            inner: MemoryKeyStore::new(),
+            locked: std::cell::Cell::new(false),
+        };
+        let original = DeviceKey::load_or_generate(&os.inner).unwrap().key_id();
+        os.locked.set(true);
+        let store = FallbackKeyStore::new(os, Some(MemoryKeyStore::new()));
+        for _ in 0..2 {
+            assert!(matches!(
+                DeviceKey::load_or_generate(&store),
+                Err(KeyStoreError::Locked(_))
+            ));
+        }
+        assert!(store.fallback.as_ref().unwrap().load().unwrap().is_none());
+        store.primary.locked.set(false);
+        assert_eq!(
+            DeviceKey::load_or_generate(&store).unwrap().key_id(),
+            original
+        );
+        assert!(store.fallback.as_ref().unwrap().load().unwrap().is_none());
+    }
+
     #[test]
     fn errors_never_carry_stored_octets() {
         let secret = vec![0x42u8; 32];
@@ -408,10 +611,58 @@ mod tests {
                 Err(KeyStoreError::Corrupt(_))
             ));
             // An existing file is never replaced.
-            assert!(s.save(&SecretSeed::from_octets([1; 32])).is_err());
+            assert!(s.save(&SecretSeed::from_octets(&mut [1; 32])).is_err());
+            // No temporary file is left beside the key file.
+            let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+                .unwrap()
+                .map(|e| e.unwrap().file_name())
+                .collect();
+            assert_eq!(names, vec![std::ffi::OsString::from("device.key.age")]);
+            // A key directory other users can enter is refused on load.
+            let parent = path.parent().unwrap();
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(s.load(), Err(KeyStoreError::Failed(_))));
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
             // A file other users can read is refused.
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
             assert!(matches!(s.load(), Err(KeyStoreError::Failed(_))));
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+
+        /// #315 review N-c: an existing directory open to others is refused, and its mode is
+        /// left as it was.
+        #[test]
+        fn an_open_existing_directory_is_refused_not_changed() {
+            let dir = temp_dir("open");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let s = store(dir.join("device.key.age"), "pass");
+            assert!(matches!(
+                s.save(&SecretSeed::from_octets(&mut [3; 32])),
+                Err(KeyStoreError::Failed(_))
+            ));
+            let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o755);
+            assert!(!dir.join("device.key.age").exists());
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+
+        /// A key file that is a link is refused, wherever it points.
+        #[test]
+        fn a_linked_key_file_is_refused() {
+            let dir = temp_dir("link");
+            let real = store(dir.join("real").join("device.key.age"), "pass");
+            DeviceKey::load_or_generate(&real).unwrap();
+            let linked_dir = dir.join("linked");
+            std::fs::create_dir(&linked_dir).unwrap();
+            std::fs::set_permissions(&linked_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::os::unix::fs::symlink(
+                dir.join("real").join("device.key.age"),
+                linked_dir.join("device.key.age"),
+            )
+            .unwrap();
+            let linked = store(linked_dir.join("device.key.age"), "pass");
+            assert!(matches!(linked.load(), Err(KeyStoreError::Failed(_))));
             std::fs::remove_dir_all(&dir).unwrap();
         }
     }
@@ -440,7 +691,7 @@ mod tests {
         .unwrap();
         let result = (
             key.key_id() == again.key_id(),
-            store.save(&SecretSeed::from_octets([1; 32])).is_err(),
+            store.save(&SecretSeed::from_octets(&mut [1; 32])).is_err(),
         );
         store.delete().unwrap();
         assert_eq!(

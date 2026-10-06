@@ -548,6 +548,12 @@ fn base64url_decode(s: &str) -> Vec<u8> {
 /// alone, over this crate's signing input. Its verdict must be the fixture's:
 /// `signature-invalid` exactly when it rejects. Each trusted key must also pass admission
 /// ([SEC-KEY-034]), which holds [SEC-SIG-023]'s canonical-encoding half.
+///
+/// This is evidence about the library. The production path, `oac_core::signing`, is guarded
+/// by [`conformance_fixtures`] (stage `security`, every `sec-sig` fixture through
+/// [`authenticate`]) and by `signing.rs`'s unit tests, which build an unreduced scalar and
+/// small-order `R` values. Of the fixtures, `SEC-SIG-022.n01` (`R` the identity) is the one
+/// the library's non-strict `verify` also accepts, so it is what tells the two calls apart.
 #[test]
 fn verify_strict_alone_gives_the_sec_sig_verdicts() {
     let mut ran = Vec::new();

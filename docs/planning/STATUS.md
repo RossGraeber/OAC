@@ -20,13 +20,17 @@ verification land in `core/` and `cli/`**, against `spec/security.md` revision 0
   frozen text, left for the #308 editorial batch.
 - **Key storage on real credential stores.** The opt-in workflow
   `.github/workflows/keystore-optin.yml` (manual dispatch; never the default tier) ran once
-  on this branch through a temporary push trigger, removed before merge: run
-  https://github.com/RossGraeber/OAC/actions/runs/37421973245 at `371d6f2`. Its four jobs
-  passed: a device key saved to and read back from Credential Manager (windows-latest),
+  on this branch through a temporary push trigger, removed before merge: runs
+  https://github.com/RossGraeber/OAC/actions/runs/37421973245 at `371d6f2` and
+  https://github.com/RossGraeber/OAC/actions/runs/37422094601 at `b739abc`. Each passed all
+  four jobs: a device key saved to and read back from Credential Manager (windows-latest),
   Keychain (macos-latest) and the Secret Service under gnome-keyring (ubuntu-latest), and,
   on an ubuntu-latest job with no session bus, the store reported unavailable and the
   `age`-encrypted file held the key. The Credential Manager round trip and the headless
-  fallback (WSL with no session bus) were also run locally.
+  fallback (WSL with no session bus) were also run locally. Both runs predate the PR #315
+  review fixes (a locked store no longer falls back; the file store's directory, ownership
+  and atomic-write rules); those were re-run locally on Windows and WSL, and the workflow
+  stays dispatch-only, to be re-dispatched from `main` after merge.
 - **Dependencies.** `ed25519-dalek` `3.0.0` (BSD-3-Clause, now on the accepted list under
   the #51 operator decision), `sha2` `0.11.0`, `getrandom` `0.4.3` and `zeroize` `1.9.0` in
   `core/`; `keyring` `4.2.0` and `age` `0.12.1` in `cli/`. `07-repository-and-dependencies.md`

@@ -28,7 +28,8 @@ use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::sync::Mutex;
-use zeroize::Zeroizing;
+use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Fills `out` from the operating system's cryptographically secure random number
 /// generator.
@@ -118,9 +119,13 @@ fn y_is_canonical(octets: &[u8; 32]) -> bool {
 pub struct SecretSeed(Zeroizing<[u8; 32]>);
 
 impl SecretSeed {
-    /// The seed whose octets are `octets`, as read back from a store.
-    pub fn from_octets(octets: [u8; 32]) -> SecretSeed {
-        SecretSeed(Zeroizing::new(octets))
+    /// The seed whose octets are in `octets`, as read back from a store. The octets are
+    /// copied into a zeroizing buffer and `octets` is zeroized, so no plain copy of the seed
+    /// outlives the call (#315 review N-e).
+    pub fn from_octets(octets: &mut [u8; 32]) -> SecretSeed {
+        let seed = SecretSeed(Zeroizing::new(*octets));
+        octets.zeroize();
+        seed
     }
 
     /// The seed that `octets` holds, if it holds exactly 32 octets.
@@ -138,6 +143,18 @@ impl SecretSeed {
     pub fn expose(&self) -> &[u8; 32] {
         &self.0
     }
+
+    /// A second zeroizing copy, made without a plain copy on the stack.
+    fn duplicate(&self) -> SecretSeed {
+        let mut copy = Zeroizing::new([0u8; 32]);
+        copy.copy_from_slice(self.0.as_slice());
+        SecretSeed(copy)
+    }
+
+    /// Whether two seeds are equal, compared in constant time.
+    fn ct_eq(&self, other: &SecretSeed) -> bool {
+        self.0.as_slice().ct_eq(other.0.as_slice()).into()
+    }
 }
 
 impl fmt::Debug for SecretSeed {
@@ -150,9 +167,13 @@ impl fmt::Debug for SecretSeed {
 /// material.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyStoreError {
-    /// The store cannot be used on this host (for example, no credential service is
-    /// running). A caller may fall back to another store.
+    /// The store does not exist on this host (for example, no credential service is
+    /// running). The only error a caller may fall back to another store on.
     Unavailable(String),
+    /// The store exists but cannot be read now: it is locked, or an unlock prompt was
+    /// dismissed. It may hold the device key, so a caller must not fall back and create a
+    /// second one ([SEC-KEY-002]).
+    Locked(String),
     /// The store holds an entry that is not a device key seed, or cannot be decrypted.
     Corrupt(String),
     /// The store failed while reading or writing.
@@ -163,6 +184,7 @@ impl fmt::Display for KeyStoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KeyStoreError::Unavailable(e) => write!(f, "key store unavailable: {e}"),
+            KeyStoreError::Locked(e) => write!(f, "key store locked: {e}"),
             KeyStoreError::Corrupt(e) => write!(f, "key store entry unusable: {e}"),
             KeyStoreError::Failed(e) => write!(f, "key store failed: {e}"),
         }
@@ -215,7 +237,7 @@ impl KeyStore for MemoryKeyStore {
             .seed
             .lock()
             .map_err(|_| KeyStoreError::Failed("lock poisoned".into()))?;
-        Ok(seed.as_ref().map(|s| SecretSeed::from_octets(*s.expose())))
+        Ok(seed.as_ref().map(SecretSeed::duplicate))
     }
 
     fn save(&self, seed: &SecretSeed) -> Result<(), KeyStoreError> {
@@ -228,7 +250,7 @@ impl KeyStore for MemoryKeyStore {
                 "a device key is already stored".into(),
             ));
         }
-        *slot = Some(SecretSeed::from_octets(*seed.expose()));
+        *slot = Some(seed.duplicate());
         Ok(())
     }
 }
@@ -274,7 +296,7 @@ impl DeviceKey {
         // Read back what the store holds, so a store that dropped the write fails now
         // rather than at the next start with a different key.
         match store.load()? {
-            Some(back) if back.expose() == seed.expose() => Ok(DeviceKey::from_seed(&seed)),
+            Some(back) if back.ct_eq(&seed) => Ok(DeviceKey::from_seed(&seed)),
             _ => Err(KeyStoreError::Failed(
                 "the saved device key did not read back".into(),
             )),
@@ -393,7 +415,7 @@ mod tests {
     #[test]
     fn test_key_alice_matches_the_fixture_key_file() {
         // tests/protocol/sec-test-keys.json, key "alice" (test keys only).
-        let key = DeviceKey::from_seed(&SecretSeed::from_octets(hex32(
+        let key = DeviceKey::from_seed(&SecretSeed::from_octets(&mut hex32(
             "404616bd59c9b8b3739dc249fff73869964eeea749e75fc6f2e49ba7567b8019",
         )));
         assert_eq!(
@@ -427,7 +449,7 @@ mod tests {
         let s = |m: &str| env.get(m).and_then(Json::as_str).unwrap();
         let sec = env.get("security").and_then(Json::as_object).unwrap();
         let alice = DeviceIdentity::new(
-            DeviceKey::from_seed(&SecretSeed::from_octets(hex32(
+            DeviceKey::from_seed(&SecretSeed::from_octets(&mut hex32(
                 "404616bd59c9b8b3739dc249fff73869964eeea749e75fc6f2e49ba7567b8019",
             ))),
             Token::parse("principal-a").unwrap(),
@@ -497,11 +519,16 @@ mod tests {
     #[test]
     fn debug_never_shows_the_seed() {
         let seed = [0x42u8; 32];
-        let key = DeviceKey::from_seed(&SecretSeed::from_octets(seed));
+        let mut copy = seed;
+        let stored = SecretSeed::from_octets(&mut copy);
+        // The caller's buffer is zeroized; the seed lives on in the zeroizing copy only.
+        assert_eq!(copy, [0; 32]);
+        assert_eq!(stored.expose(), &seed);
+        let key = DeviceKey::from_seed(&stored);
         let key_shown = format!("{key:?}");
         let shown = format!(
             "{:?} {key_shown} {:?}",
-            SecretSeed::from_octets(seed),
+            stored,
             DeviceIdentity::new(key, Token::parse("p").unwrap())
         );
         assert!(!shown.contains("42, 42"), "{shown}");
@@ -516,7 +543,7 @@ mod tests {
         let again = DeviceKey::load_or_generate(&store).unwrap();
         assert_eq!(first.key_id(), again.key_id());
         assert!(matches!(
-            store.save(&SecretSeed::from_octets([1; 32])),
+            store.save(&SecretSeed::from_octets(&mut [1; 32])),
             Err(KeyStoreError::Failed(_))
         ));
         assert_eq!(

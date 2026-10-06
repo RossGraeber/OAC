@@ -23,3 +23,10 @@ ed25519-dalek = "=3.0.0"
 sha2 = "=0.11.0"
 getrandom = "=0.4.3"
 zeroize = "=1.9.0"
+# Constant-time comparison of seeds; already in the graph under ed25519-dalek.
+subtle = "=2.6.1"
+
+[dev-dependencies]
+# Scalar arithmetic for constructing malleable and small-order signatures in signing.rs's
+# tests; already in the graph as ed25519-dalek's curve crate, same version.
+curve25519-dalek = "=5.0.0"
