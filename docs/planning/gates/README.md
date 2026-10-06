@@ -306,7 +306,11 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   equals `main` after #287. G4's verdict is unchanged. *Dated note, 2026-10-05 (#131):*
   #292 changed `tools/herdr/lib/`, so `G4-2026-10-04.md` is superseded (kept, marked so at
   its top). The current G4 equivalence record is `herdr-runs/G4-2026-10-05.md`, run
-  `20261005T013347Z-6803a7` at driver `de42b54` (the #292 merge).
+  `20261005T013347Z-6803a7` at driver `de42b54` (the #292 merge). *Dated note, 2026-10-06
+  (#131):* #295, #298 and #301 changed `tools/herdr/` outside `tools/herdr/test/`, so
+  `G4-2026-10-05.md` is superseded (kept, marked so at its top). The current G4 equivalence
+  record is `herdr-runs/G4-2026-10-06.md`, run `20261006T022052Z-00cdd3` at driver
+  `c4def66` (the #301 merge), also with a #252 Verification section.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers

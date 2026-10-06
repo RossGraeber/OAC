@@ -2142,6 +2142,17 @@ without an UNVERIFIED label.
   match again. Claude's in-progress indicator did not appear in this run's kept Claude reads; the
   2026-10-04 capture still shows it. The Codex-config part above stays open, unchanged.
   G4's verdict is unchanged (PASS).
+  *Dated note, 2026-10-06 (#131):* #295, #298 and #301 changed `tools/herdr/`, so G4 was
+  re-recorded at driver `c4def66` (the #301 merge). Run `20261006T022052Z-00cdd3` (PASS,
+  Claude Code 2.1.285, Codex 0.160.0) is recorded at `gates/herdr-runs/G4-2026-10-06.md` with
+  three `-herdr` fixtures. It is now the equivalence record for G4 at herdr v0.9.1: all five
+  criteria `equivalent`, herdr and Harness VERIFIED. `G4-2026-10-05.md` is superseded and
+  kept as history. The dialog texts match again. Neither pane's kept reads show the
+  in-progress indicator. An earlier attempt at the same commit was NOT RUN because Codex's
+  start-up "Update available" prompt is not recognised by the scenario (#303); it was
+  answered once in Codex's own TUI with "Skip until next version" before the retry, and
+  Codex was not updated. The Codex-config part above stays open, unchanged. G4's verdict is
+  unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
   operator signs in and accepts consent dialogs (#187).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`
