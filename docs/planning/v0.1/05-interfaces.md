@@ -694,6 +694,12 @@ states).
 
 ## 16. ACP-adapter proof
 
+**Superseded, 2026-10-06 (#49).** E9 re-argues this proof from the frozen interfaces
+(`spec/interfaces.md` §5), not from §13 below, in
+`docs/planning/decisions/E9-replacement-proofs.md` §2. That record keeps this section's
+finding (no active inbound) and its characterization of ACP, and re-verifies the ACP facts
+against first-party sources. The text below is the M0 planning record.
+
 **Claim.** A third provider adapter, over the Agent Client Protocol (ACP), implements the
 same seven `ProviderAdapter` members (§13) over the same core types (§14), calls no
 `Transport` operation (§15) directly, and therefore changes no line of the `Transport`
@@ -745,6 +751,12 @@ Claude/Codex channels are attached.
 ---
 
 ## 17. NATS/MQTT replacement proof
+
+**Superseded, 2026-10-06 (#49).** E9 re-argues this proof from the frozen transport contract
+(`spec/interfaces.md` §6) in `docs/planning/decisions/E9-replacement-proofs.md` §3-§6. Every
+NATS and MQTT cell of the table below is resolved there from first-party sources (§5 of that
+record replaces this table). The cells below stay as they were written, UNVERIFIED, as the M0
+planning record.
 
 **Claim.** Either NATS or MQTT replaces Zenoh by implementing the same seven `Transport`
 operations (§15), with no change to any adapter and no change to the spec.
@@ -962,6 +974,10 @@ not yet met (below):
       this box requires a follow-up pass citing first-party NATS/MQTT documentation for at
       least the capabilities claimed lost, tracked as an open item alongside the six
       `UNVERIFIED` entries this file adds to `docs/planning/STATUS.md` (§17, §20).
+      *(Dated note, 2026-10-06, #49: met by E9,
+      `docs/planning/decisions/E9-replacement-proofs.md` §3-§7, argued from the frozen
+      `spec/interfaces.md` §6. All twelve NATS/MQTT cells are cited to first-party sources
+      there, and the two STATUS.md items are closed in the same change.)*
 - [x] **No neutral interface mentions Zenoh, Claude, Codex, MCP method names, or key
       expressions** — §2 (the rule), §21 (the mechanical check run and read against this
       file, every hit accounted for and confined to §15/§16/§17/§19/§21 themselves).

@@ -587,6 +587,18 @@ list.
 - **Response.** No action required before v0.1; re-confirm on
   agentclientprotocol.com only if ACP becomes a dependency in a later milestone
   (`docs/planning/STATUS.md` "Open UNVERIFIED items").
+- **Status: narrowed** (2026-10-06, #49). The schema v2 item is closed as verified, with no
+  drift: the v2 JSON schemas are "published in the repository releases as `v2.0.0-alphaX`"
+  (`agentclientprotocol/agent-client-protocol` at `487ad3ea`,
+  `docs/announcements/acp-v2-draft.mdx` L70), the latest being the prerelease
+  `schema-v2.0.0-alpha.7` of 2026-09-30, retrieved 2026-10-06. The v2 protocol docs are
+  separately in Draft (same page). v1 stays the supported version
+  (`docs/planning/decisions/E9-replacement-proofs.md` §1.3 A8, §9). One item stays open:
+  what an ACP v1 agent does with a `session/prompt` received while a turn is running. The v1
+  pages do not say. It decides whether a v1 binding could make the exception statement of
+  [SEC-AUZ-022]. Until a binding does, the ACP adapter declares its sessions send-only as a
+  conservative choice; for v2 (Draft) the exception may be available (E9 record §2.4,
+  F-A2). Nothing in v0.1 depends on it.
 
 ### RISK-ZENOH-SOURCE — Zenoh crate version read from GitHub, not crates.io
 
@@ -663,6 +675,9 @@ list.
   citation before any task relies on it (`oac-evidence` §5 promotion
   procedure). Then close or narrow it in STATUS.md and in the B2 note in the same
   change. This entry gates nothing.
+- *(Dated note, 2026-10-06, #49: narrowed. ACP protocol version `1` is re-checked: the v1
+  initialization page shows `"protocolVersion": 1` in its request and response examples
+  (`docs/planning/decisions/E9-replacement-proofs.md` §1.3 A4). The pin does not move.)*
 
 ### RISK-BIN-SIZE — Zenoh binary size estimate unmeasured
 
@@ -690,6 +705,13 @@ list.
 - **Response.** No action required for v0.1; check every claimed cell against
   first-party NATS specification/documentation before any NATS transport module
   is built (`docs/planning/v0.1/05-interfaces.md` §17).
+- **Status: narrowed** (2026-10-06, #49). E9 checked all six capability cells against the
+  first-party NATS docs (`nats-io/nats.docs` at `f115becf`, retrieved 2026-10-06):
+  `docs/planning/decisions/E9-replacement-proofs.md` §1.1, §3.2. One narrower item stays
+  open: whether each NATS client library can disable its reconnect buffer (record F-T3);
+  and how long a copy can wait in the server's buffer for a slow subscriber, which the
+  server settings `write_deadline` and `max_pending` do not bound, so a binding has to
+  (record F-T5). Both are in `docs/planning/STATUS.md`. NATS is not a v0.1 dependency.
 
 ### RISK-MQTT — MQTT capability claims unverified
 
@@ -705,6 +727,10 @@ list.
 - **Response.** No action required for v0.1; check every claimed cell against
   first-party MQTT specification/broker documentation before any MQTT transport
   module is built (`docs/planning/v0.1/05-interfaces.md` §17).
+- **Status: CLOSED** (2026-10-06, #49). E9 checked all six cells against the MQTT 5.0
+  OASIS Standard and, for bridging and ACLs, the Mosquitto configuration reference
+  (retrieved 2026-10-06): `docs/planning/decisions/E9-replacement-proofs.md` §1.2, §4.2. The
+  multicast-discovery cell is now cited: the standard defines no discovery.
 
 ### RISK-HERDR — herdr test tooling's live behavior unverified off Windows
 
@@ -880,7 +906,7 @@ turn, under `RISK-CODEX-EXPERIMENTAL`.
 | 6 | 5-15 MB Zenoh binary size estimate | RISK-BIN-SIZE |
 | 7 | Claude Channels compatibility-shim boundary unnamed (C11) | RISK-CLAUDE-PREVIEW |
 | 8 | Codex live-inject compatibility-shim boundary unnamed (C11) | RISK-CODEX-EXPERIMENTAL |
-| 9 | ACP schema v2 "alpha" status | RISK-ACP |
+| 9 | ACP schema v2 "alpha" status | RISK-ACP — closed as verified 2026-10-06 (#49), no drift: prerelease `schema-v2.0.0-alpha.7`; v2 protocol docs in Draft. RISK-ACP now carries the ACP v1 `session/prompt`-during-a-turn item |
 | 10 | Zenoh crate version/date read from GitHub, not crates.io | RISK-ZENOH-SOURCE |
 | 11 | `codex mcp-server` deprecation/deletion dates | RISK-CODEX-MCP-DATES |
 | 12 | No SEP for agent-to-agent messaging | RISK-SEP |
@@ -898,8 +924,8 @@ turn, under `RISK-CODEX-EXPERIMENTAL`.
 | 24 | `curve25519-dalek` repository MSRV policy | RISK-CRYPTO-BUILD |
 | 25 | Device-key fingerprint truncation length | RISK-PAIRING |
 | 26 | 6-digit/120s/5-attempt pairing parameters | RISK-PAIRING |
-| 27 | NATS capability claims | RISK-NATS |
-| 28 | MQTT capability claims | RISK-MQTT |
+| 27 | NATS capability claims | RISK-NATS — narrowed (2026-10-06, #49; E9 record §3.2): capability cells closed; the reconnect-buffer item (F-T3) and the slow-consumer buffer-age item (F-T5) stay open |
+| 28 | MQTT capability claims | RISK-MQTT — **CLOSED** (2026-10-06, #49; E9 record §4.2) |
 | 29 | 2026-09-17 `app-server` doc-drift signal (Codex daemon-attach default) | RISK-CODEX-EXPERIMENTAL |
 | 30 | Claude Code Channels pin now floating (last observed `v2.1.283`, operator decision 2026-09-27, issue #39/T0, mirroring the Codex row); no full §3.1 re-verification done at `v2.1.282` or `v2.1.283`. Per the pin-move checklist, **G1 was invalidated** 2026-09-27 (it had run on `v2.1.282`, not the new last-observed `v2.1.283`) and was **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — `docs/planning/gates/G1-result.md`). A future release re-fires this same invalidation mechanism (`docs/planning/PINS.md`). Dated note, 2026-10-01, #216: that mechanism is retired for this row; a future release is a version warning and invalidates no verdict | **CLOSED** (2026-10-02, #122). The one §3.1 re-check the operator decided on #122 ran at `2.1.285` (`docs/planning/REVERIFICATION-B2.md` "§3.1 re-check at Claude Code `2.1.285`"). 18 of 23 rows hold and three drifted (D4-D6); rows 1-2 of this table stay open. Newer versions are version warnings only. RISK-CLAUDE-PREVIEW stays open |
 | 31 | Claude Code MCP stdio wire framing is NDJSON (from G1) | Confirmed by evidence in `docs/planning/gates/G1-result.md` (UNVERIFIED items), not a risk. STATUS.md keeps it on the list only as a correction to an earlier wrong assumption. |

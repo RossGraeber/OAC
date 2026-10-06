@@ -464,7 +464,7 @@ Gate verdicts table. This table's statuses are not re-authored here.)*
 | 7 | "Replay/duplicate handling exists." | Security tier's replay + duplicate-suppression tests, including across restart (§7) | Security | CI-default (fakes); opt-in (real, H2/H3) | not-yet-written |
 | 8 | "No cross-provider model API invocation." | H1's clause 3 (§9) — asserted by the test itself — plus the `oac-boundaries` boundary-lint self-checks each planning file already carries | End-to-end (test) + lint (boundary) | Opt-in (E2E); CI-default (lint) | not-yet-written |
 | 9 | "Zenoh-specific types stay inside its transport module." | The `oac-boundaries` CI lint (§8) — **not a runtime test** | Lint | CI-default | not-yet-written (lint itself pending — `core/`/`spec/` do not exist yet, per `docs/planning/decisions/C7-zenoh-transport.md` §2) |
-| 10 | "Transport contract is documented enough to independently add a second backend." | `05-interfaces.md` §17's NATS/MQTT design-for-replacement proof (task E9) — **a doc proof, not a test** | Doc proof | N/A | not-yet-written; `05-interfaces.md` §22's own acceptance close-out already records this proof as **NOT MET as of the M0 draft** — every NATS/MQTT capability cell is `UNVERIFIED` |
+| 10 | "Transport contract is documented enough to independently add a second backend." | The E9 design-for-replacement proofs, `docs/planning/decisions/E9-replacement-proofs.md` §3-§6 (task E9, #49), which supersede `05-interfaces.md` §17 — **a doc proof, not a test** | Doc proof | N/A | **MET** (2026-10-06, #49): NATS and MQTT walked against the frozen `spec/interfaces.md` §6, every capability cell cited to first-party sources. *(Dated note, 2026-10-06, #49: until now this cell read "not-yet-written; `05-interfaces.md` §22 ... records this proof as NOT MET as of the M0 draft — every NATS/MQTT capability cell is `UNVERIFIED`".)* |
 
 ---
 
@@ -687,6 +687,9 @@ Per `oac-evidence` §8, checked against this file:
   NATS/MQTT optional-capability items from task E9/A6 (§11 row 10, via `05-interfaces.md`
   §17/§20, which carries the reason). All three already appear in
   `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list — not restated as new here.
+  *(Dated note, 2026-10-06, #49: the NATS/MQTT items are closed. E9 re-verified them against
+  first-party sources, `docs/planning/decisions/E9-replacement-proofs.md` §9, and removed
+  them from STATUS.md.)*
 - **No new UNVERIFIED item is added by this file.** Every fact this file states is either
   a design decision this file itself makes (the resilience-into-security fold, §2; the
   `contract/adapter/no-polling` test name, §5) or a citation to an already-landed source.
