@@ -15,3 +15,5 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde = { version = "=1.0.229", default-features = false, features = ["std"] }
+serde_jcs = "=0.2.0"
