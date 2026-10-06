@@ -44,19 +44,23 @@ re-run below still reads 527/527.
 E7 §5 recorded criteria 1-6 as met at sign-off. Each is re-checked here against `98ad455`.
 
 1. **The adapter contract, the transport contract and the core types are frozen: holds.**
-   - The operator decided FREEZE at revision 0.1 on #47
+   - The operator's decision, FREEZE at revision 0.1, is recorded on #47
      (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771, 2026-10-06).
+     That comment, and the N1 comment below, were posted from the operator's account by
+     Claude to record the operator's chat decisions. Only text they quote as the
+     operator's is the operator's wording; the rest is Claude's summary.
    - PR #276 carries the sign-off commit `c1a6296`. The lead merged it at `20482f1`
      (2026-10-06T02:38Z), which is the approval E7 §7 item 1 and §8 name as the final
      sign-off. GitHub records no formal review on PR #276, because the author and the
      merger are the same account. The merge is the lead's approval.
    - The change rule is E7 §7: a frozen item changes only by a PR with the change and a
-     version bump, approved by the lead. The PR #276 review's N1 note asked whether a
-     change that touches no wire form takes a minor version. The operator decided it does,
-     a small (minor) bump, in a separate comment on #47 (2026-10-06T02:40Z,
-     https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873). That comment
-     confirms the sentence merged in `spec/interfaces.md` §7 and E7 §7 item 2. This replaces the M0 "spec-revision event under
+     version bump, approved by the lead. This replaces the M0 "spec-revision event under
      `05-interfaces.md` §11" (`10-stages.md` §6 dated note, L527-L533).
+   - The PR #276 review's N1 note asked whether a change that touches no wire form takes
+     a minor version. The operator's decision, a small (minor) bump, is recorded in a later
+     comment on #47 (2026-10-06T02:40Z,
+     https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873). It matches
+     the sentence merged in `spec/interfaces.md` §7 and E7 §7 item 2.
    - Nothing has changed under `spec/` since `20482f1` (§1).
 2. **No transport or provider vocabulary in neutral spec text: holds.** The
    `boundary-lint.yml` step "Checks 1-2 and spec neutral vocabulary", run verbatim on
@@ -94,12 +98,13 @@ Criterion 4 holds, so Stage 3 can load the fixtures as its CI-default spec-confo
 
 All nine Epic E tasks are closed: #41-#46 (E1-E6), #47 (E7, PR #276), #48 (E8) and #49
 (E9, PR #306). So are the E7 blockers #273, #274 and #275, and every other issue labelled
-`stage:2-spec` except #308. GitHub lists no sub-issues under #5. The task checkboxes in
+`stage:2-spec` except two: #5 itself, the Epic E issue, which this record's PR closes,
+and #308. GitHub lists no sub-issues under #5. The task checkboxes in
 #5's body are left for the operator to tick, as D7 left Epic D's.
 
 **#308 is outside Epic E's scope.** It collects editorial amendments to the frozen
 `spec/` text (first item: a stale Codex pin pointer in `spec/bindings/mcp.md` §8.2) so they
-land together in the next minor version (the operator's N1 decision on #47,
+land together in the next minor version (the operator's N1 decision, recorded on #47 at
 https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873, and E7 §7 item 2
 for editorial changes). Under E7 §7 items 1-2 that is a post-freeze change:
 one PR with the edits and a version bump of each changed document, approved by the lead. It
@@ -116,7 +121,10 @@ condition is met:
 - **Stage 1 fixtures exist (D6).** #39 is closed. The D6 Claude and Codex fixtures are in
   `docs/planning/gates/fixtures/d6-claude-protocol/` and `d6-codex-protocol/`, and
   `node scripts/check-fixture-manifest.mjs` passes at `98ad455` (224 of 224 MANIFEST
-  entries match). Its one warning is a version-float notice, never a gate (#216).
+  entries match). It prints 14 `WARN` lines, none of them a gate. 8 are #216
+  version-float warnings (`version_matches_pin` is false on the G5 C13 and K8 `-herdr`
+  fixtures). 6 are UNVERIFIED notes that a run manifest predates #140 (`schemaVersion` 1;
+  the G1 2026-09-29 and G5 C13 2026-10-02 runs).
 - **Gate S0 and Gate S1 both met.** S0 was declared 2026-10-02 (#228; `10-stages.md` §4,
   L273). S1 was met by D7 (#40, closed; `10-stages.md` §5, L367).
 
