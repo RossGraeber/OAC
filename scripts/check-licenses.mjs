@@ -48,7 +48,8 @@ const HEADER_LINES = 5;
 // The accepted licenses: exactly the list recorded in
 // docs/planning/v0.1/07-repository-and-dependencies.md section 5, "Accepted licenses".
 // Adding one is a license-policy change: record it there first, in the same PR.
-const PERMISSIVE = new Set(['Apache-2.0', 'MIT', '0BSD']);
+// Unicode-3.0: unicode-ident, #51 (needs the operator's approval; 07 section 5 dated note).
+const PERMISSIVE = new Set(['Apache-2.0', 'MIT', '0BSD', 'Unicode-3.0']);
 // Copyleft families, flagged wherever they appear (oac-release section 2 item 3).
 const COPYLEFT = /^(?:A?GPL|LGPL|MPL|EPL|EUPL|CDDL|OSL|CPL|CECILL|CC-BY-SA|SSPL)\b/i;
 
@@ -107,10 +108,13 @@ export function licenseVerdict(license) {
   if (!arms) return { ok: false, flags: [], reason: license ? `unparseable license expression` : 'no license expression (license-file only or none)' };
   const flags = [...new Set(arms.flat().filter((t) => COPYLEFT.test(t)))];
   // OAC elects Apache-2.0 whenever a dual offers it (07 section 6, C1 section 10);
-  // otherwise the first arm made only of accepted licenses.
+  // otherwise an accepted arm that includes Apache-2.0 (as in (MIT OR Apache-2.0) AND
+  // Unicode-3.0); otherwise the first arm made only of accepted licenses.
+  const accepted = (arm) => arm.every((t) => PERMISSIVE.has(t));
   const elected =
     arms.find((arm) => arm.length === 1 && arm[0] === 'Apache-2.0') ??
-    arms.find((arm) => arm.every((t) => PERMISSIVE.has(t)));
+    arms.find((arm) => accepted(arm) && arm.includes('Apache-2.0')) ??
+    arms.find(accepted);
   if (!elected) return { ok: false, flags, reason: 'no OR-arm made only of accepted licenses (07 section 5)' };
   return { ok: true, elected: elected.join(' AND '), flags };
 }
@@ -198,7 +202,10 @@ function selfTest() {
   expect('election: MIT/Apache-2.0 elects Apache-2.0', licenseVerdict('MIT/Apache-2.0').elected === 'Apache-2.0');
   expect('election: MIT alone elects MIT', licenseVerdict('MIT').elected === 'MIT');
   // N3: only the licenses 07 section 5 records are accepted.
-  expect('Unicode-3.0 fails (not in 07 section 5)', !ok('Unicode-3.0'));
+  // #51: Unicode-3.0 is on the 07 section 5 list (unicode-ident), electing the Apache arm.
+  expect('control: (MIT OR Apache-2.0) AND Unicode-3.0 passes, electing Apache-2.0 AND Unicode-3.0',
+    licenseVerdict('(MIT OR Apache-2.0) AND Unicode-3.0').elected === 'Apache-2.0 AND Unicode-3.0');
+  expect('Unicode-DFS-2016 fails (not in 07 section 5)', !ok('Unicode-DFS-2016'));
   expect('BSD-3-Clause fails (not in 07 section 5)', !ok('BSD-3-Clause'));
   expect('Apache-2.0 WITH LLVM-exception fails (not in 07 section 5)', !ok('Apache-2.0 WITH LLVM-exception'));
   // B1: optional dependencies are in the graph the inventory reads.

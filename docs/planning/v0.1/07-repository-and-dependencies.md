@@ -257,13 +257,24 @@ module — the last of which is this file's own addition over C1's table.
 (Dated note, 2026-10-05, #50 / PR #311 review N3.) A dependency of the `oac` binary
 passes `scripts/check-licenses.mjs` only if its SPDX license expression has an OR-arm made
 only of licenses on this list. The list is exactly the licenses the table above already
-records as acceptable. It adds none:
+records as acceptable, plus `Unicode-3.0` (dated note below the list):
 
 | SPDX identifier | Recorded in the table above by |
 |---|---|
 | `Apache-2.0` | `rmcp`, the three Codex app-server crates, and the elected arm of every dual |
 | `MIT` | the MIT arm of `keyring`, `keyring-core`, `windows-native-keyring-store`, `age` |
 | `0BSD` | the 0BSD arm of `interprocess` |
+| `Unicode-3.0` | `unicode-ident` `1.0.26`, whose expression is (MIT OR Apache-2.0) AND Unicode-3.0 (dated note below) |
+
+(Dated note, 2026-10-06, #51 / F2. Needs the operator's approval.) `Unicode-3.0` is added
+for `unicode-ident`, the Unicode identifier tables under `proc-macro2` and `syn`. It
+reaches the `--all-features` graph through `serde`'s optional `derive` feature, by way of
+`serde_jcs` (C5 §3, `PINS.md`); nothing in the workspace enables that feature, so
+`unicode-ident` is not compiled into the `oac` binary today. The Unicode License v3 is a
+permissive, OSI-approved license with no copyleft term; it asks that its notice travel with
+copies of the Unicode data, which I2's NOTICE work covers. `unicode-ident`'s other licenses
+are MIT OR Apache-2.0, of which OAC elects Apache-2.0, so the elected form is
+`Apache-2.0 AND Unicode-3.0`.
 
 `EPL-2.0` is not on the list. `zenoh` passes because its expression offers `Apache-2.0`,
 the arm OAC elects (§6). When an expression offers `Apache-2.0`, the script records that
