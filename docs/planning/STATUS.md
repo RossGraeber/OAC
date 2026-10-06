@@ -573,7 +573,9 @@ first version worked with (G1, 2026-09-25: `G1-result.md` "Original run", fixtur
 minimum `@openai/codex@0.154.0`, the first version worked with (G2, 2026-09-25:
 `G2-result.md` "Re-run history", fixture `g2-codex-inject/transcript.jsonl`). Last tested
 `@openai/codex@0.159.3` (commit `01fc69f4026735edfdf6789820549727a4867b11`, L3,
-2026-10-01). The pin-move checklist and `docs/planning/gates/README.md` §a no longer apply
+2026-10-01; *dated note, 2026-10-06: superseded on 2026-10-04 by `@openai/codex@0.160.0`.
+The current last tested version is in `docs/planning/PINS.md` "Codex CLI and app-server"*).
+The pin-move checklist and `docs/planning/gates/README.md` §a no longer apply
 to these rows. A harness version other than the last tested one, or below the minimum, is
 a `VERSION WARNING` finding. It never stops a run, never makes it `NOT RUN`, never blocks
 CI and never by itself invalidates a gate verdict. The herdr scenarios (g1, g2, g4, g5, l3),
@@ -1401,7 +1403,12 @@ issue #35/D2), was invalidated when the Codex row went floating, and has been **
 PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
 the environment both report `0.157.1`, so the verdict is current. (Dated note, 2026-10-01,
 #216: currency no longer depends on the environment's version; the last tested Codex
-version is now `0.159.3`, and G2 stands on `0.157.1`.) G3 has run on two of its three platforms
+version is now `0.159.3`, and G2 stands on `0.157.1`.) (Dated note, 2026-10-06, #130: G2's
+herdr equivalence record is now `gates/herdr-runs/G2-2026-10-06.md`, run
+`20261006T000900Z-51a348` at driver `c4def66` (the #301 merge), Codex `0.160.0`, all four
+criteria `equivalent`, herdr and Harness VERIFIED. It supersedes `G2-2026-10-05.md` (driver
+`efb775f`), kept as history. Neither record is verdict-bearing; G2's verdict is unchanged.)
+G3 has run on two of its three platforms
 (2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
 gate-level verdict stays `NOT RUN` until the macOS leg runs. (Note 2026-10-02, #219: the
 macOS leg ran on a GitHub-hosted VM and passed; **G3 is now PASS** at gate level.) G4 spiked on 2026-09-25/26
@@ -2237,6 +2244,17 @@ without an UNVERIFIED label.
   match again. Claude's in-progress indicator did not appear in this run's kept Claude reads; the
   2026-10-04 capture still shows it. The Codex-config part above stays open, unchanged.
   G4's verdict is unchanged (PASS).
+  *Dated note, 2026-10-06 (#131):* #295, #298 and #301 changed `tools/herdr/`, so G4 was
+  re-recorded at driver `c4def66` (the #301 merge). Run `20261006T022052Z-00cdd3` (PASS,
+  Claude Code 2.1.285, Codex 0.160.0) is recorded at `gates/herdr-runs/G4-2026-10-06.md` with
+  three `-herdr` fixtures. It is now the equivalence record for G4 at herdr v0.9.1: all five
+  criteria `equivalent`, herdr and Harness VERIFIED. `G4-2026-10-05.md` is superseded and
+  kept as history. The dialog texts match again. Neither pane's kept reads show the
+  in-progress indicator. An earlier attempt at the same commit was NOT RUN because Codex's
+  start-up "Update available" prompt is not recognised by the scenario (#303); it was
+  answered once in Codex's own TUI with "Skip until next version" before the retry, and
+  Codex was not updated. The Codex-config part above stays open, unchanged. G4's verdict is
+  unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
   operator signs in and accepts consent dialogs (#187).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`

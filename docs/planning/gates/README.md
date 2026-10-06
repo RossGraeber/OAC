@@ -306,7 +306,11 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   equals `main` after #287. G4's verdict is unchanged. *Dated note, 2026-10-05 (#131):*
   #292 changed `tools/herdr/lib/`, so `G4-2026-10-04.md` is superseded (kept, marked so at
   its top). The current G4 equivalence record is `herdr-runs/G4-2026-10-05.md`, run
-  `20261005T013347Z-6803a7` at driver `de42b54` (the #292 merge).
+  `20261005T013347Z-6803a7` at driver `de42b54` (the #292 merge). *Dated note, 2026-10-06
+  (#131):* #295, #298 and #301 changed `tools/herdr/` outside `tools/herdr/test/`, so
+  `G4-2026-10-05.md` is superseded (kept, marked so at its top). The current G4 equivalence
+  record is `herdr-runs/G4-2026-10-06.md`, run `20261006T022052Z-00cdd3` at driver
+  `c4def66` (the #301 merge), also with a #252 Verification section.
 - **A herdr pin move invalidates equivalence records, never gate verdicts (§f).** A change
   to the `herdr (test tooling)` row's `Pinned version` cell, its `Release date` cell, or
   its presence in the `docs/planning/PINS.md` pin table (the same cells as §a) triggers
@@ -340,7 +344,11 @@ criterion, the operator-consent dialog rule, and verdict eligibility — are `oa
   replaces it as G4's equivalence record, also with a #252 Verification section.
   `G4-2026-10-04` stays as superseded history. *Dated note, 2026-10-05 (#130):*
   `G2-2026-10-05` (the K7 G2 run, run `20261005T052341Z-eb6c5a` at driver `efb775f`) is the
-  equivalence record for G2 at herdr v0.9.1, with a #252 Verification section. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
+  equivalence record for G2 at herdr v0.9.1, with a #252 Verification section.
+  *Dated note, 2026-10-06 (#130):* #301 changed `tools/herdr/` outside `tools/herdr/test/`,
+  so `G2-2026-10-05` is superseded (kept, marked so at its top). The current G2 equivalence
+  record is `G2-2026-10-06` (run `20261006T000900Z-51a348` at driver `c4def66`, the #301
+  merge), also with a #252 Verification section. For the opt-in CI workflow, see `docs/planning/STATUS.md` "Open UNVERIFIED
   items", K6 entry. *Superseded text, kept as history:* "No scripted run has
   run live yet, so `herdr-runs/` does not exist yet."
 
@@ -361,10 +369,9 @@ which are likeliest to force a re-run.
   ships releases at high cadence and the channel surface is preview, so expect frequent
   version warnings here. A version change no longer invalidates a verdict (§a).
 - **Codex CLI / app-server — `experimental` (per-method gating)** is **floating** by
-  operator decision (2026-09-26). Since #216 it records minimum `@openai/codex@0.154.0`
-  and last tested `@openai/codex@0.159.3`, commit
-  `01fc69f4026735edfdf6789820549727a4867b11` (`docs/planning/PINS.md`, Codex CLI and
-  app-server, "Version policy"). An auto-updater moves it with every release. Relied on
+  operator decision (2026-09-26). Since #216 it records a minimum and a last tested
+  version (`docs/planning/PINS.md`, Codex CLI and app-server, "Version policy"; not
+  restated here). An auto-updater moves it with every release. Relied on
   by **G2**, **G5** and **G4** (Codex leg). Expect a version warning on most runs. A
   version change no longer invalidates a verdict (§a).
 - Contrast: Zenoh, MCP revisions, and the Rust toolchain are `supported` and move on

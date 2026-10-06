@@ -1,0 +1,2915 @@
+{
+  "schemaVersion": 3,
+  "runId": "20261006T000900Z-51a348",
+  "outcome": "PASS",
+  "outcomeReason": null,
+  "scenario": {
+    "name": "g2-codex-inject",
+    "file": "tools/herdr/scenarios/g2-codex-inject.mjs",
+    "description": "G2 re-run through herdr for comparison with the human-run 0.157.1 re-run (K7). Not verdict-bearing.",
+    "params": {
+      "accept": "driver",
+      "operatorPrompt": "Greet me in a single word.",
+      "injectText": "",
+      "startupTimeoutMs": "120000",
+      "humanAcceptTimeoutMs": "300000",
+      "cliTimeoutMs": "60000",
+      "clientTimeoutMs": "60000",
+      "wireTimeoutMs": "30000",
+      "readyTimeoutMs": "120000",
+      "attachTimeoutMs": "180000",
+      "listPollMs": "3000",
+      "turnTimeoutMs": "300000",
+      "busyQueueTimeoutMs": "240000",
+      "settleMs": "3000",
+      "pollMs": "1000",
+      "busyIndicator": "esc to interrupt",
+      "readLines": "2000",
+      "maxDialogs": "12"
+    }
+  },
+  "launch": {
+    "argv": [
+      "codex"
+    ],
+    "herdrReportedArgv": [
+      "codex"
+    ]
+  },
+  "driver": {
+    "entry": "tools/herdr/run.mjs",
+    "commit": "c4def66fc62f84673bf3c31aeef648cf2ef3a162",
+    "toolsHerdrDirty": false,
+    "node": "v25.2.1"
+  },
+  "herdr": {
+    "pinRow": "herdr (test tooling)",
+    "executable": {
+      "requested": "herdr",
+      "resolved": true,
+      "basename": "herdr.exe",
+      "realBasename": "herdr.exe",
+      "sha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "bytes": 25562624,
+      "format": "pe",
+      "runUnderNode": false,
+      "testDouble": false,
+      "unchangedAfterRun": true
+    },
+    "executableCheck": {
+      "platform": "win32-x64",
+      "expectedSha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "firstParty": true,
+      "basis": "First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`).",
+      "result": "match",
+      "detail": "herdr executable sha256 equals PINS.md's expected value for win32-x64"
+    },
+    "pinnedTag": "v0.9.1",
+    "pinsSource": {
+      "path": "docs/planning/PINS.md",
+      "headCommit": "c4def66fc62f84673bf3c31aeef648cf2ef3a162",
+      "committedSha256": "63fc20ab063c348562c49768b84c68c3e05270d1ee14b9e1c516f3dd1c59e4e6",
+      "workingTreeMatchesHead": true
+    },
+    "expectedVersionOutput": "herdr 0.9.1",
+    "observedVersionOutput": "herdr 0.9.1",
+    "serverStatus": {
+      "status": "running",
+      "running": true,
+      "version": "0.9.1",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": false,
+        "detached_server_daemon": false,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true
+      },
+      "compatible": true,
+      "endpoint_compatible": true,
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g2-codex-inject-20261006T000900Z-df1781\\herdr.sock",
+      "session": "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+      "restart_needed": false,
+      "server_binary_stale": false
+    },
+    "config": {
+      "path": "<SCRATCH>\\herdr-config.toml",
+      "contents": "[update]\nversion_check = false\nmanifest_check = false\n"
+    },
+    "agentManifests": {
+      "id": "cli:server:agent-manifests",
+      "result": {
+        "last_check_unix": 1790783747,
+        "last_result": "failed: failed to fetch https://herdr.dev/agent-detection/index.toml",
+        "manifests": [
+          {
+            "active_version": "2026.09.14.1",
+            "agent": "pi",
+            "cached_remote_version": "2026.09.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\pi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "claude",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\claude.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.23.1",
+            "agent": "codex",
+            "cached_remote_version": "2026.09.23.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\codex.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "gemini",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\gemini.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.03.1",
+            "agent": "cursor",
+            "cached_remote_version": "2026.08.03.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cursor.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.15.1",
+            "agent": "devin",
+            "cached_remote_version": "2026.06.15.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\devin.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.24.1",
+            "agent": "agy",
+            "cached_remote_version": "2026.06.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\agy.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "cline",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cline.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "opencode",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\opencode.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.29.1",
+            "agent": "copilot",
+            "cached_remote_version": "2026.08.29.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\copilot.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kimi",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kimi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.19.1",
+            "agent": "kiro",
+            "cached_remote_version": "2026.09.19.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kiro.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "droid",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\droid.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.1",
+            "agent": "amp",
+            "cached_remote_version": "2026.07.09.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\amp.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.18.1",
+            "agent": "grok",
+            "cached_remote_version": "2026.09.18.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\grok.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.24.1",
+            "agent": "hermes",
+            "cached_remote_version": "2026.07.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\hermes.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kilo",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kilo.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "qodercli",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qodercli.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.14.1",
+            "agent": "qwen",
+            "cached_remote_version": "2026.08.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qwen.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.24.1",
+            "agent": "letta",
+            "cached_remote_version": "2026.08.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\letta.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.2",
+            "agent": "maki",
+            "cached_remote_version": "2026.07.09.2",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\maki.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.26.1",
+            "agent": "muse",
+            "cached_remote_version": "2026.08.26.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\muse.toml",
+            "source_kind": "remote"
+          }
+        ],
+        "type": "agent_manifest_status"
+      }
+    }
+  },
+  "harnessVersions": {
+    "codex": "codex-cli 0.160.0"
+  },
+  "harnessExecutables": {
+    "codex": {
+      "requested": "codex",
+      "resolved": true,
+      "basename": "codex.exe",
+      "realBasename": "codex.exe",
+      "sha256": "fdda5fa3cf3fb3d000b876720742857676293e4315e4b045fae6f8bd7e866d1d",
+      "bytes": 326872368,
+      "format": "pe"
+    }
+  },
+  "os": {
+    "platform": "win32",
+    "type": "Windows_NT",
+    "release": "10.0.26300",
+    "arch": "x64"
+  },
+  "session": {
+    "name": "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+    "serverPid": 35560,
+    "panePids": [
+      7144,
+      35456,
+      26716
+    ]
+  },
+  "env": {
+    "serverLaunch": {
+      "added": {
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml"
+      },
+      "removed": [
+        "ANTHROPIC_BASE_URL",
+        "CLAUDECODE",
+        "CLAUDE_AGENT_SDK_VERSION",
+        "CLAUDE_CODE_ACCOUNT_UUID",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_DESKTOP_APP_VERSION",
+        "CLAUDE_CODE_DISABLE_CRON",
+        "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+        "CLAUDE_CODE_EAGER_FLUSH",
+        "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES",
+        "CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL",
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+        "CLAUDE_CODE_ENABLE_TELEMETRY",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_HOST_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "CLAUDE_CODE_OAUTH_SCOPES",
+        "CLAUDE_CODE_ORGANIZATION_UUID",
+        "CLAUDE_CODE_REPORT_FINDINGS",
+        "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+        "CLAUDE_CODE_USER_EMAIL",
+        "CLAUDE_PID",
+        "CLAUDE_PREVIEW_CLASSIFIER_FLOOR"
+      ]
+    },
+    "pane": {
+      "paneId": "w1:p1",
+      "added": [
+        "COLORTERM",
+        "ComSpec",
+        "HERDR_BIN_PATH",
+        "HERDR_ENV",
+        "HERDR_PANE_ID",
+        "HERDR_SESSION",
+        "HERDR_SOCKET_PATH",
+        "HERDR_TAB_ID",
+        "HERDR_WORKSPACE_ID",
+        "Path",
+        "windir"
+      ],
+      "removed": [
+        "COMSPEC",
+        "PATH",
+        "WINDIR"
+      ],
+      "values": {
+        "COLORTERM": "truecolor",
+        "HERDR_BIN_PATH": "<USER_HOME>\\.herdr\\packages\\standalone\\releases\\0.9.1-x86_64-pc-windows-msvc\\herdr.exe",
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml",
+        "HERDR_ENV": "1",
+        "HERDR_PANE_ID": "w1:p1",
+        "HERDR_SESSION": "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "HERDR_SOCKET_PATH": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g2-codex-inject-20261006T000900Z-df1781\\herdr.sock",
+        "HERDR_TAB_ID": "w1:t1",
+        "HERDR_WORKSPACE_ID": "w1",
+        "TERM": "xterm-256color"
+      },
+      "note": "Names compared against the herdr server launch env. Values recorded for HERDR_*, TERM and COLORTERM only. Additions can also come from the pane shell's own startup files."
+    }
+  },
+  "harnessConfig": {
+    "before": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "f5a3bb4c05f6e4adbe1acda493a683b80530205fb6299f5dc3beed0849899c00"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "9bf4886bd8926f659f363510695499ec5f0668a8d426ec01acf509c5f36bb927"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "after": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "f5a3bb4c05f6e4adbe1acda493a683b80530205fb6299f5dc3beed0849899c00"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "9bf4886bd8926f659f363510695499ec5f0668a8d426ec01acf509c5f36bb927"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "unchanged": true,
+    "changed": [],
+    "mustStayUnchanged": []
+  },
+  "timebox": {
+    "budgetMs": 2700000,
+    "start": "2026-10-06T00:09:00.483Z",
+    "end": "2026-10-06T00:12:13.259Z",
+    "elapsedMs": 192776,
+    "expired": false,
+    "teardownEnd": "2026-10-06T00:12:15.837Z"
+  },
+  "commands": [
+    {
+      "seq": 1,
+      "role": "preflight",
+      "argv": [
+        "herdr",
+        "--version"
+      ],
+      "target": null,
+      "startedAt": "2026-10-06T00:09:00.864Z",
+      "endedAt": "2026-10-06T00:09:00.911Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 12,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 2,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "server"
+      ],
+      "target": null,
+      "startedAt": "2026-10-06T00:09:02.843Z",
+      "endedAt": null,
+      "durationMs": null,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": null,
+        "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
+      },
+      "pid": 35560
+    },
+    {
+      "seq": 3,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "status",
+        "server",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-06T00:09:02.851Z",
+      "endedAt": "2026-10-06T00:09:02.913Z",
+      "durationMs": 62,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 5000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 490,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 4,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "server",
+        "agent-manifests",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-06T00:09:02.913Z",
+      "endedAt": "2026-10-06T00:09:03.619Z",
+      "durationMs": 706,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 7198,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 5,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "workspace",
+        "create",
+        "--no-focus",
+        "--cwd",
+        "<SCRATCH>\\g2-project",
+        "--label",
+        "oac-g2"
+      ],
+      "target": null,
+      "startedAt": "2026-10-06T00:09:05.485Z",
+      "endedAt": "2026-10-06T00:09:05.606Z",
+      "durationMs": 121,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 671,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 6,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-06T00:09:05.607Z",
+      "endedAt": "2026-10-06T00:09:05.681Z",
+      "durationMs": 74,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1455,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 7,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "pane",
+        "run",
+        "w1:p1",
+        "C:\\nvm4w\\nodejs\\node.exe <REPO>\\tools\\herdr\\lib\\env-probe.mjs <SCRATCH>\\env-probe-cbd9aba4.json cbd9aba4"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-06T00:09:06.974Z",
+      "endedAt": "2026-10-06T00:09:07.032Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 0,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 8,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "pane",
+        "wait-output",
+        "w1:p1",
+        "--regex",
+        "^\\s*ENVPROBE-OK-cbd9aba4\\s*$",
+        "--timeout",
+        "20000"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-06T00:09:07.032Z",
+      "endedAt": "2026-10-06T00:09:07.487Z",
+      "durationMs": 455,
+      "bound": {
+        "herdrTimeoutMs": 20000,
+        "driverDeadlineMs": 25000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 690,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 9,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "start",
+        "g2codex",
+        "--kind",
+        "codex",
+        "--pane",
+        "w1:p1",
+        "--timeout",
+        "120000"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:07.488Z",
+      "endedAt": "2026-10-06T00:09:11.375Z",
+      "durationMs": 3887,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 460,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 10,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-06T00:09:11.375Z",
+      "endedAt": "2026-10-06T00:09:11.437Z",
+      "durationMs": 62,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 561,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 11,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "wait",
+        "g2codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "120000"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:15.487Z",
+      "endedAt": "2026-10-06T00:09:15.544Z",
+      "durationMs": 57,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 439,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 12,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:15.544Z",
+      "endedAt": "2026-10-06T00:09:15.604Z",
+      "durationMs": 60,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 717,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 13,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:15.607Z",
+      "endedAt": "2026-10-06T00:09:15.661Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 717,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 14,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "get",
+        "g2codex"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:16.278Z",
+      "endedAt": "2026-10-06T00:09:16.329Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 438,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 15,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "wait",
+        "g2codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "299949"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:16.330Z",
+      "endedAt": "2026-10-06T00:09:16.380Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": 299949,
+        "driverDeadlineMs": 304949,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 439,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 16,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:16.380Z",
+      "endedAt": "2026-10-06T00:09:16.425Z",
+      "durationMs": 45,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 717,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 17,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "get",
+        "g2codex"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:19.441Z",
+      "endedAt": "2026-10-06T00:09:19.490Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 438,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 18,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "get",
+        "g2codex"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:19.491Z",
+      "endedAt": "2026-10-06T00:09:19.538Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 438,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 19,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "prompt",
+        "g2codex",
+        "Greet me in a single word."
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:19.538Z",
+      "endedAt": "2026-10-06T00:09:19.899Z",
+      "durationMs": 361,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 445,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 20,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "wait",
+        "g2codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:19.900Z",
+      "endedAt": "2026-10-06T00:09:19.960Z",
+      "durationMs": 60,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 439,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 21,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:19.960Z",
+      "endedAt": "2026-10-06T00:09:20.014Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 747,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 22,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:23.728Z",
+      "endedAt": "2026-10-06T00:09:23.786Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 834,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 23,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:24.429Z",
+      "endedAt": "2026-10-06T00:09:24.510Z",
+      "durationMs": 81,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 834,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 24,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:25.404Z",
+      "endedAt": "2026-10-06T00:09:25.455Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1002,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 25,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:26.535Z",
+      "endedAt": "2026-10-06T00:09:26.586Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1002,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 26,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "wait",
+        "g2codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:30.225Z",
+      "endedAt": "2026-10-06T00:09:31.276Z",
+      "durationMs": 1051,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 462,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 27,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:31.276Z",
+      "endedAt": "2026-10-06T00:09:31.322Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1022,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 28,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:31.322Z",
+      "endedAt": "2026-10-06T00:09:31.725Z",
+      "durationMs": 403,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1023,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 29,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:31.742Z",
+      "endedAt": "2026-10-06T00:09:31.798Z",
+      "durationMs": 56,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1022,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 30,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:32.013Z",
+      "endedAt": "2026-10-06T00:09:32.069Z",
+      "durationMs": 56,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 970,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 31,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:33.138Z",
+      "endedAt": "2026-10-06T00:09:33.196Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 976,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 32,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:34.275Z",
+      "endedAt": "2026-10-06T00:09:34.334Z",
+      "durationMs": 59,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 945,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 33,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:35.192Z",
+      "endedAt": "2026-10-06T00:09:35.250Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 993,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 34,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:36.363Z",
+      "endedAt": "2026-10-06T00:09:36.435Z",
+      "durationMs": 72,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1111,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 35,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:37.492Z",
+      "endedAt": "2026-10-06T00:09:37.541Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1140,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 36,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:38.628Z",
+      "endedAt": "2026-10-06T00:09:38.679Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1189,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 37,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:39.749Z",
+      "endedAt": "2026-10-06T00:09:39.801Z",
+      "durationMs": 52,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1467,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 38,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:40.850Z",
+      "endedAt": "2026-10-06T00:09:40.900Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1470,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 39,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:41.992Z",
+      "endedAt": "2026-10-06T00:09:42.045Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1612,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 40,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:43.120Z",
+      "endedAt": "2026-10-06T00:09:43.176Z",
+      "durationMs": 56,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1656,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 41,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:44.266Z",
+      "endedAt": "2026-10-06T00:09:44.320Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1967,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 42,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:45.413Z",
+      "endedAt": "2026-10-06T00:09:45.459Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2772,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 43,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:46.543Z",
+      "endedAt": "2026-10-06T00:09:46.595Z",
+      "durationMs": 52,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2427,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 44,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:46.822Z",
+      "endedAt": "2026-10-06T00:09:46.883Z",
+      "durationMs": 61,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2427,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 45,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:09:47.954Z",
+      "endedAt": "2026-10-06T00:09:48.003Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2427,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 46,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "wait",
+        "g2codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:12:08.794Z",
+      "endedAt": "2026-10-06T00:12:08.845Z",
+      "durationMs": 51,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 462,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 47,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "visible"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:12:08.845Z",
+      "endedAt": "2026-10-06T00:12:08.892Z",
+      "durationMs": 47,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2291,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 48,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "agent",
+        "read",
+        "g2codex",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "g2codex",
+      "startedAt": "2026-10-06T00:12:08.892Z",
+      "endedAt": "2026-10-06T00:12:09.569Z",
+      "durationMs": 677,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 4480,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 49,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-06T00:12:12.137Z",
+      "endedAt": "2026-10-06T00:12:12.186Z",
+      "durationMs": 49,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 561,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 50,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-06T00:12:13.406Z",
+      "endedAt": "2026-10-06T00:12:13.456Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 561,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 51,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "stop",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-06T00:12:14.367Z",
+      "endedAt": "2026-10-06T00:12:14.626Z",
+      "durationMs": 259,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 25000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 358,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 52,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "delete",
+        "oac-k-g2-codex-inject-20261006T000900Z-df1781",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-06T00:12:15.644Z",
+      "endedAt": "2026-10-06T00:12:15.697Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 358,
+      "stderrBytes": 0
+    }
+  ],
+  "teardown": {
+    "sessionStop": "ok",
+    "serverExited": true,
+    "panes": {
+      "created": 1,
+      "queried": [
+        "w1:p1"
+      ],
+      "notQueried": []
+    },
+    "forcedKills": [],
+    "leftoverProcesses": [],
+    "unverifiedPids": [],
+    "skippedReusedPids": [],
+    "skippedPreexistingPids": [],
+    "protectedProcesses": [],
+    "processScan": "process table (pid, parent pid, creation time, argv) checked for --session <name>",
+    "sessionDelete": "ok",
+    "clean": false,
+    "leftover": "<SCRATCH>",
+    "leftoverError": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+  },
+  "scratch": {
+    "location": "os.tmpdir(), outside the repository",
+    "path": "<SCRATCH>",
+    "removed": false,
+    "holders": [
+      "the shared Codex app-server daemon (left running; the driver never stops it) may hold the directory of a thread it loaded under scratch; it is released on `codex app-server daemon stop`, or when the daemon unloads the thread (documented: no subscribers and no thread activity for 30 minutes). The driver does not call thread/archive or thread/delete, which would unload it sooner, because both write to the operator's Codex thread store (thread/delete destroys the run's rollout) and whether their shutdown releases the directory handle is unverified"
+    ],
+    "removal": {
+      "attempts": 5,
+      "errors": [
+        {
+          "attempt": 1,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 2,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 3,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 4,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 5,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        }
+      ]
+    }
+  },
+  "captures": [
+    {
+      "file": "pane-2026-10-06-0.160.0-herdr.txt",
+      "format": "text",
+      "written": true,
+      "sha256": "beb7b618a3cd8c9704f73d545e18dc4a21dbc905599d7dcee4e856d6ed8e53db",
+      "redaction": {
+        "mode": "text",
+        "lines": 1152,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {},
+        "residualLeaks": [],
+        "residualGenericHits": [],
+        "elidedToolOutputLines": []
+      }
+    },
+    {
+      "file": "transcript-2026-10-06-0.160.0-herdr.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "sha256": "e4ced76efa72b41121a09ef0f70c6a4df0708552849329230417d36932c7021f",
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 762,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "elidedToolOutputs": [
+          {
+            "line": 48,
+            "path": "$.payload.result.collaborationMode.settings.developer_instructions",
+            "bytes": 1307,
+            "sha256": "9fe43931f329b9a052622cded0cfc498c375286bd0dc8b411c75f0eaef7bac73"
+          }
+        ],
+        "replacements": {
+          "home": 10,
+          "literal <SCRATCH>": 8
+        },
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    }
+  ],
+  "redaction": {
+    "runLiteralPlaceholders": [
+      "<INSTALLATION_ID>"
+    ]
+  },
+  "scenarioData": {
+    "workspace": {
+      "workspaceId": "w1",
+      "tabId": "w1:t1",
+      "paneId": "w1:p1"
+    },
+    "g2": {
+      "nonVerdictBearing": "K7: compared against the human-run G2 0.157.1 re-run; never changes the G2 verdict",
+      "acceptPolicy": "driver",
+      "params": {
+        "accept": "driver",
+        "operatorPrompt": "Greet me in a single word.",
+        "injectText": "G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN RECEIVED.",
+        "startupTimeoutMs": "120000",
+        "humanAcceptTimeoutMs": "300000",
+        "cliTimeoutMs": "60000",
+        "clientTimeoutMs": "60000",
+        "wireTimeoutMs": "30000",
+        "readyTimeoutMs": "120000",
+        "attachTimeoutMs": "180000",
+        "listPollMs": "3000",
+        "turnTimeoutMs": "300000",
+        "busyQueueTimeoutMs": "240000",
+        "settleMs": "3000",
+        "pollMs": "1000",
+        "busyIndicator": "esc to interrupt",
+        "readLines": "2000",
+        "maxDialogs": "12"
+      },
+      "launch": {
+        "expected": [
+          "codex"
+        ],
+        "actual": [
+          "codex"
+        ],
+        "verbatim": true
+      },
+      "versions": {
+        "pinsRow": "Codex CLI / app-server",
+        "pinsMinimum": "0.154.0",
+        "pinsLastTested": "0.160.0",
+        "pinsCommit": "a956835d020762cb2b570053af06f643a11c0ecc",
+        "pinsSource": {
+          "path": "docs/planning/PINS.md",
+          "headCommit": "c4def66fc62f84673bf3c31aeef648cf2ef3a162",
+          "committedSha256": "63fc20ab063c348562c49768b84c68c3e05270d1ee14b9e1c516f3dd1c59e4e6",
+          "workingTreeMatchesHead": true
+        },
+        "cliOutput": "codex-cli 0.160.0",
+        "cli": "0.160.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.160.0",
+          "appServerVersion": "0.160.0",
+          "managedCodexVersion": "0.160.0"
+        },
+        "wireUserAgent": "oac_g2_spike/0.160.0 (Windows 10.0.26300; x86_64) unknown (oac_g2_spike; 0.0.1)",
+        "wire": "0.160.0",
+        "verified": true,
+        "matchesLastTested": true,
+        "warnings": []
+      },
+      "client": {
+        "committed": "docs/planning/gates/fixtures/g2-codex-inject/client.mjs.throwaway-quarantined",
+        "headCommit": "c4def66fc62f84673bf3c31aeef648cf2ef3a162",
+        "gitMode": "100644",
+        "committedSha256": "134d41a57e861a92f5381dce045e990cb77b7171aed8d5d81901ea6e6c4347d9",
+        "expectedSha256": "134d41a57e861a92f5381dce045e990cb77b7171aed8d5d81901ea6e6c4347d9",
+        "workingTreeSha256": "b3bbf5d0ab81eb0a3f311d90b74d8c34bd560e2ee5680f809fb080ba2bf61903",
+        "workingTreeIsSymlink": false,
+        "workingTreeMatchesHead": true,
+        "copy": "<SCRATCH>\\g2-client\\client.mjs",
+        "copySha256": "134d41a57e861a92f5381dce045e990cb77b7171aed8d5d81901ea6e6c4347d9",
+        "match": true
+      },
+      "date": "2026-10-06",
+      "fixtures": {
+        "transcript": "transcript-2026-10-06-0.160.0-herdr.jsonl",
+        "pane": "pane-2026-10-06-0.160.0-herdr.txt"
+      },
+      "captureNames": {
+        "transcript": "transcript-2026-10-06-0.160.0-herdr.jsonl",
+        "pane": "pane-2026-10-06-0.160.0-herdr.txt"
+      },
+      "daemon": {
+        "start": {
+          "label": "daemon start",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "start"
+          ],
+          "startedAt": "2026-10-06T00:09:03.963Z",
+          "endedAt": "2026-10-06T00:09:04.376Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "stdout": "{\"status\":\"alreadyRunning\",\"backend\":\"pid\",\"managedCodexPath\":\"<USER_HOME>\\\\.codex\\\\packages\\\\standalone\\\\current\\\\bin\\\\codex.exe\",\"managedCodexVersion\":\"0.160.0\",\"socketPath\":\"<USER_HOME>\\\\.codex\\\\app-server-control\\\\app-server-control.sock\",\"cliVersion\":\"0.160.0\",\"appServerVersion\":\"0.160.0\"}",
+          "stderr": "warning: failed to ensure managed updater after app-server start: failed to open daemon process: Access is denied. (os error 5)"
+        },
+        "versionBefore": {
+          "label": "daemon version",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "startedAt": "2026-10-06T00:09:04.376Z",
+          "endedAt": "2026-10-06T00:09:04.624Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.160.0",
+            "appServerVersion": "0.160.0",
+            "managedCodexVersion": "0.160.0"
+          }
+        },
+        "versionAfter": {
+          "label": "daemon version (post-run)",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "startedAt": "2026-10-06T00:12:11.927Z",
+          "endedAt": "2026-10-06T00:12:12.132Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.160.0",
+            "appServerVersion": "0.160.0",
+            "managedCodexVersion": "0.160.0"
+          }
+        }
+      },
+      "clientRuns": [
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-06T00:09:04.625Z",
+          "endedAt": "2026-10-06T00:09:05.481Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 3334,
+          "stdoutStatus": [],
+          "stderr": "(node:28776) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 0,
+          "linesAfter": 10,
+          "problems": []
+        },
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-06T00:09:15.662Z",
+          "endedAt": "2026-10-06T00:09:16.275Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 3380,
+          "stdoutStatus": [],
+          "stderr": "(node:35232) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 10,
+          "linesAfter": 20,
+          "problems": []
+        },
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-06T00:09:20.015Z",
+          "endedAt": "2026-10-06T00:09:20.717Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 3380,
+          "stdoutStatus": [],
+          "stderr": "(node:34072) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 20,
+          "linesAfter": 30,
+          "problems": []
+        },
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-06T00:09:23.787Z",
+          "endedAt": "2026-10-06T00:09:24.404Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 3424,
+          "stdoutStatus": [],
+          "stderr": "(node:22808) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 30,
+          "linesAfter": 40,
+          "problems": []
+        },
+        {
+          "mode": "turn",
+          "args": [
+            "01a10e8a-ee49-73f0-82bf-240a4220dbff",
+            "G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN RECEIVED."
+          ],
+          "startedAt": "2026-10-06T00:09:24.747Z",
+          "endedAt": "2026-10-06T00:09:25.399Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 507,
+          "stdoutStatus": [],
+          "stderr": "(node:25520) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 49,
+          "linesAfter": 61,
+          "problems": []
+        },
+        {
+          "mode": "busyqueue",
+          "args": [
+            "01a10e8a-ee49-73f0-82bf-240a4220dbff"
+          ],
+          "startedAt": "2026-10-06T00:09:31.726Z",
+          "endedAt": "2026-10-06T00:12:05.772Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 1115,
+          "stdoutStatus": [
+            "[done] turn/completed events seen: 0"
+          ],
+          "stderr": "(node:18180) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 80,
+          "linesAfter": 754,
+          "problems": []
+        },
+        {
+          "mode": "turns",
+          "args": [
+            "01a10e8a-ee49-73f0-82bf-240a4220dbff"
+          ],
+          "startedAt": "2026-10-06T00:12:09.576Z",
+          "endedAt": "2026-10-06T00:12:10.151Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 1483,
+          "stdoutStatus": [],
+          "stderr": "(node:28604) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 754,
+          "linesAfter": 762,
+          "problems": []
+        }
+      ],
+      "preLaunch": {
+        "run": 0,
+        "loaded": []
+      },
+      "agentStart": {
+        "seq": 9,
+        "errorCode": null,
+        "herdrReportedArgv": [
+          "codex"
+        ]
+      },
+      "paneArgv": [
+        {
+          "context": "after agent start",
+          "seq": 10,
+          "herdrProcessInfo": {
+            "pane_id": "w1:p1",
+            "shell_pid": 7144,
+            "foreground_processes": [
+              {
+                "pid": 26716
+              }
+            ]
+          },
+          "argv": [
+            {
+              "pid": 26716,
+              "argv": [
+                "codex.exe"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            }
+          ],
+          "proof": {
+            "found": true,
+            "pid": 26716,
+            "codexToken": "<SECRET>",
+            "argsAfterCodex": [],
+            "plain": true
+          }
+        },
+        {
+          "context": "end of run",
+          "seq": 49,
+          "herdrProcessInfo": {
+            "pane_id": "w1:p1",
+            "shell_pid": 7144,
+            "foreground_processes": [
+              {
+                "pid": 26716
+              }
+            ]
+          },
+          "argv": [
+            {
+              "pid": 26716,
+              "argv": [
+                "codex.exe"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            }
+          ],
+          "proof": {
+            "found": true,
+            "pid": 26716,
+            "codexToken": "<SECRET>",
+            "argsAfterCodex": [],
+            "plain": true
+          }
+        }
+      ],
+      "dialogs": [],
+      "herdrStates": [
+        {
+          "context": "startup",
+          "seq": 11,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 57
+        },
+        {
+          "context": "codex-ready-settle:observed:baseline (agent get)",
+          "seq": 14,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 51
+        },
+        {
+          "context": "codex-ready-settle",
+          "seq": 15,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 50
+        },
+        {
+          "context": "codex-ready-settle:re-check:baseline (agent get)",
+          "seq": 17,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 49
+        },
+        {
+          "context": "operator-prompt:baseline (agent get)",
+          "seq": 18,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 47
+        },
+        {
+          "context": "operator-turn",
+          "seq": 20,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 60
+        },
+        {
+          "context": "inject-turn",
+          "seq": 26,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 3,
+          "durationMs": 1051
+        },
+        {
+          "context": "busy-and-queued-turns",
+          "seq": 46,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 5,
+          "durationMs": 51
+        }
+      ],
+      "operatorInput": {
+        "seq": 19,
+        "startedAt": "2026-10-06T00:09:19.538Z",
+        "endedAt": "2026-10-06T00:09:19.899Z",
+        "text": "Greet me in a single word.",
+        "baseline": {
+          "seq": 18,
+          "state": "idle",
+          "stateChangeSeq": 1
+        }
+      },
+      "thread": {
+        "id": "01a10e8a-ee49-73f0-82bf-240a4220dbff",
+        "listLine": 40,
+        "preLaunchLoaded": false
+      },
+      "watch": {
+        "startedAt": "2026-10-06T00:09:24.428Z",
+        "pid": 20488,
+        "linesBefore": 40,
+        "resumeLine": 48,
+        "resumeStatus": "idle",
+        "stoppedAt": "2026-10-06T00:12:13.246Z"
+      },
+      "idle": {
+        "line": 48,
+        "via": "thread/resume result"
+      },
+      "inject": {
+        "text": "G2 re-run on 0.160.0 (from a second daemon client, not typed in this TUI): reply with exactly the words OAC G2 RERUN RECEIVED.",
+        "run": 4,
+        "turnId": "01a10e8b-2f2a-7b82-ab2b-e5d2e670832c",
+        "startLine": 55,
+        "completedLine": 78,
+        "completedStatus": "completed",
+        "agentMessages": [
+          "OAC G2 RERUN RECEIVED"
+        ],
+        "afterReadSeq": 28
+      },
+      "busyQueue": {
+        "run": 5,
+        "busyTurnId": "01a10e8b-4a3d-7fd2-a0de-c7a604b86ee2",
+        "busyStartLine": 86,
+        "queueAddLine": 140,
+        "clientUserMessageId": "8c2e0b4a-b509-4c09-bea2-f68a88abdc50",
+        "queuedSubmissionId": "01a10e8b-561f-7b62-becb-271f2d270618",
+        "busyCompletedLine": 727,
+        "queuedTurnId": "01a10e8b-8274-78f1-81e9-bc8ae86924b7",
+        "queuedUserItemLine": 732,
+        "queuedCompletedLine": 749,
+        "queuedAgentMessages": [
+          "OAC G2 QUEUED"
+        ],
+        "afterReadSeq": 48
+      },
+      "turnsList": {
+        "run": 6,
+        "line": 762
+      },
+      "injectionsSent": [
+        {
+          "what": "turn/start (client `turn`)",
+          "at": "2026-10-06T00:09:24.734Z"
+        },
+        {
+          "what": "turn/start + thread/queue/add (client `busyqueue`)",
+          "at": "2026-10-06T00:09:31.725Z"
+        }
+      ],
+      "divergence": [],
+      "postRun": {
+        "cliOutput": "codex-cli 0.160.0",
+        "cli": "0.160.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.160.0",
+          "appServerVersion": "0.160.0",
+          "managedCodexVersion": "0.160.0"
+        },
+        "wireVersionsSeen": [
+          "0.160.0"
+        ],
+        "matches": true
+      },
+      "sanitizer": {
+        "ownThreadId": "01a10e8a-ee49-73f0-82bf-240a4220dbff",
+        "threadListEntriesRemoved": 19,
+        "threadListResultsTouched": 4,
+        "serverNames": 8,
+        "installationIds": 8,
+        "planFields": 11,
+        "creditFields": 3,
+        "unparsedLines": 0
+      },
+      "stoppedAt": null,
+      "codexReady": {
+        "readSeq": 13,
+        "newThreads": 1,
+        "polls": 1,
+        "waitedMs": 671,
+        "observations": [
+          {
+            "atMs": 671,
+            "readSeq": 13,
+            "why": null,
+            "newThreads": 1
+          }
+        ]
+      },
+      "startupSettles": [
+        {
+          "agent": "g2codex",
+          "context": "codex-ready-settle",
+          "what": "the Codex session loaded in the daemon (pane read #13)",
+          "timeoutMs": 300000,
+          "observed": {
+            "seq": 14,
+            "state": "idle",
+            "stateChangeSeq": 1
+          },
+          "settles": [
+            {
+              "floor": 1,
+              "state": "idle",
+              "stateChangeSeq": 1,
+              "waitSeq": 15,
+              "readSeq": 16
+            }
+          ],
+          "rechecks": [
+            {
+              "seq": 17,
+              "state": "idle",
+              "stateChangeSeq": 1
+            }
+          ],
+          "settled": {
+            "state": "idle",
+            "stateChangeSeq": 1,
+            "settleWaitSeq": 15,
+            "recheckSeq": 17
+          },
+          "waitedMs": 3213,
+          "outcome": "settled"
+        }
+      ],
+      "codexStartupSettle": {
+        "agent": "g2codex",
+        "context": "codex-ready-settle",
+        "what": "the Codex session loaded in the daemon (pane read #13)",
+        "timeoutMs": 300000,
+        "observed": {
+          "seq": 14,
+          "state": "idle",
+          "stateChangeSeq": 1
+        },
+        "settles": [
+          {
+            "floor": 1,
+            "state": "idle",
+            "stateChangeSeq": 1,
+            "waitSeq": 15,
+            "readSeq": 16
+          }
+        ],
+        "rechecks": [
+          {
+            "seq": 17,
+            "state": "idle",
+            "stateChangeSeq": 1
+          }
+        ],
+        "settled": {
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "settleWaitSeq": 15,
+          "recheckSeq": 17
+        },
+        "waitedMs": 3213,
+        "outcome": "settled"
+      }
+    }
+  },
+  "findings": [
+    "the driver was started from inside a Claude Code session: 28 of its variables (names in env.serverLaunch.removed) were removed so the harness under test does not run as that session's child or through its relay (#163)",
+    "scratch directory could not be removed after 5 attempts (EPERM); left behind at <SCRATCH> -- unredacted captures may remain there; delete it by hand once released. Possible holder(s) the scenario declared: the shared Codex app-server daemon (left running; the driver never stops it) may hold the directory of a thread it loaded under scratch; it is released on `codex app-server daemon stop`, or when the daemon unloads the thread (documented: no subscribers and no thread activity for 30 minutes). The driver does not call thread/archive or thread/delete, which would unload it sooner, because both write to the operator's Codex thread store (thread/delete destroys the run's rollout) and whether their shutdown releases the directory handle is unverified"
+  ],
+  "manifestRedaction": {
+    "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",
+    "replacements": {
+      "home": 27,
+      "literal <SCRATCH>": 21,
+      "literal <REPO>": 1,
+      "secret-named key value": 2
+    },
+    "withheld": [],
+    "writtenClean": true
+  }
+}

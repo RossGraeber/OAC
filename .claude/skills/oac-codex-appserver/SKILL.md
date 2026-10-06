@@ -176,8 +176,8 @@ criterion.
 
 ## Pin
 
-**Floating**; warn on version, never gate (#216). Minimum `0.154.0`, last tested `0.160.0`
-(PINS.md "Version policy"). Everything below was verified on 0.154.0 only (STATUS.md).
+**Floating**; warn on version, never gate (#216). Minimum and last tested: PINS.md "Codex CLI
+and app-server", "Version policy". Everything below was verified on 0.154.0 only (STATUS.md).
 
 **Re-verified pin (B2):** `@openai/codex@0.154.0` (published 2026-09-09T22:40:10.746Z),
 cross-checked against GitHub tag `rust-v0.154.0`, commit
