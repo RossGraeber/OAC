@@ -1443,6 +1443,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "oac-transport-memory"
+version = "0.0.0"
+dependencies = [
+ "oac-core",
+]
+
+[[package]]
 name = "oac-transport-zenoh"
 version = "0.0.0"
 dependencies = [

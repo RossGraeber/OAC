@@ -28,6 +28,9 @@
 //! - [`registration`]: the registration record that binds a session to the device key
 //!   (§5.4).
 //!
+//! Added by #56 (F7): [`transport`], the `Transport` contract and the transport-boundary
+//! types (`spec/interfaces.md` §4.11, §6), and [`health`], `HealthStatus` (§4.10).
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 mod base64url;
@@ -35,6 +38,7 @@ pub mod canonical;
 pub mod capabilities;
 pub mod delivery;
 pub mod envelope;
+pub mod health;
 pub mod ids;
 pub mod json;
 pub mod keys;
@@ -42,4 +46,5 @@ pub mod presence;
 pub mod receipt;
 pub mod registration;
 pub mod signing;
+pub mod transport;
 pub mod trust;
