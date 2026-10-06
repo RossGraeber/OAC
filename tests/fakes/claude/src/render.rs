@@ -186,8 +186,18 @@ fn escape_value(key: &str, v: &str) -> Result<String, RenderGap> {
 
 const CLOSE: &str = "</channel>";
 
-/// Content the recorded renders contain: printable ASCII and newline, not empty, with no
-/// leading or trailing whitespace, no `&`, and `</` only as `</channel>`.
+/// The characters, besides ASCII letters and digits, that the content bodies of the recorded
+/// renders contain (G5 rendered lines 1-13, from G5 wire lines 21-39). No content holds a
+/// raw `\`: the only one in the renders is the harness's own `<\/channel>` escape.
+const CONTENT_PUNCTUATION: &str = "\n \"'(),-./:;<=>_";
+
+/// Content made only of the characters the recorded renders contain: ASCII letters and
+/// digits, and [`CONTENT_PUNCTUATION`]. Not empty, no leading or trailing whitespace, and
+/// `</` only as `</channel>`. Anything else (`\`, `&`, `!`, `#`, `$`, `%`, `*`, `+`, `?`,
+/// `@`, `[`, `]`, `^`, `{`, `|`, `}`, `~`, backtick, other control or non-ASCII characters)
+/// is a [`RenderGap`]: whether the harness escapes it is not recorded. In particular, a
+/// sender writing the escaped closer `<\/channel>` itself is a gap, never text that looks
+/// the same as the harness's escape.
 fn escape_content(content: &str) -> Result<String, RenderGap> {
     if content.is_empty() {
         return Err(RenderGap::Content(
@@ -201,7 +211,7 @@ fn escape_content(content: &str) -> Result<String, RenderGap> {
     }
     if let Some(c) = content
         .chars()
-        .find(|&c| !(c == '\n' || (' '..='~').contains(&c)) || c == '&')
+        .find(|&c| !(c.is_ascii_alphanumeric() || CONTENT_PUNCTUATION.contains(c)))
     {
         return Err(RenderGap::Content(format!(
             "no recorded render contains {c:?} in content"
@@ -254,6 +264,35 @@ mod tests {
     #[test]
     fn unknown_key_is_refused_not_guessed() {
         assert_eq!(render("s", "x", &m(&[("", "v")])), Err(String::new()));
+    }
+
+    #[test]
+    fn content_outside_the_recorded_characters_is_a_gap() {
+        let unrecorded = [
+            "a\\b",
+            "pre <\\/channel> post",
+            "x {y} $z",
+            "tick `x`",
+            "50% *bold* @me [x]",
+            "a!b",
+            "a#b",
+            "a+b",
+            "a?b",
+            "a^b",
+            "a|b",
+            "a~b",
+            "a\tb",
+        ];
+        for c in unrecorded {
+            let t = render("s", c, &[]).expect("renders");
+            assert!(matches!(t.rendered, Err(RenderGap::Content(_))), "{c:?}");
+        }
+        // Every recorded character, together, still renders.
+        let t = render("s", "Aa0 \"'(),-./:;<=>_\nz", &[]).expect("renders");
+        assert_eq!(
+            t.rendered.as_deref(),
+            Ok("<channel source=\"s\">\nAa0 \"'(),-./:;<=>_\nz\n</channel>")
+        );
     }
 
     #[test]
