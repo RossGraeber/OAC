@@ -56,9 +56,10 @@ rule: it depends on `core/` only (§3), and adds no third-party crate of its own
 contract and the §4.11 transport-boundary types it implements live in `core/`, which
 calls them; `spec/interfaces.md` §6.1 notes the in-memory transport.)
 (Dated note, 2026-10-06, #57: F8 confirms where fake endpoints live, the deferral §2's
-`tests/` row and `09-test-strategy.md` §13-§14 left open. A fake harness endpoint is a
-workspace member at `tests/fakes/<name>/`; the first is `tests/fakes/claude/`, the fake
-Claude Code channel endpoint (`oac-fake-claude`). It is test-only: it depends on `core/`
+`tests/` row and `09-test-strategy.md` §13-§14 left open. Fake harness endpoints live at
+`tests/fakes/<name>/` (F9's Codex fake follows the same convention). The fake Claude Code
+channel endpoint is `tests/fakes/claude/`, a Rust workspace member (`oac-fake-claude`),
+because the Rust contract and security suites link it in-process. It is test-only: it depends on `core/`
 only (for the JSON reader) and on no third-party crate, and a product crate may take it as
 a dev-dependency only, never a normal or build one, so it is never built into the `oac`
 binary (§3). It reads the recorded fixtures in place from `docs/planning/gates/fixtures/`;

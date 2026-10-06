@@ -605,10 +605,10 @@ ad hoc test location before F8/F9 confirm the actual Stage 3 layout is forbidden
 fixture path this file or a future test-writing task needs is provisional until F8/F9
 land.
 
-*Dated note, 2026-10-06, #57: F8 confirms the fake-endpoint location: `tests/fakes/<name>/`,
-a test-only workspace member that product crates may take as a dev-dependency only
-(`07-repository-and-dependencies.md` §1, §3). The fake Claude endpoint is
-`tests/fakes/claude/`.*
+*Dated note, 2026-10-06, #57: F8 confirms the fake-endpoint location: `tests/fakes/<name>/`.
+The fake Claude endpoint is `tests/fakes/claude/`, a test-only workspace member that
+product crates may take as a dev-dependency only (`07-repository-and-dependencies.md` §1,
+§3).*
 
 ---
 
