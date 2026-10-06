@@ -55,6 +55,24 @@
 //! is aborted), or compares the codes both devices show and confirms they match
 //! ([`PairingSession::confirm_match`]). Either way, within 120 seconds of the start.
 //!
+//! **One offer per operator-started pairing.** The exchange stops grinding only if each
+//! exchange is one the operator sees. Otherwise an attacker could finish the initiator's
+//! side first, since the initiator shows its code once it has a response. It could then
+//! play initiator toward the responder over and over, never revealing, until the
+//! responder's code matched. The five-attempt limit counts code entries within one session,
+//! not exchanges, so it does not stop this. Two rules apply:
+//!
+//! - a responder answers one offer per operator-started pairing;
+//! - an exchange abandoned before the reveal ends that pairing, and the operator is shown
+//!   that it ended.
+//!
+//! [`ResponderPairing`] enforces both on the responding side: a second offer, an abandoned
+//! exchange or a reveal that never comes ends the pairing with a [`PairingEnd`] to show. The
+//! initiator sends one offer per [`PairingInitiator::start`]. The calling code (the `oac`
+//! pairing verb) must start each pairing only on an operator's request, and show every
+//! [`PairingEnd`]. With both rules, a substituted key matches with probability 10^-6 per
+//! operator-visible exchange.
+//!
 //! # Two devices: a compared key id
 //!
 //! The operator may instead compare the peer's full key id, read from the peer device's
@@ -176,14 +194,49 @@ pub enum PairingError {
     CommitmentMismatch,
     /// 120 seconds have passed since the exchange started.
     Expired,
+    /// The operator-started pairing has ended, for this reason; the operator starts a new
+    /// one ([`ResponderPairing`]).
+    Ended(PairingEnd),
 }
 
 impl fmt::Display for PairingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PairingError::OwnKey => f.write_str("the peer presented this device's own key"),
+            PairingError::CommitmentMismatch => f.write_str("the revealed nonce does not match"),
+            PairingError::Expired => f.write_str("the pairing exchange expired"),
+            PairingError::Ended(end) => write!(f, "the pairing ended: {end}"),
+        }
+    }
+}
+
+/// Why an operator-started pairing on the responding device ended without a code. Each is
+/// shown to the operator, who starts a new pairing to try again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairingEnd {
+    /// A second offer arrived after the first was answered. A responder answers one offer
+    /// per operator-started pairing; a second one may be an attacker restarting the
+    /// exchange to try another code.
+    SecondOffer,
+    /// The exchange was abandoned before the reveal: the caller reported it, or the
+    /// 120-second window ran out while waiting for the reveal.
+    Abandoned,
+    /// No offer arrived within the 120-second window.
+    Expired,
+    /// The offer carried this device's own key.
+    OwnKey,
+    /// The revealed nonce did not match the commitment.
+    CommitmentMismatch,
+}
+
+impl fmt::Display for PairingEnd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            PairingError::OwnKey => "the peer presented this device's own key",
-            PairingError::CommitmentMismatch => "the revealed nonce does not match",
-            PairingError::Expired => "the pairing exchange expired",
+            PairingEnd::SecondOffer => "a second offer arrived, so the pairing is ended",
+            PairingEnd::Abandoned => "the exchange was abandoned before the code was shown",
+            PairingEnd::Expired => "no offer arrived in time",
+            PairingEnd::OwnKey => "the offer carried this device's own key",
+            PairingEnd::CommitmentMismatch => "the revealed nonce does not match",
         })
     }
 }
@@ -200,14 +253,25 @@ pub struct PairingInitiator {
 }
 
 impl PairingInitiator {
-    /// Starts an exchange at `now` with a fresh nonce.
+    /// Starts an exchange at `now` with a fresh nonce. Call it once per operator-started
+    /// pairing: the initiator sends one offer, and an exchange that does not reach its code
+    /// ends that pairing; the operator starts a new one to try again.
     pub fn start(own: &DeviceIdentity, now: Timestamp) -> (PairingInitiator, PairingOffer) {
-        PairingInitiator::start_with_nonce(own, fresh_nonce(), now)
+        PairingInitiator::start_inner(own, fresh_nonce(), now)
     }
 
-    /// [`PairingInitiator::start`] with a given nonce, for tests. A nonce must never be
-    /// used for a second exchange.
-    pub fn start_with_nonce(
+    /// [`PairingInitiator::start`] with a given nonce, for tests only: a fixed or reused
+    /// nonce removes the commitment's hiding property.
+    #[cfg(test)]
+    pub(crate) fn start_with_nonce(
+        own: &DeviceIdentity,
+        nonce: PairingNonce,
+        now: Timestamp,
+    ) -> (PairingInitiator, PairingOffer) {
+        PairingInitiator::start_inner(own, nonce, now)
+    }
+
+    fn start_inner(
         own: &DeviceIdentity,
         nonce: PairingNonce,
         now: Timestamp,
@@ -255,9 +319,10 @@ impl PairingInitiator {
     }
 }
 
-/// The responder's side, between steps 2 and 3.
+/// The responder's side of one exchange, between steps 2 and 3. Crate-private: a caller
+/// answers offers only through [`ResponderPairing`], which answers one per pairing.
 #[derive(Debug)]
-pub struct PairingResponder {
+pub(crate) struct PairingResponder {
     principal: Token,
     public_key: PublicKey,
     nonce: PairingNonce,
@@ -266,25 +331,27 @@ pub struct PairingResponder {
 }
 
 impl PairingResponder {
-    /// Step 2: answers `offer` at `now` with a fresh nonce.
-    ///
-    /// # Errors
-    ///
-    /// [`PairingError::OwnKey`] when the offer carries this device's own key.
-    pub fn respond(
+    /// Step 2: answers `offer` with a fresh nonce. `now` starts the 120-second window.
+    pub(crate) fn respond(
         own: &DeviceIdentity,
         offer: PairingOffer,
         now: Timestamp,
     ) -> Result<(PairingResponder, PairingResponse), PairingError> {
-        PairingResponder::respond_with_nonce(own, offer, fresh_nonce(), now)
+        PairingResponder::respond_inner(own, offer, fresh_nonce(), now)
     }
 
-    /// [`PairingResponder::respond`] with a given nonce, for tests.
-    ///
-    /// # Errors
-    ///
-    /// [`PairingError::OwnKey`].
-    pub fn respond_with_nonce(
+    /// [`PairingResponder::respond`] with a given nonce, for tests only.
+    #[cfg(test)]
+    pub(crate) fn respond_with_nonce(
+        own: &DeviceIdentity,
+        offer: PairingOffer,
+        nonce: PairingNonce,
+        now: Timestamp,
+    ) -> Result<(PairingResponder, PairingResponse), PairingError> {
+        PairingResponder::respond_inner(own, offer, nonce, now)
+    }
+
+    fn respond_inner(
         own: &DeviceIdentity,
         offer: PairingOffer,
         nonce: PairingNonce,
@@ -311,11 +378,7 @@ impl PairingResponder {
     }
 
     /// Takes the initiator's reveal and checks it against the commitment.
-    ///
-    /// # Errors
-    ///
-    /// [`PairingError::CommitmentMismatch`] or [`PairingError::Expired`].
-    pub fn receive(
+    pub(crate) fn receive(
         self,
         reveal: PairingReveal,
         now: &Timestamp,
@@ -337,6 +400,137 @@ impl PairingResponder {
             code,
             self.started,
         ))
+    }
+}
+
+#[derive(Debug)]
+enum ResponderState {
+    AwaitingOffer,
+    AwaitingReveal(Box<PairingResponder>),
+    Ended(PairingEnd),
+    Completed,
+}
+
+/// One operator-started pairing on the responding device. It answers **one** offer, and an
+/// exchange that does not reach its code ends the pairing visibly ([`PairingEnd`]). To try
+/// again, the operator starts a new pairing.
+///
+/// This stops an attacker on the exchange channel from grinding codes by abandoning
+/// exchanges. Without it, the attacker could complete the initiator's side first (the
+/// initiator shows its code as soon as it has a response). It could then play initiator
+/// toward the responder again and again, never revealing, until the responder's code
+/// matched. With one offer per operator-visible pairing, each try costs the attacker an
+/// exchange the operator sees end. A substituted key then matches with probability 10^-6 per
+/// operator-visible exchange.
+#[derive(Debug)]
+pub struct ResponderPairing {
+    started: Timestamp,
+    state: ResponderState,
+}
+
+impl ResponderPairing {
+    /// The operator started a pairing on this device at `now`. It stays open for 120
+    /// seconds.
+    pub fn start(now: Timestamp) -> ResponderPairing {
+        ResponderPairing {
+            started: now,
+            state: ResponderState::AwaitingOffer,
+        }
+    }
+
+    fn end(&mut self, why: PairingEnd) -> PairingError {
+        self.state = ResponderState::Ended(why);
+        PairingError::Ended(why)
+    }
+
+    /// Answers `offer`: step 2. Only the first offer is answered.
+    ///
+    /// # Errors
+    ///
+    /// [`PairingError::Ended`]. A second offer ends the pairing
+    /// ([`PairingEnd::SecondOffer`]), as do an offer after the window
+    /// ([`PairingEnd::Expired`]) and one carrying this device's own key. An ended or
+    /// completed pairing answers nothing.
+    pub fn answer(
+        &mut self,
+        own: &DeviceIdentity,
+        offer: PairingOffer,
+        now: &Timestamp,
+    ) -> Result<PairingResponse, PairingError> {
+        match &self.state {
+            ResponderState::AwaitingOffer => {}
+            ResponderState::AwaitingReveal(_) | ResponderState::Completed => {
+                return Err(self.end(PairingEnd::SecondOffer));
+            }
+            ResponderState::Ended(why) => return Err(PairingError::Ended(*why)),
+        }
+        if now.unix_nanos() >= deadline(&self.started) {
+            return Err(self.end(PairingEnd::Expired));
+        }
+        match PairingResponder::respond(own, offer, self.started.clone()) {
+            Ok((responder, response)) => {
+                self.state = ResponderState::AwaitingReveal(Box::new(responder));
+                Ok(response)
+            }
+            Err(_) => Err(self.end(PairingEnd::OwnKey)),
+        }
+    }
+
+    /// Takes the initiator's reveal: step 3. The code is then known.
+    ///
+    /// # Errors
+    ///
+    /// [`PairingError::Ended`]: with no answered offer, after the window
+    /// ([`PairingEnd::Abandoned`]), or when the reveal does not match the commitment.
+    pub fn reveal(
+        &mut self,
+        reveal: PairingReveal,
+        now: &Timestamp,
+    ) -> Result<PairingSession, PairingError> {
+        let state = std::mem::replace(&mut self.state, ResponderState::Completed);
+        let responder = match state {
+            ResponderState::AwaitingReveal(r) => r,
+            ResponderState::AwaitingOffer => return Err(self.end(PairingEnd::Abandoned)),
+            ResponderState::Ended(why) => return Err(self.end(why)),
+            ResponderState::Completed => return Err(self.end(PairingEnd::SecondOffer)),
+        };
+        match responder.receive(reveal, now) {
+            Ok(session) => Ok(session),
+            Err(PairingError::CommitmentMismatch) => Err(self.end(PairingEnd::CommitmentMismatch)),
+            Err(_) => Err(self.end(PairingEnd::Abandoned)),
+        }
+    }
+
+    /// The caller reports that the exchange was dropped before the reveal: the peer went
+    /// away, or the channel closed. The pairing ends, and the operator sees why.
+    pub fn abandon(&mut self) {
+        if !matches!(
+            self.state,
+            ResponderState::Completed | ResponderState::Ended(_)
+        ) {
+            self.state = ResponderState::Ended(PairingEnd::Abandoned);
+        }
+    }
+
+    /// Why the pairing ended, checked at `now`. An answered offer whose reveal has not come
+    /// within the window is abandoned, and a pairing that never got an offer has expired.
+    /// `None` while it is still open, and once it has produced its code.
+    pub fn ended(&mut self, now: &Timestamp) -> Option<PairingEnd> {
+        if now.unix_nanos() >= deadline(&self.started) {
+            match self.state {
+                ResponderState::AwaitingOffer => {
+                    self.state = ResponderState::Ended(PairingEnd::Expired);
+                }
+                ResponderState::AwaitingReveal(_) => {
+                    self.state = ResponderState::Ended(PairingEnd::Abandoned);
+                }
+                _ => {}
+            }
+        }
+        match self.state {
+            ResponderState::Ended(why) => Some(why),
+            _ => None,
+        }
     }
 }
 
@@ -704,10 +898,117 @@ mod tests {
     /// One honest exchange: both sides end with the same code, each naming the other.
     fn exchange(a: &DeviceIdentity, b: &DeviceIdentity) -> (PairingSession, PairingSession) {
         let (init, offer) = PairingInitiator::start(a, at(0));
-        let (resp, response) = PairingResponder::respond(b, offer, at(1_000)).unwrap();
+        let mut pairing = ResponderPairing::start(at(0));
+        let response = pairing.answer(b, offer, &at(1_000)).unwrap();
         let (sa, reveal) = init.receive(response, &at(2_000)).unwrap();
-        let sb = resp.receive(reveal, &at(3_000)).unwrap();
+        let sb = pairing.reveal(reveal, &at(3_000)).unwrap();
+        assert_eq!(
+            pairing.ended(&at(200_000)),
+            None,
+            "a completed pairing has not ended"
+        );
         (sa, sb)
+    }
+
+    #[test]
+    fn a_responder_answers_one_offer_per_pairing() {
+        let (a, b, m) = (
+            identity("principal-a"),
+            identity("principal-b"),
+            identity("principal-m"),
+        );
+        // An attacker plays initiator toward B, gets B's nonce, and abandons the exchange
+        // before revealing, hoping to try again with a new offer: the second offer ends the
+        // pairing, and so does any later one.
+        let mut pairing = ResponderPairing::start(at(0));
+        let (_, first) = PairingInitiator::start(&m, at(0));
+        pairing.answer(&b, first, &at(1_000)).unwrap();
+        let (_, second) = PairingInitiator::start(&m, at(1_000));
+        assert_eq!(
+            pairing.answer(&b, second.clone(), &at(1_500)).unwrap_err(),
+            PairingError::Ended(PairingEnd::SecondOffer)
+        );
+        assert_eq!(pairing.ended(&at(1_500)), Some(PairingEnd::SecondOffer));
+        assert_eq!(
+            pairing.answer(&b, second, &at(1_600)).unwrap_err(),
+            PairingError::Ended(PairingEnd::SecondOffer)
+        );
+        // Even the honest initiator's reveal is refused now: the operator starts again.
+        let (init, offer) = PairingInitiator::start(&a, at(2_000));
+        let (_, reveal) = init
+            .receive(
+                PairingResponse {
+                    principal: b.principal().clone(),
+                    public_key: *b.public_key(),
+                    nonce: [1; 32],
+                },
+                &at(2_000),
+            )
+            .unwrap();
+        drop(offer);
+        assert_eq!(
+            pairing.reveal(reveal, &at(2_500)).unwrap_err(),
+            PairingError::Ended(PairingEnd::SecondOffer)
+        );
+        // A completed pairing answers no further offer either.
+        let mut done = ResponderPairing::start(at(0));
+        let (init, offer) = PairingInitiator::start(&a, at(0));
+        let response = done.answer(&b, offer, &at(1)).unwrap();
+        let (_, reveal) = init.receive(response, &at(2)).unwrap();
+        done.reveal(reveal, &at(3)).unwrap();
+        let (_, again) = PairingInitiator::start(&m, at(4));
+        assert_eq!(
+            done.answer(&b, again, &at(5)).unwrap_err(),
+            PairingError::Ended(PairingEnd::SecondOffer)
+        );
+    }
+
+    #[test]
+    fn an_abandoned_exchange_ends_the_pairing_visibly() {
+        let (a, b) = (identity("principal-a"), identity("principal-b"));
+        // The caller reports the exchange dropped before the reveal.
+        let mut pairing = ResponderPairing::start(at(0));
+        let (init, offer) = PairingInitiator::start(&a, at(0));
+        let response = pairing.answer(&b, offer, &at(1)).unwrap();
+        pairing.abandon();
+        assert_eq!(pairing.ended(&at(2)), Some(PairingEnd::Abandoned));
+        let (_, reveal) = init.receive(response, &at(3)).unwrap();
+        assert_eq!(
+            pairing.reveal(reveal, &at(4)).unwrap_err(),
+            PairingError::Ended(PairingEnd::Abandoned)
+        );
+        // A reveal that never comes ends the pairing at the end of the window.
+        let mut pairing = ResponderPairing::start(at(0));
+        let (_, offer) = PairingInitiator::start(&a, at(0));
+        pairing.answer(&b, offer, &at(1)).unwrap();
+        assert_eq!(pairing.ended(&at(119_999)), None);
+        assert_eq!(pairing.ended(&at(120_000)), Some(PairingEnd::Abandoned));
+        // No offer at all: expired. An offer after the window: expired too.
+        let mut idle = ResponderPairing::start(at(0));
+        assert_eq!(idle.ended(&at(120_000)), Some(PairingEnd::Expired));
+        let mut late = ResponderPairing::start(at(0));
+        let (_, offer) = PairingInitiator::start(&a, at(0));
+        assert_eq!(
+            late.answer(&b, offer, &at(120_000)).unwrap_err(),
+            PairingError::Ended(PairingEnd::Expired)
+        );
+        // A reveal that does not match the commitment ends it as well.
+        let mut pairing = ResponderPairing::start(at(0));
+        let (_, offer) = PairingInitiator::start(&a, at(0));
+        pairing.answer(&b, offer, &at(1)).unwrap();
+        assert_eq!(
+            pairing
+                .reveal(PairingReveal { nonce: [0; 32] }, &at(2))
+                .unwrap_err(),
+            PairingError::Ended(PairingEnd::CommitmentMismatch)
+        );
+        // An offer with this device's own key ends it.
+        let mut own = ResponderPairing::start(at(0));
+        let (_, offer) = PairingInitiator::start(&b, at(0));
+        assert_eq!(
+            own.answer(&b, offer, &at(1)).unwrap_err(),
+            PairingError::Ended(PairingEnd::OwnKey)
+        );
     }
 
     #[test]

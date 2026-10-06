@@ -24,12 +24,12 @@
 //!   whose outcome step 3 decides is checked to pass steps 1 and 2 under the right entry,
 //!   and one that step 5 decides, to pass step 4.
 //! - `key-id` (§5.2) and `registration` (§5.4), in full.
-//!
-//! Stages run in [`authorization`] (#54, F5): `discovery-auth`, `key-removal` and `exchange`
-//! in full, and `presence-auth` for the `sec-auz` fixtures.
 //! - [`verify_strict_alone_gives_the_sec_sig_verdicts`]: every `sec-sig` fixture through
 //!   `ed25519-dalek`'s `VerifyingKey::verify_strict` with no other check, the run that
 //!   `spec/security.md` §6.3 left UNVERIFIED.
+//!
+//! Stages run in [`authorization`] (#54, F5): `discovery-auth`, `key-removal` and `exchange`
+//! in full, and `presence-auth` for the `sec-auz` fixtures.
 //!
 //! Other stages (binding, send, routing, replay, receipt-auth, presence-auth outside
 //! `sec-auz`, ...) exercise logic later tasks own.

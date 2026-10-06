@@ -616,8 +616,10 @@ pub enum RemoveKeyError {
     /// The key is not in the trusted key set.
     NotTrusted,
     /// The key, its grants and its bindings were removed in memory, but the store did not
-    /// save the change. The engine stays without them (fail closed); the caller retries the
-    /// save with [`AuthorizationEngine::save`].
+    /// save the change. The engine stays without them (fail closed), but the store still
+    /// holds them, so a restart before a successful save would restore the revoked device.
+    /// The caller must report this to the operator loudly and retry the save with
+    /// [`AuthorizationEngine::save`] until it succeeds (the `oac` pairing verb, #71).
     NotSaved(PairingStoreError),
 }
 
@@ -1681,7 +1683,7 @@ mod tests {
     }
 
     #[test]
-    fn reply_right_covers_one_correlated_reply_for_24_hours() {
+    fn reply_right_covers_replies_to_one_message_for_24_hours() {
         let mut p = pair();
         // B1 sends msg-b to A1 (bound to Alice's key).
         let to_alice = p.bob.sign_envelope(
@@ -1722,6 +1724,52 @@ mod tests {
         // It also ends with the sending session's binding.
         p.bob_engine.end_session(&sid(B1));
         assert!(p.bob_engine.authorize_delivery(reply, &now()).is_err());
+    }
+
+    /// The reply right checks the verifying key itself ([SEC-AUZ-014]), not only through
+    /// the binding table: once A1's binding is gone ([SEC-PRS-009]), a reply to msg-b from
+    /// "A1" signed by another trusted key is refused, and binds nothing.
+    #[test]
+    fn reply_right_is_bound_to_the_key_the_message_was_sent_to() {
+        let mut p = pair();
+        let carol = identity("principal-c");
+        p.bob_engine
+            .pair(
+                PairedPeer::confirmed(carol.principal().clone(), *carol.public_key(), now()),
+                &p.store,
+            )
+            .unwrap();
+        let to_alice = p.bob.sign_envelope(
+            EnvelopeDraft::new(
+                Token::parse("msg-b").unwrap(),
+                sid(B1),
+                sid(A1),
+                ts("2026-10-03T11:30:00.000Z"),
+                vec![TextPart::new("q").unwrap()],
+            )
+            .unwrap(),
+        );
+        p.bob_engine
+            .record_sent(SentRecord::of(&to_alice, p.alice.key_id().clone()));
+        assert_eq!(
+            p.bob_engine.bind(&sid(A1), p.alice.key_id()),
+            BindOutcome::Bound
+        );
+        assert!(p.bob_engine.forget_binding(&sid(A1)));
+        let forged = message(&carol, &p.bob_engine, A1, B1, Some("msg-b"));
+        let r = p.bob_engine.authorize_delivery(forged, &now()).unwrap_err();
+        assert_eq!(r.requirement, "SEC-AUZ-001");
+        assert!(
+            p.bob_engine.binding(&sid(A1)).is_none(),
+            "a refusal binds nothing"
+        );
+        let genuine = message(&p.alice, &p.bob_engine, A1, B1, Some("msg-b"));
+        let (_, d) = p.bob_engine.authorize_delivery(genuine, &now()).unwrap();
+        assert!(matches!(d.basis(), Some(Basis::ReplyRight(_))));
+        assert_eq!(
+            p.bob_engine.binding(&sid(A1)),
+            Some(&Binding::Key(p.alice.key_id().clone()))
+        );
     }
 
     #[test]
