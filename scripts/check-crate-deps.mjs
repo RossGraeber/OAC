@@ -10,17 +10,24 @@
 //   transports/*  -> core/ only        (never another transport, an adapter, or cli/)
 //   core/         -> nothing in-repo
 //   (nothing)     -> cli/
+//   tests/fakes/* -> core/ only        (#57: test doubles, never in a product build)
 //
 // What is checked, for every workspace member, over every dependency kind (normal, build
 // and dev: cargo itself allows a dev-dependency cycle, so a core/ dev-dependency on an
 // adapter would otherwise go unnoticed), every target platform, and every feature
 // (`--all-features`, so an optional dependency behind a non-default feature is seen):
 //   1. The member sits in the module layout: core, cli, adapters/<name> or
-//      transports/<name>. Anything else fails.
+//      transports/<name>, or is a test double at tests/fakes/<name> (#57). Anything else
+//      fails.
 //   2. Reachability, not just direct edges: the member's transitive closure contains no
 //      workspace crate the rule above forbids, whatever path (including through a
 //      third-party crate) leads there.
 //   3. Every adapter and transport has a normal dependency on core/.
+//   5. Test doubles stay out of every product build (#57): no product member (core, cli,
+//      an adapter or a transport) reaches a tests/fakes/<name> crate over normal and build
+//      edges alone, so none is compiled into the `oac` binary. An adapter, a transport or
+//      cli/ may take one as a dev-dependency (rule 2 allows the reach); core/ may not,
+//      because core/ reaches nothing in-repo.
 //   4. Provider and transport crates stay with their owner: the zenoh crates may be a
 //      direct dependency of transports/zenoh only, the Codex app-server crates of
 //      adapters/codex only (07 section 5, "Consuming module"); and neither may be reachable
@@ -87,15 +94,20 @@ export function moduleOf(relDir) {
   if (m) return { kind: 'adapter', path: d };
   m = /^transports\/([a-z0-9][a-z0-9_-]*)$/.exec(d);
   if (m) return { kind: 'transport', path: d };
+  m = /^tests\/fakes\/([a-z0-9][a-z0-9_-]*)$/.exec(d);
+  if (m) return { kind: 'fake', path: d };
   return null;
 }
 
 // May a member of kind `from` reach workspace member `to` (by module)?
+// Over every edge kind; rule 5 separately keeps fakes off normal and build edges.
 function allowedReach(from, to) {
   if (to.kind === 'cli') return false;
   if (from.kind === 'cli') return true;
   if (from.kind === 'core') return false;
-  return to.kind === 'core'; // adapters and transports: core/ only
+  if (from.kind === 'fake') return to.kind === 'core'; // test doubles: core/ only
+  // adapters and transports: core/, and a fake as a dev-dependency (rule 5)
+  return to.kind === 'core' || to.kind === 'fake';
 }
 
 // Pure check over a parsed `cargo metadata --format-version 1` document. Returns a list of
@@ -116,7 +128,7 @@ export function checkMetadata(meta) {
     if (!mod) {
       violations.push(
         `${p.name} (${rel.split(sep).join('/') || '.'}): workspace member outside the module layout ` +
-          '(core, cli, adapters/<name>, transports/<name>)',
+          '(core, cli, adapters/<name>, transports/<name>, tests/fakes/<name>)',
       );
       continue;
     }
@@ -178,6 +190,26 @@ export function checkMetadata(meta) {
       const o = ownedFamily(pname);
       if (o && mod.path !== o.owner && mod.kind !== 'cli') {
         violations.push(`${name} reaches ${pname} (${o.family}, owned by ${o.owner}): ${pathTo(reached)}`);
+      }
+    }
+    // 5. No test double in a product build: reachability over normal and build edges only.
+    if (mod.kind !== 'fake') {
+      const built = new Map([[id, null]]);
+      const q = [id];
+      while (q.length) {
+        const cur = q.shift();
+        for (const d of depsOf(cur)) {
+          if (built.has(d.id) || !d.kinds.some((k) => k.kind !== 'dev')) continue;
+          built.set(d.id, cur);
+          q.push(d.id);
+        }
+      }
+      for (const reached of built.keys()) {
+        const tmod = members.get(reached);
+        if (tmod?.kind !== 'fake') continue;
+        const chain = [];
+        for (let c = reached; c !== null; c = built.get(c)) chain.unshift(nameOf(c));
+        violations.push(`${name} builds in test double ${tmod.path} (allowed only as a dev-dependency): ${chain.join(' -> ')}`);
       }
     }
   }
@@ -242,6 +274,8 @@ const BASE_EDGES = [
   ['oac-cli', 'oac-adapter-codex'],
   ['oac-cli', 'oac-transport-zenoh'],
 ];
+const FAKE_MEMBERS = { ...BASE_MEMBERS, 'oac-fake-claude': 'tests/fakes/claude' };
+const FAKE_EDGES = [...BASE_EDGES, ['oac-fake-claude', 'oac-core']];
 const without = (edges, f, t) => edges.filter(([a, b]) => !(a === f && b === t));
 
 const SELF_TEST_CASES = [
@@ -328,6 +362,29 @@ const SELF_TEST_CASES = [
   },
   { name: 'transport depends on security-framework', meta: synth({ members: BASE_MEMBERS, externals: ['security-framework'], edges: [...BASE_EDGES, ['oac-transport-zenoh', 'security-framework']] }) },
   { name: 'core depends on keyring_core (underscore spelling)', meta: synth({ members: BASE_MEMBERS, externals: ['keyring_core'], edges: [...BASE_EDGES, ['oac-core', 'keyring_core']] }) },
+  // #57: test doubles at tests/fakes/<name> stay out of every product build.
+  {
+    name: 'control: a fake depends on core/; an adapter, a transport and cli/ dev-depend on it',
+    expectClean: true,
+    meta: synth({
+      members: FAKE_MEMBERS,
+      edges: [...FAKE_EDGES, ['oac-adapter-claude', 'oac-fake-claude', 'dev'], ['oac-transport-zenoh', 'oac-fake-claude', 'dev'],
+        ['oac-cli', 'oac-fake-claude', 'dev']],
+    }),
+  },
+  { name: 'cli -> fake (normal)', meta: synth({ members: FAKE_MEMBERS, edges: [...FAKE_EDGES, ['oac-cli', 'oac-fake-claude']] }) },
+  { name: 'adapter -> fake (normal)', meta: synth({ members: FAKE_MEMBERS, edges: [...FAKE_EDGES, ['oac-adapter-claude', 'oac-fake-claude']] }) },
+  { name: 'transport -> fake (build-dependency)', meta: synth({ members: FAKE_MEMBERS, edges: [...FAKE_EDGES, ['oac-transport-zenoh', 'oac-fake-claude', 'build']] }) },
+  { name: 'core -> fake (dev-dependency)', meta: synth({ members: FAKE_MEMBERS, edges: [...FAKE_EDGES, ['oac-core', 'oac-fake-claude', 'dev']] }) },
+  {
+    name: 'adapter builds in a fake through a third-party crate',
+    meta: synth({ members: FAKE_MEMBERS, externals: ['shim'], edges: [...FAKE_EDGES, ['oac-adapter-codex', 'shim'], ['shim', 'oac-fake-claude']] }),
+  },
+  { name: 'fake -> adapter', meta: synth({ members: FAKE_MEMBERS, edges: [...FAKE_EDGES, ['oac-fake-claude', 'oac-adapter-claude']] }) },
+  { name: 'fake -> cli (dev-dependency)', meta: synth({ members: FAKE_MEMBERS, edges: [...FAKE_EDGES, ['oac-fake-claude', 'oac-cli', 'dev']] }) },
+  { name: 'fake depends on zenoh', meta: synth({ members: FAKE_MEMBERS, externals: ['zenoh'], edges: [...FAKE_EDGES, ['oac-fake-claude', 'zenoh']] }) },
+  { name: 'fake outside tests/fakes/<name> (tests/claude)', meta: synth({ members: { ...BASE_MEMBERS, 'oac-fake-claude': 'tests/claude' }, edges: FAKE_EDGES }) },
+  { name: 'nested fake path (tests/fakes/claude/inner)', meta: synth({ members: { ...BASE_MEMBERS, 'oac-fake-claude': 'tests/fakes/claude/inner' }, edges: FAKE_EDGES }) },
 ];
 
 function selfTest() {
@@ -434,6 +491,11 @@ const MUTATIONS = [
   // #315 review N-b: the key-storage crates are cli/'s.
   { name: 'core/ depends on keyring', file: 'core/Cargo.toml', edit: addDep('dependencies', 'keyring = { path = "../../stubs/keyring" }') },
   { name: 'adapters/codex depends on age', file: 'adapters/codex/Cargo.toml', edit: addDep('dependencies', 'age = { path = "../../../stubs/age" }') },
+  // #57: the fake Claude endpoint is never a normal dependency of a product crate.
+  { name: 'cli/ depends on tests/fakes/claude', file: 'cli/Cargo.toml', edit: addDep('dependencies', 'oac-fake-claude = { path = "../tests/fakes/claude" }') },
+  { name: 'adapters/claude depends on tests/fakes/claude', file: 'adapters/claude/Cargo.toml', edit: addDep('dependencies', 'oac-fake-claude = { path = "../../tests/fakes/claude" }') },
+  { name: 'core/ dev-depends on tests/fakes/claude', file: 'core/Cargo.toml', edit: addDep('dev-dependencies', 'oac-fake-claude = { path = "../tests/fakes/claude" }') },
+  { name: 'tests/fakes/claude depends on adapters/claude', file: 'tests/fakes/claude/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../../../adapters/claude" }') },
 ];
 
 // Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error

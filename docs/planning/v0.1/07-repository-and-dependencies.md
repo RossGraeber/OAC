@@ -55,6 +55,15 @@ docs/
 rule: it depends on `core/` only (§3), and adds no third-party crate of its own. The `Transport`
 contract and the §4.11 transport-boundary types it implements live in `core/`, which
 calls them; `spec/interfaces.md` §6.1 notes the in-memory transport.)
+(Dated note, 2026-10-06, #57: F8 confirms where fake endpoints live, the deferral §2's
+`tests/` row and `09-test-strategy.md` §13-§14 left open. A fake harness endpoint is a
+workspace member at `tests/fakes/<name>/`; the first is `tests/fakes/claude/`, the fake
+Claude Code channel endpoint (`oac-fake-claude`). It is test-only: it depends on `core/`
+only (for the JSON reader) and on no third-party crate, and a product crate may take it as
+a dev-dependency only, never a normal or build one, so it is never built into the `oac`
+binary (§3). It reads the recorded fixtures in place from `docs/planning/gates/fixtures/`;
+nothing is copied under `tests/`. It is not herdr and does not drive a harness:
+`tests/integration/` stays the opt-in provider-integration leaf.)
 
 **Dev/test tooling in the tree, outside the product layout.** `tools/herdr/` is the herdr
 test driver (Epic K #123, K3 #126), run as `node tools/herdr/run.mjs --scenario <name>`.
@@ -130,6 +139,8 @@ transports/zenoh/ -> core/           (only)
 transports/memory/ -> core/          (only; #56)
 core/             -> (nothing in-repo)
 (nothing)         -> cli/
+tests/fakes/*     -> core/           (only; #57)
+adapters/*, transports/*, cli/ -> tests/fakes/*   (dev-dependency only; #57)
 ```
 
 (Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305
@@ -176,6 +187,9 @@ is the Stage 3 owner of enforcing this diagram in the actual workspace (lint/CI 
 this file states the rule, not the enforcement mechanism.
 (Dated note, 2026-10-05, #50: the mechanism is `scripts/check-crate-deps.mjs`, which checks
 these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.yml`.)
+(Dated note, 2026-10-06, #57: the same script admits `tests/fakes/<name>` members, lets
+them reach `core/` only, and fails any product member (`core/`, `cli/`, an adapter or a
+transport) that reaches one over normal or build edges; `core/` may not reach one at all.)
 
 ---
 
