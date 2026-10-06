@@ -2,18 +2,21 @@
 
 //! The RFC 8785 (JCS) canonical form and the signing input of `spec/security.md` §6.2.
 //!
-//! Canonicalization goes through `serde_jcs` 0.2.0, the crate decision C5 §3 and `PINS.md`
-//! fix for it. `serde_jcs` sorts members by their UTF-16 code units and writes strings and
-//! floating-point numbers as ECMAScript does (RFC 8785 §3.2.2-§3.2.3). This module hands it
-//! every JSON number as the IEEE 754 double nearest to the number's decimal value
-//! ([SEC-SIG-013]), never as an integer type, so `9007199254740993` canonicalizes as
-//! `9007199254740992` and `1E-7`, `0.10` and `-0` as `1e-7`, `0.1` and `0`.
+//! RFC 8785 fixes three things: member order (by name, as arrays of UTF-16 code units,
+//! §3.2.3), string serialization (§3.2.2.2) and number serialization, as ECMAScript writes
+//! an IEEE 754 double (§3.2.2.3). This module walks the tree with an explicit stack
+//! ([`Json::events`], members sorted as §3.2.3 requires), so a value of any depth
+//! canonicalizes without recursion. Each member name, string and number is written by
+//! `serde_jcs` 0.2.0, the crate decision C5 §3 and `PINS.md` fix for canonicalization.
+//!
+//! Every JSON number is handed to `serde_jcs` as the IEEE 754 double nearest to its decimal
+//! value ([SEC-SIG-013]), never as an integer type, so `9007199254740993` canonicalizes as
+//! `9007199254740992`, and `1E-7`, `0.10` and `-0` as `1e-7`, `0.1` and `0`.
 //!
 //! Signing and verification themselves are task F3. This module only produces the octets
 //! they work on.
 
-use crate::json::{Json, JsonObject};
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use crate::json::{Json, JsonObject, write_events};
 use std::fmt;
 
 /// The domain strings of `spec/security.md` §6.2. The pairing domain, which that section
@@ -64,47 +67,28 @@ impl fmt::Display for CanonicalError {
 
 impl std::error::Error for CanonicalError {}
 
-/// Serializes a [`Json`] tree for `serde_jcs`: numbers as `f64`, everything else as is.
-struct Jcs<'a>(&'a Json);
-
-impl Serialize for Jcs<'_> {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        match self.0 {
-            Json::Null => s.serialize_unit(),
-            Json::Bool(b) => s.serialize_bool(*b),
-            Json::Number(n) => {
-                let x = n.to_f64();
-                // ECMAScript writes negative zero as "0" (RFC 8785 §3.2.2.3).
-                s.serialize_f64(if x == 0.0 { 0.0 } else { x })
-            }
-            Json::String(v) => s.serialize_str(v),
-            Json::Array(a) => {
-                let mut seq = s.serialize_seq(Some(a.len()))?;
-                for v in a {
-                    seq.serialize_element(&Jcs(v))?;
-                }
-                seq.end()
-            }
-            Json::Object(o) => {
-                let mut map = s.serialize_map(Some(o.len()))?;
-                for (k, v) in o.iter() {
-                    map.serialize_entry(k, &Jcs(v))?;
-                }
-                map.end()
-            }
-        }
-    }
+fn jcs<E: fmt::Display>(out: &mut String, r: Result<String, E>) -> Result<(), CanonicalError> {
+    out.push_str(&r.map_err(|e| CanonicalError::Serializer(e.to_string()))?);
+    Ok(())
 }
 
-fn check_numbers(v: &Json) -> Result<(), CanonicalError> {
+fn scalar(v: &Json, out: &mut String) -> Result<(), CanonicalError> {
     match v {
-        Json::Number(n) if !n.to_f64().is_finite() => {
-            Err(CanonicalError::NumberOutOfRange(n.raw().to_owned()))
+        Json::Null => out.push_str("null"),
+        Json::Bool(true) => out.push_str("true"),
+        Json::Bool(false) => out.push_str("false"),
+        Json::String(s) => jcs(out, serde_jcs::to_string(s.as_str()))?,
+        Json::Number(n) => {
+            let x = n.to_f64();
+            if !x.is_finite() {
+                return Err(CanonicalError::NumberOutOfRange(n.raw().to_owned()));
+            }
+            // ECMAScript writes negative zero as "0" (RFC 8785 §3.2.2.3).
+            jcs(out, serde_jcs::to_string(&if x == 0.0 { 0.0 } else { x }))?;
         }
-        Json::Array(a) => a.iter().try_for_each(check_numbers),
-        Json::Object(o) => o.iter().try_for_each(|(_, v)| check_numbers(v)),
-        _ => Ok(()),
+        Json::Array(_) | Json::Object(_) => unreachable!("the walk yields containers as events"),
     }
+    Ok(())
 }
 
 /// The RFC 8785 canonical form of `v`, as UTF-8 text.
@@ -113,8 +97,9 @@ fn check_numbers(v: &Json) -> Result<(), CanonicalError> {
 ///
 /// [`CanonicalError::NumberOutOfRange`] when a number is beyond the double range.
 pub fn canonical(v: &Json) -> Result<String, CanonicalError> {
-    check_numbers(v)?;
-    serde_jcs::to_string(&Jcs(v)).map_err(|e| CanonicalError::Serializer(e.to_string()))
+    write_events(v.events_sorted(), scalar, |k, out| {
+        jcs(out, serde_jcs::to_string(k))
+    })
 }
 
 /// The canonical text that `spec/security.md` §6.2 signs: `obj` with the member
@@ -126,7 +111,7 @@ pub fn canonical(v: &Json) -> Result<String, CanonicalError> {
 /// As [`canonical`].
 pub fn signed_text(obj: &JsonObject) -> Result<String, CanonicalError> {
     let mut copy = obj.clone();
-    if let Some(Json::Object(mut sec)) = copy.remove("security") {
+    if let Some(mut sec) = copy.remove("security").and_then(Json::into_object) {
         sec.remove("signature");
         copy.insert("security", Json::Object(sec));
     }
@@ -160,8 +145,10 @@ mod tests {
     #[test]
     fn numbers_as_nearest_doubles() {
         assert_eq!(
-            c("[1E-7,0.10,1e21,-0,15e-1,9007199254740993,300000,1e-6,123456789012345680000]"),
-            "[1e-7,0.1,1e+21,0,1.5,9007199254740992,300000,0.000001,123456789012345680000]"
+            c(
+                "[1E-7,0.10,1e21,-0,15e-1,9007199254740993,300000,1e-6,123456789012345680000,5e-324]"
+            ),
+            "[1e-7,0.1,1e+21,0,1.5,9007199254740992,300000,0.000001,123456789012345680000,5e-324]"
         );
     }
 
@@ -169,9 +156,18 @@ mod tests {
     fn members_sorted_by_utf16_code_units() {
         // U+1F600 (surrogates D83D DE00) sorts before U+FB33 in UTF-16, after it in UTF-8.
         assert_eq!(
-            c("{\"\u{fb33}\":1,\"\u{1f600}\":2,\"b\":3,\"a\":4}"),
-            "{\"a\":4,\"b\":3,\"\u{1f600}\":2,\"\u{fb33}\":1}"
+            c("{\"\u{fb33}\":1,\"\u{1f600}\":2,\"b\":3,\"a\":{\"y\":[],\"x\":{}}}"),
+            "{\"a\":{\"x\":{},\"y\":[]},\"b\":3,\"\u{1f600}\":2,\"\u{fb33}\":1}"
         );
+    }
+
+    #[test]
+    fn strings_escaped_as_rfc8785() {
+        let b = '\\';
+        let input =
+            format!("[\"{b}u0001{b}u001F{b}\"{b}{b}{b}/{b}b{b}f{b}n{b}r{b}t\u{7f}\u{2028}é\"]");
+        let want = format!("[\"{b}u0001{b}u001f{b}\"{b}{b}/{b}b{b}f{b}n{b}r{b}t\u{7f}\u{2028}é\"]");
+        assert_eq!(c(&input), want);
     }
 
     #[test]
@@ -180,6 +176,22 @@ mod tests {
             canonical(&parse(b"[1e400]").unwrap()),
             Err(CanonicalError::NumberOutOfRange(_))
         ));
+    }
+
+    #[test]
+    fn any_depth_canonicalizes() {
+        let depth = 200_000;
+        let text = format!(
+            "{}0{}",
+            "[{\"b\":1,\"a\":".repeat(depth),
+            "}]".repeat(depth)
+        );
+        let want = format!(
+            "{}0{}",
+            "[{\"a\":".repeat(depth),
+            ",\"b\":1}]".repeat(depth)
+        );
+        assert_eq!(c(&text), want);
     }
 
     #[test]

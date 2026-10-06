@@ -146,12 +146,11 @@ fn limits(context: &JsonObject) -> (EnvelopeLimits, Timestamp) {
         .iter()
         .map(|m| u16::try_from(uint(m)).unwrap())
         .collect();
-    let mut l = EnvelopeLimits {
-        supported_majors: majors,
-        ..EnvelopeLimits::default()
-    };
+    let mut l = EnvelopeLimits::default().with_supported_majors(majors);
     if let Some(m) = context.get("max_envelope_octets") {
-        l.max_envelope_octets = uint(m);
+        l = l
+            .with_max_envelope_octets(uint(m))
+            .expect("§3.3: max_envelope_octets from 65536 to 9007199254740991");
     }
     let now = Timestamp::parse(str_of(context, "receiver_time").unwrap()).unwrap();
     (l, now)

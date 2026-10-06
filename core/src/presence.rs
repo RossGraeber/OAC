@@ -285,8 +285,9 @@ mod tests {
         let caps = SessionCapabilities::declare([(
             EXTENSION_ID_V0,
             CapabilitiesEntry::new(Version { major: 0, minor: 1 }, true),
-        )]);
-        let d = SessionDescriptor::new(sid.clone(), caps, None, None);
+        )])
+        .unwrap();
+        let d = SessionDescriptor::new(sid.clone(), caps, None, None).unwrap();
         let at = Timestamp::parse("2026-10-03T12:00:00.000Z").unwrap();
         let a = PresenceRecord::announcement(4, at.clone(), 60_000, d).unwrap();
         assert_eq!(PresenceRecord::from_octets(&a.to_octets()).unwrap(), a);

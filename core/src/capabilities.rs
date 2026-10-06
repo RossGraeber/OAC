@@ -5,7 +5,7 @@
 //! and the session descriptor (§6.3).
 
 use crate::ids::{SessionId, Token, Version, is_core_type, is_extension_type};
-use crate::json::{Json, JsonNumber, JsonObject};
+use crate::json::{Json, JsonNumber, JsonObject, is_ijson_string};
 
 /// The default and smallest `max_envelope_octets` ([SC-ENV-004], [SC-ID-066]).
 pub const DEFAULT_MAX_ENVELOPE_OCTETS: u64 = 65_536;
@@ -195,16 +195,24 @@ impl SessionCapabilities {
     /// A declaration of this implementation's own: one entry per extension identifier
     /// ([SC-ID-080], [SC-ID-081]). A later entry for the same identifier replaces an
     /// earlier one.
+    ///
+    /// `None` when an identifier does not have the `{reverse-dns-prefix}/{name}` form of
+    /// §5.1 (checked with the extension-type grammar of §4.5.2, which shares it) or is not
+    /// an I-JSON string ([SC-ENV-002] read for the declaration): a declaration a peer
+    /// could not read is never built.
     pub fn declare<'a>(
         entries: impl IntoIterator<Item = (&'a str, CapabilitiesEntry)>,
-    ) -> SessionCapabilities {
+    ) -> Option<SessionCapabilities> {
         let mut o = JsonObject::new();
         for (ext, e) in entries {
+            if !is_extension_type(ext) || !is_ijson_string(ext) {
+                return None;
+            }
             o.insert(ext, Json::Object(e.wire));
         }
-        SessionCapabilities {
+        Some(SessionCapabilities {
             wire: Json::Object(o),
-        }
+        })
     }
 
     /// The valid entries for the identifiers in `implemented`. A member named by any other
@@ -258,12 +266,20 @@ pub struct SessionDescriptor {
 impl SessionDescriptor {
     /// A descriptor of this implementation's own. `display_name` and `harness_label` are
     /// optional ([SC-ID-042]).
+    ///
+    /// `None` when `capabilities` is not a JSON object ([SC-ID-060]) or `display_name`
+    /// holds a noncharacter, which I-JSON forbids: an announcement carrying the descriptor
+    /// would then be discarded by every consumer ([SC-DLV-021], [SC-DLV-040]). So the
+    /// implementation's own descriptor is always one a peer accepts.
     pub fn new(
         session_id: SessionId,
         capabilities: SessionCapabilities,
         display_name: Option<&str>,
         harness_label: Option<&Token>,
-    ) -> SessionDescriptor {
+    ) -> Option<SessionDescriptor> {
+        if capabilities.wire.as_object().is_none() || !display_name.is_none_or(is_ijson_string) {
+            return None;
+        }
         let mut wire = JsonObject::new();
         wire.insert("session_id", session_id.as_str().into());
         wire.insert("capabilities", capabilities.wire.clone());
@@ -273,11 +289,11 @@ impl SessionDescriptor {
         if let Some(h) = harness_label {
             wire.insert("harness_label", h.as_str().into());
         }
-        SessionDescriptor {
+        Some(SessionDescriptor {
             session_id,
             capabilities,
             wire,
-        }
+        })
     }
 
     /// Reads a descriptor: an object with a session id in `session_id` ([SC-ID-040]) and a
@@ -346,7 +362,7 @@ mod tests {
         let e = CapabilitiesEntry::new(Version { major: 0, minor: 1 }, true)
             .with_max_envelope_octets(131_072)
             .unwrap();
-        let caps = SessionCapabilities::declare([(EXTENSION_ID_V0, e)]);
+        let caps = SessionCapabilities::declare([(EXTENSION_ID_V0, e)]).unwrap();
         let back =
             SessionCapabilities::from_json(&parse(caps.as_json().to_compact().as_bytes()).unwrap());
         let agreed = back.agree(&implemented()).unwrap();
@@ -361,5 +377,40 @@ mod tests {
         let e = CapabilitiesEntry::new(Version { major: 0, minor: 1 }, true);
         assert!(e.clone().with_max_envelope_octets(65_535).is_none());
         assert!(e.with_content_types(vec!["Text".into()]).is_none());
+    }
+
+    #[test]
+    fn own_declaration_and_descriptor_are_always_valid_for_peers() {
+        let e = || CapabilitiesEntry::new(Version { major: 0, minor: 1 }, true);
+        // Extension identifiers: the {reverse-dns-prefix}/{name} form, I-JSON only.
+        for bad in [
+            "oac-session-channels",
+            "io.github.rossgraeber/oac\u{fffe}",
+            "io.github.rossgraeber/",
+            "",
+        ] {
+            assert!(
+                SessionCapabilities::declare([(bad, e())]).is_none(),
+                "{bad:?}"
+            );
+        }
+        let caps = SessionCapabilities::declare([(EXTENSION_ID_V0, e())]).unwrap();
+        let sid = SessionId::parse("7gq3m8z2c5k9t1w4x6b0n2r8vd").unwrap();
+        // A display name with a noncharacter would make the announcement unreadable.
+        for bad in ["bad\u{ffff}", "\u{fdd0}", "x\u{10fffe}"] {
+            assert!(SessionDescriptor::new(sid.clone(), caps.clone(), Some(bad), None).is_none());
+        }
+        // A declaration that is not an object (SC-ID-060).
+        let not_object = SessionCapabilities::from_json(&Json::from("x"));
+        assert!(SessionDescriptor::new(sid.clone(), not_object, None, None).is_none());
+        let label = Token::parse("harness-b").unwrap();
+        let d = SessionDescriptor::new(sid, caps, Some("Review \u{1F600}"), Some(&label)).unwrap();
+        let back = SessionDescriptor::from_json(
+            &parse(Json::Object(d.as_json().clone()).to_compact().as_bytes()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(back, d);
+        assert_eq!(back.display_name(), Some("Review \u{1F600}"));
+        assert_eq!(back.harness_label(), Some(label));
     }
 }

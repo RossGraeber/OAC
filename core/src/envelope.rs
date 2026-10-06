@@ -24,14 +24,18 @@
 //! - [`ChannelMessage::verified_by`] is empty until the security stage succeeds
 //!   ([IFC-TYP-041]). This crate has no security stage yet (task F3), so nothing sets it.
 //!
-//! ```compile_fail
+//! ```compile_fail,E0451
 //! // SecurityMetadata cannot be built outside this crate, from content or anything else.
 //! let _ = oac_core::envelope::SecurityMetadata { principal: String::new(), key_id: String::new(), nonce: String::new(), signature: String::new() };
 //! ```
 
 use crate::canonical::{CanonicalError, SigningDomain, signing_input};
+use crate::capabilities::{DEFAULT_MAX_ENVELOPE_OCTETS, MAX_ENVELOPE_OCTETS_LIMIT};
 use crate::delivery::{DeliveryState, ErrorCode};
-use crate::ids::{IMPLEMENTED_VERSION, KeyId, SessionId, Timestamp, Token, Version};
+use crate::ids::{
+    IMPLEMENTED_VERSION, KeyId, SessionId, Timestamp, Token, Version, is_core_type,
+    is_extension_type,
+};
 use crate::json::{self, Json, JsonNumber, JsonObject};
 use std::fmt;
 
@@ -176,7 +180,7 @@ impl TextPart {
     /// Unicode noncharacter, which I-JSON forbids ([SC-ENV-002]).
     pub fn new(text: impl Into<String>) -> Option<TextPart> {
         let text = text.into();
-        let ijson = json::parse(Json::String(text.clone()).to_compact().as_bytes()).is_ok();
+        let ijson = json::is_ijson_string(&text);
         if text.is_empty() || !ijson {
             return None;
         }
@@ -233,15 +237,14 @@ impl ContentPart {
 
 /// The receiver's envelope-stage settings. Both limits are receiver-wide: they do not
 /// depend on the addressed session ([SC-RCP-076]).
+///
+/// The fields are private and every setter checks its value, so the size limit can never
+/// fall below the 65536 octets a receiver accepts ([SC-ENV-004]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnvelopeLimits {
-    /// The major versions the receiver supports ([SC-VER-001]).
-    pub supported_majors: Vec<u16>,
-    /// The largest serialized envelope accepted for any session; at least 65536
-    /// ([SC-ENV-004]).
-    pub max_envelope_octets: u64,
-    /// Part types besides `text` that the receiver supports for at least one session.
-    pub part_types: Vec<String>,
+    supported_majors: Vec<u16>,
+    max_envelope_octets: u64,
+    part_types: Vec<String>,
 }
 
 impl Default for EnvelopeLimits {
@@ -249,9 +252,57 @@ impl Default for EnvelopeLimits {
     fn default() -> Self {
         EnvelopeLimits {
             supported_majors: vec![IMPLEMENTED_VERSION.major],
-            max_envelope_octets: crate::capabilities::DEFAULT_MAX_ENVELOPE_OCTETS,
+            max_envelope_octets: DEFAULT_MAX_ENVELOPE_OCTETS,
             part_types: Vec::new(),
         }
+    }
+}
+
+impl EnvelopeLimits {
+    /// The limits with `majors` as the supported major versions ([SC-VER-001]).
+    pub fn with_supported_majors(mut self, majors: Vec<u16>) -> Self {
+        self.supported_majors = majors;
+        self
+    }
+
+    /// The limits with a receiver-wide size limit of `octets`. `None` below 65536, which
+    /// [SC-ENV-004] makes the floor, or above 9007199254740991 (the range of
+    /// [SC-RCP-076] and §3.3).
+    pub fn with_max_envelope_octets(mut self, octets: u64) -> Option<Self> {
+        if !(DEFAULT_MAX_ENVELOPE_OCTETS..=MAX_ENVELOPE_OCTETS_LIMIT).contains(&octets) {
+            return None;
+        }
+        self.max_envelope_octets = octets;
+        Some(self)
+    }
+
+    /// The limits with `types`, besides `text`, as the part types the receiver supports
+    /// for at least one session. `None` when a type is neither a core type nor an
+    /// extension type (§4.5.2).
+    pub fn with_part_types(mut self, types: Vec<String>) -> Option<Self> {
+        if !types
+            .iter()
+            .all(|t| is_core_type(t) || is_extension_type(t))
+        {
+            return None;
+        }
+        self.part_types = types;
+        Some(self)
+    }
+
+    /// The supported major versions.
+    pub fn supported_majors(&self) -> &[u16] {
+        &self.supported_majors
+    }
+
+    /// The receiver-wide size limit, in octets.
+    pub fn max_envelope_octets(&self) -> u64 {
+        self.max_envelope_octets
+    }
+
+    /// The part types supported besides `text`.
+    pub fn part_types(&self) -> &[String] {
+        &self.part_types
     }
 }
 
@@ -448,9 +499,7 @@ pub fn receive_envelope(
     }
     // Step 2: encoding ([SC-ENV-001], [SC-ENV-002]) and `version` ([SC-ENV-020]).
     let v = json::parse(octets).map_err(|_| rejected(Malformed, "SC-ENV-002"))?;
-    let Json::Object(o) = v else {
-        return Err(rejected(Malformed, "SC-ENV-001"));
-    };
+    let o = v.into_object().ok_or(rejected(Malformed, "SC-ENV-001"))?;
     let version = o
         .get("version")
         .and_then(Json::as_str)
@@ -841,5 +890,44 @@ mod tests {
         );
         assert!(!env.is_expired_at(&Timestamp::parse("2026-10-03T12:00:00.999999999Z").unwrap()));
         assert!(env.is_expired_at(&Timestamp::parse("2026-10-03T12:00:01Z").unwrap()));
+    }
+
+    #[test]
+    fn deep_unrecognized_member_within_the_size_limit_is_accepted() {
+        // [SC-ENV-004], [SC-ENV-090]: an envelope of at most 65536 octets whose only oddity
+        // is a deeply nested unrecognized member passes the envelope stage, and every path
+        // over it (signing input, copy, comparison, rewrite, drop) works on a test
+        // thread's default stack.
+        let head = r#"{"version":"0.1","id":"msg-1","from":"01harn7x9k2m4p6q8r0s2t4v6w","to":"7gq3m8z2c5k9t1w4x6b0n2r8vd","created_at":"2026-10-03T12:00:00.000Z","content":[{"type":"text","text":"Hi."}],"security":{"principal":"p","key_id":"k","nonce":"n","signature":"s"},"x-deep":"#;
+        let depth = (65_536 - head.len() - 1) / 2;
+        let deep = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        let text = format!("{head}{deep}}}");
+        assert!(text.len() <= 65_536 && text.len() > 65_000);
+        let now = Timestamp::parse("2026-10-03T12:00:01.000Z").unwrap();
+        let msg = receive_envelope(text.as_bytes(), &EnvelopeLimits::default(), &now).unwrap();
+        let env = msg.envelope();
+        assert_eq!(env.octets(), text.as_bytes());
+        let input = env.signing_input().unwrap();
+        assert!(input.ends_with(format!("\"x-deep\":{deep}}}").as_bytes()));
+        let copy = msg.clone();
+        assert_eq!(copy, msg);
+        assert_eq!(Json::Object(env.as_json().clone()).to_compact(), text);
+        drop(copy);
+    }
+
+    #[test]
+    fn limits_never_fall_below_the_default() {
+        let l = EnvelopeLimits::default();
+        assert_eq!(l.max_envelope_octets(), 65_536);
+        assert!(l.clone().with_max_envelope_octets(65_535).is_none());
+        assert!(
+            l.clone()
+                .with_max_envelope_octets(9_007_199_254_740_992)
+                .is_none()
+        );
+        let raised = l.clone().with_max_envelope_octets(131_072).unwrap();
+        assert_eq!(raised.max_envelope_octets(), 131_072);
+        assert!(l.clone().with_part_types(vec!["Text".into()]).is_none());
+        assert!(l.with_part_types(vec!["com.example/rich".into()]).is_some());
     }
 }

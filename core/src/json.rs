@@ -25,19 +25,22 @@
 //! [`Json::to_compact`] writes a tree back as JSON text. [`crate::canonical`] writes the
 //! RFC 8785 canonical form used for signing.
 //!
-//! > **Reference implementation note:** nesting deeper than [`MAX_DEPTH`] is refused as
-//! > [`JsonError::TooDeep`]. That bounds the reader's stack; no value this specification
-//! > defines comes near it, but an unrecognized member could, and such an envelope is
-//! > rejected as malformed.
+//! # No limit on nesting
+//!
+//! Nothing in this module recurses over the tree: the reader, the writers, the walk
+//! ([`Json::events`]), `Clone`, `PartialEq`, `Debug` and `Drop` each keep an explicit
+//! stack on the heap. Nesting depth is therefore bounded only by the input's size, and an
+//! envelope within the receiver's size limit is never refused for its depth
+//! ([SC-ENV-004], [SC-ENV-090]).
 
 use std::collections::HashSet;
 use std::fmt;
 
-/// The deepest nesting of arrays and objects [`parse`] accepts.
-pub const MAX_DEPTH: usize = 128;
-
 /// A JSON value read under the I-JSON rules.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// `Clone`, `PartialEq`, `Debug` and `Drop` are implemented without recursion, so a value
+/// of any depth can be copied, compared, printed and dropped on a small stack.
+#[derive(Eq)]
 pub enum Json {
     /// `null`. Valid JSON, but no wire value of this specification may contain it
     /// ([SC-ENV-003]); see [`Json::contains_null`].
@@ -83,8 +86,6 @@ pub enum JsonError {
     ForbiddenCodePoint,
     /// An object repeats a member name (RFC 7493 §2.3).
     DuplicateMember(String),
-    /// Nesting deeper than [`MAX_DEPTH`].
-    TooDeep,
 }
 
 impl fmt::Display for JsonError {
@@ -94,12 +95,24 @@ impl fmt::Display for JsonError {
             JsonError::Syntax { offset, reason } => write!(f, "{reason} at offset {offset}"),
             JsonError::ForbiddenCodePoint => f.write_str("lone surrogate or noncharacter"),
             JsonError::DuplicateMember(name) => write!(f, "duplicate member name {name:?}"),
-            JsonError::TooDeep => write!(f, "nesting deeper than {MAX_DEPTH}"),
         }
     }
 }
 
 impl std::error::Error for JsonError {}
+
+/// True when `c` is a Unicode noncharacter (U+FDD0 to U+FDEF, or a code point ending in
+/// FFFE or FFFF), which RFC 7493 §2.1 forbids.
+fn is_noncharacter(c: char) -> bool {
+    let u = c as u32;
+    (0xFDD0..=0xFDEF).contains(&u) || (u & 0xFFFE) == 0xFFFE
+}
+
+/// True when `s` may be an I-JSON member name or string value: it holds no noncharacter
+/// (RFC 7493 §2.1). A Rust string cannot hold a lone surrogate.
+pub fn is_ijson_string(s: &str) -> bool {
+    !s.chars().any(is_noncharacter)
+}
 
 /// Reads `octets` as one I-JSON message.
 ///
@@ -114,7 +127,7 @@ pub fn parse(octets: &[u8]) -> Result<Json, JsonError> {
         text,
         i: 0,
     };
-    let v = p.value(0)?;
+    let v = p.document()?;
     p.ws();
     if p.i != p.s.len() {
         return Err(p.err("trailing characters"));
@@ -122,11 +135,14 @@ pub fn parse(octets: &[u8]) -> Result<Json, JsonError> {
     Ok(v)
 }
 
-/// True when `c` is a Unicode noncharacter (U+FDD0 to U+FDEF, or a code point ending in
-/// FFFE or FFFF), which RFC 7493 §2.1 forbids.
-fn is_noncharacter(c: char) -> bool {
-    let u = c as u32;
-    (0xFDD0..=0xFDEF).contains(&u) || (u & 0xFFFE) == 0xFFFE
+/// A container the reader has opened and not yet closed.
+enum Open {
+    Array(Vec<Json>),
+    Object {
+        members: Vec<(String, Json)>,
+        seen: HashSet<String>,
+        name: String,
+    },
 }
 
 struct Parser<'a> {
@@ -149,19 +165,117 @@ impl Parser<'_> {
         }
     }
 
-    fn value(&mut self, depth: usize) -> Result<Json, JsonError> {
-        self.ws();
-        match self.s.get(self.i) {
-            None => Err(self.err("unexpected end")),
-            Some(b'{') => self.object(depth + 1),
-            Some(b'[') => self.array(depth + 1),
-            Some(b'"') => self.string().map(Json::String),
-            Some(b't') => self.literal("true", Json::Bool(true)),
-            Some(b'f') => self.literal("false", Json::Bool(false)),
-            Some(b'n') => self.literal("null", Json::Null),
-            Some(b'-' | b'0'..=b'9') => self.number(),
-            Some(_) => Err(self.err("unexpected character")),
+    fn peek(&self) -> Option<u8> {
+        self.s.get(self.i).copied()
+    }
+
+    /// One value, read with an explicit stack of open containers: no recursion.
+    fn document(&mut self) -> Result<Json, JsonError> {
+        let mut stack: Vec<Open> = Vec::new();
+        'value: loop {
+            self.ws();
+            let mut v = match self.peek() {
+                None => return Err(self.err("unexpected end")),
+                Some(b'[') => {
+                    self.i += 1;
+                    self.ws();
+                    if self.peek() == Some(b']') {
+                        self.i += 1;
+                        Json::Array(Vec::new())
+                    } else {
+                        stack.push(Open::Array(Vec::new()));
+                        continue 'value;
+                    }
+                }
+                Some(b'{') => {
+                    self.i += 1;
+                    self.ws();
+                    if self.peek() == Some(b'}') {
+                        self.i += 1;
+                        Json::Object(JsonObject::default())
+                    } else {
+                        let name = self.member_name()?;
+                        stack.push(Open::Object {
+                            members: Vec::new(),
+                            seen: HashSet::new(),
+                            name,
+                        });
+                        continue 'value;
+                    }
+                }
+                Some(b'"') => Json::String(self.string()?),
+                Some(b't') => self.literal("true", Json::Bool(true))?,
+                Some(b'f') => self.literal("false", Json::Bool(false))?,
+                Some(b'n') => self.literal("null", Json::Null)?,
+                Some(b'-' | b'0'..=b'9') => self.number()?,
+                Some(_) => return Err(self.err("unexpected character")),
+            };
+            // `v` is complete: add it to the innermost open container, closing every
+            // container that ends here.
+            loop {
+                let Some(top) = stack.last_mut() else {
+                    return Ok(v);
+                };
+                match top {
+                    Open::Array(items) => {
+                        items.push(v);
+                        self.ws();
+                        match self.peek() {
+                            Some(b',') => {
+                                self.i += 1;
+                                continue 'value;
+                            }
+                            Some(b']') => self.i += 1,
+                            _ => return Err(self.err("expected , or ]")),
+                        }
+                    }
+                    Open::Object {
+                        members,
+                        seen,
+                        name,
+                    } => {
+                        let name = std::mem::take(name);
+                        if !seen.insert(name.clone()) {
+                            return Err(JsonError::DuplicateMember(name));
+                        }
+                        members.push((name, v));
+                        self.ws();
+                        match self.peek() {
+                            Some(b',') => {
+                                self.i += 1;
+                                let next = self.member_name()?;
+                                if let Some(Open::Object { name, .. }) = stack.last_mut() {
+                                    *name = next;
+                                }
+                                continue 'value;
+                            }
+                            Some(b'}') => self.i += 1,
+                            _ => return Err(self.err("expected , or }")),
+                        }
+                    }
+                }
+                v = match stack.pop() {
+                    Some(Open::Array(items)) => Json::Array(items),
+                    Some(Open::Object { members, .. }) => Json::Object(JsonObject { members }),
+                    None => unreachable!("the loop above saw a container"),
+                };
+            }
         }
+    }
+
+    /// A member name and its `:`.
+    fn member_name(&mut self) -> Result<String, JsonError> {
+        self.ws();
+        if self.peek() != Some(b'"') {
+            return Err(self.err("expected member name"));
+        }
+        let name = self.string()?;
+        self.ws();
+        if self.peek() != Some(b':') {
+            return Err(self.err("expected :"));
+        }
+        self.i += 1;
+        Ok(name)
     }
 
     fn literal(&mut self, word: &str, v: Json) -> Result<Json, JsonError> {
@@ -187,22 +301,22 @@ impl Parser<'_> {
         if self.s[self.i] == b'-' {
             self.i += 1;
         }
-        match self.s.get(self.i) {
+        match self.peek() {
             Some(b'0') => self.i += 1,
             Some(b'1'..=b'9') => {
                 self.digits();
             }
             _ => return Err(self.err("bad number")),
         }
-        if self.s.get(self.i) == Some(&b'.') {
+        if self.peek() == Some(b'.') {
             self.i += 1;
             if self.digits() == 0 {
                 return Err(self.err("bad number fraction"));
             }
         }
-        if matches!(self.s.get(self.i), Some(b'e' | b'E')) {
+        if matches!(self.peek(), Some(b'e' | b'E')) {
             self.i += 1;
-            if matches!(self.s.get(self.i), Some(b'+' | b'-')) {
+            if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.i += 1;
             }
             if self.digits() == 0 {
@@ -218,12 +332,12 @@ impl Parser<'_> {
         let h = self
             .s
             .get(self.i..self.i + 4)
-            .ok_or_else(|| self.err("bad \\u escape"))?;
+            .ok_or_else(|| self.err("bad escape"))?;
         let mut v = 0u32;
         for &b in h {
             let d = (b as char)
                 .to_digit(16)
-                .ok_or_else(|| self.err("bad \\u escape"))?;
+                .ok_or_else(|| self.err("bad escape"))?;
             v = v * 16 + d;
         }
         self.i += 4;
@@ -239,7 +353,7 @@ impl Parser<'_> {
                 self.i += 1;
             }
             out.push_str(&self.text[start..self.i]);
-            match self.s.get(self.i) {
+            match self.peek() {
                 None => return Err(self.err("unterminated string")),
                 Some(b'"') => {
                     self.i += 1;
@@ -247,7 +361,7 @@ impl Parser<'_> {
                 }
                 Some(b'\\') => {
                     self.i += 1;
-                    let e = *self.s.get(self.i).ok_or_else(|| self.err("bad escape"))?;
+                    let e = self.peek().ok_or_else(|| self.err("bad escape"))?;
                     self.i += 1;
                     match e {
                         b'"' => out.push('"'),
@@ -263,7 +377,7 @@ impl Parser<'_> {
                             let cp = if (0xD800..=0xDBFF).contains(&hi) {
                                 // A high surrogate must be followed by an escaped low one;
                                 // anything else is a lone surrogate (RFC 7493 §2.1).
-                                if self.s.get(self.i..self.i + 2) != Some(b"\\u") {
+                                if self.s.get(self.i..self.i + 2) != Some(b"\\u".as_slice()) {
                                     return Err(JsonError::ForbiddenCodePoint);
                                 }
                                 self.i += 2;
@@ -285,75 +399,10 @@ impl Parser<'_> {
                 Some(_) => return Err(self.err("control character in string")),
             }
         }
-        if out.chars().any(is_noncharacter) {
+        if !is_ijson_string(&out) {
             return Err(JsonError::ForbiddenCodePoint);
         }
         Ok(out)
-    }
-
-    fn array(&mut self, depth: usize) -> Result<Json, JsonError> {
-        if depth > MAX_DEPTH {
-            return Err(JsonError::TooDeep);
-        }
-        self.i += 1;
-        let mut items = Vec::new();
-        self.ws();
-        if self.s.get(self.i) == Some(&b']') {
-            self.i += 1;
-            return Ok(Json::Array(items));
-        }
-        loop {
-            items.push(self.value(depth)?);
-            self.ws();
-            match self.s.get(self.i) {
-                Some(b',') => self.i += 1,
-                Some(b']') => {
-                    self.i += 1;
-                    return Ok(Json::Array(items));
-                }
-                _ => return Err(self.err("expected , or ]")),
-            }
-        }
-    }
-
-    fn object(&mut self, depth: usize) -> Result<Json, JsonError> {
-        if depth > MAX_DEPTH {
-            return Err(JsonError::TooDeep);
-        }
-        self.i += 1;
-        let mut members = Vec::new();
-        let mut seen = HashSet::new();
-        self.ws();
-        if self.s.get(self.i) == Some(&b'}') {
-            self.i += 1;
-            return Ok(Json::Object(JsonObject { members }));
-        }
-        loop {
-            self.ws();
-            if self.s.get(self.i) != Some(&b'"') {
-                return Err(self.err("expected member name"));
-            }
-            let name = self.string()?;
-            self.ws();
-            if self.s.get(self.i) != Some(&b':') {
-                return Err(self.err("expected :"));
-            }
-            self.i += 1;
-            let v = self.value(depth)?;
-            if !seen.insert(name.clone()) {
-                return Err(JsonError::DuplicateMember(name));
-            }
-            members.push((name, v));
-            self.ws();
-            match self.s.get(self.i) {
-                Some(b',') => self.i += 1,
-                Some(b'}') => {
-                    self.i += 1;
-                    return Ok(Json::Object(JsonObject { members }));
-                }
-                _ => return Err(self.err("expected , or }")),
-            }
-        }
     }
 }
 
@@ -444,6 +493,139 @@ impl JsonObject {
     }
 }
 
+/// One step of a depth-first walk of a [`Json`] value ([`Json::events`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Event<'a> {
+    /// `null`, a boolean, a number or a string.
+    Scalar(&'a Json),
+    /// `[`.
+    ArrayStart,
+    /// `]`.
+    ArrayEnd,
+    /// `{`.
+    ObjectStart,
+    /// A member name; the member's value follows.
+    Name(&'a str),
+    /// `}`.
+    ObjectEnd,
+}
+
+enum Frame<'a> {
+    Array(std::slice::Iter<'a, Json>),
+    Object(std::vec::IntoIter<(&'a str, &'a Json)>),
+}
+
+/// A depth-first walk of a [`Json`] value with an explicit stack.
+pub struct Events<'a> {
+    stack: Vec<Frame<'a>>,
+    pending: Option<&'a Json>,
+    sorted: bool,
+}
+
+impl<'a> Iterator for Events<'a> {
+    type Item = Event<'a>;
+
+    fn next(&mut self) -> Option<Event<'a>> {
+        if let Some(v) = self.pending.take() {
+            return Some(match v {
+                Json::Array(a) => {
+                    self.stack.push(Frame::Array(a.iter()));
+                    Event::ArrayStart
+                }
+                Json::Object(o) => {
+                    let mut m: Vec<(&str, &Json)> = o.iter().collect();
+                    if self.sorted {
+                        // RFC 8785 §3.2.3: by member name, as arrays of UTF-16 code units.
+                        m.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+                    }
+                    self.stack.push(Frame::Object(m.into_iter()));
+                    Event::ObjectStart
+                }
+                scalar => Event::Scalar(scalar),
+            });
+        }
+        match self.stack.last_mut()? {
+            Frame::Array(it) => match it.next() {
+                Some(v) => {
+                    self.pending = Some(v);
+                    self.next()
+                }
+                None => {
+                    self.stack.pop();
+                    Some(Event::ArrayEnd)
+                }
+            },
+            Frame::Object(it) => match it.next() {
+                Some((k, v)) => {
+                    self.pending = Some(v);
+                    Some(Event::Name(k))
+                }
+                None => {
+                    self.stack.pop();
+                    Some(Event::ObjectEnd)
+                }
+            },
+        }
+    }
+}
+
+/// Writes a walk as JSON text with no insignificant whitespace, using `scalar` and `name`
+/// to write leaves. No recursion.
+pub(crate) fn write_events<'a, E>(
+    events: Events<'a>,
+    mut scalar: impl FnMut(&'a Json, &mut String) -> Result<(), E>,
+    mut name: impl FnMut(&'a str, &mut String) -> Result<(), E>,
+) -> Result<String, E> {
+    // For each open container: (is an array, no element written yet).
+    let mut levels: Vec<(bool, bool)> = Vec::new();
+    let mut out = String::new();
+    for ev in events {
+        match ev {
+            Event::ArrayEnd => {
+                levels.pop();
+                out.push(']');
+                continue;
+            }
+            Event::ObjectEnd => {
+                levels.pop();
+                out.push('}');
+                continue;
+            }
+            Event::Name(k) => {
+                if let Some(level) = levels.last_mut() {
+                    if !level.1 {
+                        out.push(',');
+                    }
+                    level.1 = false;
+                }
+                name(k, &mut out)?;
+                out.push(':');
+                continue;
+            }
+            _ => {}
+        }
+        if let Some(level) = levels.last_mut().filter(|l| l.0) {
+            if !level.1 {
+                out.push(',');
+            }
+            level.1 = false;
+        }
+        match ev {
+            Event::Scalar(v) => scalar(v, &mut out)?,
+            Event::ArrayStart => {
+                out.push('[');
+                levels.push((true, true));
+            }
+            Event::ObjectStart => {
+                out.push('{');
+                levels.push((false, true));
+            }
+            _ => unreachable!("handled above"),
+        }
+    }
+    Ok(out)
+}
+
 impl Json {
     /// The string, if this is one.
     pub fn as_str(&self) -> Option<&str> {
@@ -485,56 +667,80 @@ impl Json {
         }
     }
 
+    /// The object, taken out of this value, if this is one. (`Json` implements `Drop`, so
+    /// its fields cannot be moved out by a pattern.)
+    pub fn into_object(mut self) -> Option<JsonObject> {
+        match &mut self {
+            Json::Object(o) => Some(std::mem::take(o)),
+            _ => None,
+        }
+    }
+
+    /// A depth-first walk of the value, object members in stored order.
+    pub fn events(&self) -> Events<'_> {
+        Events {
+            stack: Vec::new(),
+            pending: Some(self),
+            sorted: false,
+        }
+    }
+
+    /// A depth-first walk with object members sorted by their UTF-16 code units, the
+    /// order of RFC 8785 §3.2.3.
+    pub(crate) fn events_sorted(&self) -> Events<'_> {
+        Events {
+            stack: Vec::new(),
+            pending: Some(self),
+            sorted: true,
+        }
+    }
+
     /// True when a JSON `null` appears anywhere in the value, as a member value or an
     /// array element ([SC-ENV-003], [SC-RCP-020], [SC-DLV-021]).
     pub fn contains_null(&self) -> bool {
-        match self {
-            Json::Null => true,
-            Json::Array(a) => a.iter().any(Json::contains_null),
-            Json::Object(o) => o.members.iter().any(|(_, v)| v.contains_null()),
-            _ => false,
-        }
+        self.events()
+            .any(|e| matches!(e, Event::Scalar(Json::Null)))
     }
 
     /// The value as compact JSON text: no insignificant whitespace, object members in
     /// stored order, numbers as spelled, and strings escaped as ECMAScript
     /// `JSON.stringify` escapes them (`"`, `\`, and control characters only).
     pub fn to_compact(&self) -> String {
-        let mut out = String::new();
-        self.write_compact(&mut out);
-        out
+        let r: Result<String, std::convert::Infallible> = write_events(
+            self.events(),
+            |v, out| {
+                write_scalar(v, out);
+                Ok(())
+            },
+            |k, out| {
+                write_string(k, out);
+                Ok(())
+            },
+        );
+        match r {
+            Ok(s) => s,
+        }
     }
 
-    fn write_compact(&self, out: &mut String) {
+    fn scalar_clone(&self) -> Json {
         match self {
-            Json::Null => out.push_str("null"),
-            Json::Bool(true) => out.push_str("true"),
-            Json::Bool(false) => out.push_str("false"),
-            Json::Number(n) => out.push_str(&n.raw),
-            Json::String(s) => write_string(s, out),
-            Json::Array(a) => {
-                out.push('[');
-                for (k, v) in a.iter().enumerate() {
-                    if k > 0 {
-                        out.push(',');
-                    }
-                    v.write_compact(out);
-                }
-                out.push(']');
-            }
-            Json::Object(o) => {
-                out.push('{');
-                for (k, (name, v)) in o.members.iter().enumerate() {
-                    if k > 0 {
-                        out.push(',');
-                    }
-                    write_string(name, out);
-                    out.push(':');
-                    v.write_compact(out);
-                }
-                out.push('}');
-            }
+            Json::Null => Json::Null,
+            Json::Bool(b) => Json::Bool(*b),
+            Json::Number(n) => Json::Number(n.clone()),
+            Json::String(s) => Json::String(s.clone()),
+            Json::Array(_) | Json::Object(_) => unreachable!("not a scalar"),
         }
+    }
+}
+
+fn write_scalar(v: &Json, out: &mut String) {
+    match v {
+        Json::Null => out.push_str("null"),
+        Json::Bool(true) => out.push_str("true"),
+        Json::Bool(false) => out.push_str("false"),
+        Json::Number(n) => out.push_str(&n.raw),
+        Json::String(s) => write_string(s, out),
+        Json::Array(_) | Json::Object(_) => unreachable!("not a scalar"),
     }
 }
 
@@ -554,6 +760,101 @@ fn write_string(s: &str, out: &mut String) {
         }
     }
     out.push('"');
+}
+
+enum Building {
+    Array(Vec<Json>),
+    Object(Vec<(String, Json)>, String),
+}
+
+impl Clone for Json {
+    /// Copies the value with an explicit stack: no recursion.
+    fn clone(&self) -> Json {
+        let mut stack: Vec<Building> = Vec::new();
+        for ev in self.events() {
+            let done = match ev {
+                Event::ArrayStart => {
+                    stack.push(Building::Array(Vec::new()));
+                    continue;
+                }
+                Event::ObjectStart => {
+                    stack.push(Building::Object(Vec::new(), String::new()));
+                    continue;
+                }
+                Event::Name(k) => {
+                    if let Some(Building::Object(_, name)) = stack.last_mut() {
+                        *name = k.to_owned();
+                    }
+                    continue;
+                }
+                Event::Scalar(v) => v.scalar_clone(),
+                Event::ArrayEnd | Event::ObjectEnd => match stack.pop() {
+                    Some(Building::Array(items)) => Json::Array(items),
+                    Some(Building::Object(members, _)) => Json::Object(JsonObject { members }),
+                    None => unreachable!("balanced walk"),
+                },
+            };
+            match stack.last_mut() {
+                None => return done,
+                Some(Building::Array(items)) => items.push(done),
+                Some(Building::Object(members, name)) => members.push((std::mem::take(name), done)),
+            }
+        }
+        unreachable!("a walk ends with its root")
+    }
+}
+
+impl PartialEq for Json {
+    /// Structural equality, object members compared in stored order, with no recursion.
+    fn eq(&self, other: &Json) -> bool {
+        let mut a = self.events();
+        let mut b = other.events();
+        loop {
+            match (a.next(), b.next()) {
+                (None, None) => return true,
+                (Some(Event::Scalar(x)), Some(Event::Scalar(y))) => {
+                    let same = match (x, y) {
+                        (Json::Null, Json::Null) => true,
+                        (Json::Bool(p), Json::Bool(q)) => p == q,
+                        (Json::Number(p), Json::Number(q)) => p == q,
+                        (Json::String(p), Json::String(q)) => p == q,
+                        _ => false,
+                    };
+                    if !same {
+                        return false;
+                    }
+                }
+                (Some(x), Some(y)) if x == y => {}
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl fmt::Debug for Json {
+    /// The compact text, written without recursion.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_compact())
+    }
+}
+
+impl Drop for Json {
+    /// Drops the value with an explicit stack, so a deep value cannot overflow the call
+    /// stack on drop.
+    fn drop(&mut self) {
+        fn take(v: &mut Json, stack: &mut Vec<Json>) {
+            match v {
+                Json::Array(a) => stack.append(a),
+                Json::Object(o) => stack.extend(o.members.drain(..).map(|(_, v)| v)),
+                _ => {}
+            }
+        }
+        let mut stack: Vec<Json> = Vec::new();
+        take(self, &mut stack);
+        while let Some(mut v) = stack.pop() {
+            take(&mut v, &mut stack);
+        }
+    }
 }
 
 impl From<JsonObject> for Json {
@@ -576,6 +877,11 @@ mod tests {
         parse(text.as_bytes()).unwrap_err()
     }
 
+    // A JSON `\u` escape of the four hex digits `h`, built at run time.
+    fn u(h: &str) -> String {
+        format!("{}u{h}", '\\')
+    }
+
     #[test]
     fn keeps_number_spelling_and_member_order() {
         let v = parse(br#"{"b":1E-7,"a":0.10,"c":-0}"#).unwrap();
@@ -588,25 +894,35 @@ mod tests {
             err(r#"{"a":1,"a":2}"#),
             JsonError::DuplicateMember("a".into())
         );
-        assert_eq!(
-            err(r#"{"a":{"b":1,"b":2}}"#),
-            JsonError::DuplicateMember("b".into())
-        );
-        assert_eq!(err(r#"["\ud800"]"#), JsonError::ForbiddenCodePoint);
-        assert_eq!(err(r#"["\udc00"]"#), JsonError::ForbiddenCodePoint);
-        assert_eq!(err(r#"["\ud800A"]"#), JsonError::ForbiddenCodePoint);
-        assert_eq!(err(r#"["﷐"]"#), JsonError::ForbiddenCodePoint);
-        assert_eq!(err("[\"\u{10FFFF}\"]"), JsonError::ForbiddenCodePoint);
+        // A duplicate after escape decoding.
+        let escaped_b = format!(r#"{{"a":{{"b":1,"{}":2}}}}"#, u("0062"));
+        assert_eq!(err(&escaped_b), JsonError::DuplicateMember("b".into()));
+        for lone in [
+            format!(r#"["{}"]"#, u("d800")),
+            format!(r#"["{}"]"#, u("dc00")),
+            format!(r#"["{}{}"]"#, u("d800"), u("0041")),
+            format!(r#"["{}{}"]"#, u("de00"), u("d83d")),
+            format!(r#"["{}"]"#, u("fdd0")),
+            format!(r#"["{}"]"#, u("ffff")),
+            format!(r#"["{}{}"]"#, u("dbff"), u("dfff")),
+            "[\"\u{fdd0}\"]".to_owned(),
+            "[\"\u{10FFFF}\"]".to_owned(),
+        ] {
+            assert_eq!(err(&lone), JsonError::ForbiddenCodePoint, "{lone}");
+        }
         assert_eq!(parse(b"[\"\xff\"]").unwrap_err(), JsonError::NotUtf8);
         // An encoded surrogate (ED A0 80) is not UTF-8.
         assert_eq!(
             parse(b"[\"\xed\xa0\x80\"]").unwrap_err(),
             JsonError::NotUtf8
         );
+        let pair = format!(r#"["{}{}"]"#, u("d83d"), u("de00"));
         assert_eq!(
-            parse(r#"["😀"]"#.as_bytes()).unwrap(),
+            parse(pair.as_bytes()).unwrap(),
             Json::Array(vec![Json::String("\u{1F600}".into())])
         );
+        assert!(!is_ijson_string("a\u{fffe}"));
+        assert!(is_ijson_string("a\u{1F600}"));
     }
 
     #[test]
@@ -625,6 +941,15 @@ mod tests {
             "[1] x",
             "\u{feff}[]",
             "'a'",
+            "[",
+            "{",
+            "{\"a\"",
+            "{\"a\":",
+            "[1 2]",
+            "{\"a\":1 \"b\":2}",
+            "{1:2}",
+            "]",
+            "[}",
         ] {
             assert!(parse(bad.as_bytes()).is_err(), "accepted {bad:?}");
         }
@@ -634,19 +959,32 @@ mod tests {
             "1.5e+3",
             " [ ] ",
             "{}",
-            "\"\\u00e9\\/\"",
+            "\"\\/\"",
             "[true,false,null]",
+            " { \"a\" : [ 1 , { } , [ ] ] , \"b\" : { \"c\" : \"d\" } } ",
         ] {
             assert!(parse(good.as_bytes()).is_ok(), "refused {good:?}");
         }
+        let v = parse(br#"{"a":[1,{"b":[]},[[2]]],"c":{"d":"e"}}"#).unwrap();
+        assert_eq!(v.to_compact(), r#"{"a":[1,{"b":[]},[[2]]],"c":{"d":"e"}}"#);
     }
 
     #[test]
-    fn bounds_nesting() {
-        let ok = format!("{}{}", "[".repeat(MAX_DEPTH), "]".repeat(MAX_DEPTH));
-        assert!(parse(ok.as_bytes()).is_ok());
-        let deep = format!("{}{}", "[".repeat(MAX_DEPTH + 1), "]".repeat(MAX_DEPTH + 1));
-        assert_eq!(parse(deep.as_bytes()).unwrap_err(), JsonError::TooDeep);
+    fn any_depth_reads_copies_compares_writes_and_drops() {
+        // Far deeper than any call stack holds frames for; this runs on a test thread's
+        // default stack.
+        let depth = 300_000;
+        let text = format!("{}0{}", "[{\"a\":".repeat(depth), "}]".repeat(depth));
+        let v = parse(text.as_bytes()).unwrap();
+        assert_eq!(v.to_compact(), text);
+        let copy = v.clone();
+        assert!(copy == v);
+        assert!(!v.contains_null());
+        let other = parse(text.replacen("0}", "1}", 1).as_bytes()).unwrap();
+        assert!(other != v);
+        drop(copy);
+        drop(other);
+        drop(v);
     }
 
     #[test]
@@ -666,6 +1004,7 @@ mod tests {
     #[test]
     fn compact_escapes_like_json_stringify() {
         let v = Json::String("a\"b\\c\n\u{1}\u{7f}\u{2028}é".into());
-        assert_eq!(v.to_compact(), "\"a\\\"b\\\\c\\n\\u0001\u{7f}\u{2028}é\"");
+        let want = format!("\"a\\\"b\\\\c\\n{}\u{7f}\u{2028}é\"", u("0001"));
+        assert_eq!(v.to_compact(), want);
     }
 }
