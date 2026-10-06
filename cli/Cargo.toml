@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# cli/: the `oac` binary's entry point. It may depend on core/, adapters/* and
+# transports/*, for construction only; nothing may depend on cli/ (07 section 3, #305).
+
+[package]
+name = "oac-cli"
+description = "OAC command-line entry point (the oac binary)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "oac"
+path = "src/main.rs"
+
+[dependencies]
+oac-core.workspace = true
+oac-adapter-claude = { path = "../adapters/claude" }
+oac-adapter-codex = { path = "../adapters/codex" }
+oac-transport-zenoh = { path = "../transports/zenoh" }

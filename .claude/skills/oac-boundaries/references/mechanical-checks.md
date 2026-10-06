@@ -16,11 +16,14 @@ non-regular `spec/bindings/mcp.md`, or any symlink under `spec/`, fails the step
 commands below are the manual equivalents. Checks 4-7 are not wired to CI and stay manual.
 
 All commands are Git Bash / ripgrep syntax. `spec/` exists since 2026-10-03 (#41).
-`core/`, `adapters/`, `cli/`, and `transports/zenoh/` do not exist yet in this repo (DESIGN §Suggested repository shape is a
-sketch, not built) — ripgrep errors "cannot find the file specified" on a missing path.
-That error is the expected, correct state today; it means the check is **pending**, not
-passing. Re-run the whole list once code lands at those paths and treat any real match as a
-stop-and-cite event, not a pending-path error.
+`core/`, `adapters/claude/`, `adapters/codex/`, `cli/` and `transports/zenoh/` exist since
+the F1 scaffold (#50, 2026-10-05) as skeleton crates, so every check below now runs against
+real paths; treat any match as a stop-and-cite event. (A path that still does not exist
+makes ripgrep error "cannot find the file specified": that means **pending**, not passing.)
+
+Status 2026-10-05 (#50, F1 scaffold): checks 1-8 and 11 return zero hits over the
+scaffold, and `node scripts/check-herdr-containment.mjs` reports `Result: CLEAN` across all
+10 targets (no target PENDING). The paragraph below is the earlier record.
 
 Status as last verified against this repo (2026-09-28; checks 1, 2, 9 and 11 re-verified
 2026-10-03, #41): checks 1 and 2 are **clean** on `spec/` (zero hits) and **pending** on
@@ -173,7 +176,7 @@ if [ "${#files[@]}" -eq 0 ]; then echo "check 11 PENDING"; else
 fi
 ```
 
-A clean run is zero hits on checks 1 and 2 (on `spec/`; `core/` still errors as missing), 3
-and 8 today, `Result: PENDING` (zero violations) on checks 9 and 10, and `check 11 clean` on
-check 11; checks 4, 5, 6 and 7 report the
-missing-path error until the corresponding tree exists, at which point zero hits (and `Result: CLEAN`) is the bar.
+A clean run, as of the F1 scaffold (#50, 2026-10-05), is zero hits on checks 1 and 2 (on
+`spec/` and `core/`), 3, 4, 5, 6, 7 and 8; `Result: CLEAN` (zero violations, no target
+pending) on checks 9 and 10; and `check 11 clean` on check 11. A product path that is
+removed again makes ripgrep error as missing, and that is pending, not a pass.

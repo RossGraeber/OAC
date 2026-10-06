@@ -31,7 +31,8 @@ are `docs/planning/v0.1/07-repository-and-dependencies.md` §1-§2: `core/`, `cl
 `adapters/claude/`, `adapters/codex/`, `transports/zenoh/`, `spec/`,
 `tests/{protocol,security,integration}/`, `examples/`, `docs/`, `ADR/`. There is no
 `daemon/` directory (07 §1). `tools/herdr/` is dev/test tooling, never a workspace member
-(07 §1; `oac-boundaries` checks 9-10). F1 builds the layout. The frozen `spec/interfaces.md`
+(07 §1; `oac-boundaries` checks 9-10). F1 (#50) built the layout as a Cargo workspace
+(root `Cargo.toml`, members listed one by one, no glob). The frozen `spec/interfaces.md`
 fixes the contracts, not these paths. Do not create modules outside this layout without
 recording why in the work item.
 
@@ -71,6 +72,11 @@ by judgment call:
 - Run the `oac-boundaries` mechanical checks (Zenoh-vocabulary grep, provider-method-name
   grep, no direct provider-SDK-import grep) against every file you touch under `spec/` and
   `core/` before calling a work item done.
+- The crate-level edges are enforced by `scripts/check-crate-deps.mjs` over `cargo metadata`
+  (all dependency kinds and features, transitive reachability, zenoh and Codex app-server
+  crates kept with their owner), run with its `--self-test` and `--mutation-test` by
+  `.github/workflows/rust-workspace.yml` (#50). A new module path or a new owned external
+  crate family means updating that script in the same PR.
 
 ## 3. Design-for-replacement — acceptance conditions, not aspiration
 
