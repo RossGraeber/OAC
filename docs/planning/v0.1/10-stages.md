@@ -503,8 +503,29 @@ cannot be frozen without freezing the leak; the offending text is corrected and 
 is re-attempted. A failing criterion 4 (a fixture nothing can execute) blocks Stage 3,
 which loads those fixtures as its CI-default spec-conformance tier.
 
-**Current verdict (2026-10-06, #47): Gate S2 criterion 1 is met. The operator decided
-FREEZE at revision 0.1**
+**Current verdict (2026-10-06, #5): Gate S2 is met. Go: Stage 2 exits and Stage 3
+opens.** The exit decision, with evidence per criterion, is
+`docs/planning/decisions/E-5-stage2-exit.md`. The freeze record (E7) and the
+replacement proofs (E9) stay authoritative for their own content.
+
+- **Criteria 1-6 all hold**, re-checked on `main` at `98ad455` (the PR #306 merge):
+  - the interfaces are frozen at revision 0.1 (PR #276, merged by the lead), and nothing
+    under `spec/` has changed since;
+  - the neutral-vocabulary checks over `spec/` are clean;
+  - each `spec/` document separates normative text from labelled reference-implementation
+    notes;
+  - the runner decides 527/527 fixtures, and its index checks are clean;
+  - versioning (`spec/session-channels.md` §5) and unsupported-capability behaviour (§6.6)
+    are normative;
+  - the two Stage 1 contradictions (C13 and #224) were folded in before the freeze.
+- **Every exit artifact exists:** `spec/` (E1-E6), the frozen contracts (E7), the fixture
+  set (E8) and the proofs (E9). All nine Epic E tasks are closed.
+- **#308** (editorial amendments to frozen text, for the next minor version) is outside
+  Epic E's scope. It lands later under the E7 §7 change rule and does not block the exit.
+- **§7's entry conditions are met:** Gate S2, the D6 fixtures, and Gates S0 and S1.
+
+*History (pre-exit), kept as history:* **Gate S2 criterion 1 is met (2026-10-06, #47). The
+operator decided FREEZE at revision 0.1**
 (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771).
 The freeze record is `docs/planning/decisions/E7-interface-freeze.md`. It holds the
 readiness audit (§2), the blockers and the sign-off re-run (§3), the markers the sign-off
