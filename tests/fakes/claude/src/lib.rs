@@ -24,9 +24,9 @@
 //! | No acknowledgement: a channel notification gets no response and no frame of any kind | D6 lines 12-13 (the next client frame is the model's reply, a minute later); first-party: "Claude Code doesn't acknowledge notifications" (`channels-reference.md`, `docs/planning/REVERIFICATION-B2.md` row 6) |
 //! | An idle session wakes: the notification starts a turn | D6 line 12; G1 Box C line 21 (G1-result criterion 2) |
 //! | Mid-turn notifications queue and are released at tool-call boundaries, in order, never dropped, never inside a tool call | D6 lines 16, 18; G1 Box C lines 22-23 (G1-result criterion 3) |
-//! | Rendering: the `<channel>` tag, `source`, kept and dropped `meta` keys, escapes | G5 wire lines 21-39 against G5 rendered lines 1-11; G1 Box C line 21 ([`render`]) |
-//! | Mid-turn wrapper around the tag | G5 rendered line 13 |
-//! | Tool replies: `tools/call` with `_meta` `claudecode/toolUseId` and `progressToken` equal to the request id | D6 lines 13-14; G1 Box C lines 24-25 |
+//! | Rendering: the `<channel>` tag, `source`, kept and dropped `meta` keys, escapes | G5 wire lines 21-36 against G5 rendered lines 1-11 (idle); G1 Box C line 21 ([`render`]) |
+//! | Mid-turn wrapper around the tag | G5 wire line 39 against G5 rendered line 13 |
+//! | Tool replies: `tools/call` with `_meta` `claudecode/toolUseId` and `progressToken` equal to the request id | D6 lines 13-14; G1 Box C lines 24-25 (both id 2; see below for later ids) |
 //!
 //! # What the fake does not invent
 //!
@@ -39,8 +39,16 @@
 //!   `tools/list` has completed, one without a string `content` and an object `meta` of
 //!   string values, or one with an empty `meta` key; a probe answered with an error other
 //!   than `-32601`, or with a result whose `supportedVersions` lacks `2026-07-28`; an
-//!   `initialize` result at any revision but `2025-11-25`; any malformed frame or response
-//!   with an unknown id. Once halted it processes nothing more, and records why.
+//!   `initialize` result at any revision but `2025-11-25`, or one that does not declare
+//!   `capabilities.experimental["claude/channel"]` (what Claude Code does with a channel
+//!   notification from such a server is not recorded); a frame without `"jsonrpc":"2.0"`;
+//!   a frame that is not I-JSON, including one that repeats a member name (a duplicate
+//!   `meta` key); a response with an unknown id. Once halted it processes nothing more,
+//!   and records why.
+//! - **A server `ping` halts it too.** Keepalives are allowed on the no-polling rule
+//!   (`docs/planning/v0.1/09-test-strategy.md` §5), but no fixture records Claude Code
+//!   answering one, so an adapter that pings the harness cannot run against this fake
+//!   until a capture shows the answer.
 //! - **It refuses**, as a [`FakeError`], a driver step it cannot replay: a tool call on the
 //!   modern era (no stdio modern `tools/call` is recorded), and ending a turn while
 //!   notifications are still queued (the docs say they are delivered "on the next turn";
@@ -51,9 +59,17 @@
 //! - **Mid-turn release granularity is a choice, not a fact** ([`MidTurnRelease`]): G1 Box C
 //!   (2.1.283) released two queued notifications at two boundaries, the original G1 run
 //!   (2.1.282) released two at one. Which happens is UNVERIFIED as a guarantee
-//!   (`docs/planning/v0.1/11-risks.md` row 49), so a suite should pass under both.
+//!   (`docs/planning/v0.1/11-risks.md` row 49). **The F10 and F11 suites must run every
+//!   mid-turn test under both settings** (loop over [`MidTurnRelease::BOTH`]);
+//!   [`Config::new`]'s default exercises only one. Row 49 also says the outcome may depend
+//!   on send timing, so a mix (some notifications released together, some apart) is
+//!   possible; neither setting models that, and a test must not depend on the grouping at
+//!   all, only on order.
 //! - The `claudecode/toolUseId` value is the model's; the fake writes a synthetic one in
 //!   the recorded `toolu_` form unless the driver supplies one.
+//! - **Inferred, not recorded:** both recorded calls are the session's first, with id 2 and
+//!   `progressToken` 2 (D6 line 13, G1 Box C line 24). That calls continue at 3, 4, ... and
+//!   that `progressToken` keeps equal to the id is the fake's inference from those two.
 //! - Not modelled at all: `--resume`, multiple channels per server, permission relay, the
 //!   development-channels consent dialog, the original `2.1.282` opening (no probe), and
 //!   the HTTP transport.
@@ -115,6 +131,14 @@ pub enum MidTurnRelease {
     /// Every queued notification at the next boundary, as the original G1 run observed at
     /// `2.1.282`.
     AllAtBoundary,
+}
+
+impl MidTurnRelease {
+    /// Both settings, for a suite to loop over: a mid-turn test must pass under each.
+    pub const BOTH: [MidTurnRelease; 2] = [
+        MidTurnRelease::OnePerBoundary,
+        MidTurnRelease::AllAtBoundary,
+    ];
 }
 
 /// How the fake is set up.
@@ -202,9 +226,6 @@ pub enum SessionEvent {
 pub enum IgnoredReason {
     /// The opening settled on the modern era (G4 criterion 5).
     ModernEra,
-    /// The `initialize` result declared no `capabilities.experimental["claude/channel"]`
-    /// (first-party: a channel is a server that declares it, `oac-claude-channels` §1).
-    NotAChannel,
 }
 
 /// Why the fake stopped.
@@ -365,8 +386,8 @@ impl FakeClaude {
         self.era
     }
 
-    /// True when the server is registered as a channel: legacy era, and the `initialize`
-    /// result declared `capabilities.experimental["claude/channel"]`.
+    /// True when the server is registered as a channel: the legacy opening completed with
+    /// `capabilities.experimental["claude/channel"]` declared (without it the fake halts).
     pub fn channel_registered(&self) -> bool {
         self.registered
     }
@@ -409,6 +430,23 @@ impl FakeClaude {
             .collect()
     }
 
+    /// The tool name of every `tools/call` the fake sent, in order. With
+    /// [`FakeClaude::methods_sent`], this lets a suite count inbox-fetch style tool calls
+    /// directly: a channel harness makes none unless the driver (the model) asks it to.
+    pub fn tools_called(&self) -> Vec<String> {
+        self.transcript
+            .iter()
+            .filter(|f| f.direction == Direction::ToServer)
+            .filter_map(|f| json::parse(f.text.as_bytes()).ok())
+            .filter(|v| member_str(v, "method") == Some("tools/call"))
+            .filter_map(|v| {
+                member(&v, "params")
+                    .and_then(|p| member_str(p, "name"))
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+
     /// Session events so far.
     pub fn events(&self) -> &[SessionEvent] {
         &self.events
@@ -440,11 +478,20 @@ impl FakeClaude {
         if self.halted.is_some() {
             return;
         }
-        let Ok(v) = json::parse(frame.as_bytes()) else {
-            return self.halt("a frame that is not JSON");
+        let v = match json::parse(frame.as_bytes()) {
+            Ok(v) => v,
+            Err(json::JsonError::DuplicateMember(name)) => {
+                return self.halt(&format!(
+                    "a frame that repeats member name {name:?} (for example a duplicate meta key)"
+                ));
+            }
+            Err(e) => return self.halt(&format!("a frame that is not I-JSON ({e})")),
         };
         if v.as_object().is_none() {
             return self.halt("a frame that is not a JSON object");
+        }
+        if member_str(&v, "jsonrpc") != Some("2.0") {
+            return self.halt("a frame without \"jsonrpc\":\"2.0\"");
         }
         match (member_str(&v, "method"), member(&v, "id")) {
             (Some(m), Some(_)) => self.halt(&format!("a server-initiated request `{m}`")),
@@ -657,10 +704,18 @@ impl FakeClaude {
         if member_str(r, "protocolVersion") != Some(LEGACY_REVISION) {
             return self.halt("an initialize result at a revision other than 2025-11-25");
         }
-        self.registered = member(r, "capabilities")
+        let declared = member(r, "capabilities")
             .and_then(|c| member(c, "experimental"))
             .and_then(|x| member(x, "claude/channel"))
             .is_some_and(|c| c.as_object().is_some());
+        if !declared {
+            // Every recorded legacy server declared it; what Claude Code does with a
+            // channel notification from one that does not is not recorded.
+            return self.halt(
+                "an initialize result without capabilities.experimental[\"claude/channel\"]",
+            );
+        }
+        self.registered = true;
         self.phase = Phase::Listing;
         let ev = Evidence::get();
         let initialized = ev.initialized.to_compact();
@@ -698,13 +753,6 @@ impl FakeClaude {
         if self.era == Some(Era::Modern) {
             self.events.push(SessionEvent::Ignored {
                 reason: IgnoredReason::ModernEra,
-                content,
-            });
-            return;
-        }
-        if !self.registered {
-            self.events.push(SessionEvent::Ignored {
-                reason: IgnoredReason::NotAChannel,
                 content,
             });
             return;

@@ -171,10 +171,7 @@ fn replays_the_d6_capture() {
 
 #[test]
 fn replays_g1_box_c_under_both_release_choices() {
-    for release in [
-        MidTurnRelease::OnePerBoundary,
-        MidTurnRelease::AllAtBoundary,
-    ] {
+    for release in MidTurnRelease::BOTH {
         let mut fake =
             FakeClaude::new(Config::new("g1spike").expect("valid").with_release(release));
         open_legacy(&mut fake, G1_BOX_C, [14, 16, 20], [13, 15, 17, 19]);
@@ -409,7 +406,19 @@ fn ready() -> FakeClaude {
 
 #[test]
 fn unrecorded_server_behaviour_halts_the_fake() {
-    let cases: [(&str, &str); 6] = [
+    let cases: [(&str, &str); 9] = [
+        (
+            "no jsonrpc member",
+            "{\"method\":\"notifications/claude/channel\",\"params\":{\"content\":\"x\",\"meta\":{\"k\":\"v\"}}}",
+        ),
+        (
+            "jsonrpc 1.0",
+            "{\"jsonrpc\":\"1.0\",\"method\":\"notifications/claude/channel\",\"params\":{\"content\":\"x\",\"meta\":{\"k\":\"v\"}}}",
+        ),
+        (
+            "duplicate meta key",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/claude/channel\",\"params\":{\"content\":\"x\",\"meta\":{\"k\":\"a\",\"k\":\"b\"}}}",
+        ),
         (
             "server request",
             "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"roots/list\"}",
@@ -445,6 +454,15 @@ fn unrecorded_server_behaviour_halts_the_fake() {
         fake.receive(&server(D6, 12));
         assert!(fake.events().is_empty(), "{name}");
     }
+    let mut fake = ready();
+    fake.receive("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/claude/channel\",\"params\":{\"content\":\"x\",\"meta\":{\"k\":\"a\",\"k\":\"b\"}}}");
+    assert!(
+        fake.halted()
+            .expect("halted")
+            .what
+            .contains("repeats member name \"k\""),
+        "a clear message for a duplicate key"
+    );
 
     // A notification before the opening completes.
     let mut fake = FakeClaude::new(Config::new("d6claude").expect("valid"));
@@ -465,23 +483,18 @@ fn unrecorded_server_behaviour_halts_the_fake() {
 }
 
 #[test]
-fn a_server_without_the_channel_capability_is_not_a_channel() {
+fn a_server_without_the_channel_capability_halts_the_fake() {
     let mut fake = FakeClaude::new(Config::new("d6claude").expect("valid"));
     fake.take_outbound();
     fake.receive(&server(D6, 4));
     fake.take_outbound();
     fake.receive("{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"x\",\"version\":\"0\"}}}");
-    fake.receive(&server(D6, 10));
-    assert_eq!(fake.phase(), Phase::Ready);
+    assert_eq!(fake.phase(), Phase::Halted);
     assert!(!fake.channel_registered());
-    fake.receive(&server(D6, 12));
-    assert!(matches!(
-        fake.take_events()[..],
-        [SessionEvent::Ignored {
-            reason: IgnoredReason::NotAChannel,
-            ..
-        }]
-    ));
+    assert!(
+        fake.take_outbound().is_empty(),
+        "no initialized, no tools/list"
+    );
 }
 
 #[test]
@@ -500,6 +513,11 @@ fn the_harness_never_polls_and_never_acknowledges() {
             "tools/list"
         ]
     );
+    assert!(fake.tools_called().is_empty(), "no inbox-fetch tool call");
+    // The wake (line 12) started a turn; the model replies in it.
+    fake.call_tool("reply", "{\"message\":\"hi\"}", None)
+        .expect("call");
+    assert_eq!(fake.tools_called(), ["reply"]);
 }
 
 #[test]

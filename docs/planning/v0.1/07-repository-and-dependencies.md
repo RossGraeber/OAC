@@ -140,8 +140,8 @@ transports/zenoh/ -> core/           (only)
 transports/memory/ -> core/          (only; #56)
 core/             -> (nothing in-repo)
 (nothing)         -> cli/
-tests/fakes/*     -> core/           (only; #57)
-adapters/*, transports/*, cli/ -> tests/fakes/*   (dev-dependency only; #57)
+tests/fakes/* (Rust workspace members) -> core/   (only; #57)
+adapters/*, transports/*, cli/ -> tests/fakes/* (Rust members)   (dev-dependency only; #57)
 ```
 
 (Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305
