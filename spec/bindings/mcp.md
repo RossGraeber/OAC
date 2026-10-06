@@ -1,10 +1,9 @@
 # OAC Session Channels — MCP binding
 
 - **Document:** the MCP binding for OAC Session Channels (backlog task E6, issue #46).
-- **Status:** Stage 2 draft, normative once Gate S2 freezes the spec surface
-  (`docs/planning/v0.1/10-stages.md` §6). Every requirement carries an `MCPB` id; the index
-  in §12 lists its fixtures or marks it `TODO(fixture)`.
-- **Binding revision:** `0.1` (draft until Gate S2; fixtures cite `spec_revision` `0.1`).
+- **Status:** normative; frozen at Gate S2 on 2026-10-06 (E7, #47). Every requirement
+  carries an `MCPB` id; the index in §12 lists its fixtures or marks it `TODO(fixture)`.
+- **Binding revision:** `0.1` (frozen; fixtures cite `spec_revision` `0.1`).
 - **Extension identifier:** `io.github.rossgraeber/oac-session-channels`
   (`docs/planning/decisions/C3-spec-packaging.md` §1-§3).
 - **MCP revisions bound:** current (modern) era `2026-07-28`; legacy era `2025-11-25`
