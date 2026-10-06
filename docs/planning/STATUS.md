@@ -10,8 +10,9 @@ written**, `docs/planning/decisions/E9-replacement-proofs.md`, argued from the f
 
 - **Verdicts.** A third adapter over ACP: HOLDS, with no transport, core-type or `spec/`
   change. ACP is a client-owned-session protocol, not a channel; its only route that keeps
-  ADR-001 is a proxy (a Draft RFD), and its sessions are send-only under [SEC-AUZ-022] and
-  [SEC-AUZ-026]. NATS and MQTT each replace the v0.1 transport: HOLDS, with no adapter,
+  ADR-001 is a proxy (a Draft RFD). Its adapter declares sessions send-only as a
+  conservative choice, until a binding shows with evidence that a hand-off meets
+  [SEC-AUZ-022]. For ACP v2 that may be possible through the rule's exception (record §2.4). NATS and MQTT each replace the v0.1 transport: HOLDS, with no adapter,
   core-type or `spec/` change. NATS lacks reliability, persistence, offline queueing and
   multicast discovery; MQTT lacks the same four and, in the protocol, routing/federation.
   DESIGN acceptance criterion 10 (a second backend from the contract alone): MET. All four
@@ -20,10 +21,11 @@ written**, `docs/planning/decisions/E9-replacement-proofs.md`, argued from the f
   at `f115becf`), the MQTT 5.0 OASIS Standard, the Mosquitto configuration reference, and
   the ACP source repository at `487ad3ea` (record §1).
 - **UNVERIFIED ledger.** Closed: the NATS and the MQTT capability items (all twelve
-  cells), ACP protocol version `1`, and ACP schema v2 "alpha" (drift: v2 is "Draft").
+  cells), ACP protocol version `1`, and ACP schema v2 "alpha" (verified, no drift: prerelease
+  `schema-v2.0.0-alpha.7`; the v2 protocol docs are Draft).
   Added: whether each NATS client library can disable its reconnect buffer; what an ACP v1
-  agent does with a `session/prompt` during a running turn. RISK-NATS and RISK-MQTT are
-  closed, RISK-ACP is narrowed (`11-risks.md`).
+  agent does with a `session/prompt` during a running turn. RISK-MQTT is closed; RISK-NATS
+  and RISK-ACP are narrowed (`11-risks.md`).
 - **No amendment** to a frozen item is proposed (record §8); no file under `spec/`
   changes. `10-stages.md` §6, §9 and §11 now record E9 as written and criterion 10 as met.
   The ACP pin does not move (`PINS.md` "ACP" dated note). No gate verdict changes, and
@@ -1471,7 +1473,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
 | Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc` (2026-10-01T20:19:13Z UTC; G4 herdr run, 2026-10-04). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
-| ACP | protocol version `1` (v2 in Draft since 2026-07-20; re-checked 2026-10-06, #49); not a v0.1 dependency | PINS.md — ACP |
+| ACP | protocol version `1` (schema v2 alpha, verified 2026-10-06, #49: prerelease `schema-v2.0.0-alpha.7`; v2 protocol docs in Draft); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
 | Rust MCP SDK | `rmcp` `3.4.0` (2026-09-15); legacy revision `2025-11-25` supported and is the SDK's default | PINS.md — Rust MCP SDK (`rmcp`) |
 | `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
@@ -1934,12 +1936,14 @@ without an UNVERIFIED label.
   received while a turn is running: rejects it, holds it, or adds it to the running turn
   (UNVERIFIED — the v1 protocol pages say nothing about it,
   `docs/planning/decisions/E9-replacement-proofs.md` §1.3 A6, finding F-A2; it decides
-  whether an ACP hand-off could be non-steering under [SEC-AUZ-022]; ACP is not a v0.1
-  dependency). Risk entry: RISK-ACP. *(Dated note, 2026-10-06, #49: this bullet replaces
-  "ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md §3.5 only,
-  not independently re-confirmed ...)". That item is closed with drift: ACP v2 was
-  published "in Draft" on 2026-07-20, and v1 stays the stable version (record §1.3 A8;
-  `PINS.md` "ACP").)*
+  whether a v1 binding could make the exception statement of [SEC-AUZ-022]; until a binding
+  does, the ACP adapter declares its sessions send-only as a conservative choice; ACP is
+  not a v0.1 dependency). Risk entry: RISK-ACP. *(Dated note, 2026-10-06, #49: this bullet
+  replaces "ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md
+  §3.5 only, not independently re-confirmed ...)". That item is closed as verified, with no
+  drift: the v2 JSON schemas are published as `v2.0.0-alphaX` prereleases, latest
+  `schema-v2.0.0-alpha.7` (2026-09-30), and the v2 protocol docs are separately in Draft
+  (record §1.3 A8; `PINS.md` "ACP").)*
 - Zenoh crate version/date read from GitHub releases rather than crates.io directly,
   because the crates.io page did not return content in B1 and was not re-attempted in B2
   (UNVERIFIED — re-confirm on crates.io when reachable; see PINS.md).
@@ -2112,7 +2116,7 @@ without an UNVERIFIED label.
   buffer size only, `nats-io/nats.docs` at `f115becf`,
   `using-nats/developing-with-nats/reconnect/buffer.md`; a NATS transport needs it off to
   meet [IFC-TRN-036]; `docs/planning/decisions/E9-replacement-proofs.md` F-T3; NATS is not
-  a v0.1 dependency). Risk entry: RISK-NATS (closed, with this item carried).
+  a v0.1 dependency). Risk entry: RISK-NATS (narrowed to this item).
   *(Dated note, 2026-10-06, #49: two items stood here: "NATS reliability, persistence,
   offline queueing, ordering, multicast discovery, and routing/federation capability
   claims" and the same six for MQTT, both for the `05-interfaces.md` §17 proof. Both are

@@ -127,7 +127,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | `serde_jcs` (canonical serialization, RFC 8785 JCS) | supported | `0.2.0` | 2026-03-25 | https://crates.io/api/v1/crates/serde_jcs; https://docs.rs/serde_jcs/0.2.0/serde_jcs/ | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
-| ACP (forward-compat only) | supported | protocol version `1` (v2 published in Draft 2026-07-20; was "schema v2 alpha", see "ACP" dated note) | not stated on source page | https://agentclientprotocol.com/protocol/; https://github.com/agentclientprotocol/agent-client-protocol at `487ad3ea` | 2026-10-06 | none (not a v0.1 dependency) |
+| ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha, verified 2026-10-06: prerelease `schema-v2.0.0-alpha.7`; v2 protocol docs in Draft since 2026-07-20; see "ACP" dated note) | not stated on source page | https://agentclientprotocol.com/protocol/; https://github.com/agentclientprotocol/agent-client-protocol at `487ad3ea` | 2026-10-06 | none (not a v0.1 dependency) |
 | herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior verified on Windows 2026-09-28 (K1 go on Windows), Linux and macOS UNVERIFIED, overall go provisional, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
 | Beacon (external memory service) | supported | `v1.3.29` (tag object `72fd6643b5cd5c6ff6741f6016b3577654f61915` → commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`); fixed, not floating; external service each harness connects to natively, never called, launched, configured or shipped by OAC; no fact UNVERIFIED (all four L1 items closed: three by L2, U1 confirmed live by L3, 2026-10-01, L1 §13), see "Beacon (external memory service)" below | 2026-09-28 (tagger date) | https://github.com/Asymptote-Labs/agent-beacon/tree/v1.3.29 | 2026-09-29 | none |
 
@@ -735,9 +735,13 @@ semver, and are recorded verbatim — never reformatted.
   `487ad3eacd30bb19f75f462f815e78d678e393c4` (latest schema release `schema-v1.24.1`),
   retrieved 2026-10-06. `docs/protocol/v1/initialization.mdx` shows
   `"protocolVersion": 1` in its request and response examples, so the pin holds and is no
-  longer UNVERIFIED. `docs/announcements/acp-v2-draft.mdx` says v2 was published "in
-  Draft" on July 20, 2026: drift from "alpha". v1 stays the stable version, so the pin
-  does not move. Detail: `docs/planning/decisions/E9-replacement-proofs.md` §1.3.*
+  longer UNVERIFIED. Schema v2 "alpha" is verified, with no drift:
+  `docs/announcements/acp-v2-draft.mdx` L70 says the v2 JSON schemas are "published in the
+  repository releases as `v2.0.0-alphaX` alongside v1", and the latest is the prerelease
+  `schema-v2.0.0-alpha.7` of 2026-09-30 (https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v2.0.0-alpha.7).
+  Separately, the v2 protocol docs have been "in Draft" since July 20, 2026 (same page,
+  L1-L11). v1 stays the supported version, so the pin does not move. Detail:
+  `docs/planning/decisions/E9-replacement-proofs.md` §1.3.*
 - **ACP is not a v0.1 dependency.** A drift in this pin does not invalidate any gate.
   This row is kept (not dropped) because STATUS.md already carries an ACP row as a
   tracked baseline; dropping it here would lose that baseline.
@@ -1008,8 +1012,9 @@ occur; everything else above this line is unchanged from B1.
   priority since ACP is not a v0.1 dependency).
   **CARRIED — risk item 7, see REVERIFICATION-B2.md "Carried to 11-risks.md".**
   Re-checked in B2 (still absent from the page); low priority, not a v0.1 dependency.
-  *(Dated note, 2026-10-06, #49: closed with drift. v2 is "Draft", not "alpha"; see the
-  "ACP" section's dated note.)*
+  *(Dated note, 2026-10-06, #49: closed as verified, no drift. The v2 schemas are
+  `v2.0.0-alphaX` prereleases (latest `schema-v2.0.0-alpha.7`); the v2 protocol docs are
+  Draft. See the "ACP" section's dated note.)*
 - Zenoh crate version/date were read from the GitHub releases page rather than
   directly from crates.io's rendered page, because the crates.io fetch did not return
   page content in this session (UNVERIFIED — re-confirm directly on

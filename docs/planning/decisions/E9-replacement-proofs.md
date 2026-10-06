@@ -64,6 +64,7 @@ The docs are not versioned per server release; the current server release is `v2
 | N13 | The server publishes system events, including `$SYS.ACCOUNT.<id>.CONNECT` and `$SYS.ACCOUNT.<id>.DISCONNECT`. | `running-a-nats-service/configuration/sys_accounts/README.md` L1-L10, L29-L30 |
 | N14 | Client libraries report connection events: "closed, disconnected or reconnected". | `using-nats/developing-with-nats/events/events.md` L1-L7 |
 | N15 | The client protocol has `HPUB` and `HMSG` (messages with headers). | `reference/nats-protocol/nats-protocol/README.md` L48, L52 |
+| N16 | Server limits on a slow subscriber: `write_deadline` is the "Maximum number of seconds the server will block when writing. Once this threshold is exceeded the connection will be closed" (default `"10s"`); `max_pending` is the "Maximum number of bytes buffered for a connection". | `running-a-nats-service/configuration/README.md` L308, L317 |
 
 ### 1.2 MQTT
 
@@ -103,7 +104,11 @@ states no version; the current release is `2.1.2` per https://mosquitto.org/down
 
 Source repository of https://agentclientprotocol.com: `agentclientprotocol/agent-client-protocol`,
 commit `487ad3eacd30bb19f75f462f815e78d678e393c4` (2026-10-05), the head of `main` when
-fetched. The latest schema release is `schema-v1.24.1` (2026-09-30). Paths are relative to
+fetched. The latest v1 schema release is `schema-v1.24.1`; the latest v2 schema is the
+prerelease `schema-v2.0.0-alpha.7`, published the same day (2026-09-30T15:53:47Z,
+https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v2.0.0-alpha.7,
+marked prerelease). ACP v1 is the `supported` surface (`oac-evidence` §4); v2 is not yet
+released. Paths are relative to
 `https://github.com/agentclientprotocol/agent-client-protocol/blob/487ad3eacd30bb19f75f462f815e78d678e393c4/`.
 
 | Id | Fact | Source (path, line) |
@@ -112,10 +117,10 @@ fetched. The latest schema release is `schema-v1.24.1` (2026-09-30). Paths are r
 | A2 | Message flow: Client to Agent `initialize`, `session/new` or `session/load`, then `session/prompt`; Agent to Client `session/update`; the turn ends when the Agent "sends the `session/prompt` response with a stop reason". Agents "typically run as subprocesses of the Client". | `docs/protocol/v1/overview.mdx` L15-L39, L45 |
 | A3 | stdio transport: "The client launches the agent as a subprocess." | `docs/protocol/v1/transports.mdx` L17-L21 |
 | A4 | `initialize` carries `"protocolVersion": 1` in both the request and the response, and the Agent's `promptCapabilities` (`image`, `audio`, `embeddedContext`); the Client declares `fs` and `terminal` capabilities. | `docs/protocol/v1/initialization.mdx` L25-L80 |
-| A5 | `session/new` takes `mcpServers`; "The Agent MUST respond with a unique Session ID". `session/load` replays the conversation; `session/resume` restores it without replay. | `docs/protocol/v1/session-setup.mdx` L59, L71, L108-L134, L217-L243 |
+| A5 | `session/new`, `session/load` and `session/resume` each take `mcpServers`; "The Agent MUST respond with a unique Session ID". `session/load` replays the conversation; `session/resume` restores it without replay and "reconnects to the requested MCP servers". | `docs/protocol/v1/session-setup.mdx` L59, L71, L108-L134, L217-L243 |
 | A6 | A prompt turn: the Agent may call `session/request_permission`; the Client may send `session/cancel`; the turn ends with a `StopReason` response to `session/prompt`. The page says nothing about a second `session/prompt` sent while a turn is running. | `docs/protocol/v1/prompt-turn.mdx` L8, L57, L239-L251, L334-L367 |
-| A7 | ACP v2 (Draft): "A prompt starts or contributes to foreground work in a session." Acceptance of `session/prompt` "means insertion"; the Agent reports `running` and `idle` through `state_update` notifications. | `docs/protocol/v2/prompt-lifecycle.mdx` L6-L8, L144, L193, L382 |
-| A8 | "ACP v2 is available in Draft", published July 20, 2026. | `docs/announcements/acp-v2-draft.mdx` L1-L11 |
+| A7 | ACP v2 (Draft): "A prompt starts or contributes to foreground work in a session." `session/prompt` "lasts until the Agent inserts the user message into the ACP conversation", and the Agent reports the message's "content and placement" through `session/update`. "**Acceptance means insertion**, not receipt, queueing, or processing completion." The Agent reports `running` and `idle` through `state_update` notifications. | `docs/protocol/v2/prompt-lifecycle.mdx` L6, L8, L144, L193, L382 |
+| A8 | "ACP v2 is available in Draft", published July 20, 2026: the v2 protocol docs are Draft. The v2 schemas are alpha: "SDK authors can generate against the v2 JSON schemas, published in the repository releases as `v2.0.0-alphaX` alongside v1." The latest is the prerelease `schema-v2.0.0-alpha.7` (2026-09-30). | `docs/announcements/acp-v2-draft.mdx` L1-L11, L70; the release page cited in the header above |
 | A9 | ACP proxies, "components that sit between a client and an agent", can "Inject or modify prompts". The RFD is in the "Draft" group of the RFD navigation; a Draft RFD may get "Experimental implementation ... properly feature-gated". | `docs/rfds/proxy-chains.mdx` L9-L25; `docs/docs.json` (RFDs, Draft); `docs/rfds/about.mdx` L25-L27 |
 | A10 | Method names starting with `_` are reserved for extensions; implementations "SHOULD ignore unrecognized notifications". | `docs/protocol/v1/extensibility.mdx` L47, L113 |
 
@@ -163,10 +168,18 @@ There are three shapes:
    (`docs/planning/ADR-001-AMENDMENTS.md`). **Ruled out.**
 2. **OAC is an ACP proxy between the human's client and the agent** (A9). The human's client
    stays the owner and keeps every permission request. The proxy's harness-side process sees
-   the session ids and can add an MCP server to `session/new` (`mcpServers`, A5) for
-   outbound requests. Proxies are a **Draft RFD** (A9). In the vocabulary of `oac-evidence`
-   §4 that is **experimental**: it would need a named shim boundary and a pinned version
-   before any adapter used it.
+   the session ids and can add an MCP server for outbound requests to the `mcpServers` of
+   `session/new`, `session/load` and `session/resume` (all three take it, A5), so that
+   loaded and resumed sessions can send too. Proxies are a **Draft RFD** (A9). In the
+   vocabulary of `oac-evidence` §4 that is **experimental**: it would need a named shim
+   boundary and a pinned version before any adapter used it. The protocol it rides on, ACP
+   v1, is **supported** (A4). A proxy binding would also have to state two cautions:
+   - the proxy forwards the `authenticate` exchange (A2) without reading, logging or keeping
+     its payload, because it never holds a provider credential ([IFC-ADP-005];
+     `oac-boundaries` boundary 3);
+   - adding OAC's MCP server to `mcpServers` pre-answers no consent step. If the client or
+     the agent asks the user to approve a server before loading it, that approval stays the
+     user's, and the proxy neither suppresses nor answers it ([SEC-AUZ-023]).
 3. **No OAC process in the client path.** OAC never sees the session, so it has no native
    signal and cannot bind it ([SC-ID-120]). Nothing to adapt.
 
@@ -177,11 +190,11 @@ Shape 2 is the only one that keeps ADR-001. The walk below uses it.
 | Operation | ACP realization (shape 2) | Contract rule it meets |
 |---|---|---|
 | `take_connection` | The proxy, a harness-side process the human's client starts through its agent command, opens one local connection to the core process per ACP session it sees. The core creates the `Connection` after authenticating the proxy process with an OS facility. | [IFC-ADP-012], [IFC-ADP-013]; §2.3 "Harness-side process" |
-| `watch_attachments` | `attachment-opened` when the proxy reports an ACP session on its connection; `native-signal` with `native_id` = the ACP `sessionId` (A5) and start kind `fresh` for `session/new`, `transition` for `session/load` and `session/resume`; no cross-check value; `attachment-closed` when the session or the connection ends. | [IFC-ADP-020], [IFC-ADP-022]; `spec/session-channels.md` §6.7.1, case 3(c) of §6.7.3 ([SC-ID-139], with the diagnostic of [SC-ID-141]) |
+| `watch_attachments` | `attachment-opened` when the proxy reports an ACP session on its connection; `native-signal` with `native_id` = the ACP `sessionId` (A5) and start kind `fresh` for `session/new`, `transition` for `session/load` and `session/resume`; no cross-check value; `attachment-closed` when the session or the connection ends. | [IFC-ADP-020], [IFC-ADP-022]; `spec/session-channels.md` §6.7.1 and §6.7.3: `fresh` is case 3(c) ([SC-ID-139], with the diagnostic of [SC-ID-141]); `transition` is case 4 ([SC-ID-140]; the diagnostic of [SC-ID-142] does not arise, since there is no cross-check value) |
 | `set_binding` | Stored per attachment; nothing is handed off to an unbound attachment. | [IFC-ADP-030] |
-| `capabilities` | `active_inbound` `false` (§2.4). `content_types` from the agent's `promptCapabilities` (A4), only for types the adapter can hand off unchanged. | [IFC-ADP-040], [IFC-ADP-041]; [SC-ID-104] |
-| `deliver` | Not reached while `active_inbound` is `false`: the session is send-only (`spec/session-channels.md` §6.6). If called, it returns `failed` and makes no hand-off call. | [IFC-ADP-050], [IFC-ADP-057] |
-| `accept_requests` | The MCP server the proxy adds to `session/new` receives the agent's send, reply and discovery requests; the proxy passes each, labelled with its `Connection`, to the request sink, and returns the `RequestResult` unchanged. | [IFC-ADP-003], [IFC-ADP-031], [IFC-ADP-060] |
+| `capabilities` | `active_inbound` `false` (§2.4). `content_types` from the agent's `promptCapabilities` (A4), only for types the adapter can hand off unchanged. Those are fixed at `initialize` (A4), so the report changes only if the adapter's own choice changes, and then it reports `capabilities-changed`. | [IFC-ADP-040], [IFC-ADP-041], [IFC-ADP-043]; [SC-ID-104] |
+| `deliver` | Not reached while `active_inbound` is `false`: the session is send-only (`spec/session-channels.md` §6.6). If called, it returns `failed`, makes no hand-off call and holds nothing. With no call, it never returns `completed`, `not-now` or `indeterminate`. | [IFC-ADP-050], [IFC-ADP-051] to [IFC-ADP-053], [IFC-ADP-056], [IFC-ADP-057] |
+| `accept_requests` | The MCP server the proxy adds to `session/new`, `session/load` and `session/resume` receives the agent's send, reply and discovery requests; the proxy passes each, labelled with its `Connection`, to the request sink, and returns the `RequestResult` unchanged. | [IFC-ADP-003], [IFC-ADP-031], [IFC-ADP-060] |
 | `health` | `HealthStatus` of the proxy connections, with no credential, address, native id or working directory. | [IFC-TYP-092] |
 | `shutdown` | `attachment-closed` for each open attachment, then no further hand-off or request. | [IFC-ADP-071], [IFC-ADP-070] |
 
@@ -195,10 +208,14 @@ cross-check value, which ACP does not have.
 None names a harness. Each is met by stating, in the ACP adapter binding document that
 [IFC-ADP-080] requires, which ACP surface carries it:
 
+- [IFC-ADP-010]: the adapter satisfies each requirement that Appendix C assigns it; this
+  section and §2.3 are that list. ([IFC-TRN-003] is the transport counterpart, §3.3 and
+  §4.3.)
 - [IFC-ADP-001] to [IFC-ADP-007]: the proxy talks to the core only, never to a transport,
   and never creates or signs an envelope. It reads no provider credential: the agent's own
   `authenticate` exchange (A2) runs between the human's client and the agent, and the proxy
-  only forwards it. It calls no model interface.
+  only forwards it, without reading or keeping its payload (§2.2). It calls no model
+  interface.
 - SC-DLV 001-009, SC-RCP 004-006 and the SEC-AUZ adapter rows: they constrain a hand-off. A
   send-only session makes none.
 - SEC-PRV (provenance rendering): it applies to hand-offs, so it is not exercised while the
@@ -209,30 +226,52 @@ None names a harness. Each is met by stating, in the ACP adapter binding documen
 - The MCPB rows bind the MCP binding's two v0.1 harness profiles (`spec/bindings/mcp.md` §8)
   and do not apply to an ACP adapter; its own binding document carries its own rows.
 
-### 2.4 Why the ACP adapter declares `active_inbound` `false`
+### 2.4 The `active_inbound` declaration: `false`, as a conservative choice
 
-The hand-off surface would be `session/prompt`, sent by the proxy. The frozen security rules
-decide whether it may be used:
+The hand-off surface would be `session/prompt`, sent by the proxy. [SEC-AUZ-022]
+(`spec/security.md` §9.6) decides whether it may be used. An operation is a steering
+operation if it adds its input to a turn the harness is already running. The rule has one
+exception (`spec/security.md` L1027-L1036). An operation is *not* a steering operation when a
+binding states, citing evidence for each point:
 
-- **ACP v1** does not say what a `session/prompt` sent during a running turn does (A6).
-  Under [SEC-AUZ-022] an operation is a steering operation if the harness adds its input to a
-  running turn, whatever its documentation says. Until that is shown either way, the binding
-  cannot name `session/prompt` as non-steering (UNVERIFIED, §9).
-- **ACP v2 (Draft, A7, A8)** documents that a prompt "starts or contributes to foreground
-  work". Sent while work is running, it adds input to it: a steering operation under
-  [SEC-AUZ-022].
-- ACP offers no operation that holds input for a turn of its own, so [SEC-AUZ-025] has
-  nothing to use. Under [SEC-AUZ-026] the session counts as possibly running unless the
-  harness establishes otherwise in the hand-off operation itself. The `running`/`idle`
-  notifications of v2 are a separate check before the call, which [SEC-AUZ-026] says does
-  not establish it: the human's client can start a turn between the check and the call.
+- (a) that the harness input surface offers no hand-off that holds input for a turn of its
+  own; and
+- (b) that the harness itself decides at which boundaries of its running turn the input is
+  taken in.
 
-So no ACP hand-off yet meets [SEC-AUZ-022] and [SEC-AUZ-026] together. The adapter declares
-`active_inbound` `false` ([IFC-ADP-040], [SC-ID-104]), and the session is send-only. That is
-the contract's own path for "a harness lacking active inbound" (`spec/session-channels.md`
-§6.6). It needs no new type, member or rule. If a later ACP revision adds a holding prompt, or
-an agent is shown to reject a prompt during a running turn in the same call, the binding can
-name it and declare `true`, still under the frozen contract.
+Input handed off through such an operation during a turn joins the running turn as ordinary
+input ([SC-DLV-006]). Where the exception applies, [SEC-AUZ-026] is no obstacle: it only
+requires treating the session as possibly running, and the operation is then not steering in
+either state.
+
+How the two ACP versions stand:
+
+- **ACP v1** (`supported`, A4) does not say what a `session/prompt` sent during a running
+  turn does (A6). Point (a) holds: v1 has no holding prompt. Point (b) has no evidence, and
+  nor does its opposite. A binding cannot make the statement, and it cannot show that the
+  operation is safe to call on a session that may be running (UNVERIFIED, §9).
+- **ACP v2** (Draft, A7, A8) documents that a prompt "starts or contributes to foreground
+  work". Point (a) holds: acceptance is insertion, "not receipt, queueing, or processing
+  completion" (A7, L144), and v2 has no separate holding prompt. Point (b) may hold:
+  `session/prompt` lasts until "the Agent inserts the user message", and the Agent reports
+  its "placement" (A7, L8, L144). So the Agent, not the caller, decides where the message
+  enters the running work. A v2 binding could cite those lines for the exception. It would
+  still need:
+  - evidence that agents take a mid-work prompt in only at boundaries they choose, for
+    example between model exchanges or tool calls, and never inside a tool call that is
+    already running. The protocol text says the Agent places the message; it does not say
+    where;
+  - the experimental-surface obligations of `oac-evidence` §4: a named shim boundary and a
+    pinned v2 revision, because the v2 docs are Draft and the v2 schemas are alpha (A8).
+
+Until a binding makes that statement with that evidence, the ACP adapter declares
+`active_inbound` `false` ([IFC-ADP-040], [SC-ID-104]), and its sessions are send-only. This is
+a conservative choice, not one the frozen rules force in every case. For v1 the evidence is
+missing; for v2 the exception may be available, but only on a Draft surface. Send-only is the
+contract's own path for "a harness lacking active inbound" (`spec/session-channels.md` §6.6)
+and needs no new type, member or rule. A later binding that makes the [SEC-AUZ-022] exception
+statement, or that finds a holding prompt for [SEC-AUZ-025], can declare `true`. That is
+still under the frozen contract.
 
 ### 2.5 No transport change, no core change
 
@@ -252,8 +291,10 @@ name it and declare `true`, still under the frozen contract.
 
 **HOLDS.** A third adapter, over ACP, implements the frozen adapter contract with no change
 to any transport module, core type or `spec/` text. ACP is a client-owned-session protocol,
-not a channel. Its only supported route that keeps ADR-001 is a proxy, which is a Draft RFD,
-and under the frozen security rules its sessions are send-only. Findings: F-A1 and F-A2 (§8).
+not a channel. Its only route that keeps ADR-001 is a proxy, which is a Draft RFD. Its
+adapter declares its sessions send-only until a binding shows, with evidence, that a hand-off
+meets [SEC-AUZ-022]; for v2 that may be possible through the rule's exception (§2.4).
+Findings: F-A1 to F-A3 (§8).
 
 ---
 
@@ -278,12 +319,12 @@ are valid subject tokens in any case.
 |---|---|---|
 | `reliability` | **absent** | Core NATS is at most once and "offers only TCP reliability" (N1, N2, N4). JetStream adds at-least-once, but it does so by storing messages, which [IFC-TRN-026] and [IFC-TRN-033] forbid. |
 | `persistence` | **absent** (required, [IFC-TRN-026]) | Core NATS holds messages "in memory" only and never on disk (N2). JetStream, the persistence layer (N1), is not used. |
-| `offline_queueing` | **absent** (required, [IFC-TRN-026]) | A subscriber that is not active "will not receive messages" (N2, N4). The client reconnect buffer is the one exception and is handled under [IFC-TRN-036] (§3.4). |
+| `offline_queueing` | **absent** (required, [IFC-TRN-026]) | A subscriber that is not active "will not receive messages" (N2, N4). The client reconnect buffer is the one exception and is handled under [IFC-TRN-036] (§3.3). |
 | `ordering` | **present**, for one publishing connection | "source ordered delivery per publisher" (N3). The profile publishes from one connection per implementation. |
 | `multicast_discovery` | **absent** | A client must be configured with how to connect (N6). Gossip discovers servers only after a connection to a configured seed (N7). |
 | `routing_federation` | **present** when deployed as a cluster, supercluster or leaf node | Routes, gateways and leaf nodes relay messages between servers and systems (N7, N8). A single server declares it absent. |
 | `reach` | `cross-implementation` | A server reaches every connected client. |
-| `destination_restricted` | `true` only with per-user subscribe permissions (§3.4, [IFC-TRN-080]) | N9 |
+| `destination_restricted` | `true` only with per-user subscribe permissions (§3.3, [IFC-TRN-080]) | N9 |
 | `max_payload_octets` | the server's `max_payload` (default 1 MB, at most 64 MB), at least 65536 | N5; [IFC-TRN-023] |
 
 ### 3.3 Walk of `Transport` (`spec/interfaces.md` Table 6.4)
@@ -302,11 +343,21 @@ are valid subject tokens in any case.
 
 - [IFC-TRN-001]: all three payload kinds are octets on a subject; NATS treats the payload as
   "a byte array" (N5).
+- [IFC-TRN-003]: the NATS transport satisfies each requirement that Appendix C assigns to
+  the transport; the table above and this list are that walk.
 - [IFC-TRN-033] to [IFC-TRN-035]: Core NATS keeps a message only in memory while forwarding
   it, never on disk, and never redelivers (N2). A receiving transport drops a copy whose
   carried deadline has passed. How the binding compares the sender's deadline with the
   receiver's clock is for the binding document to state; the core re-checks the hand-off
   deadline in any case ([SC-RCP-091]).
+- [IFC-TRN-034] at the server: Core NATS has no expiry per message, so a copy can wait in the
+  server's buffer for a slow subscriber after its deadline. The server bounds that wait: it
+  closes a connection whose writes block longer than `write_deadline` (default 10 seconds)
+  and caps each connection's buffer at `max_pending` bytes (N16). The binding states these
+  bounds and sets them. A copy that waits past its deadline is still dropped by the receiving
+  transport before it reaches a handler, so none is delivered at or after its deadline. The
+  copy held in the server is a copy in flight ([IFC-TRN-033]), and the bound is the
+  binding's statement of how long that can last.
 - [IFC-TRN-036]: the client reconnect buffer (N11) holds payloads while the connection is
   down and sends them later. That is holding a payload for a destination that is not
   reachable. The binding sets the buffer so that no payload is held while disconnected, and
@@ -341,7 +392,7 @@ That only moves sessions toward `unreachable` (§6.6 of `spec/interfaces.md`).
 **HOLDS.** NATS can replace the v0.1 transport with no change to any adapter, core type or
 `spec/` text. **NATS lacks:** reliability, persistence and offline queueing (the last two are
 required absent anyway), and multicast discovery. It provides ordering per publisher and,
-when deployed as a cluster, routing and federation. Findings: F-T1, F-T2 and F-T3 (§8).
+when deployed as a cluster, routing and federation. Findings: F-T1, F-T2, F-T3 and F-T5 (§8).
 
 ---
 
@@ -384,6 +435,8 @@ module from the `Destination` by the same one-way hash as §3.1.
 
 **The other transport-owned requirements:**
 
+- [IFC-TRN-003]: the MQTT transport satisfies each requirement that Appendix C assigns to
+  the transport; the table above and this list are that walk.
 - [IFC-TRN-001], [IFC-TRN-030]: the payload is carried as "unspecified bytes" (M13).
 - [IFC-TRN-033] to [IFC-TRN-036]: Clean Start 1 and Session Expiry Interval 0 leave no
   session state after a connection closes (M3, M4), so nothing is kept across a restart or
@@ -496,13 +549,14 @@ or the decision it belongs to carries it.
 
 | Id | Finding | Kind | Where it belongs |
 |---|---|---|---|
-| F-A1 | ACP gives OAC no supported route into a client-owned session except a proxy, which is a Draft RFD (A9). An ACP adapter therefore depends on an experimental surface and needs a named shim boundary and a pinned version before it is built (`oac-evidence` §4). | Surface stability | A future ACP adapter's binding document; `docs/planning/v0.1/12-deferred.md` |
-| F-A2 | Under [SEC-AUZ-022] and [SEC-AUZ-026], no ACP hand-off is yet usable: v1 does not document `session/prompt` during a running turn (UNVERIFIED), v2 Draft documents it as steering, and ACP has no holding hand-off. ACP sessions are send-only. | Declaration | §2.4; the ACP binding document |
+| F-A1 | ACP gives OAC no supported route into a client-owned session except a proxy, which is a Draft RFD (A9). An ACP adapter therefore depends on an experimental surface and needs a named shim boundary and a pinned version before it is built (`oac-evidence` §4). The proxy binding also states that it never reads or keeps `authenticate` payloads, and that adding OAC's MCP server pre-answers no consent step ([SEC-AUZ-023]) (§2.2). | Surface stability | A future ACP adapter's binding document; `docs/planning/v0.1/12-deferred.md` "ACP adapter" (added in this change) |
+| F-A2 | No binding yet shows that an ACP hand-off meets [SEC-AUZ-022], so the ACP adapter declares its sessions send-only. That is a conservative choice, not a rule-forced one. For v1, what `session/prompt` does during a running turn is undocumented (UNVERIFIED). For v2 (Draft), the exception in [SEC-AUZ-022] may apply: the surface has no holding hand-off, and the Agent decides where an inserted message goes ("Acceptance means insertion", A7). A binding would need evidence that agents take a mid-work prompt in only at boundaries they choose, plus a shim boundary and a pinned v2 revision. | Declaration | §2.4; the ACP binding document |
 | F-A3 | One ACP connection can carry several sessions (A1). The adapter contract makes one `Connection` one attachment (§5.4). The proxy shape fits by opening one local connection per ACP session (§2.3). This is the same shape as the open MCP binding item "one Codex legacy-era MCP connection carries calls from several threads" (`spec/bindings/mcp.md` §10, owner #69). | Constraint on the adapter | §2.3; the ACP binding document |
-| F-T1 | A broker transport needs a server that someone runs. ADR-001 ("Decision") rules out "a separately administered server for normal local use". Within one installation this does not arise: [IFC-TRN-002] and [IFC-TRN-081] keep v0.1 same-install. Across installations, choosing NATS or MQTT is a deployment decision under ADR-001, not an interface change. | Deployment | ADR-001 if a broker transport is ever proposed; `docs/planning/v0.1/12-deferred.md` |
+| F-T1 | A broker transport needs a server that someone runs. ADR-001 rules out "a separately administered server for normal local use" ("Decision", L21) and defers "alternative transports" past v0.1 ("v0.1 scope", L63). Normal local use need not touch a broker: an implementation may carry its own sessions' envelopes over a transport that stays inside it ([IFC-TRN-002]), and [IFC-TRN-081] keeps presence records, and with them all cross-implementation traffic, off any transport that is not `cross-implementation` and `destination_restricted`. So a broker would serve only cross-installation traffic. Whether to add one is a post-v0.1 deployment decision under ADR-001, not an interface change. | Deployment | ADR-001 if a broker transport is ever proposed; `docs/planning/v0.1/12-deferred.md` "Alternative transports" |
 | F-T2 | Neither broker transport is `destination_restricted` until a device key is provisioned to a broker identity, which neither protocol defines (N9, M11). Until then [IFC-TRN-081] keeps all cross-implementation traffic off it, as it does for the v0.1 transport today (`spec/interfaces.md` §6.7 note). | Binding | The transport binding document ([IFC-TRN-090]) |
 | F-T3 | The NATS client reconnect buffer must hold nothing while disconnected ([IFC-TRN-036]). The docs show only how to size it (N11); whether each client library can disable it is UNVERIFIED. | Binding; UNVERIFIED | §3.3; `docs/planning/STATUS.md` |
 | F-T4 | MQTT QoS 1 and 2 can reveal whether a destination is subscribed (`0x10`, M9), so an MQTT binding is QoS 0 only and therefore not reliable. | Binding | §4.3 |
+| F-T5 | Core NATS has no expiry per message, so a copy can sit in the server's slow-consumer buffer past its deadline. The binding states the bound (`write_deadline`, `max_pending`, N16), and the receiving transport drops late copies ([IFC-TRN-034]). | Binding | §3.3 |
 
 **No amendment is proposed.** The procedure of
 `docs/planning/decisions/E7-interface-freeze.md` §7 and `oac-spec-authoring` §7 applies when
@@ -525,9 +579,10 @@ Resolved by this record (`oac-evidence` §5 promotion: re-verified above, remove
   "structural observation" (multicast discovery, now M10).
 - ACP protocol version `1`: the literal `"protocolVersion": 1` appears in the v1
   initialization example (A4). The pin does not move.
-- ACP schema v2 "alpha": **drift.** ACP v2 was published "in Draft" on 2026-07-20 (A8).
-  "Alpha" is no longer the source's word. ACP v1 stays the stable version, so the pin does
-  not move. PLANNING-PROMPT.md §3.5 keeps its 2026-09-15 wording as the baseline.
+- ACP schema v2 "alpha": **verified, no drift.** The v2 JSON schemas are published as
+  `v2.0.0-alphaX` prereleases, the latest being `schema-v2.0.0-alpha.7` of 2026-09-30 (A8 and
+  the §1.3 header). The v2 protocol docs, a separate thing, have been "in Draft" since
+  2026-07-20 (A8). ACP v1 stays the `supported` version, so the pin does not move.
 - Also observed, not an UNVERIFIED item: PLANNING-PROMPT.md §3.5 records that "unknown
   notifications should be ignored", lowercase. The v1 page now says implementations "SHOULD
   ignore unrecognized notifications" (A10).
@@ -538,9 +593,10 @@ Added by this record (in `docs/planning/STATUS.md` in the same change):
   (F-T3). Missing: a first-party statement per client library. Owner: a future NATS
   transport binding; not a v0.1 dependency.
 - What an ACP v1 agent does with a `session/prompt` received while a turn is running:
-  rejects it, holds it, or adds it to the running turn (F-A2). Missing: a statement in the
-  v1 protocol pages (A6 has none). Owner: a future ACP adapter binding; not a v0.1
-  dependency.
+  rejects it, holds it, or adds it to the running turn, and if so at which boundary (F-A2).
+  Missing: a statement in the v1 protocol pages (A6 has none). It decides whether a v1
+  binding could make the [SEC-AUZ-022] exception statement. Owner: a future ACP adapter
+  binding; not a v0.1 dependency.
 
 ---
 
@@ -566,6 +622,6 @@ quoted in the pull request description.
   `core/` changes.
 - Every NATS, MQTT, Mosquitto and ACP fact carries a source, a version or commit, and a
   retrieval date (§1). Method names, clause ids and settings are copied from those sources.
-- ACP's proxy route is labelled experimental (Draft RFD, A9); ACP v1 is the stable protocol
-  (A4). NATS, MQTT 5.0 and Mosquitto are named as candidates, not dependencies, and no pin is
+- ACP's proxy route is labelled experimental (Draft RFD, A9); ACP v1 is labelled supported
+  (A4); ACP v2 is not released (Draft docs, alpha schemas, A8). NATS, MQTT 5.0 and Mosquitto are named as candidates, not dependencies, and no pin is
   added.
