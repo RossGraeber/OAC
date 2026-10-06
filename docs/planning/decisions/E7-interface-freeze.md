@@ -1,7 +1,8 @@
 # E7 — Interface freeze record (Gate S2)
 
 - **Date:** drafted 2026-10-04 and re-audited the same day, after #272, #278, #279 and
-  #284 merged. Freeze date: 2026-10-06, the operator's decision on #47 (§8).
+  #284 merged. Freeze signed off 2026-10-06 (the operator's decision on #47, §8); in force
+  from the merge of PR #276.
 - **Issue:** #47 (E7, Epic E #5).
 - **Gate:** Gate S2, the interface-freeze half (`docs/planning/v0.1/10-stages.md` §6,
   criteria 1-6).
@@ -19,7 +20,8 @@ that commit. None is carried over from the first draft.
 
 ## 1. What the freeze covers
 
-These are frozen at revision `0.1` (signed off 2026-10-06, §8):
+These are frozen at revision `0.1` (signed off 2026-10-06, in force from the merge of PR
+#276; §8):
 
 | Item | Where | Size at `3e4471e` |
 |---|---|---|
@@ -185,7 +187,7 @@ These two items go beyond what the recorded operator decisions say:
 
 | Criterion | Status |
 |---|---|
-| 1. Adapter contract, transport contract and core types frozen | **Met** (2026-10-06). The text is `spec/interfaces.md`, and the operator decided FREEZE (§8). |
+| 1. Adapter contract, transport contract and core types frozen | **Met** (signed off 2026-10-06; in force from the merge of PR #276). The text is `spec/interfaces.md`, and the operator decided FREEZE (§8). |
 | 2. No transport or provider vocabulary in neutral spec text | **Met** (§2 row 6), including `spec/interfaces.md` |
 | 3. Normative text separated from reference-implementation notes | **Met.** Notes are labelled blockquotes in all four documents, and the runner ties every keyword sentence to an indexed id. |
 | 4. Every fixture executable, with a recorded expected outcome | **Met.** 527 fixtures, each decided by the runner against its recorded expectation. The demonstration covers every code and state (§2 row 5). |
@@ -194,17 +196,21 @@ These two items go beyond what the recorded operator decisions say:
 
 ## 6. Version and draft markers, edited at sign-off
 
-These edits are part of the freeze. The sign-off commit (2026-10-06) applies every row.
+These edits are part of the freeze. The sign-off commit `c1a6296` (2026-10-06) applied every
+row. A review-fix commit on PR #276 then reworded the headers, the `spec/interfaces.md` §7
+paragraph and the revision-history rows from "frozen ... on 2026-10-06" to "signed off
+2026-10-06, in force from the merge of PR #276", so that the text holds whenever the PR
+merges. The last column shows the text now applied.
 
 | File:line (`3e4471e`) | Was | At sign-off (applied) |
 |---|---|---|
-| `spec/session-channels.md` L4-L5 | `**Revision:** 0.1 (draft, Stage 2). Sections 4 and 5 (E1, #41), 6 (E2, #42), 7 (E3, #43) and 8 (E4, #44) are written.` | `**Revision:** 0.1, frozen at Gate S2 on 2026-10-06 (E7, #47; docs/planning/decisions/E7-interface-freeze.md). Changes follow its §7.` (the path in backticks) |
-| `spec/security.md` L4 | `**Revision:** 0.1 (draft, Stage 2). Written by task E5 (#45).` | `**Revision:** 0.1, frozen at Gate S2 on 2026-10-06 (E7, #47). Written by task E5 (#45).` |
-| `spec/interfaces.md` L5 | `**Revision:** 0.1 (draft, Stage 2). Written by #273 for task E7 (#47).` | `**Revision:** 0.1, frozen at Gate S2 on 2026-10-06 (E7, #47). Written by #273.` |
-| `spec/interfaces.md` L1164-L1167 (§7, the paragraph after Table 7.1, "Once Gate S2 freezes this document ...") | future tense | `Since Gate S2 froze this document ... on 2026-10-06 ...`, citing §7 of this record and stating its rule (now L1164-L1171) |
-| `spec/bindings/mcp.md` L4-L6 | `**Status:** Stage 2 draft, normative once Gate S2 freezes the spec surface (...). Every requirement carries an `MCPB` id; the index in §12 lists its fixtures or marks it `TODO(fixture)`.` | `**Status:** normative; frozen at Gate S2 on 2026-10-06 (E7, #47). Every requirement carries an `MCPB` id; the index in §12 lists its fixtures or marks it `TODO(fixture)`.` |
+| `spec/session-channels.md` L4-L5 | `**Revision:** 0.1 (draft, Stage 2). Sections 4 and 5 (E1, #41), 6 (E2, #42), 7 (E3, #43) and 8 (E4, #44) are written.` | `**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of PR #276 (E7, #47; docs/planning/decisions/E7-interface-freeze.md). Changes follow its §7.` (the path in backticks) |
+| `spec/security.md` L4 | `**Revision:** 0.1 (draft, Stage 2). Written by task E5 (#45).` | `**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of PR #276 (E7, #47). Written by task E5 (#45).` |
+| `spec/interfaces.md` L5 | `**Revision:** 0.1 (draft, Stage 2). Written by #273 for task E7 (#47).` | `**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of PR #276 (E7, #47). Written by #273.` |
+| `spec/interfaces.md` L1164-L1167 (§7, the paragraph after Table 7.1, "Once Gate S2 freezes this document ...") | future tense | `Since Gate S2 froze this document ... (task E7, #47; signed off 2026-10-06, in force from the merge of PR #276) ...`, citing §7 of this record and stating its rule (now L1165-L1173) |
+| `spec/bindings/mcp.md` L4-L6 | `**Status:** Stage 2 draft, normative once Gate S2 freezes the spec surface (...). Every requirement carries an `MCPB` id; the index in §12 lists its fixtures or marks it `TODO(fixture)`.` | `**Status:** normative; frozen at Gate S2: signed off 2026-10-06, in force from the merge of PR #276 (E7, #47). Every requirement carries an `MCPB` id; the index in §12 lists its fixtures or marks it `TODO(fixture)`.` |
 | `spec/bindings/mcp.md` L7 | `` `0.1` (draft until Gate S2; fixtures cite `spec_revision` `0.1`) `` | `` `0.1` (frozen; fixtures cite `spec_revision` `0.1`) `` |
-| The revision-history appendix of `spec/session-channels.md` (Appendix B), `spec/security.md` (Appendix C) and `spec/interfaces.md` (Appendix B) | rows read `0.1 (draft)` | Add a row `0.1` with `2026-10-06`: "Frozen at Gate S2 (E7, #47)". Earlier rows keep `(draft)` as history. `spec/bindings/mcp.md` has no revision-history appendix, and the sign-off commit does not add one. Its Status line (above) records the freeze. |
+| The revision-history appendix of `spec/session-channels.md` (Appendix B), `spec/security.md` (Appendix C) and `spec/interfaces.md` (Appendix B) | rows read `0.1 (draft)` | Add a row `0.1` with `2026-10-06`: "Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276." Earlier rows keep `(draft)` as history. `spec/bindings/mcp.md` has no revision-history appendix, and the sign-off commit does not add one. Its Status line (above) records the freeze. |
 
 The version stays `0.1` and the identifier is unchanged. The freeze makes the existing
 revision binding. It is not a new one.
@@ -217,18 +223,21 @@ https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771.
 
 1. **A frozen item changes only by a pull request that has three things:**
    - the change itself;
-   - a version bump of the changed document, with a row in its revision history;
+   - a version bump of the changed document (recorded, as every version bump already is,
+     by a row in that document's revision history; this is the existing convention, not an
+     added requirement);
    - approval of that pull request by the lead (the operator).
 
    No separate amendment document or record is needed. The versioned change documents
    itself. The skill rule is `oac-spec-authoring` §7, and `spec/interfaces.md` §7
-   (L1164-L1171) states the same rule for the contracts.
+   (L1165-L1173) states the same rule for the contracts.
 2. **Every change to a frozen item takes a version bump.**
    - A change that touches a wire form takes the version `spec/session-channels.md`
      §5.2-§5.3 assign to it. A compatible change (§5.2 items 1-6) is a minor revision under
      the same identifier. A breaking change (§5.3, including item 11: an added `MUST` that a
      `0.1` implementation would violate) needs a new major version and a new extension
-     identifier (§5.1; C3 §8). §5.3 treats a wire change it does not list as breaking.
+     identifier (§5.1; C3 §8). §5.3 (L620-L621) also says: "A change that matches neither
+     list is treated as breaking until a revision of this section classifies it."
    - A change that touches no wire form, such as a rename of an operation or a move of a
      requirement to another owner in `spec/interfaces.md` Appendix C, takes a minor
      version. It needs no new extension identifier.
@@ -252,21 +261,25 @@ freeze is in force from that PR's merge. Gate S2 criterion 1 is met.
 | Question | Operator's answer |
 |---|---|
 | I accept the renamed adapter and transport operations (§4.2; `spec/interfaces.md` §9) in place of the DESIGN names in #47's outcome list | **YES** |
-| I accept the two items of §4.2 that go beyond recorded decisions: (a) cross-install waits for a transport binding that meets [SC-DLV-066] and [IFC-TRN-080], not only for E5; (b) all Codex delivery goes through `thread/queue/add`, not only when busy, with the consequences listed there | **YES**, accepted as part of freezing v0.1 |
+| I accept the two items of §4.2 that go beyond recorded decisions: (a) cross-install waits for a transport binding that meets [SC-DLV-066] and [IFC-TRN-080], not only for E5; (b) all Codex delivery goes through `thread/queue/add`, not only when busy, with the consequences listed there | Accepted as part of freezing v0.1 (not answered separately) |
 | Decision | **FREEZE** (v0.1) |
 | Frozen at commit (the sign-off commit, which applies §6) | The merge commit of PR #276, which carries the sign-off commit and which the operator approves |
-| Date | 2026-10-06 |
+| Date | Signed off 2026-10-06; in force from the merge of PR #276 |
 | Recorded on | https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771 |
 
-**The sign-off commit** (2026-10-06) did the following:
+**The sign-off** is the set of commits in PR #276 (2026-10-06):
 
-1. Filled in this table and the header's freeze date.
-2. Applied every row of §6 to the four `spec/` documents.
-3. Set this record's status to **FROZEN**, rewrote §7 to the operator's change-control
-   rule, and set the `10-stages.md` §6 "Current verdict" to Gate S2 criterion 1 met.
-4. STATUS.md: a top entry, with the "Current stage" and "Open epics" cells.
-5. Re-ran the runner, its `--self-test` and the CI spec step on that commit (§3, "Re-run
-   at sign-off").
+1. `c1a6296` (the sign-off commit) filled in this table and the header's freeze date.
+2. `c1a6296` applied every row of §6 to the four `spec/` documents.
+3. `c1a6296` set this record's status to **FROZEN** and rewrote §7 to the operator's
+   change-control rule. `d0d25c7` set the `10-stages.md` §6 "Current verdict" to Gate S2
+   criterion 1 met, and aligned `oac-spec-authoring` §7 with §7 here.
+4. `d0d25c7` added the STATUS.md top entry and updated the "Current stage" and "Open
+   epics" cells.
+5. The runner, its `--self-test` and the CI spec step were re-run on the sign-off branch
+   (§3, "Re-run at sign-off").
+6. A review-fix commit applied the PR #276 review notes N2-N7 (the §6 wording above among
+   them).
 
 ## 9. What freezing commits you to (plain language)
 

@@ -1,8 +1,8 @@
 # OAC Session Channels
 
 **Document:** `spec/session-channels.md`, the normative OAC Session Channels specification.
-**Revision:** 0.1, frozen at Gate S2 on 2026-10-06 (E7, #47;
-`docs/planning/decisions/E7-interface-freeze.md`). Changes follow its §7.
+**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of
+PR #276 (E7, #47; `docs/planning/decisions/E7-interface-freeze.md`). Changes follow its §7.
 **Companion document:** `spec/security.md` (task E5, #45) holds the identity hierarchy,
 signing, replay defence, authorization and provenance rules. This document does not restate
 them.
@@ -2964,4 +2964,4 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-04 | #273, editorial (no requirement added or changed): §3.2 notes that `spec/interfaces.md` registers the prefix `IFC`; the §7 introduction points at the transport contract of `spec/interfaces.md` §6.5-§6.6; a dated note in §8.1.5 records that the transport contract now defines receipt carriage, while no transport binding yet meets its cross-implementation gate; §10.2 lists `spec/interfaces.md`. |
 | 0.1 (draft) | 2026-10-04 | #275, no requirement added or changed: the fixture `context` of §3.3, and the `routing` and `receive` stages of §8.5, gain an optional `max_envelope_octets` (the receiver-wide size limit of [SC-RCP-076]; 65536, the default of [SC-ENV-004], when absent), so that a fixture can decide `envelope-too-large` at the envelope stage. New fixtures `sc-rcp/SC-RCP-076.p02`, `.p03`, `.n02`, `.n03`, `SC-RCP-071.n07`, `SC-RCP-028.p01`, `.p02`, `.n03`, `.n04`, `SC-RCP-079.p01`, `.n02`, `SC-RCP-090.n03` and `SC-RCP-072.n01` decide `envelope-too-large` and `transport-failure` (Gate S2 demonstration, E7 blocker B3). |
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): Appendix A row SC-ID-080 named only Stage 2 owners (E3, E6), both closed. Its `TODO(fixture)` is now owned by F6 and F10, as the other issuer-side rows of §7.2.5 are. |
-| 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47). |
+| 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |

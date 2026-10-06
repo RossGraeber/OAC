@@ -105,10 +105,11 @@ Per PLANNING-PROMPT.md §3.3 (MCP extension model, SEP-2133): extension identifi
 
 ## 7. The interface freeze
 
-Gate S2 froze the four `spec/` documents at revision 0.1 on 2026-10-06 (task E7, #47): the
-protocol, security, the MCP binding, and `spec/interfaces.md` (core neutral types,
-`ProviderAdapter`, `Transport`, owner index). What is frozen, and the change rule:
-`docs/planning/decisions/E7-interface-freeze.md` §1 and §7; not restated here.
+Gate S2 froze the four `spec/` documents at revision 0.1 (task E7, #47; signed off
+2026-10-06, in force from the merge of PR #276): the protocol, security, the MCP binding,
+and `spec/interfaces.md` (core neutral types, `ProviderAdapter`, `Transport`, owner index).
+What is frozen, and the change rule: `docs/planning/decisions/E7-interface-freeze.md` §1
+and §7; not restated here.
 
 What "frozen" obliges an agent to do afterwards:
 - Stage 3/4 work (Epics F, G) implements against the frozen signatures; it does not

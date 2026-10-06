@@ -1,7 +1,8 @@
 # OAC Session Channels Security
 
 **Document:** `spec/security.md`, the normative security model of OAC Session Channels.
-**Revision:** 0.1, frozen at Gate S2 on 2026-10-06 (E7, #47). Written by task E5 (#45).
+**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of
+PR #276 (E7, #47). Written by task E5 (#45).
 **Companion document:** `spec/session-channels.md`, which defines the envelope (§4),
 versioning (§5), session identity (§6), presence and discovery (§7), and delivery states,
 receipts and errors (§8). This document does not restate those rules. It defines what that
@@ -1794,4 +1795,4 @@ work.*
 | 0.1 (draft) | 2026-10-04 | L9 (#174): memory references. §1.2 states that memory references and resolved memory are content; §12.5 defines them in neutral terms, scoped to `content`, and adds SEC-PRV-015 (never in the provenance set, a separate carrier or a frame header), SEC-PRV-016 (no look-up or validation) and SEC-PRV-017 (no enrichment from a memory service); §9.6 adds SEC-AUZ-024 (no authorization decision takes a memory reference as input); §9.3 notes that working-directory scoping does not govern an external service's capture; §13 carries `docs/planning/v0.1/06-security.md` §14 rows 21 to 23. No envelope or content-model change: a memory reference stays text in a `content` entry (Decision L1 §4 Q1). No fixture: each new MUST NOT is `TODO(fixture)`. Operator decisions on #174: §12.6 adds SEC-PRV-018 (SHOULD NOT: no secrets in content) with a warning that the receiving side may store content; §12.5 notes that a harness that looks memory up itself and sends the result is unaffected. Review of PR #272: memory references scoped to `content`, so a header value of the same form is governed by §12.1 only; the §9.3 note and row 23 tied to Decision L1 §2's pinned version. |
 | 0.1 (draft) | 2026-10-04 | #274 (operator decision on #224, 2026-10-02): [SEC-AUZ-022] widened and made unconditional: a steering operation is any hand-off that adds input to a running turn, as documented, observed or shown by source, and no operator setting enables one. The only exception is an operation a binding shows, with evidence, to be on a surface with no holding hand-off and taken in at boundaries the harness chooses; such input does join the running turn, as the §13 residual states. SEC-AUZ-025 (a holding hand-off whenever a turn may be running), SEC-AUZ-026 (only an atomic check shows that no turn is running) and SEC-AUZ-027 (no fallback to steering) added, each `TODO(fixture)` owned by G7 (#68). The §13 steering row updated. Made before the interface freeze (`spec/session-channels.md` §5.3, item 11). |
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): a dated note in Appendix B records that its nine follow-ups are all applied. |
-| 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47). |
+| 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
