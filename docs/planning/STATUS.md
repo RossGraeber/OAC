@@ -20,6 +20,10 @@ Stage 3 (Epic F, #6) opens.** The exit decision is
   (#41-#49) are closed.
 - **#308 is out of Epic E's scope (record §3).** It batches editorial amendments to frozen
   text for the next minor version, under E7 §7. It stays open and does not block the exit.
+- **N1, the minor bump for a change touching no wire form.** The operator decided "small
+  (minor) version bump" on #47
+  (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873, 2026-10-06),
+  confirming E7 §7 item 2 and `spec/interfaces.md` §7 as merged in PR #276.
 - **Stage 3 entry (`10-stages.md` §7; record §4).** Gate S2, the D6 fixtures and Gates S0
   and S1 are all met. Prerequisite decisions 1, 2, 5, 6, 7 and 12 are made, and every
   dependency Epic F's tasks name outside Epic F is closed.

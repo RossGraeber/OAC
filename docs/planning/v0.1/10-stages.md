@@ -522,6 +522,8 @@ replacement proofs (E9) stay authoritative for their own content.
   set (E8) and the proofs (E9). All nine Epic E tasks are closed.
 - **#308** (editorial amendments to frozen text, for the next minor version) is outside
   Epic E's scope. It lands later under the E7 §7 change rule and does not block the exit.
+  The minor bump for a change touching no wire form is the operator's N1 decision on #47
+  (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873).
 - **§7's entry conditions are met:** Gate S2, the D6 fixtures, and Gates S0 and S1.
 
 *History (pre-exit), kept as history:* **Gate S2 criterion 1 is met (2026-10-06, #47). The

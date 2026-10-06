@@ -51,7 +51,11 @@ E7 §5 recorded criteria 1-6 as met at sign-off. Each is re-checked here against
      sign-off. GitHub records no formal review on PR #276, because the author and the
      merger are the same account. The merge is the lead's approval.
    - The change rule is E7 §7: a frozen item changes only by a PR with the change and a
-     version bump, approved by the lead. This replaces the M0 "spec-revision event under
+     version bump, approved by the lead. The PR #276 review's N1 note asked whether a
+     change that touches no wire form takes a minor version. The operator decided it does,
+     a small (minor) bump, in a separate comment on #47 (2026-10-06T02:40Z,
+     https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873). That comment
+     confirms the sentence merged in `spec/interfaces.md` §7 and E7 §7 item 2. This replaces the M0 "spec-revision event under
      `05-interfaces.md` §11" (`10-stages.md` §6 dated note, L527-L533).
    - Nothing has changed under `spec/` since `20482f1` (§1).
 2. **No transport or provider vocabulary in neutral spec text: holds.** The
@@ -95,7 +99,9 @@ All nine Epic E tasks are closed: #41-#46 (E1-E6), #47 (E7, PR #276), #48 (E8) a
 
 **#308 is outside Epic E's scope.** It collects editorial amendments to the frozen
 `spec/` text (first item: a stale Codex pin pointer in `spec/bindings/mcp.md` §8.2) so they
-land together in the next minor version. Under E7 §7 items 1-2 that is a post-freeze change:
+land together in the next minor version (the operator's N1 decision on #47,
+https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873, and E7 §7 item 2
+for editorial changes). Under E7 §7 items 1-2 that is a post-freeze change:
 one PR with the edits and a version bump of each changed document, approved by the lead. It
 is not a Stage 2 deliverable and does not block this exit. It stays open, and it is not
 part of #5's task list. Its `stage:2-spec` label names the documents it touches, not
