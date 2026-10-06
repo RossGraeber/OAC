@@ -95,7 +95,18 @@ fn recorded_call(fixture: &str, n: usize) -> (String, String, String) {
 
 #[test]
 fn replays_the_d6_capture() {
-    let mut fake = FakeClaude::new(Config::new("d6claude").expect("valid"));
+    // The mid-turn part asserts order only, so it must hold under both release settings.
+    for release in MidTurnRelease::BOTH {
+        replay_d6(release);
+    }
+}
+
+fn replay_d6(release: MidTurnRelease) {
+    let mut fake = FakeClaude::new(
+        Config::new("d6claude")
+            .expect("valid")
+            .with_release(release),
+    );
     open_legacy(&mut fake, D6, [4, 6, 10], [3, 5, 7, 9]);
     assert_eq!(fake.tools(), ["reply"]);
 
@@ -144,6 +155,7 @@ fn replays_the_d6_capture() {
         matches!(fake.end_turn(), Err(FakeError::Unsupported(_))),
         "queued input at turn end is not recorded"
     );
+    // Two boundaries release both under either setting; only the order is asserted.
     fake.tool_boundary().expect("boundary");
     fake.tool_boundary().expect("boundary");
     let ids: Vec<_> = fake
@@ -151,7 +163,7 @@ fn replays_the_d6_capture() {
         .iter()
         .map(|e| midturn(e).attribute("oac_message_id")[0].to_owned())
         .collect();
-    assert_eq!(ids, ["d6-midturn-1", "d6-midturn-2"]);
+    assert_eq!(ids, ["d6-midturn-1", "d6-midturn-2"], "{release:?}");
     fake.end_turn().expect("idle");
 
     // Every client frame the fake wrote is one Claude Code recorded, in order.
