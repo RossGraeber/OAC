@@ -1,8 +1,8 @@
 # OAC Session Channels
 
 **Document:** `spec/session-channels.md`, the normative OAC Session Channels specification.
-**Revision:** 0.1 (draft, Stage 2). Sections 4 and 5 (E1, #41), 6 (E2, #42), 7 (E3,
-#43) and 8 (E4, #44) are written.
+**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of
+PR #276 (E7, #47; `docs/planning/decisions/E7-interface-freeze.md`). Changes follow its §7.
 **Companion document:** `spec/security.md` (task E5, #45) holds the identity hierarchy,
 signing, replay defence, authorization and provenance rules. This document does not restate
 them.
@@ -2781,7 +2781,7 @@ requirement whose fixtures exercise it.
 | SC-ID-068 | MUST | 6.4 | `sc-id/SC-ID-068.n01` |
 | SC-ID-069 | MUST NOT | 6.4 | `sc-id/SC-ID-069.p01` |
 | SC-ID-070 | MUST | 6.4 | `sc-id/SC-ID-070.n01`, `.n02` |
-| SC-ID-080 | MUST | 6.5 | TODO(fixture): declaration carriage; E3 discovery, E6 binding |
+| SC-ID-080 | MUST | 6.5 | TODO(fixture): issuer-side; the declaration is carried in the announcement's descriptor (§7.2.2, §7.3.3), which E3 (#43) defined; F6, F10 |
 | SC-ID-081 | MUST NOT | 6.5 | TODO(fixture): declarer-side; F10 adapter contract suite |
 | SC-ID-082 | MUST | 6.5 | `sc-id/SC-ID-082.p01`, `.p02`, `.n01` |
 | SC-ID-083 | MUST | 6.5 | `sc-id/SC-ID-083.p01` |
@@ -2963,3 +2963,5 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-03 | E8 (#48), no requirement added or changed: the reference conformance runner `tests/protocol/runner/run.mjs`, run in CI (§3.3 note); §3.3 says a binding document can define its own `fixture_format` and a runner dispatches on it (comment on #48), and that a sender-side section 4 or 5 fixture uses the `send` stage; §8.5 adds the `receive` stage (security and delivery stages together) and names the `send` stage the `sc-rcp/SC-RCP-090` fixtures already use; new fixtures `sc-env/SC-ENV-021.p01`, `sc-env/SC-ENV-066.n01` and `sc-rcp/SC-RCP-073.p01`, `.n03` to `.n05` replace the E8-owned `TODO(fixture)` entries of SC-ENV-021, SC-ENV-066 and SC-RCP-073, and the runner's taxonomy check covers SC-RCP-074's. Review of PR #270: the `combine` stage gains `handoff_deadline_passed`, which rule 6 of SC-RCP-085 reads (`deadline_passed` stays the retry deadline), set in `sc-rcp/SC-RCP-085.n01`, `.n02` and `SC-RCP-086.n01`, `.p02`; §7.5 says the `presence` stage does not apply the cap of `spec/security.md` [SEC-PRS-007]. |
 | 0.1 (draft) | 2026-10-04 | #273, editorial (no requirement added or changed): §3.2 notes that `spec/interfaces.md` registers the prefix `IFC`; the §7 introduction points at the transport contract of `spec/interfaces.md` §6.5-§6.6; a dated note in §8.1.5 records that the transport contract now defines receipt carriage, while no transport binding yet meets its cross-implementation gate; §10.2 lists `spec/interfaces.md`. |
 | 0.1 (draft) | 2026-10-04 | #275, no requirement added or changed: the fixture `context` of §3.3, and the `routing` and `receive` stages of §8.5, gain an optional `max_envelope_octets` (the receiver-wide size limit of [SC-RCP-076]; 65536, the default of [SC-ENV-004], when absent), so that a fixture can decide `envelope-too-large` at the envelope stage. New fixtures `sc-rcp/SC-RCP-076.p02`, `.p03`, `.n02`, `.n03`, `SC-RCP-071.n07`, `SC-RCP-028.p01`, `.p02`, `.n03`, `.n04`, `SC-RCP-079.p01`, `.n02`, `SC-RCP-090.n03` and `SC-RCP-072.n01` decide `envelope-too-large` and `transport-failure` (Gate S2 demonstration, E7 blocker B3). |
+| 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): Appendix A row SC-ID-080 named only Stage 2 owners (E3, E6), both closed. Its `TODO(fixture)` is now owned by F6 and F10, as the other issuer-side rows of §7.2.5 are. |
+| 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |

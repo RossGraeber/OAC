@@ -4,6 +4,65 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #47 (E7): the Stage 2 interfaces are frozen at
+revision 0.1.** The operator decided FREEZE on #47
+(https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771). The sign-off commit
+is on PR #276, and the operator's approval of that PR is the final sign-off.
+
+- **Answers (record §8).** Renamed operations: YES. The two §4.2 items, (a) cross-install
+  waits for a transport binding and (b) all Codex delivery goes through the queue:
+  accepted as part of freezing v0.1 (not answered separately). Decision: FREEZE (v0.1).
+  Frozen at the merge commit of PR #276.
+- **Markers (record §6).** The four `spec/` documents read "frozen at Gate S2: signed off
+  2026-10-06, in force from the merge of PR #276", and the three revision histories gain a
+  `0.1` row for the freeze. The version stays `0.1`, and the extension identifier is
+  unchanged.
+- **Change control (record §7), the operator's rule.** A frozen item changes only by a PR
+  containing the change and a version bump, approved by the lead. No separate amendment
+  document is written. A wire change takes the version `spec/session-channels.md`
+  §5.2-§5.3 assign; a change touching no wire form (a rename, an owner move) takes a minor
+  version. Fixtures are not frozen and need no bump. `oac-spec-authoring` §7,
+  `spec/interfaces.md` §7 and `10-stages.md` §6 and §8 now say the same. The ADR-001
+  amendment process is unchanged.
+- **Re-run at sign-off (record §3).** `main` changed only the runner since `3e4471e`
+  (#283, #291). Runner 527/527 and index checks clean; self-test PASS; 510 ids, 472
+  `MUST`/`MUST NOT`, every one with a fixture or an owned `TODO(fixture)`; every Table 8.3
+  code and state decided; the neutral-vocabulary checks find zero hits.
+- **Gate S2 criterion 1 is met** (`10-stages.md` §6 "Current verdict"). E9 (#49) stays
+  open. No gate verdict, pin or ADR text changes, and Stage 3 is not declared open here.)
+
+**Last updated:** 2026-10-04 (**Issue #47 (E7): interface freeze ready for the operator's
+sign-off, not declared.** The freeze record, `docs/planning/decisions/E7-interface-freeze.md`
+(PR #276, a draft), was re-audited after #272, #278, #279 and #284 merged (`main` at
+`3e4471e`).
+
+- **Audit.**
+  - The runner and its self-test pass: 527/527 fixtures, and the index checks are clean,
+    including the `spec/interfaces.md` Appendix C owner index.
+  - All 510 requirement ids resolve, 472 of them `MUST`/`MUST NOT`. Each of those has a
+    fixture or a `TODO(fixture)` owned outside Stage 2.
+  - Every Table 8.3 code and Table 8.1 state is decided by a fixture. Binding-format
+    fixtures count, by orchestrator ruling.
+  - The neutral-vocabulary checks over `spec/` find zero hits.
+  - The operator decisions on #43, #45, #46, #174 and #224 are each reflected.
+- **Blockers: all closed.** B1, the interface text (#273, PR #279). B2, never steer
+  (#274, PR #278). B3 and B4, fixtures and binding owners (#275, PR #284). B5, L9 before
+  the freeze (#174, PR #272).
+- **What the operator signs (record §8).**
+  - Yes or no on the renamed adapter and transport operations (`spec/interfaces.md` §9).
+  - Yes or no on the two items that go beyond recorded decisions (record §4.2): (a)
+    cross-install waits for a transport binding meeting [SC-DLV-066] and [IFC-TRN-080],
+    not only for E5; (b) all Codex delivery goes through the queue, not only when busy.
+  - Then FREEZE or NOT YET.
+
+  Decisions the operator already recorded are listed for information only.
+- **Ruling.** Binding-format fixtures count toward the Gate S2 demonstration (orchestrator,
+  #47 comment 5978246563).
+- **Editorial fixes.** The SC-ID-080 fixture owner; a `spec/security.md` Appendix B note;
+  the "Open epics" cell; `10-stages.md` §6 "Current verdict".
+- **Not frozen yet.** The draft markers in the four `spec/` documents stay until the
+  sign-off commit, which applies the record's §6. No gate verdict, pin or ADR text changes.)
+
 **Last updated:** 2026-10-04 (**Issue #274: delivery never steers; the #224 decision is in
 the spec before the freeze.** Blocker B2 of the E7 freeze-readiness audit (#47, #274).
 In this change:
@@ -1261,8 +1320,8 @@ amendments A1-A3 issued)
 | | |
 |---|---|
 | Milestone | M3 — Stage 2 normative spec (Epic E, #5). *(Dated note, 2026-10-03, #40: was "M2 — Stage 1 gate spikes (Epic D)" until D7. Earlier dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
-| Stage | **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
-| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. Progress: E1 (#41) in review, `spec/session-channels.md` with §4-§5 written and the §6-§8 stubs E2-E4 fill (2026-10-03); E2-E9 open. D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
+| Stage | **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). **Interfaces frozen at revision 0.1 (E7, #47; signed off 2026-10-06).** The operator decided FREEZE (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771), so Gate S2 criterion 1 is met and criteria 1-6 hold (`docs/planning/decisions/E7-interface-freeze.md` §5); the freeze is in force from the merge of PR #276. Stage 2's remaining exit artifact is E9 (#49), which is not a Gate S2 criterion. This change does not declare Stage 3 open. *(Dated note, 2026-10-06, #47: until now this cell ended at "Stage 2's exit is Gate S2".)* *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
+| Open epics | E (Stage 2, normative spec v0.1, #5): opens with D7. Progress: E1-E6 (#41-#46) and E8 (#48) closed. `spec/session-channels.md`, `spec/security.md`, `spec/bindings/mcp.md` and `spec/interfaces.md` (#273) are frozen at revision 0.1 (signed off 2026-10-06; in force from the merge of PR #276), and the conformance runner runs in CI. E7 (#47): FREEZE decided by the operator on 2026-10-06 (`docs/planning/decisions/E7-interface-freeze.md` §8, PR #276; closes on that PR's merge). Changes to frozen items follow record §7: a PR with the change and a version bump, approved by the lead. E9 (#49) is open and follows E7. *(Dated note, 2026-10-06, #47: until now this cell read "merged at revision 0.1 (draft) ... E7 (#47): freeze prepared, not declared ... the freeze is ready for the operator's sign-off (record §8)".)* *(Dated note, 2026-10-04, #47: until now this cell read "E1 (#41) in review, ... E2-E9 open".)* D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
 | Blocked | Stages 3-6. Stage 3 starts only after Gate S2, Stage 2's exit (`docs/planning/v0.1/10-stages.md` §6), and each later stage after its own gate. Stage 0 (Gate S0, #228) and Stage 1 (Gate S1, D7 #40) are complete. That meets the rule that no substantial core or transport code starts before both complete. The risk-first ordering (`10-stages.md` §2) still applies. No gate verdict blocks Stage 2: G5 is PASS and C13 is closed. *(Dated note, 2026-10-03, #40: until D7 this cell read "Stages 2-6, and the rest of Stage 1 pending D7"; C13 had closed on 2026-10-02, #220.)* |
 
 ## ADR amendments

@@ -2,7 +2,8 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.1 (draft, Stage 2). Written by #273 for task E7 (#47).
+**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of
+PR #276 (E7, #47). Written by #273.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
 their rules. It says which part of an implementation carries out each of them (Appendix C),
@@ -1161,10 +1162,15 @@ Table 7.1.
 > and checks 1 and 2 of `oac-boundaries` will scan the core module once it exists. The rules
 > above are what those scans approximate.
 
-Once Gate S2 freezes this document with the other Stage 2 documents (task E7, #47), a change
-to a type or an operation here is a recorded amendment, not a silent edit
-(`oac-spec-authoring` §7). Whether it also needs a new minor or major version is decided by
-`spec/session-channels.md` §5.2-§5.3 for the wire forms it touches.
+Since Gate S2 froze this document with the other Stage 2 documents (task E7, #47; signed
+off 2026-10-06, in force from the merge of PR #276), a change to a type or an operation
+here is made only by a pull request that contains the change and a version bump, and that
+the lead approves
+(`docs/planning/decisions/E7-interface-freeze.md` §7; `oac-spec-authoring` §7). No separate
+amendment record is needed: the versioned change records itself. A change that touches a
+wire form takes the version `spec/session-channels.md` §5.2-§5.3 assign to it. A change that
+touches no wire form, such as renaming an operation or moving a requirement to another owner
+in Appendix C, takes a minor version under the same extension identifier.
 
 ---
 
@@ -1365,6 +1371,7 @@ Its rule moved to [IFC-ADP-012], with the pairing key now observed by the core p
 |---|---|---|
 | 0.1 (draft) | 2026-10-04 | #273 (E7 blocker B1, #47): document written from the merged Stage 2 specifications. Core neutral types mapped to their wire forms, with local members kept out of payloads; the adapter contract with binding signals, hand-off outcomes, the request sink and the owner index; the transport contract carrying envelopes, authenticated presence records and authenticated receipts, with the declared capability set and the cross-implementation gate; neutrality and containment with the listed exceptions; requirement prefix `IFC`; fixtures under `tests/protocol/ifc-typ/` and `tests/protocol/ifc-trn/`. Supersedes `docs/planning/v0.1/05-interfaces.md` §13-§15. |
 | 0.1 (draft) | 2026-10-04 | Review of PR #279 and the operator rulings on #273: operations whose meaning changed renamed (`take_connection`, `watch_attachments`, `set_binding`, `accept_requests`, `send_presence`); persistence and offline queueing declared absent, and a transport holds a copy only in flight and never past its deadline or across a restart (IFC-TRN-026, IFC-TRN-033 to IFC-TRN-037); the `not-passed` request result; Appendix C gives every `MUST` and `MUST NOT` of the four documents one owner, checked by the reference runner; connections are created and authenticated by the core process (IFC-ADP-012, IFC-ADP-013); transport non-disclosure of subscriptions (IFC-TRN-043, IFC-TRN-044); `ChannelMessage` keeps unrecognized members (IFC-TYP-003); scope and device grants in Table 4.9; receipts addressed to the verifying key; the hand-off never steers and is made at most once (IFC-ADP-057, after #278); single-member negative fixtures for IFC-TYP-050 and IFC-TYP-060. |
+| 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 
 ## Appendix C. Owner index
 
