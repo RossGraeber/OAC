@@ -589,6 +589,16 @@ from at runtime. That path is confirmed by F8 and F9 themselves when they land (
 per `docs/planning/v0.1/07-repository-and-dependencies.md` §1's identical deferral for the
 `tests/` module row.
 
+*Dated note, 2026-10-06 (#58, F9): the fake Codex app-server is at
+`tests/fakes/codex-app-server/`. It loads the recorded fixtures in place, from
+`docs/planning/gates/fixtures/` (D6 `d6-codex-protocol/`, G2 and G5 Codex transcripts),
+and copies none of them, so `MANIFEST.json` stays the one inventory. It is a Node process
+(built-ins only) over stdio and loopback WebSocket, so a Rust contract test spawns it by
+path. It sits under `tests/fakes/`, not `tests/integration/`, because the latter is the
+opt-in leaf that no product path may reference (`scripts/check-herdr-containment.mjs`
+check 9), and the fakes are CI-default. Its provenance table, source-only behaviours and
+not-modelled list are its `README.md`.*
+
 ---
 
 ## 14. Test-location policy
