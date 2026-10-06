@@ -13,6 +13,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[lib]
+name = "oac_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "oac"
 path = "src/main.rs"
@@ -22,3 +26,9 @@ oac-core.workspace = true
 oac-adapter-claude = { path = "../adapters/claude" }
 oac-adapter-codex = { path = "../adapters/codex" }
 oac-transport-zenoh = { path = "../transports/zenoh" }
+# Device-key storage (#52, F3): the OS credential store (C1 section 8, C4 section 10;
+# default feature v1, which builds windows-native-keyring-store on Windows) and the
+# encrypted-file fallback (C4 section 11; default features only).
+keyring = "=4.2.0"
+age = "=0.12.1"
+zeroize = "=1.9.0"
