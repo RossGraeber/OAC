@@ -4,6 +4,25 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #52 (F3): device identity, key storage, signing and
+verification land in `core/` and `cli/`**, against `spec/security.md` revision 0.1. No
+`spec/` file, gate verdict, pin or ADR text changes.
+
+- **Ledger.** The E5 item "whether `ed25519-dalek` `3.0.0`'s `VerifyingKey::verify_strict`
+  gives the [SEC-SIG-021] to [SEC-SIG-024] verdicts on every `sec-sig` fixture" is closed and
+  removed from "Open UNVERIFIED items". Promotion: run, not read. The `core/tests/conformance.rs`
+  test `verify_strict_alone_gives_the_sec_sig_verdicts` runs the 21 `sec-sig` fixtures past
+  the form checks through `verify_strict` alone, and its verdict is each fixture's (the
+  small-order, non-canonical and mixed-order `R` and `A` cases, and S not below L, all
+  rejected); key admission refuses non-canonical and small-order keys ([SEC-KEY-034]).
+  Rust 1.98.1 on Windows and Linux. `11-risks.md` row 63 is closed with the same evidence.
+  The `spec/security.md` §6.3 note and §13 row that still say "UNVERIFIED until F4" are
+  frozen text, left for the #308 editorial batch.
+- **Dependencies.** `ed25519-dalek` `3.0.0` (BSD-3-Clause, now on the accepted list under
+  the #51 operator decision), `sha2` `0.11.0`, `getrandom` `0.4.3` and `zeroize` `1.9.0` in
+  `core/`; `keyring` `4.2.0` and `age` `0.12.1` in `cli/`. `07-repository-and-dependencies.md`
+  §5 has the rows and the transitive summary.)
+
 **Last updated:** 2026-10-06 (**Issue #5 (Epic E): Gate S2 is met. Stage 2 exits and
 Stage 3 (Epic F, #6) opens.** The exit decision is
 `docs/planning/decisions/E-5-stage2-exit.md`, checked against `main` at `98ad455` (the PR
@@ -1771,19 +1790,6 @@ Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 (`docs/planning/REVERIFICATION-B2.md`). Until closed, no plan or skill may rely on them
 without an UNVERIFIED label.
 
-- **New, from E5 (#45, 2026-10-03):** whether `ed25519-dalek` `3.0.0`'s
-  `VerifyingKey::verify_strict` gives the `spec/security.md` verdicts of [SEC-SIG-021] to
-  [SEC-SIG-024] on every `sec-sig` fixture when actually run. *Narrowed the same day by
-  the PR #265 review:* its source rejects small-order `R` and `A`, recomputes `R` with
-  `vartime_double_scalar_mul_basepoint` and compares the compressed octets, which is the
-  cofactorless equation the spec now requires, and rejects a non-canonical `R` by that
-  octet comparison
-  (https://docs.rs/ed25519-dalek/3.0.0/src/ed25519_dalek/verifying.rs.html, retrieved
-  2026-10-03). `VerifyingKey::from_bytes` keeps a non-canonical public-key encoding, so
-  the spec's canonical-`A` rule must be checked at key admission (SEC-KEY-034). What stays
-  open is a run of the fixtures through a Rust build. Node.js 25.2.1 / OpenSSL 3.5.4
-  accepts the small-order-`R` fixture `sec-sig/SEC-SIG-022.n01` and rejects the rest.
-  Owner: F4. `11-risks.md` row 63.
 - **New, from E5 (#45, 2026-10-03):** whether `serde_jcs` `0.2.0` reproduces the
   `expected.canonical` values of the `sec-*` fixtures (RFC 8785). Checked only by two
   independent JavaScript serializers. Owner: F4. `11-risks.md` row 64.

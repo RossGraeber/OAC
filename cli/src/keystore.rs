@@ -208,13 +208,15 @@ mod file {
         /// [`PASSPHRASE_CREDENTIAL`], else the environment variable [`PASSPHRASE_ENV`].
         /// `None` when neither is set: the fallback is then not available.
         pub fn passphrase_from_environment() -> Option<SecretString> {
-            if let Some(dir) = std::env::var_os("CREDENTIALS_DIRECTORY") {
-                if let Ok(p) = fs::read_to_string(Path::new(&dir).join(PASSPHRASE_CREDENTIAL)) {
-                    let p = Zeroizing::new(p);
-                    let p = p.trim_end_matches(['\r', '\n']);
-                    if !p.is_empty() {
-                        return Some(SecretString::from(p.to_owned()));
-                    }
+            let credential = std::env::var_os("CREDENTIALS_DIRECTORY")
+                .and_then(|dir| {
+                    fs::read_to_string(Path::new(&dir).join(PASSPHRASE_CREDENTIAL)).ok()
+                })
+                .map(Zeroizing::new);
+            if let Some(p) = credential {
+                let p = p.trim_end_matches(['\r', '\n']);
+                if !p.is_empty() {
+                    return Some(SecretString::from(p.to_owned()));
                 }
             }
             std::env::var(PASSPHRASE_ENV)
@@ -426,7 +428,10 @@ mod tests {
         );
         let account = format!("test-{}", DeviceKey::generate().key_id());
         let store = OsKeyStore::with_entry(&format!("{SERVICE}.test"), &account);
-        assert!(store.load().unwrap().is_none());
+        match store.load() {
+            Ok(None) => {}
+            other => panic!("this host's credential store is not usable: {other:?}"),
+        }
         let key = DeviceKey::load_or_generate(&store).unwrap();
         let again = DeviceKey::load_or_generate(&OsKeyStore::with_entry(
             &format!("{SERVICE}.test"),
