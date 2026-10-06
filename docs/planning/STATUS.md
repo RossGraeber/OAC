@@ -11,8 +11,9 @@ dependency is added.
 
 - **What landed.** `core/src/authorization.rs`: one-way inbound and outbound grants naming a
   session, a working-directory scope or the whole device; the binding table with conflict
-  marks; reply rights (24 hours, one correlated reply) and hand-off records; the five
-  decision kinds of Table 4.9, each `deny` unless a recorded basis permits it; security step
+  marks; reply rights, which cover replies to the one message they were recorded for, for
+  24 hours ([SEC-AUZ-014] limits them by correlation, not by count); hand-off records; the
+  five decision kinds of Table 4.9, each `deny` unless a recorded basis permits it; security step
   4 of Table 7.1; key removal that drops the key's grants, bindings and conflict marks in the
   same step ([SEC-KEY-035]); and a decision log that records the principal and session ids,
   never a message body. `core/src/pairing.rs`: the pairing exchange and the `PairingStore`
@@ -29,10 +30,20 @@ dependency is added.
   reference implementation therefore adds a commit-then-reveal nonce exchange, as
   numeric-comparison pairing does, and derives the code from both principals, both public
   keys and both nonces (`core/src/pairing.rs` module documentation; unit test
-  `substituted_key_or_nonce_changes_the_code_or_fails`). The 6-digit, 120-second and
-  5-attempt parameters are unchanged. `spec/security.md` §5.3 fixes what pairing establishes
-  and not the exchange, and its reference implementation note stays accurate, so no `spec/`
-  change is needed. `11-risks.md` rows 25 and 26 are updated.
+  `substituted_key_or_nonce_changes_the_code_or_fails`). A responder answers one offer per
+  operator-started pairing, and an exchange abandoned before the reveal ends the pairing
+  visibly (`ResponderPairing`; PR #316 review N1), so a substituted key matches with
+  probability 10^-6 per operator-visible exchange. The 6-digit, 120-second and 5-attempt
+  parameters are unchanged. This departs from a recorded decision; C5 §10(b) carries a dated
+  note for it, **pending operator acknowledgement on #54**. `spec/security.md` §5.3 fixes
+  what pairing establishes, not the exchange, so [SEC-KEY-032] to [SEC-KEY-034] are met as
+  frozen. Its informative reference implementation note leaves out the nonce exchange; the
+  follow-up is recorded for the #308 batch. `11-risks.md` rows 25 and 26 are updated.
+- **Follow-ups for the `cli/` pairing verb and on-disk store, recorded on #71.** The verb
+  starts each pairing only on an operator's request and shows every `PairingEnd`. A key
+  removal whose save fails (`RemoveKeyError::NotSaved`) leaves the key revoked in memory
+  only, so a restart before a successful save would restore it. The verb must report that
+  failure loudly and retry the save.
 - **Same-device harnesses.** They need no pairing: they share the device key, which is
   always trusted ([SEC-KEY-031]). They still need a grant to reach each other
   ([SEC-AUZ-007], the #45 operator decision), so "no configuration" in #54's acceptance holds
