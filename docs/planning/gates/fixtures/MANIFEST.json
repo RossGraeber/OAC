@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "generated": "2026-09-27",
   "description": "Inventory of every committed Stage-1 gate fixture under docs/planning/gates/fixtures/ (D6, issue #39 T1). One entry per file: provider, surface, observed version(s), the PINS.md row and as-of date the observation is checked against, whether it matches the current pin, capture date/time window, any newer fixture that supersedes it, redaction provenance, and a line-range coverage map of the protocol exchanges the file records. Built by reading every fixture file directly and cross-checking against docs/planning/gates/G<n>-result.md; see per-entry \"notes\" for anything that could not be independently re-derived.",
-  "stage3_runtime_fixture_path_note": "The path Stage 3's fake Claude/Codex endpoints will finally load fixtures from is undecided. G1/G2/G4-result.md each say so explicitly (e.g. G2: \"The location is provisional; D6 owns the final convention\"). This MANIFEST.json documents the Stage-1 capture location (docs/planning/gates/fixtures/) as it exists today; Stage 3 may relocate or copy fixtures from here, per docs/planning/gates/README.md's naming-convention note (\"This is the Stage 1 capture location ... not decided here\"). Dated note, 2026-10-06, #57 (F8): the fake Claude endpoint (tests/fakes/claude/) reads its fixtures in place from this directory, compiled in with include_str!; nothing is copied. The fixtures it reads: d6-claude-protocol/transcript-2026-09-28.jsonl, g1-claude-wake/transcript-2026-09-28-2.1.283-boxC.jsonl, g4-mcp-dual-era/transcript-2026-09-26.jsonl, g5-provenance/transcript-claude-2026-09-27.jsonl and g5-provenance/claude-rendered-2026-09-27.jsonl.",
+  "stage3_runtime_fixture_path_note": "The path Stage 3's fake Claude/Codex endpoints will finally load fixtures from is undecided. G1/G2/G4-result.md each say so explicitly (e.g. G2: \"The location is provisional; D6 owns the final convention\"). This MANIFEST.json documents the Stage-1 capture location (docs/planning/gates/fixtures/) as it exists today; Stage 3 may relocate or copy fixtures from here, per docs/planning/gates/README.md's naming-convention note (\"This is the Stage 1 capture location ... not decided here\"). Dated note, 2026-10-06, #57 (F8): the fake Claude endpoint (tests/fakes/claude/) reads its fixtures in place from this directory, compiled in with include_str!; nothing is copied. The fixtures it reads: d6-claude-protocol/transcript-2026-09-28.jsonl, g1-claude-wake/transcript-2026-09-28-2.1.283-boxC.jsonl, g4-mcp-dual-era/transcript-2026-09-26.jsonl, g5-provenance/transcript-claude-2026-09-27.jsonl and g5-provenance/claude-rendered-2026-09-27.jsonl. Dated note, 2026-10-07, #343: the fake Claude endpoint also reads g1-claude-wake/transcript-2026-10-07-2.1.285-herdr.jsonl, and the fake Codex app-server (tests/fakes/codex-app-server/) reads s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl, both in place.",
   "pins_reference": {
     "file": "docs/planning/PINS.md",
     "claude_code_note": "Claude Code (Channels) is floating in the current docs/planning/PINS.md (moved from a fixed v2.1.274 pin by PR #120/issue #39 T0, merged as 2f916d9a0e8e4ccb088e9c9937ab63b611affd3b (PINS.md’s own last-changed commit within that PR is f5adee2ad6595a1e650feda89487ae92e0659d4f)), last observed v2.1.283 — used as-is. The pin move invalidated G1's original v2.1.282 PASS (it ran one version behind). Box B (2026-09-28, transcript-2026-09-28-2.1.283.jsonl) is recorded INCOMPLETE (several pass-criteria probes not attempted). Box C (2026-09-28, transcript-2026-09-28-2.1.283-boxC.jsonl) closed those gaps and is the verdict-bearing run: **operator decision 2026-09-28, G1's verdict is PASS on v2.1.283.** Judged directly against criterion 3's literal wording, delivery at two separate tool-call boundaries (vs. the original PASS's together-at-one-boundary) satisfies \"in order, not dropped, not interleaved\" -- recorded as an observed 2.1.283 behavior change, not a criterion failure; every \"delivered together\" claim in this repo has been amended with a dated note (see docs/planning/v0.1/11-risks.md row 49). See the g1-claude-wake entries' notes and G1-result.md's re-run section.",
@@ -6961,6 +6961,198 @@
       "schema": {
         "applicable": false,
         "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-10-07-2.1.285-herdr.jsonl",
+      "provider": "claude",
+      "surface": "claude-channels",
+      "observed_version": {
+        "claude_code": "2.1.285 (claude --version `2.1.285 (Claude Code)`; wire clientInfo.version 2.1.285)",
+        "mcp_protocol": "2025-11-25 (negotiated)",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at HEAD 5877b393e4345968972b1da327ee939057644cf6 when the run started (working tree matched HEAD: true); last commit touching PINS.md at report time: 699bee58dc1cc46eca56f3c3ea2d029625cfa0a0",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-07",
+      "capture_utc_range": "2026-10-07T22:03:53.973Z-2026-10-07T22:06:05.805Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "5877b393e4345968972b1da327ee939057644cf6",
+        "run_manifest": "docs/planning/gates/herdr-runs/G1-2026-10-07.run-manifest.json"
+      },
+      "notes": [
+        "Captured for #343 (Stage 1 fixture capture for Gate S3 criterion 5): the g1-claude-wake scenario run unchanged except --param replyPrompt, which asks for three reply calls in one session. The run is NOT verdict-bearing and is not a G1 equivalence record (accept=driver; G1 verdict unchanged).",
+        "Records Claude Code tools/call ids 2, 3 and 4 in one session, each with _meta.progressToken equal to its id (lines 14, 16, 18), and three real claudecode/toolUseId values, each `toolu_01` plus 22 ASCII letters and digits. The fake Claude endpoint (tests/fakes/claude/) reads this file in place (evidence::G1_HERDR_CALLS)."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "channel notifications": "g1-spike-wake-test-1 line 11; g1-spike-midturn-test-2 line 12; g1-spike-midturn-test-3 line 13",
+        "reply tool calls": "lines 14-15; lines 16-17; lines 18-19"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g1-claude-wake/pane-2026-10-07-2.1.285-herdr.txt",
+      "provider": "claude",
+      "surface": "claude-channels",
+      "observed_version": {
+        "claude_code": "2.1.285 (claude --version `2.1.285 (Claude Code)`; wire clientInfo.version 2.1.285)",
+        "mcp_protocol": "2025-11-25 (negotiated)",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at HEAD 5877b393e4345968972b1da327ee939057644cf6 when the run started (working tree matched HEAD: true); last commit touching PINS.md at report time: 699bee58dc1cc46eca56f3c3ea2d029625cfa0a0",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-07",
+      "capture_utc_range": "2026-10-07T22:03:53.973Z-2026-10-07T22:06:05.805Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "5877b393e4345968972b1da327ee939057644cf6",
+        "run_manifest": "docs/planning/gates/herdr-runs/G1-2026-10-07.run-manifest.json"
+      },
+      "notes": [
+        "Pane capture of the same #343 run as transcript-2026-10-07-2.1.285-herdr.jsonl; NOT verdict-bearing."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0"
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.161.0 (codex --version `codex-cli 0.161.0`)",
+        "codex_daemon": "0.161.0/0.161.0/0.161.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "979011409de0a60b52f179721948e65531d26144",
+        "node": null,
+        "client_visible_user_agent": "oac_s3_capture/0.161.0 (Windows 10.0.26300; x86_64) unknown (oac_s3_capture; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD c1de8f423c98e9fcae8a14ff9691ada3a647c199 when the run started recorded last tested 0.160.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.161.0 as last tested (#343), which this entry matches",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-07",
+      "capture_utc_range": "2026-10-07T22:13:20.697Z-2026-10-07T22:16:01.483Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c1de8f423c98e9fcae8a14ff9691ada3a647c199",
+        "run_manifest": "docs/planning/gates/herdr-runs/S3-codex-2026-10-07.run-manifest.json"
+      },
+      "notes": [
+        "Captured for #343: the Stage 1 fixture capture for Gate S3 criterion 5, scenario tools/herdr/scenarios/s3-codex-capture.mjs. NOT a gate run and NOT verdict-bearing; it records the live app-server behaviours the fake Codex app-server had modelled from source only. Record: docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md.",
+        "An earlier run of the same scenario (20261007T220941Z-fe9722, PASS) is not committed: a scenario defect counted the uninitialized cases-preinit connection as a version-less wire connection, so its captures kept unverified-* names. Fixed in c1de8f4 before this run."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (19 unrelated thread/list entries removed; host, installation id, plan and credit fields replaced): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0; elided: 3 (harness instruction text in the watch connection's thread/resume result, line 50; the operator's own SessionStart hook output, lines 146 and 1003; in the pane, the same hook output's lines). Third-party-text sweep by the recording agent (#130): the only thread items are userMessage, reasoning (empty summary and content) and agentMessage (the model's answers to the client's own prompts); no tool, file or command item."
+      },
+      "coverage": {
+        "thread/queue/add to the TUI's idle, loaded thread (last turn completed, thread/turns/list 57-58); the add starts a turn at once": "65-73 (request 65; thread/queue/changed 66, 68; response 69; status active 70; turn/started 71; userMessage clientId 72-73), turn/completed 90",
+        "request before initialize (-32600 \"Not initialized\")": "92-93",
+        "thread/queue/add without experimentalApi (-32600)": "99-100",
+        "thread/resume of an unknown thread id (-32600 \"no rollout found\")": "106-108",
+        "thread/queue/add to an unknown thread id (-32603 \"failed to read thread: invalid thread-store request: no rollout found for thread id <id>\")": "109-110",
+        "thread/start ephemeral; thread/queue/add to it (-32600); thread/unsubscribe": "111-121",
+        "thread/start (cases thread)": "122-124",
+        "two thread/queue/add during a running turn; one dispatched per idle, head first": "turn/start 125-130, adds 135-136 and 138-139, busy turn/completed 826, first queued turn 827-831, its turn/completed 846, second queued turn 847-851, its turn/completed 865",
+        "thread/queue/add with an extra member, idle thread: accepted, starts a turn at once": "866-873, turn/completed 889",
+        "turn/interrupt: response, then thread/status/changed idle and turn/completed status interrupted (items [], itemsView notLoaded)": "890-907",
+        "thread/queue/add after the interrupt: no dispatch within the 25 s window; dispatched after the next turn completed": "add 908-909, turn/start 912-913, its turn/completed 935, queued turn 936-940, turn/completed 955",
+        "thread/unsubscribe; thread/closed after the 60 s idle unload; thread/loaded/list without the thread": "956-957, 968, 970-971",
+        "thread/queue/add to the unloaded thread: accepted; still not loaded 25 s later": "972-973, 974-975",
+        "thread/resume of the unloaded thread from a new connection: loads it; the queued input is dispatched": "981-1004 (status idle 989, response 990, goal cleared 994, thread/queue/changed 995, turn/started 999, userMessage 1004), turn/completed 1019",
+        "thread/turns/list of the cases thread": "1020-1022",
+        "thread/archive; thread/queue/add to the archived thread (-32600 \"session <id> is archived\")": "1023-1032",
+        "thread/turns/list of the TUI thread": "1038-1040"
+      },
+      "schema": {
+        "commit": "979011409de0a60b52f179721948e65531d26144",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
+        "sha256": null,
+        "note": "Schema not regenerated and recorded at Codex 0.161.0. The client's request shapes were taken from `codex app-server generate-json-schema --experimental` at 0.160.0 (ThreadQueueAddParams, ThreadUnsubscribeParams, ThreadArchiveParams, TurnInterruptParams, ThreadStartParams.ephemeral); regenerate and compare it (D6 procedure) before relying on this capture's message shapes.",
+        "validated_against": "not validated against a regenerated schema at this version"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/s3-codex-capture/pane-2026-10-07-0.161.0-herdr.txt",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.161.0 (codex --version `codex-cli 0.161.0`)",
+        "codex_daemon": "0.161.0/0.161.0/0.161.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "979011409de0a60b52f179721948e65531d26144",
+        "node": null,
+        "client_visible_user_agent": "oac_s3_capture/0.161.0 (Windows 10.0.26300; x86_64) unknown (oac_s3_capture; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD c1de8f423c98e9fcae8a14ff9691ada3a647c199 when the run started recorded last tested 0.160.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.161.0 as last tested (#343), which this entry matches",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-07",
+      "capture_utc_range": "2026-10-07T22:13:20.697Z-2026-10-07T22:16:01.483Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c1de8f423c98e9fcae8a14ff9691ada3a647c199",
+        "run_manifest": "docs/planning/gates/herdr-runs/S3-codex-2026-10-07.run-manifest.json"
+      },
+      "notes": [
+        "Pane capture of the same #343 run as transcript-2026-10-07-0.161.0-herdr.jsonl: the Codex TUI the idle add was delivered to. NOT verdict-bearing."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (19 unrelated thread/list entries removed; host, installation id, plan and credit fields replaced): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0; elided: 6 (harness instruction text in the watch connection's thread/resume result, line 50; the operator's own SessionStart hook output, lines 146 and 1003; in the pane, the same hook output's lines). Third-party-text sweep by the recording agent (#130): the only thread items are userMessage, reasoning (empty summary and content) and agentMessage (the model's answers to the client's own prompts); no tool, file or command item."
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads of the Codex TUI screen, one section per kept read, each with its herdr command seq and timestamps"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/s3-codex-capture/client.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined — not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A — this is spike client source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\", quarantined with the .throwaway-quarantined suffix. The s3-codex-capture scenario stages it from its blob at HEAD and checks its sha256 (defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82, the blob this run used)."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable — client source code, not a captured exchange.",
+      "notes": [
+        "The #343 capture client: the G2 client's transport and transcript format, with the idleadd and cases modes. Committed under docs/planning/gates/fixtures/ and so covered by this manifest."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "spike client source code, not protocol traffic"
       }
     }
   ]

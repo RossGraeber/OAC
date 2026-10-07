@@ -54,7 +54,11 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-06 (issue #49, E9: the ACP row is re-checked against the
+**Last updated:** 2026-10-07 (issue #343: the `Codex CLI / app-server` row's last tested
+version is now `@openai/codex@0.161.0`, from the S3 fixture capture herdr run of 2026-10-07.
+Routine record-keeping for a floating harness row (#216): not a pin move, no verdict or
+record is invalidated. The Claude Code row is unchanged: the same day's G1 capture ran on
+`2.1.285`, its last tested version.) Previously 2026-10-06 (issue #49, E9: the ACP row is re-checked against the
 protocol's source repository. Protocol version `1` holds and is no longer UNVERIFIED. Schema
 v2 "alpha" is verified, with no drift: the v2 schemas are published as prereleases
 `v2.0.0-alphaX` (latest `schema-v2.0.0-alpha.7`), and the v2 protocol docs are in Draft. Not
@@ -116,7 +120,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
 | Claude Code (Channels) | research preview | **floating** — minimum `v2.1.282`; last tested `v2.1.285` (L3, 2026-10-01); warn on version, never gate; see "Version policy" below | 2026-09-29T19:27:30Z (UTC; the last tested version) | https://github.com/anthropics/claude-code/releases/tag/v2.1.285 | 2026-10-01 | G1; G4 (legacy-MCP negotiation); G5 (a version change invalidates none of them, #216) |
-| Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.160.0` (commit `a956835d020762cb2b570053af06f643a11c0ecc`; G4 herdr run, 2026-10-04); warn on version, never gate; see "Version policy" below | 2026-10-01T20:19:13Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.160.0 | 2026-10-04 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
+| Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.161.0` (commit `979011409de0a60b52f179721948e65531d26144`; S3 fixture capture herdr run, 2026-10-07, #343); warn on version, never gate; see "Version policy" below | 2026-10-07T15:58:45Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.161.0 | 2026-10-07 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
@@ -343,7 +347,21 @@ anything:
   `docs/planning/gates/fixtures/MANIFEST.json`, the `g2-codex-inject/transcript.jsonl`
   entry, `observed_version` `codex_cli` / `codex_daemon` `0.154.0`, `capture_date`
   2026-09-25.
-- **Last tested version: `@openai/codex@0.160.0`** (GitHub release `rust-v0.160.0`,
+- **Last tested version: `@openai/codex@0.161.0`** (GitHub release `rust-v0.161.0`,
+  published 2026-10-07T15:58:45Z UTC; tag object
+  `7e21416b38834816c224ea0dfd135c3de94b2f15` → commit
+  `979011409de0a60b52f179721948e65531d26144`; retrieved 2026-10-07 via `gh api
+  repos/openai/codex/releases/tags/rust-v0.161.0`, `gh api
+  repos/openai/codex/git/ref/tags/rust-v0.161.0` and `gh api
+  repos/openai/codex/git/tags/7e21416b38834816c224ea0dfd135c3de94b2f15`). Codex's own
+  auto-updater installed it on 2026-10-07, between the S3 capture's development probe and
+  its first herdr run (#343). It ran in the S3 fixture capture herdr run of 2026-10-07 (run
+  `20261007T221317Z-1a3890`): `codex --version` `codex-cli 0.161.0`, all three daemon
+  version fields and every wire `initialize` `userAgent` `0.161.0`, and the post-run
+  check `0.161.0` (`docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md` and its run
+  manifest, `scenarioData.s3.versions`, `scenarioData.s3.postRun`). Update this field, and
+  the version history below, after each live run.
+- *Previous last tested version (2026-10-04 to 2026-10-07):* `@openai/codex@0.160.0` (GitHub release `rust-v0.160.0`,
   published 2026-10-01T20:19:13Z UTC; tag object
   `79b1b666f2e8551f8abbbca34957227f67f3f553` → commit
   `a956835d020762cb2b570053af06f643a11c0ecc`; retrieved 2026-10-04 via `gh api
@@ -385,7 +403,13 @@ anything:
   (2026-10-05, `G2-2026-10-05.md` and `G4-2026-10-05.md`; 2026-10-06, `G2-2026-10-06.md` and
   `G4-2026-10-06.md`, all under `docs/planning/gates/herdr-runs/`). On 2026-10-06 Codex
   offered `0.160.1`; it was skipped in Codex's own TUI, not installed or tested
-  (`G4-2026-10-06.md` Findings), so the last tested version stays `0.160.0`.
+  (`G4-2026-10-06.md` Findings), so the last tested version stays `0.160.0`. On
+  2026-10-07 the S3 capture's development probe ran on `0.160.0`; Codex then updated itself
+  to `0.161.0`, which both S3 capture herdr runs used: `20261007T220941Z-fe9722` (not
+  recorded: its captures kept `unverified-*` names, a scenario defect fixed before the next
+  run) and `20261007T221317Z-1a3890` (recorded,
+  `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`). `0.161.0` is the last tested
+  version from 2026-10-07.
 
 #### Floating-version policy (operator decision, 2026-09-26)
 
