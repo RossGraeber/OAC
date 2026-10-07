@@ -50,7 +50,8 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
   CI runs it on every OS. `--self-test` plants each known evasion in a copy and checks it
   is caught; CI runs it on the ubuntu image. `--self-test --work-dir <dir>` puts the copy
   and its `target/` under `<dir>` (default `target/security-compiled-tests`), so a short
-  path keeps Windows under its path-length limit.
+  path keeps Windows under its path-length limit. `<dir>` must be outside the repository
+  or under its `target/`; both scripts refuse one inside the sources.
 - **`gated_*` tests** hold the place of mitigations that need a component not built yet:
   - Epic G adapters;
   - the G9 daemon and IPC;
@@ -72,7 +73,7 @@ the suite catches each one.
   Such a mutant must instead be caught by the `oac-core` test that `THREATS` cites.
 - It is the one check that catches a proof which returns early before it asserts.
 - The default CI tier does not run it, because it recompiles the core for each mutation.
-  It runs in the opt-in tier instead (#329): weekly and on manual dispatch, in
+  It runs in a workflow of its own instead (#329): weekly and on manual dispatch, in
   `.github/workflows/security-mutation-optin.yml`.
 
 ```sh

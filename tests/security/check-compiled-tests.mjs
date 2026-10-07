@@ -34,7 +34,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { copyWorkspace } from './mutation-check.mjs';
+import { copyWorkspace, workDirProblem } from './mutation-check.mjs';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(scriptPath), '..', '..');
@@ -188,6 +188,13 @@ const PLANTS = [
     edits: [['tests/security/tests/spoofing.rs', append('#[cfg_attr(all(), core::prelude::v1::test)]\nfn sneaky_cfg_attr_full_path() {}')]],
   },
   {
+    // PR #336 review N3: a raw identifier spells the attribute too.
+    name: '#[cfg_attr(all(), r#test)] on an unmapped test',
+    runtime: true,
+    static: true,
+    edits: [['tests/security/tests/spoofing.rs', append('#[cfg_attr(all(), r#test)]\nfn sneaky_cfg_attr_raw_test() {}')]],
+  },
+  {
     name: '#[cfg_attr(all(), cfg(any()))] compiles a proof out',
     runtime: true,
     static: true,
@@ -324,7 +331,14 @@ const USAGE = 'usage: check-compiled-tests.mjs [--self-test [--work-dir <dir>]]'
 function main(argv) {
   if (argv[0] === '--self-test') {
     if (argv.length === 1) return selfTest();
-    if (argv.length === 3 && argv[1] === '--work-dir' && argv[2]) return selfTest(resolve(argv[2]));
+    if (argv.length === 3 && argv[1] === '--work-dir' && argv[2]) {
+      const problem = workDirProblem(resolve(argv[2]));
+      if (problem) {
+        console.error(problem);
+        return 2;
+      }
+      return selfTest(resolve(argv[2]));
+    }
     console.error(USAGE);
     return 2;
   }

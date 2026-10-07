@@ -14,9 +14,9 @@
 //   node tests/security/mutation-check.mjs --only <substring> # the mutations whose name matches
 //   node tests/security/mutation-check.mjs --work-dir <dir>   # default: target/security-mutation
 //
-// Not part of the default CI run: each mutation recompiles core/ and the suite (a few
-// minutes in all, with the work directory's target/ reused between runs). It runs in the
-// opt-in tier instead (#329): weekly and on manual dispatch, in
+// Not part of the per-change CI run: each mutation recompiles core/ and the suite (a few
+// minutes in all, with the work directory's target/ reused between runs). It runs in a
+// workflow of its own instead (#329): weekly and on manual dispatch, in
 // .github/workflows/security-mutation-optin.yml. Run it by hand too when the suite or a core
 // mitigation changes. Node built-ins only; cargo runs with --offline.
 // Exit codes: 0 = every mutation caught and the control passes; 1 = a mutation survived
@@ -290,17 +290,30 @@ function touchTree(dir, when) {
   }
 }
 
+// Is `path` `dir` itself or under it?
+const within = (dir, path) => {
+  const r = relative(dir, path);
+  return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+};
+
+// Why a work directory is refused, or null (PR #336 review N8): one inside the repository's
+// sources would be copied into itself, or drop a whole top-level entry from the copy. It
+// must sit outside the repository, or under its target/ (which is never copied).
+export function workDirProblem(dir) {
+  if (within(repoRoot, dir) && !within(join(repoRoot, 'target'), dir)) {
+    return `--work-dir ${dir} is inside the repository's sources; use a directory outside the repository or under its target/`;
+  }
+  return null;
+}
+
 export function copyWorkspace(ws) {
+  const problem = workDirProblem(ws);
+  if (problem) throw new Error(problem);
   rmSync(ws, { recursive: true, force: true });
   mkdirSync(ws, { recursive: true });
-  // Entry by entry: the work directory may sit inside the repository's target/, or (given
-  // with --work-dir) inside any other top-level entry, which is then not copied into itself.
-  const inside = (dir) => {
-    const r = relative(dir, ws);
-    return r === '' || (!r.startsWith('..') && !isAbsolute(r));
-  };
+  // Entry by entry: the work directory may sit inside the repository's target/.
   for (const entry of readdirSync(repoRoot)) {
-    if (EXCLUDE_TOP.has(entry) || inside(join(repoRoot, entry))) continue;
+    if (EXCLUDE_TOP.has(entry)) continue;
     cpSync(join(repoRoot, entry), join(ws, entry), { recursive: true });
   }
   touchTree(ws, new Date());
@@ -341,6 +354,11 @@ function main(argv) {
       console.error('usage: mutation-check.mjs [--only <substring>] [--work-dir <dir>]');
       return 2;
     }
+  }
+  const problem = workDirProblem(workDir);
+  if (problem) {
+    console.error(problem);
+    return 2;
   }
   const ws = join(workDir, 'ws');
   const targetDir = join(workDir, 'target');

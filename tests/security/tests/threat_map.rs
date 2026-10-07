@@ -52,7 +52,7 @@ struct Fn {
     /// `Some(reason)` for `#[ignore = "reason"]`, `Some("")` for a bare `#[ignore]`.
     ignore: Option<String>,
     cfg_attr_ignore: bool,
-    /// A  (any spelling of the test attribute, nested or not): whether
+    /// A `#[cfg_attr(.., test)]` (any spelling of the test attribute, nested or not): whether
     /// it is a test at all depends on a cfg this parser cannot evaluate (#329).
     cfg_attr_test: bool,
     should_panic: bool,
@@ -81,7 +81,7 @@ fn last(a: &syn::Attribute) -> String {
     a.path()
         .segments
         .last()
-        .map(|s| s.ident.to_string())
+        .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
         .unwrap_or_default()
 }
 
@@ -101,7 +101,7 @@ fn cfg_attr_names(list: &syn::MetaList) -> Vec<String> {
             .path()
             .segments
             .last()
-            .map(|s| s.ident.to_string())
+            .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
             .unwrap_or_default();
         if let (true, syn::Meta::List(inner)) = (name == "cfg_attr", meta) {
             names.extend(cfg_attr_names(inner));
@@ -116,7 +116,7 @@ fn is_std_panic(mac: &syn::Macro) -> bool {
         .path
         .segments
         .iter()
-        .map(|s| s.ident.to_string())
+        .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
         .collect();
     segs == ["std", "panic"]
 }
@@ -147,7 +147,7 @@ impl<'ast> Visit<'ast> for Collect<'_> {
             .path
             .segments
             .last()
-            .map(|s| s.ident.to_string())
+            .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
             .unwrap_or_default();
         self.hazards
             .item_macros
@@ -203,7 +203,7 @@ impl<'ast> Visit<'ast> for Collect<'_> {
             _ => false,
         };
         self.fns
-            .entry(f.sig.ident.to_string())
+            .entry(syn::ext::IdentExt::unraw(&f.sig.ident).to_string())
             .or_default()
             .push(out);
         syn::visit::visit_item_fn(self, f);
