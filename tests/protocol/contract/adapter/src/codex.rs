@@ -18,8 +18,10 @@
 //!
 //! Startup waits up to [`STARTUP_WAIT`] for the listener, apart from the per-call
 //! [`WAIT`], and fails at once if `node` exits first. On any startup error the child is
-//! killed and reaped before the error returns, and the error carries the child's exit
-//! status and its stderr so far (#340).
+//! killed and reaped before the error returns, its whole tree with it (its own process
+//! group on Unix, `taskkill /T` on Windows), and the error carries the child's exit status
+//! and its stderr so far, read for at most a second more, so that a descendant holding the
+//! pipe cannot hang it (#340, PR #341 review).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
@@ -89,6 +91,29 @@ pub const STARTUP_WAIT: Duration = Duration::from_secs(60);
 /// How often startup checks whether `node` has exited.
 const STARTUP_POLL: Duration = Duration::from_millis(100);
 
+/// How long a failed startup waits for the stderr reader to finish, at most.
+const READER_GRACE: Duration = Duration::from_secs(1);
+
+/// Kill process `pid` and every process it started: its process group on Unix (the child
+/// leads its own, `spawn_command`), its tree on Windows. Best effort; the caller still kills
+/// and reaps the child itself.
+fn kill_tree(pid: u32) {
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("taskkill");
+        c.args(["/T", "/F", "/PID", &pid.to_string()]);
+        c
+    } else {
+        let mut c = Command::new("kill");
+        c.args(["-s", "KILL", "--", &format!("-{pid}")]);
+        c
+    };
+    let _ = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// Why the fake did not start, with what it wrote to stderr so far. The child has been
 /// killed and reaped by the time this exists (`exit` is what the reap returned).
 #[derive(Debug)]
@@ -149,6 +174,10 @@ impl CodexFake {
     /// See [`CodexFake::spawn`].
     #[doc(hidden)]
     pub fn spawn_command(mut cmd: Command, startup: Duration) -> Result<CodexFake, StartupError> {
+        // Its own process group on Unix, so that a startup failure can kill the whole tree
+        // (PR #341 review N1); on Windows `taskkill /T` walks the tree instead.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
         let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -166,7 +195,10 @@ impl CodexFake {
         let (url_tx, url_rx) = mpsc::channel();
         let seen: Arc<Mutex<Vec<String>>> = Arc::default();
         let seen_w = seen.clone();
-        let stderr_reader = std::thread::spawn(move || {
+        let (reader_done, reader_finished) = mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            // Dropped when the reader ends, which disconnects `reader_finished`.
+            let _done = reader_done;
             let mut sent = false;
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 if !sent
@@ -212,12 +244,16 @@ impl CodexFake {
         // Wait for the listener, failing fast if `node` exits first (#340).
         let deadline = Instant::now() + startup;
         let failed = |reason: String, mut child: Child| {
-            // Kill and reap on every error path: the child never outlives the error.
+            // Kill and reap on every error path: the child never outlives the error. The
+            // whole tree first, so that no descendant keeps running (or keeps the pipe).
+            kill_tree(child.id());
             let _ = child.kill();
             let exit = child.wait().ok();
-            // The pipe is closed now, so the reader finishes with everything read.
-            let _ = stderr_reader.join();
-            let stderr = std::mem::take(&mut *seen.lock().unwrap_or_else(|e| e.into_inner()));
+            // Give the reader a moment to finish the lines already written, but no more:
+            // a descendant that still holds the pipe must not turn the timeout into a hang
+            // (PR #341 review N1). The lines read so far are enough for the message.
+            let _ = reader_finished.recv_timeout(READER_GRACE);
+            let stderr = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
             StartupError {
                 reason,
                 exit,
@@ -477,11 +513,22 @@ impl Drop for CodexFake {
 mod tests {
     use super::*;
 
-    /// Is process `pid` still running? Asks the OS, not our own handle.
+    /// Is a `node` process with this pid still running? Asked of the OS, as a second check
+    /// after the reap: the primary proof is that `wait()` through our own handle returned
+    /// (`StartupError::exit`). The answer can only err towards "running" (a pid reused by
+    /// another `node`), never report a leak as gone (PR #341 review N2).
     fn alive(pid: u32) -> bool {
         if cfg!(windows) {
             let out = Command::new("tasklist")
-                .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+                .args([
+                    "/FI",
+                    &format!("PID eq {pid}"),
+                    "/FI",
+                    "IMAGENAME eq node.exe",
+                    "/NH",
+                    "/FO",
+                    "CSV",
+                ])
                 .output()
                 .expect("tasklist");
             String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
@@ -501,8 +548,15 @@ mod tests {
         c
     }
 
-    /// A `node` that exits before reporting its listener fails at once, with its exit
-    /// status and its stderr, and is reaped (#340).
+    /// The reap, then the OS: the child is gone.
+    fn assert_gone(e: &StartupError) {
+        assert!(e.exit.is_some(), "not reaped through our handle: {e}");
+        assert!(!alive(e.pid), "pid {} is still running", e.pid);
+    }
+
+    /// A `node` that exits before reporting its listener fails fast, with its exit status
+    /// and its stderr, and is reaped (#340). "Fast" is well inside [`STARTUP_WAIT`]: a cold
+    /// `node` can take more than 10 s just to start (PR #341 review N3).
     #[test]
     fn a_node_that_exits_fails_fast_with_status_and_stderr() {
         let started = Instant::now();
@@ -513,7 +567,7 @@ mod tests {
             panic!("a node that exits must not start");
         };
         assert!(
-            started.elapsed() < Duration::from_secs(30),
+            started.elapsed() < STARTUP_WAIT - Duration::from_secs(15),
             "took {:?}, not fast",
             started.elapsed()
         );
@@ -521,7 +575,7 @@ mod tests {
         assert!(e.reason.contains("exited"), "{e}");
         assert!(e.stderr.iter().any(|l| l.contains("boom")), "{e}");
         assert!(e.to_string().contains("boom"), "{e}");
-        assert!(!alive(e.pid), "pid {} is still running", e.pid);
+        assert_gone(&e);
     }
 
     /// A `node` that never reports a listener is killed and reaped at the timeout (#340).
@@ -537,8 +591,48 @@ mod tests {
             panic!("a node with no listener must not start");
         };
         assert!(e.reason.contains("no listener reported"), "{e}");
-        assert!(e.exit.is_some(), "not reaped: {e}");
-        assert!(!alive(e.pid), "pid {} is still running", e.pid);
+        assert_gone(&e);
+    }
+
+    /// PR #341 review N1: a grandchild that inherits stderr and outlives the child must not
+    /// stretch a failed startup past its timeout, and is killed with the child (its process
+    /// group on Unix, its tree on Windows).
+    ///
+    /// The bound on the return is checked always. The grandchild's own death is checked when
+    /// its pid was read before the timeout: on a cold runner `node` may not get as far as
+    /// starting it within the timeout, and then there is no grandchild to check.
+    #[test]
+    fn a_grandchild_holding_stderr_does_not_hang_a_failed_startup() {
+        let script = "const { spawn } = require('child_process');\
+            const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'],\
+              { stdio: ['ignore', 'ignore', 'inherit'] });\
+            console.error('grandchild ' + g.pid);\
+            setInterval(() => {}, 1000);";
+        let timeout = Duration::from_secs(8);
+        let started = Instant::now();
+        let Err(e) = CodexFake::spawn_command(node(script), timeout) else {
+            panic!("a node with no listener must not start");
+        };
+        let took = started.elapsed();
+        // The timeout, the reader's grace, and the kills: far short of the grandchild's 120 s.
+        assert!(
+            took < timeout + Duration::from_secs(20),
+            "took {took:?}: {e}"
+        );
+        assert_gone(&e);
+        let grandchild = e
+            .stderr
+            .iter()
+            .find_map(|l| l.strip_prefix("grandchild "))
+            .and_then(|p| p.trim().parse::<u32>().ok());
+        if let Some(g) = grandchild {
+            // `taskkill /T` and a group kill are asynchronous to us: allow a moment.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while alive(g) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            assert!(!alive(g), "grandchild {g} is still running");
+        }
     }
 
     /// A program that cannot be spawned is an error with nothing to reap.
@@ -550,6 +644,7 @@ mod tests {
             panic!("a missing program must not start");
         };
         assert!(e.reason.contains("cannot spawn"), "{e}");
+        assert!(e.exit.is_none(), "{e}");
     }
 
     /// The real fake starts within the startup timeout and is reaped on drop.
