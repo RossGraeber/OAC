@@ -15,14 +15,20 @@
 //!
 //! No Codex install, credential or network beyond loopback (`oac-testing` §2). `node` must
 //! be on `PATH`, as it is on every CI image.
+//!
+//! Startup waits up to [`STARTUP_WAIT`] for the listener, apart from the per-call
+//! [`WAIT`], and fails at once if `node` exits first. On any startup error the child is
+//! killed and reaped before the error returns, and the error carries the child's exit
+//! status and its stderr so far (#340).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use oac_core::json::{self, Json};
 use oac_fake_claude::evidence::{member, member_str};
@@ -75,21 +81,92 @@ pub struct CodexFake {
     tui_ready: Mutex<bool>,
 }
 
+/// How long the fake may take to start and report its listener. Longer than the per-call
+/// [`WAIT`]: a cold `node` start on a CI runner, with other tests spawning `node` at the
+/// same time, has taken more than 10 s (#340). A `node` that exits first fails at once.
+pub const STARTUP_WAIT: Duration = Duration::from_secs(60);
+
+/// How often startup checks whether `node` has exited.
+const STARTUP_POLL: Duration = Duration::from_millis(100);
+
+/// Why the fake did not start, with what it wrote to stderr so far. The child has been
+/// killed and reaped by the time this exists (`exit` is what the reap returned).
+#[derive(Debug)]
+pub struct StartupError {
+    /// What went wrong.
+    pub reason: String,
+    /// The child's exit status, from the reap; `None` only if it could not be reaped.
+    pub exit: Option<ExitStatus>,
+    /// The child's process id.
+    pub pid: u32,
+    /// The stderr lines read before the failure.
+    pub stderr: Vec<String>,
+}
+
+impl std::fmt::Display for StartupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the fake Codex app-server did not start: {}",
+            self.reason
+        )?;
+        if let Some(status) = self.exit {
+            write!(f, " (process reaped, {status})")?;
+        }
+        if self.stderr.is_empty() {
+            write!(f, "; it wrote nothing to stderr")
+        } else {
+            write!(f, "; its stderr so far:\n{}", self.stderr.join("\n"))
+        }
+    }
+}
+
+impl From<StartupError> for io::Error {
+    fn from(e: StartupError) -> Self {
+        io::Error::other(e.to_string())
+    }
+}
+
 impl CodexFake {
-    /// Spawn the fake and wait for its listener.
+    /// Spawn the fake and wait for its listener, up to [`STARTUP_WAIT`].
+    ///
+    /// # Errors
+    ///
+    /// A [`StartupError`] (as an `io::Error`) when `node` cannot be spawned, exits before
+    /// reporting its listener, or does not report it in time. The child never outlives the
+    /// error: it is killed and reaped first.
     pub fn spawn() -> io::Result<CodexFake> {
-        let mut child = Command::new("node")
-            .arg(server_path())
-            .args(["--stdio", "--listen", "ws://127.0.0.1:0"])
+        let mut cmd = Command::new("node");
+        cmd.arg(server_path())
+            .args(["--stdio", "--listen", "ws://127.0.0.1:0"]);
+        Self::spawn_command(cmd, STARTUP_WAIT).map_err(io::Error::from)
+    }
+
+    /// [`CodexFake::spawn`] with any command and startup timeout (for the startup tests).
+    ///
+    /// # Errors
+    ///
+    /// See [`CodexFake::spawn`].
+    #[doc(hidden)]
+    pub fn spawn_command(mut cmd: Command, startup: Duration) -> Result<CodexFake, StartupError> {
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| StartupError {
+                reason: format!("cannot spawn it: {e}"),
+                exit: None,
+                pid: 0,
+                stderr: Vec::new(),
+            })?;
         let stdin = child.stdin.take().expect("piped");
         let stdout = child.stdout.take().expect("piped");
         let stderr = child.stderr.take().expect("piped");
         let (url_tx, url_rx) = mpsc::channel();
-        std::thread::spawn(move || {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let seen_w = seen.clone();
+        let stderr_reader = std::thread::spawn(move || {
             let mut sent = false;
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 if !sent
@@ -99,6 +176,12 @@ impl CodexFake {
                     let _ = url_tx.send(u.to_owned());
                     sent = true;
                     continue;
+                }
+                if !sent {
+                    seen_w
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(line.clone());
                 }
                 eprintln!("fake codex: {line}");
             }
@@ -126,9 +209,46 @@ impl CodexFake {
                 }
             }
         });
-        let url = url_rx.recv_timeout(WAIT).map_err(|_| {
-            io::Error::other("the fake Codex app-server did not report its listener")
-        })?;
+        // Wait for the listener, failing fast if `node` exits first (#340).
+        let deadline = Instant::now() + startup;
+        let failed = |reason: String, mut child: Child| {
+            // Kill and reap on every error path: the child never outlives the error.
+            let _ = child.kill();
+            let exit = child.wait().ok();
+            // The pipe is closed now, so the reader finishes with everything read.
+            let _ = stderr_reader.join();
+            let stderr = std::mem::take(&mut *seen.lock().unwrap_or_else(|e| e.into_inner()));
+            StartupError {
+                reason,
+                exit,
+                pid: child.id(),
+                stderr,
+            }
+        };
+        let url = loop {
+            match url_rx.recv_timeout(STARTUP_POLL) {
+                Ok(url) => break url,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                // stderr closed: `node` is exiting; wait for it below without spinning.
+                Err(mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(STARTUP_POLL),
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    return Err(failed(
+                        format!("node exited before reporting its listener ({status})"),
+                        child,
+                    ));
+                }
+                Ok(None) => {}
+                Err(e) => return Err(failed(format!("cannot poll node: {e}"), child)),
+            }
+            if Instant::now() >= deadline {
+                return Err(failed(
+                    format!("no listener reported within {} s", startup.as_secs_f64()),
+                    child,
+                ));
+            }
+        };
         Ok(CodexFake {
             child,
             stdin: Mutex::new(stdin),
@@ -350,5 +470,95 @@ impl Drop for CodexFake {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Is process `pid` still running? Asks the OS, not our own handle.
+    fn alive(pid: u32) -> bool {
+        if cfg!(windows) {
+            let out = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+                .output()
+                .expect("tasklist");
+            String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
+        } else {
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(Stdio::null())
+                .status()
+                .expect("kill")
+                .success()
+        }
+    }
+
+    fn node(script: &str) -> Command {
+        let mut c = Command::new("node");
+        c.args(["-e", script]);
+        c
+    }
+
+    /// A `node` that exits before reporting its listener fails at once, with its exit
+    /// status and its stderr, and is reaped (#340).
+    #[test]
+    fn a_node_that_exits_fails_fast_with_status_and_stderr() {
+        let started = Instant::now();
+        let Err(e) = CodexFake::spawn_command(
+            node("console.error('boom: cannot load the server'); process.exit(3)"),
+            STARTUP_WAIT,
+        ) else {
+            panic!("a node that exits must not start");
+        };
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "took {:?}, not fast",
+            started.elapsed()
+        );
+        assert_eq!(e.exit.and_then(|s| s.code()), Some(3), "{e}");
+        assert!(e.reason.contains("exited"), "{e}");
+        assert!(e.stderr.iter().any(|l| l.contains("boom")), "{e}");
+        assert!(e.to_string().contains("boom"), "{e}");
+        assert!(!alive(e.pid), "pid {} is still running", e.pid);
+    }
+
+    /// A `node` that never reports a listener is killed and reaped at the timeout, and the
+    /// error carries its stderr so far (#340).
+    #[test]
+    fn a_silent_node_is_killed_and_reaped_at_the_timeout() {
+        let Err(e) = CodexFake::spawn_command(
+            node("console.error('started, but no listener'); setInterval(() => {}, 1000)"),
+            Duration::from_secs(3),
+        ) else {
+            panic!("a node with no listener must not start");
+        };
+        assert!(e.reason.contains("no listener reported"), "{e}");
+        assert!(e.exit.is_some(), "not reaped: {e}");
+        assert!(e.stderr.iter().any(|l| l.contains("no listener")), "{e}");
+        assert!(!alive(e.pid), "pid {} is still running", e.pid);
+    }
+
+    /// A program that cannot be spawned is an error with nothing to reap.
+    #[test]
+    fn a_missing_program_is_an_error() {
+        let Err(e) =
+            CodexFake::spawn_command(Command::new("oac-no-such-program-340"), STARTUP_WAIT)
+        else {
+            panic!("a missing program must not start");
+        };
+        assert!(e.reason.contains("cannot spawn"), "{e}");
+    }
+
+    /// The real fake starts within the startup timeout and is reaped on drop.
+    #[test]
+    fn the_fake_starts_and_is_reaped_on_drop() {
+        let fake = CodexFake::spawn().expect("spawn the fake Codex app-server with node");
+        let pid = fake.child.id();
+        assert!(fake.url().starts_with("ws://127.0.0.1:"), "{}", fake.url());
+        assert!(alive(pid));
+        drop(fake);
+        assert!(!alive(pid), "pid {pid} is still running after drop");
     }
 }
