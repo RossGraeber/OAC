@@ -41,8 +41,9 @@ use oac_fake_claude::evidence::{member, member_str};
 
 // The one planted breach that mints a connection handle lives in the suite's library
 // (`plant`), outside the sources the static scan is given and outside every module this
-// file declares (the scan follows `mod` and `#[path]`, #324), so that the well-behaved
-// stand-ins scan clean.
+// file declares (the scan follows `mod`, and refuses `#[path]`, #324), so that the
+// well-behaved stand-ins scan clean. The `use` below is a finding of the TEST-PLANT row
+// only, which the stand-ins' requirement rows do not read.
 use oac_contract_adapter::plant;
 
 fn this_file() -> Vec<PathBuf> {

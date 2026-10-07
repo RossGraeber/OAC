@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The source scan follows `#[path]` modules on disk (#324), as `tests/real_adapters.rs`
-//! runs it: `crate_files` gives `src/` and `build.rs`, and the scan reads every file their
-//! `mod` declarations load. The PR #323 third review's plant, `#[path = "../zzhidden/h.rs"]
-//! mod h;` with the module outside `src/`, is built in a scratch crate under cargo's
-//! per-test temporary directory.
+//! The source scan on disk, as `tests/real_adapters.rs` runs it: `crate_files` gives
+//! `src/` and `build.rs`, and the scan reads every file their `mod` declarations load.
+//! Scratch crates are built under cargo's per-test temporary directory.
+//!
+//! - The PR #323 third review's plant, `#[path = "../zzhidden/h.rs"] mod h;` with the
+//!   module outside `src/`, fails closed: an adapter holds no `#[path]` at all (#324; R2 of
+//!   the PR #336 re-review).
+//! - A plain `mod` is followed to its file.
+//! - A symlink on the way to a module file fails closed (PR #336 review N7).
 
 use std::path::{Path, PathBuf};
 
 use oac_contract_adapter::source::{crate_files, implements_provider_adapter, scan};
+
+const ROWS: [&str; 4] = ["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"];
 
 fn scratch_crate(name: &str, files: &[(&str, &str)]) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
@@ -21,59 +27,31 @@ fn scratch_crate(name: &str, files: &[(&str, &str)]) -> PathBuf {
     dir
 }
 
+fn assert_fails_closed(dir: &Path) {
+    let files = crate_files(dir);
+    let findings = scan(&files);
+    for req in ROWS {
+        assert!(
+            findings.iter().any(|f| f.requirement == req),
+            "{req}: {findings:?}"
+        );
+    }
+    assert!(!implements_provider_adapter(&files).is_empty());
+}
+
 #[test]
-fn a_path_module_outside_src_is_scanned() {
+fn a_path_module_outside_src_fails_closed() {
     let dir = scratch_crate(
         "path-module-outside-src",
         &[
             ("src/lib.rs", "#[path = \"../zzhidden/h.rs\"]\nmod h;\n"),
             (
                 "zzhidden/h.rs",
-                "pub struct Q;\nimpl oac_core::adapter::ProviderAdapter for Q {}\n\
-                 pub fn f(_: &dyn oac_core::transport::Transport) {}\n",
+                "pub struct Q;\nimpl oac_core::adapter::ProviderAdapter for Q {}\n",
             ),
         ],
     );
-    let files = crate_files(&dir);
-    assert_eq!(files.len(), 1, "{files:?}");
-    let findings = scan(&files);
-    assert!(
-        findings
-            .iter()
-            .any(|f| f.requirement == "IFC-ADP-001" && f.file.ends_with("zzhidden/h.rs")),
-        "{findings:?}"
-    );
-    let impls = implements_provider_adapter(&files);
-    assert_eq!(impls.len(), 1, "{impls:?}");
-    assert!(impls[0].file.ends_with("zzhidden/h.rs"), "{impls:?}");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// PR #336 review N7: `#[path = "l/../x.rs"]` with `src/l` a symlink. rustc resolves `..`
-/// physically (beside the link's target); the scan resolves lexically, so it fails closed.
-#[cfg(unix)]
-#[test]
-fn a_symlink_on_the_way_to_a_path_module_fails_closed() {
-    let dir = scratch_crate(
-        "path-module-symlink",
-        &[
-            ("src/lib.rs", "#[path = \"l/../x.rs\"]\nmod h;\n"),
-            ("src/x.rs", "pub fn clean() {}\n"),
-            ("elsewhere/inner/keep.rs", "\n"),
-            (
-                "elsewhere/x.rs",
-                "pub fn f(_: &dyn oac_core::transport::Transport) {}\n",
-            ),
-        ],
-    );
-    std::os::unix::fs::symlink(dir.join("elsewhere/inner"), dir.join("src/l")).unwrap();
-    let findings = scan(&crate_files(&dir));
-    for req in ["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"] {
-        assert!(
-            findings.iter().any(|f| f.requirement == req),
-            "{req}: {findings:?}"
-        );
-    }
+    assert_fails_closed(&dir);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -83,14 +61,51 @@ fn a_path_module_that_names_no_file_fails_closed() {
         "path-module-missing",
         &[("src/lib.rs", "#[path = \"../zzhidden/gone.rs\"]\nmod h;\n")],
     );
+    assert_fails_closed(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_plain_module_is_followed() {
+    let dir = scratch_crate(
+        "plain-module",
+        &[
+            ("src/lib.rs", "mod m;\n"),
+            (
+                "src/m/mod.rs",
+                "pub struct Q;\nimpl oac_core::adapter::ProviderAdapter for Q {}\n\
+                 pub fn f(_: &dyn oac_core::transport::Transport) {}\n",
+            ),
+        ],
+    );
     let files = crate_files(&dir);
     let findings = scan(&files);
-    for req in ["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"] {
-        assert!(
-            findings.iter().any(|f| f.requirement == req),
-            "{req}: {findings:?}"
-        );
-    }
-    assert!(!implements_provider_adapter(&files).is_empty());
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.requirement == "IFC-ADP-001" && f.file.ends_with("src/m/mod.rs")),
+        "{findings:?}"
+    );
+    assert_eq!(implements_provider_adapter(&files).len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `mod l;` with `src/l` a symlink to a directory outside `src/`: the scan resolves paths
+/// lexically, so it does not follow the link and fails closed.
+#[cfg(unix)]
+#[test]
+fn a_symlink_on_the_way_to_a_module_fails_closed() {
+    let dir = scratch_crate(
+        "module-symlink",
+        &[
+            ("src/lib.rs", "mod l;\n"),
+            (
+                "elsewhere/mod.rs",
+                "pub fn f(_: &dyn oac_core::transport::Transport) {}\n",
+            ),
+        ],
+    );
+    std::os::unix::fs::symlink(dir.join("elsewhere"), dir.join("src/l")).unwrap();
+    assert_fails_closed(&dir);
     let _ = std::fs::remove_dir_all(&dir);
 }

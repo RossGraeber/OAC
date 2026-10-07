@@ -1,0 +1,44 @@
+# tests/protocol/contract/adapter/
+
+The adapter contract suite (#59, F10). It is one suite, written against
+`dyn oac_core::adapter::ProviderAdapter`, that every adapter runs unchanged against the fake
+harnesses. It is test-only: an adapter takes it as a dev-dependency.
+
+- `src/lib.rs` holds the suite and its report.
+- `src/claude.rs` and `src/codex.rs` hold the harnesses over the fake Claude Code endpoint
+  and the fake Codex app-server.
+- `src/source.rs` holds the static source scan (see below).
+- `src/plant.rs` holds the planted breaches that `tests/stand_in.rs` uses. Adapter code
+  never reaches them: a path into `plant` is a finding of its own row, `TEST-PLANT`.
+- `tests/stand_in.rs` runs the suite against well-behaved stand-in adapters and against
+  each planted breach.
+- `tests/real_adapters.rs` runs the static scan against `adapters/claude` and
+  `adapters/codex`.
+- `tests/path_modules.rs` runs the scan on scratch crates on disk.
+
+## What an adapter's sources may not hold
+
+The scan in `src/source.rs` reads an adapter's `src/` and `build.rs`, and every file their
+`mod` declarations load. It resolves every path through the imports and checks each one
+against the core items an adapter must not reach ([IFC-ADP-001], [IFC-ADP-002],
+[IFC-ADP-007], [IFC-ADP-013]).
+
+Some source shapes cannot be read statically, so the scan refuses them outright. Each one
+is a finding under every row:
+
+- **a `macro_rules!` definition**, anywhere (and an unparsed `macro` item);
+- **a `#[path]` attribute**, anywhere, under any spelling: `#[r#path]`, or `path = ..`
+  inside a `cfg_attr` at any depth;
+- **`include!`, `include_str!` and `include_bytes!`**, under any path or alias;
+- **the words `mod`, `path`, `include`, `include_str` and `include_bytes`** as tokens in a
+  macro invocation's arguments or an attribute's list;
+- **a symlink** on the way to a module file, or among the files scanned;
+- a file that cannot be read or does not parse.
+
+Identifiers are compared without a raw `r#` prefix everywhere.
+
+No adapter needs any of these today. If an adapter needs a macro, or a module outside rustc's
+default layout, that is a deliberate change to these rules, not an exception to them.
+
+An adapter's `tests/` directory is checked for the `TEST-PLANT` row only. Its tests may do
+what adapter code may not, such as make a connection or define a test macro.

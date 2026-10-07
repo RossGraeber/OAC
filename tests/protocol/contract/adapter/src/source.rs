@@ -38,44 +38,48 @@
 //! resolved is also tried under every glob prefix of the file. Renames are collected for the
 //! whole file, whatever block or module they appear in, which can only add findings.
 //!
+//! # What an adapter's sources may not hold at all
+//!
+//! Some source shapes cannot be read statically, so the scan refuses them outright rather
+//! than chase each way to paste around a narrower rule (PR #336 re-review). Each is a
+//! finding under every requirement, as for a file that does not parse. Identifiers are
+//! compared without a raw `r#` prefix everywhere (`#[r#path]` is `#[path]`).
+//! - **A `macro_rules!` definition**, anywhere, and an unparsed item (`macro` 2.0). Its body
+//!   can paste `path`, `mod` or `include` from fragments it is handed, which no token rule
+//!   sees. No adapter defines one; one that needs a macro is a deliberate rule change.
+//! - **A `#[path]` attribute**, anywhere, under any spelling: on a module, inside a
+//!   `cfg_attr` at any depth (`path = ..`), or written inside a macro invocation's
+//!   arguments. A module is then always where rustc's default rules put it.
+//! - **`include!`, `include_str!` and `include_bytes!`**, under any path
+//!   (`::core::include!`) or alias (`use std::include as inc;`, which itself fails closed).
+//! - **The words `mod`, `path`, `include`, `include_str` and `include_bytes`** as tokens in
+//!   a macro invocation's arguments or an attribute's list: a macro defined elsewhere could
+//!   paste them into a module or an include.
+//!
 //! # Which files are read
 //!
 //! The files given, and every file a `mod` declaration in them loads (#324): `mod m;` at
-//! `m.rs` or `m/mod.rs`, and `#[path = ".."] mod m;` at its path, resolved against the
-//! declaring file's directory as rustc resolves it, inline modules included. Every candidate
-//! location that exists is read, which can only add findings. Paths are resolved lexically,
-//! so a symlink on the way to a file the scan would read, or among the files given, fails
-//! closed.
+//! `m.rs` or `m/mod.rs` beside the declaring file (under a directory named for it, for a
+//! file other than `lib.rs`, `main.rs` or `mod.rs`), through inline modules. Every
+//! candidate location that exists is read, which can only add findings. Paths are resolved
+//! lexically, so a symlink on the way to a file the scan would read, or among the files
+//! given, fails closed.
 //!
-//! What the scan cannot follow fails closed: a finding under every requirement, as for a
-//! file that does not parse. That is
-//! - a `#[path]` that names no file or is not a string literal;
-//! - a `path = ..` anywhere inside a `cfg_attr`, at any depth of nesting;
-//! - any invocation of `include!`, `include_str!` or `include_bytes!`, under any path
-//!   (`::core::include!`) or alias (`use std::include as inc;`, which itself fails closed),
-//!   in code or inside a macro's tokens;
-//! - inside a macro's tokens (an invocation's arguments or a `macro_rules!` body), a
-//!   `#[path]` attribute and any out-of-line `mod m;` or `mod $m;`. Such a module's file
-//!   depends on where the macro expands, which the scan does not model (under an inline
-//!   `#[path]` module it can sit outside `src/`).
+//! # Macro invocations
 //!
-//! # Macro tokens
-//!
-//! Macro bodies are token streams, not paths. The scan walks each macro's tokens (an
-//! invocation's arguments, a `macro_rules!` body, an attribute's list) and resolves every
-//! run of `::`-joined identifiers as it resolves a parsed path, so renames, globs and
-//! `crate`/`self`/`super` apply, and `$crate` is read as `crate` (#324). An
-//! `impl Trait for ..` in a macro's tokens is seen by the tripwire under the same
-//! resolution; an `impl $t for ..` whose trait is a metavariable counts when some macro
-//! invocation in the crate is handed a path to `ProviderAdapter`. The token text, string
-//! literals included, is also matched for the forbidden paths written in full.
+//! An invocation's arguments are a token stream, not paths. The scan walks them (and an
+//! attribute's list) and resolves every run of `::`-joined identifiers as it resolves a
+//! parsed path, so renames, globs and `crate`/`self`/`super` apply (#324). An
+//! `impl Trait for ..` in them is seen by the tripwire under the same resolution. The
+//! token text, string literals included, is also matched for the forbidden paths written
+//! in full.
 //!
 //! # What a static scan still cannot see
 //!
 //! It is a tripwire, not a proof. It reads source, not behaviour:
 //!
-//! - A macro that builds a path from pieces (`concat_idents!`, a `macro_rules!` that pastes
-//!   an ident, as `oac_core::$i::..`) or a procedural macro that expands to one is not seen.
+//! - A procedural macro, or a macro from another crate, that builds a forbidden path from
+//!   pieces it is not handed whole (`concat_idents!`).
 //! - Code the scan is not given: `build.rs` output, and other crates (a helper crate the
 //!   adapter depends on is scanned only if its files are passed in; `check-crate-deps.mjs`
 //!   stops that crate from being a transport).
@@ -92,7 +96,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Spacing, TokenStream, TokenTree};
 use syn::visit::{self, Visit};
 
 /// One forbidden reach found in an adapter source file.
@@ -150,10 +154,11 @@ pub const FORBIDDEN: &[(&str, &[&str])] = &[
         "IFC-ADP-013",
         &["oac_core", "adapter", "Connection", "accept"],
     ),
-    // The suite's own planted breaches (`plant`): an adapter, its tests included, never
-    // reaches them. A row of its own, not a suite requirement, so that the stand-ins that
-    // plant them still report each requirement by their behaviour; `tests/real_adapters.rs`
-    // fails on any finding, this one too (PR #336 review N6).
+    // The suite's own planted breaches (`plant`). A row of its own, not a suite requirement,
+    // so that the stand-ins that plant them still report each requirement by their
+    // behaviour (PR #336 review N6). `tests/real_adapters.rs` fails on any finding in an
+    // adapter's `src/` and `build.rs` (its `#[cfg(test)]` code included), and on this row in
+    // the adapter's `tests/` too.
     (PLANT, &["oac_contract_adapter", "plant"]),
 ];
 
@@ -168,6 +173,26 @@ pub const PROVIDER_ADAPTER: &[&str] = &["oac_core", "adapter", "ProviderAdapter"
 
 /// The macros that paste in a file the scan does not read (B2 of the PR #336 review).
 const INCLUDE_MACROS: &[&str] = &["include", "include_str", "include_bytes"];
+
+/// Words that, as tokens of a macro invocation's arguments or an attribute's list, could be
+/// pasted into a module declaration, a `#[path]` or an include by a macro defined elsewhere.
+const PASTABLE_WORDS: &[&str] = &["mod", "path", "include", "include_str", "include_bytes"];
+
+/// A token-tree identifier as a string, without a raw `r#` prefix.
+fn tid(i: &proc_macro2::Ident) -> String {
+    syn::ext::IdentExt::unraw(i).to_string()
+}
+
+/// Is `t` the identifier `word`, raw or not?
+fn is_word(t: Option<&TokenTree>, word: &str) -> bool {
+    matches!(t, Some(TokenTree::Ident(i)) if tid(i) == word)
+}
+
+/// Is this attribute's path `name` (one segment, raw or not)?
+fn attr_is(a: &syn::Attribute, name: &str) -> bool {
+    let p = a.path();
+    p.segments.len() == 1 && id(&p.segments[0].ident) == name
+}
 
 /// Rule [IFC-ADP-001] for crate names: a transport crate.
 fn is_transport_crate(first: &str) -> bool {
@@ -308,10 +333,6 @@ struct Checker<'a> {
     file: &'a Path,
     findings: Vec<Finding>,
     implements: Vec<Finding>,
-    /// Lines of an `impl $t for ..` in a macro's tokens, the trait a metavariable.
-    meta_trait_impls: Vec<usize>,
-    /// Lines of a macro invocation handed a path that resolves to `ProviderAdapter`.
-    adapter_in_args: Vec<usize>,
 }
 
 impl Checker<'_> {
@@ -383,11 +404,12 @@ impl Checker<'_> {
         }
     }
 
-    /// A macro's or an attribute's tokens: walked for paths, `impl`s and hazards, and
-    /// matched as text for the forbidden paths written in full (string literals included).
-    fn check_tokens(&mut self, tokens: &TokenStream, line: usize, invocation: bool) {
+    /// A macro invocation's arguments or an attribute's list: walked for paths, `impl`s and
+    /// the pastable words, and matched as text for the forbidden paths written in full
+    /// (string literals included).
+    fn check_tokens(&mut self, tokens: &TokenStream, line: usize) {
         self.check_text(&tokens.to_string(), line);
-        self.walk(tokens.clone(), invocation);
+        self.walk(tokens.clone());
     }
 
     fn check_text(&mut self, tokens: &str, line: usize) {
@@ -424,50 +446,36 @@ impl Checker<'_> {
     }
 
     /// One level of a token stream; groups are walked in turn.
-    fn walk(&mut self, ts: TokenStream, invocation: bool) {
+    fn walk(&mut self, ts: TokenStream) {
         let toks: Vec<TokenTree> = ts.into_iter().collect();
         let mut i = 0;
         while i < toks.len() {
             match &toks[i] {
                 TokenTree::Group(g) => {
-                    let attribute = g.delimiter() == Delimiter::Bracket
-                        && (is_punct(toks.get(i.wrapping_sub(1)), '#')
-                            || (is_punct(toks.get(i.wrapping_sub(1)), '!')
-                                && is_punct(toks.get(i.wrapping_sub(2)), '#')));
-                    if attribute && attribute_names_a_path(&g.stream()) {
-                        self.fail_closed(
-                            line_of(g.span()),
-                            "#[path] inside a macro's tokens: a module the scan cannot follow",
-                        );
-                    }
-                    self.walk(g.stream(), invocation);
+                    self.walk(g.stream());
                     i += 1;
                 }
-                // An out-of-line `mod m;` or `mod $m;`: its file depends on where the macro
-                // expands (B3 of the PR #336 review).
-                TokenTree::Ident(id) if id == "mod" && out_of_line_mod(&toks, i + 1) => {
-                    self.fail_closed(
-                        line_of(id.span()),
-                        "an out-of-line `mod ..;` inside a macro's tokens: a module the scan cannot follow",
-                    );
-                    i += 1;
-                }
-                TokenTree::Ident(id) if id == "impl" => {
+                TokenTree::Ident(id) if tid(id) == "impl" => {
                     self.macro_impl(&toks, i);
                     i += 1;
                 }
                 _ => match path_at(&toks, i) {
                     Some((segs, end, line)) => {
-                        if is_punct(toks.get(end), '!') && self.is_include(&segs) {
+                        // A pastable word on its own (not a segment of a longer path, as
+                        // `std::path::Path` is), or an include macro under any path.
+                        if (segs.len() == 1 && PASTABLE_WORDS.contains(&segs[0].as_str()))
+                            || (is_punct(toks.get(end), '!') && self.is_include(&segs))
+                        {
                             self.fail_closed(
                                 line,
-                                "an include macro inside a macro's tokens: a file the scan cannot read",
+                                &format!(
+                                    "`{}` in a macro invocation's arguments or an attribute's list: \
+                                     it could be pasted into a module, a #[path] or an include",
+                                    segs.join("::")
+                                ),
                             );
                         }
                         self.check_path(&segs, line);
-                        if invocation && self.is_provider_adapter(&segs) {
-                            self.adapter_in_args.push(line);
-                        }
                         i = end;
                     }
                     None => i += 1,
@@ -483,23 +491,11 @@ impl Checker<'_> {
         if is_punct(toks.get(j), '!') {
             j += 1;
         }
-        // A metavariable trait: `impl $t for ..`.
-        if is_punct(toks.get(j), '$')
-            && matches!(toks.get(j + 1), Some(TokenTree::Ident(v)) if v != "crate")
-        {
-            let k = skip_generics(toks, j + 2);
-            if matches!(toks.get(k), Some(TokenTree::Ident(f)) if f == "for") {
-                self.meta_trait_impls.push(line);
-            }
-            return;
-        }
         let Some((segs, end, _)) = path_at(toks, j) else {
             return;
         };
         let k = skip_generics(toks, end);
-        if matches!(toks.get(k), Some(TokenTree::Ident(f)) if f == "for")
-            && self.is_provider_adapter(&segs)
-        {
+        if is_word(toks.get(k), "for") && self.is_provider_adapter(&segs) {
             self.implementation(
                 line,
                 format!("impl {} for .. (in a macro)", segs.join("::")),
@@ -518,36 +514,26 @@ fn is_path_sep(toks: &[TokenTree], i: usize) -> bool {
         && is_punct(toks.get(i + 1), ':')
 }
 
-/// One path segment at `toks[i]`: an identifier (without `r#`), or `$crate` read as
-/// `crate`. Returns the segment and the index after it.
-fn segment_at(toks: &[TokenTree], i: usize) -> Option<(String, usize)> {
-    match toks.get(i)? {
-        TokenTree::Ident(id) => Some((id.to_string().trim_start_matches("r#").to_owned(), i + 1)),
-        TokenTree::Punct(p) if p.as_char() == '$' => match toks.get(i + 1)? {
-            TokenTree::Ident(id) if id == "crate" => Some(("crate".to_owned(), i + 2)),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// A run of `::`-joined segments at `toks[i]`, with an optional leading `::`: the
-/// segments, the index after the run and the line of its first token.
+/// A run of `::`-joined identifiers at `toks[i]` (each without `r#`), with an optional
+/// leading `::`: the segments, the index after the run and the line of its first token.
 fn path_at(toks: &[TokenTree], i: usize) -> Option<(Vec<String>, usize, usize)> {
     let line = line_of(toks.get(i)?.span());
     let mut j = i;
     if is_path_sep(toks, j) {
         j += 2;
     }
-    let (first, mut j) = segment_at(toks, j)?;
-    let mut segs = vec![first];
+    let TokenTree::Ident(first) = toks.get(j)? else {
+        return None;
+    };
+    let mut segs = vec![tid(first)];
+    j += 1;
     while is_path_sep(toks, j) {
-        match segment_at(toks, j + 2) {
-            Some((s, next)) => {
-                segs.push(s);
-                j = next;
+        match toks.get(j + 2) {
+            Some(TokenTree::Ident(s)) => {
+                segs.push(tid(s));
+                j += 3;
             }
-            None => break,
+            _ => break,
         }
     }
     Some((segs, j, line))
@@ -575,41 +561,16 @@ fn skip_generics(toks: &[TokenTree], i: usize) -> usize {
     j
 }
 
-/// An attribute's tokens (inside `#[..]`) that set a module path: `path = ..`, or a
-/// `cfg_attr(.., path = ..)`.
-fn attribute_names_a_path(ts: &TokenStream) -> bool {
-    let toks: Vec<TokenTree> = ts.clone().into_iter().collect();
-    match toks.first() {
-        Some(TokenTree::Ident(i)) if i == "path" => is_punct(toks.get(1), '='),
-        Some(TokenTree::Ident(i)) if i == "cfg_attr" => match toks.get(1) {
-            Some(TokenTree::Group(g)) => names_path(&g.stream()),
-            _ => true,
-        },
-        _ => false,
-    }
-}
-
-/// A `path = ..` anywhere in a token list, at any depth (a `cfg_attr` nested in a
-/// `cfg_attr` included; B1 of the PR #336 review).
+/// A `path = ..` anywhere in a token list, at any depth, `r#path` included (a `cfg_attr`
+/// nested in a `cfg_attr`; B1 of the PR #336 review, R1 of its re-review).
 fn names_path(ts: &TokenStream) -> bool {
     let toks: Vec<TokenTree> = ts.clone().into_iter().collect();
     toks.windows(2)
-        .any(|w| matches!(&w[0], TokenTree::Ident(i) if i == "path") && is_punct(Some(&w[1]), '='))
+        .any(|w| is_word(Some(&w[0]), "path") && is_punct(Some(&w[1]), '='))
         || toks.iter().any(|t| match t {
             TokenTree::Group(g) => names_path(&g.stream()),
             _ => false,
         })
-}
-
-/// At `toks[i]` (after a `mod`): a name or `$name`, then `;`.
-fn out_of_line_mod(toks: &[TokenTree], i: usize) -> bool {
-    match toks.get(i) {
-        Some(TokenTree::Ident(_)) => is_punct(toks.get(i + 1), ';'),
-        Some(TokenTree::Punct(p)) if p.as_char() == '$' => {
-            matches!(toks.get(i + 1), Some(TokenTree::Ident(_))) && is_punct(toks.get(i + 2), ';')
-        }
-        _ => false,
-    }
 }
 
 fn line_of(span: proc_macro2::Span) -> usize {
@@ -617,6 +578,22 @@ fn line_of(span: proc_macro2::Span) -> usize {
 }
 
 impl<'ast> Visit<'ast> for Checker<'_> {
+    fn visit_item(&mut self, i: &'ast syn::Item) {
+        // An item syn does not parse (`macro` 2.0, say) is code the scan cannot read.
+        if let syn::Item::Verbatim(v) = i {
+            let line = v
+                .clone()
+                .into_iter()
+                .next()
+                .map_or(0, |t| line_of(t.span()));
+            self.fail_closed(
+                line,
+                "an item the parser cannot read (a `macro` definition?)",
+            );
+        }
+        visit::visit_item(self, i);
+    }
+
     fn visit_item_use(&mut self, u: &'ast syn::ItemUse) {
         let mut flat = Imports::default();
         flat.add_tree(&[], &u.tree);
@@ -660,15 +637,25 @@ impl<'ast> Visit<'ast> for Checker<'_> {
     }
 
     fn visit_attribute(&mut self, a: &'ast syn::Attribute) {
-        // The attribute's own path is a path like any other; a token list (`derive(..)`,
-        // a tool attribute) is walked as a macro's tokens are.
         let line = a
             .path()
             .segments
             .first()
             .map_or(0, |s| line_of(s.ident.span()));
+        // No `#[path]` at all, under any spelling (R2 of the PR #336 re-review).
+        if attr_is(a, "path") {
+            self.fail_closed(
+                line,
+                "a #[path] attribute: adapter modules sit where rustc's default rules put them",
+            );
+        }
+        // The attribute's own path is a path like any other; a token list (`derive(..)`,
+        // `cfg_attr(..)`, a tool attribute) is walked as a macro invocation's arguments are.
         if let syn::Meta::List(list) = &a.meta {
-            self.check_tokens(&list.tokens, line, false);
+            if attr_is(a, "cfg_attr") && names_path(&list.tokens) {
+                self.fail_closed(line, "a `path = ..` inside a cfg_attr: a #[path] attribute");
+            }
+            self.check_tokens(&list.tokens, line);
         }
         visit::visit_attribute(self, a);
     }
@@ -679,12 +666,17 @@ impl<'ast> Visit<'ast> for Checker<'_> {
             .segments
             .first()
             .map_or(0, |s| line_of(s.ident.span()));
-        let name = m.path.segments.last().map(|s| id(&s.ident));
-        if self.is_include(&segments(&m.path)) {
+        let segs = segments(&m.path);
+        // No `macro_rules!` at all (R2 of the PR #336 re-review): a body can paste in what
+        // no token rule sees. Its tokens are not walked; the file fails closed.
+        if segs.last().is_some_and(|l| l == "macro_rules") {
+            self.fail_closed(line, "a macro_rules! definition: adapters define no macros");
+            return;
+        }
+        if self.is_include(&segs) {
             self.fail_closed(line, "an include macro: a file the scan cannot read");
         }
-        let invocation = name.as_deref() != Some("macro_rules");
-        self.check_tokens(&m.tokens, line, invocation);
+        self.check_tokens(&m.tokens, line);
         visit::visit_macro(self, m);
     }
 
@@ -739,51 +731,22 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-/// One out-of-line `mod` declaration: the files it may load. A `#[path]` one must load one.
+/// One out-of-line `mod` declaration: the files it may load.
 struct ModDecl {
     candidates: Vec<PathBuf>,
-    required: bool,
     line: usize,
     what: String,
 }
 
-/// The `#[path = ".."]` value among `attrs`; `Err` when there is a module path the scan
-/// cannot resolve (not a string literal, or inside a `cfg_attr`).
-fn path_attribute(attrs: &[syn::Attribute]) -> Result<Option<String>, &'static str> {
-    let mut found = None;
-    for a in attrs {
-        if a.path().is_ident("path") {
-            match &a.meta {
-                syn::Meta::NameValue(syn::MetaNameValue {
-                    value:
-                        syn::Expr::Lit(syn::ExprLit {
-                            lit: syn::Lit::Str(s),
-                            ..
-                        }),
-                    ..
-                }) => found = Some(s.value()),
-                _ => return Err("a #[path] that is not a string literal"),
-            }
-        } else if a.path().is_ident("cfg_attr")
-            && let syn::Meta::List(l) = &a.meta
-            && names_path(&l.tokens)
-        {
-            return Err("a #[cfg_attr(.., path = ..)] the scan cannot resolve");
-        }
-    }
-    Ok(found)
-}
-
-/// Collects the `mod` declarations of one file, as rustc resolves them: relative to the
-/// file's directory, through the inline modules around them (for a file other than
-/// `lib.rs`, `main.rs` or `mod.rs`, under a directory named for the file too). Both readings
-/// are tried for every file, since a file reached through `#[path]` may be read either way;
-/// an extra candidate that exists can only add findings.
+/// Collects the `mod` declarations of one file, as rustc's default rules place them:
+/// beside the file, through the inline modules around them (for a file other than
+/// `lib.rs`, `main.rs` or `mod.rs`, under a directory named for the file). Both readings are
+/// tried for every file; an extra candidate that exists can only add findings. A `#[path]`
+/// is never followed: it fails closed ([`Checker`]).
 struct ModFollower<'a> {
     file: &'a Path,
     inline: Vec<String>,
     decls: Vec<ModDecl>,
-    unresolvable: Vec<(usize, String)>,
 }
 
 impl ModFollower<'_> {
@@ -803,42 +766,23 @@ impl ModFollower<'_> {
 impl<'ast> Visit<'ast> for ModFollower<'_> {
     fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
         let name = id(&m.ident);
-        let line = line_of(m.ident.span());
-        let attr = path_attribute(&m.attrs).unwrap_or_else(|why| {
-            self.unresolvable.push((line, format!("mod {name}: {why}")));
-            None
-        });
         if m.content.is_some() {
-            self.inline.push(attr.unwrap_or(name));
+            self.inline.push(name);
             visit::visit_item_mod(self, m);
             self.inline.pop();
             return;
         }
-        let decl = match attr {
-            Some(p) => ModDecl {
-                candidates: if self.inline.is_empty() {
-                    let dir = self.file.parent().unwrap_or_else(|| Path::new(""));
-                    vec![dir.join(&p)]
-                } else {
-                    self.bases().into_iter().map(|b| b.join(&p)).collect()
-                },
-                required: true,
-                line,
-                what: format!("#[path = {p:?}] mod {name}"),
-            },
-            None => ModDecl {
-                candidates: self
-                    .bases()
-                    .into_iter()
-                    .flat_map(|b| [b.join(format!("{name}.rs")), b.join(&name).join("mod.rs")])
-                    .collect(),
-                // A missing file is a build error, or a module compiled out.
-                required: false,
-                line,
-                what: format!("mod {name}"),
-            },
-        };
-        self.decls.push(decl);
+        // A missing file is a build error, or a module compiled out: not a finding.
+        let candidates = self
+            .bases()
+            .into_iter()
+            .flat_map(|b| [b.join(format!("{name}.rs")), b.join(&name).join("mod.rs")])
+            .collect();
+        self.decls.push(ModDecl {
+            candidates,
+            line: line_of(m.ident.span()),
+            what: format!("mod {name}"),
+        });
     }
 }
 
@@ -881,9 +825,9 @@ fn symlink_on_the_way(dir: &Path, candidate: &Path, is_symlink: &IsSymlink<'_>) 
 
 /// Both scans over `roots` and every file their `mod` declarations load, read as one
 /// crate: imports and `pub use` re-exports of every file are collected first, then every
-/// file is checked against all of them. A file that cannot be read or does not parse, a
-/// `#[path]` that cannot be resolved and an `include!` are findings under every
-/// requirement, so they fail closed.
+/// file is checked against all of them. A file that cannot be read or does not parse, and
+/// a symlink on the way to a module file, are findings under every requirement, so they
+/// fail closed.
 fn analyse_set(
     roots: &[PathBuf],
     load: &Load<'_>,
@@ -910,12 +854,8 @@ fn analyse_set(
                     file: &path,
                     inline: Vec::new(),
                     decls: Vec::new(),
-                    unresolvable: Vec::new(),
                 };
                 mods.visit_file(&ast);
-                for (line, why) in mods.unresolvable {
-                    fail(everywhere(&path, line, &why));
-                }
                 let dir = path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
                 for d in mods.decls {
                     if let Some(link) = d
@@ -937,10 +877,6 @@ fn analyse_set(
                         .map(|c| normalize(c))
                         .filter(|c| seen.contains(c) || load(c).is_some())
                         .collect();
-                    if d.required && found.is_empty() {
-                        let why = format!("{}: names no file the scan can read", d.what);
-                        fail(everywhere(&path, d.line, &why));
-                    }
                     queue.extend(found);
                 }
                 parsed.push((path, ast));
@@ -953,34 +889,16 @@ fn analyse_set(
             Err(why) => fail(everywhere(&path, 0, &format!("cannot be read: {why}"))),
         }
     }
-    let (mut meta_trait_impls, mut adapter_in_args) = (Vec::new(), Vec::new());
     for (path, ast) in &parsed {
         let mut c = Checker {
             imports: &imports,
             file: path,
             findings: Vec::new(),
             implements: Vec::new(),
-            meta_trait_impls: Vec::new(),
-            adapter_in_args: Vec::new(),
         };
         c.visit_file(ast);
         findings.extend(c.findings);
         implements.extend(c.implements);
-        meta_trait_impls.extend(c.meta_trait_impls.into_iter().map(|l| (path.clone(), l)));
-        adapter_in_args.extend(c.adapter_in_args.into_iter().map(|l| (path.clone(), l)));
-    }
-    // A macro that implements a trait it is handed, handed `ProviderAdapter`.
-    if !meta_trait_impls.is_empty() {
-        for (file, line) in adapter_in_args {
-            implements.push(Finding {
-                requirement: "IFC-ADP-010",
-                file,
-                line,
-                what: "ProviderAdapter handed to a macro, where a macro implements a trait \
-                       it is handed (impl $t for ..)"
-                    .into(),
-            });
-        }
     }
     (findings, implements)
 }
@@ -1358,7 +1276,7 @@ mod tests {
         );
     }
 
-    // ---- #324: the PR #323 third-review follow-ups ------------------------------------
+    // ---- #324 and the PR #336 reviews ---------------------------------------------------
 
     /// Every row, as a file that cannot be read gives (`everywhere`).
     const EVERY: [&str; 5] = [
@@ -1385,133 +1303,165 @@ mod tests {
     const HIDDEN: &str = "pub struct Q;\nimpl oac_core::adapter::ProviderAdapter for Q {}\n\
         pub fn f(_: &dyn oac_core::transport::Transport) {}";
 
-    /// The review's plant: a module outside `src/`, wired in with `#[path]`.
+    /// R2: no `#[path]` at all, under any spelling. The PR #323 review's plant, a module
+    /// outside `src/`, fails closed whether its file exists or not; R1's `#[r#path]` too.
     #[test]
-    fn a_path_module_outside_src_is_followed() {
-        let (findings, impls) = analyse_files(
-            &["a/src/lib.rs"],
+    fn any_path_attribute_fails_closed() {
+        for files in [
             &[
                 ("a/src/lib.rs", "#[path = \"../zzhidden/h.rs\"]\nmod h;"),
                 ("a/zzhidden/h.rs", HIDDEN),
-            ],
-        );
-        assert_eq!(impls.len(), 1, "{impls:?}");
-        assert!(impls[0].file.ends_with("zzhidden/h.rs"), "{impls:?}");
-        assert_eq!(reqs_of(&findings), ["IFC-ADP-001"]);
-        assert!(findings[0].file.ends_with("zzhidden/h.rs"));
-        // Without the file in place the same declaration fails closed.
-        let (findings, impls) = analyse_files(
-            &["a/src/lib.rs"],
-            &[("a/src/lib.rs", "#[path = \"../zzhidden/h.rs\"]\nmod h;")],
-        );
-        assert_eq!(reqs_of(&findings), EVERY);
-        assert!(!impls.is_empty());
-    }
-
-    #[test]
-    fn path_modules_inside_inline_modules_and_their_own_modules_are_followed() {
-        // In lib.rs (a mod-rs file) the inline module is a directory.
-        let (_, impls) = analyse_files(
-            &["src/lib.rs"],
+            ][..],
+            &[("a/src/lib.rs", "#[path = \"../zzhidden/h.rs\"]\nmod h;")][..],
+            &[("a/src/lib.rs", "#[r#path = \"../zz3.rs\"]\npub mod h3;")][..],
             &[
-                (
-                    "src/lib.rs",
-                    "mod m {\n    #[path = \"x.rs\"]\n    mod y;\n}",
-                ),
-                ("src/m/x.rs", HIDDEN),
-            ],
-        );
-        assert_eq!(impls.len(), 1, "{impls:?}");
-        // In a.rs, under a directory named for the file.
-        let (_, impls) = analyse_files(
-            &["src/a.rs"],
-            &[
-                ("src/a.rs", "mod b {\n    #[path = \"x.rs\"]\n    mod y;\n}"),
-                ("src/a/b/x.rs", HIDDEN),
-            ],
-        );
-        assert_eq!(impls.len(), 1, "{impls:?}");
-        // A plain `mod` in a file reached through `#[path]`, both readings of its directory.
-        for inner in ["out/inner.rs", "out/h/inner.rs"] {
-            let (findings, impls) = analyse_files(
-                &["src/lib.rs"],
-                &[
-                    ("src/lib.rs", "#[path = \"../out/h.rs\"]\nmod h;"),
-                    ("out/h.rs", "mod inner;"),
-                    (inner, HIDDEN),
-                ],
-            );
-            assert_eq!(impls.len(), 1, "{inner}: {impls:?}");
-            assert_eq!(reqs_of(&findings), ["IFC-ADP-001"], "{inner}");
+                ("a/src/lib.rs", "#[path = \"m.rs\"]\nmod m;"),
+                ("a/src/m.rs", ""),
+            ][..],
+        ] {
+            let (findings, impls) = analyse_files(&["a/src/lib.rs"], files);
+            assert_eq!(reqs_of(&findings), EVERY, "{files:?}: {findings:?}");
+            assert!(!impls.is_empty(), "{files:?}");
         }
-        // An absent plain module is the compiler's to refuse, not a finding.
-        assert_eq!(reqs("mod not_here;"), Vec::<&str>::new());
+        for src in [
+            "#[path = concat!(\"x\", \".rs\")]\nmod h;",
+            "mod o {\n    #[path = \"h.rs\"]\n    mod h;\n}",
+            "#[path = \"../zz\"]\nmod outer {\n    pub mod h {}\n}",
+            "#[cfg_attr(unix, path = \"u.rs\")]\nmod h;",
+            "#[cfg_attr(all(), cfg_attr(all(), path = \"../zz/h.rs\"))]\nmod h;",
+            "#[cfg_attr(all(), cfg_attr(any(), cfg_attr(all(), r#path = \"../zz/h.rs\")))]\nmod h;",
+            "#[r#cfg_attr(all(), r#path = \"h.rs\")]\nmod h;",
+            "#[path = \"x\"]\nfn f() {}",
+        ] {
+            fails_closed(src);
+        }
     }
 
+    /// R2: no `macro_rules!` at all, whatever its body; the re-review's three pasting plants
+    /// among them. An unparsed item (`macro` 2.0) fails closed too.
     #[test]
-    fn unresolvable_module_paths_and_include_fail_closed() {
-        fails_closed("#[path = \"nowhere.rs\"]\nmod h;");
-        fails_closed("#[cfg_attr(unix, path = \"u.rs\")]\nmod h;");
-        fails_closed("#[path = concat!(\"x\", \".rs\")]\nmod h;");
-        fails_closed("include!(\"generated.rs\");");
-        fails_closed("fn f() { include!(concat!(env!(\"OUT_DIR\"), \"/g.rs\")); }");
-        fails_closed("fn f() { std::include!(\"g.rs\"); }");
-        // The same, written inside a macro's tokens.
-        fails_closed("macro_rules! m { () => { include!(\"g.rs\"); } }");
-        fails_closed("macro_rules! m { () => { #[path = \"../x.rs\"] mod h; } }\nm!();");
-        fails_closed("macro_rules! m { () => { #[cfg_attr(all(), path = \"x.rs\")] mod h; } }");
-        // include_str! and include_bytes! paste in a file the scan does not read too.
-        fails_closed("const S: &str = include_str!(\"x.txt\");");
-        fails_closed("const B: &[u8] = include_bytes!(\"x.bin\");");
+    fn any_macro_definition_fails_closed() {
+        for src in [
+            "macro_rules! m { () => {} }",
+            "fn f() { macro_rules! m { () => {} } }",
+            "r#macro_rules! m { () => {} }",
+            "macro_rules! p { ($k:tt, $m:tt) => { #[$k = \"../zz1\"] pub $m outer1 { pub $m h; } } }\np!(path, mod);",
+            "macro_rules! m { ($i:ident) => { const S: &str = $i!(\"../zz2/h2.txt\"); } }\nm!(include);",
+            "macro_rules! k { ($k:tt) => { pub $k h; } }\npub mod outer4 { k!(mod); }",
+            "pub use oac_core::adapter::ProviderAdapter;\nmacro_rules! m { ($t:ty) => { impl crate::ProviderAdapter for $t {} } }",
+            "pub use oac_core::*;\nmacro_rules! m { () => { $crate::transport::Payload } }",
+            "pub macro m() {}",
+        ] {
+            fails_closed(src);
+        }
     }
 
-    // ---- the PR #336 review ------------------------------------------------------------
-
-    /// B1: a `path` anywhere in a `cfg_attr`, nested or not.
+    /// The words that could be pasted into a module, a `#[path]` or an include, in a macro
+    /// invocation's arguments or an attribute's list (a macro from another crate could paste
+    /// them); a longer path that merely has one as a segment is fine.
     #[test]
-    fn a_path_in_a_nested_cfg_attr_fails_closed() {
-        fails_closed("#[cfg_attr(all(), cfg_attr(all(), path = \"../zz/h.rs\"))]\nmod h;");
-        fails_closed(
-            "#[cfg_attr(all(), cfg_attr(any(), cfg_attr(all(), path = \"../zz/h.rs\")))]\nmod h;",
-        );
-        fails_closed(
-            "mod o {\n    #[cfg_attr(all(), cfg_attr(all(), path = \"h.rs\"))]\n    mod h;\n}",
-        );
-        fails_closed(
-            "macro_rules! m { () => { #[cfg_attr(all(), cfg_attr(all(), path = \"x.rs\"))] mod h {} } }",
+    fn pastable_words_in_invocations_fail_closed() {
+        for src in [
+            "fn f() { m!(path, mod); }",
+            "fn f() { m!(include); }",
+            "pub mod outer { k!(mod); }",
+            "fn f() { m!(r#path); }",
+            "fn f() { m!(mod h;); }",
+            "fn f() { m!(include_str); }",
+            "#[tool(include_bytes)]\nfn f() {}",
+            "fn f(path: &str) { println!(\"{}\", path); }",
+        ] {
+            fails_closed(src);
+        }
+        assert_eq!(
+            reqs(
+                "fn f(p: &std::path::Path) { println!(\"{}\", p.display()); let _ = vec![std::path::PathBuf::new()]; }"
+            ),
+            Vec::<&str>::new()
         );
     }
 
-    /// B2: an include macro under any path or alias, in code or in a macro's tokens.
     #[test]
     fn include_macros_under_any_path_or_alias_fail_closed() {
         for src in [
-            "use std::include as inc;\nfn f() { inc!(\"../zz/h.rs\"); }",
-            "use core::include_str as s;",
+            "include!(\"generated.rs\");",
+            "fn f() { include!(concat!(env!(\"OUT_DIR\"), \"/g.rs\")); }",
+            "fn f() { std::include!(\"g.rs\"); }",
             "fn f() { ::core::include!(\"../zz/h.rs\"); }",
             "fn f() { core::prelude::v1::include_bytes!(\"x\"); }",
-            "macro_rules! m { () => { ::core::include!(\"../zz/h.rs\"); } }",
-            "macro_rules! m { () => { $crate::inc!(\"../zz/h.rs\"); } }\npub use std::include as inc;",
+            "fn f() { r#include!(\"x\"); }",
+            "use std::include as inc;\nfn f() { inc!(\"../zz/h.rs\"); }",
+            "use core::include_str as s;",
+            "const S: &str = include_str!(\"x.txt\");",
+            "const B: &[u8] = include_bytes!(\"x.bin\");",
             "fn f() { m!(std::include_str!(\"x\")); }",
         ] {
             fails_closed(src);
         }
     }
 
-    /// B3: an out-of-line module declared in a macro's tokens; the review's plant puts it
-    /// under an inline `#[path]` module, outside `src/`.
+    /// Plain `mod` declarations are followed, through inline modules.
     #[test]
-    fn out_of_line_modules_in_macro_tokens_fail_closed() {
-        fails_closed(
-            "macro_rules! m { ($i:ident) => { pub mod $i; } }\n#[path = \"../zz\"] mod outer { m!(h); }",
+    fn plain_modules_are_followed() {
+        // In lib.rs (a mod-rs file) the inline module is a directory.
+        let (findings, impls) = analyse_files(
+            &["src/lib.rs"],
+            &[
+                ("src/lib.rs", "mod m {\n    mod y;\n}"),
+                ("src/m/y.rs", HIDDEN),
+            ],
         );
-        fails_closed("macro_rules! m { () => { mod h; } }");
-        fails_closed("fn f() { m!(mod h;); }");
-        // An inline module in a macro is read from the tokens, not from a file.
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        assert_eq!(reqs_of(&findings), ["IFC-ADP-001"]);
+        // In a.rs, under a directory named for the file.
+        let (_, impls) = analyse_files(
+            &["src/a.rs"],
+            &[
+                ("src/a.rs", "mod b {\n    mod y;\n}"),
+                ("src/a/b/y.rs", HIDDEN),
+            ],
+        );
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        // `m/mod.rs` too.
+        let (_, impls) = analyse_files(
+            &["src/lib.rs"],
+            &[("src/lib.rs", "mod m;"), ("src/m/mod.rs", HIDDEN)],
+        );
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        // An absent plain module is the compiler's to refuse, not a finding.
+        assert_eq!(reqs("mod not_here;"), Vec::<&str>::new());
+    }
+
+    /// Macro invocations' arguments are resolved as paths: globs and `crate::`.
+    #[test]
+    fn invocation_arguments_resolve_globs_and_crate() {
+        for body in [
+            "crate::transport::Payload",
+            "self::transport::Payload",
+            "transport::Payload",
+            "crate :: r#transport :: Payload",
+        ] {
+            assert_eq!(
+                reqs(&format!("pub use oac_core::*;\nfn f() {{ m!({body}); }}")),
+                ["IFC-ADP-001"],
+                "{body}"
+            );
+        }
         assert_eq!(
-            reqs("macro_rules! m { () => { mod h { pub fn f() {} } } }"),
-            Vec::<&str>::new()
+            reqs("pub use oac_core::*;\nfn f() { m!(crate::signing::authenticate); }"),
+            ["IFC-ADP-002"]
         );
+    }
+
+    #[test]
+    fn the_tripwire_reads_invocation_arguments() {
+        assert!(implements(
+            "fn f() { m!(impl oac_core::adapter::ProviderAdapter for P {}); }"
+        ));
+        assert!(implements(
+            "use oac_core::adapter as a;\nfn f() { m!(unsafe impl<T: Fn() -> u8> a::r#ProviderAdapter for P {}); }"
+        ));
+        assert!(!implements("fn f() { m!(impl Clone for P {}); }"));
     }
 
     /// N6: the suite's planted breaches, reached from adapter code.
@@ -1533,8 +1483,8 @@ mod tests {
     #[test]
     fn a_symlink_on_the_way_to_a_module_fails_closed() {
         let files = [
-            ("src/lib.rs", "#[path = \"l/../x.rs\"]\nmod h;"),
-            ("src/x.rs", "pub fn clean() {}"),
+            ("src/lib.rs", "mod l;"),
+            ("src/l/mod.rs", "pub fn clean() {}"),
         ];
         let (findings, impls) = analyse_files_with_symlinks(&["src/lib.rs"], &files, &["src/l"]);
         assert_eq!(reqs_of(&findings), EVERY, "{findings:?}");
@@ -1551,85 +1501,10 @@ mod tests {
     }
 
     #[test]
-    fn macro_tokens_resolve_globs_crate_and_dollar_crate() {
-        for body in [
-            "crate::transport::Payload",
-            "$crate::transport::Payload",
-            "self::transport::Payload",
-            "super::transport::Payload",
-            "transport::Payload",
-            "$crate :: r#transport :: Payload",
-        ] {
-            assert_eq!(
-                reqs(&format!(
-                    "pub use oac_core::*;\nmacro_rules! m {{ () => {{ let _: Option<{body}> = None; }} }}"
-                )),
-                ["IFC-ADP-001"],
-                "{body}"
-            );
-        }
-        // A glob of a module, and a rename, reached through `$crate`.
+    fn clean_invocations_pass() {
         assert_eq!(
             reqs(
-                "pub use oac_core::ids::*;\nmacro_rules! m { () => { $crate::SessionId::from_random_octets([0; 16]) } }"
-            ),
-            ["IFC-ADP-007"]
-        );
-        assert_eq!(
-            reqs(
-                "pub use oac_core::transport as net;\nmacro_rules! m { () => { $crate::net::Payload } }"
-            ),
-            ["IFC-ADP-001"]
-        );
-        // In an invocation's arguments too.
-        assert_eq!(
-            reqs("pub use oac_core::*;\nfn f() { m!(crate::signing::authenticate); }"),
-            ["IFC-ADP-002"]
-        );
-    }
-
-    #[test]
-    fn the_tripwire_reads_macro_bodies() {
-        for src in [
-            "pub use oac_core::adapter::ProviderAdapter;\nmacro_rules! m { ($t:ty) => { impl crate::ProviderAdapter for $t {} } }",
-            "pub use oac_core::adapter::ProviderAdapter;\nmacro_rules! m { ($t:ty) => { impl $crate::ProviderAdapter for $t {} } }",
-            "pub use oac_core::*;\nmacro_rules! m { ($t:ty) => { impl<T: Fn() -> u8> $crate::adapter::ProviderAdapter for $t {} } }",
-            "use oac_core::adapter as a;\nmacro_rules! m { ($t:ident) => { unsafe impl a::ProviderAdapter for $t {} } }",
-            "macro_rules! m { ($t:ty) => { impl ::oac_core::adapter::ProviderAdapter for $t {} } }",
-            "fn f() { m!(impl oac_core::adapter::ProviderAdapter for P {}); }",
-        ] {
-            assert!(implements(src), "{src}");
-        }
-        // The trait as a metavariable, handed ProviderAdapter at the call.
-        let generic = "macro_rules! imp { ($tr:path, $t:ty) => { impl $tr for $t {} } }\n";
-        assert!(implements(&format!(
-            "{generic}pub use oac_core::adapter::ProviderAdapter as Port;\nstruct P;\nimp!(crate::Port, P);"
-        )));
-        let (_, impls) = analyse_texts(&[
-            (
-                "lib.rs",
-                "pub use oac_core::adapter::ProviderAdapter;\nmod a;\nmod b;",
-            ),
-            ("a.rs", generic),
-            ("b.rs", "struct P;\ncrate::imp!(crate::ProviderAdapter, P);"),
-        ]);
-        assert_eq!(impls.len(), 1, "{impls:?}");
-        assert!(impls[0].file.ends_with("b.rs"));
-        // Controls: other traits, and a generic macro handed another trait.
-        assert!(!implements(
-            "macro_rules! m { ($t:ty) => { impl Clone for $t { fn clone(&self) -> Self { todo!() } } } }"
-        ));
-        assert!(!implements(&format!("{generic}struct P;\nimp!(Clone, P);")));
-        assert!(!implements(
-            "pub use oac_core::adapter::ProviderAdapter;\nfn f() { let _ = format!(\"{}\", 1); m!(crate::ProviderAdapter); }"
-        ));
-    }
-
-    #[test]
-    fn clean_macros_pass() {
-        assert_eq!(
-            reqs(
-                "use oac_core::ids::SessionId;\nfn f(transport: u8) -> String { format!(\"{transport} {:?}\", SessionId::parse(\"x\")) }\nmacro_rules! m { ($t:ty) => { impl Default for $t { fn default() -> Self { todo!() } } } }"
+                "use oac_core::ids::SessionId;\nfn f(transport: u8) -> String { format!(\"{transport} {:?}\", SessionId::parse(\"x\")) }\n#[derive(Debug, Clone)]\nstruct S;"
             ),
             Vec::<&str>::new()
         );

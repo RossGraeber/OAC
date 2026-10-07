@@ -14,7 +14,9 @@
 
 use std::path::{Path, PathBuf};
 
-use oac_contract_adapter::source::{crate_files, implements_provider_adapter, scan};
+use oac_contract_adapter::source::{
+    PLANT, crate_files, implements_provider_adapter, rust_files, scan,
+};
 
 fn adapter_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -36,6 +38,26 @@ fn the_real_adapters_pass_the_static_routing_checks() {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join("; ")
+        );
+    }
+}
+
+/// An adapter's own tests never reach the suite's planted breaches either (the TEST-PLANT
+/// row, PR #336 review N6). Only that row is checked here: an adapter's tests may do what
+/// its code may not (make a connection, say), and may define test macros.
+#[test]
+fn no_real_adapter_test_reaches_the_planted_breaches() {
+    for name in ["claude", "codex"] {
+        let tests = rust_files(&adapter_dir(name).join("tests"));
+        let found: Vec<String> = scan(&tests)
+            .iter()
+            .filter(|f| f.requirement == PLANT)
+            .map(ToString::to_string)
+            .collect();
+        assert!(
+            found.is_empty(),
+            "adapters/{name}/tests: {}",
+            found.join("; ")
         );
     }
 }
