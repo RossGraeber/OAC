@@ -15,8 +15,7 @@ you are touching. Boundary text lives in `oac-boundaries`; test taxonomy lives i
 `docs/planning/STATUS.md` ("Current stage", "Open epics", "Blocked") decides whether code
 may start; read it, not this skill, before starting. The stage exits are recorded
 decisions: Stage 1 via D7 (`docs/planning/decisions/D7-stage1-exit.md`), Stage 2 via Gate
-S2 (`docs/planning/decisions/E-5-stage2-exit.md`, which opens Stage 3), Stage 3 via Gate
-S3 (`docs/planning/decisions/F-6-stage3-exit.md`, which opens Stage 4); the interfaces
+S2 (`docs/planning/decisions/E-5-stage2-exit.md`, which opens Stage 3); the interfaces
 change only under `docs/planning/decisions/E7-interface-freeze.md` §7. Language/runtime
 and process model are recorded decisions (`docs/planning/decisions/C1-language-runtime.md`,
 `C2-process-model.md`);
