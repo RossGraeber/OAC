@@ -45,8 +45,13 @@
 //! - [`pairing`]: the operator-confirmed pairing exchange and the [`pairing::PairingStore`]
 //!   seam (§5.3).
 //!
+//! Added by #59 (F10): [`adapter`], the `ProviderAdapter` contract and the adapter-boundary
+//! types (`spec/interfaces.md` §4.10, §5), so that the adapter contract suite can run against
+//! any adapter.
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
+pub mod adapter;
 pub mod authorization;
 mod base64url;
 pub mod canonical;
