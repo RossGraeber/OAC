@@ -421,6 +421,14 @@ impl HandOffOutcome {
 }
 
 /// The handler of the `watch_attachments` event stream (Table 5.2). The adapter calls it.
+///
+/// Re-entrancy: the core may call back into the adapter from inside the handler, on the
+/// adapter's own calling thread, before the handler returns. Deciding a `native-signal`
+/// or an `attachment-opened` can call `set_binding` and `capabilities`, and
+/// `attachment-closed` calls `set_binding`. An adapter must therefore not hold a lock of
+/// its own, that those operations also take, while it calls the handler. The core itself
+/// never blocks inside the handler waiting for another binding decision: a decision already
+/// running on another thread takes this one over.
 pub type AdapterEventHandler = Arc<dyn Fn(AdapterEvent) + Send + Sync>;
 
 /// `ProviderAdapter` of `spec/interfaces.md` Table 5.2. The core calls every operation.

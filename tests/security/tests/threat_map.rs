@@ -515,6 +515,10 @@ fn statuses_match_what_runs() {
         let gated = t.tests.iter().filter(|n| is_gated(n)).count();
         match t.status {
             Status::Proven => assert!(passing > 0, "{}: proven by nothing", t.row),
+            Status::DecisionProven => {
+                assert!(passing > 0, "{}: proven by nothing", t.row);
+                assert!(gated > 0 && !t.gated.is_empty(), "{}: nothing gated", t.row);
+            }
             Status::Gated => {
                 assert_eq!(passing, 0, "{}: a gated row lists a proof", t.row);
                 assert!(gated > 0 && !t.gated.is_empty(), "{}", t.row);
@@ -552,6 +556,7 @@ fn table() -> String {
         let status = match t.status {
             Status::Proven if t.gated.is_empty() => "proven",
             Status::Proven => "proven (core and fakes); gated part open",
+            Status::DecisionProven => "core decision proven; pairing key gated (G9)",
             Status::Gated => "gated: v0.1 gap",
             Status::OpenRisk => "open risk (06 §15)",
         };
