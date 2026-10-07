@@ -27,6 +27,7 @@ import * as sec from './stages-sec.mjs';
 import { mcpBinding } from './mcpb.mjs';
 import { checkIndexes, DOC_OF_PREFIX, dirOfId } from './index-check.mjs';
 import { selfTest } from './self-test.mjs';
+import { contractStrays, readContractEntries } from './layout.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const FIXTURES = path.join(ROOT, 'tests', 'protocol');
@@ -76,8 +77,10 @@ const STAGES = {
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
 // Every fixture file, and the entries of tests/protocol/ the runner does not recognise: an
-// entry other than a fixture directory (`<doc>-<area>/`), this runner's directory and the
-// test-key file, and anything inside a fixture directory that is not a regular file.
+// entry other than a fixture directory (`<doc>-<area>/`), this runner's directory, the
+// contract suites' crates (`contract/<name>/` holding a Cargo.toml, #59; anything else under
+// `contract/` is stray, layout.mjs) and the test-key file, and anything inside a fixture
+// directory that is not a regular file.
 function listFixtures() {
   const out = [];
   const stray = [];
@@ -85,8 +88,12 @@ function listFixtures() {
     const name = entry.name;
     if (entry.isFile() && name === 'sec-test-keys.json') continue;
     if (entry.isDirectory() && name === 'runner') continue;
+    if (entry.isDirectory() && name === 'contract') {
+      stray.push(...contractStrays(readContractEntries(path.join(FIXTURES, name))));
+      continue;
+    }
     if (!entry.isDirectory() || !/^(sc|sec|mcpb|ifc)-[a-z]+$/.test(name)) {
-      stray.push(`tests/protocol/${name}${entry.isDirectory() ? '/' : ''}: not a fixture directory, the runner or the test-key file`);
+      stray.push(`tests/protocol/${name}${entry.isDirectory() ? '/' : ''}: not a fixture directory, the runner, the contract suites or the test-key file`);
       continue;
     }
     for (const f of fs.readdirSync(path.join(FIXTURES, name), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {

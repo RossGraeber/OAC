@@ -112,41 +112,12 @@ pub fn delivery_checks(
     Ok(())
 }
 
-/// `HandOffOutcome` of `spec/interfaces.md` §4.10: what an adapter observed at one hand-off
-/// call (§5.5).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HandOffOutcome {
-    /// The input call completed successfully, as the surface defines completion
-    /// ([IFC-ADP-051]). Not "seen by the model".
-    Completed,
-    /// The surface turned the call away as unable to take input now, without taking it
-    /// ([IFC-ADP-052]).
-    NotNow,
-    /// The input call failed for any other reason.
-    Failed,
-    /// The call returned neither success nor failure ([IFC-ADP-053]): timed out, or its
-    /// connection closed.
-    Indeterminate,
-    /// No call was made: the surface would drop or alter a provenance field
-    /// ([IFC-ADP-054]).
-    Refused,
-}
+/// `HandOffOutcome` of `spec/interfaces.md` §4.10, defined once, with the adapter contract
+/// ([`crate::adapter`]); re-exported here, where the receiver records it (Table 5.3).
+pub use crate::adapter::HandOffOutcome;
 
+/// The receiver's side of an outcome: what it means for the duplicate store.
 impl HandOffOutcome {
-    /// The state and code the core records for the outcome (Table 5.3; [IFC-ADP-055]).
-    pub fn recorded(self) -> (DeliveryState, Option<ErrorCode>) {
-        match self {
-            HandOffOutcome::Completed => (DeliveryState::HandedToHarness, None),
-            HandOffOutcome::NotNow => (
-                DeliveryState::Unreachable,
-                Some(ErrorCode::DestinationUnavailable),
-            ),
-            HandOffOutcome::Failed => (DeliveryState::Failed, Some(ErrorCode::HandoffFailed)),
-            HandOffOutcome::Indeterminate => (DeliveryState::Unknown, None),
-            HandOffOutcome::Refused => (DeliveryState::Failed, Some(ErrorCode::InternalError)),
-        }
-    }
-
     /// Whether the harness may hold the content: the entry stays in the duplicate store
     /// ([SEC-RPL-022]).
     pub fn may_be_handed_off(self) -> bool {

@@ -33,6 +33,9 @@ dependency or ADR text changes.
   `unreachable` ones to make room (and their binding-table entries). Every `security`
   fixture also runs through `receiver::receive_octets`. Ten review mutants are killed by
   named tests.
+- **Integrated with F10 (#59, PR #323).** `HandOffOutcome` has one definition,
+  `core::adapter::HandOffOutcome`; `receiver` re-exports it and adds the receiver-side
+  `may_be_handed_off`.
 - **Integrated with F5 (#54, PR #316).** `receiver::receive` runs Table 7.1 steps 1 to 5
   in order, step 4 through `AuthorizationEngine::authorize_delivery`; `receiver::deliver`
   and the duplicate store take only the `AuthorizedMessage` step 4 builds, and a hand-off
@@ -47,6 +50,44 @@ dependency or ADR text changes.
   `states`, `send`), `discovery`, `send`, `routing`, `receive`, `combine`, `reply`,
   `correlation` (`core/src/reply.rs`, §8.2), `presence-auth` and `receipt-auth`, and
   `receipt_permitted` of the `security` stage.)
+
+**Last updated:** 2026-10-06 (**Issue #59 (F10): the adapter and transport contract
+suites land at `tests/protocol/contract/`**, against `spec/interfaces.md` revision 0.1 §5 and
+§6. No `spec/` file, gate verdict, pin or ADR text changes. The only third-party crates added are
+`syn` and `proc-macro2`, test-only, to the adapter suite, both already in the graph at the same
+versions (07 §5).
+
+- **Transport suite** (`tests/protocol/contract/transport/`, crate `oac-contract-transport`):
+  one suite over `dyn Transport`, with an implementation-supplied medium giving `now`,
+  `advance`, `settle` and optional fault control (the F7 note on #59; a real-clock transport
+  keeps the default `advance`, a real wait, and a bounded-wait `settle`). It checks every
+  requirement Appendix C gives the `transport` ([IFC-TRN-001] to [IFC-TRN-080], [IFC-NEU-003])
+  and the transport half of [IFC-TYP-092] and [IFC-TYP-095]. `transports/memory/tests/contract.rs`
+  runs it unchanged under four media (one and two implementations; system clock, and manual
+  clock with scripted faults): all pass; [IFC-TRN-080] is not applicable
+  (`destination_restricted` declared absent), and [IFC-TRN-043] on a one-implementation
+  medium. Ten planted breaches are each caught under their id. This meets #56's last
+  acceptance item.
+- **Adapter suite** (`tests/protocol/contract/adapter/`, crate `oac-contract-adapter`): one
+  suite over `dyn ProviderAdapter` (new `core/src/adapter.rs`, the Rust form of Table 5.2 and
+  §4.10, deferred to F10 by PR #312), driven through the fake Claude endpoint (in process,
+  under both `MidTurnRelease` settings) and the fake Codex app-server (spawned with `node` on
+  loopback, read through its call log). It asserts the named test `contract/adapter/no-polling`
+  ([IFC-ADP-040]), never-steer and the holding hand-off ([SEC-AUZ-022], [SEC-AUZ-025] to
+  [SEC-AUZ-027]; [MCPB-CDX-002] to [MCPB-CDX-005] on the Codex profile, over every call
+  of the adapter, any thread), and routing through the core (every request reaches the
+  core's sink, [IFC-ADP-003]; a `syn` parse of the adapter's sources with imports and
+  renames resolved, [IFC-ADP-001], [IFC-ADP-002], [IFC-ADP-007], [IFC-ADP-013]). **No adapter implements `ProviderAdapter`
+  yet** (Epic G): the suite runs today against two test-only stand-ins, and a tripwire test
+  fails when `adapters/claude` or `adapters/codex` first implements the trait. #59 therefore
+  stays open for its first acceptance item. Adapter-owned rows of Appendix C that these
+  suites do not check, owned by G4 to G8 and F11: [SEC-AUZ-021], [SEC-AUZ-023], the
+  SEC-PRV adapter rows, [SC-DLV-001] to [SC-DLV-009] (adapter rows), [SC-RCP-004] to
+  [SC-RCP-006], the SC-ENV adapter rows, and the MCPB adapter rows other than [MCPB-CDX-002]
+  to [MCPB-CDX-005].
+- **Layout.** `tests/protocol/contract/<name>` is a new test-only crate kind in
+  `scripts/check-crate-deps.mjs` (core/ and fakes only; product crates reach it by
+  dev-dependency only); the conformance runner skips `tests/protocol/contract/`.)
 
 **Last updated:** 2026-10-06 (**Issue #54 (F5): the authorization engine and the pairing
 store land in `core/`**, against `spec/security.md` revision 0.1 §9 and §5.3 and
@@ -87,7 +128,7 @@ dependency is added.
   visibly (`ResponderPairing`; PR #316 review N1), so a substituted key matches with
   probability 10^-6 per operator-visible exchange. The 6-digit, 120-second and 5-attempt
   parameters are unchanged. This departs from a recorded decision; C5 §10(b) carries a dated
-  note for it, **pending operator acknowledgement on #54**. `spec/security.md` §5.3 fixes
+  note for it, **acknowledged by the operator on #54** (approved and merged PR #316, recorded at https://github.com/RossGraeber/OAC/issues/54#issuecomment-6030852812). `spec/security.md` §5.3 fixes
   what pairing establishes, not the exchange, so [SEC-KEY-032] to [SEC-KEY-034] are met as
   frozen. Its informative reference implementation note leaves out the nonce exchange; the
   follow-up is recorded for the #308 batch. `11-risks.md` rows 25 and 26 are updated.
