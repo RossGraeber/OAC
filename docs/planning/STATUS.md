@@ -4,6 +4,30 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #60 (F11): the security suite against the fakes lands
+at `tests/security/`** (`oac-security-suite`, CI-default). No `spec/` file, `core/` file, gate
+verdict, pin, dependency or ADR text changes.
+
+- **What it proves.** Every `06-security.md` §14 row, and the `spec/security.md` §13 rows 06
+  does not number (squatting, existence oracle, presence forgery, receipt forgery, pairing,
+  exhaustion), maps to named tests that drive the real core: envelope stage, security steps 1
+  to 5 (`receiver::receive_octets`), authorization, presence and receipt authentication,
+  pairing and key removal, with envelopes over the in-memory transport for the carrying-path
+  rows and the fake Claude Code endpoint for what the harness renders (mid-turn cases under
+  both release settings). The map is `THREATS` in `tests/security/src/lib.rs`, rendered into
+  `09-test-strategy.md` §12 and checked against both by `tests/threat_map.rs`.
+- **What is gated, not passed.** Rows 13, 17 and 24 wholly, and the adapter, daemon or
+  pipeline half of rows 2, 6, 7, 10, 11, 12, 14, 15, 16, 18, 19, 21, 22 and of exhaustion:
+  G4 (#65), G7 (#68), G8 (#69), G9 (#70), G1/G3 (#62, #64), H2 (#74), L10 (#175), the core
+  pipelines (#313) and the envelope-binding bound (#325, RISK-BINDING-TABLE). Each gated test
+  is `#[ignore = "GATED on #N ..."]` and fails if run. Row 23 stays an open risk. These parts
+  remain v0.1 gaps (06 §15).
+- **Mutation check.** `tests/security/mutation-check.mjs` plants one regression at a time in
+  a copy of `core/` (15 mutations across the rows); each is caught by a named test.
+- **Layout.** `scripts/check-crate-deps.mjs` admits `tests/security` (core/, a fake, a
+  transport and, through its dev-dependency, a contract suite; nothing may reach it), with self-test and mutation cases; 07 §1 and §3 carry
+  dated notes.)
+
 **Last updated:** 2026-10-06 (**Issue #55 (F6): the presence registry and the delivery
 receipt state machine land in `core/`**, against `spec/session-channels.md` §7 and §8 and
 `spec/security.md` §8.4, §10 and §11, revision 0.1. No `spec/` file, gate verdict, pin,

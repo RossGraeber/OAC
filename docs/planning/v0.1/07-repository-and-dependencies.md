@@ -72,6 +72,11 @@ members that depend on `core/` and, for the adapter suite, the fake Claude endpo
 adapter suite's only third-party crates are `syn` and `proc-macro2` (§5, test-only). A product crate may take one as a dev-dependency only, never a normal
 or build one (§3), so neither is built into the `oac` binary. The adapter suite spawns the
 fake Codex app-server by path, as #58 below allows.)
+(Dated note, 2026-10-07, #60: the security suite of F11 lives at `tests/security/`, the
+`tests/` row of §2, as `docs/planning/v0.1/10-stages.md` places it: `oac-security-suite`, a
+Rust workspace member that depends on `core/`, the fake Claude endpoint and the in-memory
+transport only, and on no third-party crate. It is a leaf: no member may depend on it, not
+even as a dev-dependency (§3), so it is never built into the `oac` binary.)
 (Dated note, 2026-10-06, #58: fake harness endpoints live under `tests/fakes/<name>/`,
 inside the `tests/` row of §2. F9's fake Codex app-server is
 `tests/fakes/codex-app-server/`: Node built-ins only, no `package.json`, never a workspace
@@ -157,6 +162,8 @@ tests/fakes/* (Rust workspace members) -> core/   (only; #57)
 adapters/*, transports/*, cli/ -> tests/fakes/* (Rust members)   (dev-dependency only; #57)
 tests/protocol/contract/*      -> core/, tests/fakes/*   (only; #59)
 adapters/*, transports/*, cli/ -> tests/protocol/contract/*   (dev-dependency only; #59)
+tests/security                 -> core/, tests/fakes/*, transports/*, tests/protocol/contract/*   (only; #60)
+(nothing)                      -> tests/security   (#60)
 ```
 
 (Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305
@@ -206,6 +213,10 @@ these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.
 (Dated note, 2026-10-06, #57: the same script admits `tests/fakes/<name>` members, lets
 them reach `core/` only, and fails any product member (`core/`, `cli/`, an adapter or a
 transport) that reaches one over normal or build edges; `core/` may not reach one at all.)
+(Dated note, 2026-10-07, #60: it admits `tests/security` as the security suite, lets it reach
+`core/`, a fake, a transport and (through a transport's dev-dependency) a contract suite,
+and fails any member that reaches it. A transport it reaches still brings that transport's owned crates under rule 4, so in practice it reaches
+`transports/memory/` only.)
 
 ---
 

@@ -521,6 +521,60 @@ opt-in provider-integration scenario blocked until Stage 5 opens, never CI-defau
 | 23 | Capture of an OAC-delivered message by an external memory/telemetry service | None — open risk, not a mitigation (`06-security.md` §15); L2/L3 observe whether capture happens | Open risk — `RISK-BEACON`; capture itself UNVERIFIED (L1 §6 U1) |
 | 24 | Session binding via a spoofed `CLAUDE_CODE_SESSION_ID` | F11; G9 (§7 "Local IPC peer auth") | v0.1 gap — `NOT RUN` |
 
+*Dated note, 2026-10-07, #60 (F11): the security suite against the fakes has landed at
+`tests/security/` (`oac-security-suite`, CI-default: no live provider, no API key, loopback
+only). The table below is its threat-to-test map, rendered from `THREATS` in
+`tests/security/src/lib.rs`; `tests/security/tests/threat_map.rs` fails if it drifts from
+that map or names a test that does not exist. "Proven" means every test named passes in the
+default `cargo test` run and drives the real core (envelope stage, security steps 1 to 5,
+authorization, presence and receipt authentication, pairing, key removal), with envelopes
+over the in-memory transport where the row is about the carrying path, and the fake Claude
+Code endpoint for what the harness renders. "Gated" names the part that needs a component
+not built yet, with its owning issue; each gated test is `#[ignore = "GATED on #N ..."]` and
+fails if run, so it is never a pass. A gated part keeps that part of the row a v0.1 gap, as
+§15 of `06-security.md` requires. The row-16 harness cases run the core's verified message
+through a stand-in for the G4 adapter's `meta` mapping (`stand_in_provenance`), so they
+prove the core's half and the harness's half, not G4's own mapping, which stays gated on
+#65. The table above is unchanged; where it says `NOT RUN` for F11, read this table. The
+`S13-` rows are `spec/security.md` §13 rows that 06 does not number.*
+
+<!-- F11 threat map: generated from tests/security/src/lib.rs THREATS; begin -->
+
+| Threat row | Attack | Proving tests (`tests/security/`, passing) | Gated, with owning issue | Status |
+|---|---|---|---|---|
+| 06-1 | Impersonation: a forged envelope | `row01_envelope_signed_by_an_unpaired_key_is_rejected`<br>`row01_claiming_a_trusted_principal_with_another_key_is_rejected`<br>`row01_a_trusted_key_id_with_a_forged_signature_is_rejected`<br>`row01_signature_from_another_trusted_device_does_not_verify` | none | proven |
+| 06-2 | Unauthorized routing or discovery | `row02_trusted_peer_without_a_grant_is_rejected_unauthorized`<br>`row02_a_grant_is_one_way`<br>`row02_a_grant_for_one_session_does_not_cover_another`<br>`row02_unauthorized_peer_cannot_discover_a_session`<br>`row02_unauthorized_peer_cannot_address_a_session_through_presence`<br>`row02_reply_right_covers_only_the_reply_to_the_one_message` | #313: the same refusal through the composed send and receive pipelines over a transport (gated_row02_unauthorized_send_through_the_composed_pipeline) | proven (core and fakes); gated part open |
+| 06-3 | Tampering in flight | `row03_rewriting_any_signed_member_breaks_the_signature`<br>`row03_a_flipped_signature_bit_is_rejected`<br>`row03_tampered_bytes_over_the_transport_are_rejected` | none | proven |
+| 06-4 | Replay | `row04_copy_outside_the_replay_window_is_rejected`<br>`row04_copy_dated_ahead_of_the_window_is_rejected`<br>`row04_replay_inside_the_window_is_a_duplicate_handed_off_once`<br>`row04_expiry_is_checked_before_the_replay_window`<br>`row04_replay_after_restart_inside_the_window_is_the_named_residual`<br>`row04_transport_duplicates_are_handed_off_once`<br>`row04_receipt_flooding_by_replay_is_bounded` | none | proven |
+| 06-5 | Prompt injection from an authenticated peer | `row05_hostile_content_is_delivered_as_content_and_obeyed_never`<br>`row05_content_never_reaches_an_authorization_decision`<br>`row05_the_decision_log_holds_no_content` | none | proven |
+| 06-6 | Compromised transport infrastructure | `row06_forged_envelope_injected_on_the_transport_is_rejected`<br>`row03_tampered_bytes_over_the_transport_are_rejected`<br>`row04_transport_duplicates_are_handed_off_once` | #62, #64: the same cases over the real reference transport on loopback (G1 transport, G3 security configuration) | proven (core and fakes); gated part open |
+| 06-7 | Accidental cross-project disclosure | `row07_scope_grant_does_not_cover_another_working_directory`<br>`row07_scope_grant_does_not_cover_a_subdirectory`<br>`row07_presence_is_released_only_to_granted_devices` | #74: H2's live cross-project check against real adapters | proven (core and fakes); gated part open |
+| 06-8 | Leaked device key | `row08_removing_a_key_revokes_it_in_one_step`<br>`row08_captured_envelope_from_a_removed_key_is_rejected`<br>`row08_removal_survives_a_restart`<br>`row08_a_failed_save_still_revokes`<br>`row08_own_key_cannot_be_removed`<br>`row08_device_key_never_appears_in_debug_output` | none | proven |
+| 06-9 | Transport-only authenticity assumed | `row09_a_payload_from_any_endpoint_is_judged_by_its_signature_alone`<br>`row06_forged_envelope_injected_on_the_transport_is_rejected` | none | proven |
+| 06-10 | A transport peer identifier used as an identity | `row09_a_payload_from_any_endpoint_is_judged_by_its_signature_alone` | #64: ACL subjects of the reference transport's configuration (G3); grants are keyed by key id only, by construction | proven (core and fakes); gated part open |
+| 06-11 | Permission-relay abuse | `row11_relay_is_off_by_default_even_with_a_device_wide_grant`<br>`row11_relay_is_enabled_for_one_session_only_by_the_operator`<br>`row11_a_deliver_permit_never_permits_relay` | #65: the Claude adapter's permission relay surface stays off (gated_row11_adapter_never_relays_without_a_relay_permit) | proven (core and fakes); gated part open |
+| 06-12 | Steering a running turn | `row12_no_decision_kind_enables_steering`<br>`row12_hand_off_is_made_at_most_once_and_no_outcome_steers` | #68: the Codex adapter hands off queue-only and never calls a steering method (gated_row12_codex_hand_off_is_queue_only) | proven (core and fakes); gated part open |
+| 06-13 | Local IPC peer spoofing | none | #70: the daemon's local IPC endpoint and its OS peer check (gated_row13_ipc_admits_only_the_same_user) | gated: v0.1 gap |
+| 06-14 | Cross-project leakage through discovery | `row02_unauthorized_peer_cannot_discover_a_session`<br>`row14_discovery_lists_only_sessions_the_requester_may_reach` | #74: H2's live check of the discovery tool against real adapters | proven (core and fakes); gated part open |
+| 06-15 | A silently dropped meta key leaves provenance unlabelled | `row15_the_harness_drops_unsafe_keys_so_provenance_keys_must_be_safe` | #65: the Claude adapter refuses to hand off when a provenance key would be dropped (gated_row15_adapter_refuses_a_partial_provenance_set) | proven (core and fakes); gated part open |
+| 06-16 | Provenance spoofing through the body, Claude | `row16_content_claiming_another_sender_does_not_change_provenance`<br>`row16_forged_channel_tag_in_content_adds_no_attribute`<br>`row16_pre_escaped_closer_in_content_adds_no_attribute`<br>`row16_mid_turn_hostile_content_adds_no_attribute`<br>`row16_meta_key_injection_through_content_adds_no_attribute`<br>`row16_a_line_break_in_a_provenance_value_cannot_pass_the_envelope_stage` | #65: the G4 adapter's own meta mapping (gated_row16_adapter_takes_provenance_only_from_verified_members); the exact text of a sender-written `<\/channel>` is a RenderGap until a capture records it | proven (core and fakes); gated part open |
+| 06-17 | Provenance spoofing through a forged header or delimiter, Codex | none | #68: the Codex adapter's frame builder (gated_row17_codex_frame_uses_a_receiver_generated_delimiter) | gated: v0.1 gap |
+| 06-18 | Reply misattribution through a forged in_reply_to | `row02_reply_right_covers_only_the_reply_to_the_one_message` | #69: the Codex adapter's reply correlation (gated_row18_codex_reply_correlation_is_not_trusted_alone) | proven (core and fakes); gated part open |
+| 06-19 | Stale registration replay after resume | `row19_a_registration_record_signed_by_another_device_binds_nothing`<br>`row19_an_ended_session_receives_nothing` | #70: a session's lifetime tied to its IPC connection (gated_row19_session_lifetime_follows_the_ipc_connection) | proven (core and fakes); gated part open |
+| 06-20 | Session-id spoofing | `row20_claiming_a_session_id_bound_to_another_key_is_refused_with_a_finding`<br>`row20_a_refused_claim_binds_nothing` | none | proven |
+| 06-21 | Prompt injection through a memory reference | `row21_a_memory_reference_stays_content` | #175: L10's opt-in scenario with a real memory service (Stage 5) | proven (core and fakes); gated part open |
+| 06-22 | False authority through a cited memory reference | `row22_a_cited_memory_reference_is_never_provenance_or_authority`<br>`row05_content_never_reaches_an_authorization_decision` | #175: L10's opt-in scenario with a real memory service (Stage 5) | proven (core and fakes); gated part open |
+| 06-23 | Capture of delivered content by an external memory service | none | none | open risk (06 §15) |
+| 06-24 | Session binding through a spoofed CLAUDE_CODE_SESSION_ID | none | #70: the daemon's binding of native signals to attachments (gated_row24_spoofed_session_variable_binds_nothing) | gated: v0.1 gap |
+| S13-squatting | Session-id squatting by a related device, through presence | `s13_squatting_announcement_marks_conflict_and_fails_closed`<br>`s13_own_session_is_never_marked_under_conflict` | none | proven |
+| S13-existence-oracle | An unauthorized sender learns whether a session exists | `s13_unauthorized_refusal_is_the_same_whether_or_not_the_session_exists` | none | proven |
+| S13-presence-forgery | Presence forgery, tampering, forwarding or replay | `s13_presence_signed_by_an_unpaired_key_is_discarded`<br>`s13_tampered_presence_record_is_discarded`<br>`s13_forwarded_presence_record_is_discarded`<br>`s13_replayed_stale_presence_record_is_discarded`<br>`s13_unrelated_issuer_cannot_announce`<br>`s13_forged_withdrawal_cannot_take_a_session_offline` | none | proven |
+| S13-receipt-forgery | Receipt forgery, or a receipt from the wrong receiver | `s13_receipt_from_an_unpaired_key_is_discarded`<br>`s13_receipt_from_another_trusted_device_is_discarded`<br>`s13_altered_receipt_is_discarded`<br>`s13_receipt_for_an_envelope_never_sent_is_discarded`<br>`s13_receipt_with_the_wrong_nonce_is_discarded`<br>`s13_receipt_claiming_the_sender_observer_is_discarded`<br>`s13_no_receipt_for_an_unverified_copy` | none | proven |
+| S13-pairing | Pairing man-in-the-middle, or trust on first use | `s13_pairing_mitm_substitution_is_caught_by_the_code`<br>`s13_second_offer_ends_the_pairing`<br>`s13_five_wrong_codes_abort_and_the_window_expires`<br>`s13_key_id_comparison_refuses_a_substituted_key`<br>`s13_a_signature_alone_never_makes_a_key_trusted` | none | proven |
+| S13-exhaustion | Registry and quota exhaustion | `s13_full_duplicate_store_refuses_without_evicting`<br>`s13_one_issuer_cannot_fill_the_presence_registry`<br>`s13_presence_registry_capacity_is_bounded`<br>`s13_receipt_allowance_is_per_device_and_bounded`<br>`s13_oversized_envelope_is_refused_before_parsing` | #325: binding-table entries that security step 4 creates are not bounded yet (gated_s13_envelope_bindings_are_bounded) | proven (core and fakes); gated part open |
+
+<!-- F11 threat map: end -->
+
 ---
 
 ## 13. Fixture capture and refresh process

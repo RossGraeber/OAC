@@ -13,6 +13,8 @@
 //   tests/fakes/* -> core/ only        (#57: test doubles, never in a product build)
 //   tests/protocol/contract/* -> core/ and tests/fakes/* only
 //                                      (#59: the contract suites, never in a product build)
+//   tests/security -> core/, tests/fakes/*, transports/* and tests/protocol/contract/* only
+//                                      (#60: the security suite; a leaf, nothing reaches it)
 //
 // What is checked, for every workspace member, over every dependency kind (normal, build
 // and dev: cargo itself allows a dev-dependency cycle, so a core/ dev-dependency on an
@@ -20,7 +22,8 @@
 // (`--all-features`, so an optional dependency behind a non-default feature is seen):
 //   1. The member sits in the module layout: core, cli, adapters/<name> or
 //      transports/<name>, or is a test double at tests/fakes/<name> (#57) or a contract
-//      suite at tests/protocol/contract/<name> (#59). Anything else fails.
+//      suite at tests/protocol/contract/<name> (#59), or is the security suite at
+//      tests/security (#60). Anything else fails.
 //   2. Reachability, not just direct edges: the member's transitive closure contains no
 //      workspace crate the rule above forbids, whatever path (including through a
 //      third-party crate) leads there.
@@ -30,7 +33,8 @@
 //      or tests/protocol/contract/<name> crate over normal and build edges alone, so none
 //      is compiled into the `oac` binary. An adapter, a transport or cli/ may take one as a
 //      dev-dependency (rule 2 allows the reach); core/ may not, because core/ reaches
-//      nothing in-repo.
+//      nothing in-repo. The security suite (#60) is a test crate itself, so it may build a
+//      fake and a transport in; no member at all may reach it (rule 2).
 //   4. Provider and transport crates stay with their owner: the zenoh crates may be a
 //      direct dependency of transports/zenoh only, the Codex app-server crates of
 //      adapters/codex only (07 section 5, "Consuming module"); and neither may be reachable
@@ -101,6 +105,7 @@ export function moduleOf(relDir) {
   if (m) return { kind: 'fake', path: d };
   m = /^tests\/protocol\/contract\/([a-z0-9][a-z0-9_-]*)$/.exec(d);
   if (m) return { kind: 'suite', path: d };
+  if (d === 'tests/security') return { kind: 'security', path: d };
   return null;
 }
 
@@ -108,10 +113,14 @@ export function moduleOf(relDir) {
 // Over every edge kind; rule 5 separately keeps fakes off normal and build edges.
 function allowedReach(from, to) {
   if (to.kind === 'cli') return false;
+  if (to.kind === 'security') return false; // the security suite is a leaf (#60)
   if (from.kind === 'cli') return true;
   if (from.kind === 'core') return false;
   if (from.kind === 'fake') return to.kind === 'core'; // test doubles: core/ only
   if (from.kind === 'suite') return to.kind === 'core' || to.kind === 'fake'; // contract suites
+  // The security suite (#60): core/, a fake, a transport to carry envelopes over, and a
+  // contract suite, which a transport reaches as a dev-dependency (#59).
+  if (from.kind === 'security') return ['core', 'fake', 'transport', 'suite'].includes(to.kind);
   // adapters and transports: core/, and a fake or a suite as a dev-dependency (rule 5)
   return to.kind === 'core' || to.kind === 'fake' || to.kind === 'suite';
 }
@@ -134,7 +143,7 @@ export function checkMetadata(meta) {
     if (!mod) {
       violations.push(
         `${p.name} (${rel.split(sep).join('/') || '.'}): workspace member outside the module layout ` +
-          '(core, cli, adapters/<name>, transports/<name>, tests/fakes/<name>, tests/protocol/contract/<name>)',
+          '(core, cli, adapters/<name>, transports/<name>, tests/fakes/<name>, tests/protocol/contract/<name>, tests/security)',
       );
       continue;
     }
@@ -199,7 +208,7 @@ export function checkMetadata(meta) {
       }
     }
     // 5. No test double in a product build: reachability over normal and build edges only.
-    if (mod.kind !== 'fake' && mod.kind !== 'suite') {
+    if (mod.kind !== 'fake' && mod.kind !== 'suite' && mod.kind !== 'security') {
       const built = new Map([[id, null]]);
       const q = [id];
       while (q.length) {
@@ -295,6 +304,14 @@ const SUITE_EDGES = [
   ['oac-contract-transport', 'oac-core'],
   ['oac-contract-adapter', 'oac-core'],
   ['oac-contract-adapter', 'oac-fake-claude'],
+];
+const SECURITY_MEMBERS = { ...SUITE_MEMBERS, 'oac-security-suite': 'tests/security' };
+const SECURITY_EDGES = [
+  ...SUITE_EDGES,
+  ['oac-security-suite', 'oac-core'],
+  ['oac-security-suite', 'oac-fake-claude'],
+  ['oac-security-suite', 'oac-transport-memory'],
+  ['oac-transport-memory', 'oac-contract-transport', 'dev'],
 ];
 const without = (edges, f, t) => edges.filter(([a, b]) => !(a === f && b === t));
 
@@ -428,6 +445,31 @@ const SELF_TEST_CASES = [
     name: 'adapter builds in a suite through a third-party crate',
     meta: synth({ members: SUITE_MEMBERS, externals: ['shim'], edges: [...SUITE_EDGES, ['oac-adapter-codex', 'shim'], ['shim', 'oac-contract-adapter']] }),
   },
+  // #60: the security suite at tests/security reaches core/, a fake and a transport, and
+  // nothing reaches it.
+  {
+    name: 'control: the security suite depends on core/, a fake and transports/memory',
+    expectClean: true,
+    meta: synth({ members: SECURITY_MEMBERS, edges: SECURITY_EDGES }),
+  },
+  { name: 'security suite -> adapter', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-adapter-claude']] }) },
+  { name: 'security suite -> cli (dev-dependency)', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-cli', 'dev']] }) },
+  { name: 'control: the security suite may reach a contract suite', expectClean: true, meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-contract-transport']] }) },
+  {
+    name: 'security suite reaches zenoh through transports/zenoh',
+    meta: synth({
+      members: SECURITY_MEMBERS,
+      externals: ['zenoh'],
+      edges: [...SECURITY_EDGES, ['oac-transport-zenoh', 'zenoh'], ['oac-security-suite', 'oac-transport-zenoh']],
+    }),
+  },
+  { name: 'transport -> security suite (dev-dependency)', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-transport-memory', 'oac-security-suite', 'dev']] }) },
+  { name: 'cli -> security suite (dev-dependency)', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-cli', 'oac-security-suite', 'dev']] }) },
+  { name: 'core -> security suite (dev-dependency)', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-core', 'oac-security-suite', 'dev']] }) },
+  {
+    name: 'security suite outside tests/security (tests/security/inner)',
+    meta: synth({ members: { ...SECURITY_MEMBERS, 'oac-security-suite': 'tests/security/inner' }, edges: SECURITY_EDGES }),
+  },
 ];
 
 function selfTest() {
@@ -543,6 +585,10 @@ const MUTATIONS = [
   { name: 'transports/memory depends on the transport suite', file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'oac-contract-transport = { path = "../../tests/protocol/contract/transport" }') },
   { name: 'cli/ depends on the adapter suite', file: 'cli/Cargo.toml', edit: addDep('dependencies', 'oac-contract-adapter = { path = "../tests/protocol/contract/adapter" }') },
   { name: 'the transport suite depends on transports/memory', file: 'tests/protocol/contract/transport/Cargo.toml', edit: addDep('dependencies', 'oac-transport-memory = { path = "../../../../transports/memory" }') },
+  // #60: the security suite is a leaf, and reaches no adapter.
+  { name: 'cli/ dev-depends on the security suite', file: 'cli/Cargo.toml', edit: addDep('dev-dependencies', 'oac-security-suite = { path = "../tests/security" }') },
+  { name: 'transports/memory dev-depends on the security suite', file: 'transports/memory/Cargo.toml', edit: addDep('dev-dependencies', 'oac-security-suite = { path = "../../tests/security" }') },
+  { name: 'the security suite depends on adapters/claude', file: 'tests/security/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../../adapters/claude" }') },
 ];
 
 // Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error

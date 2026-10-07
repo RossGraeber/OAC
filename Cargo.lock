@@ -1467,6 +1467,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oac-security-suite"
+version = "0.0.0"
+dependencies = [
+ "oac-core",
+ "oac-fake-claude",
+ "oac-transport-memory",
+]
+
+[[package]]
 name = "oac-transport-memory"
 version = "0.0.0"
 dependencies = [
