@@ -37,7 +37,7 @@ use crate::ids::{KeyId, SessionId, Timestamp};
 use crate::json::{Json, JsonObject};
 use crate::keys::DeviceIdentity;
 use crate::presence::PresenceRecord;
-use crate::registry::{PresenceAcceptance, PresenceRegistry, RecordOrigin};
+use crate::registry::{PresenceAcceptance, PresenceRegistry};
 use crate::replay::inside_replay_window;
 use crate::signing::verify_signed;
 use crate::transport::{CarrierHandle, Destination, Payload, PayloadKind};
@@ -160,8 +160,11 @@ impl PresenceAuthOutcome {
 
 /// The consumer side of §11 for one authenticated presence record that arrived on
 /// `carrier`, in the order of §11.4; an accepted record goes to `registry` as
-/// [`RecordOrigin::OtherImplementation`]. Sessions the registry forgets to make room
-/// ([`PresenceRegistry::take_forgotten`]) have their binding-table entries removed here.
+/// [`crate::registry::RecordOrigin::OtherImplementation`], counted toward the signing key's
+/// share. Sessions the registry forgets to make room ([`PresenceRegistry::take_forgotten`])
+/// have their binding-table entries removed here, so the bindings that presence records
+/// create stay bounded with the registry. Bindings that envelopes create at security step
+/// 4 are not; follow-up #325.
 ///
 /// - `engine`: the trusted key set, this device's key id, the binding table and the
 ///   relation test, and the clock freshness is read on.
@@ -247,10 +250,11 @@ pub fn accept_authenticated_record(
         return PresenceAuthOutcome::discard(D::WithdrawalUnbound);
     }
     let sid = parsed.session_id().clone();
-    let acceptance = registry.accept(parsed, carrier, RecordOrigin::OtherImplementation, now);
-    // Sessions the registry forgot to make room lose their binding-table entries too, so
-    // the engine's table is bounded with the registry ([SEC-PRS-009]); a conflict mark is
-    // kept, as `forget_binding` keeps it.
+    let acceptance = registry.accept_signed(parsed, carrier, &key, now);
+    // Sessions the registry forgot to make room lose their binding-table entries too
+    // ([SEC-PRS-009]), so the entries this path creates are bounded with the registry; a
+    // conflict mark is kept, as `forget_binding` keeps it. Entries that envelopes create
+    // at security step 4 are not bounded here: #325.
     for s in registry.take_forgotten() {
         engine.forget_binding(&s);
     }
@@ -391,6 +395,44 @@ mod tests {
         assert_eq!(out.result, Err(PresenceAuthDiscard::BoundElsewhere));
         assert!(out.finding);
         assert!(matches!(e.binding(&sid), Some(Binding::Conflict(_))));
+        // PR #321 re-review N13: a session the registry forgets to make room loses its
+        // binding-table entry ([SEC-PRS-009]).
+        let mut small = PresenceRegistry::with_limits(2, 2);
+        let mut f =
+            AuthorizationEngine::new(&me, clock.clone(), Box::new(MemoryDecisionLog::new()));
+        pair(&mut f, &peer, &store);
+        grant_to(&mut f, &peer, &store);
+        let sessions: Vec<SessionId> = (1..=3u8)
+            .map(|n| SessionId::from_random_octets([n; 16]))
+            .collect();
+        let issue = |s: &SessionId, link: &str| {
+            let caps = SessionCapabilities::declare([(
+                EXTENSION_ID_V0,
+                CapabilitiesEntry::new(Version { major: 0, minor: 1 }, true),
+            )])
+            .unwrap();
+            let d = SessionDescriptor::new(s.clone(), caps, None, None).unwrap();
+            let r = PresenceRecord::announcement(1, ts("2026-10-03T12:00:00Z"), 60_000, d).unwrap();
+            (
+                AuthenticatedPresenceRecord::issue(&peer, &r, me.key_id()),
+                CarrierHandle::from_opaque(link.as_bytes().to_vec()),
+            )
+        };
+        let (a, la) = issue(&sessions[0], "lost");
+        assert!(accept_authenticated_record(&a, &mut f, &mut small, la.clone(), t).accepted());
+        assert!(f.binding(&sessions[0]).is_some());
+        small.carrier_loss(&la);
+        let (b, lb) = issue(&sessions[1], "live");
+        assert!(accept_authenticated_record(&b, &mut f, &mut small, lb.clone(), t).accepted());
+        let (c, _) = issue(&sessions[2], "live");
+        assert!(accept_authenticated_record(&c, &mut f, &mut small, lb, t).accepted());
+        assert_eq!(
+            f.binding(&sessions[0]),
+            None,
+            "the forgotten session's binding"
+        );
+        assert!(f.binding(&sessions[1]).is_some() && f.binding(&sessions[2]).is_some());
+
         let (dest, payload) = ar.to_payload().unwrap();
         assert_eq!(dest, Destination::Device(me.key_id().clone()));
         assert_eq!(payload.kind(), PayloadKind::Presence);

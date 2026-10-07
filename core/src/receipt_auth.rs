@@ -198,6 +198,28 @@ mod tests {
         e.pair(peer, &store).unwrap();
         // Not sent yet: check 3.
         assert_eq!(accept_receipt(&ar, &e), Err(ReceiptDiscard::NotSent));
+        // A sent record with no nonce matches no receipt (check 3), even with `to` bound to
+        // the signer.
+        e.record_sent(SentRecord {
+            nonce: None,
+            ..SentRecord::of(&env, bob.key_id().clone())
+        });
+        e.bind(env.to(), bob.key_id());
+        assert_eq!(accept_receipt(&ar, &e), Err(ReceiptDiscard::NotSent));
+        let mut e = AuthorizationEngine::new(
+            &alice,
+            Arc::new(ManualClock::new(ts("2026-10-03T12:00:01Z"))),
+            Box::new(MemoryDecisionLog::new()),
+        );
+        let peer = PairedPeer::by_key_id_comparison(
+            bob.principal().clone(),
+            *bob.public_key(),
+            bob.key_id(),
+            ts("2026-10-03T00:00:00Z"),
+            OperatorConfirmed::by_operator(),
+        )
+        .unwrap();
+        e.pair(peer, &store).unwrap();
         e.record_sent(SentRecord::of(&env, bob.key_id().clone()));
         // Sent, but `to` not bound to Bob: check 4.
         assert_eq!(accept_receipt(&ar, &e), Err(ReceiptDiscard::WrongReceiver));

@@ -33,6 +33,13 @@ dependency or ADR text changes.
   `unreachable` ones to make room (and their binding-table entries). Every `security`
   fixture also runs through `receiver::receive_octets`. Ten review mutants are killed by
   named tests.
+- **PR #321 re-review.** A re-queued copy is re-offered through `receiver::redeliver`, which
+  shares `receive`'s tail, so its hand-off is recorded ([SEC-AUZ-016]); `deliver` is now
+  crate-private. The presence registry counts sessions per signing key: a per-key quota
+  and a fair share when full, so one related device cannot lock other peers out
+  (`11-risks.md` RISK-PRESENCE-SHARE). Envelope-created bindings stay unbounded until
+  #325 (RISK-BINDING-TABLE). Settle callbacks are each contained by `catch_unwind`, and
+  run on their own thread when the settling thread is unwinding.
 - **Integrated with F10 (#59, PR #323).** `HandOffOutcome` has one definition,
   `core::adapter::HandOffOutcome`; `receiver` re-exports it and adds the receiver-side
   `may_be_handed_off`.

@@ -12,8 +12,9 @@
 //! ([`crate::signing::authenticate`] against the engine's trusted key set), step 3
 //! ([`crate::replay::check_replay_window`] on the receiver's clock) and step 4
 //! ([`AuthorizationEngine::authorize_delivery`]). Step 4 is the only source of an
-//! [`AuthorizedMessage`], and [`deliver`] takes nothing else, so no copy reaches the
-//! duplicate store without passing authorization ([SEC-RPL-022]). [`deliver`] does the rest:
+//! [`AuthorizedMessage`], and step 5 takes nothing else, so no copy reaches the
+//! duplicate store without passing authorization ([SEC-RPL-022]). [`redeliver`], its tail
+//! and the re-offer path for a re-queued copy, does the rest:
 //!
 //! 1. security step 5 through [`DuplicateStore::try_admit`], which never waits. A copy whose
 //!    earlier twin is still being handed off comes back as [`Received::InFlight`] with the
@@ -131,7 +132,7 @@ impl HandOffOutcome {
 /// What a receiver reports for one copy: a receiver-observed state and, when the state
 /// carries one, its code.
 ///
-/// It is sealed: only this crate's receiver pipeline ([`receive`], [`deliver`]) makes one,
+/// It is sealed: only this crate's receiver pipeline ([`receive`], [`redeliver`]) makes one,
 /// and its fields are private, so no code outside the crate can make a report for a copy
 /// no receiver saw, nor turn one into an [`ObservedReceipt`] ([SC-RCP-003], [SC-RCP-040]):
 ///
@@ -252,7 +253,7 @@ impl ReceiverReport {
     }
 }
 
-/// The outcome of [`deliver`] for one copy.
+/// The outcome of security step 5 and the delivery stage for one copy.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Received {
     /// An earlier copy with the same duplicate key is being handed off now. Nothing was
@@ -261,7 +262,9 @@ pub enum Received {
     /// copy whose twin then fails ([SC-RCP-009]).
     ///
     /// The key is the earlier copy's: [`DuplicateStore::when_settled`] with it calls back
-    /// once that copy settles, so the caller re-offers the copy then, with no timer.
+    /// once that copy settles, so the caller re-offers the copy then, with no timer, through
+    /// [`redeliver`], the only re-offer path: it records a hand-off in the engine as
+    /// [`receive`] does ([SEC-AUZ-016]).
     InFlight(DuplicateKey),
     /// The copy's outcome.
     Reported(ReceiverReport),
@@ -277,11 +280,15 @@ pub enum Received {
 /// - `hand_off` is the adapter's hand-off call. It is called at most once, and only for a
 ///   copy that passed every earlier check.
 ///
+/// Crate-private: it has no engine, so it cannot record a hand-off ([SEC-AUZ-016]). Code
+/// outside the crate offers a copy through [`receive`] and re-offers it through
+/// [`redeliver`], which both do.
+///
 /// # Errors
 ///
 /// `failed` with `internal-error` when the duplicate store is full of live entries or `msg`
 /// is not verified ([`DuplicateStore::try_admit`]).
-pub fn deliver(
+pub(crate) fn deliver(
     store: &DuplicateStore,
     msg: &AuthorizedMessage,
     target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
@@ -324,7 +331,7 @@ pub struct ReceiveOutcome {
     /// The copy's outcome, or [`Received::InFlight`] to re-queue it.
     pub received: Received,
     /// With [`Received::InFlight`]: the copy, past steps 1 to 4, for the caller to offer to
-    /// [`deliver`] again once [`DuplicateStore::when_settled`] calls back. `None` otherwise.
+    /// [`redeliver`] once [`DuplicateStore::when_settled`] calls back. `None` otherwise.
     pub requeue: Option<AuthorizedMessage>,
     /// The key id the copy verified under at steps 1 and 2; `None` when it failed one of
     /// them, and then no receipt may be sent for it ([`may_send_receipt`], [SEC-RCT-005]).
@@ -334,15 +341,19 @@ pub struct ReceiveOutcome {
     pub finding: bool,
 }
 
-/// The security stage, in Table 7.1 order, and then [`deliver`], for `msg`, a copy that
-/// passed envelope-stage validation.
+/// The security stage, in Table 7.1 order, and then security step 5 and the delivery stage
+/// ([`redeliver`]), for `msg`, a copy that passed envelope-stage validation.
 ///
 /// - `engine`: the authorization engine. Its trusted key set serves steps 1 and 2, and
 ///   [`AuthorizationEngine::authorize_delivery`] is step 4. A copy handed off with
 ///   `handed-to-harness` or `unknown` is recorded in it ([SEC-AUZ-016]).
-/// - `store`, `clock`, `target` and `hand_off`: as for [`deliver`]. `clock` is the
-///   receiver clock step 3 reads; it must be the clock the engine and the store were built
-///   with, so every check of one copy reads one clock.
+/// - `store`: the duplicate store (step 5).
+/// - `clock`: the receiver clock step 3 and the hand-off-deadline re-check read; it must be
+///   the clock the engine and the store were built with, so every check of one copy reads
+///   one clock.
+/// - `target`: looks up the addressed session once the copy is admitted.
+/// - `hand_off`: the adapter's hand-off call, made at most once, and only for a copy that
+///   passed every earlier check.
 pub fn receive(
     msg: ChannelMessage,
     engine: &mut AuthorizationEngine,
@@ -379,8 +390,25 @@ pub fn receive(
             );
         }
     };
-    // Step 5 and the delivery stage.
-    let received = match deliver(store, &authorized, target, clock, hand_off) {
+    redeliver(authorized, engine, store, clock, target, hand_off)
+}
+
+/// Security step 5 and the delivery stage for `msg`, a copy past steps 1 to 4: the tail of
+/// [`receive`], and the way to re-offer a copy that came back as [`Received::InFlight`]
+/// (from [`ReceiveOutcome::requeue`], once [`DuplicateStore::when_settled`] calls back). A
+/// copy handed off with `handed-to-harness` or `unknown` is recorded in `engine`
+/// ([SEC-AUZ-016]), whichever of the two paths handed it off. The arguments are as for
+/// [`receive`].
+pub fn redeliver(
+    msg: AuthorizedMessage,
+    engine: &mut AuthorizationEngine,
+    store: &DuplicateStore,
+    clock: &dyn Clock,
+    target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
+    hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
+) -> ReceiveOutcome {
+    let verified_by = msg.message().verified_by().map(|p| p.key_id().clone());
+    let received = match deliver(store, &msg, target, clock, hand_off) {
         Ok(r) => r,
         Err(r) => Received::Reported(ReceiverReport::from_rejection(&r)),
     };
@@ -390,9 +418,9 @@ pub fn receive(
             DeliveryState::HandedToHarness | DeliveryState::Unknown
         )
     {
-        engine.record_handoff(HandOffRecord::of(authorized.message().envelope()), r.state);
+        engine.record_handoff(HandOffRecord::of(msg.message().envelope()), r.state);
     }
-    let requeue = matches!(received, Received::InFlight(_)).then_some(authorized);
+    let requeue = matches!(received, Received::InFlight(_)).then_some(msg);
     ReceiveOutcome {
         received,
         requeue,
@@ -1113,6 +1141,56 @@ mod tests {
             |_| HandOffOutcome::Completed,
         ));
         assert_eq!(r.state, DeliveryState::Duplicate);
+    }
+
+    /// PR #321 re-review B2: a re-queued copy re-offered through [`redeliver`] after its twin
+    /// failed is handed off and recorded ([SEC-AUZ-016]): the receiving session may then
+    /// discover the sender.
+    #[test]
+    fn redelivered_copy_is_recorded() {
+        use crate::authorization::{AuthorizationRequest, Basis, Kind, Requester};
+        let f = fx(60_000);
+        let mut e = engine_for(&f);
+        let env = f.raw.envelope().clone();
+        let mut twin = None;
+        let first = reported(deliver(
+            &f.store,
+            &f.msg,
+            |_| target(),
+            &*f.clock,
+            |_| {
+                twin = Some(receive(
+                    f.raw.clone(),
+                    &mut e,
+                    &f.store,
+                    &*f.clock,
+                    |_| target(),
+                    |_| panic!("no call"),
+                ));
+                HandOffOutcome::Failed
+            },
+        ));
+        assert_eq!(first.state, DeliveryState::Failed);
+        let twin = twin.unwrap();
+        assert!(matches!(twin.received, Received::InFlight(_)));
+        let out = redeliver(
+            twin.requeue.expect("the copy, for re-queueing"),
+            &mut e,
+            &f.store,
+            &*f.clock,
+            |_| target(),
+            |_| HandOffOutcome::Completed,
+        );
+        assert_eq!(
+            out.received,
+            Received::Reported(ReceiverReport::of(DeliveryState::HandedToHarness, None))
+        );
+        let d = e.decide(&AuthorizationRequest::Discover {
+            requester: Requester::Session(env.to().clone()),
+            session: env.from().clone(),
+        });
+        assert!(d.permits(Kind::Discover));
+        assert!(matches!(d.basis(), Some(Basis::HandOff(_))));
     }
 
     /// `when_settled` for a key with nothing in flight calls back at once.

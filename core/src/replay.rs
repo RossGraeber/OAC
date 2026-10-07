@@ -549,9 +549,7 @@ impl DuplicateStore {
         drop(inner);
         self.shared.settled.notify_all();
         // Called with no lock held, so a callback may use the store.
-        for notify in waiting {
-            notify();
-        }
+        run_callbacks(waiting);
     }
 
     /// Calls `notify` once the entry for `key` is no longer in flight: when the copy whose
@@ -559,7 +557,10 @@ impl DuplicateStore {
     /// receiver that got [`crate::receiver::Received::InFlight`] re-offers the copy from it,
     /// so a re-queued copy waits on the earlier hand-off without a thread parked in
     /// [`DuplicateStore::admit`] and without a timer ([SEC-RPL-026]). The callback runs on
-    /// the thread that settles the entry, with no lock of the store held.
+    /// the thread that settles the entry, with no lock of the store held; when that thread is
+    /// unwinding from a panic (a reservation dropped by it), on a thread of its own instead.
+    /// A callback that panics is contained: the other callbacks for the key still run, and
+    /// the settling thread neither unwinds nor aborts because of it.
     pub fn when_settled(&self, key: &DuplicateKey, notify: impl FnOnce() + Send + 'static) {
         let mut inner = self.lock();
         let in_flight = inner
@@ -577,6 +578,30 @@ impl DuplicateStore {
         }
         drop(inner);
         notify();
+    }
+}
+
+/// Runs settle callbacks, each contained by `catch_unwind`, so one that panics neither skips
+/// the others nor propagates into `settle`. When the current thread is already unwinding
+/// (a [`Reservation`] dropped by a panic), a second panic would abort the process even
+/// inside `catch_unwind`, so the callbacks then run on a thread of their own.
+fn run_callbacks(waiting: Vec<SettleCallback>) {
+    if waiting.is_empty() {
+        return;
+    }
+    let run = move || {
+        for notify in waiting {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(notify));
+        }
+    };
+    if std::thread::panicking() {
+        // If the thread cannot be spawned, the callbacks are dropped uncalled rather than
+        // risk a panic during unwinding.
+        let _ = std::thread::Builder::new()
+            .name("oac-settle-callbacks".into())
+            .spawn(run);
+    } else {
+        run();
     }
 }
 
@@ -637,6 +662,41 @@ mod tests {
     use std::thread;
 
     const SECOND: i128 = 1_000_000_000;
+
+    /// PR #321 re-review N12: a panicking settle callback does not stop the next one, does
+    /// not propagate out of settling, and does not abort when the reservation is dropped by
+    /// a panic.
+    #[test]
+    fn panicking_settle_callbacks_are_contained() {
+        let f = fx();
+        let store = DuplicateStore::new(f.clock.clone());
+        let env = f.signed("2026-10-03T12:00:00.000Z", None);
+        let msg = AuthorizedMessage::for_tests(f.arrive(&env));
+        let key = DuplicateKey::of(msg.message()).unwrap();
+        let (tx, rx) = mpsc::channel::<u8>();
+        // Settled normally: the first callback panics, the second still runs.
+        let Admission::Admitted(r) = store.admit(&msg).unwrap() else {
+            panic!("not admitted")
+        };
+        store.when_settled(&key, || panic!("callback one"));
+        let t = tx.clone();
+        store.when_settled(&key, move || t.send(1).unwrap());
+        r.not_handed_off();
+        assert_eq!(rx.try_recv(), Ok(1));
+        // Settled by a drop during unwinding: no abort, and the callbacks still run.
+        let Admission::Admitted(r) = store.admit(&msg).unwrap() else {
+            panic!("not admitted")
+        };
+        store.when_settled(&key, || panic!("callback during unwind"));
+        let t = tx.clone();
+        store.when_settled(&key, move || t.send(2).unwrap());
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _held = r;
+            panic!("hand-off call panicked");
+        }));
+        assert!(unwound.is_err());
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(10)), Ok(2));
+    }
 
     fn ts(s: &str) -> Timestamp {
         Timestamp::parse(s).unwrap()

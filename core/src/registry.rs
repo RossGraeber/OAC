@@ -42,7 +42,7 @@
 
 use crate::capabilities::{SessionCapabilities, SessionDescriptor};
 use crate::delivery::ErrorCode;
-use crate::ids::SessionId;
+use crate::ids::{KeyId, SessionId};
 use crate::json::Json;
 use crate::presence::{PresenceKind, PresenceRecord, PresenceState, PresenceViolation};
 use crate::transport::CarrierHandle;
@@ -75,13 +75,21 @@ pub enum PresenceDiscard {
     /// ([SC-DLV-042]): a late or second copy.
     NotNewer,
     /// A record for a session the registry does not hold, while it holds
-    /// [`PresenceRegistry::capacity`] sessions and none of them is `unreachable`.
+    /// [`PresenceRegistry::capacity`] sessions, none of them is `unreachable`, and no
+    /// issuer holds more than one session beyond this record's issuer's share.
     Full,
+    /// A record for a new session from an issuer that already holds
+    /// [`PresenceRegistry::per_issuer_quota`] sessions, none of them `unreachable`.
+    IssuerQuota,
 }
 
 /// The most sessions, other than its own bound ones, a registry holds unless built with
 /// another capacity.
 pub const DEFAULT_PRESENCE_CAPACITY: usize = 4096;
+
+/// The share of the capacity one issuer may hold unless the registry is built with another
+/// quota: a quarter.
+pub const DEFAULT_ISSUER_SHARE_DIVISOR: usize = 4;
 
 /// The outcome of offering a record to the registry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +112,9 @@ struct Held {
     stale_at: Option<Instant>,
     carrier: CarrierHandle,
     carrier_lost: bool,
+    /// The key that signed the record ([`PresenceRegistry::accept_signed`]); `None` for a
+    /// record from inside this implementation. Quotas count per issuer.
+    issuer: Option<KeyId>,
 }
 
 impl Held {
@@ -132,11 +143,30 @@ struct Own {
 /// records and ended own sessions together. A trusted device that announces fresh session
 /// ids cannot grow it past that. When a record for a new session arrives and the registry
 /// is full, it first forgets every session that is `unreachable` at that instant, which
-/// [SC-DLV-048] permits; if every held session is still `online`, the record is discarded
-/// as [`PresenceDiscard::Full`]. An own session that ends while the registry is full makes
-/// room by forgetting an ended one. Forgotten session ids are kept, also at most
-/// `capacity` of them, until [`PresenceRegistry::take_forgotten`] hands them to the
-/// caller, which may then remove their binding-table entries ([SEC-PRS-009]).
+/// [SC-DLV-048] permits. An own session that ends while the registry is full makes room by
+/// forgetting an ended one. Forgotten session ids are kept, also at most `capacity` of
+/// them, until [`PresenceRegistry::take_forgotten`] hands them to the caller, which may then
+/// remove their binding-table entries ([SEC-PRS-009]).
+///
+/// # Shares
+///
+/// Sessions are counted per issuer: the key that signed the record
+/// ([`PresenceRegistry::accept_signed`]), or this implementation for its own records. So
+/// that one related device cannot lock other peers out by holding every place:
+///
+/// - **Quota.** An issuer holds at most [`PresenceRegistry::per_issuer_quota`] sessions
+///   (default a quarter of the capacity). A record for a new session past it first forgets
+///   that issuer's own `unreachable` sessions, and is otherwise discarded as
+///   [`PresenceDiscard::IssuerQuota`].
+/// - **Fair share.** When the registry is full of `online` sessions, a record for a new
+///   session from an issuer evicts one session of the issuer holding the most, as long as
+///   that issuer would still hold more than this one; only when no issuer holds more is the
+///   record discarded as [`PresenceDiscard::Full`]. A peer whose session was forgotten,
+///   for example after a carrier loss, therefore gets it back on its next announcement
+///   however many sessions another device keeps `online`.
+///
+/// The residual is recorded in `docs/planning/v0.1/11-risks.md`: several colluding related
+/// devices can still shrink every issuer's share toward an equal split of the capacity.
 #[derive(Clone, Debug)]
 pub struct PresenceRegistry {
     own: BTreeMap<SessionId, Own>,
@@ -144,6 +174,7 @@ pub struct PresenceRegistry {
     ended: BTreeMap<SessionId, ()>,
     held: HashMap<SessionId, Held>,
     capacity: usize,
+    per_issuer_quota: usize,
     forgotten: Vec<SessionId>,
 }
 
@@ -160,14 +191,92 @@ impl PresenceRegistry {
     }
 
     /// An empty registry that holds at most `capacity` sessions besides its own bound ones
-    /// (at least one).
+    /// (at least one), each issuer at most a quarter of them (at least one).
     pub fn with_capacity(capacity: usize) -> PresenceRegistry {
+        PresenceRegistry::with_limits(capacity, capacity / DEFAULT_ISSUER_SHARE_DIVISOR)
+    }
+
+    /// An empty registry of `capacity` sessions, each issuer at most `per_issuer_quota` of
+    /// them; each limit is at least one, and the quota at most the capacity.
+    pub fn with_limits(capacity: usize, per_issuer_quota: usize) -> PresenceRegistry {
+        let capacity = capacity.max(1);
         PresenceRegistry {
             own: BTreeMap::new(),
             ended: BTreeMap::new(),
             held: HashMap::new(),
-            capacity: capacity.max(1),
+            capacity,
+            per_issuer_quota: per_issuer_quota.clamp(1, capacity),
             forgotten: Vec::new(),
+        }
+    }
+
+    /// The most sessions one issuer holds.
+    pub fn per_issuer_quota(&self) -> usize {
+        self.per_issuer_quota
+    }
+
+    fn held_by(&self, issuer: &Option<KeyId>) -> usize {
+        self.held.values().filter(|h| &h.issuer == issuer).count()
+    }
+
+    /// Forgets `session`, held, and notes it.
+    fn evict(&mut self, session: &SessionId) {
+        if self.held.remove(session).is_some() {
+            self.note_forgotten(session.clone());
+        }
+    }
+
+    /// Makes room for a new session from `issuer` at `now`, by the rules of the type
+    /// documentation; `Err` with the reason when there is none.
+    fn make_room(&mut self, issuer: &Option<KeyId>, now: Instant) -> Result<(), PresenceDiscard> {
+        if self.held_by(issuer) >= self.per_issuer_quota {
+            let own_stale: Vec<SessionId> = self
+                .held
+                .iter()
+                .filter(|(_, h)| &h.issuer == issuer && h.state(now) != PresenceState::Online)
+                .map(|(s, _)| s.clone())
+                .collect();
+            for s in &own_stale {
+                self.evict(s);
+            }
+            if self.held_by(issuer) >= self.per_issuer_quota {
+                return Err(PresenceDiscard::IssuerQuota);
+            }
+        }
+        if self.len() < self.capacity {
+            return Ok(());
+        }
+        self.sweep(now);
+        if self.len() < self.capacity {
+            return Ok(());
+        }
+        // Fair share: one session of the heaviest issuer, when it holds more than this
+        // issuer would after the insert.
+        let mine = self.held_by(issuer);
+        let mut counts: BTreeMap<Option<&KeyId>, usize> = BTreeMap::new();
+        for h in self.held.values() {
+            *counts.entry(h.issuer.as_ref()).or_default() += 1;
+        }
+        let heaviest = counts
+            .into_iter()
+            .max_by_key(|(_, n)| *n)
+            .filter(|(_, n)| *n > mine + 1)
+            .map(|(k, _)| k.cloned());
+        let Some(heavy) = heaviest else {
+            return Err(PresenceDiscard::Full);
+        };
+        let victim = self
+            .held
+            .iter()
+            .filter(|(_, h)| h.issuer == heavy)
+            .map(|(s, _)| s.clone())
+            .min();
+        match victim {
+            Some(v) => {
+                self.evict(&v);
+                Ok(())
+            }
+            None => Err(PresenceDiscard::Full),
         }
     }
 
@@ -310,6 +419,37 @@ impl PresenceRegistry {
         origin: RecordOrigin,
         now: Instant,
     ) -> PresenceAcceptance {
+        self.insert(record, carrier, origin, None, now)
+    }
+
+    /// [`PresenceRegistry::accept`] for a record from another implementation, signed by
+    /// `issuer` (`spec/security.md` §11): it counts toward that key's share (see the type
+    /// documentation), and its announcement is capped as [`RecordOrigin::OtherImplementation`]
+    /// ([SEC-PRS-007]).
+    pub fn accept_signed(
+        &mut self,
+        record: PresenceRecord,
+        carrier: CarrierHandle,
+        issuer: &KeyId,
+        now: Instant,
+    ) -> PresenceAcceptance {
+        self.insert(
+            record,
+            carrier,
+            RecordOrigin::OtherImplementation,
+            Some(issuer.clone()),
+            now,
+        )
+    }
+
+    fn insert(
+        &mut self,
+        record: PresenceRecord,
+        carrier: CarrierHandle,
+        origin: RecordOrigin,
+        issuer: Option<KeyId>,
+        now: Instant,
+    ) -> PresenceAcceptance {
         if self
             .held
             .get(record.session_id())
@@ -317,11 +457,10 @@ impl PresenceRegistry {
         {
             return PresenceAcceptance::Discarded(PresenceDiscard::NotNewer);
         }
-        if !self.held.contains_key(record.session_id()) && self.len() >= self.capacity {
-            self.sweep(now);
-            if self.len() >= self.capacity {
-                return PresenceAcceptance::Discarded(PresenceDiscard::Full);
-            }
+        if !self.held.contains_key(record.session_id())
+            && let Err(why) = self.make_room(&issuer, now)
+        {
+            return PresenceAcceptance::Discarded(why);
         }
         let effective_lifetime_ms = match record.kind() {
             PresenceKind::Announcement { lifetime_ms, .. } => Some(match origin {
@@ -340,6 +479,7 @@ impl PresenceRegistry {
                 stale_at,
                 carrier,
                 carrier_lost: false,
+                issuer,
             },
         );
         PresenceAcceptance::Accepted {
@@ -867,7 +1007,7 @@ mod tests {
     #[test]
     fn bounded_by_capacity() {
         let t = Instant::now();
-        let mut r = PresenceRegistry::with_capacity(3);
+        let mut r = PresenceRegistry::with_limits(3, 3);
         let ids: Vec<SessionId> = (1..=5u8)
             .map(|n| SessionId::from_random_octets([n; 16]))
             .collect();
@@ -889,7 +1029,8 @@ mod tests {
                 RecordOrigin::OtherImplementation,
                 t
             ),
-            PresenceAcceptance::Discarded(PresenceDiscard::Full)
+            // One issuer: its quota (here the whole capacity) stops it.
+            PresenceAcceptance::Discarded(PresenceDiscard::IssuerQuota)
         );
         assert_eq!(r.len(), 3);
         // A newer record for a held session still fits.
@@ -928,7 +1069,7 @@ mod tests {
         assert_eq!(r.len(), 1);
         assert_eq!(r.take_forgotten().len(), 3);
         // Ended own sessions: bounded the same way.
-        let mut o = PresenceRegistry::with_capacity(2);
+        let mut o = PresenceRegistry::with_limits(2, 2);
         for s in &ids {
             o.register_own(descriptor(s));
             assert!(o.deregister_own(s));
@@ -936,6 +1077,68 @@ mod tests {
         }
         // Three were forgotten; the list keeps the newest `capacity` of them.
         assert_eq!(o.take_forgotten(), vec![ids[1].clone(), ids[2].clone()]);
+    }
+
+    /// PR #321 re-review N10: one related device cannot lock other peers out. Its quota
+    /// stops it at its share; when the registry is full of its `online` sessions, a peer's
+    /// new session, or a peer's session forgotten after a carrier loss and announced again,
+    /// evicts one of its sessions.
+    #[test]
+    fn one_issuer_cannot_lock_others_out() {
+        let t = Instant::now();
+        let k = |c: char| KeyId::parse(&c.to_string().repeat(64)).unwrap();
+        let (hog, peer) = (k('a'), k('b'));
+        let ids: Vec<SessionId> = (1..=12u8)
+            .map(|n| SessionId::from_random_octets([n; 16]))
+            .collect();
+        // Quota: the hog holds at most 3 of 4.
+        let mut q = PresenceRegistry::with_limits(4, 3);
+        for s in &ids[..3] {
+            assert!(matches!(
+                q.accept_signed(announce(s, 1, 60_000), carrier("h"), &hog, t),
+                PresenceAcceptance::Accepted { .. }
+            ));
+        }
+        assert_eq!(
+            q.accept_signed(announce(&ids[3], 1, 60_000), carrier("h"), &hog, t),
+            PresenceAcceptance::Discarded(PresenceDiscard::IssuerQuota)
+        );
+        assert!(matches!(
+            q.accept_signed(announce(&ids[4], 1, 60_000), carrier("p"), &peer, t),
+            PresenceAcceptance::Accepted { .. }
+        ));
+        // Fair share: with no quota in the way, the hog fills the registry with `online`
+        // sessions; the peer's session, lost and forgotten, still comes back.
+        let mut r = PresenceRegistry::with_limits(4, 4);
+        r.accept_signed(announce(&ids[0], 1, 60_000), carrier("p"), &peer, t);
+        for s in &ids[1..4] {
+            r.accept_signed(announce(s, 1, 60_000), carrier("h"), &hog, t);
+        }
+        assert_eq!(r.len(), 4);
+        assert_eq!(r.carrier_loss(&carrier("p")), 1);
+        // The hog's next fresh session sweeps the peer's stale one away.
+        assert!(matches!(
+            r.accept_signed(announce(&ids[5], 1, 60_000), carrier("h"), &hog, t),
+            PresenceAcceptance::Accepted { .. }
+        ));
+        assert_eq!(r.state(&ids[0], t), PresenceState::Unknown);
+        // The peer announces it again: one of the hog's four makes room.
+        assert!(matches!(
+            r.accept_signed(announce(&ids[0], 2, 60_000), carrier("p2"), &peer, t),
+            PresenceAcceptance::Accepted { .. }
+        ));
+        assert_eq!(r.state(&ids[0], t), PresenceState::Online);
+        assert_eq!(r.len(), 4);
+        // And a second peer session too (hog 3, peer 1 -> hog 2, peer 2) ...
+        assert!(matches!(
+            r.accept_signed(announce(&ids[6], 1, 60_000), carrier("p2"), &peer, t),
+            PresenceAcceptance::Accepted { .. }
+        ));
+        // ... but not past an equal split: hog 2, peer 2, so a third is refused.
+        assert_eq!(
+            r.accept_signed(announce(&ids[7], 1, 60_000), carrier("p2"), &peer, t),
+            PresenceAcceptance::Discarded(PresenceDiscard::Full)
+        );
     }
 
     /// [SC-DLV-050] to [SC-DLV-057]: seq grows across announce, withdraw and re-announce;
