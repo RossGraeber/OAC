@@ -52,9 +52,16 @@
 //!   arguments. A module is then always where rustc's default rules put it.
 //! - **`include!`, `include_str!` and `include_bytes!`**, under any path
 //!   (`::core::include!`) or alias (`use std::include as inc;`, which itself fails closed).
-//! - **The words `mod`, `path`, `include`, `include_str` and `include_bytes`** as tokens in
-//!   a macro invocation's arguments or an attribute's list: a macro defined elsewhere could
-//!   paste them into a module or an include.
+//! - **The words `mod`, `include`, `include_str` and `include_bytes`** as tokens in a macro
+//!   invocation's arguments or an attribute's list, and **`path`** there as `path = ..` or
+//!   `#[path ..]`: a macro defined elsewhere could paste them into a module or an include.
+//!   A binding named `path` handed to a macro (`format!("{}", path)`) is fine; one named
+//!   `include` is not, so rename it.
+//!
+//! What cargo compiles is taken from `cargo metadata`, not from the `src/` convention
+//! ([`package_sources`]): every target's `src_path`, the build script included. A manifest
+//! that moves a target (`path`, `build`) or switches discovery (`autobins` and the like)
+//! fails closed, and so does a normal or build dependency not in [`VETTED_DEPENDENCIES`].
 //!
 //! # Which files are read
 //!
@@ -80,6 +87,10 @@
 //!
 //! - A procedural macro, or a macro from another crate, that builds a forbidden path from
 //!   pieces it is not handed whole (`concat_idents!`).
+//! - A macro from another crate, or a derive or attribute proc-macro, that loads a file from
+//!   a bare literal: `dep::load!("../zz/h.rs")` expands to `mod`, `#[path]` or `include!`
+//!   the scan never sees. This is why an adapter's dependencies are limited to
+//!   [`VETTED_DEPENDENCIES`], each checked to export no macro.
 //! - Code the scan is not given: `build.rs` output, and other crates (a helper crate the
 //!   adapter depends on is scanned only if its files are passed in; `check-crate-deps.mjs`
 //!   stops that crate from being a transport).
@@ -176,6 +187,7 @@ const INCLUDE_MACROS: &[&str] = &["include", "include_str", "include_bytes"];
 
 /// Words that, as tokens of a macro invocation's arguments or an attribute's list, could be
 /// pasted into a module declaration, a `#[path]` or an include by a macro defined elsewhere.
+/// `path` counts only as `path = ..` or `#[path ..]`.
 const PASTABLE_WORDS: &[&str] = &["mod", "path", "include", "include_str", "include_bytes"];
 
 /// A token-tree identifier as a string, without a raw `r#` prefix.
@@ -452,6 +464,17 @@ impl Checker<'_> {
         while i < toks.len() {
             match &toks[i] {
                 TokenTree::Group(g) => {
+                    // `#[path ..]` or `#![path ..]` written in the tokens.
+                    let attribute = g.delimiter() == proc_macro2::Delimiter::Bracket
+                        && (is_punct(toks.get(i.wrapping_sub(1)), '#')
+                            || (is_punct(toks.get(i.wrapping_sub(1)), '!')
+                                && is_punct(toks.get(i.wrapping_sub(2)), '#')));
+                    if attribute && is_word(g.stream().into_iter().next().as_ref(), "path") {
+                        self.fail_closed(
+                            line_of(g.span()),
+                            "a #[path] attribute in a macro invocation's arguments",
+                        );
+                    }
                     self.walk(g.stream());
                     i += 1;
                 }
@@ -462,10 +485,14 @@ impl Checker<'_> {
                 _ => match path_at(&toks, i) {
                     Some((segs, end, line)) => {
                         // A pastable word on its own (not a segment of a longer path, as
-                        // `std::path::Path` is), or an include macro under any path.
-                        if (segs.len() == 1 && PASTABLE_WORDS.contains(&segs[0].as_str()))
-                            || (is_punct(toks.get(end), '!') && self.is_include(&segs))
-                        {
+                        // `std::path::Path` is), or an include macro under any path. `path`
+                        // only as a `path = ..` (a `#[path ..]` is caught above), so that an
+                        // argument named `path` (`format!("{}", path)`) stays clean (PR #336
+                        // third review N-a).
+                        let pasted = segs.len() == 1
+                            && PASTABLE_WORDS.contains(&segs[0].as_str())
+                            && (segs[0] != "path" || is_punct(toks.get(end), '='));
+                        if pasted || (is_punct(toks.get(end), '!') && self.is_include(&segs)) {
                             self.fail_closed(
                                 line,
                                 &format!(
@@ -988,8 +1015,9 @@ pub fn rust_files(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// An adapter crate's sources for the scan: everything under `src/`, and `build.rs` when
-/// there is one. The scan also follows their `mod` declarations, `#[path]` ones included.
+/// Everything under a crate's `src/`, and `build.rs` when there is one: the files cargo
+/// compiles by its default layout. [`package_sources`] is what an adapter is scanned by; this
+/// is the part of it that holds without asking cargo.
 pub fn crate_files(crate_dir: &Path) -> Vec<PathBuf> {
     let mut v = rust_files(&crate_dir.join("src"));
     let build = crate_dir.join("build.rs");
@@ -997,6 +1025,192 @@ pub fn crate_files(crate_dir: &Path) -> Vec<PathBuf> {
         v.push(build);
     }
     v
+}
+
+/// The dependencies an adapter may take (normal and build), each vetted to export no macro
+/// and to be no proc-macro: a macro from another crate can expand to `mod`, `#[path]` or
+/// `include!` from a bare literal, which no static scan sees (PR #336 third review N-b).
+/// Adding one is a deliberate change to this list.
+pub const VETTED_DEPENDENCIES: &[&str] = &["oac-core"];
+
+/// Target kinds whose code builds into the adapter. Test, bench and example targets are the
+/// adapter's own checks, held to the [`PLANT`] row only.
+const BUILT_KINDS: &[&str] = &[
+    "lib",
+    "rlib",
+    "dylib",
+    "cdylib",
+    "staticlib",
+    "proc-macro",
+    "bin",
+    "custom-build",
+];
+
+/// Manifest keys that move a target off cargo's default layout, or switch its discovery,
+/// outside a dependency table (PR #336 third review S1).
+const LAYOUT_KEYS: &[&str] = &[
+    "path",
+    "build",
+    "autolib",
+    "autobins",
+    "autoexamples",
+    "autotests",
+    "autobenches",
+];
+
+/// What an adapter package compiles, as `cargo metadata` reports it.
+#[derive(Debug, Default)]
+pub struct PackageSources {
+    /// The roots of every target that builds into the adapter (each target's `src_path`,
+    /// the build script included), and everything under `src/` besides.
+    pub built: Vec<PathBuf>,
+    /// The roots of the adapter's test, bench and example targets.
+    pub checks: Vec<PathBuf>,
+    /// Fail-closed findings: a manifest key that moves a target or switches discovery, a
+    /// dependency not in [`VETTED_DEPENDENCIES`], or `cargo metadata` failing.
+    pub findings: Vec<Finding>,
+}
+
+/// The manifest's layout keys outside dependency tables, each a finding under every row.
+fn manifest_findings(manifest: &Path, text: &str) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut table = String::new();
+    for (n, raw) in text.lines().enumerate() {
+        let line = raw.split(" #").next().unwrap_or_default().trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') {
+            table = line.to_owned();
+            continue;
+        }
+        if table.contains("dependencies") {
+            continue;
+        }
+        // A key, or a dotted key's last part, or a key inside an inline table.
+        let key = line
+            .split('=')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('"');
+        let last = key.rsplit('.').next().unwrap_or_default();
+        let inline = line
+            .split_once('{')
+            .is_some_and(|(_, rest)| LAYOUT_KEYS.iter().any(|k| rest.contains(&format!("{k} ="))));
+        if LAYOUT_KEYS.contains(&last) || inline {
+            out.extend(everywhere(
+                manifest,
+                n + 1,
+                &format!(
+                    "{table} `{line}`: a target off cargo's default layout, or switched discovery"
+                ),
+            ));
+        }
+    }
+    out
+}
+
+/// What the adapter package at `crate_dir` compiles, from `cargo metadata` (offline,
+/// no dependencies resolved), with its manifest checked ([`PackageSources`]). Not the
+/// `src/` convention alone: a manifest can point a target anywhere (PR #336 third review S1).
+pub fn package_sources(crate_dir: &Path) -> PackageSources {
+    let manifest = crate_dir.join("Cargo.toml");
+    let mut s = PackageSources::default();
+    let fail = |s: &mut PackageSources, why: String| {
+        s.findings.extend(everywhere(&manifest, 0, &why));
+    };
+    match std::fs::read_to_string(&manifest) {
+        Ok(text) => s.findings.extend(manifest_findings(&manifest, &text)),
+        Err(e) => fail(&mut s, format!("cannot be read: {e}")),
+    }
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let out = std::process::Command::new(cargo)
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--offline",
+            "--manifest-path",
+        ])
+        .arg(&manifest)
+        .output();
+    let json = match out {
+        Ok(o) if o.status.success() => {
+            oac_core::json::parse(&o.stdout).map_err(|e| format!("{e:?}"))
+        }
+        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).into_owned()),
+        Err(e) => Err(e.to_string()),
+    };
+    let json = match json {
+        Ok(j) => j,
+        Err(why) => {
+            fail(&mut s, format!("cargo metadata failed: {why}"));
+            return s;
+        }
+    };
+    let want = std::fs::canonicalize(&manifest).ok();
+    let package = json
+        .as_object()
+        .and_then(|o| o.get("packages"))
+        .and_then(|p| p.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| p.as_object())
+        .find(|p| {
+            p.get("manifest_path")
+                .and_then(|m| m.as_str())
+                .is_some_and(|m| std::fs::canonicalize(m).ok() == want)
+        });
+    let Some(package) = package else {
+        fail(&mut s, "cargo metadata does not list this package".into());
+        return s;
+    };
+    for t in package
+        .get("targets")
+        .and_then(|t| t.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|t| t.as_object())
+    {
+        let Some(src) = t.get("src_path").and_then(|p| p.as_str()) else {
+            fail(&mut s, "a target with no src_path".into());
+            continue;
+        };
+        let built = t
+            .get("kind")
+            .and_then(|k| k.as_array())
+            .unwrap_or_default()
+            .iter()
+            .any(|k| k.as_str().is_some_and(|k| BUILT_KINDS.contains(&k)));
+        if built {
+            s.built.push(PathBuf::from(src));
+        } else {
+            s.checks.push(PathBuf::from(src));
+        }
+    }
+    for d in package
+        .get("dependencies")
+        .and_then(|d| d.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|d| d.as_object())
+    {
+        let name = d.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+        let dev = d.get("kind").and_then(|k| k.as_str()) == Some("dev");
+        if !dev && !VETTED_DEPENDENCIES.contains(&name) {
+            fail(
+                &mut s,
+                format!(
+                    "dependency `{name}` is not vetted: a macro from another crate can load a \
+                     file the scan never reads (VETTED_DEPENDENCIES)"
+                ),
+            );
+        }
+    }
+    s.built.extend(crate_files(crate_dir));
+    s
 }
 
 #[cfg(test)]
@@ -1365,20 +1579,29 @@ mod tests {
             "fn f() { m!(path, mod); }",
             "fn f() { m!(include); }",
             "pub mod outer { k!(mod); }",
-            "fn f() { m!(r#path); }",
+            "fn f() { m!(r#mod); }",
             "fn f() { m!(mod h;); }",
             "fn f() { m!(include_str); }",
             "#[tool(include_bytes)]\nfn f() {}",
-            "fn f(path: &str) { println!(\"{}\", path); }",
+            // `path` as a `path = ..` or a `#[path ..]` (N-a of the PR #336 third review).
+            "fn f() { m!(path = \"../zz/h.rs\"); }",
+            "fn f() { m!(r#path = \"../zz/h.rs\"); }",
+            "fn f() { m!(#[path = \"x\"] mod h {}); }",
+            "fn f() { m!(#[r#path] x); }",
+            "#[tool(path = \"x\")]\nfn f() {}",
         ] {
             fails_closed(src);
         }
-        assert_eq!(
-            reqs(
-                "fn f(p: &std::path::Path) { println!(\"{}\", p.display()); let _ = vec![std::path::PathBuf::new()]; }"
-            ),
-            Vec::<&str>::new()
-        );
+        // A binding named `path` handed to a macro stays clean, as does a longer path with
+        // `path` as a segment.
+        for src in [
+            "pub fn f(path: &str) -> String { format!(\"{}\", path) }",
+            "pub fn f(include: &str) -> String { format!(\"{include}\") }",
+            "pub fn f(path: &str) { assert_eq!(path, \"x\"); m!(path); }",
+            "fn f(p: &std::path::Path) { println!(\"{}\", p.display()); let _ = vec![std::path::PathBuf::new()]; }",
+        ] {
+            assert_eq!(reqs(src), Vec::<&str>::new(), "{src}");
+        }
     }
 
     #[test]

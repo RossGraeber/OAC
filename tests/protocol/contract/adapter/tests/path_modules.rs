@@ -12,7 +12,9 @@
 
 use std::path::{Path, PathBuf};
 
-use oac_contract_adapter::source::{crate_files, implements_provider_adapter, scan};
+use oac_contract_adapter::source::{
+    crate_files, implements_provider_adapter, package_sources, scan,
+};
 
 const ROWS: [&str; 4] = ["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"];
 
@@ -87,6 +89,140 @@ fn a_plain_module_is_followed() {
         "{findings:?}"
     );
     assert_eq!(implements_provider_adapter(&files).len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const PACKAGE: &str =
+    "[package]\nname = \"scratch-adapter\"\nversion = \"0.0.0\"\nedition = \"2024\"\n";
+/// Its own workspace root, so cargo does not look for this repository's.
+const OWN_WORKSPACE: &str = "\n[workspace]\n";
+
+/// PR #336 third review S1: a manifest pointing the library elsewhere. The file cargo
+/// compiles is scanned (its `src_path` from `cargo metadata`), and the manifest key itself
+/// fails closed.
+#[test]
+fn a_target_path_in_the_manifest_is_scanned_and_fails_closed() {
+    let dir = scratch_crate(
+        "target-path",
+        &[
+            (
+                "Cargo.toml",
+                &format!("{PACKAGE}\n[lib]\npath = \"hidden/lib.rs\"\n{OWN_WORKSPACE}"),
+            ),
+            (
+                "hidden/lib.rs",
+                "pub fn f(_: &dyn oac_core::transport::Transport) {}\n",
+            ),
+        ],
+    );
+    let s = package_sources(&dir);
+    assert!(
+        s.built.iter().any(|p| p.ends_with("hidden/lib.rs")),
+        "{:?}",
+        s.built
+    );
+    for req in ROWS {
+        assert!(
+            s.findings
+                .iter()
+                .any(|f| f.requirement == req && f.what.contains("path")),
+            "{req}: {:?}",
+            s.findings
+        );
+    }
+    let findings = scan(&s.built);
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.requirement == "IFC-ADP-001" && f.file.ends_with("hidden/lib.rs")),
+        "{findings:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn layout_keys_and_unvetted_dependencies_fail_closed() {
+    for (name, manifest) in [
+        (
+            "build-key",
+            format!("{PACKAGE}build = \"gen/b.rs\"\n{OWN_WORKSPACE}"),
+        ),
+        (
+            "autobins-key",
+            format!("{PACKAGE}autobins = false\n{OWN_WORKSPACE}"),
+        ),
+        (
+            "bin-path",
+            format!(
+                "{PACKAGE}\n[[bin]]\nname = \"x\"\npath = \"elsewhere/main.rs\"\n{OWN_WORKSPACE}"
+            ),
+        ),
+        (
+            "unvetted-dep",
+            format!("{PACKAGE}\n[dependencies]\ndep = {{ path = \"dep\" }}\n{OWN_WORKSPACE}"),
+        ),
+    ] {
+        let dir = scratch_crate(
+            &format!("manifest-{name}"),
+            &[
+                ("Cargo.toml", &manifest),
+                ("src/lib.rs", "\n"),
+                ("gen/b.rs", "fn main() {}\n"),
+                ("elsewhere/main.rs", "fn main() {}\n"),
+                (
+                    "dep/Cargo.toml",
+                    "[package]\nname = \"dep\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+                ),
+                ("dep/src/lib.rs", "\n"),
+            ],
+        );
+        let s = package_sources(&dir);
+        for req in ROWS {
+            assert!(
+                s.findings.iter().any(|f| f.requirement == req),
+                "{name} {req}: {:?}",
+                s.findings
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The control: a crate on cargo's default layout, with a path dependency on a vetted name
+/// (`[dependencies]` keys are not layout keys).
+#[test]
+fn a_default_layout_crate_passes_the_manifest_checks() {
+    let dir = scratch_crate(
+        "default-layout",
+        &[
+            (
+                "Cargo.toml",
+                &format!(
+                    "{PACKAGE}\n[dependencies]\noac-core = {{ path = \"core\" }}\n\n[dev-dependencies]\nanything = {{ path = \"core\", package = \"oac-core\" }}\n{OWN_WORKSPACE}"
+                ),
+            ),
+            ("src/lib.rs", "pub fn f() {}\n"),
+            ("tests/t.rs", "#[test]\nfn t() {}\n"),
+            (
+                "core/Cargo.toml",
+                "[package]\nname = \"oac-core\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+            ),
+            ("core/src/lib.rs", "\n"),
+        ],
+    );
+    let s = package_sources(&dir);
+    assert!(s.findings.is_empty(), "{:?}", s.findings);
+    assert!(
+        s.built.iter().any(|p| p.ends_with("src/lib.rs")),
+        "{:?}",
+        s.built
+    );
+    assert!(
+        s.checks.iter().any(|p| p.ends_with("tests/t.rs")),
+        "{:?}",
+        s.checks
+    );
+    assert!(scan(&s.built).is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
