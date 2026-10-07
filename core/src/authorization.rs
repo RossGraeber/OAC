@@ -231,6 +231,10 @@ pub struct SentRecord {
     pub to_key_id: KeyId,
     /// The envelope's `created_at`.
     pub created_at: Timestamp,
+    /// The envelope's `security.nonce`: with `id`, `from` and `to`, what an authenticated
+    /// receipt must name to be accepted (`spec/security.md` [SEC-RCT-003], check 3; #55, F6).
+    /// `None` only for a record built without its envelope, which then matches no receipt.
+    pub nonce: Option<String>,
 }
 
 impl SentRecord {
@@ -242,6 +246,7 @@ impl SentRecord {
             to: env.to().clone(),
             to_key_id: to_key,
             created_at: env.created_at().clone(),
+            nonce: Some(env.security().nonce().to_owned()),
         }
     }
 }
@@ -861,6 +866,16 @@ impl AuthorizationEngine {
     /// The grants, in the order they were added.
     pub fn grants(&self) -> &[Grant] {
         &self.grants
+    }
+
+    /// The engine clock's current reading: the instant every decision is made at.
+    pub fn now(&self) -> Timestamp {
+        self.clock.now()
+    }
+
+    /// The sent records ([SEC-AUZ-013]) still held, in the order they were recorded.
+    pub fn sent_records(&self) -> &[SentRecord] {
+        &self.sent
     }
 
     /// The binding-table entry for `session`.

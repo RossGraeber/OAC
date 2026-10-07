@@ -259,10 +259,26 @@ struct Entry {
     duplicate_receipt_sent: bool,
 }
 
+/// A callback waiting for an in-flight entry to settle ([`DuplicateStore::when_settled`]).
+type SettleCallback = Box<dyn FnOnce() + Send>;
+
+/// The callbacks waiting on in-flight entries, by key.
+#[derive(Default)]
+struct Waiters(HashMap<DuplicateKey, Vec<SettleCallback>>);
+
+impl fmt::Debug for Waiters {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Waiters")
+            .field("keys", &self.0.len())
+            .finish()
+    }
+}
+
 #[derive(Debug, Default)]
 struct Inner {
     entries: HashMap<DuplicateKey, Entry>,
     by_deadline: BTreeSet<(i128, DuplicateKey)>,
+    waiters: Waiters,
 }
 
 impl Inner {
@@ -529,8 +545,50 @@ impl DuplicateStore {
         } else {
             inner.remove(key);
         }
+        let waiting = inner.waiters.0.remove(key).unwrap_or_default();
         drop(inner);
         self.shared.settled.notify_all();
+        // Called with no lock held, so a callback may use the store.
+        run_callbacks(waiting);
+    }
+
+    /// Calls `notify` once the entry for `key` is no longer in flight: when the copy whose
+    /// hand-off is running settles, or at once when no entry for `key` is in flight now. A
+    /// receiver that got [`crate::receiver::Received::InFlight`] re-offers the copy from it,
+    /// so a re-queued copy waits on the earlier hand-off without a thread parked in
+    /// [`DuplicateStore::admit`] and without a timer ([SEC-RPL-026]). The callback runs on
+    /// the thread that settles the entry, with no lock of the store held, also when that
+    /// thread is unwinding from a panic (a reservation dropped by it). A callback that panics
+    /// is contained: the other callbacks for the key still run, and the settling thread
+    /// neither unwinds nor aborts because of it.
+    pub fn when_settled(&self, key: &DuplicateKey, notify: impl FnOnce() + Send + 'static) {
+        let mut inner = self.lock();
+        let in_flight = inner
+            .entries
+            .get(key)
+            .is_some_and(|e| e.phase == Phase::InFlight);
+        if in_flight {
+            inner
+                .waiters
+                .0
+                .entry(key.clone())
+                .or_default()
+                .push(Box::new(notify));
+            return;
+        }
+        drop(inner);
+        notify();
+    }
+}
+
+/// Runs settle callbacks inline, each contained by `catch_unwind`, so one that panics
+/// neither skips the others nor propagates into `settle`. That holds also while the thread
+/// is unwinding (a [`Reservation`] dropped by a panic): a panic caught inside
+/// `catch_unwind` there is contained like any other, and does not abort the process
+/// (`panicking_settle_callbacks_are_contained` covers both cases).
+fn run_callbacks(waiting: Vec<SettleCallback>) {
+    for notify in waiting {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(notify));
     }
 }
 
@@ -591,6 +649,42 @@ mod tests {
     use std::thread;
 
     const SECOND: i128 = 1_000_000_000;
+
+    /// PR #321 re-review N12: a panicking settle callback does not stop the next one, does
+    /// not propagate out of settling, and does not abort when the reservation is dropped by
+    /// a panic.
+    #[test]
+    fn panicking_settle_callbacks_are_contained() {
+        let f = fx();
+        let store = DuplicateStore::new(f.clock.clone());
+        let env = f.signed("2026-10-03T12:00:00.000Z", None);
+        let msg = AuthorizedMessage::for_tests(f.arrive(&env));
+        let key = DuplicateKey::of(msg.message()).unwrap();
+        let (tx, rx) = mpsc::channel::<u8>();
+        // Settled normally: the first callback panics, the second still runs.
+        let Admission::Admitted(r) = store.admit(&msg).unwrap() else {
+            panic!("not admitted")
+        };
+        store.when_settled(&key, || panic!("callback one"));
+        let t = tx.clone();
+        store.when_settled(&key, move || t.send(1).unwrap());
+        r.not_handed_off();
+        assert_eq!(rx.try_recv(), Ok(1));
+        // Settled by a drop during unwinding: no abort, and the callbacks still run.
+        let Admission::Admitted(r) = store.admit(&msg).unwrap() else {
+            panic!("not admitted")
+        };
+        store.when_settled(&key, || panic!("callback during unwind"));
+        let t = tx.clone();
+        store.when_settled(&key, move || t.send(2).unwrap());
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _held = r;
+            panic!("hand-off call panicked");
+        }));
+        assert!(unwound.is_err());
+        // Inline, on this thread, during the unwind.
+        assert_eq!(rx.try_recv(), Ok(2));
+    }
 
     fn ts(s: &str) -> Timestamp {
         Timestamp::parse(s).unwrap()

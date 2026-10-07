@@ -49,6 +49,19 @@
 //! types (`spec/interfaces.md` §4.10, §5), so that the adapter contract suite can run against
 //! any adapter.
 //!
+//! Added by #55 (F6), against `spec/session-channels.md` §7 and §8 and `spec/security.md`
+//! §8.4, §10 and §11 at revision 0.1:
+//!
+//! - [`registry`]: the presence registry (states, staleness, carrier loss, the
+//!   cross-implementation cap), the issuer of own sessions' records, discovery and the
+//!   presence step of a send.
+//! - [`presence_auth`]: the authenticated presence record and the consumer's checks.
+//! - [`sender`]: the send decision of §8.3.3 and the per-envelope delivery-state machine.
+//! - [`receiver`]: security step 5 and the delivery stage for one copy, hand-off outcomes,
+//!   and the receipt gate with its rate limit.
+//! - [`receipt_auth`]: the authenticated receipt.
+//! - [`reply`]: reply headers and reply correlation (§8.2).
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 pub mod adapter;
@@ -65,9 +78,15 @@ pub mod json;
 pub mod keys;
 pub mod pairing;
 pub mod presence;
+pub mod presence_auth;
 pub mod receipt;
+pub mod receipt_auth;
+pub mod receiver;
 pub mod registration;
+pub mod registry;
 pub mod replay;
+pub mod reply;
+pub mod sender;
 pub mod signing;
 pub mod transport;
 pub mod trust;

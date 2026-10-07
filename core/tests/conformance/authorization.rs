@@ -9,9 +9,9 @@
 //! - `key-removal` (§5.3, [SEC-KEY-035]), in full.
 //! - `exchange` (§9), with steps 3 and 5 of the security stage taken as passed: no
 //!   `exchange` fixture is decided by the replay window or the duplicate store.
-//! - `presence-auth` for the `sec-auz` fixtures ([SEC-AUZ-017]): signature, audience and
-//!   the relation test. The other checks of §11 (freshness, `seq`, conflict marks) belong to
-//!   the presence registry, and no `sec-auz` fixture is decided by them.
+//! - `presence-auth` runs in `presence_receipts` (#55, F6), through the engine built here
+//!   ([`engine`]) and `oac_core::presence_auth`; an `exchange` step `accept-presence` runs
+//!   the same path.
 //!
 //! Every engine is built the way a running implementation fills one: its own device key
 //! from the fixture's test key seed (`tests/protocol/sec-test-keys.json`), its own sessions
@@ -25,7 +25,7 @@ use oac_core::authorization::{
     LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide, Requester, SentRecord,
     WorkingDirectoryScope,
 };
-use oac_core::canonical::SigningDomain;
+
 use oac_core::clock::{Clock, ManualClock};
 use oac_core::delivery::DeliveryState;
 use oac_core::envelope::{EnvelopeLimits, receive_envelope};
@@ -33,10 +33,13 @@ use oac_core::ids::{KeyId, SessionId, Timestamp, Token};
 use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::{DeviceIdentity, DeviceKey, PublicKey, SecretSeed};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
+use oac_core::presence_auth::{AuthenticatedPresenceRecord, accept_authenticated_record};
+use oac_core::registry::PresenceRegistry;
 use oac_core::replay::DuplicateStore;
-use oac_core::signing::verify_signed;
+use oac_core::transport::CarrierHandle;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::time::Instant;
 
 struct TestKey {
     principal: String,
@@ -93,7 +96,7 @@ fn ok() -> OperatorConfirmed {
 
 /// The device whose key id is `key_id`, from its test seed; a fresh one when the fixture
 /// names no own key.
-fn own_identity(key_id: Option<&str>) -> DeviceIdentity {
+pub(super) fn own_identity(key_id: Option<&str>) -> DeviceIdentity {
     let Some(k) = key_id else {
         return DeviceIdentity::new(DeviceKey::generate(), Token::parse("oac-test-own").unwrap());
     };
@@ -155,7 +158,7 @@ pub(super) fn add_grants(
 /// The engine of one implementation in a fixture: `own`, the trusted keys (the context's
 /// `trusted_keys`, or every test key), the own sessions of `sessions`, the bindings of
 /// `bindings` for other sessions, the `grants`, and the `sent` and `handed_off` records.
-fn engine(
+pub(super) fn engine(
     own: &DeviceIdentity,
     context: &JsonObject,
     clock: Arc<dyn Clock>,
@@ -244,12 +247,24 @@ fn engine(
         .flatten()
     {
         let r = r.as_object().unwrap();
+        let to = sid(str_of(r, "to").unwrap());
+        // A `receipt-auth` sent list names neither `to_key_id` nor `created_at` (§3.3: the
+        // members "a stage needs"): the key `to` is bound to stands in for the first, and a
+        // fixed instant, read by no `receipt-auth` check, for the second.
+        let to_key_id = match str_of(r, "to_key_id") {
+            Some(k) => kid(k),
+            None => match e.binding(&to) {
+                Some(Binding::Key(k)) => k.clone(),
+                _ => own.key_id().clone(),
+            },
+        };
         e.record_sent(SentRecord {
             id: Token::parse(str_of(r, "id").unwrap()).unwrap(),
             from: sid(str_of(r, "from").unwrap()),
-            to: sid(str_of(r, "to").unwrap()),
-            to_key_id: kid(str_of(r, "to_key_id").unwrap()),
-            created_at: ts(str_of(r, "created_at").unwrap()),
+            to,
+            to_key_id,
+            created_at: ts(str_of(r, "created_at").unwrap_or("2026-10-03T12:00:00Z")),
+            nonce: str_of(r, "nonce").map(str::to_owned),
         });
     }
     for r in context
@@ -309,7 +324,7 @@ fn bindings_of(e: &AuthorizationEngine) -> BTreeMap<String, String> {
 /// Compares the binding table with `expected.bindings_after`. The stages differ on whether
 /// their binding map lists the implementation's own sessions (§3.3): `security` does,
 /// `presence-auth` does not, so `include_own` says which.
-fn check_bindings_after(
+pub(super) fn check_bindings_after(
     e: &AuthorizationEngine,
     expected: &JsonObject,
     include_own: bool,
@@ -425,52 +440,28 @@ pub(super) fn run_key_removal(fx: &Fixture) -> Result<(), String> {
     Ok(())
 }
 
-/// The checks of an authenticated presence record that the `sec-auz` fixtures exercise:
-/// signature under `oac-presence-v1` ([SEC-PRS-002]), the audience is this device
-/// ([SEC-PRS-013]), and the relation test ([SEC-AUZ-017]). An accepted announcement binds
-/// its unbound session id ([SEC-PRS-005]).
-fn accept_presence(e: &mut AuthorizationEngine, record: &JsonObject) -> &'static str {
-    let Ok(entry) = verify_signed(e.trusted_keys(), SigningDomain::Presence, record) else {
-        return "discarded";
-    };
-    let signer = entry.key_id().clone();
-    if str_of(record, "audience") != Some(e.own_key_id().as_str()) {
-        return "discarded";
+/// An `exchange` step `accept-presence`: the consumer checks of `spec/security.md` §11
+/// through `oac_core::presence_auth`, into the implementation's presence registry, with the
+/// engine's binding table and relation test ([SEC-AUZ-017]).
+fn accept_presence(
+    e: &mut AuthorizationEngine,
+    registry: &mut PresenceRegistry,
+    record: &JsonObject,
+) -> &'static str {
+    let ar =
+        AuthenticatedPresenceRecord::from_json(&Json::Object(record.clone())).expect("an object");
+    let out = accept_authenticated_record(
+        &ar,
+        e,
+        registry,
+        CarrierHandle::from_opaque(b"exchange".to_vec()),
+        Instant::now(),
+    );
+    if out.accepted() {
+        "accepted"
+    } else {
+        "discarded"
     }
-    let inner = obj(record, "record");
-    let session = sid(str_of(inner, "session_id").unwrap());
-    let d = e.decide(&AuthorizationRequest::AcceptPresence {
-        signing_key: signer.clone(),
-        session: session.clone(),
-    });
-    if !d.permits(Kind::AcceptPresence) {
-        return "discarded";
-    }
-    match e.bind(&session, &signer) {
-        BindOutcome::Bound | BindOutcome::AlreadyBound => "accepted",
-        _ => "discarded",
-    }
-}
-
-/// Stage `presence-auth`, for the `sec-auz` fixtures only.
-pub(super) fn run_presence_auth(fx: &Fixture) -> Result<(), String> {
-    let context = obj(&fx.v, "context");
-    let expected = obj(&fx.v, "expected");
-    let own = own_identity(str_of(context, "own_key_id"));
-    let clock = Arc::new(ManualClock::new(ts(
-        str_of(context, "consumer_time").unwrap()
-    )));
-    let (mut e, _) = engine(&own, context, clock);
-    let record = obj(obj(&fx.v, "input"), "authenticated_record");
-    let got = accept_presence(&mut e, record);
-    let want = str_of(expected, "result").unwrap();
-    if got != want {
-        return Err(format!("{got}, expected {want}"));
-    }
-    if str_of(expected, "record").is_some_and(|r| r != "none") {
-        return Err("a sec-auz presence fixture expects a finding".into());
-    }
-    check_bindings_after(&e, expected, false)
 }
 
 fn envelope_octets(step: &JsonObject) -> Vec<u8> {
@@ -486,6 +477,7 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
         store: MemoryPairingStore,
         clock: Arc<ManualClock>,
         duplicates: DuplicateStore,
+        registry: PresenceRegistry,
     }
     let start = ts("2026-01-01T00:00:00Z");
     let mut impls: BTreeMap<String, Impl> = BTreeMap::new();
@@ -502,6 +494,7 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
                 store,
                 clock,
                 duplicates,
+                registry: PresenceRegistry::new(),
             },
         );
     }
@@ -540,7 +533,7 @@ pub(super) fn run_exchange(fx: &Fixture) -> Result<(), String> {
                 out.insert("released".into(), released.to_string());
             }
             "accept-presence" => {
-                let r = accept_presence(e, obj(step, "authenticated_record"));
+                let r = accept_presence(e, &mut imp.registry, obj(step, "authenticated_record"));
                 out.insert("result".into(), r.to_string());
             }
             "discover" => {

@@ -4,6 +4,60 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #55 (F6): the presence registry and the delivery
+receipt state machine land in `core/`**, against `spec/session-channels.md` §7 and §8 and
+`spec/security.md` §8.4, §10 and §11, revision 0.1. No `spec/` file, gate verdict, pin,
+dependency or ADR text changes.
+
+- **What landed.** `core/src/registry.rs`: the presence registry (three states, lifetimes
+  from acceptance on a monotonic clock, carrier loss, `seq` order, forgetting, the 300-second
+  cross-implementation cap of [SEC-PRS-007]), own sessions (online while bound, unreachable
+  when withheld or ended, so one session's exit leaves every other session's presence as it
+  was, C2 §5), the issuer of own records ([SC-DLV-050] to [SC-DLV-057]), discovery (online
+  only) and the presence step of a send. `core/src/presence_auth.rs`: the authenticated
+  presence record and the consumer's checks in the §11.4 order. `core/src/sender.rs`: the
+  send decision of §8.3.3 and the per-envelope state machine ([SC-RCP-085], §8.4.2).
+  `core/src/receiver.rs`: security step 5 and the delivery stage through
+  `DuplicateStore::try_admit` (an in-flight copy is re-queued, never parked), the
+  hand-off-deadline re-check right before the hand-off call, Table 5.3 outcomes, a
+  reservation settled on every path, and the receipt gate with a per-device rate limit
+  ([SEC-RPL-030], [SEC-RPL-031], [SEC-RCT-004], [SEC-RCT-005]). `core/src/receipt_auth.rs`:
+  the authenticated receipt. The PR #317 (N2) caller obligations are met in `receiver.rs`.
+- **PR #321 review.** `ReceiverReport` is sealed (private fields, crate-private
+  constructors and `observed`, compile-fail doctests), so nothing outside `core` can mint
+  an `ObservedReceipt`, and no report can panic. An in-flight copy comes back with its key
+  and, from `receive`, the copy itself; `DuplicateStore::when_settled` calls back when the
+  earlier copy settles (no timer). A panic before the hand-off call settles the copy as not
+  handed off. Memory is bounded: an `EnvelopeTracker` keeps fixed-size flags (`Held`), and
+  the presence registry holds at most `capacity` sessions besides its own, forgetting
+  `unreachable` ones to make room (and their binding-table entries). Every `security`
+  fixture also runs through `receiver::receive_octets`. Ten review mutants are killed by
+  named tests.
+- **PR #321 re-review.** A re-queued copy is re-offered through `receiver::redeliver`, which
+  shares `receive`'s tail, so its hand-off is recorded ([SEC-AUZ-016]); `deliver` is now
+  crate-private. The presence registry counts sessions per signing key: a per-key quota
+  and a fair share when full, so one related device cannot lock other peers out
+  (`11-risks.md` RISK-PRESENCE-SHARE). Envelope-created bindings stay unbounded until
+  #325 (RISK-BINDING-TABLE). Settle callbacks are each contained by `catch_unwind`, and
+  run on their own thread when the settling thread is unwinding.
+- **Integrated with F10 (#59, PR #323).** `HandOffOutcome` has one definition,
+  `core::adapter::HandOffOutcome`; `receiver` re-exports it and adds the receiver-side
+  `may_be_handed_off`.
+- **Integrated with F5 (#54, PR #316).** `receiver::receive` runs Table 7.1 steps 1 to 5
+  in order, step 4 through `AuthorizationEngine::authorize_delivery`; `receiver::deliver`
+  and the duplicate store take only the `AuthorizedMessage` step 4 builds, and a hand-off
+  is recorded in the engine ([SEC-AUZ-016]). Presence-auth and receipt-auth use the engine
+  directly: its binding table and conflict marks, its `accept-presence` decision as the
+  [SEC-AUZ-017] relation test, its clock for freshness, and its sent records, which now
+  carry the envelope's nonce (`SentRecord::nonce`, for [SEC-RCT-003] check 3). The
+  conformance runner builds the real engine for `receive`, `presence-auth` (all 15
+  fixtures) and `receipt-auth`; no step-4 verdict is taken from a fixture, and an
+  `exchange` `accept-presence` step runs the same consumer path.
+- **Conformance.** `core/tests/conformance.rs` now runs `presence` in full (`discarded`,
+  `states`, `send`), `discovery`, `send`, `routing`, `receive`, `combine`, `reply`,
+  `correlation` (`core/src/reply.rs`, §8.2), `presence-auth` and `receipt-auth`, and
+  `receipt_permitted` of the `security` stage.)
+
 **Last updated:** 2026-10-06 (**Issue #59 (F10): the adapter and transport contract
 suites land at `tests/protocol/contract/`**, against `spec/interfaces.md` revision 0.1 §5 and
 §6. No `spec/` file, gate verdict, pin or ADR text changes. The only third-party crates added are

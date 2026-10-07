@@ -9,10 +9,10 @@
 //! - `envelope` (§3.3): [`receive_envelope`]; a valid envelope must round-trip.
 //! - `receipt` (§8.5): [`DeliveryReceipt::from_json`] and the effective state.
 //! - `negotiation` (§6.10): [`SessionCapabilities::agree`].
-//! - `presence` (§7.5): the `discarded` list only. A record is discarded when
-//!   [`PresenceRecord::from_json`] refuses it ([SC-DLV-040]) or its `seq` is not above
-//!   the latest accepted one for its session ([SC-DLV-042]). The presence states, which
-//!   turn on lifetimes and carrier loss, are the presence registry's (task F6).
+//! - `presence` (§7.5), `discovery`, `send`, `routing`, `receive`, `combine`, `reply`,
+//!   `correlation`, and `spec/security.md`'s `presence-auth` and `receipt-auth` (#55, F6):
+//!   see [`presence_receipts`]. The `presence` stage checks `discarded`, `states` and
+//!   `send`.
 //! - Every fixture, of any stage, whose `expected` holds `canonical`: the canonical text
 //!   of `spec/security.md` §6.2 for its signed object.
 //!
@@ -38,12 +38,13 @@
 //!   [SC-RCP-091], [SC-RCP-092]) of the `routing` fixtures that test it.
 //!
 //! Stages run in [`authorization`] (#54, F5): `discovery-auth`, `key-removal` and `exchange`
-//! in full (an `exchange` receive runs all five steps of Table 7.1), and `presence-auth` for
-//! the `sec-auz` fixtures. A copy refused at step 4 is checked to add no duplicate-store
-//! entry, which a later arrival of the same envelope observes (`SEC-RPL-022.p03`).
+//! in full (an `exchange` receive runs all five steps of Table 7.1; its `accept-presence`
+//! runs `oac_core::presence_auth`). A copy refused at step 4 is checked to add no
+//! duplicate-store entry, which a later arrival of the same envelope observes
+//! (`SEC-RPL-022.p03`). `presence-auth`, every fixture, runs in [`presence_receipts`]
+//! through the engine [`authorization`] builds.
 //!
-//! Other stages (binding, send, routing, receipt-auth, presence-auth outside `sec-auz`,
-//! ...) exercise logic later tasks own.
+//! Other stages (binding, ...) exercise logic other tasks own.
 
 use oac_core::authorization::{AuthorizationEngine, HandOffRecord, Kind};
 use oac_core::canonical::{SigningDomain, signed_text, signing_input};
@@ -54,7 +55,6 @@ use oac_core::envelope::{ChannelMessage, EnvelopeLimits, receive_envelope};
 use oac_core::ids::{Timestamp, Token, Version};
 use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::{DeviceIdentity, DeviceKey, PublicKey};
-use oac_core::presence::PresenceRecord;
 use oac_core::receipt::DeliveryReceipt;
 use oac_core::registration::RegistrationRecord;
 use oac_core::replay::{
@@ -63,7 +63,7 @@ use oac_core::replay::{
 };
 use oac_core::signing::authenticate;
 use oac_core::trust::TrustedKeySet;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -71,6 +71,8 @@ use std::sync::Arc;
 // not a test target of its own.
 #[path = "conformance/authorization.rs"]
 mod authorization;
+#[path = "conformance/presence_receipts.rs"]
+mod presence_receipts;
 
 fn protocol_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -345,49 +347,6 @@ fn run_negotiation(fx: &Fixture) -> Result<(), String> {
         }
         (got, want) => Err(format!("got {got:?}, expected {want}")),
     }
-}
-
-fn run_presence(fx: &Fixture) -> Result<(), String> {
-    let mut latest: HashMap<String, u64> = HashMap::new();
-    let mut discarded = Vec::new();
-    for (idx, ev) in obj(&fx.v, "input")
-        .get("events")
-        .and_then(Json::as_array)
-        .unwrap()
-        .iter()
-        .enumerate()
-    {
-        let Some(rec) = ev.as_object().unwrap().get("record") else {
-            continue; // a carrier-loss event
-        };
-        match PresenceRecord::from_json(rec) {
-            Err(_) => discarded.push(idx as u64), // [SC-DLV-040]
-            Ok(r) => {
-                let back = PresenceRecord::from_octets(&r.to_octets())
-                    .map_err(|e| format!("event {idx}: round trip refused: {e:?}"))?;
-                if back != r {
-                    return Err(format!("event {idx}: record does not round-trip"));
-                }
-                match latest.get(r.session_id().as_str()) {
-                    Some(&seq) if r.seq() <= seq => discarded.push(idx as u64), // [SC-DLV-042]
-                    _ => {
-                        latest.insert(r.session_id().as_str().to_owned(), r.seq());
-                    }
-                }
-            }
-        }
-    }
-    let want: Vec<u64> = obj(&fx.v, "expected")
-        .get("discarded")
-        .and_then(Json::as_array)
-        .unwrap()
-        .iter()
-        .map(uint)
-        .collect();
-    if discarded != want {
-        return Err(format!("discarded {discarded:?}, expected {want:?}"));
-    }
-    Ok(())
 }
 
 /// The trusted key set of a fixture's `context.trusted_keys` (`spec/security.md` §3.3).
@@ -791,17 +750,26 @@ fn conformance_fixtures() {
             "envelope" => Some(run_envelope(&fx)),
             "receipt" => Some(run_receipt(&fx)),
             "negotiation" => Some(run_negotiation(&fx)),
-            "presence" => Some(run_presence(&fx)),
-            "security" => Some(run_security(&fx)),
+            "presence" => Some(presence_receipts::run_presence(&fx)),
+            "discovery" => Some(presence_receipts::run_discovery(&fx)),
+            "send" => Some(presence_receipts::run_send(&fx)),
+            "routing" => Some(presence_receipts::run_routing(&fx)),
+            "receive" => Some(presence_receipts::run_receive(&fx)),
+            "combine" => Some(presence_receipts::run_combine(&fx)),
+            "reply" => Some(presence_receipts::run_reply(&fx)),
+            "correlation" => Some(presence_receipts::run_correlation(&fx)),
+            "presence-auth" => Some(presence_receipts::run_presence_auth(&fx)),
+            "receipt-auth" => Some(presence_receipts::run_receipt_auth(&fx)),
+            "security" => Some(
+                run_security(&fx)
+                    .and_then(|()| presence_receipts::run_security_through_receive(&fx)),
+            ),
             "replay" => Some(run_replay(&fx)),
             "key-id" => Some(run_key_id(&fx)),
             "registration" => Some(run_registration(&fx)),
             "discovery-auth" => Some(authorization::run_discovery_auth(&fx)),
             "key-removal" => Some(authorization::run_key_removal(&fx)),
             "exchange" => Some(authorization::run_exchange(&fx)),
-            "presence-auth" if fx.path.starts_with("sec-auz") => {
-                Some(authorization::run_presence_auth(&fx))
-            }
             _ => None,
         };
         if let Some(r) = outcome {
@@ -829,6 +797,24 @@ fn conformance_fixtures() {
         "negotiation negative",
         "presence positive",
         "presence negative",
+        "discovery positive",
+        "discovery negative",
+        "send positive",
+        "send negative",
+        "routing positive",
+        "routing negative",
+        "receive positive",
+        "receive negative",
+        "combine positive",
+        "combine negative",
+        "reply positive",
+        "reply negative",
+        "correlation positive",
+        "correlation negative",
+        "presence-auth positive",
+        "presence-auth negative",
+        "receipt-auth positive",
+        "receipt-auth negative",
         "security positive",
         "security negative",
         "replay positive",
@@ -841,8 +827,6 @@ fn conformance_fixtures() {
         "key-removal positive",
         "exchange positive",
         "exchange negative",
-        "presence-auth positive",
-        "presence-auth negative",
         "canonical",
     ] {
         assert!(
@@ -1019,9 +1003,10 @@ fn error_table_matches_the_spec() {
 /// (`spec/session-channels.md` [SC-RCP-091], [SC-RCP-092]; delivery stage, step 4): the
 /// envelope passes the envelope stage at `receiver_time`, and [`HandOffDeadline`] at
 /// `handoff_time` gives the expected state and code, or lets it through for `valid`. The
-/// rest of the `routing` stage (sessions, availability, capabilities) is F6's; in these
-/// fixtures every one of those checks passes. Their signatures are placeholders, since the
-/// stage takes the sender's authorization as given, so the security stage is not run.
+/// rest of the `routing` stage (sessions, availability, capabilities) runs in
+/// `presence_receipts::run_routing`; in these fixtures every one of those checks passes.
+/// Their signatures are placeholders, since the stage takes the sender's authorization as
+/// given, so the security stage is not run.
 #[test]
 fn handoff_deadline_fixtures() {
     let mut ran = Vec::new();

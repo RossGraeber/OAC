@@ -595,6 +595,41 @@ list.
   exhausts only its own share. Until it lands, an operator can remove the misbehaving
   device's grants or key ([SEC-KEY-035]); its entries then age out within the window.
 
+### RISK-PRESENCE-SHARE — Related devices crowd the presence registry
+
+- **Risk.** `core::registry::PresenceRegistry` (F6, #55) holds at most `capacity` sessions
+  of other implementations (default 4096). Each signing key holds at most a quarter of
+  them, and when the registry is full of `online` sessions, a new session from a key
+  holding `n` evicts one session of a key holding the most, only when that is at least
+  `n + 2`; both stop at an equal split. Among the keys holding the most, the session most
+  recently taken in is evicted, so ties are not broken by key-id order and no key can
+  steer the eviction onto another. One related
+  device therefore cannot lock other peers out: a peer's session forgotten after a carrier
+  loss comes back with its next announcement. Several colluding related devices (paired,
+  granted, each under its quota) can still keep the registry full and push every key's
+  share toward an equal split, so a legitimate device with many sessions loses some of
+  them to evictions (PR #321 re-review, N10).
+- **What it invalidates.** Nothing in the ADR-001 validation criterion. It needs several
+  paired and granted devices to misbehave together.
+- **Early-warning signal.** `PresenceDiscard::Full` or `PresenceDiscard::IssuerQuota`
+  discards, or a peer's sessions flickering between `online` and `unknown`.
+- **Response.** An operator removes the misbehaving devices' keys or grants
+  ([SEC-KEY-035]); their sessions are then forgotten as they go stale. A lower per-key quota
+  (`PresenceRegistry::with_limits`) narrows each device's share.
+
+### RISK-BINDING-TABLE — Envelope-created bindings are unbounded
+
+- **Risk.** `AuthorizationEngine::authorize_delivery` (F5, #54) binds every new `from` that
+  passes security step 4 ([SEC-PRS-005]), and nothing forgets those entries. A device
+  holding a device-wide inbound grant can grow the binding table without bound by sending
+  envelopes from fresh session ids. The presence path is bounded: entries for sessions the
+  registry forgets are removed (F6, #55). This path is not (PR #321 re-review, N11).
+- **What it invalidates.** Nothing in the ADR-001 validation criterion; it is a memory
+  exhaustion risk from an authorized peer.
+- **Early-warning signal.** Binding-table size growing with no matching presence records.
+- **Response.** Follow-up #325 bounds the table. Until then, an operator removes the
+  device's grant or key ([SEC-KEY-035]), which removes its bindings in the same step.
+
 ## R5 — Low-impact / non-dependency risks
 
 ### RISK-ACP — ACP schema v2 alpha status unconfirmed
