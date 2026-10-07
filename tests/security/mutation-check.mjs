@@ -203,8 +203,8 @@ export const MUTATIONS = [
   {
     name: 'X exhaustion: a binding evicted before its hand-off is not bound again (#325)',
     file: 'core/src/authorization.rs',
-    from: '&& self.trusted.get(&k).is_some()',
-    to: '&& false',
+    from: '(false, Some(k), None) if self.trusted.get(&k).is_some() => Some(k),',
+    to: '(false, Some(k), None) if false => Some(k),',
     coreOnly: 'authorization::tests::envelope_bindings_leave_the_bound_when_referred_to',
   },
   // PR #334 review: B1, R4, R5, R7 and N3. The sequences need a binding forgotten while a
