@@ -4,6 +4,59 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-06 (**Issue #54 (F5): the authorization engine and the pairing
+store land in `core/`**, against `spec/security.md` revision 0.1 §9 and §5.3 and
+`spec/interfaces.md` §4.9. No `spec/` file, gate verdict, pin or ADR text changes, and no
+dependency is added.
+
+- **What landed.** `core/src/authorization.rs`: one-way inbound and outbound grants naming a
+  session, a working-directory scope or the whole device; the binding table with conflict
+  marks; reply rights, which cover replies to the one message they were recorded for, for
+  24 hours ([SEC-AUZ-014] limits them by correlation, not by count); hand-off records; the
+  five decision kinds of Table 4.9, each `deny` unless a recorded basis permits it; security step
+  4 of Table 7.1; key removal that drops the key's grants, bindings and conflict marks in the
+  same step ([SEC-KEY-035]); and a decision log that records the principal and session ids,
+  never a message body. `core/src/pairing.rs`: the pairing exchange and the `PairingStore`
+  seam with an in-memory test double. No store on disk is added; one belongs to `cli/`,
+  opt-in, as F3's key stores do.
+- **Conformance, integrated with F4 (#53, merged first).** `core/tests/conformance.rs` now
+  runs all five steps of Table 7.1 through `oac-core`. Step 4 is
+  `AuthorizationEngine::authorize_delivery`, between F4's `check_replay_window` and
+  `DuplicateStore::admit`, and it replaces F4's interim verdict taken from the fixture
+  (described in the #53 entry below). `admit` and `try_admit` take only the
+  `AuthorizedMessage` that step 4 produces, so a copy refused at step 4 cannot reserve a
+  store entry. The engine reads F4's `Clock`. The `replay` stage keeps one engine across
+  arrivals and applies each arrival's `grants_add` (`SEC-RPL-022.p03`). The `exchange`
+  stage's receive runs steps 3 and 5. Hand-offs feed `record_handoff`. The stages
+  `discovery-auth`, `key-removal` and `exchange` run in full, and `presence-auth` runs for
+  the `sec-auz` fixtures. All 34 `sec-auz` fixtures and `sec-key/SEC-KEY-035.p01` run
+  through `oac-core`.
+- **Finding F5-1 (pairing code).** `docs/planning/decisions/C5-envelope-auth.md` §10(b)
+  derives the six-digit code from the two keys' fingerprints alone. Its MITM argument does
+  not hold for a code of about 2^20 values: an attacker on the exchange channel can generate
+  key pairs offline until its substituted keys give both devices the same code. The
+  reference implementation therefore adds a commit-then-reveal nonce exchange, as
+  numeric-comparison pairing does, and derives the code from both principals, both public
+  keys and both nonces (`core/src/pairing.rs` module documentation; unit test
+  `substituted_key_or_nonce_changes_the_code_or_fails`). A responder answers one offer per
+  operator-started pairing, and an exchange abandoned before the reveal ends the pairing
+  visibly (`ResponderPairing`; PR #316 review N1), so a substituted key matches with
+  probability 10^-6 per operator-visible exchange. The 6-digit, 120-second and 5-attempt
+  parameters are unchanged. This departs from a recorded decision; C5 §10(b) carries a dated
+  note for it, **pending operator acknowledgement on #54**. `spec/security.md` §5.3 fixes
+  what pairing establishes, not the exchange, so [SEC-KEY-032] to [SEC-KEY-034] are met as
+  frozen. Its informative reference implementation note leaves out the nonce exchange; the
+  follow-up is recorded for the #308 batch. `11-risks.md` rows 25 and 26 are updated.
+- **Follow-ups for the `cli/` pairing verb and on-disk store, recorded on #71.** The verb
+  starts each pairing only on an operator's request and shows every `PairingEnd`. A key
+  removal whose save fails (`RemoveKeyError::NotSaved`) leaves the key revoked in memory
+  only, so a restart before a successful save would restore it. The verb must report that
+  failure loudly and retry the save.
+- **Same-device harnesses.** They need no pairing: they share the device key, which is
+  always trusted ([SEC-KEY-031]). They still need a grant to reach each other
+  ([SEC-AUZ-007], the #45 operator decision), so "no configuration" in #54's acceptance holds
+  for pairing, not for authorization.)
+
 **Last updated:** 2026-10-06 (**Issue #58 (F9): the fake Codex app-server endpoint lands
 at `tests/fakes/codex-app-server/`**, a dev/test-only Node process (built-ins only) over
 stdio and loopback WebSocket. No `spec/` file, gate verdict, pin or ADR text changes, and
@@ -2220,11 +2273,19 @@ without an UNVERIFIED label.
   2026-10-03, #45: narrowed. `spec/security.md` §5.2 fixes the key id, the envelope's
   `security.key_id` and the rendered device provenance, as the full 256-bit SHA-256 in
   lower-case hex, so no truncation applies there. The pairing-code and certificate uses
-  stay open.)*
+  stay open.)* *(Dated note, 2026-10-06, #54: narrowed again. The pairing code hashes the
+  full 32-octet public keys, not a truncated fingerprint (`core/src/pairing.rs`), and the
+  key-id comparison flow compares the full key id. The certificate use stays open.)*
 - Whether the 6-digit/120-second/5-attempt LAN pairing-code parameters hold up against a
   live implementation's actual network conditions (UNVERIFIED — these are OAC's own
   design parameters, not a claim about an external system; runtime validation is a Stage
-  3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16).
+  3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16). *(Dated note,
+  2026-10-06, #54: narrowed. `core/src/pairing.rs` implements the three parameters, and
+  its unit tests show the expiry at 120 seconds and the abort after five wrong entries.
+  Brute force is bounded by a commit-then-reveal exchange (finding F5-1, in the #54
+  entry above): five online guesses per session, against 10^6 codes. What stays open is
+  the network half: no live LAN pairing has run, because the `cli/` pairing verb does
+  not exist yet.)*
 
 - **New, from E9 (#49, 2026-10-06):** whether each NATS client library can disable its
   reconnect buffer, not only resize it (UNVERIFIED — the first-party page documents the

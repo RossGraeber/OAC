@@ -35,11 +35,19 @@
 //!
 //! - [`replay`]: security-stage step 3 (the replay window), step 5 (the duplicate store)
 //!   and the hand-off deadline (§8; `spec/session-channels.md` §8.1.3). Step 4,
-//!   authorization, is F5's.
+//!   authorization, is [`authorization`]'s.
 //! - [`clock`]: the injectable receiver clock those checks read.
+//!
+//! Added by #54 (F5), against `spec/security.md` revision 0.1 and `spec/interfaces.md` §4.9:
+//!
+//! - [`authorization`]: grants, the binding table, reply rights, `AuthorizationRequest` and
+//!   `AuthorizationDecision`, security step 4, key removal, and the decision log (§9).
+//! - [`pairing`]: the operator-confirmed pairing exchange and the [`pairing::PairingStore`]
+//!   seam (§5.3).
 //!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
+pub mod authorization;
 mod base64url;
 pub mod canonical;
 pub mod capabilities;
@@ -50,6 +58,7 @@ pub mod health;
 pub mod ids;
 pub mod json;
 pub mod keys;
+pub mod pairing;
 pub mod presence;
 pub mod receipt;
 pub mod registration;
