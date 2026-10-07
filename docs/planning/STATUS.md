@@ -4,6 +4,32 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #331: the core binds from native signals
+(`spec/session-channels.md` §6.7).** No `spec/` file, gate verdict, pin, third-party
+dependency or ADR text changes.
+
+- **Core.** New `core/src/session_binding.rs`: the pairing outcome, the ordered cases of
+  §6.7.3, the stale-binding rule of §6.7.4 and their findings and diagnostics. `Pipelines`
+  now decides every `native-signal` event with it (pairing by the key the core process
+  observed for a connection, `Pipelines::connect_observed`; a bounded hold window; one
+  decision at a time; [SC-ID-154] withholding when an unpairable signal can be attributed).
+- **Pairing key still UNVERIFIED.** Which OS facility yields the key stays open with G9
+  (#70). A connection given through `Pipelines::connect` has none, so every native signal
+  fails closed with a finding ([SC-ID-125], [SC-ID-129]) until G9 supplies one.
+- **Conformance.** `core/tests/conformance.rs` runs all 26 `binding` fixtures through the
+  core; `binding` leaves the not-run list (`mcp-binding`, `provenance` and `body` stay
+  adapter work).
+- **Security suite.** 06 row 24 reads "core decision proven; pairing key gated (G9)";
+  row 19 gains a resume test. The F11 table in 09 §12 is updated to match.
+- **Review fixes (PR #333).** A held signal re-pairs with an attachment opened while
+  another decision runs; a signal dropped at the pending cap still withholds what it is
+  attributed to ([SC-ID-154]); new `Pipelines::disconnect` frees a connection's place when
+  the daemon observes it end, and ends an attachment's binding ([SC-ID-155]); the G9
+  same-key denial-of-service residual is added to `RISK-LOCAL-IPC`; the per-key share of
+  the pending cap is #335. Re-review: a queued signal keeps the key observed when it was
+  reported, so a hook that disconnects before its turn still pairs; `disconnect` marks an
+  attachment closed before unbinding it, so no session outlives it.)
+
 **Last updated:** 2026-10-07 (**Issues #320, #325, #328: shares and bounds for the
 duplicate store, the envelope-created binding entries and the record lists.** No `spec/`
 file, gate verdict, pin, third-party dependency or ADR text changes; every bound keeps the

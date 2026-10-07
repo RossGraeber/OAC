@@ -68,23 +68,61 @@
 //! store, the presence registry and the receipt limiter bound themselves. No envelope is
 //! held for later delivery: a copy is handed off now or refused now ([SC-DLV-007]).
 //!
+//! # Binding from native signals
+//!
+//! Each `native-signal` event an adapter reports goes through
+//! `spec/session-channels.md` §6.7 here, so no adapter decides a binding (#331):
+//!
+//! 1. pairing ([`crate::session_binding`], §6.7.2): the key is the one the core process
+//!    observed for the connection the signal arrived on ([`Pipelines::connect_observed`]),
+//!    and the candidates are the open attachments of the same adapter observed with an
+//!    equal key. No key, or more than one candidate, is unpairable; no candidate yet holds
+//!    the signal for [`PipelineConfig::native_signal_window`], and an attachment opened
+//!    within it pairs;
+//! 2. the ordered cases of §6.7.3 and the stale-binding rule of §6.7.4
+//!    ([`crate::session_binding::decide`]), against this adapter's attachments;
+//! 3. the change: a bind registers N under a fresh session id with a record this device
+//!    signs, through the same steps as [`Pipelines::bind`], after deregistering an earlier
+//!    binding ([SC-ID-150]); a stale binding is deregistered ([SC-ID-152]);
+//! 4. the records, to the [`crate::session_binding::BindingLog`]
+//!    ([`Pipelines::set_binding_log`]).
+//!
+//! An unpairable or dropped signal that the observed key attributes to bound attachments
+//! withholds delivery to them and their send requests until a signal pairs with one
+//! ([SC-ID-154]). Signals are decided one at a time, in arrival order, by whichever thread
+//! holds the binding turn; a signal reported, or an attachment opened, while the turn is
+//! held makes the holder pass again. The held and queued signals together are bounded by
+//! [`PipelineConfig::max_pending_signals`]. A held signal's window is checked on every
+//! adapter event and when the owner's timer calls [`Pipelines::expire_native_signals`];
+//! nothing polls.
+//!
+//! The daemon calls [`Pipelines::disconnect`] when it observes a local connection end, so
+//! that connections which only carry native signals, and never become attachments, free
+//! their place ([`PipelineConfig::max_connections`]); for an attachment it is also the end
+//! of its binding ([SC-ID-155]).
+//!
+//! *UNVERIFIED (§6.7.2, dated note of 2026-10-03):* no operating-system facility for the
+//! pairing key is established yet (G9, #70). A connection given through
+//! [`Pipelines::connect`] has none, so until one is, every native signal fails closed with
+//! a finding ([SC-ID-125], [SC-ID-129]).
+//!
 //! # What is not here
 //!
-//! Choosing which session an attachment is bound to (the native-signal procedure of
-//! `spec/session-channels.md` §6.7) is the caller's: it calls [`Pipelines::bind`] with a
-//! registration record. Accepting and authenticating local connections is the daemon's
-//! (G9); it passes each to [`Pipelines::connect`].
+//! Accepting and authenticating local connections, observing their peers, and observing
+//! them end, is the daemon's (G9); it passes each to [`Pipelines::connect_observed`] and
+//! reports its end to [`Pipelines::disconnect`].
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use crate::adapter::{
-    AdapterEvent, Attachment, Connection, DiscoveryRequest, DiscoveryRequestResult, HandOff,
-    HandOffOutcome, ProviderAdapter, ReceiptStream, RequestSink, SendRequest, SendRequestResult,
+    AdapterEvent, Attachment, Connection, ConnectionHandle, DiscoveryRequest,
+    DiscoveryRequestResult, HandOff, HandOffOutcome, NativeSignal, ProviderAdapter, ReceiptStream,
+    RequestSink, SendRequest, SendRequestResult,
 };
 use crate::authorization::{
     AuthorizationEngine, AuthorizationRequest, AuthorizedMessage, Binding, HandOffRecord, Kind,
@@ -108,6 +146,11 @@ use crate::registration::RegistrationRecord;
 use crate::registry::{CROSS_IMPLEMENTATION_PRESENCE_CAP_MS, PresenceIssuer, PresenceRegistry};
 use crate::replay::{DuplicateStore, HandOffDeadline};
 use crate::sender::{EnvelopeTracker, ObservedReceipt, prepare_send};
+use crate::session_binding::{
+    AttachmentState, BindingAction, BindingDecision, BindingLog, BindingLogEntry, BindingRecord,
+    BindingResult, MemoryBindingLog, NativeBinding, Pairing, PairingKey, PeerObservation,
+    RecordKind, decide, fresh_session_id,
+};
 use crate::transport::{
     Deadline, Destination, Inbound, Payload, PayloadKind, PresenceEvent, PublishResult, Reach,
     Subscription, Transport, TransportCapabilities, TransportConfiguration, TransportError,
@@ -143,6 +186,16 @@ pub struct PipelineConfig {
     pub max_requeued: usize,
     /// How long a receipt or an announcement may stay in flight in the transport.
     pub control_ttl: Duration,
+    /// How long a native signal that is not yet pairable is held for an attachment to pair
+    /// with ([SC-ID-123]); `spec/session-channels.md` §6.7.2 leaves the length to the
+    /// implementation.
+    pub native_signal_window: Duration,
+    /// The most native signals held or waiting for their decision at once. Past it the
+    /// oldest held signal, or a new one when none is held, is dropped with a diagnostic
+    /// ([SC-ID-123], [SC-ID-128]), withholding any bound attachment its observed key
+    /// attributes it to ([SC-ID-154]). The cap is shared by every key: a per-key share is
+    /// #335.
+    pub max_pending_signals: usize,
 }
 
 impl Default for PipelineConfig {
@@ -161,6 +214,8 @@ impl Default for PipelineConfig {
             max_connections: 1024,
             max_requeued: 1024,
             control_ttl: Duration::from_secs(60),
+            native_signal_window: Duration::from_secs(10),
+            max_pending_signals: 64,
         }
     }
 }
@@ -213,6 +268,38 @@ struct AttachmentEntry {
     adapter: AdapterId,
     open: bool,
     session: Option<SessionId>,
+    /// The N of the binding, with `session` (§6.7).
+    native_id: Option<String>,
+    /// The cross-check value `attachment-opened` reported. Used only by the binding
+    /// decision ([SC-ID-126]).
+    cross_check: Option<String>,
+    /// Delivery and send requests withheld under [SC-ID-154] until a signal pairs with it.
+    withheld: bool,
+}
+
+/// A native signal waiting for its decision, with the pairing key observed for its
+/// connection when it was reported (`None` when there was none).
+struct QueuedSignal {
+    adapter: AdapterId,
+    signal: NativeSignal,
+    key: Option<PairingKey>,
+}
+
+/// A native signal that is not yet pairable, held for the window ([SC-ID-123]).
+struct HeldSignal {
+    adapter: AdapterId,
+    signal: NativeSignal,
+    key: PairingKey,
+    held_at: Instant,
+}
+
+/// How a native signal pairs, at one moment (§6.7.2).
+enum PairAttempt {
+    Paired(Attachment),
+    /// No candidate yet, under this key.
+    NotYet(PairingKey),
+    /// Unpairable; the bound attachments it can be attributed to, for [SC-ID-154].
+    Unpairable(Vec<Attachment>),
 }
 
 struct TrackerEntry {
@@ -249,6 +336,13 @@ struct Core {
     announced: HashMap<(SessionId, KeyId), Announced>,
     transport_caps: Option<TransportCapabilities>,
     device_subscription: Option<Subscription>,
+    /// What the core process observed about each connection's peer ([IFC-ADP-012]); only
+    /// connections given with an observation have an entry.
+    observed: HashMap<Attachment, PeerObservation>,
+    /// Native signals waiting for their decision, in arrival order.
+    signals: VecDeque<QueuedSignal>,
+    /// Native signals held as not yet pairable, in arrival order.
+    held: VecDeque<HeldSignal>,
 }
 
 struct Inner {
@@ -264,6 +358,15 @@ struct Inner {
     requeued: Arc<Mutex<VecDeque<AuthorizedMessage>>>,
     /// Copies waiting on a twin or on the re-queue, for [`PipelineConfig::max_requeued`].
     waiting: AtomicUsize,
+    /// Held by the one thread deciding bindings, so that native signals and binds are
+    /// decided one at a time against the state the previous one left (§6.7.3). A thread
+    /// that finds it taken leaves its signal on the queue for the holder.
+    binding_turn: Mutex<()>,
+    /// Set when an attachment opens, so a held signal may now have a candidate. A holder of
+    /// the binding turn clears it at the start of a pass and passes again while it is set.
+    repair_needed: AtomicBool,
+    /// Where the findings and diagnostics of §6.7 go.
+    binding_log: Mutex<Box<dyn BindingLog>>,
 }
 
 /// The send and receive pipelines of one device (see the module documentation). Cloning
@@ -314,6 +417,9 @@ impl Pipelines {
             announced: HashMap::new(),
             transport_caps: None,
             device_subscription: None,
+            observed: HashMap::new(),
+            signals: VecDeque::new(),
+            held: VecDeque::new(),
         };
         Pipelines {
             inner: Arc::new(Inner {
@@ -326,6 +432,9 @@ impl Pipelines {
                 core: Mutex::new(core),
                 requeued: Arc::default(),
                 waiting: AtomicUsize::new(0),
+                binding_turn: Mutex::new(()),
+                repair_needed: AtomicBool::new(false),
+                binding_log: Mutex::new(Box::new(MemoryBindingLog::new(1024))),
             }),
         }
     }
@@ -402,13 +511,33 @@ impl Pipelines {
     }
 
     /// Gives `connection`, a local connection the daemon accepted and authenticated
-    /// ([IFC-ADP-012]), to `adapter`. Only a handle given to an adapter here can become
-    /// one of its attachments ([IFC-ADP-013]).
+    /// ([IFC-ADP-012]), to `adapter`, with nothing observed about its peer. Only a handle
+    /// given to an adapter here can become one of its attachments ([IFC-ADP-013]).
+    ///
+    /// A connection given this way has no pairing key, so no native signal pairs through
+    /// it ([SC-ID-125]); see [`Pipelines::connect_observed`].
     ///
     /// # Errors
     ///
     /// [`PipelineError::UnknownAdapter`], or [`PipelineError::TooManyConnections`].
     pub fn connect(&self, adapter: AdapterId, connection: Connection) -> Result<(), PipelineError> {
+        self.connect_observed(adapter, connection, PeerObservation::none())
+    }
+
+    /// [`Pipelines::connect`], with what the core process observed about the connection's
+    /// peer when it accepted and authenticated it: the pairing key of [SC-ID-121] and the
+    /// scope of a registration record made for it ([`crate::session_binding`]). The
+    /// observation is the core process's own, never a value the peer sent.
+    ///
+    /// # Errors
+    ///
+    /// [`PipelineError::UnknownAdapter`], or [`PipelineError::TooManyConnections`].
+    pub fn connect_observed(
+        &self,
+        adapter: AdapterId,
+        connection: Connection,
+        observation: PeerObservation,
+    ) -> Result<(), PipelineError> {
         let a = {
             let mut core = self.inner.lock();
             let a = core
@@ -419,8 +548,11 @@ impl Pipelines {
             if core.connections.len() >= self.inner.config.max_connections {
                 return Err(PipelineError::TooManyConnections);
             }
-            core.connections
-                .insert(connection.handle().clone(), adapter);
+            let handle = connection.handle().clone();
+            if observation != PeerObservation::none() {
+                core.observed.insert(handle.clone(), observation);
+            }
+            core.connections.insert(handle, adapter);
             a
         };
         a.take_connection(connection);
@@ -433,7 +565,11 @@ impl Pipelines {
     /// (`set_binding`, [IFC-ADP-030]), and its announcement is released to each device that
     /// may see it ([SC-DLV-051], [SEC-AUZ-011]). The declaration is the adapter's
     /// capabilities for the attachment, with the revision and extension identifier the core
-    /// adds ([IFC-ADP-042]).
+    /// adds ([IFC-ADP-042]). The record's `native_id` is the binding's N for the decisions
+    /// of later native signals (§6.7.3).
+    ///
+    /// The core binds from native signals itself (see the module documentation); this is
+    /// for a binding decided elsewhere. It is decided in turn with native signals.
     ///
     /// # Errors
     ///
@@ -444,7 +580,71 @@ impl Pipelines {
         record: &RegistrationRecord,
         display_name: Option<&str>,
     ) -> Result<(), PipelineError> {
-        let inner = &self.inner;
+        let result = {
+            let _turn = self
+                .inner
+                .binding_turn
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            self.inner.bind_record(attachment, record, display_name)
+        };
+        self.inner.drain_binding();
+        result
+    }
+
+    /// Where the findings and diagnostics of §6.7 are written from now on. By default they
+    /// go to a [`MemoryBindingLog`] of 1024 entries that nothing reads.
+    pub fn set_binding_log(&self, log: Box<dyn BindingLog>) {
+        *self
+            .inner
+            .binding_log
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = log;
+    }
+
+    /// Drops each held native signal whose window has ended at the monotonic clock's now,
+    /// with its diagnostic ([SC-ID-124], [SC-ID-128]). The owner arms one timer at
+    /// [`Pipelines::next_native_signal_expiry`]; every adapter event also drops what has
+    /// expired, so a late attachment never pairs with an expired signal.
+    pub fn expire_native_signals(&self) {
+        self.inner.drain_binding();
+    }
+
+    /// The local connection `connection` ended: the daemon (G9) calls this when its IPC
+    /// layer observes the peer close, by end of stream or a broken pipe, never on a timeout.
+    ///
+    /// The core created the handle for that OS connection ([IFC-ADP-012]), so the end of
+    /// the OS connection ends the core's own entries for it, for an attachment and for a
+    /// connection that only carries native signals alike, and frees its place in
+    /// [`PipelineConfig::max_connections`]. For an attachment it is also evidence that the
+    /// attachment ended: its binding is deregistered ([SC-ID-155]), as on the adapter's
+    /// `attachment-closed` ([IFC-ADP-022]), and a later `attachment-closed` for it changes
+    /// nothing. An unknown handle changes nothing.
+    pub fn disconnect(&self, connection: &ConnectionHandle) {
+        self.inner.end_connection(connection);
+    }
+
+    /// The earliest instant a held native signal's window ends; `None` when none is held.
+    pub fn next_native_signal_expiry(&self) -> Option<Instant> {
+        let window = self.inner.config.native_signal_window;
+        self.inner
+            .lock()
+            .held
+            .iter()
+            .map(|h| h.held_at + window)
+            .min()
+    }
+}
+
+impl Inner {
+    /// The body of [`Pipelines::bind`], with the binding turn held.
+    fn bind_record(
+        self: &Arc<Self>,
+        attachment: &Attachment,
+        record: &RegistrationRecord,
+        display_name: Option<&str>,
+    ) -> Result<(), PipelineError> {
+        let inner = self;
         let sid = record.session_id().clone();
         let adapter = {
             let core = inner.lock();
@@ -492,13 +692,17 @@ impl Pipelines {
             core.subscriptions.insert(sid.clone(), sub);
             if let Some(e) = core.attachments.get_mut(attachment) {
                 e.session = Some(sid.clone());
+                e.native_id = Some(record.native_id().to_owned());
+                e.withheld = false;
             }
         }
         adapter.set_binding(attachment, Some(sid.clone()));
         inner.release_presence(&sid);
         Ok(())
     }
+}
 
+impl Pipelines {
     /// Ends the binding of `attachment`, if it has one: the adapter is told first, so it
     /// hands nothing more off to it ([IFC-ADP-030]); the transport subscription ends
     /// ([IFC-TRN-042]); the engine forgets the session's reply rights ([SEC-AUZ-015]) and
@@ -687,11 +891,12 @@ impl Inner {
     }
 
     /// The session bound to `attachment`, when the request came from the adapter that
-    /// reported it and it is open (attribution, [SC-ID-160], [IFC-ADP-031]).
+    /// reported it and it is open (attribution, [SC-ID-160], [IFC-ADP-031]), and its send
+    /// requests are not withheld ([SC-ID-154]).
     fn requester(core: &Core, adapter: AdapterId, attachment: &Attachment) -> Option<SessionId> {
         core.attachments
             .get(attachment)
-            .filter(|e| e.adapter == adapter && e.open)
+            .filter(|e| e.adapter == adapter && e.open && !e.withheld)
             .and_then(|e| e.session.clone())
     }
 
@@ -1051,6 +1256,11 @@ impl Inner {
     /// The delivery stage's view of the addressed session (§8.3.2 steps 1 to 3): bound here
     /// with an open attachment and not withheld ([SC-ID-154]), with its adapter's
     /// capabilities.
+    ///
+    /// The `withheld` test here decides how the refusal is reported. It is not the only
+    /// guard: [`Inner::hand_off`] re-checks `withheld` under the lock just before the call,
+    /// which also covers a withholding that lands between the two, so dropping it here
+    /// would change a report, never let a hand-off through (PR #333 review, N3).
     fn target(&self, to: &SessionId) -> Option<DeliveryTarget> {
         let (adapter, attachment, accepting) = {
             let core = self.lock();
@@ -1061,7 +1271,7 @@ impl Inner {
             (
                 core.adapters[entry.adapter.0].clone(),
                 attachment,
-                entry.open && online,
+                entry.open && !entry.withheld && online,
             )
         };
         let caps = adapter.capabilities(&attachment);
@@ -1090,7 +1300,7 @@ impl Inner {
             // The re-check is this lookup: `unbind`, and so an attachment's close, removes the
             // session's entry in the same step as its attachment's binding.
             core.sessions.get(msg.envelope().to()).and_then(|a| {
-                let e = core.attachments.get(a)?;
+                let e = core.attachments.get(a).filter(|e| !e.withheld)?;
                 Some((core.adapters[e.adapter.0].clone(), a.clone()))
             })
         };
@@ -1255,20 +1465,33 @@ impl Inner {
 
     // ---- attachments ------------------------------------------------------------------
 
-    fn on_adapter_event(&self, adapter: AdapterId, event: AdapterEvent) {
+    fn on_adapter_event(self: &Arc<Self>, adapter: AdapterId, event: AdapterEvent) {
         match event {
-            AdapterEvent::AttachmentOpened { attachment, .. } => {
-                let mut core = self.lock();
-                // [IFC-ADP-013]: only a handle given to this adapter becomes its attachment.
-                if core.connections.get(&attachment) == Some(&adapter) {
-                    core.attachments
-                        .entry(attachment)
-                        .or_insert(AttachmentEntry {
-                            adapter,
-                            open: true,
-                            session: None,
-                        });
+            AdapterEvent::AttachmentOpened {
+                attachment,
+                cross_check,
+            } => {
+                {
+                    let mut core = self.lock();
+                    // [IFC-ADP-013]: only a handle given to this adapter becomes its
+                    // attachment.
+                    if core.connections.get(&attachment) == Some(&adapter) {
+                        core.attachments
+                            .entry(attachment)
+                            .or_insert(AttachmentEntry {
+                                adapter,
+                                open: true,
+                                session: None,
+                                native_id: None,
+                                cross_check,
+                                withheld: false,
+                            });
+                    }
                 }
+                // A held signal may pair with it now (§6.7.2). Set before the turn is tried,
+                // so a holder that is mid-pass re-runs one (PR #333 review, B1).
+                self.repair_needed.store(true, Ordering::SeqCst);
+                self.drain_binding();
             }
             AdapterEvent::AttachmentClosed { attachment } => {
                 let owned = self
@@ -1277,18 +1500,391 @@ impl Inner {
                     .get(&attachment)
                     .is_some_and(|e| e.adapter == adapter);
                 if owned {
-                    self.unbind(&attachment);
-                    let mut core = self.lock();
-                    core.attachments.remove(&attachment);
-                    core.connections.remove(&attachment);
+                    self.end_connection(&attachment);
                 }
             }
             AdapterEvent::CapabilitiesChanged { attachment } => {
                 self.capabilities_changed(adapter, &attachment);
             }
-            // Binding from native signals (§6.7) is the caller's ([`Pipelines::bind`]).
-            AdapterEvent::NativeSignal(_) => {}
+            AdapterEvent::NativeSignal(signal) => {
+                let dropped = {
+                    let mut core = self.lock();
+                    // The key is snapshot now, while the connection is known (B3).
+                    let key = Inner::observed_key(&core, adapter, &signal);
+                    let full = core.signals.len() + core.held.len()
+                        >= self.config.max_pending_signals.max(1);
+                    if !full {
+                        core.signals.push_back(QueuedSignal {
+                            adapter,
+                            signal,
+                            key,
+                        });
+                        None
+                    } else if let Some(oldest) = core.held.pop_front() {
+                        // Past the bound, the oldest held signal goes ([SC-ID-123]).
+                        core.signals.push_back(QueuedSignal {
+                            adapter,
+                            signal,
+                            key,
+                        });
+                        let attempt = Inner::pair_by_key(&core, oldest.adapter, &oldest.key);
+                        Some((oldest.signal, attempt))
+                    } else {
+                        // With none held, this one does.
+                        let attempt = Inner::pair(&core, adapter, key.as_ref());
+                        Some((signal, attempt))
+                    }
+                };
+                if let Some((s, attempt)) = dropped {
+                    self.drop_signal(&s, attempt);
+                }
+                self.drain_binding();
+            }
         }
+    }
+
+    /// Drops `signal` unbound, with its diagnostic ([SC-ID-124], [SC-ID-128]). When its
+    /// observed key attributes it to bound attachments, delivery to them is withheld
+    /// ([SC-ID-154]; PR #333 review, B2).
+    fn drop_signal(&self, signal: &NativeSignal, attempt: PairAttempt) {
+        let d = decide::<Attachment>(&[], signal, &Pairing::WindowExpired);
+        self.log_decision(&d, None, None);
+        let attributed = match attempt {
+            PairAttempt::Paired(a) => vec![a],
+            PairAttempt::Unpairable(bound) => bound,
+            PairAttempt::NotYet(_) => Vec::new(),
+        };
+        for a in attributed {
+            self.withhold(&a);
+        }
+    }
+
+    /// Forgets the connection `connection`: an attachment's binding ends first
+    /// ([SC-ID-155]), then the core's own entries for it go, whatever kind of connection
+    /// it was.
+    ///
+    /// The attachment is marked closed under the lock before anything else, so a bind
+    /// already past its own checks on the binding turn finds it closed at its locked
+    /// re-check and registers nothing; without that, a bind could complete between the
+    /// unbind below and the removal, leaving a session with no attachment ([SC-ID-155];
+    /// PR #333 re-review, N9).
+    fn end_connection(&self, connection: &ConnectionHandle) {
+        if let Some(e) = self.lock().attachments.get_mut(connection) {
+            e.open = false;
+        }
+        self.unbind(connection);
+        let mut core = self.lock();
+        core.attachments.remove(connection);
+        core.connections.remove(connection);
+        core.observed.remove(connection);
+    }
+
+    // ---- binding from native signals (§6.7) -------------------------------------------
+
+    /// Decides every queued native signal, one at a time, unless another thread is already
+    /// doing so; that thread then decides this thread's signals too.
+    fn drain_binding(self: &Arc<Self>) {
+        loop {
+            {
+                let _turn = match self.binding_turn.try_lock() {
+                    Ok(g) => g,
+                    Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+                    Err(std::sync::TryLockError::WouldBlock) => return,
+                };
+                self.binding_pass();
+            }
+            // A signal queued, or an attachment opened, while the turn was held found the
+            // turn taken and left its work here: do it now (PR #333 review, B1).
+            if self.lock().signals.is_empty() && !self.repair_needed.load(Ordering::SeqCst) {
+                return;
+            }
+        }
+    }
+
+    /// One pass, with the binding turn held: held signals whose window ended are dropped
+    /// ([SC-ID-124]), held signals that now have a candidate are decided, then each signal
+    /// queued when the pass began is paired and decided, in arrival order. Work that
+    /// arrives during the pass is left for [`Inner::drain_binding`]'s next pass.
+    fn binding_pass(self: &Arc<Self>) {
+        self.repair_needed.store(false, Ordering::SeqCst);
+        let now = (self.monotonic)();
+        let window = self.config.native_signal_window;
+        let (expired, queued) = {
+            let mut core = self.lock();
+            let (gone, kept): (VecDeque<HeldSignal>, VecDeque<HeldSignal>) =
+                core.held.drain(..).partition(|h| now >= h.held_at + window);
+            core.held = kept;
+            let expired: Vec<(HeldSignal, PairAttempt)> = gone
+                .into_iter()
+                .map(|h| {
+                    let attempt = Inner::pair_by_key(&core, h.adapter, &h.key);
+                    (h, attempt)
+                })
+                .collect();
+            (expired, core.signals.len())
+        };
+        for (h, attempt) in expired {
+            // [SC-ID-124], [SC-ID-128]: dropped, binding nothing; [SC-ID-154].
+            self.drop_signal(&h.signal, attempt);
+        }
+        let held: Vec<HeldSignal> = self.lock().held.drain(..).collect();
+        for h in held {
+            let attempt = Inner::pair_by_key(&self.lock(), h.adapter, &h.key);
+            match attempt {
+                PairAttempt::NotYet(_) => self.lock().held.push_back(h),
+                attempt => self.resolve(h.adapter, &h.signal, attempt),
+            }
+        }
+        for _ in 0..queued {
+            let Some(QueuedSignal {
+                adapter,
+                signal,
+                key,
+            }) = self.lock().signals.pop_front()
+            else {
+                return;
+            };
+            let attempt = Inner::pair(&self.lock(), adapter, key.as_ref());
+            match attempt {
+                PairAttempt::NotYet(key) => self.lock().held.push_back(HeldSignal {
+                    adapter,
+                    signal,
+                    key,
+                    held_at: now,
+                }),
+                attempt => self.resolve(adapter, &signal, attempt),
+            }
+        }
+    }
+
+    /// Pairs `signal` by the key the core process observed for the connection it arrived
+    /// on ([SC-ID-121]). No connection, a connection not given to `adapter`, or one with no
+    /// observed key, is unpairable ([SC-ID-125]); nothing the signal carries is a key
+    /// ([SC-ID-122]).
+    ///
+    /// The key is taken once, when the signal is reported ([`Inner::observed_key`]), and
+    /// kept with it, so a connection that ends before the signal's turn (a hook that sends
+    /// and exits) does not change how it pairs (PR #333 re-review, B3).
+    fn pair(core: &Core, adapter: AdapterId, key: Option<&PairingKey>) -> PairAttempt {
+        match key {
+            Some(key) => Inner::pair_by_key(core, adapter, key),
+            None => PairAttempt::Unpairable(Vec::new()),
+        }
+    }
+
+    /// The key observed for the connection `signal` arrived on, when that connection was
+    /// given to `adapter` and observed with one.
+    fn observed_key(core: &Core, adapter: AdapterId, signal: &NativeSignal) -> Option<PairingKey> {
+        signal
+            .connection
+            .as_ref()
+            .filter(|c| core.connections.get(*c) == Some(&adapter))
+            .and_then(|c| core.observed.get(c))
+            .and_then(|o| o.pairing_key.clone())
+    }
+
+    /// The candidates for `key`: the open attachments of `adapter` whose observed key is
+    /// equal. None is not yet pairable; more than one is unpairable ([SC-ID-125]).
+    fn pair_by_key(core: &Core, adapter: AdapterId, key: &PairingKey) -> PairAttempt {
+        let candidates: Vec<&Attachment> = core
+            .attachments
+            .iter()
+            .filter(|(a, e)| {
+                e.adapter == adapter
+                    && e.open
+                    && core.observed.get(*a).and_then(|o| o.pairing_key.as_ref()) == Some(key)
+            })
+            .map(|(a, _)| a)
+            .collect();
+        match candidates.as_slice() {
+            [] => PairAttempt::NotYet(key.clone()),
+            [one] => PairAttempt::Paired((*one).clone()),
+            many => PairAttempt::Unpairable(
+                many.iter()
+                    .filter(|a| {
+                        core.attachments
+                            .get(**a)
+                            .is_some_and(|e| e.session.is_some())
+                    })
+                    .map(|a| (*a).clone())
+                    .collect(),
+            ),
+        }
+    }
+
+    /// The attachments of `adapter` as the binding decision sees them.
+    fn attachment_states(core: &Core, adapter: AdapterId) -> Vec<AttachmentState<Attachment>> {
+        core.attachments
+            .iter()
+            .filter(|(_, e)| e.adapter == adapter && e.open)
+            .map(|(a, e)| AttachmentState {
+                attachment: a.clone(),
+                cross_check: e.cross_check.clone(),
+                binding: e.session.clone().zip(e.native_id.clone()).map(
+                    |(session_id, native_id)| NativeBinding {
+                        native_id,
+                        session_id,
+                    },
+                ),
+            })
+            .collect()
+    }
+
+    /// Decides one signal that was paired or found unpairable, and makes the change.
+    fn resolve(self: &Arc<Self>, adapter: AdapterId, signal: &NativeSignal, attempt: PairAttempt) {
+        let (pairing, attributed) = match attempt {
+            PairAttempt::Paired(a) => (Pairing::Paired(a), Vec::new()),
+            PairAttempt::Unpairable(bound) => (Pairing::Unpairable, bound),
+            PairAttempt::NotYet(_) => return,
+        };
+        let (decision, session) = {
+            let core = self.lock();
+            let states = Inner::attachment_states(&core, adapter);
+            let session = match &pairing {
+                Pairing::Paired(a) => core.attachments.get(a).and_then(|e| e.session.clone()),
+                _ => None,
+            };
+            (decide(&states, signal, &pairing), session)
+        };
+        let paired = match &pairing {
+            Pairing::Paired(a) => Some(a.clone()),
+            _ => None,
+        };
+        self.log_decision(&decision, paired.clone(), session);
+        // [SC-ID-154]: an unpairable signal that the observed key attributes to the harness
+        // process behind bound attachments withholds delivery to them and their send
+        // requests, until a later signal pairs with one.
+        for a in attributed {
+            self.withhold(&a);
+        }
+        match decision.action {
+            BindingAction::None => {}
+            // [SC-ID-152]: a stale binding ends; the attachment stays unbound.
+            BindingAction::Deregister { attachment } => self.unbind(&attachment),
+            BindingAction::Bind {
+                attachment,
+                native_id,
+                deregister_first,
+            } => {
+                if deregister_first {
+                    // [SC-ID-150]; the new session id carries none of the earlier one's
+                    // authorization state ([SC-ID-151]).
+                    self.unbind(&attachment);
+                }
+                self.bind_from_signal(&attachment, &native_id);
+            }
+        }
+        if let Some(a) = paired {
+            self.release_withheld(&a);
+        }
+    }
+
+    /// Binds `attachment` to N under a new session id, with a registration record this
+    /// device signs ([SC-ID-009]) over the scope the core process observed for it. Without
+    /// that scope no record can be made, so nothing is bound and a diagnostic says why.
+    fn bind_from_signal(self: &Arc<Self>, attachment: &Attachment, native_id: &str) {
+        let (scope, sid) = {
+            let core = self.lock();
+            let scope = core
+                .observed
+                .get(attachment)
+                .and_then(|o| Some((o.harness_label.clone()?, o.working_directory.clone()?)));
+            // [SC-ID-008]: 128 random bits never repeat in practice; a collision with a
+            // live session would still be refused, so draw again.
+            let mut sid = fresh_session_id();
+            while core.sessions.contains_key(&sid) {
+                sid = fresh_session_id();
+            }
+            (scope, sid)
+        };
+        let record = scope.and_then(|(label, wd)| {
+            self.identity
+                .register(sid, label, native_id, &wd, self.clock.now())
+        });
+        let bound = record.is_some_and(|r| self.bind_record(attachment, &r, None).is_ok());
+        if !bound {
+            self.log(BindingLogEntry {
+                record: BindingRecord {
+                    kind: RecordKind::Diagnostic,
+                    requirement: "SC-ID-009",
+                },
+                // Nothing was bound, and an earlier binding may have just ended
+                // ([SC-ID-150]): the attachment is left unbound.
+                result: BindingResult::FailedClosed,
+                attachment: Some(attachment.clone()),
+                session: None,
+            });
+        }
+    }
+
+    /// [SC-ID-154]: no hand-off to `attachment` and no send request from it; the adapter is
+    /// told its binding names no session (`spec/interfaces.md` §5.4).
+    fn withhold(&self, attachment: &Attachment) {
+        let (adapter, session) = {
+            let mut guard = self.lock();
+            let core = &mut *guard;
+            let Some(e) = core.attachments.get_mut(attachment) else {
+                return;
+            };
+            let Some(s) = e.session.clone() else { return };
+            e.withheld = true;
+            (core.adapters[e.adapter.0].clone(), s)
+        };
+        adapter.set_binding(attachment, None);
+        self.log(BindingLogEntry {
+            record: BindingRecord {
+                kind: RecordKind::Finding,
+                requirement: "SC-ID-154",
+            },
+            result: BindingResult::FailedClosed,
+            attachment: Some(attachment.clone()),
+            session: Some(session),
+        });
+    }
+
+    /// A signal paired with `attachment`: delivery to it resumes if it was withheld and it
+    /// is still bound ([SC-ID-154]).
+    fn release_withheld(&self, attachment: &Attachment) {
+        let released = {
+            let mut guard = self.lock();
+            let core = &mut *guard;
+            let Some(e) = core.attachments.get_mut(attachment) else {
+                return;
+            };
+            if !e.withheld {
+                return;
+            }
+            e.withheld = false;
+            e.session
+                .clone()
+                .map(|s| (core.adapters[e.adapter.0].clone(), s))
+        };
+        if let Some((adapter, session)) = released {
+            adapter.set_binding(attachment, Some(session));
+        }
+    }
+
+    fn log_decision(
+        &self,
+        decision: &BindingDecision<Attachment>,
+        attachment: Option<Attachment>,
+        session: Option<SessionId>,
+    ) {
+        for record in &decision.records {
+            self.log(BindingLogEntry {
+                record: *record,
+                result: decision.result,
+                attachment: attachment.clone(),
+                session: session.clone(),
+            });
+        }
+    }
+
+    fn log(&self, entry: BindingLogEntry) {
+        self.binding_log
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .record(entry);
     }
 
     fn capabilities_changed(&self, adapter: AdapterId, attachment: &Attachment) {
@@ -1361,6 +1957,8 @@ impl Inner {
             let mut core = self.lock();
             if let Some(e) = core.attachments.get_mut(attachment) {
                 e.session = None;
+                e.native_id = None;
+                e.withheld = false;
             }
             core.sessions.remove(&session);
             core.engine.end_session(&session);

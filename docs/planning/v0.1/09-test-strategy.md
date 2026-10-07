@@ -280,6 +280,10 @@ reference implementation note has F12 drive it. `mcp-binding`, `provenance` and 
 adapter work. It requires the two `send`-stage fixtures F2 deferred (SC-ENV-021.p01,
 SC-ENV-066.n01) to run and pass.)*
 
+*(Dated note, 2026-10-07, #331: `binding` now runs through the core's own §6.7 logic
+(`core/src/session_binding.rs`), all 26 fixtures, and leaves the Rust harness's not-run
+list; three stages remain there, all adapter work.)*
+
 ---
 
 ## 7. Security tier detail
@@ -593,12 +597,12 @@ from the PR #317 and #321 threat rows, not from §13.*
 | 06-16 | Provenance spoofing through the body, Claude | `row16_content_claiming_another_sender_does_not_change_provenance`<br>`row16_a_line_break_in_a_provenance_value_cannot_pass_the_envelope_stage` | `row16_forged_channel_tag_in_content_adds_no_attribute`<br>`row16_pre_escaped_closer_in_content_adds_no_attribute`<br>`row16_mid_turn_hostile_content_adds_no_attribute`<br>`row16_meta_key_injection_through_content_adds_no_attribute` | none | #65: the G4 adapter's own meta mapping (gated_row16_adapter_takes_provenance_only_from_verified_members); the exact text of a sender-written `<\/channel>` is a RenderGap until a capture records it | proven (core and fakes); gated part open |
 | 06-17 | Provenance spoofing through a forged header or delimiter, Codex | none | none | none | #68: the Codex adapter's frame builder (gated_row17_codex_frame_uses_a_receiver_generated_delimiter) | gated: v0.1 gap |
 | 06-18 | Reply misattribution through a forged in_reply_to | `row02_reply_right_covers_only_the_reply_to_the_one_message` | none | none | #69: the Codex adapter's reply correlation (gated_row18_codex_reply_correlation_is_not_trusted_alone) | proven (core and fakes); gated part open |
-| 06-19 | Stale registration replay after resume | `row19_a_registration_record_signed_by_another_device_binds_nothing`<br>`row19_an_ended_session_receives_nothing` | none | none | #70: a session's lifetime tied to its IPC connection (gated_row19_session_lifetime_follows_the_ipc_connection) | proven (core and fakes); gated part open |
+| 06-19 | Stale registration replay after resume | `row19_a_registration_record_signed_by_another_device_binds_nothing`<br>`row19_an_ended_session_receives_nothing`<br>`row19_a_resume_takes_a_new_registration_and_the_old_one_ends` | none | none | #70: a session's lifetime tied to its IPC connection (gated_row19_session_lifetime_follows_the_ipc_connection) | proven (core and fakes); gated part open |
 | 06-20 | Session-id spoofing | `row20_claiming_a_session_id_bound_to_another_key_is_refused_with_a_finding`<br>`row20_a_refused_claim_binds_nothing` | none | none | none | proven |
 | 06-21 | Prompt injection through a memory reference | `row21_a_memory_reference_stays_content` | none | none | #175: L10's opt-in scenario with a real memory service (Stage 5) | proven (core and fakes); gated part open |
 | 06-22 | False authority through a cited memory reference | `row22_a_cited_memory_reference_is_never_provenance_or_authority`<br>`row05_content_never_reaches_an_authorization_decision` | none | none | #175: L10's opt-in scenario with a real memory service (Stage 5) | proven (core and fakes); gated part open |
 | 06-23 | Capture of delivered content by an external memory service | none | none | none | none | open risk (06 §15) |
-| 06-24 | Session binding through a spoofed CLAUDE_CODE_SESSION_ID | none | none | none | #70: the daemon's binding of native signals to attachments (gated_row24_spoofed_session_variable_binds_nothing) | gated: v0.1 gap |
+| 06-24 | Session binding through a spoofed CLAUDE_CODE_SESSION_ID | `row24_a_spoofed_session_variable_is_never_a_pairing_key`<br>`row24_a_newcomer_never_displaces_a_bound_hook_id`<br>`row24_an_unpairable_payload_fails_closed`<br>`row24_a_refused_payload_deregisters_a_stale_shim` | none | `tests/conformance.rs::conformance_fixtures` | #70: the daemon's IPC and the OS-observed pairing key (peer PID and ancestry, UNVERIFIED per platform), on which pairing rests and which the tests here supply (gated_row24_spoofed_session_variable_binds_nothing) | core decision proven; pairing key gated (G9) |
 | S13-squatting | Session-id squatting by a related device, through presence | `s13_squatting_announcement_marks_conflict_and_fails_closed`<br>`s13_own_session_is_never_marked_under_conflict` | none | none | none | proven |
 | S13-malleability | Signature malleability and weak or mixed-order points | `s13_malleable_and_weak_point_signatures_are_rejected` | none | `signing::tests::constructed_malleable_and_small_order_signatures_are_rejected` | none | proven |
 | S13-cross-protocol | A signature over one kind of object presented as another | `s13_an_envelope_signed_under_another_domain_is_rejected`<br>`s13_a_registration_signed_under_the_envelope_domain_binds_nothing` | none | `signing::tests::a_signature_does_not_cross_domains` | none | proven |

@@ -25,6 +25,7 @@ use oac_core::ids::SessionId;
 use oac_core::keys::DeviceIdentity;
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::pipeline::{AdapterId, PipelineConfig, Pipelines};
+use oac_core::session_binding::PeerObservation;
 use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
 
 use crate::token;
@@ -37,6 +38,8 @@ pub struct StubAdapter {
     bound: Mutex<HashMap<Attachment, Option<SessionId>>>,
     delivered: Mutex<Vec<HandOff>>,
     deliver_calls: AtomicUsize,
+    /// The cross-check value reported with the next `attachment-opened`.
+    cross_check_next: Mutex<Option<String>>,
 }
 
 impl StubAdapter {
@@ -50,6 +53,25 @@ impl StubAdapter {
         self.delivered.lock().unwrap().clone()
     }
 
+    /// Reports `event` to the core, as the adapter would on observing it (for example a
+    /// `native-signal`).
+    pub fn emit(&self, event: AdapterEvent) {
+        let h = self.events.lock().unwrap().clone();
+        if let Some(h) = h {
+            h(event);
+        }
+    }
+
+    /// The session the core's latest `set_binding` named for `attachment`.
+    pub fn told(&self, attachment: &Attachment) -> Option<SessionId> {
+        self.bound
+            .lock()
+            .unwrap()
+            .get(attachment)
+            .cloned()
+            .flatten()
+    }
+
     /// Passes `request` into the core's request sink, as the harness's send would.
     pub fn send(&self, request: SendRequest) -> SendRequestResult {
         let sink = self.sink.lock().unwrap().clone().expect("accept_requests");
@@ -61,11 +83,12 @@ impl ProviderAdapter for StubAdapter {
     fn take_connection(&self, connection: Connection) {
         let (a, _, _) = connection.into_parts();
         self.bound.lock().unwrap().insert(a.clone(), None);
+        let cross_check = self.cross_check_next.lock().unwrap().take();
         let h = self.events.lock().unwrap().clone();
         if let Some(h) = h {
             h(AdapterEvent::AttachmentOpened {
                 attachment: a,
-                cross_check: None,
+                cross_check,
             });
         }
     }
@@ -165,6 +188,24 @@ impl PipelineDevice {
             )
             .expect("a record");
         self.pipes.bind(&a, &record, None).expect("bound");
+        a
+    }
+
+    /// A connection given to the stub adapter, which reports it as an attachment with
+    /// `cross_check` as its cross-check value, and `observation` as what the core process
+    /// observed about its peer. It is bound only by a native signal
+    /// (`spec/session-channels.md` §6.7).
+    pub fn observed_attachment(
+        &self,
+        observation: PeerObservation,
+        cross_check: Option<&str>,
+    ) -> Attachment {
+        *self.adapter.cross_check_next.lock().unwrap() = cross_check.map(str::to_owned);
+        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let a = conn.handle().clone();
+        self.pipes
+            .connect_observed(self.adapter_id, conn, observation)
+            .expect("connected");
         a
     }
 
