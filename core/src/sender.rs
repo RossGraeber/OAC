@@ -32,12 +32,15 @@
 //! No state means that a model read, processed or acted on a message ([SC-RCP-005]); the
 //! strongest is `handed-to-harness`, the end of an input call (§8.1.3).
 
+use crate::adapter::{Correlation, SendRequest};
 use crate::capabilities::{Agreed, Implemented, SessionCapabilities};
 use crate::delivery::{DeliveryState, ErrorCode, Observer};
-use crate::envelope::Envelope;
+use crate::envelope::{Envelope, EnvelopeDraft};
 use crate::ids::{SessionId, Timestamp, Token, Version};
+use crate::keys::DeviceIdentity;
 use crate::receipt::DeliveryReceipt;
 use crate::replay::{HandOffDeadline, REPLAY_WINDOW_MS};
+use crate::reply::ReplyHeaders;
 
 /// The send decision of §8.3.3 for a request to `to`.
 ///
@@ -89,6 +92,110 @@ pub fn check_send<'d>(
         return Err(ErrorCode::EnvelopeTooLarge);
     }
     Ok(agreed)
+}
+
+/// What the send stage built for a request that passed the send decision (#313): the
+/// signed envelope, the agreed version, and, for a reply, whether it is correlated.
+#[derive(Clone, Debug)]
+pub struct PreparedSend {
+    /// The envelope, built under the agreed revision and signed with the device key.
+    pub envelope: Envelope,
+    /// The agreed version ([SC-ID-087]).
+    pub agreed: Agreed,
+    /// For a reply (a request with a `requested_target`), whether `reply_to` was set
+    /// ([SC-RCP-055]); `None` for a new message.
+    pub correlation: Option<Correlation>,
+}
+
+/// The send stage for `request` (§8.3.3, §8.2.2, §4): the send decision of [`check_send`],
+/// with its size step measured on the envelope itself, built and signed here, not on an
+/// estimate (#313).
+///
+/// - `requester`: as for [`check_send`], the session the request's attachment is bound to.
+/// - `presence`, `implemented`: as for [`check_send`].
+/// - `reply`: for a request with a `requested_target`, the reply headers the hand-off
+///   records give for it ([`crate::authorization::AuthorizationEngine::reply_headers`]);
+///   ignored otherwise. The headers come from the implementation's own records, never from
+///   the request ([SC-RCP-050] to [SC-RCP-054]).
+/// - `identity`, `id`, `created_at`: the signer, a fresh `id` ([SC-ENV-023]) and the
+///   creation time.
+///
+/// A new message carries the request's `conversation_id` and `correlation_id`, which must
+/// be identifier tokens. A reply carries the hand-off record's, and never the request's.
+///
+/// # Errors
+///
+/// `unauthorized` for an unattributed request (step 1); `invalid-request` for empty content
+/// or a `conversation_id` or `correlation_id` that is not an identifier token; then the
+/// code of the earliest step of [`check_send`] that applies. Every code has `request` in its
+/// Table 8.3 scope, and no envelope exists for a refused request ([SC-RCP-075]).
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_send<'d>(
+    requester: Option<&SessionId>,
+    request: &SendRequest,
+    presence: impl FnOnce(&SessionId, &SessionId) -> Result<&'d SessionCapabilities, ErrorCode>,
+    implemented: &[Implemented],
+    reply: ReplyHeaders,
+    identity: &DeviceIdentity,
+    id: Token,
+    created_at: Timestamp,
+) -> Result<PreparedSend, ErrorCode> {
+    // Step 1 first: an unattributed request learns nothing more ([SC-RCP-090]).
+    let from = requester.ok_or(ErrorCode::Unauthorized)?;
+    if request.content.is_empty() {
+        return Err(ErrorCode::InvalidRequest);
+    }
+    let (headers, correlation) = if request.requested_target.is_some() {
+        let c = if reply.correlated() {
+            Correlation::Correlated
+        } else {
+            Correlation::Uncorrelated
+        };
+        (reply, Some(c))
+    } else {
+        let token = |v: &Option<String>| match v {
+            None => Ok(None),
+            Some(s) => Token::parse(s).map(Some).ok_or(ErrorCode::InvalidRequest),
+        };
+        (
+            ReplyHeaders {
+                reply_to: None,
+                conversation_id: token(&request.conversation_id)?,
+                correlation_id: token(&request.correlation_id)?,
+            },
+            None,
+        )
+    };
+    let part_types: Vec<&str> = request.content.iter().map(|p| p.part_type()).collect();
+    let mut built: Option<Envelope> = None;
+    let agreed = check_send(
+        Some(from),
+        &request.to,
+        presence,
+        implemented,
+        &part_types,
+        |version| {
+            let Some(draft) = EnvelopeDraft::with_parts(
+                id,
+                from.clone(),
+                request.to.clone(),
+                created_at,
+                request.content.clone(),
+            ) else {
+                return u64::MAX;
+            };
+            let env = identity.sign_envelope(headers.apply(draft.with_version(version)));
+            let n = env.octets().len() as u64;
+            built = Some(env);
+            n
+        },
+    )?;
+    let envelope = built.ok_or(ErrorCode::InternalError)?;
+    Ok(PreparedSend {
+        envelope,
+        agreed,
+        correlation,
+    })
 }
 
 /// A receiver-observed delivery state for one envelope that the sending implementation may

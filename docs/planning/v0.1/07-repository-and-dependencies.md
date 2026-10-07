@@ -75,8 +75,12 @@ fake Codex app-server by path, as #58 below allows.)
 (Dated note, 2026-10-07, #60: the security suite of F11 lives at `tests/security/`, the
 `tests/` row of §2, as `docs/planning/v0.1/10-stages.md` places it: `oac-security-suite`, a
 Rust workspace member that depends on `core/`, the fake Claude endpoint and the in-memory
-transport only, and on no third-party crate. It is a leaf: no member may depend on it, not
-even as a dev-dependency (§3), so it is never built into the `oac` binary.)
+transport only, and on one third-party crate, test-only (`syn`, §5). It is a leaf: no member
+may depend on it, not even as a dev-dependency (§3), so it is never built into the `oac` binary.)
+(Dated note, 2026-10-07, #313: `transports/memory/` also takes the fake Claude endpoint and
+the adapter suite as dev-dependencies, for the end-to-end run of the core pipelines over the
+in-memory transport and both fake harnesses (`transports/memory/tests/pipelines.rs`). The
+edges are dev-only, as §3 allows a transport, and add no third-party crate.)
 (Dated note, 2026-10-06, #58: fake harness endpoints live under `tests/fakes/<name>/`,
 inside the `tests/` row of §2. F9's fake Codex app-server is
 `tests/fakes/codex-app-server/`: Node built-ins only, no `package.json`, never a workspace

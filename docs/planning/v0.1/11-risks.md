@@ -630,6 +630,61 @@ list.
 - **Response.** Follow-up #325 bounds the table. Until then, an operator removes the
   device's grant or key ([SEC-KEY-035]), which removes its bindings in the same step.
 
+### RISK-RECORD-PARTITIONS — A writer's own sent and hand-off records end early under a flood
+
+- **Risk.** Sent and hand-off records live in process memory and are bounded (#313, PR
+  #326 review B2 and re-review B2'). They are partitioned so that no writer can evict
+  another's records:
+  - sent records by the own session that sent them;
+  - hand-off records by the key that verified the envelope, and by the sending session as
+    well under this device's own key.
+
+  Each list has three bounds:
+  - **Per partition:** `MAX_RECORDS_PER_PARTITION` (4096). A writer that sends, or is handed
+    off, more than that within the 24-hour reply period ([SEC-AUZ-013], [SEC-AUZ-016]) loses
+    its own oldest records early.
+  - **Total:** `MAX_RECORDS_TOTAL` (262144). Past it, the largest partition gives up its
+    oldest record, so a writer below its fair share keeps its records.
+  - **Partitions:** `MAX_RECORD_PARTITIONS` (4096) partitions held at once.
+
+  Partitions are reclaimed in four ways:
+  - a partition goes as soon as it is empty;
+  - an own session's partitions go when the session ends (its sent records, and what it
+    sent as an own sender);
+  - a key's partitions go when the key is removed from trust;
+  - at the partition cap, partitions whose records are all past their reply period are
+    swept before a new one is refused. The sweep runs only once some partition can have
+    expired since the last one.
+
+  Every session end also prunes all expired records (`AuthorizationEngine::prune`). A
+  record for a new partition is refused only while 4096 partitions each hold a record still
+  inside its reply period. For example, a peer device keyed partition or a live own sender
+  that wrote in the last 24 hours. No live partition is evicted for it.
+
+  Losing a record ends that writer's own reply right, discovery right and
+  [SC-RCP-053]/[SC-RCP-054] correlation for that envelope, which fails closed.
+- **What it invalidates.** Nothing in the ADR-001 validation criterion. These are MUSTs
+  for the full reply period. Under each bound they are given up only by the writer that
+  exceeds it:
+  - a writer above about 0.05 records per second for a day;
+  - the largest writer, past the total;
+  - a new writer, while 4096 others are live within the day.
+
+  A peer or a local session cannot use these bounds against another peer or session. The
+  tests are:
+  - `one_peer_cannot_evict_another_peers_handoff_records`;
+  - `one_local_session_cannot_evict_another_sessions_records`;
+  - `ended_sessions_free_their_partitions` (4096 short-lived own sessions, then a new peer
+    is still recorded);
+  - `expired_emptied_and_removed_partitions_are_reclaimed`;
+  - `the_total_is_bounded_by_the_largest_partition`.
+- **Early-warning signal.** Correlated replies to a busy peer arriving uncorrelated, or
+  `unauthorized` replies from it, within 24 hours of the envelope. Also, more than 4096
+  distinct peer keys or concurrently live own senders within a day.
+- **Response.** Raise the caps for that deployment, or have the peer reply sooner. Peer
+  partitions are bounded by the trusted keys an operator pairs. Own-sender partitions are
+  bounded by the sessions live within a day, which the daemon admits.
+
 ## R5 — Low-impact / non-dependency risks
 
 ### RISK-ACP — ACP schema v2 alpha status unconfirmed

@@ -4,7 +4,10 @@
 # transport contract (spec/interfaces.md section 6) with fault injection, for every
 # CI-default test. Depends on core/ only (07 section 3; scripts/check-crate-deps.mjs), and
 # on nothing outside the Rust standard library. Its tests run the shared transport contract
-# suite (#59, F10), a test-only dev-dependency that is never built into the `oac` binary.
+# suite (#59, F10), a test-only dev-dependency that is never built into the `oac` binary,
+# and the end-to-end run of the core pipelines over this transport and the fake harnesses
+# (#313, tests/pipelines.rs), which takes the fake Claude Code endpoint and the adapter
+# contract suite's harnesses as dev-dependencies, test-only in the same way.
 
 [package]
 name = "oac-transport-memory"
@@ -20,4 +23,6 @@ publish.workspace = true
 oac-core.workspace = true
 
 [dev-dependencies]
+oac-contract-adapter = { path = "../../tests/protocol/contract/adapter" }
 oac-contract-transport = { path = "../../tests/protocol/contract/transport" }
+oac-fake-claude = { path = "../../tests/fakes/claude" }

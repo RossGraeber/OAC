@@ -124,11 +124,13 @@ pub fn accept_receipt(
         Err(_) => return Err(ReceiptDiscard::Signature),
     };
     // Check 3.
-    let sent = engine.sent_records().iter().any(|r| {
-        r.id == *receipt.envelope_id()
-            && r.from.as_str() == receipt.envelope_from().as_str()
-            && r.to.as_str() == to
-            && r.nonce.as_deref() == Some(nonce)
+    let sent = SessionId::parse(receipt.envelope_from().as_str()).is_some_and(|from| {
+        engine.sent_records_from(&from).any(|r| {
+            r.id == *receipt.envelope_id()
+                && r.from.as_str() == receipt.envelope_from().as_str()
+                && r.to.as_str() == to
+                && r.nonce.as_deref() == Some(nonce)
+        })
     });
     if !sent {
         return Err(ReceiptDiscard::NotSent);
