@@ -433,6 +433,44 @@ mod tests {
         );
         assert!(f.binding(&sessions[1]).is_some() && f.binding(&sessions[2]).is_some());
 
+        // PR #321 third review, note 1: through this path each signing key has its own
+        // quota. Two keys, quota 1 each: the second key's session is accepted although the
+        // first key has used its share.
+        let mut shared = PresenceRegistry::with_limits(4, 1);
+        let mut g =
+            AuthorizationEngine::new(&me, clock.clone(), Box::new(MemoryDecisionLog::new()));
+        for p in [&peer, &other] {
+            pair(&mut g, p, &store);
+            grant_to(&mut g, p, &store);
+        }
+        let announce_by = |by: &DeviceIdentity, n: u8| {
+            let s = SessionId::from_random_octets([n; 16]);
+            let caps = SessionCapabilities::declare([(
+                EXTENSION_ID_V0,
+                CapabilitiesEntry::new(Version { major: 0, minor: 1 }, true),
+            )])
+            .unwrap();
+            let d = SessionDescriptor::new(s, caps, None, None).unwrap();
+            let r = PresenceRecord::announcement(1, ts("2026-10-03T12:00:00Z"), 60_000, d).unwrap();
+            AuthenticatedPresenceRecord::issue(by, &r, me.key_id())
+        };
+        let link = || CarrierHandle::from_opaque(b"q".to_vec());
+        assert!(
+            accept_authenticated_record(&announce_by(&peer, 11), &mut g, &mut shared, link(), t)
+                .accepted()
+        );
+        assert_eq!(
+            accept_authenticated_record(&announce_by(&peer, 12), &mut g, &mut shared, link(), t)
+                .result,
+            Err(PresenceAuthDiscard::Registry),
+            "the first key is at its quota"
+        );
+        assert!(
+            accept_authenticated_record(&announce_by(&other, 13), &mut g, &mut shared, link(), t)
+                .accepted(),
+            "the second key has a share of its own"
+        );
+
         let (dest, payload) = ar.to_payload().unwrap();
         assert_eq!(dest, Destination::Device(me.key_id().clone()));
         assert_eq!(payload.kind(), PayloadKind::Presence);

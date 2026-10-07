@@ -557,10 +557,10 @@ impl DuplicateStore {
     /// receiver that got [`crate::receiver::Received::InFlight`] re-offers the copy from it,
     /// so a re-queued copy waits on the earlier hand-off without a thread parked in
     /// [`DuplicateStore::admit`] and without a timer ([SEC-RPL-026]). The callback runs on
-    /// the thread that settles the entry, with no lock of the store held; when that thread is
-    /// unwinding from a panic (a reservation dropped by it), on a thread of its own instead.
-    /// A callback that panics is contained: the other callbacks for the key still run, and
-    /// the settling thread neither unwinds nor aborts because of it.
+    /// the thread that settles the entry, with no lock of the store held, also when that
+    /// thread is unwinding from a panic (a reservation dropped by it). A callback that panics
+    /// is contained: the other callbacks for the key still run, and the settling thread
+    /// neither unwinds nor aborts because of it.
     pub fn when_settled(&self, key: &DuplicateKey, notify: impl FnOnce() + Send + 'static) {
         let mut inner = self.lock();
         let in_flight = inner
@@ -581,27 +581,14 @@ impl DuplicateStore {
     }
 }
 
-/// Runs settle callbacks, each contained by `catch_unwind`, so one that panics neither skips
-/// the others nor propagates into `settle`. When the current thread is already unwinding
-/// (a [`Reservation`] dropped by a panic), a second panic would abort the process even
-/// inside `catch_unwind`, so the callbacks then run on a thread of their own.
+/// Runs settle callbacks inline, each contained by `catch_unwind`, so one that panics
+/// neither skips the others nor propagates into `settle`. That holds also while the thread
+/// is unwinding (a [`Reservation`] dropped by a panic): a panic caught inside
+/// `catch_unwind` there is contained like any other, and does not abort the process
+/// (`panicking_settle_callbacks_are_contained` covers both cases).
 fn run_callbacks(waiting: Vec<SettleCallback>) {
-    if waiting.is_empty() {
-        return;
-    }
-    let run = move || {
-        for notify in waiting {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(notify));
-        }
-    };
-    if std::thread::panicking() {
-        // If the thread cannot be spawned, the callbacks are dropped uncalled rather than
-        // risk a panic during unwinding.
-        let _ = std::thread::Builder::new()
-            .name("oac-settle-callbacks".into())
-            .spawn(run);
-    } else {
-        run();
+    for notify in waiting {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(notify));
     }
 }
 
@@ -695,7 +682,8 @@ mod tests {
             panic!("hand-off call panicked");
         }));
         assert!(unwound.is_err());
-        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(10)), Ok(2));
+        // Inline, on this thread, during the unwind.
+        assert_eq!(rx.try_recv(), Ok(2));
     }
 
     fn ts(s: &str) -> Timestamp {

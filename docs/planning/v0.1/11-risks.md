@@ -599,8 +599,11 @@ list.
 
 - **Risk.** `core::registry::PresenceRegistry` (F6, #55) holds at most `capacity` sessions
   of other implementations (default 4096). Each signing key holds at most a quarter of
-  them, and when the registry is full of `online` sessions, a new session evicts one of
-  the heaviest key's sessions while that key holds more than the newcomer. One related
+  them, and when the registry is full of `online` sessions, a new session from a key
+  holding `n` evicts one session of a key holding the most, only when that is at least
+  `n + 2`; both stop at an equal split. Among the keys holding the most, the session most
+  recently taken in is evicted, so ties are not broken by key-id order and no key can
+  steer the eviction onto another. One related
   device therefore cannot lock other peers out: a peer's session forgotten after a carrier
   loss comes back with its next announcement. Several colluding related devices (paired,
   granted, each under its quota) can still keep the registry full and push every key's

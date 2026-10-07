@@ -115,6 +115,9 @@ struct Held {
     /// The key that signed the record ([`PresenceRegistry::accept_signed`]); `None` for a
     /// record from inside this implementation. Quotas count per issuer.
     issuer: Option<KeyId>,
+    /// When the session was first taken in, in insertion order: the fair-share eviction
+    /// takes the newest session among the heaviest issuers.
+    admitted: u64,
 }
 
 impl Held {
@@ -159,11 +162,15 @@ struct Own {
 ///   that issuer's own `unreachable` sessions, and is otherwise discarded as
 ///   [`PresenceDiscard::IssuerQuota`].
 /// - **Fair share.** When the registry is full of `online` sessions, a record for a new
-///   session from an issuer evicts one session of the issuer holding the most, as long as
-///   that issuer would still hold more than this one; only when no issuer holds more is the
-///   record discarded as [`PresenceDiscard::Full`]. A peer whose session was forgotten,
-///   for example after a carrier loss, therefore gets it back on its next announcement
-///   however many sessions another device keeps `online`.
+///   session from an issuer that holds `n` sessions evicts one session of an issuer that
+///   holds at least `n + 2`, the most of any issuer, so that after the insert it still
+///   holds at least as many as the newcomer; otherwise the record is discarded as
+///   [`PresenceDiscard::Full`]. Both end at an equal split. Among the issuers that hold the
+///   most, the session evicted is the one most recently taken in, so the issuer that added
+///   last pays, and none can steer the eviction onto another by its key id or its session
+///   ids. A peer whose session was forgotten, for example after a carrier loss, therefore
+///   gets it back on its next announcement however many sessions another device keeps
+///   `online`.
 ///
 /// The residual is recorded in `docs/planning/v0.1/11-risks.md`: several colluding related
 /// devices can still shrink every issuer's share toward an equal split of the capacity.
@@ -176,6 +183,8 @@ pub struct PresenceRegistry {
     capacity: usize,
     per_issuer_quota: usize,
     forgotten: Vec<SessionId>,
+    /// The insertion counter behind [`Held::admitted`].
+    admitted: u64,
 }
 
 impl Default for PresenceRegistry {
@@ -207,6 +216,7 @@ impl PresenceRegistry {
             capacity,
             per_issuer_quota: per_issuer_quota.clamp(1, capacity),
             forgotten: Vec::new(),
+            admitted: 0,
         }
     }
 
@@ -250,27 +260,24 @@ impl PresenceRegistry {
         if self.len() < self.capacity {
             return Ok(());
         }
-        // Fair share: one session of the heaviest issuer, when it holds more than this
-        // issuer would after the insert.
+        // Fair share: one session of an issuer holding the most, when that is at least two
+        // more than this issuer holds, so it still holds as many after the insert. Among
+        // the issuers holding the most, the session most recently taken in goes.
         let mine = self.held_by(issuer);
         let mut counts: BTreeMap<Option<&KeyId>, usize> = BTreeMap::new();
         for h in self.held.values() {
             *counts.entry(h.issuer.as_ref()).or_default() += 1;
         }
-        let heaviest = counts
-            .into_iter()
-            .max_by_key(|(_, n)| *n)
-            .filter(|(_, n)| *n > mine + 1)
-            .map(|(k, _)| k.cloned());
-        let Some(heavy) = heaviest else {
+        let most = counts.values().copied().max().unwrap_or(0);
+        if most < mine + 2 {
             return Err(PresenceDiscard::Full);
-        };
+        }
         let victim = self
             .held
             .iter()
-            .filter(|(_, h)| h.issuer == heavy)
-            .map(|(s, _)| s.clone())
-            .min();
+            .filter(|(_, h)| counts.get(&h.issuer.as_ref()) == Some(&most))
+            .max_by_key(|(_, h)| h.admitted)
+            .map(|(s, _)| s.clone());
         match victim {
             Some(v) => {
                 self.evict(&v);
@@ -472,6 +479,14 @@ impl PresenceRegistry {
             PresenceKind::Withdrawal => None,
         };
         let stale_at = effective_lifetime_ms.map(|ms| now + Duration::from_millis(ms));
+        // A newer record for a held session keeps its place in the order.
+        let admitted = match self.held.get(record.session_id()) {
+            Some(h) => h.admitted,
+            None => {
+                self.admitted += 1;
+                self.admitted
+            }
+        };
         self.held.insert(
             record.session_id().clone(),
             Held {
@@ -480,6 +495,7 @@ impl PresenceRegistry {
                 carrier,
                 carrier_lost: false,
                 issuer,
+                admitted,
             },
         );
         PresenceAcceptance::Accepted {
@@ -1139,6 +1155,107 @@ mod tests {
             r.accept_signed(announce(&ids[7], 1, 60_000), carrier("p2"), &peer, t),
             PresenceAcceptance::Discarded(PresenceDiscard::Full)
         );
+    }
+
+    /// PR #321 third review, notes 2 and 4: the fair-share boundary is "at least two more"
+    /// (an issuer one ahead is not evicted, so two issuers a session apart cannot keep
+    /// evicting each other), and among tied heaviest issuers the session most recently taken
+    /// in goes, whatever the key ids.
+    #[test]
+    fn fair_share_boundary_and_tie_break() {
+        let t = Instant::now();
+        let k = |c: char| KeyId::parse(&c.to_string().repeat(64)).unwrap();
+        let ids: Vec<SessionId> = (1..=9u8)
+            .map(|n| SessionId::from_random_octets([n; 16]))
+            .collect();
+        let ok = |a: PresenceAcceptance| matches!(a, PresenceAcceptance::Accepted { .. });
+        // Boundary: hog 2, peer 1, full; the peer's new session would leave them 1 and 2.
+        let (hog, peer) = (k('a'), k('b'));
+        let mut r = PresenceRegistry::with_limits(3, 3);
+        assert!(ok(r.accept_signed(
+            announce(&ids[0], 1, 60_000),
+            carrier("h"),
+            &hog,
+            t
+        )));
+        assert!(ok(r.accept_signed(
+            announce(&ids[1], 1, 60_000),
+            carrier("h"),
+            &hog,
+            t
+        )));
+        assert!(ok(r.accept_signed(
+            announce(&ids[2], 1, 60_000),
+            carrier("p"),
+            &peer,
+            t
+        )));
+        assert_eq!(
+            r.accept_signed(announce(&ids[3], 1, 60_000), carrier("p"), &peer, t),
+            PresenceAcceptance::Discarded(PresenceDiscard::Full)
+        );
+        assert_eq!(r.len(), 3);
+        // Tie-break: two issuers tie at 2, the one with the largest key id ('f') first, so
+        // key-id order would pick it; the one that added last ('a') pays instead.
+        let (big, small, newcomer) = (k('f'), k('a'), k('c'));
+        let mut r = PresenceRegistry::with_limits(4, 4);
+        assert!(ok(r.accept_signed(
+            announce(&ids[0], 1, 60_000),
+            carrier("x"),
+            &big,
+            t
+        )));
+        assert!(ok(r.accept_signed(
+            announce(&ids[1], 1, 60_000),
+            carrier("x"),
+            &big,
+            t
+        )));
+        assert!(ok(r.accept_signed(
+            announce(&ids[2], 1, 60_000),
+            carrier("x"),
+            &small,
+            t
+        )));
+        assert!(ok(r.accept_signed(
+            announce(&ids[3], 1, 60_000),
+            carrier("x"),
+            &small,
+            t
+        )));
+        assert!(ok(r.accept_signed(
+            announce(&ids[4], 1, 60_000),
+            carrier("n"),
+            &newcomer,
+            t
+        )));
+        assert_eq!(r.take_forgotten(), vec![ids[3].clone()]);
+        assert_eq!(r.state(&ids[0], t), PresenceState::Online);
+        assert_eq!(r.state(&ids[1], t), PresenceState::Online);
+        // A refresh keeps a session's place in the order: refreshing the first session does
+        // not make it the newest.
+        let mut r = PresenceRegistry::with_limits(3, 3);
+        for s in &ids[..3] {
+            assert!(ok(r.accept_signed(
+                announce(s, 1, 60_000),
+                carrier("x"),
+                &big,
+                t
+            )));
+        }
+        assert!(ok(r.accept_signed(
+            announce(&ids[0], 2, 60_000),
+            carrier("x"),
+            &big,
+            t
+        )));
+        assert!(ok(r.accept_signed(
+            announce(&ids[5], 1, 60_000),
+            carrier("n"),
+            &newcomer,
+            t
+        )));
+        assert_eq!(r.take_forgotten(), vec![ids[2].clone()]);
     }
 
     /// [SC-DLV-050] to [SC-DLV-057]: seq grows across announce, withdraw and re-announce;
