@@ -181,10 +181,12 @@ fi
 #    transports/zenoh/ under core/ cli/ adapters/ transports/ spec/ tests/fakes/
 #    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml / Cargo.lock.
 #    Wider than check 1, and the close of the scope gap 09 section 8 and C7 section 2
-#    record: `zenoh` matches inside longer identifiers, `zid` as any snake/kebab/camel
-#    segment, and adapters/ and cli/ are in scope. The module's own name
-#    (oac-transport-zenoh, transports/zenoh) is the one allowance. tests/security/ and
-#    tests/integration/ are out of scope (they compose a real transport in Stages 4-5).
+#    record: `zenoh` matches inside longer identifiers, `zid` as any snake/kebab/camel/
+#    Pascal segment (leading too: `zidMap`, `ZidMap`), and adapters/ and cli/ are in
+#    scope. The module's own name (oac-transport-zenoh, transports/zenoh) is the one
+#    allowance. tests/security/ and tests/integration/ are out of scope (they compose a
+#    real transport in Stages 4-5). Not proven by any text lint: an innocuous alias,
+#    `concat!`/macro-pasted or run-time names, `\u{..}` escapes, homoglyphs.
 # 13. Test doubles stay out of product code (PR #318 review item 9, the check 9 sibling):
 #    no core/ cli/ adapters/ transports/ entry refers to tests/fakes/ or
 #    tests/protocol/contract/ by path except a Cargo [dev-dependencies] entry (#[path],

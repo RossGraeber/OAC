@@ -27,8 +27,16 @@ What exists today:
   `VERSION WARNING`, never a failure, when that differs from PINS.md's minimum or last tested
   version (#216).
 
-What is pending: the provider-integration tests of the real adapters, which arrive with
-Epic G (G4 Claude adapter, G7 Codex adapter) and H1/H4. They follow the herdr reuse contract
+What is pending: provider-integration tests of OAC's own adapters, which cannot exist before
+Epic G. The backlog names two:
+
+- G4 (#65), the Claude adapter: its acceptance runs the adapter contract suite "against
+  real Claude Code behind the opt-in tier";
+- H1 (#73), the end-to-end test: live Claude Code and Codex sessions, opt-in by
+  construction.
+
+G7's acceptance (the Codex adapter) names no real-harness test, and H4 is CI-default CLI
+smoke, not provider integration. These tests follow the herdr reuse contract
 (`tools/herdr/README.md`, "Reuse contract"): they live here, drive the harness through the
 driver as a separate process, and run only from the opt-in workflow.
 

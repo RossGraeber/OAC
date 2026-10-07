@@ -25,9 +25,11 @@ verdict, or when a pin moves.
   check 12, Zenoh containment over every product path, the fakes, the contract suites and the
   fixtures, closing the 09 §8 scope gap for those paths (criterion 9); check 13, test doubles
   kept out of product code (PR #318 review item 9).
-- **Conformance.** `core/tests/conformance.rs` names the stages it leaves to adapter work
-  (`binding`, `mcp-binding`, `provenance`, `body`), fails on any other unrun stage, and pins
-  the two `send`-stage fixtures F2 deferred to F12 (SC-ENV-021.p01, SC-ENV-066.n01).
+- **Conformance.** `core/tests/conformance.rs` names the stages it does not run, fails on
+  any other unrun stage, and pins the two `send`-stage fixtures F2 deferred to F12
+  (SC-ENV-021.p01, SC-ENV-066.n01). `binding` is the core's, pending #331 (no
+  binding-from-native-signal logic for §6.7 yet); `mcp-binding`, `provenance` and `body`
+  are adapter work.
 - **Opt-in.** Provider integration stays the herdr scenarios through
   `herdr-provider-optin.yml`; the real-adapter provider tests are pending with Epic G
   (`tests/integration/README.md`). Branch protection is unchanged: which checks become

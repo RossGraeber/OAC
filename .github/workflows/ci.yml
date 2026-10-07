@@ -21,9 +21,12 @@
 #
 # Network. The only network use is fetching the toolchain (rust-toolchain.toml, 1.98.1,
 # docs/planning/PINS.md) and the crates in Cargo.lock from crates.io (`cargo fetch`).
-# Every cargo step after the fetch runs with CARGO_NET_OFFLINE. On the ubuntu image the
-# test steps run under scripts/loopback-only.sh: a network namespace whose only interface
-# is loopback, proved by its --probe step first. On the other two hosted images the rule
+# Every cargo step after the fetch runs with CARGO_NET_OFFLINE. Where the kernel has
+# network namespaces (the ubuntu image), the test steps run under scripts/loopback-only.sh:
+# a namespace whose only interface is loopback, with inherited fds closed and
+# supplementary groups dropped, proved by its --probe step first. `loopback-only.sh
+# --select` decides by the kernel, not the image name, and fails the job if it cannot make
+# the namespace there. On the other two hosted images the rule
 # rests on the offline cargo setting, the fakes binding loopback only, and the workflow
 # policy lint (scripts/check-workflows.mjs, boundary-lint.yml), which fails a default-tier
 # workflow that names a secret, a provider credential, an opt-in switch, an operator-owned
@@ -36,9 +39,11 @@
 # manual dispatch only.
 #
 # Cache. actions/cache restore and save, pinned by commit SHA (v6.1.0). Pull requests only
-# restore; only a push to main saves, so a pull request cannot write what main reads. The
-# key is the OS plus the hash of rust-toolchain.toml and Cargo.lock; cargo still checks
-# every crate against Cargo.lock's checksums and rebuilds what its fingerprints say changed.
+# restore; only a push to main saves, and only when no cache under its key exists yet, so
+# a pull request cannot write what main reads and main does not churn one cache per
+# commit. The key is the OS plus the hash of rust-toolchain.toml and Cargo.lock: a new
+# toolchain pin or lock file starts a new cache. cargo still checks every crate against
+# Cargo.lock's checksums and rebuilds what its fingerprints say changed.
 name: ci
 
 # Pull requests, plus pushes to main, so each PR runs every job once, not twice.
@@ -63,9 +68,6 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    env:
-      # The ubuntu image runs the tiers with loopback only; the others run them directly.
-      LOOPBACK_ONLY: ${{ matrix.os == 'ubuntu-latest' && 'bash scripts/loopback-only.sh' || '' }}
     steps:
       - name: Check out (no persisted token)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,6 +85,7 @@ jobs:
           rustc --version | grep -q '^rustc 1\.98\.1 ' || { echo "toolchain is not the 1.98.1 pin"; exit 1; }
 
       - name: Restore the cargo cache
+        id: cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -90,9 +93,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
           restore-keys: |
-            cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
             cargo-test-${{ runner.os }}-
 
       - name: cargo fmt --check
@@ -112,8 +114,14 @@ jobs:
           CARGO_NET_OFFLINE: "true"
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # Sets LOOPBACK_ONLY for the steps below: the sandbox wrapper where the kernel has
+      # network namespaces (mandatory there: no namespace fails the job), empty elsewhere.
+      - name: Select the loopback-only sandbox (by kernel, not by image name)
+        shell: bash
+        run: bash scripts/loopback-only.sh --select >> "$GITHUB_ENV"
+
       - name: Loopback-only sandbox probe (loopback connects, nothing else is reachable)
-        if: matrix.os == 'ubuntu-latest'
+        if: env.LOOPBACK_ONLY != ''
         run: bash scripts/loopback-only.sh --probe
 
       - name: Unit, contract, security, fake-integration and conformance tiers (cargo test)
@@ -150,8 +158,8 @@ jobs:
         shell: bash
         run: $LOOPBACK_ONLY node tests/fakes/codex-app-server/self-test.mjs
 
-      - name: Save the cargo cache (pushes to main only)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Save the cargo cache (pushes to main only, when the key is new)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -159,7 +167,7 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
 
   crate-deps:
     name: crate-deps (${{ matrix.os }})

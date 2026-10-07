@@ -44,9 +44,10 @@
 //! (`SEC-RPL-022.p03`). `presence-auth`, every fixture, runs in [`presence_receipts`]
 //! through the engine [`authorization`] builds.
 //!
-//! Other stages (`binding`, `mcp-binding`, `provenance`, `body`) exercise adapter-side
-//! logic other tasks own. They are listed by name, so a fixture of an unlisted stage fails
-//! instead of silently not running (#61, F12).
+//! Stages not run here are listed by name, so a fixture of an unlisted stage fails instead
+//! of silently not running (#61, F12): `binding` is the core's, pending #331 (no
+//! binding-from-native-signal logic yet); `mcp-binding`, `provenance` and `body` are
+//! adapter work.
 
 use oac_core::authorization::{AuthorizationEngine, HandOffRecord, Kind};
 use oac_core::canonical::{SigningDomain, signed_text, signing_input};
@@ -773,9 +774,11 @@ fn conformance_fixtures() {
             "discovery-auth" => Some(authorization::run_discovery_auth(&fx)),
             "key-removal" => Some(authorization::run_key_removal(&fx)),
             "exchange" => Some(authorization::run_exchange(&fx)),
-            // Adapter-side stages (Epic G): session binding (`binding`, `mcp-binding`) and
-            // provenance rendering (`provenance`, `body`). The reference runner
-            // (`tests/protocol/runner/`, CI on every OS) evaluates them from the spec text.
+            // Not run here yet. `binding` (§6.7) is the core's, pending #331: the core has no
+            // binding-from-native-signal logic to drive it through. `mcp-binding` (the MCP
+            // binding document), `provenance` and `body` (provenance rendering) are adapter
+            // work (Epic G). The reference runner (`tests/protocol/runner/`, CI on every OS)
+            // evaluates all four from the spec text.
             "binding" | "mcp-binding" | "provenance" | "body" => None,
             // A stage nobody named fails, rather than its fixtures silently not running.
             other => Some(Err(format!(

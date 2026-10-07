@@ -16,7 +16,8 @@
 //            - `zenoh` matches anywhere, so a leak embedded in a longer identifier
 //              (`x_zenoh_helper`, `ZenohSession`) fails;
 //            - `zid` matches as a snake_case, kebab-case or camelCase identifier segment
-//              (`session_zid`, `sessionZid`, `SESSION_ZID`), not inside a word (`zidane`);
+//              (`session_zid`, `sessionZid`, `SESSION_ZID`, `zidMap`, `ZidMap`), not
+//              inside a word (`zidane`);
 //            - adapters/ and cli/ are in scope, as are transports/memory/, spec/, the fakes,
 //              the contract suites, the conformance fixtures and the root manifests.
 //          Comments and prose count: a path or line that names Zenoh outside its module is a
@@ -24,6 +25,10 @@
 //          `oac_transport_zenoh`, `transports/zenoh`), which names the OAC crate, not a Zenoh
 //          concept: cli/ constructs it (07 section 3) and the workspace lists it. A Zenoh
 //          type reached through it (`oac_transport_zenoh::ZenohConfig`) still fails.
+//          Not proven (a text lint cannot see these): a Zenoh type behind an alias whose
+//          name avoids every pattern; a name built at compile time (`concat!`, `stringify!`
+//          pieces, a macro pasting `ze` and `noh`) or at run time; `\u{..}` or other escapes
+//          spelling it; and homoglyphs (a Cyrillic `е` in `zеnoh`).
 //          Not scanned: tests/security/ and tests/integration/, which compose a real
 //          transport in later stages (H1, H2); docs/, scripts/, tools/ and .github/, which
 //          are not the product. Their dependency edges are scripts/check-crate-deps.mjs's.
@@ -75,8 +80,11 @@ const ZENOH_SCOPE = [
 const ZENOH_MODULE_NAME = /oac[-_]transport[-_]zenoh|transports[\\/]+zenoh(?![\w-])/gi;
 const ZENOH_RULES = [
   { label: '12 zenoh name', re: /zenoh/i },
-  // snake_case, kebab-case, whole word, SCREAMING_CASE: not preceded or followed by a letter.
-  { label: '12 zid identifier', re: /(?<![A-Za-z])zid(?![a-z])/i },
+  // A leading or standalone segment: snake_case, kebab-case, whole word, SCREAMING_CASE,
+  // and the first segment of camelCase / PascalCase (`zidMap`, `ZidMap`). Case-sensitive, so
+  // the next character may be an uppercase letter (a new segment) but not a lowercase one
+  // (`zidane` is a word, not a segment).
+  { label: '12 zid identifier', re: /(?<![A-Za-z])(?:zid|Zid|ZID)(?![a-z])/ },
   // camelCase / PascalCase segment: `sessionZid`, `peerZidOf`.
   { label: '12 zid identifier', re: /(?<=[a-z0-9])Zid(?![a-z])/ },
   { label: '12 key expression', re: /key[\s_-]*expr/i },
@@ -265,6 +273,9 @@ const CASES = [
   ['12 zenoh in a comment in transports/memory', { 'transports/memory/src/lib.rs': '// like zenoh\n' }, '12 zenoh name'],
   ['12 snake_case zid', { 'core/src/id.rs': 'let session_zid = 1;\n' }, '12 zid identifier'],
   ['12 camelCase zid', { 'tests/fakes/claude/src/a.rs': 'let sessionZid = 1;\n' }, '12 zid identifier'],
+  ['12 leading camelCase zid', { 'cli/src/m.rs': 'let zidMap = 1;\n' }, '12 zid identifier'],
+  ['12 leading PascalCase Zid', { 'core/src/m.rs': 'struct ZidMap;\n' }, '12 zid identifier'],
+  ['12 kebab-case zid', { 'spec/y.md': 'The peer-zid value.\n' }, '12 zid identifier'],
   ['12 SCREAMING zid', { 'adapters/claude/src/k.rs': 'const PEER_ZID: u8 = 1;\n' }, '12 zid identifier'],
   ['12 key_expr', { 'adapters/claude/src/k.rs': 'let key_expr = "a/b";\n' }, '12 key expression'],
   ['12 KeyExpr', { 'core/src/k.rs': 'struct KeyExpr;\n' }, '12 key expression'],
