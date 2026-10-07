@@ -1,10 +1,11 @@
 # Mechanical boundary checks
 
-The one boundary lint script is `scripts/check-herdr-containment.mjs` (checks 9 and 10).
+The boundary lint scripts are `scripts/check-herdr-containment.mjs` (checks 9 and 10) and
+`scripts/check-containment.mjs` (checks 12 and 13, #61).
 Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
 budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 1, 2, 3, 8, 9,
-10 and 11 on every push and pull request. Checks 1-2 run over `spec/`, which is mandatory
+10, 11, 12 and 13 on every pull request and push to main. Checks 1-2 run over `spec/`, which is mandatory
 (a missing `spec/` fails), and over `core/` once it exists, together with the zero-hits group
 of `oac-spec-authoring` `references/neutral-vocabulary-check.md` over `spec/` (#41). Check 2
 and that group exempt exactly `spec/bindings/mcp.md` (the task E6 binding document); check 1
@@ -174,9 +175,31 @@ if [ "${#files[@]}" -eq 0 ]; then echo "check 11 PENDING"; else
   rg -H -n -i -e "$pattern" -- "${files[@]}"; status=$?
   [ "$pstatus" -eq 1 ] && [ "$status" -eq 1 ] && echo "check 11 clean" || echo "check 11 FAIL"
 fi
+
+# 12. Zenoh containment (boundary 5; DESIGN acceptance criterion 9; 07 section 4(a)): no
+#    Zenoh name, `zid`, key expression or liveliness term in any git-tracked entry outside
+#    transports/zenoh/ under core/ cli/ adapters/ transports/ spec/ tests/fakes/
+#    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml / Cargo.lock.
+#    Wider than check 1, and the close of the scope gap 09 section 8 and C7 section 2
+#    record: `zenoh` matches inside longer identifiers, `zid` as any snake/kebab/camel
+#    segment, and adapters/ and cli/ are in scope. The module's own name
+#    (oac-transport-zenoh, transports/zenoh) is the one allowance. tests/security/ and
+#    tests/integration/ are out of scope (they compose a real transport in Stages 4-5).
+# 13. Test doubles stay out of product code (PR #318 review item 9, the check 9 sibling):
+#    no core/ cli/ adapters/ transports/ entry refers to tests/fakes/ or
+#    tests/protocol/contract/ by path except a Cargo [dev-dependencies] entry (#[path],
+#    include!, include_str!, JS imports and path strings fail; a crate's own tests/ or
+#    benches/ file may name a fake by path to spawn it, never compile it in; leading
+#    comment lines and Markdown are skipped). check-crate-deps.mjs rule 5 covers the
+#    cargo graph.
+#    Both scan the git index; a symlink or submodule in scope fails closed; an empty scope
+#    is an error. CI: boundary-lint.yml job `containment`.
+node scripts/check-containment.mjs
+node scripts/check-containment.mjs --self-test
 ```
 
 A clean run, as of the F1 scaffold (#50, 2026-10-05), is zero hits on checks 1 and 2 (on
 `spec/` and `core/`), 3, 4, 5, 6, 7 and 8; `Result: CLEAN` (zero violations, no target
 pending) on checks 9 and 10; and `check 11 clean` on check 11. A product path that is
-removed again makes ripgrep error as missing, and that is pending, not a pass.
+removed again makes ripgrep error as missing, and that is pending, not a pass. Since #61
+(2026-10-07) checks 12 and 13 also print `Result: CLEAN`.

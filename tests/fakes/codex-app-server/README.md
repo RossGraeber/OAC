@@ -181,9 +181,9 @@ Dev/test only (`docs/planning/v0.1/07-repository-and-dependencies.md` §2, `test
   forbids for the opt-in `tests/integration/` leaf;
 - it is never invoked by the `oac` binary and is not shipped.
 
-Unlike `tests/integration/`, which check 9 guards, nothing yet stops a product path from
-*importing* code from `tests/fakes/` (spawning it by path from a test is the intended use).
-A check-9 sibling for that is left to F12 (#61).
+A product path may not *import* code from `tests/fakes/` (spawning it by path from a
+crate's test is the intended use): `scripts/check-containment.mjs` check 13 (#61, F12), the
+check-9 sibling, enforces this in CI.
 
-Its CI job is `fake-codex` in `.github/workflows/boundary-lint.yml`, on Linux, Windows and
-macOS.
+Its self-test runs in the `test` job of `.github/workflows/ci.yml` (#61; before that, job
+`fake-codex` of `boundary-lint.yml`), on Linux, Windows and macOS.

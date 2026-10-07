@@ -349,6 +349,19 @@ neither exists today. Carried forward to `docs/planning/v0.1/11-risks.md` (task 
 yet landed) as an open item, per the same disposition `docs/planning/v0.1/06-security.md`
 §15 already applies to every unproven mitigation.
 
+*(Dated note, 2026-10-07, #61, F12: the second check now exists. `oac-boundaries` check 12,
+`scripts/check-containment.mjs`, runs as the build-failing `containment` job of
+`.github/workflows/boundary-lint.yml`. It matches `zenoh` anywhere in a token, `zid` as a
+`snake_case`, kebab-case or `camelCase` segment, key expressions and liveliness terms, in
+every git-tracked entry outside `transports/zenoh/` under `core/`, `cli/`, `adapters/`,
+`transports/`, `spec/`, `tests/fakes/` and `tests/protocol/`, and in the root manifests,
+with a self-test planting each shape. Both halves of the gap above are closed for those
+paths. What it still does not prove: a leak spelled some other way (a Zenoh type behind a
+`type` alias whose name avoids every pattern, or a value only built at run time), and any
+path outside its scope (`tests/security/`, `tests/integration/`, which compose a real
+transport in Stages 4-5). Criterion 9's proof is that lint, as above; this residue stays a
+v0.1 gap.)*
+
 ---
 
 ## 9. End-to-end tier detail (H1)
