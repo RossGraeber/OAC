@@ -243,7 +243,6 @@ impl ReceiverReport {
     /// # Errors
     ///
     /// As [`ReceiverReport::receipt`].
-    #[allow(dead_code)] // The same-implementation sender path (#313) calls it.
     pub(crate) fn observed(
         &self,
         env: &Envelope,
@@ -362,35 +361,52 @@ pub fn receive(
     target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
     hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
 ) -> ReceiveOutcome {
-    let reported = |r: ReceiverReport, verified_by, finding| ReceiveOutcome {
-        received: Received::Reported(r),
-        requeue: None,
-        verified_by,
-        finding,
+    match security_steps(msg, engine, clock) {
+        Ok(authorized) => redeliver(authorized, engine, store, clock, target, hand_off),
+        Err(refused) => *refused,
+    }
+}
+
+/// Security steps 1 to 4 of [`receive`], in Table 7.1 order: the copy past step 4, or the
+/// outcome of the step that refused it. Crate-private, for the receive pipeline
+/// ([`crate::pipeline`]), which holds the engine for these steps only and not across the
+/// hand-off call (#313).
+pub(crate) fn security_steps(
+    msg: ChannelMessage,
+    engine: &mut AuthorizationEngine,
+    clock: &dyn Clock,
+) -> Result<AuthorizedMessage, Box<ReceiveOutcome>> {
+    let reported = |r: ReceiverReport, verified_by, finding| {
+        Box::new(ReceiveOutcome {
+            received: Received::Reported(r),
+            requeue: None,
+            verified_by,
+            finding,
+        })
     };
     // Steps 1 and 2.
     let msg = match authenticate(msg, engine.trusted_keys()) {
         Ok(m) => m,
-        Err(r) => return reported(ReceiverReport::from_rejection(&r), None, false),
+        Err(r) => return Err(reported(ReceiverReport::from_rejection(&r), None, false)),
     };
     let verified_by = msg.verified_by().map(|p| p.key_id().clone());
     // Step 3.
     if let Err(r) = check_replay_window(&msg, &clock.now()) {
-        return reported(ReceiverReport::from_rejection(&r), verified_by, false);
+        return Err(reported(
+            ReceiverReport::from_rejection(&r),
+            verified_by,
+            false,
+        ));
     }
     // Step 4.
-    let authorized = match engine.authorize_delivery(msg) {
-        Ok(a) => a,
-        Err(r) => {
-            let finding = r.finding.is_some();
-            return reported(
-                ReceiverReport::of(r.state, Some(r.error)),
-                verified_by,
-                finding,
-            );
-        }
-    };
-    redeliver(authorized, engine, store, clock, target, hand_off)
+    engine.authorize_delivery(msg).map_err(|r| {
+        let finding = r.finding.is_some();
+        reported(
+            ReceiverReport::of(r.state, Some(r.error)),
+            verified_by,
+            finding,
+        )
+    })
 }
 
 /// Security step 5 and the delivery stage for `msg`, a copy past steps 1 to 4: the tail of
@@ -407,25 +423,54 @@ pub fn redeliver(
     target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
     hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
 ) -> ReceiveOutcome {
+    let (out, record) = deliver_unrecorded(msg, store, clock, target, hand_off);
+    record_outcome(engine, record, &out);
+    out
+}
+
+/// [`redeliver`] without the engine: step 5 and the delivery stage, and the hand-off record
+/// the caller then passes to [`record_outcome`] with the outcome. Crate-private, so that no
+/// path outside the crate hands a copy off without recording it ([SEC-AUZ-016]); the receive
+/// pipeline uses it to make the hand-off call with no lock of the engine held (#313).
+pub(crate) fn deliver_unrecorded(
+    msg: AuthorizedMessage,
+    store: &DuplicateStore,
+    clock: &dyn Clock,
+    target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
+    hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
+) -> (ReceiveOutcome, HandOffRecord) {
     let verified_by = msg.message().verified_by().map(|p| p.key_id().clone());
+    let record = HandOffRecord::of(msg.message().envelope());
     let received = match deliver(store, &msg, target, clock, hand_off) {
         Ok(r) => r,
         Err(r) => Received::Reported(ReceiverReport::from_rejection(&r)),
     };
-    if let Received::Reported(r) = &received
+    let requeue = matches!(received, Received::InFlight(_)).then_some(msg);
+    (
+        ReceiveOutcome {
+            received,
+            requeue,
+            verified_by,
+            finding: false,
+        },
+        record,
+    )
+}
+
+/// Records `record` in `engine` when `out` handed the copy off with `handed-to-harness` or
+/// `unknown` ([SEC-AUZ-016]).
+pub(crate) fn record_outcome(
+    engine: &mut AuthorizationEngine,
+    record: HandOffRecord,
+    out: &ReceiveOutcome,
+) {
+    if let Received::Reported(r) = &out.received
         && matches!(
             r.state,
             DeliveryState::HandedToHarness | DeliveryState::Unknown
         )
     {
-        engine.record_handoff(HandOffRecord::of(msg.message().envelope()), r.state);
-    }
-    let requeue = matches!(received, Received::InFlight(_)).then_some(msg);
-    ReceiveOutcome {
-        received,
-        requeue,
-        verified_by,
-        finding: false,
+        engine.record_handoff(record, r.state);
     }
 }
 

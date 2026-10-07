@@ -72,6 +72,10 @@ members that depend on `core/` and, for the adapter suite, the fake Claude endpo
 adapter suite's only third-party crates are `syn` and `proc-macro2` (§5, test-only). A product crate may take one as a dev-dependency only, never a normal
 or build one (§3), so neither is built into the `oac` binary. The adapter suite spawns the
 fake Codex app-server by path, as #58 below allows.)
+(Dated note, 2026-10-07, #313: `transports/memory/` also takes the fake Claude endpoint and
+the adapter suite as dev-dependencies, for the end-to-end run of the core pipelines over the
+in-memory transport and both fake harnesses (`transports/memory/tests/pipelines.rs`). The
+edges are dev-only, as §3 allows a transport, and add no third-party crate.)
 (Dated note, 2026-10-06, #58: fake harness endpoints live under `tests/fakes/<name>/`,
 inside the `tests/` row of §2. F9's fake Codex app-server is
 `tests/fakes/codex-app-server/`: Node built-ins only, no `package.json`, never a workspace

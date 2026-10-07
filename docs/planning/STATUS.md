@@ -4,6 +4,54 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #313: the core send and receive pipelines land in
+`core/src/pipeline.rs`**, composing F2 to F7 between provider adapters and one transport,
+against revision 0.1. No `spec/` file, gate verdict, pin, third-party dependency or ADR text
+changes.
+
+- **Send path.** Attribution by attachment (only from the adapter that reported it), then
+  `sender::prepare_send`: the §8.3.3 decision with its size step measured on the envelope
+  itself, built under the agreed revision with reply headers from the engine's hand-off
+  records and signed; the sender's announcement to the recipient's device before the first
+  envelope when the release is authorized and the transport may carry it ([SEC-PRS-010],
+  [SEC-AUZ-011], [IFC-TRN-081]); an announcement the transport did not take means the
+  envelope is not passed either (`not-passed`, `transport-failure`); `record_sent`;
+  `publish`; the `EnvelopeTracker`, whose receipts feed the `sent` result's receipt
+  stream ([IFC-ADP-062]).
+- **Receive path.** Session subscription, envelope stage (receiver-wide part types are the
+  ones some bound session takes), security steps 1 to 4 under the engine, then step 5, the
+  delivery stage and the adapter's `deliver` with no lock held across the call, contained
+  by `catch_unwind` (a panic is `unknown`); the hand-off record, kept from just before the
+  call so a reply made during it correlates, and removed if the call does not hand off; the
+  receipt gate; the receiver-observed state straight to the local tracker for
+  this device's own envelopes ([SC-RCP-040]), or an authenticated receipt published to the
+  verifying device. In-flight copies are re-queued through `DuplicateStore::when_settled` and
+  offered again on the settling thread, with no timer ([SEC-RPL-026]). Presence records and
+  receipts from other devices arrive through `watch_presence` and the device subscription.
+- **F5/F6 changes, minimal.** `HandOffRecord` carries `conversation_id` and
+  `correlation_id`, and `AuthorizationEngine::reply_headers` serves [SC-RCP-053] and
+  [SC-RCP-054] from the engine's own records; sent and hand-off records are bounded per
+  writer (`MAX_RECORDS_PER_PARTITION`, partitioned by sending own session and by verifying
+  key, so no peer or local session can evict another's records; a total ceiling taken from
+  the largest partition; partitions reclaimed when emptied, when their session ends or key
+  is removed, and, at the partition cap, when wholly expired; every session end prunes;
+  `11-risks.md` RISK-RECORD-PARTITIONS). `receiver::receive` is split into crate-private phases so the
+  pipeline does not hold the engine across a hand-off call; behaviour is unchanged.
+  `EnvelopeDraft::with_parts` and `ContentPart::from_json` let a request carry a non-text
+  part a session advertises.
+- **Conformance.** `send` and `presence`'s send run through `prepare_send` on a built
+  envelope (no size estimate); `routing` runs through `receiver::receive` with the real engine
+  (the runner re-signs the placeholder-signed envelope and grants each `authorized` pair);
+  `reply` reads the engine's hand-off records.
+- **Tests.** `core/tests/pipeline.rs` (in-test transport and adapter, one and two devices,
+  every hand-off outcome against Tables 8.1 and 8.3, refusals, re-queue, bounds) and
+  `transports/memory/tests/pipelines.rs` (the fake Claude Code endpoint and the fake Codex
+  app-server behind test adapters, over the in-memory transport; both mid-turn release
+  settings; and two devices over a `cross-implementation` memory network, where
+  [IFC-TRN-081] keeps presence off a transport that does not declare
+  `destination_restricted`, so nothing crosses). No adapter crate implements
+  `ProviderAdapter` yet (Epic G); the tripwire stands.)
+
 **Last updated:** 2026-10-06 (**Issue #55 (F6): the presence registry and the delivery
 receipt state machine land in `core/`**, against `spec/session-channels.md` §7 and §8 and
 `spec/security.md` §8.4, §10 and §11, revision 0.1. No `spec/` file, gate verdict, pin,

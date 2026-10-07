@@ -62,6 +62,10 @@
 //! - [`receipt_auth`]: the authenticated receipt.
 //! - [`reply`]: reply headers and reply correlation (§8.2).
 //!
+//! Added by #313: [`pipeline`], the send and receive pipelines that compose the stages
+//! above between provider adapters and a transport, the only path between the two
+//! ([IFC-ADP-001]).
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 pub mod adapter;
@@ -77,6 +81,7 @@ pub mod ids;
 pub mod json;
 pub mod keys;
 pub mod pairing;
+pub mod pipeline;
 pub mod presence;
 pub mod presence_auth;
 pub mod receipt;

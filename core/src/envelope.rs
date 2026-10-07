@@ -232,6 +232,36 @@ impl ContentPart {
             ContentPart::Other(o) => &o.part_type,
         }
     }
+
+    /// A content part a harness asked to send, read from its JSON form (§4.5; #313): an
+    /// object with a string `type`. A `text` part is built from its `text` alone, as
+    /// [`TextPart::new`] builds one; any other part keeps the object as given, and its
+    /// `type` must be a core or an extension type (§4.5.2). `None` for anything else, for a
+    /// value holding a `null` ([SC-ENV-003]) and for one that is not I-JSON ([SC-ENV-002]).
+    /// The part stays untrusted content (§4.7): nothing reads provenance from it.
+    pub fn from_json(v: &Json) -> Option<ContentPart> {
+        let o = v.as_object()?;
+        if v.contains_null() || json::parse(v.to_compact().as_bytes()).is_err() {
+            return None;
+        }
+        let part_type = o.get("type").and_then(Json::as_str)?;
+        if part_type == "text" {
+            return TextPart::new(o.get("text").and_then(Json::as_str)?).map(ContentPart::Text);
+        }
+        (is_core_type(part_type) || is_extension_type(part_type)).then(|| {
+            ContentPart::Other(OtherPart {
+                part_type: part_type.to_owned(),
+                wire: o.clone(),
+            })
+        })
+    }
+
+    fn wire(&self) -> &JsonObject {
+        match self {
+            ContentPart::Text(t) => &t.wire,
+            ContentPart::Other(o) => &o.wire,
+        }
+    }
 }
 
 /// The receiver's envelope-stage settings. Both limits are receiver-wide: they do not
@@ -658,9 +688,9 @@ fn structure(
 }
 
 /// An envelope this implementation is about to send, before it is signed. Its members are
-/// the header members and `text` content of §4.2; it has no `security` member and no way
-/// to add any other top-level member, so nothing from a request or from content reaches
-/// the `security` object ([SC-ENV-081]).
+/// the header members and the content of §4.2; it has no `security` member and no way to
+/// add any other top-level member, so nothing from a request or from content reaches the
+/// `security` object ([SC-ENV-081]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnvelopeDraft {
     version: Version,
@@ -672,7 +702,7 @@ pub struct EnvelopeDraft {
     correlation_id: Option<Token>,
     created_at: Timestamp,
     ttl_ms: Option<u64>,
-    content: Vec<TextPart>,
+    content: Vec<ContentPart>,
 }
 
 impl EnvelopeDraft {
@@ -687,6 +717,25 @@ impl EnvelopeDraft {
         to: SessionId,
         created_at: Timestamp,
         content: Vec<TextPart>,
+    ) -> Option<EnvelopeDraft> {
+        EnvelopeDraft::with_parts(
+            id,
+            from,
+            to,
+            created_at,
+            content.into_iter().map(ContentPart::Text).collect(),
+        )
+    }
+
+    /// [`EnvelopeDraft::new`] with content parts of any type (§4.5): a harness's send
+    /// request may carry parts other than `text` that the addressed session advertises
+    /// ([SC-ID-101]; #313). `None` when `content` is empty ([SC-ENV-060]).
+    pub fn with_parts(
+        id: Token,
+        from: SessionId,
+        to: SessionId,
+        created_at: Timestamp,
+        content: Vec<ContentPart>,
     ) -> Option<EnvelopeDraft> {
         if content.is_empty() {
             return None;
@@ -763,7 +812,7 @@ impl EnvelopeDraft {
             Json::Array(
                 self.content
                     .iter()
-                    .map(|p| Json::Object(p.wire.clone()))
+                    .map(|p| Json::Object(p.wire().clone()))
                     .collect(),
             ),
         );
@@ -823,7 +872,7 @@ impl EnvelopeDraft {
             correlation_id: self.correlation_id,
             created_at: self.created_at,
             ttl_ms: self.ttl_ms,
-            content: self.content.into_iter().map(ContentPart::Text).collect(),
+            content: self.content,
             security: SecurityMetadata {
                 principal: signer.principal.as_str().to_owned(),
                 key_id: signer.key_id.as_str().to_owned(),
@@ -956,5 +1005,43 @@ mod tests {
         assert_eq!(raised.max_envelope_octets(), 131_072);
         assert!(l.clone().with_part_types(vec!["Text".into()]).is_none());
         assert!(l.with_part_types(vec!["com.example/rich".into()]).is_some());
+    }
+
+    /// #313: a harness's content parts, read from JSON, go into a draft of any part type.
+    #[test]
+    fn content_parts_from_json_and_drafts_with_them() {
+        let p = |s: &str| ContentPart::from_json(&json::parse(s.as_bytes()).unwrap());
+        assert!(matches!(
+            p(r#"{"type":"text","text":"hi","x":1}"#),
+            Some(ContentPart::Text(t)) if t.text() == "hi"
+        ));
+        assert!(p(r#"{"type":"text","text":""}"#).is_none());
+        assert!(p(r#"{"type":"text"}"#).is_none());
+        assert!(p(r#"{"type":"Not A Type"}"#).is_none());
+        assert!(p(r#"{"type":"com.example/note","v":null}"#).is_none());
+        assert!(p(r#"[1]"#).is_none());
+        let note = p(r#"{"type":"com.example/note","body":"b"}"#).unwrap();
+        assert_eq!(note.part_type(), "com.example/note");
+        let d = |content| {
+            EnvelopeDraft::with_parts(
+                Token::parse("msg-1").unwrap(),
+                SessionId::parse("01harn7x9k2m4p6q8r0s2t4v6w").unwrap(),
+                SessionId::parse("7gq3m8z2c5k9t1w4x6b0n2r8vd").unwrap(),
+                Timestamp::parse("2026-10-03T12:00:00.000Z").unwrap(),
+                content,
+            )
+        };
+        assert!(d(vec![]).is_none());
+        let env = d(vec![note.clone()]).unwrap().seal(
+            &signer(),
+            Nonce::from_octets([1; 16]),
+            Signature::from_octets([2; 64]),
+        );
+        let now = Timestamp::parse("2026-10-03T12:00:01.000Z").unwrap();
+        let limits = EnvelopeLimits::default()
+            .with_part_types(vec!["com.example/note".into()])
+            .unwrap();
+        let got = receive_envelope(env.octets(), &limits, &now).unwrap();
+        assert_eq!(got.envelope().content(), std::slice::from_ref(&note));
     }
 }
