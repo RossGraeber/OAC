@@ -9,7 +9,7 @@ cap.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text ch
 §6.7.2 leaves the bound to the implementation, and every MUST holds.
 
 - **Core.** `Pipelines` counts each held or queued native signal against its observed
-  pairing key, else its connection. At `max_pending_signals`, the heaviest holder pays
+  pairing key (under the adapter that reported it, as keys pair), else its connection. At `max_pending_signals`, the heaviest holder pays
   when it holds at least two more than the newcomer, with ties going to the holder that
   signalled last. Otherwise the newcomer gives up its own oldest, or is dropped. A dropped
   signal still records [SC-ID-128] and withholds per [SC-ID-154]. Held signals stay

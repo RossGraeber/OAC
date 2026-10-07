@@ -195,13 +195,15 @@ pub struct PipelineConfig {
     /// The most native signals held or waiting for their decision at once, at least 1.
     ///
     /// Each signal counts against its *holder*: the pairing key observed for its
-    /// connection, else that connection, else the one holder of signals with neither. At
-    /// the cap, a new signal from a holder with `n` pending signals makes room (#335):
+    /// connection (under the adapter that reported it), else that connection, else the one
+    /// holder of signals with neither. At the cap, a new signal from a holder with `n`
+    /// pending signals makes room (#335):
     ///
     /// - **Fair share.** When a holder has at least `n + 2`, the most of any, its oldest
     ///   signal goes; among the holders with the most, the one whose latest signal arrived
-    ///   last gives it up, so no holder can steer the eviction onto another by its key or
-    ///   its connection.
+    ///   last gives it up. No holder can steer the eviction onto another by its key or
+    ///   connection identity; the timing of its own signals can decide a tie, which still
+    ///   leaves the one that pays with `n + 1`.
     /// - **Own share.** Otherwise, when `n > 0`, the holder's own oldest signal goes.
     /// - **Refused.** Otherwise (`n == 0`) the new signal goes.
     ///
@@ -303,7 +305,11 @@ struct QueuedSignal {
 
 impl QueuedSignal {
     fn holder(&self) -> SignalHolder {
-        SignalHolder::of(self.key.as_ref(), self.signal.connection.as_ref())
+        SignalHolder::of(
+            self.adapter,
+            self.key.as_ref(),
+            self.signal.connection.as_ref(),
+        )
     }
 }
 
@@ -321,18 +327,25 @@ struct HeldSignal {
 /// against (#335).
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum SignalHolder {
-    /// The pairing key observed for its connection when it was reported.
-    Key(PairingKey),
-    /// The connection it arrived on, which had no observed key.
+    /// The pairing key observed for its connection when it was reported, under the
+    /// adapter that reported it: the scope a key pairs in ([`Inner::pair_by_key`]), so two
+    /// adapters observing the same process do not share one share (PR #337 review, N5).
+    Key(AdapterId, PairingKey),
+    /// The connection it arrived on, which had no observed key. A handle is never issued
+    /// twice ([IFC-ADP-013]), so it needs no adapter.
     Connection(ConnectionHandle),
     /// Neither: such signals share one holder.
     Unattributed,
 }
 
 impl SignalHolder {
-    fn of(key: Option<&PairingKey>, connection: Option<&ConnectionHandle>) -> SignalHolder {
+    fn of(
+        adapter: AdapterId,
+        key: Option<&PairingKey>,
+        connection: Option<&ConnectionHandle>,
+    ) -> SignalHolder {
         match (key, connection) {
-            (Some(k), _) => SignalHolder::Key(k.clone()),
+            (Some(k), _) => SignalHolder::Key(adapter, k.clone()),
             (None, Some(c)) => SignalHolder::Connection(c.clone()),
             (None, None) => SignalHolder::Unattributed,
         }
@@ -1631,7 +1644,7 @@ impl Inner {
         let pending = core
             .held
             .iter()
-            .map(|h| (SignalHolder::Key(h.key.clone()), h.seq))
+            .map(|h| (SignalHolder::Key(h.adapter, h.key.clone()), h.seq))
             .chain(core.signals.iter().map(|q| (q.holder(), q.seq)));
         fair_share_victim(pending, holder)
     }
@@ -1708,9 +1721,12 @@ impl Inner {
     }
 
     /// One pass, with the binding turn held: held signals whose window ended are dropped
-    /// ([SC-ID-124]), held signals that now have a candidate are decided, then each signal
-    /// queued when the pass began is paired and decided, in arrival order. Work that
-    /// arrives during the pass is left for [`Inner::drain_binding`]'s next pass.
+    /// ([SC-ID-124]), held signals that now have a candidate are decided, then as many
+    /// signals as were queued when the pass began are taken from the front of the queue,
+    /// paired and decided, in arrival order. Those are the signals queued when the pass
+    /// began, unless one of them was dropped at the cap during the pass: the signal queued
+    /// in its place may then be decided in this pass (#335; PR #337 review, N3). Other work
+    /// that arrives during the pass is left for [`Inner::drain_binding`]'s next pass.
     fn binding_pass(self: &Arc<Self>) {
         self.repair_needed.store(false, Ordering::SeqCst);
         let now = (self.monotonic)();
@@ -2119,33 +2135,41 @@ impl Inner {
 
 #[cfg(test)]
 mod tests {
-    use super::{SignalHolder, fair_share_victim};
+    use super::{AdapterId, SignalHolder, fair_share_victim};
     use crate::adapter::Connection;
     use crate::session_binding::PairingKey;
 
-    /// #335: a signal counts against its observed key, whatever connection it came on;
-    /// without a key, against its connection; with neither, against the one shared holder.
+    /// #335: a signal counts against its observed key under its adapter, whatever
+    /// connection it came on; without a key, against its connection; with neither, against
+    /// the one shared holder. The same key under another adapter is another holder, as it
+    /// pairs separately (PR #337 review, N5).
     #[test]
     fn a_signal_counts_against_its_key_else_its_connection() {
         let key = |s: &str| PairingKey::from_observation(s.as_bytes().to_vec());
+        let (p, q) = (AdapterId(0), AdapterId(1));
+        let of = |k: Option<&PairingKey>, c| SignalHolder::of(p, k, c);
         let c1 = Connection::accept(std::io::empty(), std::io::sink());
         let c2 = Connection::accept(std::io::empty(), std::io::sink());
         let (c1, c2) = (c1.handle(), c2.handle());
         let k = key("k");
         assert!(
-            SignalHolder::of(Some(&k), Some(c1)) == SignalHolder::of(Some(&k), Some(c2)),
+            of(Some(&k), Some(c1)) == of(Some(&k), Some(c2)),
             "one key over two connections is one holder"
         );
-        assert!(SignalHolder::of(Some(&k), Some(c1)) == SignalHolder::of(Some(&k), None));
-        assert!(SignalHolder::of(Some(&k), None) != SignalHolder::of(Some(&key("j")), None));
+        assert!(of(Some(&k), Some(c1)) == of(Some(&k), None));
+        assert!(of(Some(&k), None) != of(Some(&key("j")), None));
         assert!(
-            SignalHolder::of(None, Some(c1)) != SignalHolder::of(None, Some(c2)),
+            SignalHolder::of(p, Some(&k), Some(c1)) != SignalHolder::of(q, Some(&k), Some(c1)),
+            "one key under two adapters is two holders"
+        );
+        assert!(
+            of(None, Some(c1)) != of(None, Some(c2)),
             "two unkeyed connections are two holders"
         );
-        assert!(SignalHolder::of(None, Some(c1)) == SignalHolder::of(None, Some(c1)));
-        assert!(SignalHolder::of(None, Some(c1)) != SignalHolder::of(None, None));
-        assert!(SignalHolder::of(None, None) == SignalHolder::of(None, None));
-        assert!(SignalHolder::of(Some(&k), Some(c1)) != SignalHolder::of(None, Some(c1)));
+        assert!(of(None, Some(c1)) == SignalHolder::of(q, None, Some(c1)));
+        assert!(of(None, Some(c1)) != of(None, None));
+        assert!(of(None, None) == SignalHolder::of(q, None, None));
+        assert!(of(Some(&k), Some(c1)) != of(None, Some(c1)));
     }
 
     /// The victim for a newcomer from `holder`, over `pending` given as (holder, seq).
