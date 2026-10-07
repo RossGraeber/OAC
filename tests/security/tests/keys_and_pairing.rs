@@ -139,13 +139,18 @@ fn row08_device_key_never_appears_in_debug_output() {
 
 /// `spec/security.md` §13 "Trust on first use" and pairing ([SEC-KEY-032]; finding F5-1): a
 /// party on the exchange channel that runs one exchange with each device, substituting its
-/// own key, ends up with two different codes, so the code the operator copies from one
-/// device into the other does not match. Each device's code binds both keys and both nonces;
-/// the control, with no one in the middle, matches.
+/// own key, leaves the two devices showing different codes, so the code the operator copies
+/// from one device into the other is refused, and the device that would have paired shows
+/// the substituted key's id. The control, with no one in the middle, matches and pairs.
 ///
-/// The codes are six digits: a substitution passes with probability 10^-6 per
-/// operator-visible exchange (the documented residual), so this test fails spuriously with
-/// that probability.
+/// What this does not show: with independent random nonces the two codes differ whether or
+/// not the code also binds the keys, so the key binding itself is proven by the core's
+/// deterministic unit test `pairing::tests::substituted_key_or_nonce_changes_the_code_or_fails`
+/// (cited in the threat map), which fixes the nonces through seams that stay crate-private.
+///
+/// The codes are six digits: two different exchanges show the same code with probability
+/// 10^-6 (the documented per-exchange residual), so this test fails spuriously with that
+/// probability.
 #[test]
 fn s13_pairing_mitm_substitution_is_caught_by_the_code() {
     let now = ts(T0);

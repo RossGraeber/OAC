@@ -6,27 +6,33 @@ verdict, or when a pin moves.
 
 **Last updated:** 2026-10-07 (**Issue #60 (F11): the security suite against the fakes lands
 at `tests/security/`** (`oac-security-suite`, CI-default). No `spec/` file, `core/` file, gate
-verdict, pin, dependency or ADR text changes.
+verdict, pin or ADR text changes; the one dependency is `syn`, test-only and already in the
+graph (07 §5).
 
-- **What it proves.** Every `06-security.md` §14 row, and the `spec/security.md` §13 rows 06
-  does not number (squatting, existence oracle, presence forgery, receipt forgery, pairing,
-  exhaustion), maps to named tests that drive the real core: envelope stage, security steps 1
-  to 5 (`receiver::receive_octets`), authorization, presence and receipt authentication,
-  pairing and key removal, with envelopes over the in-memory transport for the carrying-path
-  rows and the fake Claude Code endpoint for what the harness renders (mid-turn cases under
-  both release settings). The map is `THREATS` in `tests/security/src/lib.rs`, rendered into
-  `09-test-strategy.md` §12 and checked against both by `tests/threat_map.rs`.
-- **What is gated, not passed.** Rows 13, 17 and 24 wholly, and the adapter, daemon or
-  pipeline half of rows 2, 6, 7, 10, 11, 12, 14, 15, 16, 18, 19, 21, 22 and of exhaustion:
-  G4 (#65), G7 (#68), G8 (#69), G9 (#70), G1/G3 (#62, #64), H2 (#74), L10 (#175), the core
-  pipelines (#313) and the envelope-binding bound (#325, RISK-BINDING-TABLE). Each gated test
-  is `#[ignore = "GATED on #N ..."]` and fails if run. Row 23 stays an open risk. These parts
-  remain v0.1 gaps (06 §15).
+- **What it covers.** Every `06-security.md` §14 row and every `spec/security.md` §13 row is
+  mapped, plus one row from the PR #317/#321 threat tables (exhaustion). Mapped is not the
+  same as proven: a row is proven where named tests drive the real core (envelope stage,
+  security steps 1 to 5 through `receiver::receive_octets`, authorization, presence and
+  receipt authentication, pairing, key removal), with envelopes over the in-memory transport
+  for the carrying-path rows and the recorded signature-form fixtures for malleability,
+  cross-protocol reuse and canonicalization. Tests that record what the fake Claude Code
+  endpoint renders are listed as harness facts, not proofs. Where the suite cannot reach a
+  part through the public API, the map cites the `oac-core` test that carries it. The map is
+  `THREATS` in `tests/security/src/lib.rs`, rendered into `09-test-strategy.md` §12 and
+  checked against the sources, §13 and 09 by `tests/threat_map.rs`.
+- **What is gated, not passed.** 06 rows 13, 15, 17 and 24 and the §13 consent-bypass row
+  wholly, and the adapter, daemon or pipeline half of rows 2, 6, 7, 10, 11, 12, 14, 16, 18,
+  19, 21, 22 and of exhaustion: G4 (#65), G7 (#68), G8 (#69), G9 (#70), G1/G3 (#62, #64), H2
+  (#74), L10 (#175), the core pipelines (#313) and the envelope-binding bound (#325,
+  RISK-BINDING-TABLE). Each gated test is `#[ignore = "GATED on #N ..."]` with a body that is
+  a single `panic!`. Row 23 stays an open risk. These parts remain v0.1 gaps (06 §15).
 - **Mutation check.** `tests/security/mutation-check.mjs` plants one regression at a time in
-  a copy of `core/` (15 mutations across the rows); each is caught by a named test.
+  a copy of `core/`; each is caught by a named suite test, or, for the one mutant the suite
+  cannot reach (a pairing code without the keys), by the cited core test.
 - **Layout.** `scripts/check-crate-deps.mjs` admits `tests/security` (core/, a fake, a
-  transport and, through its dev-dependency, a contract suite; nothing may reach it), with self-test and mutation cases; 07 §1 and §3 carry
-  dated notes.)
+  transport and, through its dev-dependency, a contract suite; nothing may reach it), with
+  self-test and mutation cases; 07 §1, §3 and §5 carry dated notes. Un-gating a G4, G7 or G8
+  placeholder will need that rule to admit an adapter as a dev-dependency.)
 
 **Last updated:** 2026-10-06 (**Issue #55 (F6): the presence registry and the delivery
 receipt state machine land in `core/`**, against `spec/session-channels.md` §7 and §8 and

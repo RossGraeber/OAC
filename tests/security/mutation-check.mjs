@@ -21,14 +21,17 @@
 // or the control failed; 2 = usage or environment error.
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-// Each mutation: the threat row whose mitigation it breaks, the file, the exact text to
-// replace (it must occur `count` times, default once) and its replacement.
+// Each mutation: the threat row whose mitigation it breaks, the file, and the exact text to
+// replace (it must occur `count` times, default once) with its replacement, or `edits`, a
+// list of such replacements applied together. `coreOnly` marks a mutant the suite cannot
+// reach through the public API: it must then be caught by that cited `oac-core` test, the
+// one THREATS cites for the row.
 export const MUTATIONS = [
   {
     name: '06 rows 1/3: signature not checked (verify_strict result ignored)',
@@ -103,26 +106,74 @@ export const MUTATIONS = [
     to: 'String::from("000000")',
   },
   {
-    name: 'S13 exhaustion: no per-issuer presence quota',
+    name: 'X exhaustion: no per-issuer presence quota',
     file: 'core/src/registry.rs',
     from: 'if self.held_by(issuer) >= self.per_issuer_quota {\n            let own_stale',
     to: 'if false {\n            let own_stale',
   },
   {
-    name: 'S13 exhaustion: presence registry capacity not enforced',
+    name: 'X exhaustion: presence registry capacity not enforced',
     file: 'core/src/registry.rs',
     from: 'if self.len() < self.capacity {\n            return Ok(());\n        }\n        self.sweep(now);',
     to: 'if true {\n            return Ok(());\n        }\n        self.sweep(now);',
   },
   {
-    name: 'S13 exhaustion: envelope size limit not enforced',
+    name: 'X exhaustion: envelope size limit not enforced',
     file: 'core/src/envelope.rs',
     from: 'if octets.len() as u64 > limits.max_envelope_octets {',
     to: 'if false {',
   },
+  // The finer variants of PR #327 review N2.
+  {
+    name: 'S13 malleability: non-strict ed25519 verification (verify for verify_strict)',
+    file: 'core/src/signing.rs',
+    edits: [
+      {
+        from: '.verify_strict(&input, &ed25519_dalek::Signature::from_bytes(&octets))',
+        to: '.verify(&input, &ed25519_dalek::Signature::from_bytes(&octets))',
+      },
+      {
+        from: 'let input = signing_input(domain, obj).map_err(',
+        to: 'use ed25519_dalek::Verifier as _;\n    let input = signing_input(domain, obj).map_err(',
+      },
+    ],
+  },
+  {
+    name: '06 row 4: replay window closed at its ends (<= for <)',
+    file: 'core/src/replay.rs',
+    from: 't - WINDOW_NANOS < c && c < t + WINDOW_NANOS',
+    to: 't - WINDOW_NANOS <= c && c <= t + WINDOW_NANOS',
+  },
+  {
+    name: '06 row 4: replay window widened by 0.5 s',
+    file: 'core/src/replay.rs',
+    from: 't - WINDOW_NANOS < c && c < t + WINDOW_NANOS',
+    to: 't - WINDOW_NANOS - 500_000_000 < c && c < t + WINDOW_NANOS + 500_000_000',
+  },
+  {
+    // With random nonces the suite cannot tell a code that binds the keys from one that
+    // binds only the nonces; core's deterministic unit test can (cited in THREATS).
+    name: 'S13 pairing: the code hashes the nonces only, not the principals or keys',
+    file: 'core/src/pairing.rs',
+    from: '    put_principal(&mut h, initiator.0);\n    h.update(initiator.1.to_octets());\n    put_principal(&mut h, responder.0);\n    h.update(responder.1.to_octets());\n',
+    to: '',
+    coreOnly: 'pairing::tests::substituted_key_or_nonce_changes_the_code_or_fails',
+  },
 ];
 
 const EXCLUDE_TOP = new Set(['.git', 'target', 'node_modules', '.claude', '.agents']);
+
+// Sets the access and modification times of every file under `dir` to `when`. cpSync keeps
+// the source's times (on Windows to the millisecond), so a copied core/ file could look
+// older than a mutant the reused target/ built from in an earlier run, and cargo would test
+// that stale mutant (PR #327 review N6).
+function touchTree(dir, when) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) touchTree(p, when);
+    else if (entry.isFile()) utimesSync(p, when, when);
+  }
+}
 
 function copyWorkspace(ws) {
   rmSync(ws, { recursive: true, force: true });
@@ -132,20 +183,32 @@ function copyWorkspace(ws) {
     if (EXCLUDE_TOP.has(entry)) continue;
     cpSync(join(repoRoot, entry), join(ws, entry), { recursive: true });
   }
+  touchTree(ws, new Date());
 }
 
-function runSuite(ws, targetDir) {
-  const r = spawnSync('cargo', ['test', '-p', 'oac-security-suite', '--offline', '--locked', '--no-fail-fast'], {
+function cargo(ws, targetDir, args) {
+  const r = spawnSync('cargo', args, {
     cwd: ws,
     encoding: 'utf8',
     env: { ...process.env, CARGO_TARGET_DIR: targetDir },
     maxBuffer: 256 * 1024 * 1024,
   });
   if (r.error) throw r.error;
+  return r;
+}
+
+function runTests(ws, targetDir, pkg, filter) {
+  const args = ['test', '-p', pkg, '--offline', '--locked', '--no-fail-fast'];
+  if (filter) args.push(filter);
+  const r = cargo(ws, targetDir, args);
   const out = `${r.stdout}\n${r.stderr}`;
   const failed = [...out.matchAll(/^test (\S+) \.\.\. FAILED$/gm)].map((m) => m[1]);
   const compileError = /error(\[E\d+\])?: /.test(r.stderr) && failed.length === 0;
   return { status: r.status, failed, compileError, tail: out.split(/\r?\n/).slice(-15).join('\n') };
+}
+
+function edits(m) {
+  return m.edits ?? [{ from: m.from, to: m.to, count: m.count }];
 }
 
 function main(argv) {
@@ -164,7 +227,13 @@ function main(argv) {
   mkdirSync(workDir, { recursive: true });
   copyWorkspace(ws);
   try {
-    const control = runSuite(ws, targetDir);
+    // Belt and braces with touchTree: nothing core/ built in an earlier run survives.
+    const clean = cargo(ws, targetDir, ['clean', '-p', 'oac-core', '--offline']);
+    if (clean.status !== 0) {
+      console.log(`FAIL  cargo clean -p oac-core\n${clean.stderr}`);
+      return 2;
+    }
+    const control = runTests(ws, targetDir, 'oac-security-suite');
     if (control.status !== 0) {
       console.log(`FAIL  control: the unmodified suite does not pass\n${control.tail}`);
       return 1;
@@ -175,24 +244,43 @@ function main(argv) {
     for (const m of cases) {
       const p = join(ws, m.file);
       const before = readFileSync(p, 'utf8');
-      const text = before.replace(/\r\n/g, '\n');
-      const count = text.split(m.from).length - 1;
-      if (count !== (m.count ?? 1)) {
-        console.log(`FAIL  ${m.name}: expected the text ${m.count ?? 1} time(s) in ${m.file}, found ${count}`);
+      let text = before.replace(/\r\n/g, '\n');
+      let bad = null;
+      for (const e of edits(m)) {
+        const count = text.split(e.from).length - 1;
+        if (count !== (e.count ?? 1)) {
+          bad = `expected ${JSON.stringify(e.from.slice(0, 60))} ${e.count ?? 1} time(s) in ${m.file}, found ${count}`;
+          break;
+        }
+        text = text.split(e.from).join(e.to);
+      }
+      if (bad) {
+        console.log(`FAIL  ${m.name}: ${bad}`);
         survived++;
         continue;
       }
-      writeFileSync(p, text.split(m.from).join(m.to));
+      writeFileSync(p, text);
       try {
-        const r = runSuite(ws, targetDir);
+        const r = runTests(ws, targetDir, 'oac-security-suite');
         if (r.compileError) {
           console.log(`FAIL  ${m.name}: the mutant does not compile (fix the mutation)\n${r.tail}`);
           survived++;
-        } else if (r.status === 0) {
+        } else if (r.status !== 0) {
+          console.log(`pass  ${m.name}: caught by ${r.failed.join(', ')}`);
+        } else if (m.coreOnly) {
+          // The suite cannot reach this through the public API; THREATS cites the core
+          // test that does. Check that it does.
+          const name = m.coreOnly.split('::').pop();
+          const c = runTests(ws, targetDir, 'oac-core', name);
+          if (c.status !== 0 && c.failed.some((f) => f.endsWith(name))) {
+            console.log(`pass  ${m.name}: not reachable by the suite; caught by the cited core test ${m.coreOnly}`);
+          } else {
+            console.log(`FAIL  ${m.name}: SURVIVED the suite and the cited core test ${m.coreOnly}`);
+            survived++;
+          }
+        } else {
           console.log(`FAIL  ${m.name}: SURVIVED, no test failed`);
           survived++;
-        } else {
-          console.log(`pass  ${m.name}: caught by ${r.failed.join(', ')}`);
         }
       } finally {
         writeFileSync(p, before);

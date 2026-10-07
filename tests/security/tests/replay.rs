@@ -47,6 +47,64 @@ fn row04_copy_dated_ahead_of_the_window_is_rejected() {
     assert!(d.handed.is_none());
 }
 
+/// 06 row 4 ([SEC-RPL-002], [SEC-RPL-003]): the window is open at its ends and compared at
+/// full precision. A copy dated exactly 300 seconds ahead of the receiver clock is refused,
+/// and one dated a nanosecond less is accepted, so the window is neither widened nor closed
+/// at its edge. The ahead side is probed because on the past side the hand-off deadline
+/// would refuse a copy at the edge anyway; `replay::tests::window_is_open_at_both_ends_at_full_precision`
+/// in `oac-core` probes both ends of the window function itself.
+#[test]
+fn row04_the_window_is_open_at_its_edge() {
+    let (alice, mut bob) = granted_pair();
+    let at = |offset: i128| {
+        oac_core::ids::Timestamp::from_unix_nanos(ts(T0).unix_nanos() + offset).expect("a time")
+    };
+    let edge = alice.sign_at(
+        "m1",
+        &sid(1),
+        &sid(2),
+        at(300 * NANOS_PER_SEC),
+        "at the edge",
+    );
+    assert_eq!(
+        bob.receive(edge.octets()).outcome(),
+        (DeliveryState::Expired, Some(ErrorCode::OutsideReplayWindow))
+    );
+    let inside = alice.sign_at(
+        "m2",
+        &sid(1),
+        &sid(2),
+        at(300 * NANOS_PER_SEC - 1),
+        "just inside",
+    );
+    assert_eq!(
+        bob.receive(inside.octets()).state,
+        DeliveryState::HandedToHarness
+    );
+}
+
+/// `spec/security.md` §13 "Duplicate suppression that blocks a legitimate retransmission"
+/// ([SEC-RPL-022], [SC-RCP-009]): a copy that was not handed off, because the session was
+/// not accepting input or because the hand-off call failed, leaves no store entry, so its
+/// retransmission is delivered rather than reported `duplicate`.
+#[test]
+fn s13_a_copy_not_handed_off_does_not_block_its_retransmission() {
+    let (alice, mut bob) = granted_pair();
+    let env = alice.sign("m1", &sid(1), &sid(2), "please arrive");
+    let failed = bob.receive_with(env.octets(), oac_core::adapter::HandOffOutcome::Failed);
+    assert_eq!(failed.state, DeliveryState::Failed);
+    let again = bob.receive(env.octets());
+    assert_eq!(again.state, DeliveryState::HandedToHarness, "{again:?}");
+
+    let env = alice.sign("m2", &sid(1), &sid(2), "session away");
+    bob.end_session(&sid(2));
+    let away = bob.receive(env.octets());
+    assert_eq!(away.state, DeliveryState::Unreachable);
+    bob.register(&sid(2), "/work/b");
+    let back = bob.receive(env.octets());
+    assert_eq!(back.state, DeliveryState::HandedToHarness, "{back:?}");
+}
+
 /// 06 row 4 ([SEC-RPL-020], [SEC-RPL-021], [SEC-RPL-030]): inside the window, the store keyed
 /// by `(key_id, nonce)` hands the envelope off once; every later copy is `duplicate`, and
 /// only the first of them may draw a `duplicate` receipt.

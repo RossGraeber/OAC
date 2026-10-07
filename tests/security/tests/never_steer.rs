@@ -101,8 +101,10 @@ fn row11_a_deliver_permit_never_permits_relay() {
 }
 
 /// 06 row 12 ([SEC-AUZ-022]): the decision kinds are exactly the five of Table 4.9, and
-/// none enables steering a running turn. The match is exhaustive, so a new kind fails to
-/// compile here until this test says what it is.
+/// none enables steering a running turn. This is a compile-time guard, not a runtime proof:
+/// every arm is `false`, so the assertion cannot fail at run time; the match is exhaustive,
+/// so adding a kind fails to compile here until this test says what it is. Row 12's runtime
+/// proof in this suite is `row12_hand_off_is_made_at_most_once_and_no_outcome_steers`.
 #[test]
 fn row12_no_decision_kind_enables_steering() {
     let all = [
@@ -157,7 +159,9 @@ fn row12_hand_off_is_made_at_most_once_and_no_outcome_steers() {
 
 /// 06 row 11, adapter half (H2: "Permission relay is confirmed off"): the Claude adapter
 /// never answers a permission request on a peer message's behalf without a
-/// `relay-permission` permit. Gated: the adapter is G4.
+/// `relay-permission` permit. Gated: the adapter is G4. Un-gating it needs the crate rule to
+/// admit `adapters/claude` as this suite's dev-dependency (`scripts/check-crate-deps.mjs`,
+/// `tests/security` kind), or the test moved into the adapter's crate.
 #[test]
 #[ignore = "GATED on #65 (G4, Claude adapter): the permission-relay surface is the adapter's"]
 fn gated_row11_adapter_never_relays_without_a_relay_permit() {
@@ -166,11 +170,24 @@ fn gated_row11_adapter_never_relays_without_a_relay_permit() {
 
 /// 06 row 12, adapter half ([SEC-AUZ-025] to [SEC-AUZ-027]): the Codex adapter hands off
 /// queue-only whenever a turn may be running, calls no steering method, and never falls
-/// back to one; the fake app-server's call log flags every steering call. Gated: G7.
+/// back to one; the fake app-server's call log flags every steering call. Gated: G7, with
+/// the same crate-rule note as `gated_row11_*` (`adapters/codex`).
 #[test]
 #[ignore = "GATED on #68 (G7, Codex adapter inbound injection): queue-only hand-off is the adapter's"]
 fn gated_row12_codex_hand_off_is_queue_only() {
     panic!(
         "GATED on #68: drive mid-turn deliveries through the Codex adapter and the fake app-server"
+    );
+}
+
+/// `spec/security.md` §13 "Bypass of a harness's own consent step" ([SEC-AUZ-023]): no
+/// implementation automates past, suppresses or pre-answers a harness's consent prompt.
+/// The spec names H2's review of the launch path as the proving test; nothing in the core
+/// or the fakes launches a harness. Gated: H2.
+#[test]
+#[ignore = "GATED on #74 (H2, security verification against the real harnesses)"]
+fn gated_s13_no_harness_consent_step_is_automated() {
+    panic!(
+        "GATED on #74: review the OAC-enabled launch path and assert no consent step is answered for the operator"
     );
 }

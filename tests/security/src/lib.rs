@@ -2,12 +2,15 @@
 
 //! The security suite against the fakes (#60, F11).
 //!
-//! Every test in `tests/` proves one mitigation of the threat table
+//! Every test in `tests/` belongs to one row of the threat table
 //! (`docs/planning/v0.1/06-security.md` §14, cited as "06 row N"; `spec/security.md` §13 for
-//! the rows 06 does not number) and names that row in its own name and doc comment. The
-//! mapping from each row to its tests, and what is still gated, is [`THREATS`];
-//! `tests/threat_map.rs` checks it against the test sources, so a row cannot point at a test
-//! that does not exist.
+//! the rows 06 does not number; `X-` for a row from an earlier PR's threat table) and names
+//! that row in its own name (`rowNN_`, `s13_`, `x_`, or `gated_` for a placeholder) and doc
+//! comment. Most prove the row's mitigation; a few, listed as "facts", record a harness
+//! behaviour the mitigation relies on and prove nothing about OAC. The mapping, with the
+//! `oac-core` tests that carry what this suite cannot reach and what is still gated, is
+//! [`THREATS`]; `tests/threat_map.rs` checks it against the test sources, `spec/security.md`
+//! §13 and `09-test-strategy.md` §12.
 //!
 //! # What runs
 //!
@@ -31,10 +34,10 @@
 //!
 //! No adapter exists yet, so nothing in the repository turns a verified message into the
 //! Claude channel `meta` map. [`stand_in_provenance`] does it here, from the verified members
-//! only (`spec/security.md` §12.1, [SEC-PRV-002]), so that the core's half (what it verifies
-//! and hands over) and the harness's half (what the fake renders) can be tested together. It
-//! is a stand-in for the G4 adapter (#65), not that adapter: a pass says nothing about G4's
-//! own mapping, which [`THREATS`] lists as gated.
+//! only (`spec/security.md` §12.1, [SEC-PRV-002]), so that the harness facts can feed the fake
+//! a realistic channel notification. It is a stand-in for the G4 adapter (#65), not that
+//! adapter: a test that runs through it says nothing about G4's own mapping, which
+//! [`THREATS`] lists as gated, and the tests that use it are listed as facts, not proofs.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -201,6 +204,20 @@ impl Device {
             peer.principal().clone(),
             *peer.public_key(),
             peer.key_id(),
+            self.clock.now(),
+            OperatorConfirmed::by_operator(),
+        )
+        .expect("the compared key id matches");
+        self.engine.pair(p, &self.pairings).expect("paired");
+    }
+
+    /// The operator pairs the key `public_key` of `principal`, comparing its key id
+    /// ([SEC-KEY-032]), as for a peer whose public key arrived in a file.
+    pub fn pair_key(&mut self, principal: &str, public_key: oac_core::keys::PublicKey) {
+        let p = PairedPeer::by_key_id_comparison(
+            token(principal),
+            public_key,
+            &public_key.key_id(),
             self.clock.now(),
             OperatorConfirmed::by_operator(),
         )
@@ -527,9 +544,11 @@ pub fn ready_claude(release: MidTurnRelease) -> FakeClaude {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
     /// Every mitigation the row names that lives in an existing component is proven by a
-    /// passing test here; `gated` lists the parts that wait for a component not built yet.
+    /// passing test here that drives the core; `gated` lists the parts that wait for a
+    /// component not built yet.
     Proven,
-    /// Nothing the row names can run yet; `gated` says why.
+    /// No test here proves the row's mitigation yet; `gated` says why. The row may still
+    /// list harness facts, which record a precondition and prove nothing about OAC.
     Gated,
     /// No mitigation exists to test: an open risk (06 §15).
     OpenRisk,
@@ -538,7 +557,7 @@ pub enum Status {
 /// A part of a mitigation that waits for a component not built yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Gate {
-    /// The owning issue, as `#N`.
+    /// The owning issue, as `#N`, or several as `#N, #M`.
     pub issue: &'static str,
     /// What waits, and the ignored test that holds the place, if any.
     pub what: &'static str,
@@ -547,13 +566,26 @@ pub struct Gate {
 /// One threat row and the tests that prove its mitigation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Threat {
-    /// `06-N` for row N of `docs/planning/v0.1/06-security.md` §14; `S13-<name>` for a row
-    /// of `spec/security.md` §13 that 06 does not number.
+    /// `06-N` for row N of `docs/planning/v0.1/06-security.md` §14; `S13-<name>` for a row of
+    /// `spec/security.md` §13 that 06 does not number; `X-<name>` for a row from an earlier
+    /// PR's threat table that neither numbers.
     pub row: &'static str,
     /// The attack, in a few words.
     pub attack: &'static str,
-    /// The passing tests, by function name.
+    /// The `spec/security.md` §13 rows this entry covers, by the start of their attack cell.
+    /// `tests/threat_map.rs` checks that every §13 row is covered by some entry.
+    pub spec13: &'static [&'static str],
+    /// The tests in `tests/` that prove the mitigation by driving the core (passing), and
+    /// the `gated_` placeholders (ignored), by function name.
     pub tests: &'static [&'static str],
+    /// Tests in `tests/` that record a fact about the harness (the fake Claude Code
+    /// endpoint's recorded behaviour) that the mitigation relies on. They run and pass, but
+    /// they are preconditions, not proofs: they exercise no OAC mitigation.
+    pub facts: &'static [&'static str],
+    /// Tests in `oac-core` that carry a part of the mitigation this suite cannot reach
+    /// through the public API, as `path::to::test` (a unit test in `core/src`) or
+    /// `tests/<file>::<test>` (an integration test).
+    pub core_tests: &'static [&'static str],
     /// The status.
     pub status: Status,
     /// What is gated, with its owning issue.
@@ -571,24 +603,34 @@ const L10: &str = "#175";
 const H2: &str = "#74";
 
 /// Every threat row this suite covers. `tests/threat_map.rs` checks that each of 06 rows 1
-/// to 24 is here, that every named test exists in `tests/`, and that every gated test is
-/// ignored with its issue.
+/// to 24 and each `spec/security.md` §13 row is here, that every named test exists, that
+/// every gated test is ignored with its issue and panics, and that the table in
+/// `09-test-strategy.md` §12 is this map.
+///
+/// Un-gating a G4, G7 or G8 placeholder means running it against a real adapter. The crate
+/// rule (`scripts/check-crate-deps.mjs`, `tests/security` kind) does not let this suite reach
+/// an adapter today; that rule must then admit `adapters/*` (as a dev-dependency), or the
+/// test must move into the adapter's own crate.
 pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-1",
         attack: "Impersonation: a forged envelope",
+        spec13: &["Impersonation: a forged envelope"],
         tests: &[
             "row01_envelope_signed_by_an_unpaired_key_is_rejected",
             "row01_claiming_a_trusted_principal_with_another_key_is_rejected",
             "row01_a_trusted_key_id_with_a_forged_signature_is_rejected",
             "row01_signature_from_another_trusted_device_does_not_verify",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "06-2",
         attack: "Unauthorized routing or discovery",
+        spec13: &["Unauthorized routing (06 row 2)", "Reply-right abuse"],
         tests: &[
             "row02_trusted_peer_without_a_grant_is_rejected_unauthorized",
             "row02_a_grant_is_one_way",
@@ -598,6 +640,8 @@ pub const THREATS: &[Threat] = &[
             "row02_reply_right_covers_only_the_reply_to_the_one_message",
             "gated_row02_unauthorized_send_through_the_composed_pipeline",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: PIPELINES,
@@ -607,48 +651,61 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-3",
         attack: "Tampering in flight",
+        spec13: &["Tampering in transit"],
         tests: &[
             "row03_rewriting_any_signed_member_breaks_the_signature",
             "row03_a_flipped_signature_bit_is_rejected",
             "row03_tampered_bytes_over_the_transport_are_rejected",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "06-4",
         attack: "Replay",
+        spec13: &["Replay (06 row 4)", "Receipt flooding by replay"],
         tests: &[
             "row04_copy_outside_the_replay_window_is_rejected",
             "row04_copy_dated_ahead_of_the_window_is_rejected",
+            "row04_the_window_is_open_at_its_edge",
             "row04_replay_inside_the_window_is_a_duplicate_handed_off_once",
             "row04_expiry_is_checked_before_the_replay_window",
             "row04_replay_after_restart_inside_the_window_is_the_named_residual",
             "row04_transport_duplicates_are_handed_off_once",
             "row04_receipt_flooding_by_replay_is_bounded",
         ],
+        facts: &[],
+        core_tests: &["replay::tests::window_is_open_at_both_ends_at_full_precision"],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "06-5",
         attack: "Prompt injection from an authenticated peer",
+        spec13: &["Prompt injection from an authenticated peer"],
         tests: &[
             "row05_hostile_content_is_delivered_as_content_and_obeyed_never",
             "row05_content_never_reaches_an_authorization_decision",
             "row05_the_decision_log_holds_no_content",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "06-6",
         attack: "Compromised transport infrastructure",
+        spec13: &["Compromised transport, transport-only authenticity"],
         tests: &[
             "row06_forged_envelope_injected_on_the_transport_is_rejected",
             "row03_tampered_bytes_over_the_transport_are_rejected",
             "row04_transport_duplicates_are_handed_off_once",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: G1_G3,
@@ -658,11 +715,14 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-7",
         attack: "Accidental cross-project disclosure",
+        spec13: &["Cross-project disclosure"],
         tests: &[
             "row07_scope_grant_does_not_cover_another_working_directory",
             "row07_scope_grant_does_not_cover_a_subdirectory",
             "row07_presence_is_released_only_to_granted_devices",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: H2,
@@ -672,6 +732,7 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-8",
         attack: "Leaked device key",
+        spec13: &["Leaked device key"],
         tests: &[
             "row08_removing_a_key_revokes_it_in_one_step",
             "row08_captured_envelope_from_a_removed_key_is_rejected",
@@ -680,23 +741,31 @@ pub const THREATS: &[Threat] = &[
             "row08_own_key_cannot_be_removed",
             "row08_device_key_never_appears_in_debug_output",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "06-9",
         attack: "Transport-only authenticity assumed",
+        spec13: &[],
         tests: &[
             "row09_a_payload_from_any_endpoint_is_judged_by_its_signature_alone",
             "row06_forged_envelope_injected_on_the_transport_is_rejected",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "06-10",
         attack: "A transport peer identifier used as an identity",
+        spec13: &[],
         tests: &["row09_a_payload_from_any_endpoint_is_judged_by_its_signature_alone"],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: "#64",
@@ -706,12 +775,15 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-11",
         attack: "Permission-relay abuse",
+        spec13: &["Permission-relay abuse"],
         tests: &[
             "row11_relay_is_off_by_default_even_with_a_device_wide_grant",
             "row11_relay_is_enabled_for_one_session_only_by_the_operator",
             "row11_a_deliver_permit_never_permits_relay",
             "gated_row11_adapter_never_relays_without_a_relay_permit",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: G4,
@@ -721,11 +793,14 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-12",
         attack: "Steering a running turn",
+        spec13: &["Steering a running turn"],
         tests: &[
-            "row12_no_decision_kind_enables_steering",
             "row12_hand_off_is_made_at_most_once_and_no_outcome_steers",
+            "row12_no_decision_kind_enables_steering",
             "gated_row12_codex_hand_off_is_queue_only",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: G7,
@@ -735,7 +810,10 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-13",
         attack: "Local IPC peer spoofing",
+        spec13: &["Local attachment spoofing"],
         tests: &["gated_row13_ipc_admits_only_the_same_user"],
+        facts: &[],
+        core_tests: &[],
         status: Status::Gated,
         gated: &[Gate {
             issue: G9,
@@ -745,10 +823,13 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-14",
         attack: "Cross-project leakage through discovery",
+        spec13: &[],
         tests: &[
             "row02_unauthorized_peer_cannot_discover_a_session",
             "row14_discovery_lists_only_sessions_the_requester_may_reach",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: H2,
@@ -758,28 +839,35 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-15",
         attack: "A silently dropped meta key leaves provenance unlabelled",
-        tests: &[
-            "row15_the_harness_drops_unsafe_keys_so_provenance_keys_must_be_safe",
-            "gated_row15_adapter_refuses_a_partial_provenance_set",
-        ],
-        status: Status::Proven,
+        spec13: &["Silently dropped provenance field"],
+        tests: &["gated_row15_adapter_refuses_a_partial_provenance_set"],
+        facts: &["row15_the_harness_drops_unsafe_keys_so_provenance_keys_must_be_safe"],
+        core_tests: &[],
+        status: Status::Gated,
         gated: &[Gate {
             issue: G4,
-            what: "the Claude adapter refuses to hand off when a provenance key would be dropped (gated_row15_adapter_refuses_a_partial_provenance_set)",
+            what: "the mitigation (const key table, partial provenance detected before send, message refused) is the Claude adapter's (gated_row15_adapter_refuses_a_partial_provenance_set)",
         }],
     },
     Threat {
         row: "06-16",
         attack: "Provenance spoofing through the body, Claude",
+        spec13: &[
+            "Model text claims an identity",
+            "Header injection through an identifier",
+        ],
         tests: &[
             "row16_content_claiming_another_sender_does_not_change_provenance",
+            "row16_a_line_break_in_a_provenance_value_cannot_pass_the_envelope_stage",
+            "gated_row16_adapter_takes_provenance_only_from_verified_members",
+        ],
+        facts: &[
             "row16_forged_channel_tag_in_content_adds_no_attribute",
             "row16_pre_escaped_closer_in_content_adds_no_attribute",
             "row16_mid_turn_hostile_content_adds_no_attribute",
             "row16_meta_key_injection_through_content_adds_no_attribute",
-            "row16_a_line_break_in_a_provenance_value_cannot_pass_the_envelope_stage",
-            "gated_row16_adapter_takes_provenance_only_from_verified_members",
         ],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: G4,
@@ -789,7 +877,10 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-17",
         attack: "Provenance spoofing through a forged header or delimiter, Codex",
+        spec13: &["Provenance forgery in the body of a shared carrier"],
         tests: &["gated_row17_codex_frame_uses_a_receiver_generated_delimiter"],
+        facts: &[],
+        core_tests: &[],
         status: Status::Gated,
         gated: &[Gate {
             issue: G7,
@@ -799,10 +890,13 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-18",
         attack: "Reply misattribution through a forged in_reply_to",
+        spec13: &[],
         tests: &[
             "row02_reply_right_covers_only_the_reply_to_the_one_message",
             "gated_row18_codex_reply_correlation_is_not_trusted_alone",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: G8,
@@ -812,11 +906,14 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-19",
         attack: "Stale registration replay after resume",
+        spec13: &["Stale or forged registration binding"],
         tests: &[
             "row19_a_registration_record_signed_by_another_device_binds_nothing",
             "row19_an_ended_session_receives_nothing",
             "gated_row19_session_lifetime_follows_the_ipc_connection",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: G9,
@@ -826,17 +923,23 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-20",
         attack: "Session-id spoofing",
+        spec13: &[],
         tests: &[
             "row20_claiming_a_session_id_bound_to_another_key_is_refused_with_a_finding",
             "row20_a_refused_claim_binds_nothing",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "06-21",
         attack: "Prompt injection through a memory reference",
+        spec13: &["Prompt injection through a memory reference"],
         tests: &["row21_a_memory_reference_stays_content"],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: L10,
@@ -846,10 +949,13 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-22",
         attack: "False authority through a cited memory reference",
+        spec13: &["False authority through a cited memory reference"],
         tests: &[
             "row22_a_cited_memory_reference_is_never_provenance_or_authority",
             "row05_content_never_reaches_an_authorization_decision",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: L10,
@@ -859,14 +965,20 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-23",
         attack: "Capture of delivered content by an external memory service",
+        spec13: &["Capture of delivered content by an external memory"],
         tests: &[],
+        facts: &[],
+        core_tests: &[],
         status: Status::OpenRisk,
         gated: &[],
     },
     Threat {
         row: "06-24",
         attack: "Session binding through a spoofed CLAUDE_CODE_SESSION_ID",
+        spec13: &[],
         tests: &["gated_row24_spoofed_session_variable_binds_nothing"],
+        facts: &[],
+        core_tests: &[],
         status: Status::Gated,
         gated: &[Gate {
             issue: G9,
@@ -876,23 +988,94 @@ pub const THREATS: &[Threat] = &[
     Threat {
         row: "S13-squatting",
         attack: "Session-id squatting by a related device, through presence",
+        spec13: &["Session-id squatting"],
         tests: &[
             "s13_squatting_announcement_marks_conflict_and_fails_closed",
             "s13_own_session_is_never_marked_under_conflict",
         ],
+        facts: &[],
+        core_tests: &[],
+        status: Status::Proven,
+        gated: &[],
+    },
+    Threat {
+        row: "S13-malleability",
+        attack: "Signature malleability and weak or mixed-order points",
+        spec13: &["Signature malleability and weak or mixed-order points"],
+        tests: &["s13_malleable_and_weak_point_signatures_are_rejected"],
+        facts: &[],
+        core_tests: &[
+            "signing::tests::constructed_malleable_and_small_order_signatures_are_rejected",
+        ],
+        status: Status::Proven,
+        gated: &[],
+    },
+    Threat {
+        row: "S13-cross-protocol",
+        attack: "A signature over one kind of object presented as another",
+        spec13: &["Cross-protocol reuse"],
+        tests: &[
+            "s13_an_envelope_signed_under_another_domain_is_rejected",
+            "s13_a_registration_signed_under_the_envelope_domain_binds_nothing",
+        ],
+        facts: &[],
+        core_tests: &["signing::tests::a_signature_does_not_cross_domains"],
+        status: Status::Proven,
+        gated: &[],
+    },
+    Threat {
+        row: "S13-canonicalization",
+        attack: "Canonicalization mismatch between signer and verifier",
+        spec13: &["Canonicalization mismatch between signer and verifier"],
+        tests: &["s13_canonical_forms_verify_and_altered_forms_do_not"],
+        facts: &[],
+        core_tests: &["tests/conformance.rs::conformance_fixtures"],
+        status: Status::Proven,
+        gated: &[],
+    },
+    Threat {
+        row: "S13-retransmission",
+        attack: "Duplicate suppression that blocks a legitimate retransmission",
+        spec13: &["Duplicate suppression that blocks a legitimate retransmission"],
+        tests: &[
+            "s13_a_copy_not_handed_off_does_not_block_its_retransmission",
+            "row12_hand_off_is_made_at_most_once_and_no_outcome_steers",
+        ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "S13-existence-oracle",
         attack: "An unauthorized sender learns whether a session exists",
+        spec13: &["Existence oracle"],
         tests: &["s13_unauthorized_refusal_is_the_same_whether_or_not_the_session_exists"],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
+        row: "S13-consent",
+        attack: "Bypass of a harness's own consent step",
+        spec13: &["Bypass of a harness's own consent step"],
+        tests: &["gated_s13_no_harness_consent_step_is_automated"],
+        facts: &[],
+        core_tests: &[],
+        status: Status::Gated,
+        gated: &[Gate {
+            issue: H2,
+            what: "[SEC-AUZ-023] is checked by H2's review of the launch path (gated_s13_no_harness_consent_step_is_automated)",
+        }],
+    },
+    Threat {
         row: "S13-presence-forgery",
         attack: "Presence forgery, tampering, forwarding or replay",
+        spec13: &[
+            "Presence forgery, tampering or forwarding",
+            "Presence replay after a consumer restart or forget",
+        ],
         tests: &[
             "s13_presence_signed_by_an_unpaired_key_is_discarded",
             "s13_tampered_presence_record_is_discarded",
@@ -901,12 +1084,15 @@ pub const THREATS: &[Threat] = &[
             "s13_unrelated_issuer_cannot_announce",
             "s13_forged_withdrawal_cannot_take_a_session_offline",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "S13-receipt-forgery",
         attack: "Receipt forgery, or a receipt from the wrong receiver",
+        spec13: &["Receipt forgery, or a receipt from the wrong receiver"],
         tests: &[
             "s13_receipt_from_an_unpaired_key_is_discarded",
             "s13_receipt_from_another_trusted_device_is_discarded",
@@ -916,12 +1102,15 @@ pub const THREATS: &[Threat] = &[
             "s13_receipt_claiming_the_sender_observer_is_discarded",
             "s13_no_receipt_for_an_unverified_copy",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
         row: "S13-pairing",
-        attack: "Pairing man-in-the-middle, or trust on first use",
+        attack: "Trust on first use, and a party in the middle of pairing",
+        spec13: &["Trust on first use"],
         tests: &[
             "s13_pairing_mitm_substitution_is_caught_by_the_code",
             "s13_second_offer_ends_the_pairing",
@@ -929,24 +1118,29 @@ pub const THREATS: &[Threat] = &[
             "s13_key_id_comparison_refuses_a_substituted_key",
             "s13_a_signature_alone_never_makes_a_key_trusted",
         ],
+        facts: &[],
+        core_tests: &["pairing::tests::substituted_key_or_nonce_changes_the_code_or_fails"],
         status: Status::Proven,
         gated: &[],
     },
     Threat {
-        row: "S13-exhaustion",
-        attack: "Registry and quota exhaustion",
+        row: "X-exhaustion",
+        attack: "Registry and quota exhaustion (PR #317 and #321 threat rows; spec §8.3, §8.4, §11)",
+        spec13: &[],
         tests: &[
-            "s13_full_duplicate_store_refuses_without_evicting",
-            "s13_one_issuer_cannot_fill_the_presence_registry",
-            "s13_presence_registry_capacity_is_bounded",
-            "s13_receipt_allowance_is_per_device_and_bounded",
-            "s13_oversized_envelope_is_refused_before_parsing",
-            "gated_s13_envelope_bindings_are_bounded",
+            "x_full_duplicate_store_refuses_without_evicting",
+            "x_one_issuer_cannot_fill_the_presence_registry",
+            "x_presence_registry_capacity_is_bounded",
+            "x_receipt_allowance_is_per_device_and_bounded",
+            "x_oversized_envelope_is_refused_before_parsing",
+            "gated_x_envelope_bindings_are_bounded",
         ],
+        facts: &[],
+        core_tests: &[],
         status: Status::Proven,
         gated: &[Gate {
             issue: BINDINGS,
-            what: "binding-table entries that security step 4 creates are not bounded yet (gated_s13_envelope_bindings_are_bounded)",
+            what: "binding-table entries that security step 4 creates are not bounded yet (gated_x_envelope_bindings_are_bounded)",
         }],
     },
 ];

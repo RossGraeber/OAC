@@ -22,7 +22,7 @@ const NANOS_PER_SEC: i128 = 1_000_000_000;
 /// `internal-error`, and no live entry is evicted to make room, so a replay of an earlier
 /// envelope is still a `duplicate`. Once the entries' deadlines pass, there is room again.
 #[test]
-fn s13_full_duplicate_store_refuses_without_evicting() {
+fn x_full_duplicate_store_refuses_without_evicting() {
     let (alice, mut bob) = granted_pair();
     bob.duplicates = DuplicateStore::with_capacity(bob.clock.clone(), 2);
     let first = alice.sign("m1", &sid(1), &sid(2), "1");
@@ -60,7 +60,7 @@ fn s13_full_duplicate_store_refuses_without_evicting() {
 /// related device that announces many sessions fills only its own share of the presence
 /// registry, so another device's announcement is still accepted.
 #[test]
-fn s13_one_issuer_cannot_fill_the_presence_registry() {
+fn x_one_issuer_cannot_fill_the_presence_registry() {
     let (mut alice, bob) = granted_pair();
     let carol = Device::new("carol", alice.clock.clone());
     alice.pair(&carol.identity);
@@ -94,7 +94,7 @@ fn s13_one_issuer_cannot_fill_the_presence_registry() {
 /// [SC-DLV-047]: the registry never holds more than its capacity of other sessions, however
 /// many devices announce.
 #[test]
-fn s13_presence_registry_capacity_is_bounded() {
+fn x_presence_registry_capacity_is_bounded() {
     let mut alice = Device::new("alice", oac_security_suite::clock());
     alice.register(&sid(1), "/work/a");
     let mut registry = PresenceRegistry::with_limits(3, 1);
@@ -123,7 +123,7 @@ fn s13_presence_registry_capacity_is_bounded() {
 /// spends its own leaves another's intact, and the limiter tracks a bounded number of
 /// devices, refusing a receipt to a new one rather than growing.
 #[test]
-fn s13_receipt_allowance_is_per_device_and_bounded() {
+fn x_receipt_allowance_is_per_device_and_bounded() {
     let mut limiter = ReceiptLimiter::new(2, Duration::from_secs(60), 2);
     let now = Instant::now();
     let (a, b, c) = (
@@ -145,7 +145,7 @@ fn s13_receipt_allowance_is_per_device_and_bounded() {
 /// `envelope-too-large` on its length alone, before it is parsed, so its content costs the
 /// receiver nothing; not even an unverified `from` is read.
 #[test]
-fn s13_oversized_envelope_is_refused_before_parsing() {
+fn x_oversized_envelope_is_refused_before_parsing() {
     let (_alice, mut bob) = granted_pair();
     bob.limits = EnvelopeLimits::default()
         .with_max_envelope_octets(65_536)
@@ -165,7 +165,7 @@ fn s13_oversized_envelope_is_refused_before_parsing() {
 /// device-wide grant can grow the table with fresh session ids. Gated until #325 bounds it.
 #[test]
 #[ignore = "GATED on #325 (bound the binding-table entries authorize_delivery creates)"]
-fn gated_s13_envelope_bindings_are_bounded() {
+fn gated_x_envelope_bindings_are_bounded() {
     panic!(
         "GATED on #325: assert the binding table stays within its bound under a flood of fresh `from` ids"
     );
