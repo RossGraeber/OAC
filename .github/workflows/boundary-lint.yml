@@ -4,16 +4,24 @@
 # .claude/skills/oac-spec-authoring/references/neutral-vocabulary-check.md over spec/.
 # Those files are the source of truth for every check; if a command changes there, change it
 # here too. Checks 1-2 run over spec/ (mandatory since #41: a missing spec/ fails) and over
-# core/ once it exists. Checks 4-7 target paths that do not exist yet and stay manual until then.
-# Minimal on purpose: the full CI pipeline is a separate task (F12).
-# The fixture-manifest job (#142) is not a boundary check; it shares this file's triggers,
-# permissions and pinned checkout. It needs git and Node only, and no secrets. The same
-# holds for the agents-skills-sync job (#235), the conformance job (#48) and the fake-codex
-# job (#58).
+# core/ once it exists. Checks 4-7 stay manual.
+# The containment job (#61, F12) runs checks 12 and 13 (scripts/check-containment.mjs):
+# Zenoh containment over every product path, the fakes, the contract suites and the
+# fixtures (DESIGN acceptance criterion 9), and test doubles kept out of product code.
+# The workflow-policy job (#61) runs scripts/check-workflows.mjs over every workflow:
+# actions pinned by commit SHA, permissions contents: read, no persisted checkout token, no
+# secrets or provider credentials anywhere, and no opt-in switch, operator-owned runner or
+# harness CLI in a default-tier workflow.
+# The fixture-manifest job (#142) and the agents-skills-sync job (#235) are not boundary
+# checks; they share this file's triggers, permissions and pinned checkout, and need git
+# and Node only. The test tiers, conformance runner and fake Codex self-test included, are
+# ci.yml's (#61).
 name: boundary-lint
 
+# Pull requests, plus pushes to main, so each PR runs every job once, not twice (as ci.yml).
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -24,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -121,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history (#252): a verified herdr-runs record's expected herdr sha256 is
@@ -134,33 +142,11 @@ jobs:
       - name: Fixture manifest check (MANIFEST.json matches committed fixtures)
         run: node scripts/check-fixture-manifest.mjs
 
-  # Not a boundary check either (E8, #48): the reference conformance runner evaluates every
-  # fixture under tests/protocol/ from the spec text and checks the requirement indexes
-  # against the fixtures. Node built-ins only; no harness, transport, network or secrets.
-  conformance:
+  # Checks 12-13 (#61, F12): a build-failing lint over the git index. Zenoh containment
+  # proves DESIGN acceptance criterion 9 (09 section 8); test-double containment is the
+  # check 9 sibling for tests/fakes/ and tests/protocol/contract/ (PR #318 review item 9).
+  containment:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Conformance runner self-test (published Ed25519 and JCS vectors)
-        run: node tests/protocol/runner/run.mjs --self-test
-
-      - name: Conformance fixtures and requirement indexes
-        run: node tests/protocol/runner/run.mjs
-
-  # Not a boundary check either (F9, #58): the fake Codex app-server test double replays the
-  # recorded fixtures and runs its self-test, including its stdio and loopback WebSocket
-  # transports, on all three OS images. Node built-ins only; no Codex, credential, secrets
-  # or network beyond loopback.
-  fake-codex:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
       - name: Check out (no persisted token)
@@ -168,8 +154,29 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Fake Codex app-server self-test (replay, behaviours, transports)
-        run: node tests/fakes/codex-app-server/self-test.mjs
+      - name: Checks 12-13 self-test (each planted violation must fail)
+        run: node scripts/check-containment.mjs --self-test
+
+      - name: Check 12 Zenoh containment and check 13 test-double containment
+        run: node scripts/check-containment.mjs
+
+  # The default tier uses no live provider, no API key and no network beyond loopback
+  # (#61, F12 acceptance 1); every workflow keeps SHA pins, read-only permissions and no
+  # persisted token.
+  workflow-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Workflow policy self-test (each planted violation must fail)
+        run: node scripts/check-workflows.mjs --self-test
+
+      - name: Workflow policy (default tier has no secrets, provider or opt-in switch)
+        run: node scripts/check-workflows.mjs
 
   # Not a boundary check either (#235): the Codex copy (.agents/skills/, AGENTS.md) must be
   # an unmodified mirror of .claude/skills/ and CLAUDE.md. Node only, no secrets.
@@ -177,7 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -186,3 +193,7 @@ jobs:
 
       - name: Codex skills copy matches its source
         run: node scripts/sync-agents-skills.mjs --check
+
+      # oac-authoring-skills budgets (lines, description length), run by hand until #61.
+      - name: Skill budgets
+        run: node scripts/check-skills.mjs

@@ -1,0 +1,248 @@
+# Default-tier CI (#61, F12; formerly rust-workspace.yml, #50 F1): the tiers of
+# oac-testing section 1 that are CI-default, on all three hosted OS images, with no live
+# provider, no API key and no network beyond loopback (PLANNING-PROMPT sections 6 and 9.10).
+#
+#   test (<os>)        fmt, build, clippy -D warnings, and the test tiers:
+#                        unit, contract (tests/protocol/contract/ against the fakes and the
+#                        in-memory transport), security (tests/security/), fake-harness
+#                        integration (transports/memory/tests/pipelines.rs, the fakes' own
+#                        tests) and the Rust conformance harness (core/tests/conformance.rs):
+#                        all `cargo test --workspace`;
+#                      the security suite's threat map against the tests cargo compiled
+#                        (tests/security/check-compiled-tests.mjs, #60);
+#                      the reference conformance runner (tests/protocol/runner/, E8 #48);
+#                      the fake Codex app-server self-test (tests/fakes/codex-app-server/,
+#                        F9 #58), including its stdio and loopback WebSocket transports.
+#   crate-deps (<os>)  scripts/check-crate-deps.mjs: dependency direction and provider/
+#                        transport crate ownership over `cargo metadata` (07 section 3).
+#   licenses (<os>)    scripts/check-licenses.mjs: SPDX headers and the dependency license
+#                        inventory; an unapproved license fails the job (07 section 5).
+# Each check also runs its self-test and, where it has one, its mutation test.
+#
+# Network. The only network use is fetching the toolchain (rust-toolchain.toml, 1.98.1,
+# docs/planning/PINS.md) and the crates in Cargo.lock from crates.io (`cargo fetch`).
+# Every cargo step after the fetch runs with CARGO_NET_OFFLINE. Where the kernel has
+# network namespaces (the ubuntu image), the test steps run under scripts/loopback-only.sh:
+# a namespace whose only interface is loopback, with inherited fds closed and
+# supplementary groups dropped, proved by its --probe step first. `loopback-only.sh
+# --select` decides by the kernel, not the image name, and fails the job if it cannot make
+# the namespace there. On the other two hosted images the rule
+# rests on the offline cargo setting, the fakes binding loopback only, and the workflow
+# policy lint (scripts/check-workflows.mjs, boundary-lint.yml), which fails a default-tier
+# workflow that names a secret, a provider credential, an opt-in switch, an operator-owned
+# runner or a harness CLI install.
+#
+# Opt-in tiers are elsewhere and never start from a pull request: provider integration
+# through herdr (herdr-provider-optin.yml: manual dispatch, or a push to main that changes
+# docs/planning/PINS.md, on operator-owned runners), the OS credential stores
+# (keystore-optin.yml) and the G3 leg on the hosted Mac image (g3-macos-hosted.yml), both
+# manual dispatch only.
+#
+# Cache. actions/cache restore and save, pinned by commit SHA (v6.1.0). Pull requests only
+# restore; only a push to main saves, and only when no cache under its key exists yet, so
+# a pull request cannot write what main reads and main does not churn one cache per
+# commit. The key is the OS plus the hash of rust-toolchain.toml and Cargo.lock: a new
+# toolchain pin or lock file starts a new cache. cargo still checks every crate against
+# Cargo.lock's checksums and rebuilds what its fingerprints say changed.
+name: ci
+
+# Pull requests, plus pushes to main, so each PR runs every job once, not twice.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        shell: bash
+        run: |
+          set -eu
+          rustup toolchain install
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+          rustc --version | grep -q '^rustc 1\.98\.1 ' || { echo "toolchain is not the 1.98.1 pin"; exit 1; }
+
+      - name: Restore the cargo cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: |
+            cargo-test-${{ runner.os }}-
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      # The one networked cargo step: every package in Cargo.lock, optional ones included.
+      - name: cargo fetch
+        run: cargo fetch --locked
+
+      - name: cargo build
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo build --workspace --all-targets --locked
+
+      - name: cargo clippy -D warnings
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # Sets LOOPBACK_ONLY for the steps below: the sandbox wrapper where the kernel has
+      # network namespaces (mandatory there: no namespace fails the job), empty elsewhere.
+      - name: Select the loopback-only sandbox (by kernel, not by image name)
+        shell: bash
+        run: bash scripts/loopback-only.sh --select >> "$GITHUB_ENV"
+
+      - name: Loopback-only sandbox probe (loopback connects, nothing else is reachable)
+        if: env.LOOPBACK_ONLY != ''
+        run: bash scripts/loopback-only.sh --probe
+
+      - name: Unit, contract, security, fake-integration and conformance tiers (cargo test)
+        shell: bash
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: $LOOPBACK_ONLY cargo test --workspace --locked
+
+      # The security suite's threat map against the tests cargo compiled on this OS (#60):
+      # a mapped proof compiled out or ignored, an unmapped compiled test, or a gated
+      # placeholder that passes when run all fail here.
+      - name: Security suite threat map vs compiled tests
+        shell: bash
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: $LOOPBACK_ONLY node tests/security/check-compiled-tests.mjs
+
+      - name: Security suite threat map check self-test (each planted evasion must be caught)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: $LOOPBACK_ONLY node tests/security/check-compiled-tests.mjs --self-test
+
+      - name: Conformance runner self-test (published Ed25519 and JCS vectors)
+        shell: bash
+        run: $LOOPBACK_ONLY node tests/protocol/runner/run.mjs --self-test
+
+      - name: Conformance fixtures and requirement indexes (reference runner)
+        shell: bash
+        run: $LOOPBACK_ONLY node tests/protocol/runner/run.mjs
+
+      - name: Fake Codex app-server self-test (replay, behaviours, stdio and loopback WebSocket)
+        shell: bash
+        run: $LOOPBACK_ONLY node tests/fakes/codex-app-server/self-test.mjs
+
+      - name: Save the cargo cache (pushes to main only, when the key is new)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+
+  crate-deps:
+    name: crate-deps (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        shell: bash
+        run: |
+          set -eu
+          rustup toolchain install
+          rustc --version | grep -q '^rustc 1\.98\.1 ' || { echo "toolchain is not the 1.98.1 pin"; exit 1; }
+
+      # `cargo metadata --offline --all-features` needs the manifests of optional packages
+      # that no build compiles (serde's derive feature, #51); a build alone does not fetch them.
+      - name: cargo fetch
+        run: cargo fetch --locked
+
+      - name: Dependency direction self-test (each planted violation must fail)
+        run: node scripts/check-crate-deps.mjs --self-test
+
+      - name: Dependency direction
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: node scripts/check-crate-deps.mjs
+
+      - name: Dependency direction mutation test (planted Cargo.toml violations must fail)
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: node scripts/check-crate-deps.mjs --mutation-test
+
+  licenses:
+    name: licenses (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        shell: bash
+        run: |
+          set -eu
+          rustup toolchain install
+          rustc --version | grep -q '^rustc 1\.98\.1 ' || { echo "toolchain is not the 1.98.1 pin"; exit 1; }
+
+      - name: cargo fetch
+        run: cargo fetch --locked
+
+      - name: License check self-test (each planted violation must fail)
+        run: node scripts/check-licenses.mjs --self-test
+
+      - name: License check mutation test (planted GPL dependencies must fail)
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: node scripts/check-licenses.mjs --mutation-test
+
+      # The gate: exits 1 on a dependency with no accepted license choice (07 section 5), a
+      # missing SPDX header, or a workspace crate not licensed Apache-2.0.
+      - name: License headers and dependency inventory (fails on an unapproved license)
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: node scripts/check-licenses.mjs

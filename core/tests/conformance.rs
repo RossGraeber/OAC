@@ -44,7 +44,10 @@
 //! (`SEC-RPL-022.p03`). `presence-auth`, every fixture, runs in [`presence_receipts`]
 //! through the engine [`authorization`] builds.
 //!
-//! Other stages (binding, ...) exercise logic other tasks own.
+//! Stages not run here are listed by name, so a fixture of an unlisted stage fails instead
+//! of silently not running (#61, F12): `binding` is the core's, pending #331 (no
+//! binding-from-native-signal logic yet); `mcp-binding`, `provenance` and `body` are
+//! adapter work.
 
 use oac_core::authorization::{AuthorizationEngine, HandOffRecord, Kind};
 use oac_core::canonical::{SigningDomain, signed_text, signing_input};
@@ -63,7 +66,7 @@ use oac_core::replay::{
 };
 use oac_core::signing::authenticate;
 use oac_core::trust::TrustedKeySet;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -744,6 +747,7 @@ fn run_canonical(fx: &Fixture, want: &str) -> Result<(), String> {
 #[test]
 fn conformance_fixtures() {
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut passed: BTreeSet<String> = BTreeSet::new();
     let mut failures = Vec::new();
     for fx in fixtures() {
         let outcome = match fx.stage.as_str() {
@@ -770,12 +774,24 @@ fn conformance_fixtures() {
             "discovery-auth" => Some(authorization::run_discovery_auth(&fx)),
             "key-removal" => Some(authorization::run_key_removal(&fx)),
             "exchange" => Some(authorization::run_exchange(&fx)),
-            _ => None,
+            // Not run here yet. `binding` (§6.7) is the core's, pending #331: the core has no
+            // binding-from-native-signal logic to drive it through. `mcp-binding` (the MCP
+            // binding document), `provenance` and `body` (provenance rendering) are adapter
+            // work (Epic G). The reference runner (`tests/protocol/runner/`, CI on every OS)
+            // evaluates all four from the spec text.
+            "binding" | "mcp-binding" | "provenance" | "body" => None,
+            // A stage nobody named fails, rather than its fixtures silently not running.
+            other => Some(Err(format!(
+                "stage `{other}` is neither run here nor listed as owned elsewhere"
+            ))),
         };
         if let Some(r) = outcome {
             *counts
                 .entry(format!("{} {}", fx.stage, fx.kind))
                 .or_default() += 1;
+            if r.is_ok() {
+                passed.insert(fixture_name(&fx.path).to_owned());
+            }
             if let Err(e) = r {
                 failures.push(format!("{}: {e}", fx.path));
             }
@@ -834,12 +850,28 @@ fn conformance_fixtures() {
             "no {stage} fixture ran"
         );
     }
+    // The two `send`-stage envelope fixtures deferred from F2 (#51, PR #312) to F12 (#61):
+    // they must run, and pass, through the core's own send logic, not merely exist.
+    for name in SEND_STAGE_PINNED {
+        assert!(passed.contains(name), "{name} did not run and pass");
+    }
     assert!(
         failures.is_empty(),
         "{} fixture(s) failed:\n{}",
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// The F2 deferrals F12 (#61) checks by name: [SC-ENV-021] and [SC-ENV-066].
+const SEND_STAGE_PINNED: [&str; 2] = [
+    "SC-ENV-021.p01-version-not-lowered-to-peer.json",
+    "SC-ENV-066.n01-type-listed-only-under-unimplemented-identifier.json",
+];
+
+/// A fixture's file name, whichever separator the platform's path display used.
+fn fixture_name(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 fn base64url_decode(s: &str) -> Vec<u8> {

@@ -4,6 +4,37 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #61 (F12): the default CI tier.** No `spec/` file,
+`core/` source file, gate verdict, pin, third-party dependency or ADR text changes.
+
+- **Workflows.** `rust-workspace.yml` is now `ci.yml`: job `test` runs fmt, build, clippy,
+  `cargo test --workspace` (unit, contract, security, fake-harness integration, Rust
+  conformance), the security threat-map cross-check, the reference conformance runner and
+  the fake Codex self-test on Windows, macOS and Linux; jobs `crate-deps` and `licenses` run
+  those checks on all three. The conformance and fake-codex jobs moved there from
+  `boundary-lint.yml`; no check was dropped. A cargo cache (`actions/cache` pinned by SHA)
+  is saved on pushes to main only. Every checkout is SHA-pinned; both default workflows
+  trigger on pull requests and pushes to main.
+- **No network beyond loopback.** Cargo steps after `cargo fetch` run offline; on the ubuntu
+  image the test steps run in a loopback-only network namespace
+  (`scripts/loopback-only.sh`, proved by a probe step). New lint
+  `scripts/check-workflows.mjs` (job `workflow-policy`): SHA pins, `contents: read`, no
+  persisted token and no secrets or provider credentials in any workflow; no opt-in switch,
+  self-hosted runner or harness CLI in a default-tier one.
+- **Containment.** New `scripts/check-containment.mjs` (job `containment`): `oac-boundaries`
+  check 12, Zenoh containment over every product path, the fakes, the contract suites and the
+  fixtures, closing the 09 §8 scope gap for those paths (criterion 9); check 13, test doubles
+  kept out of product code (PR #318 review item 9).
+- **Conformance.** `core/tests/conformance.rs` names the stages it does not run, fails on
+  any other unrun stage, and pins the two `send`-stage fixtures F2 deferred to F12
+  (SC-ENV-021.p01, SC-ENV-066.n01). `binding` is the core's, pending #331 (no
+  binding-from-native-signal logic for §6.7 yet); `mcp-binding`, `provenance` and `body`
+  are adapter work.
+- **Opt-in.** Provider integration stays the herdr scenarios through
+  `herdr-provider-optin.yml`; the real-adapter provider tests are pending with Epic G
+  (`tests/integration/README.md`). Branch protection is unchanged: which checks become
+  required is the operator's call.)
+
 **Last updated:** 2026-10-07 (**Issue #60 (F11): the security suite against the fakes lands
 at `tests/security/`** (`oac-security-suite`, CI-default). No `spec/` file, `core/` file, gate
 verdict, pin or ADR text changes; the one dependency is `syn`, test-only and already in the

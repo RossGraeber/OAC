@@ -270,6 +270,16 @@ old peer treats as `failed` is non-breaking and requires only a spec-revision bu
 way, the new row's own conformance fixture must land in the same change that adds it —
 the fixture set is never allowed to lag the error taxonomy it exists to prove.
 
+*(Dated note, 2026-10-07, #61, F12: CI runs the fixture set twice on every OS: through the
+reference runner (`tests/protocol/runner/`, every stage from the spec text) and through the
+workspace's own code (`core/tests/conformance.rs`). The Rust harness runs every stage
+except four, which it lists by name; a fixture of any other unrun stage fails. `binding`
+(26 `sc-id` fixtures) is the core's, pending #331: the core has no
+binding-from-native-signal logic for §6.7 yet, although `spec/session-channels.md` §3.3's
+reference implementation note has F12 drive it. `mcp-binding`, `provenance` and `body` are
+adapter work. It requires the two `send`-stage fixtures F2 deferred (SC-ENV-021.p01,
+SC-ENV-066.n01) to run and pass.)*
+
 ---
 
 ## 7. Security tier detail
@@ -348,6 +358,21 @@ list to cover `adapters/`/`cli/`, or a second check for embedded-token leaks, or
 neither exists today. Carried forward to `docs/planning/v0.1/11-risks.md` (task A12, not
 yet landed) as an open item, per the same disposition `docs/planning/v0.1/06-security.md`
 §15 already applies to every unproven mitigation.
+
+*(Dated note, 2026-10-07, #61, F12: the second check now exists. `oac-boundaries` check 12,
+`scripts/check-containment.mjs`, runs as the build-failing `containment` job of
+`.github/workflows/boundary-lint.yml`. It matches `zenoh` anywhere in a token, `zid` as a
+`snake_case`, kebab-case or `camelCase` segment, key expressions and liveliness terms, in
+every git-tracked entry outside `transports/zenoh/` under `core/`, `cli/`, `adapters/`,
+`transports/`, `spec/`, `tests/fakes/` and `tests/protocol/`, and in the root manifests,
+with a self-test planting each shape. Both halves of the gap above are closed for those
+paths. What it still does not prove: a leak spelled some other way (a Zenoh type behind a
+`type` alias whose name avoids every pattern; a name built at compile time with `concat!`
+or a pasting macro, or at run time; `\u{...}` or other escapes; homoglyphs, such as a
+Cyrillic letter inside `zenoh`), and any
+path outside its scope (`tests/security/`, `tests/integration/`, which compose a real
+transport in Stages 4-5). Criterion 9's proof is that lint, as above; this residue stays a
+v0.1 gap.)*
 
 ---
 

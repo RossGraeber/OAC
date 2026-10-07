@@ -213,7 +213,10 @@ the core, and its §1.1 makes the core the only route from an adapter to a trans
 is the Stage 3 owner of enforcing this diagram in the actual workspace (lint/CI check);
 this file states the rule, not the enforcement mechanism.
 (Dated note, 2026-10-05, #50: the mechanism is `scripts/check-crate-deps.mjs`, which checks
-these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.yml`.)
+these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.yml`.
+Dated note, 2026-10-07, #61: that workflow is now `.github/workflows/ci.yml`, job
+`crate-deps`; §4(a) is enforced by `scripts/check-containment.mjs` check 12, job
+`containment` of `boundary-lint.yml`.)
 (Dated note, 2026-10-06, #57: the same script admits `tests/fakes/<name>` members, lets
 them reach `core/` only, and fails any product member (`core/`, `cli/`, an adapter or a
 transport) that reaches one over normal or build edges; `core/` may not reach one at all.)

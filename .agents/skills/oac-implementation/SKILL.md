@@ -75,7 +75,7 @@ by judgment call:
 - The crate-level edges are enforced by `scripts/check-crate-deps.mjs` over `cargo metadata`
   (all dependency kinds and features, transitive reachability, zenoh and Codex app-server
   crates kept with their owner), run with its `--self-test` and `--mutation-test` by
-  `.github/workflows/rust-workspace.yml` (#50). A new module path or a new owned external
+  `.github/workflows/ci.yml` job `crate-deps` (#50, #61). A new module path or a new owned external
   crate family means updating that script in the same PR.
 
 ## 3. Design-for-replacement — acceptance conditions, not aspiration
