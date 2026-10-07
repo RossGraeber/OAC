@@ -51,6 +51,8 @@ struct BusState {
     log: Vec<(KeyId, PayloadKind, Destination)>,
     subscribe_calls: usize,
     refuse_envelopes: bool,
+    /// How many presence records to refuse next.
+    refuse_presence: usize,
     /// The last envelope payload taken, for re-injecting a copy.
     last_envelope: Option<Payload>,
 }
@@ -201,6 +203,10 @@ impl Transport for Endpoint {
         }
         let watchers: Vec<PresenceHandler> = {
             let mut st = self.bus.0.lock().unwrap();
+            if st.refuse_presence > 0 {
+                st.refuse_presence -= 1;
+                return PublishResult::NotTaken;
+            }
             st.log
                 .push((me.clone(), payload.kind(), destination.clone()));
             st.watchers
@@ -951,4 +957,52 @@ fn two_devices_exchange_a_message_and_a_correlated_reply() {
         (DeliveryState::Rejected, Some("unauthorized".to_owned()))
     );
     assert_eq!(x.adapter.texts(), ["pong"]);
+}
+
+/// [SEC-PRS-010]: an announcement the transport did not take does not count as issued;
+/// the next envelope to that device is preceded by another one. Once one is taken, later
+/// envelopes within the refresh interval need none.
+#[test]
+fn an_announcement_not_taken_is_issued_again() {
+    let bus = Bus::default();
+    let x = node(&bus, "device-x", PipelineConfig::default());
+    let y = node(&bus, "device-y", PipelineConfig::default());
+    pair(&x, &y);
+    pair(&y, &x);
+    let (xk, yk) = (
+        x.pipes.device().key_id().clone(),
+        y.pipes.device().key_id().clone(),
+    );
+    let (xa, sx) = session(&x, 1);
+    let sy = SessionId::from_random_octets([2; 16]);
+    grant(
+        &x,
+        Grant::Outbound {
+            writer: LocalSide::Session(sx.clone()),
+            target: PeerSide::session(yk.clone(), sy.clone()),
+        },
+    );
+    grant(
+        &y,
+        Grant::Inbound {
+            writer: PeerSide::session(xk.clone(), sx.clone()),
+            target: LocalSide::Session(sy.clone()),
+        },
+    );
+    session(&y, 2);
+    let from_x = |k: PayloadKind| {
+        bus.log()
+            .iter()
+            .filter(|(f, kind, _)| f == &xk && *kind == k)
+            .count()
+    };
+    bus.0.lock().unwrap().refuse_presence = 1;
+    sent(x.adapter.sink().send(request(&xa, &sy, "one")));
+    assert_eq!(from_x(PayloadKind::Presence), 0);
+    sent(x.adapter.sink().send(request(&xa, &sy, "two")));
+    assert_eq!(from_x(PayloadKind::Presence), 1);
+    sent(x.adapter.sink().send(request(&xa, &sy, "three")));
+    assert_eq!(from_x(PayloadKind::Presence), 1);
+    assert_eq!(from_x(PayloadKind::Envelope), 3);
+    assert_eq!(y.adapter.texts(), ["one", "two", "three"]);
 }

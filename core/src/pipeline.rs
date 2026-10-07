@@ -218,6 +218,15 @@ struct TrackerEntry {
 
 type TrackerKey = (Token, SessionId);
 
+/// An announcement issued to one device: when, and whether the transport took it. Until it
+/// is taken, every send to that device issues its own ([SEC-PRS-010]), so no envelope can
+/// overtake the only announcement on another thread.
+#[derive(Clone, Copy, Debug)]
+struct Announced {
+    at: Instant,
+    taken: bool,
+}
+
 /// Everything the pipelines change, under one lock. The lock is never held across a call
 /// into an adapter or a transport.
 struct Core {
@@ -232,8 +241,8 @@ struct Core {
     subscriptions: HashMap<SessionId, Subscription>,
     trackers: HashMap<TrackerKey, TrackerEntry>,
     tracker_order: VecDeque<TrackerKey>,
-    /// When this device last issued each own session's announcement to each device.
-    announced: HashMap<(SessionId, KeyId), Instant>,
+    /// The last announcement of each own session issued to each device.
+    announced: HashMap<(SessionId, KeyId), Announced>,
     transport_caps: Option<TransportCapabilities>,
     device_subscription: Option<Subscription>,
 }
@@ -506,7 +515,7 @@ impl Pipelines {
             let core = inner.lock();
             core.announced
                 .iter()
-                .filter(|(_, at)| now >= **at + inner.refresh_interval())
+                .filter(|(_, a)| now >= a.at + inner.refresh_interval())
                 .map(|(k, _)| k.clone())
                 .collect()
         };
@@ -522,7 +531,7 @@ impl Pipelines {
         let core = inner.lock();
         core.announced
             .values()
-            .map(|at| *at + inner.refresh_interval())
+            .map(|a| a.at + inner.refresh_interval())
             .min()
     }
 
@@ -754,16 +763,11 @@ impl Inner {
             },
         );
         drop(guard);
-        if let Some((destination, payload)) = announcement
-            && self
-                .transport
-                .send_presence(&destination, payload, self.control_deadline())
-                == PublishResult::NotTaken
-        {
-            // Not issued after all: the next envelope issues it again.
-            self.lock()
-                .announced
-                .remove(&(env.from().clone(), to_key.clone()));
+        if let Some((destination, payload)) = announcement {
+            let result =
+                self.transport
+                    .send_presence(&destination, payload, self.control_deadline());
+            self.announcement_taken(env.from(), &to_key, mono, result);
         }
         let deadline = self.deadline_at(HandOffDeadline::of(&env).unix_nanos());
         let result = self.transport.publish(
@@ -841,7 +845,7 @@ impl Inner {
             && core
                 .announced
                 .get(&pair)
-                .is_some_and(|at| mono < *at + self.refresh_interval())
+                .is_some_and(|a| a.taken && mono < a.at + self.refresh_interval())
         {
             return None;
         }
@@ -864,13 +868,39 @@ impl Inner {
             && let Some(oldest) = core
                 .announced
                 .iter()
-                .min_by_key(|(_, at)| **at)
+                .min_by_key(|(_, a)| a.at)
                 .map(|(k, _)| k.clone())
         {
             core.announced.remove(&oldest);
         }
-        core.announced.insert(pair, mono);
+        core.announced.insert(
+            pair,
+            Announced {
+                at: mono,
+                taken: false,
+            },
+        );
         Some(payload)
+    }
+
+    /// Records whether the transport took the announcement issued at `at`: taken, it
+    /// serves later sends until its refresh; not taken, the next send issues another.
+    fn announcement_taken(
+        &self,
+        session: &SessionId,
+        device: &KeyId,
+        at: Instant,
+        result: PublishResult,
+    ) {
+        let mut core = self.lock();
+        let pair = (session.clone(), device.clone());
+        match (core.announced.get_mut(&pair), result) {
+            (Some(a), PublishResult::Taken) if a.at == at => a.taken = true,
+            (Some(a), PublishResult::NotTaken) if a.at == at => {
+                core.announced.remove(&pair);
+            }
+            _ => {}
+        }
     }
 
     fn announce_to(&self, session: &SessionId, device: &KeyId, refresh: bool) {
@@ -880,9 +910,10 @@ impl Inner {
             self.announcement(&mut core, session, device, mono, refresh)
         };
         if let Some((destination, payload)) = payload {
-            let _ = self
-                .transport
-                .send_presence(&destination, payload, self.control_deadline());
+            let result =
+                self.transport
+                    .send_presence(&destination, payload, self.control_deadline());
+            self.announcement_taken(session, device, mono, result);
         }
     }
 
