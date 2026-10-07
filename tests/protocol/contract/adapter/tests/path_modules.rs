@@ -49,6 +49,34 @@ fn a_path_module_outside_src_is_scanned() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// PR #336 review N7: `#[path = "l/../x.rs"]` with `src/l` a symlink. rustc resolves `..`
+/// physically (beside the link's target); the scan resolves lexically, so it fails closed.
+#[cfg(unix)]
+#[test]
+fn a_symlink_on_the_way_to_a_path_module_fails_closed() {
+    let dir = scratch_crate(
+        "path-module-symlink",
+        &[
+            ("src/lib.rs", "#[path = \"l/../x.rs\"]\nmod h;\n"),
+            ("src/x.rs", "pub fn clean() {}\n"),
+            ("elsewhere/inner/keep.rs", "\n"),
+            (
+                "elsewhere/x.rs",
+                "pub fn f(_: &dyn oac_core::transport::Transport) {}\n",
+            ),
+        ],
+    );
+    std::os::unix::fs::symlink(dir.join("elsewhere/inner"), dir.join("src/l")).unwrap();
+    let findings = scan(&crate_files(&dir));
+    for req in ["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"] {
+        assert!(
+            findings.iter().any(|f| f.requirement == req),
+            "{req}: {findings:?}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_path_module_that_names_no_file_fails_closed() {
     let dir = scratch_crate(

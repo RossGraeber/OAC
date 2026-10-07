@@ -18,6 +18,7 @@
 //!   `SessionId::from_random_octets` (parsing an id a harness names is allowed) and no path
 //!   into the core's authorization or pairing modules.
 //! - [IFC-ADP-013]: no `Connection::accept`.
+//! - [`PLANT`]: no path into this suite's own planted breaches (`oac_contract_adapter::plant`).
 //!
 //! [`implements_provider_adapter`] is the tripwire of `tests/real_adapters.rs`: an `impl`
 //! whose trait resolves to `oac_core::adapter::ProviderAdapter`, under any alias.
@@ -42,10 +43,21 @@
 //! The files given, and every file a `mod` declaration in them loads (#324): `mod m;` at
 //! `m.rs` or `m/mod.rs`, and `#[path = ".."] mod m;` at its path, resolved against the
 //! declaring file's directory as rustc resolves it, inline modules included. Every candidate
-//! location that exists is read, which can only add findings. A `#[path]` that names no file,
-//! that is not a string literal, or that sits in a `cfg_attr`, and any `include!`, fail closed:
-//! a finding under every requirement, as for a file that does not parse. So do a `#[path]`
-//! attribute and an `include!` written inside a macro's tokens.
+//! location that exists is read, which can only add findings. Paths are resolved lexically,
+//! so a symlink on the way to a file the scan would read, or among the files given, fails
+//! closed.
+//!
+//! What the scan cannot follow fails closed: a finding under every requirement, as for a
+//! file that does not parse. That is
+//! - a `#[path]` that names no file or is not a string literal;
+//! - a `path = ..` anywhere inside a `cfg_attr`, at any depth of nesting;
+//! - any invocation of `include!`, `include_str!` or `include_bytes!`, under any path
+//!   (`::core::include!`) or alias (`use std::include as inc;`, which itself fails closed),
+//!   in code or inside a macro's tokens;
+//! - inside a macro's tokens (an invocation's arguments or a `macro_rules!` body), a
+//!   `#[path]` attribute and any out-of-line `mod m;` or `mod $m;`. Such a module's file
+//!   depends on where the macro expands, which the scan does not model (under an inline
+//!   `#[path]` module it can sit outside `src/`).
 //!
 //! # Macro tokens
 //!
@@ -63,9 +75,7 @@
 //! It is a tripwire, not a proof. It reads source, not behaviour:
 //!
 //! - A macro that builds a path from pieces (`concat_idents!`, a `macro_rules!` that pastes
-//!   an ident, as `oac_core::$i::..`) or a procedural macro that expands to one is not seen,
-//!   and neither is a `mod m;` written inside a macro's tokens (its file is read only if it
-//!   is in the set already).
+//!   an ident, as `oac_core::$i::..`) or a procedural macro that expands to one is not seen.
 //! - Code the scan is not given: `build.rs` output, and other crates (a helper crate the
 //!   adapter depends on is scanned only if its files are passed in; `check-crate-deps.mjs`
 //!   stops that crate from being a transport).
@@ -140,13 +150,24 @@ pub const FORBIDDEN: &[(&str, &[&str])] = &[
         "IFC-ADP-013",
         &["oac_core", "adapter", "Connection", "accept"],
     ),
+    // The suite's own planted breaches (`plant`): an adapter, its tests included, never
+    // reaches them. A row of its own, not a suite requirement, so that the stand-ins that
+    // plant them still report each requirement by their behaviour; `tests/real_adapters.rs`
+    // fails on any finding, this one too (PR #336 review N6).
+    (PLANT, &["oac_contract_adapter", "plant"]),
 ];
+
+/// The finding for a reach into the suite's planted breaches ([`FORBIDDEN`]).
+pub const PLANT: &str = "TEST-PLANT";
 
 /// Method names an adapter must not call, with the requirement each breaks.
 pub const FORBIDDEN_METHODS: &[(&str, &str)] = &[("IFC-ADP-002", "sign_envelope")];
 
 /// The trait whose implementation the tripwire looks for.
 pub const PROVIDER_ADAPTER: &[&str] = &["oac_core", "adapter", "ProviderAdapter"];
+
+/// The macros that paste in a file the scan does not read (B2 of the PR #336 review).
+const INCLUDE_MACROS: &[&str] = &["include", "include_str", "include_bytes"];
 
 /// Rule [IFC-ADP-001] for crate names: a transport crate.
 fn is_transport_crate(first: &str) -> bool {
@@ -307,6 +328,17 @@ impl Checker<'_> {
         }
     }
 
+    /// A macro path that names `include!`, `include_str!` or `include_bytes!`, as written
+    /// (`::core::include`) or through an alias.
+    fn is_include(&self, raw: &[String]) -> bool {
+        raw.last()
+            .is_some_and(|l| INCLUDE_MACROS.contains(&l.as_str()))
+            || self.imports.candidates(raw).iter().any(|c| {
+                c.last()
+                    .is_some_and(|l| INCLUDE_MACROS.contains(&l.as_str()))
+            })
+    }
+
     fn is_provider_adapter(&self, raw: &[String]) -> bool {
         self.imports
             .candidates(raw)
@@ -411,10 +443,12 @@ impl Checker<'_> {
                     self.walk(g.stream(), invocation);
                     i += 1;
                 }
-                TokenTree::Ident(id) if id == "include" && is_punct(toks.get(i + 1), '!') => {
+                // An out-of-line `mod m;` or `mod $m;`: its file depends on where the macro
+                // expands (B3 of the PR #336 review).
+                TokenTree::Ident(id) if id == "mod" && out_of_line_mod(&toks, i + 1) => {
                     self.fail_closed(
                         line_of(id.span()),
-                        "include! inside a macro's tokens: a file the scan cannot read",
+                        "an out-of-line `mod ..;` inside a macro's tokens: a module the scan cannot follow",
                     );
                     i += 1;
                 }
@@ -424,6 +458,12 @@ impl Checker<'_> {
                 }
                 _ => match path_at(&toks, i) {
                     Some((segs, end, line)) => {
+                        if is_punct(toks.get(end), '!') && self.is_include(&segs) {
+                            self.fail_closed(
+                                line,
+                                "an include macro inside a macro's tokens: a file the scan cannot read",
+                            );
+                        }
                         self.check_path(&segs, line);
                         if invocation && self.is_provider_adapter(&segs) {
                             self.adapter_in_args.push(line);
@@ -549,11 +589,27 @@ fn attribute_names_a_path(ts: &TokenStream) -> bool {
     }
 }
 
-/// A `path = ..` anywhere at the top level of a token list.
+/// A `path = ..` anywhere in a token list, at any depth (a `cfg_attr` nested in a
+/// `cfg_attr` included; B1 of the PR #336 review).
 fn names_path(ts: &TokenStream) -> bool {
     let toks: Vec<TokenTree> = ts.clone().into_iter().collect();
     toks.windows(2)
         .any(|w| matches!(&w[0], TokenTree::Ident(i) if i == "path") && is_punct(Some(&w[1]), '='))
+        || toks.iter().any(|t| match t {
+            TokenTree::Group(g) => names_path(&g.stream()),
+            _ => false,
+        })
+}
+
+/// At `toks[i]` (after a `mod`): a name or `$name`, then `;`.
+fn out_of_line_mod(toks: &[TokenTree], i: usize) -> bool {
+    match toks.get(i) {
+        Some(TokenTree::Ident(_)) => is_punct(toks.get(i + 1), ';'),
+        Some(TokenTree::Punct(p)) if p.as_char() == '$' => {
+            matches!(toks.get(i + 1), Some(TokenTree::Ident(_))) && is_punct(toks.get(i + 2), ';')
+        }
+        _ => false,
+    }
 }
 
 fn line_of(span: proc_macro2::Span) -> usize {
@@ -568,6 +624,16 @@ impl<'ast> Visit<'ast> for Checker<'_> {
         let mut paths: Vec<Vec<String>> = flat.renames.into_values().collect();
         paths.extend(flat.globs);
         for p in paths {
+            // An include macro under a name of the file's choosing (`use std::include as
+            // inc;`): fail closed on the import itself (B2 of the PR #336 review).
+            if p.last()
+                .is_some_and(|l| INCLUDE_MACROS.contains(&l.as_str()))
+            {
+                self.fail_closed(
+                    line,
+                    "an include macro imported: a file the scan cannot read",
+                );
+            }
             self.check_path(&p, line);
         }
     }
@@ -614,8 +680,8 @@ impl<'ast> Visit<'ast> for Checker<'_> {
             .first()
             .map_or(0, |s| line_of(s.ident.span()));
         let name = m.path.segments.last().map(|s| id(&s.ident));
-        if name.as_deref() == Some("include") {
-            self.fail_closed(line, "include!: a file the scan cannot read");
+        if self.is_include(&segments(&m.path)) {
+            self.fail_closed(line, "an include macro: a file the scan cannot read");
         }
         let invocation = name.as_deref() != Some("macro_rules");
         self.check_tokens(&m.tokens, line, invocation);
@@ -779,9 +845,38 @@ impl<'ast> Visit<'ast> for ModFollower<'_> {
 /// Where file texts come from: `None` when there is no such file.
 type Load<'a> = dyn Fn(&Path) -> Option<Result<String, String>> + 'a;
 
+/// Is `path` itself a symlink (not followed)?
+type IsSymlink<'a> = dyn Fn(&Path) -> bool + 'a;
+
+fn is_symlink_on_disk(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// A file's text from disk. A symlink is never read: the scan resolves paths lexically and
+/// rustc physically, so the two could name different files (PR #336 review N7).
 fn load_from_disk(path: &Path) -> Option<Result<String, String>> {
+    if is_symlink_on_disk(path) {
+        return Some(Err(
+            "a symlink: the scan resolves paths lexically, so it does not follow one".into(),
+        ));
+    }
     path.is_file()
         .then(|| std::fs::read_to_string(path).map_err(|e| e.to_string()))
+}
+
+/// The first symlink among the components of `candidate` beyond `dir` (the declaring
+/// file's directory), before `..` is applied: `#[path = "l/../x.rs"]` with `l` a symlink
+/// names a file beside `l`'s target, not `x.rs` beside `l`.
+fn symlink_on_the_way(dir: &Path, candidate: &Path, is_symlink: &IsSymlink<'_>) -> Option<PathBuf> {
+    let base = dir.components().count();
+    let mut prefix = PathBuf::new();
+    for (n, c) in candidate.components().enumerate() {
+        prefix.push(c.as_os_str());
+        if n >= base && matches!(c, Component::Normal(_)) && is_symlink(&prefix) {
+            return Some(prefix);
+        }
+    }
+    None
 }
 
 /// Both scans over `roots` and every file their `mod` declarations load, read as one
@@ -789,7 +884,11 @@ fn load_from_disk(path: &Path) -> Option<Result<String, String>> {
 /// file is checked against all of them. A file that cannot be read or does not parse, a
 /// `#[path]` that cannot be resolved and an `include!` are findings under every
 /// requirement, so they fail closed.
-fn analyse_set(roots: &[PathBuf], load: &Load<'_>) -> (Vec<Finding>, Vec<Finding>) {
+fn analyse_set(
+    roots: &[PathBuf],
+    load: &Load<'_>,
+    is_symlink: &IsSymlink<'_>,
+) -> (Vec<Finding>, Vec<Finding>) {
     let mut imports = Imports::default();
     let mut parsed = Vec::new();
     let (mut findings, mut implements) = (Vec::new(), Vec::new());
@@ -817,7 +916,21 @@ fn analyse_set(roots: &[PathBuf], load: &Load<'_>) -> (Vec<Finding>, Vec<Finding
                 for (line, why) in mods.unresolvable {
                     fail(everywhere(&path, line, &why));
                 }
+                let dir = path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
                 for d in mods.decls {
+                    if let Some(link) = d
+                        .candidates
+                        .iter()
+                        .find_map(|c| symlink_on_the_way(&dir, c, is_symlink))
+                    {
+                        let why = format!(
+                            "{}: {} is a symlink, and the scan resolves paths lexically",
+                            d.what,
+                            link.display()
+                        );
+                        fail(everywhere(&path, d.line, &why));
+                        continue;
+                    }
                     let found: Vec<PathBuf> = d
                         .candidates
                         .iter()
@@ -899,8 +1012,21 @@ pub fn analyse_texts(files: &[(&str, &str)]) -> (Vec<Finding>, Vec<Finding>) {
 /// Both scans from `roots`, with `files` the in-memory file system the `mod` declarations
 /// are followed through (a file not in `files` does not exist).
 pub fn analyse_files(roots: &[&str], files: &[(&str, &str)]) -> (Vec<Finding>, Vec<Finding>) {
+    analyse_files_with_symlinks(roots, files, &[])
+}
+
+/// [`analyse_files`], with `symlinks` the paths of the in-memory file system that are
+/// symlinks.
+pub fn analyse_files_with_symlinks(
+    roots: &[&str],
+    files: &[(&str, &str)],
+    symlinks: &[&str],
+) -> (Vec<Finding>, Vec<Finding>) {
     let roots: Vec<PathBuf> = roots.iter().map(PathBuf::from).collect();
-    analyse_set(&roots, &in_memory(files))
+    let links: Vec<PathBuf> = symlinks.iter().map(|s| normalize(Path::new(s))).collect();
+    analyse_set(&roots, &in_memory(files), &|p: &Path| {
+        links.contains(&p.to_path_buf())
+    })
 }
 
 /// The forbidden reaches in one file's text.
@@ -911,16 +1037,17 @@ pub fn scan_text(file: &Path, text: &str) -> Vec<Finding> {
 /// Scan `files`, and every file their `mod` declarations load, read as one crate (imports
 /// and re-exports of every file apply to all).
 pub fn scan(files: &[PathBuf]) -> Vec<Finding> {
-    analyse_set(files, &load_from_disk).0
+    analyse_set(files, &load_from_disk, &is_symlink_on_disk).0
 }
 
 /// Every `impl` of `oac_core::adapter::ProviderAdapter` in `files` and the files their
 /// `mod` declarations load, read as one crate, under any alias or re-export.
 pub fn implements_provider_adapter(files: &[PathBuf]) -> Vec<Finding> {
-    analyse_set(files, &load_from_disk).1
+    analyse_set(files, &load_from_disk, &is_symlink_on_disk).1
 }
 
-/// Every `.rs` file under `dir`, recursively, in path order.
+/// Every `.rs` file under `dir`, recursively, in path order. A symlink is listed whatever
+/// it names and is not followed, so that reading it fails closed (PR #336 review N7).
 pub fn rust_files(dir: &Path) -> Vec<PathBuf> {
     let mut v = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -930,7 +1057,9 @@ pub fn rust_files(dir: &Path) -> Vec<PathBuf> {
         };
         for e in rd.flatten() {
             let p = e.path();
-            if p.is_dir() {
+            if e.file_type().is_ok_and(|t| t.is_symlink()) {
+                v.push(p);
+            } else if p.is_dir() {
                 stack.push(p);
             } else if p.extension().is_some_and(|x| x == "rs") {
                 v.push(p);
@@ -1331,13 +1460,94 @@ mod tests {
         fails_closed("macro_rules! m { () => { include!(\"g.rs\"); } }");
         fails_closed("macro_rules! m { () => { #[path = \"../x.rs\"] mod h; } }\nm!();");
         fails_closed("macro_rules! m { () => { #[cfg_attr(all(), path = \"x.rs\")] mod h; } }");
-        // include_str! and include_bytes! read data, not code.
+        // include_str! and include_bytes! paste in a file the scan does not read too.
+        fails_closed("const S: &str = include_str!(\"x.txt\");");
+        fails_closed("const B: &[u8] = include_bytes!(\"x.bin\");");
+    }
+
+    // ---- the PR #336 review ------------------------------------------------------------
+
+    /// B1: a `path` anywhere in a `cfg_attr`, nested or not.
+    #[test]
+    fn a_path_in_a_nested_cfg_attr_fails_closed() {
+        fails_closed("#[cfg_attr(all(), cfg_attr(all(), path = \"../zz/h.rs\"))]\nmod h;");
+        fails_closed(
+            "#[cfg_attr(all(), cfg_attr(any(), cfg_attr(all(), path = \"../zz/h.rs\")))]\nmod h;",
+        );
+        fails_closed(
+            "mod o {\n    #[cfg_attr(all(), cfg_attr(all(), path = \"h.rs\"))]\n    mod h;\n}",
+        );
+        fails_closed(
+            "macro_rules! m { () => { #[cfg_attr(all(), cfg_attr(all(), path = \"x.rs\"))] mod h {} } }",
+        );
+    }
+
+    /// B2: an include macro under any path or alias, in code or in a macro's tokens.
+    #[test]
+    fn include_macros_under_any_path_or_alias_fail_closed() {
+        for src in [
+            "use std::include as inc;\nfn f() { inc!(\"../zz/h.rs\"); }",
+            "use core::include_str as s;",
+            "fn f() { ::core::include!(\"../zz/h.rs\"); }",
+            "fn f() { core::prelude::v1::include_bytes!(\"x\"); }",
+            "macro_rules! m { () => { ::core::include!(\"../zz/h.rs\"); } }",
+            "macro_rules! m { () => { $crate::inc!(\"../zz/h.rs\"); } }\npub use std::include as inc;",
+            "fn f() { m!(std::include_str!(\"x\")); }",
+        ] {
+            fails_closed(src);
+        }
+    }
+
+    /// B3: an out-of-line module declared in a macro's tokens; the review's plant puts it
+    /// under an inline `#[path]` module, outside `src/`.
+    #[test]
+    fn out_of_line_modules_in_macro_tokens_fail_closed() {
+        fails_closed(
+            "macro_rules! m { ($i:ident) => { pub mod $i; } }\n#[path = \"../zz\"] mod outer { m!(h); }",
+        );
+        fails_closed("macro_rules! m { () => { mod h; } }");
+        fails_closed("fn f() { m!(mod h;); }");
+        // An inline module in a macro is read from the tokens, not from a file.
         assert_eq!(
-            reqs(
-                "const S: &str = include_str!(\"x.txt\");\nconst B: &[u8] = include_bytes!(\"x.bin\");"
-            ),
+            reqs("macro_rules! m { () => { mod h { pub fn f() {} } } }"),
             Vec::<&str>::new()
         );
+    }
+
+    /// N6: the suite's planted breaches, reached from adapter code.
+    #[test]
+    fn the_planted_breaches_are_forbidden() {
+        assert_eq!(
+            reqs(
+                "use oac_contract_adapter::plant;\nfn f() { let _ = plant::forged_attachment(); }"
+            ),
+            [PLANT]
+        );
+        assert_eq!(
+            reqs("fn f() { let _ = oac_contract_adapter::plant::forged_attachment(); }"),
+            [PLANT]
+        );
+    }
+
+    /// N7: a symlink on the way to a module file fails closed.
+    #[test]
+    fn a_symlink_on_the_way_to_a_module_fails_closed() {
+        let files = [
+            ("src/lib.rs", "#[path = \"l/../x.rs\"]\nmod h;"),
+            ("src/x.rs", "pub fn clean() {}"),
+        ];
+        let (findings, impls) = analyse_files_with_symlinks(&["src/lib.rs"], &files, &["src/l"]);
+        assert_eq!(reqs_of(&findings), EVERY, "{findings:?}");
+        assert!(!impls.is_empty());
+        let (findings, _) = analyse_files_with_symlinks(
+            &["src/lib.rs"],
+            &[("src/lib.rs", "mod m;"), ("src/m.rs", "")],
+            &["src/m.rs"],
+        );
+        assert_eq!(reqs_of(&findings), EVERY, "{findings:?}");
+        // The same tree without the symlink is clean.
+        let (findings, _) = analyse_files(&["src/lib.rs"], &files);
+        assert_eq!(reqs_of(&findings), Vec::<&str>::new());
     }
 
     #[test]
