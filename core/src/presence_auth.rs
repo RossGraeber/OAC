@@ -160,7 +160,8 @@ impl PresenceAuthOutcome {
 
 /// The consumer side of §11 for one authenticated presence record that arrived on
 /// `carrier`, in the order of §11.4; an accepted record goes to `registry` as
-/// [`RecordOrigin::OtherImplementation`].
+/// [`RecordOrigin::OtherImplementation`]. Sessions the registry forgets to make room
+/// ([`PresenceRegistry::take_forgotten`]) have their binding-table entries removed here.
 ///
 /// - `engine`: the trusted key set, this device's key id, the binding table and the
 ///   relation test, and the clock freshness is read on.
@@ -247,6 +248,12 @@ pub fn accept_authenticated_record(
     }
     let sid = parsed.session_id().clone();
     let acceptance = registry.accept(parsed, carrier, RecordOrigin::OtherImplementation, now);
+    // Sessions the registry forgot to make room lose their binding-table entries too, so
+    // the engine's table is bounded with the registry ([SEC-PRS-009]); a conflict mark is
+    // kept, as `forget_binding` keeps it.
+    for s in registry.take_forgotten() {
+        engine.forget_binding(&s);
+    }
     if !matches!(acceptance, PresenceAcceptance::Accepted { .. }) {
         return PresenceAuthOutcome::discard(D::Registry);
     }

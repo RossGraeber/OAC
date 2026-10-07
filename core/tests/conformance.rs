@@ -760,9 +760,10 @@ fn conformance_fixtures() {
             "correlation" => Some(presence_receipts::run_correlation(&fx)),
             "presence-auth" => Some(presence_receipts::run_presence_auth(&fx)),
             "receipt-auth" => Some(presence_receipts::run_receipt_auth(&fx)),
-            "security" => {
-                Some(run_security(&fx).and_then(|()| presence_receipts::run_receipt_permitted(&fx)))
-            }
+            "security" => Some(
+                run_security(&fx)
+                    .and_then(|()| presence_receipts::run_security_through_receive(&fx)),
+            ),
             "replay" => Some(run_replay(&fx)),
             "key-id" => Some(run_key_id(&fx)),
             "registration" => Some(run_registration(&fx)),

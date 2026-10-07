@@ -259,10 +259,26 @@ struct Entry {
     duplicate_receipt_sent: bool,
 }
 
+/// A callback waiting for an in-flight entry to settle ([`DuplicateStore::when_settled`]).
+type SettleCallback = Box<dyn FnOnce() + Send>;
+
+/// The callbacks waiting on in-flight entries, by key.
+#[derive(Default)]
+struct Waiters(HashMap<DuplicateKey, Vec<SettleCallback>>);
+
+impl fmt::Debug for Waiters {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Waiters")
+            .field("keys", &self.0.len())
+            .finish()
+    }
+}
+
 #[derive(Debug, Default)]
 struct Inner {
     entries: HashMap<DuplicateKey, Entry>,
     by_deadline: BTreeSet<(i128, DuplicateKey)>,
+    waiters: Waiters,
 }
 
 impl Inner {
@@ -529,8 +545,38 @@ impl DuplicateStore {
         } else {
             inner.remove(key);
         }
+        let waiting = inner.waiters.0.remove(key).unwrap_or_default();
         drop(inner);
         self.shared.settled.notify_all();
+        // Called with no lock held, so a callback may use the store.
+        for notify in waiting {
+            notify();
+        }
+    }
+
+    /// Calls `notify` once the entry for `key` is no longer in flight: when the copy whose
+    /// hand-off is running settles, or at once when no entry for `key` is in flight now. A
+    /// receiver that got [`crate::receiver::Received::InFlight`] re-offers the copy from it,
+    /// so a re-queued copy waits on the earlier hand-off without a thread parked in
+    /// [`DuplicateStore::admit`] and without a timer ([SEC-RPL-026]). The callback runs on
+    /// the thread that settles the entry, with no lock of the store held.
+    pub fn when_settled(&self, key: &DuplicateKey, notify: impl FnOnce() + Send + 'static) {
+        let mut inner = self.lock();
+        let in_flight = inner
+            .entries
+            .get(key)
+            .is_some_and(|e| e.phase == Phase::InFlight);
+        if in_flight {
+            inner
+                .waiters
+                .0
+                .entry(key.clone())
+                .or_default()
+                .push(Box::new(notify));
+            return;
+        }
+        drop(inner);
+        notify();
     }
 }
 

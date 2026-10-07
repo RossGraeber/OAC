@@ -128,7 +128,7 @@ pub fn accept_receipt(
         r.id == *receipt.envelope_id()
             && r.from.as_str() == receipt.envelope_from().as_str()
             && r.to.as_str() == to
-            && r.nonce == nonce
+            && r.nonce.as_deref() == Some(nonce)
     });
     if !sent {
         return Err(ReceiptDiscard::NotSent);

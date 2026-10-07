@@ -233,7 +233,8 @@ pub struct SentRecord {
     pub created_at: Timestamp,
     /// The envelope's `security.nonce`: with `id`, `from` and `to`, what an authenticated
     /// receipt must name to be accepted (`spec/security.md` [SEC-RCT-003], check 3; #55, F6).
-    pub nonce: String,
+    /// `None` only for a record built without its envelope, which then matches no receipt.
+    pub nonce: Option<String>,
 }
 
 impl SentRecord {
@@ -245,7 +246,7 @@ impl SentRecord {
             to: env.to().clone(),
             to_key_id: to_key,
             created_at: env.created_at().clone(),
-            nonce: env.security().nonce().to_owned(),
+            nonce: Some(env.security().nonce().to_owned()),
         }
     }
 }

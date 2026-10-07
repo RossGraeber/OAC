@@ -264,7 +264,7 @@ pub(super) fn engine(
             to,
             to_key_id,
             created_at: ts(str_of(r, "created_at").unwrap_or("2026-10-03T12:00:00Z")),
-            nonce: str_of(r, "nonce").unwrap_or_default().to_owned(),
+            nonce: str_of(r, "nonce").map(str::to_owned),
         });
     }
     for r in context

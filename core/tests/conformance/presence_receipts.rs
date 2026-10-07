@@ -26,30 +26,28 @@
 //!   test as its `accept-presence` decision), built by `authorization::engine`.
 //! - `receipt-auth` (`spec/security.md` §3.3): [`accept_receipt`] against the same engine.
 //! - `reply` and `correlation` (§8.5): [`reply_headers`] and [`answered`].
-//! - `security`, `receipt_permitted` (§10.3): [`may_send_receipt`].
+//! - `security`, every fixture, again through [`receive_octets`] (result, code and
+//!   `receipt_permitted` from [`may_send_receipt`]): the production order of Table 7.1.
 
 use super::authorization::{check_bindings_after, engine, own_identity, security_engine};
-use super::{
-    Fixture, envelope_limits, implemented, input_octets, limits, obj, str_of, trusted_keys, uint,
-};
+use super::{Fixture, envelope_limits, implemented, input_octets, limits, obj, str_of, uint};
 use oac_core::capabilities::{SessionCapabilities, SessionDescriptor};
 use oac_core::clock::ManualClock;
 use oac_core::delivery::{DeliveryState, ErrorCode, Observer};
-use oac_core::envelope::receive_envelope;
-use oac_core::ids::{SessionId, Timestamp, Token, Version};
-use oac_core::json::{Json, JsonObject};
+use oac_core::envelope::{EnvelopeLimits, receive_envelope};
+use oac_core::ids::{KeyId, SessionId, Timestamp, Token, Version};
+use oac_core::json::{self, Json, JsonObject};
 use oac_core::presence::{PresenceRecord, PresenceState};
 use oac_core::presence_auth::{AuthenticatedPresenceRecord, accept_authenticated_record};
 use oac_core::receipt_auth::{AuthenticatedReceipt, accept_receipt};
 use oac_core::receiver::{
     DeliveryTarget, HandOffOutcome, ReceiptLimiter, Received, ReceiverReport, delivery_checks,
-    may_send_receipt, receive,
+    may_send_receipt, receive_octets,
 };
 use oac_core::registry::{PresenceAcceptance, PresenceRegistry, RecordOrigin, discovery_result};
 use oac_core::replay::{DuplicateKey, DuplicateStore, HandOffDeadline, REPLAY_WINDOW_MS};
 use oac_core::reply::{EnvelopeRecord, answered, reply_headers};
-use oac_core::sender::{HeldState, check_send, combined_state, retry_allowed};
-use oac_core::signing::authenticate;
+use oac_core::sender::{Held, HeldState, check_send, combined_state, retry_allowed};
 use oac_core::transport::CarrierHandle;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -424,21 +422,29 @@ pub(super) fn run_routing(fx: &Fixture) -> Result<(), String> {
     }
 }
 
-/// Stage `receive` (§8.5): envelope-stage validation, then [`receive`] (Table 7.1 steps 1
-/// to 5 and the delivery stage). The hand-off happens at `handoff_time`: the clock moves
-/// there when the delivery stage looks the addressed session up, after steps 1 to 5 ran at
-/// `receiver_time`.
-pub(super) fn run_receive(fx: &Fixture) -> Result<(), String> {
-    let context = obj(&fx.v, "context");
+/// What one copy did when driven through [`receive_octets`].
+struct Through {
+    report: ReceiverReport,
+    verified_by: Option<KeyId>,
+    /// Whether the hand-off call was made.
+    called: bool,
+    /// The duplicate-store entries the copy added.
+    added: usize,
+}
+
+/// One copy, as its octets arrived at `receiver_time`, through [`receive_octets`]: the
+/// envelope stage, Table 7.1 steps 1 to 5 with the real engine built from `context`, and the
+/// delivery stage, with a hand-off call that succeeds. The store holds
+/// `context.duplicate_store`. `lookup` is the delivery stage's view of the addressed
+/// session; at the lookup the clock moves to `handoff`, when given.
+fn through_receive(
+    context: &JsonObject,
+    octets: &[u8],
+    l: &EnvelopeLimits,
+    lookup: impl Fn(&SessionId) -> Option<DeliveryTarget>,
+    handoff: Option<Timestamp>,
+) -> Result<Through, String> {
     let (_, now) = limits(context);
-    let l = receiver_limits(context);
-    let expected = obj(&fx.v, "expected");
-    let msg = match receive_envelope(&input_octets(obj(&fx.v, "input")), &l, &now) {
-        Ok(m) => m,
-        Err(rej) => {
-            return compare_result((rej.state.as_str(), Some(rej.error.as_str())), expected);
-        }
-    };
     let clock = Arc::new(ManualClock::new(now.clone()));
     let (mut engine, _) = security_engine(context, clock.clone());
     let store = DuplicateStore::new(clock.clone());
@@ -460,13 +466,10 @@ pub(super) fn run_receive(fx: &Fixture) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     let before = store.len();
-    let delivery = targets(obj(context, "delivery"))?;
-    let handoff = str_of(context, "handoff_time")
-        .map(|h| Timestamp::parse(h).ok_or("handoff_time"))
-        .transpose()?;
     let mut called = false;
-    let out = receive(
-        msg,
+    let out = receive_octets(
+        octets,
+        l,
         &mut engine,
         &store,
         &*clock,
@@ -474,7 +477,7 @@ pub(super) fn run_receive(fx: &Fixture) -> Result<(), String> {
             if let Some(h) = &handoff {
                 clock.set(h.clone());
             }
-            delivery.get(to.as_str()).cloned()
+            lookup(to)
         },
         |_| {
             called = true;
@@ -482,26 +485,110 @@ pub(super) fn run_receive(fx: &Fixture) -> Result<(), String> {
         },
     );
     let report = match out.received {
-        Received::InFlight => return Err("in flight with no earlier copy".into()),
+        Received::InFlight(_) => return Err("in flight with no earlier copy".into()),
         Received::Reported(r) => r,
     };
-    if called != (report.state == DeliveryState::HandedToHarness) {
+    if called != (report.state() == DeliveryState::HandedToHarness) {
         return Err("the hand-off call and the reported state disagree".into());
     }
     // Nothing reaches the store without passing step 4; a copy refused before it, or by the
     // delivery stage, leaves the store as it was.
     let added = store.len() - before;
-    if added != usize::from(report.state == DeliveryState::HandedToHarness) {
+    if added != usize::from(report.state() == DeliveryState::HandedToHarness) {
         return Err(format!(
             "{added} store entr(y/ies) added for {}",
-            report.state
+            report.state()
         ));
     }
-    let state = match report.state {
+    Ok(Through {
+        report,
+        verified_by: out.verified_by,
+        called,
+        added,
+    })
+}
+
+/// Stage `receive` (§8.5): [`through_receive`], with the delivery stage's sessions from
+/// `delivery` and the hand-off at `handoff_time` (`receiver_time` when omitted).
+pub(super) fn run_receive(fx: &Fixture) -> Result<(), String> {
+    let context = obj(&fx.v, "context");
+    let expected = obj(&fx.v, "expected");
+    let delivery = targets(obj(context, "delivery"))?;
+    let handoff = str_of(context, "handoff_time")
+        .map(|h| Timestamp::parse(h).ok_or("handoff_time"))
+        .transpose()?;
+    let t = through_receive(
+        context,
+        &input_octets(obj(&fx.v, "input")),
+        &receiver_limits(context),
+        |to| delivery.get(to.as_str()).cloned(),
+        handoff,
+    )?;
+    let state = match t.report.state() {
         DeliveryState::HandedToHarness => "valid",
         s => s.as_str(),
     };
-    compare_result((state, report.error.map(ErrorCode::as_str)), expected)
+    compare_result((state, t.report.error().map(ErrorCode::as_str)), expected)
+}
+
+/// Stage `security` (`spec/security.md` §3.3) through the receiver pipeline itself,
+/// [`through_receive`], with every delivery-stage check passing (the addressed session
+/// accepts the envelope's part types): its result and code, so the production order of
+/// Table 7.1 in `receive` is under every `security` fixture, and `receipt_permitted`
+/// (§10.3) from the receipt gate, [`may_send_receipt`], asked with that same report and the
+/// key id the copy verified under, if any ([SC-RCP-041], [SEC-RCT-005]).
+pub(super) fn run_security_through_receive(fx: &Fixture) -> Result<(), String> {
+    let context = obj(&fx.v, "context");
+    let expected = obj(&fx.v, "expected");
+    let input = obj(&fx.v, "input");
+    let octets = input_octets(input);
+    let parts: Vec<String> = json::parse(&octets)
+        .ok()
+        .and_then(|v| v.as_object().cloned())
+        .map(|o| {
+            arr(&o, "content")
+                .iter()
+                .filter_map(|p| p.as_object().and_then(|p| str_of(p, "type")))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let (l, _) = limits(context);
+    let t = through_receive(
+        context,
+        &octets,
+        &l,
+        |_| {
+            Some(DeliveryTarget {
+                accepting: true,
+                active_inbound: true,
+                content_types: parts.clone(),
+                max_envelope_octets: None,
+            })
+        },
+        None,
+    )?;
+    let result = match t.report.state() {
+        DeliveryState::HandedToHarness => "passed",
+        s => s.as_str(),
+    };
+    compare_result((result, t.report.error().map(ErrorCode::as_str)), expected)?;
+    if t.called != (t.added == 1) {
+        return Err("hand-off and store entry disagree".into());
+    }
+    if let Some(want) = expected.get("receipt_permitted").and_then(Json::as_bool) {
+        let got = may_send_receipt(
+            t.verified_by.as_ref(),
+            &t.report,
+            &mut ReceiptLimiter::default(),
+            Instant::now(),
+        )
+        .is_ok();
+        if got != want {
+            return Err(format!("receipt permitted: {got}; expected {want}"));
+        }
+    }
+    Ok(())
 }
 
 /// Stage `combine` (§8.5).
@@ -513,7 +600,7 @@ pub(super) fn run_combine(fx: &Fixture) -> Result<(), String> {
         _ => None,
     };
     let deadline_passed = flag("deadline_passed").ok_or("deadline_passed")?;
-    let mut held = Vec::new();
+    let mut held = Held::new();
     for h in arr(obj(&fx.v, "input"), "held") {
         let h = h.as_object().ok_or("held")?;
         let state = str_of(h, "state")
@@ -522,14 +609,8 @@ pub(super) fn run_combine(fx: &Fixture) -> Result<(), String> {
         let observer = str_of(h, "observer")
             .and_then(Observer::parse)
             .ok_or("observer")?;
-        // [SC-RCP-030]: an unrecognized code is processed as `failed`.
-        let state = match str_of(h, "error") {
-            Some(e) if ErrorCode::parse(e).is_none() && state != DeliveryState::Duplicate => {
-                DeliveryState::Failed
-            }
-            _ => state,
-        };
-        held.push(HeldState { state, observer });
+        // [SC-RCP-030], applied by core.
+        held.add(&HeldState::processed(state, observer, str_of(h, "error")));
     }
     let state = match flag("handoff_deadline_passed") {
         Some(b) => combined_state(copies, &held, b),
@@ -638,6 +719,15 @@ pub(super) fn run_presence_auth(fx: &Fixture) -> Result<(), String> {
 /// Stage `receipt-auth` (`spec/security.md` §3.3).
 pub(super) fn run_receipt_auth(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
+    // A `receipt-auth` sent list must give each record's nonce (§3.3, "a sent list with
+    // `nonce`"): check 3 compares it, and a missing one would make a negative fixture pass
+    // for the wrong reason.
+    if let Some(i) = arr(context, "sent")
+        .iter()
+        .position(|r| r.as_object().and_then(|r| str_of(r, "nonce")).is_none())
+    {
+        return Err(format!("context.sent[{i}] has no nonce"));
+    }
     let clock = Arc::new(ManualClock::new(
         Timestamp::parse("2026-10-03T12:00:01Z").ok_or("time")?,
     ));
@@ -657,40 +747,6 @@ pub(super) fn run_receipt_auth(fx: &Fixture) -> Result<(), String> {
     let want = str_of(obj(&fx.v, "expected"), "result");
     if Some(result) != want {
         return Err(format!("{result} ({got:?}); expected {want:?}"));
-    }
-    Ok(())
-}
-
-/// `receipt_permitted` of a `security` fixture (`spec/security.md` §10.3): `false` exactly
-/// when no receipt may be sent for the envelope at all. The receipt gate is asked with the
-/// key id the envelope verified under, if any; a copy refused at the envelope stage or at
-/// step 1 or 2 has none ([SC-RCP-041], [SEC-RCT-005]).
-pub(super) fn run_receipt_permitted(fx: &Fixture) -> Result<(), String> {
-    let expected = obj(&fx.v, "expected");
-    let Some(want) = expected.get("receipt_permitted").and_then(Json::as_bool) else {
-        return Ok(());
-    };
-    let context = obj(&fx.v, "context");
-    let (l, now) = limits(context);
-    let keys = trusted_keys(context)?;
-    let verified = receive_envelope(&input_octets(obj(&fx.v, "input")), &l, &now)
-        .ok()
-        .and_then(|m| authenticate(m, &keys).ok())
-        .and_then(|m| m.verified_by().map(|p| p.key_id().clone()));
-    let report = ReceiverReport {
-        state: DeliveryState::Rejected,
-        error: Some(ErrorCode::Unauthorized),
-        duplicate_receipt_allowed: None,
-    };
-    let got = may_send_receipt(
-        verified.as_ref(),
-        &report,
-        &mut ReceiptLimiter::default(),
-        Instant::now(),
-    )
-    .is_ok();
-    if got != want {
-        return Err(format!("receipt permitted: {got}; expected {want}"));
     }
     Ok(())
 }

@@ -23,6 +23,16 @@ dependency or ADR text changes.
   reservation settled on every path, and the receipt gate with a per-device rate limit
   ([SEC-RPL-030], [SEC-RPL-031], [SEC-RCT-004], [SEC-RCT-005]). `core/src/receipt_auth.rs`:
   the authenticated receipt. The PR #317 (N2) caller obligations are met in `receiver.rs`.
+- **PR #321 review.** `ReceiverReport` is sealed (private fields, crate-private
+  constructors and `observed`, compile-fail doctests), so nothing outside `core` can mint
+  an `ObservedReceipt`, and no report can panic. An in-flight copy comes back with its key
+  and, from `receive`, the copy itself; `DuplicateStore::when_settled` calls back when the
+  earlier copy settles (no timer). A panic before the hand-off call settles the copy as not
+  handed off. Memory is bounded: an `EnvelopeTracker` keeps fixed-size flags (`Held`), and
+  the presence registry holds at most `capacity` sessions besides its own, forgetting
+  `unreachable` ones to make room (and their binding-table entries). Every `security`
+  fixture also runs through `receiver::receive_octets`. Ten review mutants are killed by
+  named tests.
 - **Integrated with F5 (#54, PR #316).** `receiver::receive` runs Table 7.1 steps 1 to 5
   in order, step 4 through `AuthorizationEngine::authorize_delivery`; `receiver::deliver`
   and the duplicate store take only the `AuthorizedMessage` step 4 builds, and a hand-off

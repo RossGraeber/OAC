@@ -16,8 +16,9 @@
 //! duplicate store without passing authorization ([SEC-RPL-022]). [`deliver`] does the rest:
 //!
 //! 1. security step 5 through [`DuplicateStore::try_admit`], which never waits. A copy whose
-//!    earlier twin is still being handed off comes back as [`Received::InFlight`], and the
-//!    caller re-queues it rather than parking a thread on it (PR #317 review N2, item 2;
+//!    earlier twin is still being handed off comes back as [`Received::InFlight`] with the
+//!    twin's key, and the caller re-queues it rather than parking a thread on it, offering it
+//!    again when [`DuplicateStore::when_settled`] calls back (PR #317 review N2, item 2;
 //!    [SEC-RPL-026]). This function never calls [`DuplicateStore::admit`], so it cannot
 //!    re-enter it for a key whose reservation it holds (item 3);
 //! 2. delivery-stage steps 1 to 3 against the addressed session ([`delivery_checks`]);
@@ -27,8 +28,10 @@
 //!    recorded by Table 5.3 ([IFC-ADP-055]);
 //! 5. the reservation settled on every path: [`Reservation::handed_off`] for
 //!    `handed-to-harness` and `unknown`, [`Reservation::not_handed_off`] for every refusal
-//!    and every failed or refused call ([SEC-RPL-022]; item 3). A panic in the hand-off call
-//!    drops the reservation, which counts as handed off: the outcome is indeterminate.
+//!    and every failed or refused call ([SEC-RPL-022]; item 3). A panic before the hand-off
+//!    call (in the session lookup or the clock) settles it as not handed off, since nothing
+//!    was, so a retransmission is not a `duplicate` ([SC-RCP-009]). A panic in the hand-off
+//!    call drops the reservation, which counts as handed off: the outcome is indeterminate.
 //!
 //! The hand-off call's own duration is the adapter's: an adapter bounds its input call and
 //! reports a call that did not return in time as `indeterminate` ([SC-RCP-006]).
@@ -49,11 +52,11 @@
 use crate::authorization::{AuthorizationEngine, AuthorizedMessage, HandOffRecord};
 use crate::clock::Clock;
 use crate::delivery::{DeliveryState, ErrorCode, Observer};
-use crate::envelope::{ChannelMessage, Envelope};
+use crate::envelope::{ChannelMessage, Envelope, EnvelopeLimits, receive_envelope};
 use crate::ids::{KeyId, SessionId, Timestamp};
-use crate::receipt::DeliveryReceipt;
+use crate::receipt::{DeliveryReceipt, ReceiptViolation};
 use crate::replay::check_replay_window;
-use crate::replay::{Admission, DuplicateStore, HandOffDeadline, Reservation};
+use crate::replay::{Admission, DuplicateKey, DuplicateStore, HandOffDeadline, Reservation};
 use crate::sender::ObservedReceipt;
 use crate::signing::{SecurityRejection, authenticate};
 use std::collections::HashMap;
@@ -156,19 +159,60 @@ impl HandOffOutcome {
 
 /// What a receiver reports for one copy: a receiver-observed state and, when the state
 /// carries one, its code.
+///
+/// It is sealed: only this crate's receiver pipeline ([`receive`], [`deliver`]) makes one,
+/// and its fields are private, so no code outside the crate can make a report for a copy
+/// no receiver saw, nor turn one into an [`ObservedReceipt`] ([SC-RCP-003], [SC-RCP-040]):
+///
+/// ```compile_fail
+/// use oac_core::delivery::DeliveryState;
+/// use oac_core::receiver::ReceiverReport;
+/// // E0451: the fields are private.
+/// let forged = ReceiverReport {
+///     state: DeliveryState::HandedToHarness,
+///     error: None,
+///     duplicate_receipt_allowed: None,
+/// };
+/// ```
+///
+/// ```compile_fail
+/// use oac_core::delivery::DeliveryState;
+/// use oac_core::receiver::ReceiverReport;
+/// // E0624: the constructor is crate-private.
+/// let forged = ReceiverReport::of(DeliveryState::HandedToHarness, None);
+/// ```
+///
+/// ```compile_fail
+/// # fn f(r: &oac_core::receiver::ReceiverReport, e: &oac_core::envelope::Envelope,
+/// #      t: oac_core::ids::Timestamp) {
+/// // E0624: only this crate turns a report into an observed receipt.
+/// let observed = r.observed(e, t);
+/// # }
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReceiverReport {
-    /// The state.
-    pub state: DeliveryState,
-    /// The code, exactly when the state carries one.
-    pub error: Option<ErrorCode>,
-    /// For a `duplicate`: whether this copy may draw its store entry's one `duplicate`
-    /// receipt ([SEC-RPL-030]). `None` for any other state.
-    pub duplicate_receipt_allowed: Option<bool>,
+    state: DeliveryState,
+    error: Option<ErrorCode>,
+    duplicate_receipt_allowed: Option<bool>,
 }
 
 impl ReceiverReport {
-    fn of(state: DeliveryState, error: Option<ErrorCode>) -> ReceiverReport {
+    /// A report of `state` with `error`. A pair that Table 8.3 does not allow for a
+    /// receiver ([SC-RCP-002], [SC-RCP-025] to [SC-RCP-028]) cannot be made: it becomes
+    /// `failed` with `internal-error`, an error unrelated to the envelope, so every report
+    /// has a receipt. No caller in this crate passes such a pair.
+    pub(crate) fn of(state: DeliveryState, error: Option<ErrorCode>) -> ReceiverReport {
+        let valid = state.allowed_for(Observer::Receiver)
+            && match error {
+                None => !state.carries_error(),
+                Some(c) => c.fits_receipt(state, Observer::Receiver),
+            };
+        debug_assert!(valid, "receiver report {state} {error:?}");
+        let (state, error) = if valid {
+            (state, error)
+        } else {
+            (DeliveryState::Failed, Some(ErrorCode::InternalError))
+        };
         ReceiverReport {
             state,
             error,
@@ -177,14 +221,39 @@ impl ReceiverReport {
     }
 
     /// The report for a copy the security stage refused.
-    pub fn from_rejection(r: &SecurityRejection) -> ReceiverReport {
+    pub(crate) fn from_rejection(r: &SecurityRejection) -> ReceiverReport {
         ReceiverReport::of(r.state, Some(r.error))
+    }
+
+    /// The state.
+    pub fn state(&self) -> DeliveryState {
+        self.state
+    }
+
+    /// The code, exactly when the state carries one.
+    pub fn error(&self) -> Option<ErrorCode> {
+        self.error
+    }
+
+    /// For a `duplicate`: whether this copy may draw its store entry's one `duplicate`
+    /// receipt ([SEC-RPL-030]). `None` for any other state.
+    pub fn duplicate_receipt_allowed(&self) -> Option<bool> {
+        self.duplicate_receipt_allowed
     }
 
     /// The receipt for this report about `env`, observed at `observed_at` (§8.1.4). It
     /// holds identifiers, the state, the code and the time only, nothing from `content`
     /// ([SC-RCP-031]).
-    pub fn receipt(&self, env: &Envelope, observed_at: Timestamp) -> DeliveryReceipt {
+    ///
+    /// # Errors
+    ///
+    /// None in practice: a report is only ever made of a pair a receipt can carry. The
+    /// result is passed on rather than unwrapped, so no report can panic here.
+    pub fn receipt(
+        &self,
+        env: &Envelope,
+        observed_at: Timestamp,
+    ) -> Result<DeliveryReceipt, ReceiptViolation> {
         DeliveryReceipt::new(
             env.id().clone(),
             env.from().clone().into(),
@@ -193,13 +262,22 @@ impl ReceiverReport {
             self.error,
             observed_at,
         )
-        .expect("a receiver report pairs each state with a code Table 8.3 lists for it")
     }
 
     /// The same receipt, for the sending implementation when it is this implementation:
-    /// a state this receiver observed itself ([SC-RCP-040]).
-    pub fn observed(&self, env: &Envelope, observed_at: Timestamp) -> ObservedReceipt {
-        ObservedReceipt::new(self.receipt(env, observed_at))
+    /// a state this receiver observed itself ([SC-RCP-040]). Crate-private, so only the
+    /// receiver pipeline's own reports reach an [`crate::sender::EnvelopeTracker`].
+    ///
+    /// # Errors
+    ///
+    /// As [`ReceiverReport::receipt`].
+    #[allow(dead_code)] // The same-implementation sender path (#313) calls it.
+    pub(crate) fn observed(
+        &self,
+        env: &Envelope,
+        observed_at: Timestamp,
+    ) -> Result<ObservedReceipt, ReceiptViolation> {
+        self.receipt(env, observed_at).map(ObservedReceipt::new)
     }
 }
 
@@ -210,7 +288,10 @@ pub enum Received {
     /// decided and nothing was added: re-queue the copy and offer it again once that
     /// hand-off has settled ([SEC-RPL-026]). Deciding `duplicate` now could report one for a
     /// copy whose twin then fails ([SC-RCP-009]).
-    InFlight,
+    ///
+    /// The key is the earlier copy's: [`DuplicateStore::when_settled`] with it calls back
+    /// once that copy settles, so the caller re-offers the copy then, with no timer.
+    InFlight(DuplicateKey),
     /// The copy's outcome.
     Reported(ReceiverReport),
 }
@@ -237,12 +318,22 @@ pub fn deliver(
     hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
 ) -> Result<Received, SecurityRejection> {
     let reservation = match store.try_admit(msg)? {
-        None => return Ok(Received::InFlight),
+        None => {
+            // `try_admit` succeeded, so the message is verified and has a key.
+            return Ok(DuplicateKey::of(msg.message()).map_or_else(
+                || {
+                    Received::Reported(ReceiverReport::of(
+                        DeliveryState::Failed,
+                        Some(ErrorCode::InternalError),
+                    ))
+                },
+                Received::InFlight,
+            ));
+        }
         Some(Admission::Duplicate { receipt_allowed }) => {
             return Ok(Received::Reported(ReceiverReport {
-                state: DeliveryState::Duplicate,
-                error: Some(ErrorCode::Duplicate),
                 duplicate_receipt_allowed: Some(receipt_allowed),
+                ..ReceiverReport::of(DeliveryState::Duplicate, Some(ErrorCode::Duplicate))
             }));
         }
         Some(Admission::Admitted(r)) => r,
@@ -261,6 +352,9 @@ pub fn deliver(
 pub struct ReceiveOutcome {
     /// The copy's outcome, or [`Received::InFlight`] to re-queue it.
     pub received: Received,
+    /// With [`Received::InFlight`]: the copy, past steps 1 to 4, for the caller to offer to
+    /// [`deliver`] again once [`DuplicateStore::when_settled`] calls back. `None` otherwise.
+    pub requeue: Option<AuthorizedMessage>,
     /// The key id the copy verified under at steps 1 and 2; `None` when it failed one of
     /// them, and then no receipt may be sent for it ([`may_send_receipt`], [SEC-RCT-005]).
     pub verified_by: Option<KeyId>,
@@ -288,6 +382,7 @@ pub fn receive(
 ) -> ReceiveOutcome {
     let reported = |r: ReceiverReport, verified_by, finding| ReceiveOutcome {
         received: Received::Reported(r),
+        requeue: None,
         verified_by,
         finding,
     };
@@ -326,16 +421,65 @@ pub fn receive(
     {
         engine.record_handoff(HandOffRecord::of(authorized.message().envelope()), r.state);
     }
+    let requeue = matches!(received, Received::InFlight(_)).then_some(authorized);
     ReceiveOutcome {
         received,
+        requeue,
         verified_by,
         finding: false,
     }
 }
 
-fn refuse(reservation: Reservation, (state, code): (DeliveryState, ErrorCode)) -> ReceiverReport {
-    reservation.not_handed_off();
-    ReceiverReport::of(state, Some(code))
+/// Envelope-stage validation at the receiver clock's time, then [`receive`]: one copy, as
+/// its octets arrived, through every check a receiver makes. An envelope-stage refusal is
+/// reported with its §8.3.2 code and no `verified_by`, so no receipt may be sent for it
+/// ([SC-RCP-041]).
+pub fn receive_octets(
+    octets: &[u8],
+    limits: &EnvelopeLimits,
+    engine: &mut AuthorizationEngine,
+    store: &DuplicateStore,
+    clock: &dyn Clock,
+    target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
+    hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
+) -> ReceiveOutcome {
+    match receive_envelope(octets, limits, &clock.now()) {
+        Ok(msg) => receive(msg, engine, store, clock, target, hand_off),
+        Err(r) => ReceiveOutcome {
+            received: Received::Reported(ReceiverReport::of(r.state, Some(r.error))),
+            requeue: None,
+            verified_by: None,
+            finding: false,
+        },
+    }
+}
+
+/// A reservation whose copy has not reached its hand-off call. Dropped, by a refusal or by
+/// a panic in the session lookup or the clock, it settles as not handed off, since nothing
+/// was: a retransmission is then not a `duplicate` ([SC-RCP-009], [SEC-RPL-022]). Only once
+/// the hand-off call is about to start does the bare [`Reservation`] take over, whose own
+/// drop counts as indeterminate.
+struct BeforeHandOff(Option<Reservation>);
+
+impl BeforeHandOff {
+    fn refuse(mut self, (state, code): (DeliveryState, ErrorCode)) -> ReceiverReport {
+        if let Some(r) = self.0.take() {
+            r.not_handed_off();
+        }
+        ReceiverReport::of(state, Some(code))
+    }
+
+    fn into_reservation(mut self) -> Option<Reservation> {
+        self.0.take()
+    }
+}
+
+impl Drop for BeforeHandOff {
+    fn drop(&mut self) {
+        if let Some(r) = self.0.take() {
+            r.not_handed_off();
+        }
+    }
 }
 
 fn delivery_stage(
@@ -346,14 +490,18 @@ fn delivery_stage(
     hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
 ) -> ReceiverReport {
     let env = msg.envelope();
+    let pending = BeforeHandOff(Some(reservation));
     // Steps 1 to 3.
     if let Err(refusal) = delivery_checks(env, target(env.to()).as_ref()) {
-        return refuse(reservation, refusal);
+        return pending.refuse(refusal);
     }
     // Step 4, immediately before the call.
     if let Some(refusal) = HandOffDeadline::of(env).refusal_at(&clock.now()) {
-        return refuse(reservation, refusal);
+        return pending.refuse(refusal);
     }
+    let Some(reservation) = pending.into_reservation() else {
+        return ReceiverReport::of(DeliveryState::Failed, Some(ErrorCode::InternalError));
+    };
     // Step 5.
     let outcome = hand_off(msg);
     if outcome.may_be_handed_off() {
@@ -585,25 +733,38 @@ mod tests {
     fn reported(r: Result<Received, SecurityRejection>) -> ReceiverReport {
         match r.unwrap() {
             Received::Reported(r) => r,
-            Received::InFlight => panic!("in flight"),
+            Received::InFlight(_) => panic!("in flight"),
         }
     }
 
-    /// Table 5.3: each outcome's state, and whether a later copy is a duplicate
+    /// Table 5.3: each outcome's state and code, and whether a later copy is a duplicate
     /// ([SEC-RPL-022]).
     #[test]
     fn outcomes_and_settlement() {
-        for (outcome, state, dup_after) in [
+        use DeliveryState as S;
+        for (outcome, state, code, dup_after) in [
+            (HandOffOutcome::Completed, S::HandedToHarness, None, true),
+            (HandOffOutcome::Indeterminate, S::Unknown, None, true),
             (
-                HandOffOutcome::Completed,
-                DeliveryState::HandedToHarness,
-                true,
+                HandOffOutcome::NotNow,
+                S::Unreachable,
+                Some(ErrorCode::DestinationUnavailable),
+                false,
             ),
-            (HandOffOutcome::Indeterminate, DeliveryState::Unknown, true),
-            (HandOffOutcome::NotNow, DeliveryState::Unreachable, false),
-            (HandOffOutcome::Failed, DeliveryState::Failed, false),
-            (HandOffOutcome::Refused, DeliveryState::Failed, false),
+            (
+                HandOffOutcome::Failed,
+                S::Failed,
+                Some(ErrorCode::HandoffFailed),
+                false,
+            ),
+            (
+                HandOffOutcome::Refused,
+                S::Failed,
+                Some(ErrorCode::InternalError),
+                false,
+            ),
         ] {
+            assert_eq!(outcome.recorded(), (state, code), "{outcome:?}");
             let f = fx(60_000);
             let r = reported(deliver(
                 &f.store,
@@ -612,7 +773,11 @@ mod tests {
                 &*f.clock,
                 |_| outcome,
             ));
-            assert_eq!(r.state, state, "{outcome:?}");
+            assert_eq!((r.state(), r.error()), (state, code), "{outcome:?}");
+            // Every report has a receipt, with the same state and code.
+            let receipt = r.receipt(f.msg.message().envelope(), ts("2026-10-03T12:00:01Z"));
+            let receipt = receipt.unwrap();
+            assert_eq!(receipt.state(), state);
             let again = reported(deliver(
                 &f.store,
                 &f.msg,
@@ -760,6 +925,7 @@ mod tests {
     #[test]
     fn in_flight_copy_is_requeued_not_parked() {
         let f = fx(60_000);
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
         let r = reported(deliver(
             &f.store,
             &f.msg,
@@ -774,11 +940,19 @@ mod tests {
                     &*f.clock,
                     |_| panic!("no call"),
                 );
-                assert_eq!(twin.unwrap(), Received::InFlight);
+                let Received::InFlight(key) = twin.unwrap() else {
+                    panic!("not in flight")
+                };
+                // The re-queued twin asks to hear when the earlier copy settles.
+                let tx = tx.clone();
+                f.store.when_settled(&key, move || tx.send(()).unwrap());
+                assert!(rx.try_recv().is_err(), "called back before settling");
                 HandOffOutcome::Failed
             },
         ));
         assert_eq!(r.state, DeliveryState::Failed);
+        // The settle callback fired once the earlier copy's reservation settled.
+        rx.try_recv().expect("settle notification");
         // The twin, re-queued, now takes over.
         let r = reported(deliver(
             &f.store,
@@ -788,6 +962,235 @@ mod tests {
             |_| HandOffOutcome::Completed,
         ));
         assert_eq!(r.state, DeliveryState::HandedToHarness);
+    }
+
+    /// An engine for `f`'s device that binds `to` as an own session and holds an inbound
+    /// grant from `from` to it.
+    fn engine_for(f: &Fx) -> AuthorizationEngine {
+        use crate::authorization::{
+            Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide,
+        };
+        use crate::pairing::MemoryPairingStore;
+        let env = f.raw.envelope();
+        let mut e =
+            AuthorizationEngine::new(&f.id, f.clock.clone(), Box::new(MemoryDecisionLog::new()));
+        let rec =
+            f.id.register(
+                env.to().clone(),
+                Token::parse("harness-x").unwrap(),
+                "native",
+                "/w",
+                ts("2026-10-03T11:00:00Z"),
+            )
+            .unwrap();
+        assert!(e.register_session(&rec, &f.id));
+        e.add_grant(
+            Grant::Inbound {
+                writer: PeerSide::session(f.id.key_id().clone(), env.from().clone()),
+                target: LocalSide::Session(env.to().clone()),
+            },
+            OperatorConfirmed::by_operator(),
+            &MemoryPairingStore::new(),
+        )
+        .unwrap();
+        e
+    }
+
+    /// [SEC-AUZ-016]: `receive` records a hand-off in the engine for `handed-to-harness`
+    /// and for `unknown`, and for nothing else; the receiving session may then discover the
+    /// sender for the reply period.
+    #[test]
+    fn receive_records_the_hand_off() {
+        use crate::authorization::{AuthorizationRequest, Basis, Kind, Requester};
+        for (outcome, recorded) in [
+            (HandOffOutcome::Completed, true),
+            (HandOffOutcome::Indeterminate, true),
+            (HandOffOutcome::NotNow, false),
+            (HandOffOutcome::Failed, false),
+        ] {
+            let f = fx(60_000);
+            let mut e = engine_for(&f);
+            let env = f.raw.envelope().clone();
+            let out = receive(
+                f.raw.clone(),
+                &mut e,
+                &f.store,
+                &*f.clock,
+                |_| target(),
+                |_| outcome,
+            );
+            assert!(matches!(out.received, Received::Reported(_)), "{outcome:?}");
+            let d = e.decide(&AuthorizationRequest::Discover {
+                requester: Requester::Session(env.to().clone()),
+                session: env.from().clone(),
+            });
+            assert_eq!(d.permits(Kind::Discover), recorded, "{outcome:?}");
+            if recorded {
+                assert!(matches!(d.basis(), Some(Basis::HandOff(_))), "{outcome:?}");
+            }
+        }
+    }
+
+    /// Table 7.1 order in `receive`: a copy outside the replay window and not authorized is
+    /// refused at step 3, `expired` with `outside-replay-window`, not at step 4.
+    #[test]
+    fn receive_runs_step_3_before_step_4() {
+        let f = fx(60_000);
+        let mut e = AuthorizationEngine::new(
+            &f.id,
+            f.clock.clone(),
+            Box::new(crate::authorization::MemoryDecisionLog::new()),
+        );
+        f.clock.set(ts("2026-10-03T12:05:01Z"));
+        let out = receive(
+            f.raw.clone(),
+            &mut e,
+            &f.store,
+            &*f.clock,
+            |_| target(),
+            |_| panic!("no call"),
+        );
+        assert_eq!(
+            out.received,
+            Received::Reported(ReceiverReport::of(
+                DeliveryState::Expired,
+                Some(ErrorCode::OutsideReplayWindow)
+            ))
+        );
+        assert!(out.verified_by.is_some());
+        assert!(f.store.is_empty());
+        // And with authorization in place but the window passed, step 3 still decides.
+        let mut e = engine_for(&f);
+        let out = receive(
+            f.raw.clone(),
+            &mut e,
+            &f.store,
+            &*f.clock,
+            |_| target(),
+            |_| panic!("no call"),
+        );
+        assert!(matches!(
+            out.received,
+            Received::Reported(r) if r.error() == Some(ErrorCode::OutsideReplayWindow)
+        ));
+    }
+
+    /// [SC-RCP-091]: the deadline is read after the session lookup, immediately before the
+    /// call: time that passes during the lookup counts.
+    #[test]
+    fn deadline_read_after_the_lookup() {
+        let f = fx(1_000);
+        let r = reported(deliver(
+            &f.store,
+            &f.msg,
+            |_| {
+                f.clock.set(ts("2026-10-03T12:00:01Z"));
+                target()
+            },
+            &*f.clock,
+            |_| panic!("no call"),
+        ));
+        assert_eq!(
+            (r.state, r.error),
+            (DeliveryState::Expired, Some(ErrorCode::Expired))
+        );
+        assert!(f.store.is_empty());
+    }
+
+    /// A panic before the hand-off call (here, in the session lookup) settles the copy as
+    /// not handed off: a retransmission is handed off, not reported `duplicate`
+    /// ([SC-RCP-009]).
+    #[test]
+    fn panic_before_the_call_is_not_a_hand_off() {
+        let f = fx(60_000);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            deliver(
+                &f.store,
+                &f.msg,
+                |_| panic!("lookup failed"),
+                &*f.clock,
+                |_| HandOffOutcome::Completed,
+            )
+        }));
+        assert!(panicked.is_err());
+        assert!(f.store.is_empty());
+        let r = reported(deliver(
+            &f.store,
+            &f.msg,
+            |_| target(),
+            &*f.clock,
+            |_| HandOffOutcome::Completed,
+        ));
+        assert_eq!(r.state, DeliveryState::HandedToHarness);
+        // A panic in the hand-off call itself is indeterminate: the entry stays.
+        let g = fx(60_000);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            deliver(
+                &g.store,
+                &g.msg,
+                |_| target(),
+                &*g.clock,
+                |_| panic!("call failed"),
+            )
+        }));
+        assert!(panicked.is_err());
+        let r = reported(deliver(
+            &g.store,
+            &g.msg,
+            |_| target(),
+            &*g.clock,
+            |_| HandOffOutcome::Completed,
+        ));
+        assert_eq!(r.state, DeliveryState::Duplicate);
+    }
+
+    /// `when_settled` for a key with nothing in flight calls back at once.
+    #[test]
+    fn when_settled_without_flight_calls_at_once() {
+        let f = fx(60_000);
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        f.store
+            .when_settled(&DuplicateKey::new("k", "n"), move || tx.send(()).unwrap());
+        rx.try_recv().expect("called at once");
+    }
+
+    /// `receive` hands an in-flight copy back for re-queueing.
+    #[test]
+    fn receive_returns_the_in_flight_copy() {
+        let f = fx(60_000);
+        let mut e = engine_for(&f);
+        let mut second = None;
+        let first = deliver(
+            &f.store,
+            &f.msg,
+            |_| target(),
+            &*f.clock,
+            |_| {
+                let out = receive(
+                    f.raw.clone(),
+                    &mut e,
+                    &f.store,
+                    &*f.clock,
+                    |_| target(),
+                    |_| panic!("no call"),
+                );
+                second = Some(out);
+                HandOffOutcome::Completed
+            },
+        );
+        assert!(matches!(first.unwrap(), Received::Reported(_)));
+        let second = second.unwrap();
+        assert!(matches!(second.received, Received::InFlight(_)));
+        let again = second.requeue.expect("the copy, for re-queueing");
+        // Offered again after the first settled: a duplicate of a handed-off copy.
+        let r = reported(deliver(
+            &f.store,
+            &again,
+            |_| target(),
+            &*f.clock,
+            |_| panic!("no call"),
+        ));
+        assert_eq!(r.state, DeliveryState::Duplicate);
     }
 
     /// The acceptance criterion: no outcome yields a state beyond `handed-to-harness`, and

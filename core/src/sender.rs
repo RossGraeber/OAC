@@ -110,14 +110,29 @@ impl ObservedReceipt {
     }
 }
 
-/// One state held for an envelope: a state, its observer and, when the state carries one,
-/// its code (`spec/session-channels.md` §8.5, stage `combine`, `held`).
+/// One state held for an envelope: a state and its observer (`spec/session-channels.md`
+/// §8.5, stage `combine`, `held`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeldState {
     /// The state as processed ([SC-RCP-030]: `failed` for an unrecognized code).
     pub state: DeliveryState,
     /// Who observed it.
     pub observer: Observer,
+}
+
+impl HeldState {
+    /// A state as carried, with its code as carried, processed by [SC-RCP-030]: a code that
+    /// is not in Table 8.3 makes any state but `duplicate` count as `failed`, as
+    /// [`DeliveryReceipt::effective_state`] does for a receipt.
+    pub fn processed(state: DeliveryState, observer: Observer, error: Option<&str>) -> HeldState {
+        let state = match error {
+            Some(e) if ErrorCode::parse(e).is_none() && state != DeliveryState::Duplicate => {
+                DeliveryState::Failed
+            }
+            _ => state,
+        };
+        HeldState { state, observer }
+    }
 }
 
 /// The error states of §8.4.1. `duplicate` carries a code but is not one.
@@ -131,44 +146,85 @@ pub fn is_error_state(s: DeliveryState) -> bool {
     )
 }
 
+/// The states held for one envelope, kept as the rules of [SC-RCP-085] and §8.4.2 read
+/// them: whether any `handed-to-harness`, any `duplicate` and any receiver-observed
+/// `unknown` is held, and the first receiver-observed and the first sender-observed error
+/// state. Its size is fixed: a receipt replayed any number of times, which nothing in §10
+/// stops, changes at most one flag once and adds nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Held {
+    handed_to_harness: bool,
+    duplicate: bool,
+    receiver_unknown: bool,
+    first_receiver_error: Option<DeliveryState>,
+    first_sender_error: Option<DeliveryState>,
+}
+
+impl Held {
+    /// Nothing held.
+    pub fn new() -> Held {
+        Held::default()
+    }
+
+    /// The states `held`, in arrival order.
+    pub fn of<'a>(held: impl IntoIterator<Item = &'a HeldState>) -> Held {
+        let mut h = Held::new();
+        for s in held {
+            h.add(s);
+        }
+        h
+    }
+
+    /// Adds one state, after those already held.
+    pub fn add(&mut self, h: &HeldState) {
+        match (h.state, h.observer) {
+            (DeliveryState::HandedToHarness, _) => self.handed_to_harness = true,
+            (DeliveryState::Duplicate, _) => self.duplicate = true,
+            (DeliveryState::Unknown, Observer::Receiver) => self.receiver_unknown = true,
+            (s, Observer::Receiver) if is_error_state(s) => {
+                self.first_receiver_error.get_or_insert(s);
+            }
+            (s, Observer::Sender) if is_error_state(s) => {
+                self.first_sender_error.get_or_insert(s);
+            }
+            // `accepted-by-adapter`, and a sender-observed `unknown`, which no rule reads.
+            _ => {}
+        }
+    }
+}
+
 /// The combined state of an envelope ([SC-RCP-085]): the first rule that applies to the
-/// states `held`, in arrival order, given how many copies were passed to a transport and
-/// whether the hand-off deadline has passed on the sending implementation's clock.
+/// states `held`, given how many copies were passed to a transport and whether the
+/// hand-off deadline has passed on the sending implementation's clock.
 pub fn combined_state(
     copies_passed: u64,
-    held: &[HeldState],
+    held: &Held,
     handoff_deadline_passed: bool,
 ) -> DeliveryState {
-    let any = |f: &dyn Fn(&HeldState) -> bool| held.iter().any(f);
     // Rule 1, then rule 2: a late `duplicate` never overwrites `handed-to-harness`.
-    if any(&|h| h.state == DeliveryState::HandedToHarness) {
+    if held.handed_to_harness {
         return DeliveryState::HandedToHarness;
     }
-    if any(&|h| h.state == DeliveryState::Duplicate) {
+    if held.duplicate {
         return DeliveryState::Duplicate;
     }
     // Rule 3: a receiver-observed `unknown`.
-    if any(&|h| h.state == DeliveryState::Unknown && h.observer == Observer::Receiver) {
+    if held.receiver_unknown {
         return DeliveryState::Unknown;
     }
     // Rule 4: one copy passed, the error state received first. Only a receiver reports
     // one for a passed copy: the sender's own error state is not reported once a copy has
     // been passed ([SC-RCP-007]).
     if copies_passed == 1
-        && let Some(h) = held
-            .iter()
-            .find(|h| h.observer == Observer::Receiver && is_error_state(h.state))
+        && let Some(s) = held.first_receiver_error
     {
-        return h.state;
+        return s;
     }
-    // Rule 5: no copy passed, the sender's own error state ([SC-RCP-007] keeps it out
-    // once a copy has been passed).
+    // Rule 5: no copy passed, the sender's own error state.
     if copies_passed == 0
-        && let Some(h) = held
-            .iter()
-            .find(|h| h.observer == Observer::Sender && is_error_state(h.state))
+        && let Some(s) = held.first_sender_error
     {
-        return h.state;
+        return s;
     }
     // Rule 6 ([SC-RCP-010]).
     if handoff_deadline_passed {
@@ -185,7 +241,7 @@ pub fn combined_state(
 /// reported `unknown` ([SC-RCP-082]).
 pub fn retry_allowed(
     copies_passed: u64,
-    held: &[HeldState],
+    held: &Held,
     state: DeliveryState,
     retry_deadline_passed: bool,
 ) -> bool {
@@ -197,19 +253,18 @@ pub fn retry_allowed(
             state,
             DeliveryState::HandedToHarness | DeliveryState::Duplicate
         )
-        && !held
-            .iter()
-            .any(|h| h.state == DeliveryState::Unknown && h.observer == Observer::Receiver)
+        && !held.receiver_unknown
 }
 
 /// The delivery-state machine a sending implementation keeps for one envelope (§8.4.1).
+/// Its memory is fixed: see [`Held`].
 #[derive(Clone, Debug)]
 pub struct EnvelopeTracker {
     id: Token,
     from: SessionId,
     deadline: HandOffDeadline,
     copies_passed: u64,
-    held: Vec<HeldState>,
+    held: Held,
 }
 
 impl EnvelopeTracker {
@@ -221,17 +276,13 @@ impl EnvelopeTracker {
             from: env.from().clone(),
             deadline: HandOffDeadline::of(env),
             copies_passed: 0,
-            held: Vec::new(),
+            held: Held::new(),
         }
     }
 
     /// A copy was passed to a transport (`PublishResult` `taken`): `accepted-by-adapter`.
     pub fn passed(&mut self) {
-        self.copies_passed += 1;
-        self.held.push(HeldState {
-            state: DeliveryState::AcceptedByAdapter,
-            observer: Observer::Sender,
-        });
+        self.copies_passed = self.copies_passed.saturating_add(1);
     }
 
     /// A copy could not be passed to a transport (`PublishResult` `not-taken`, or an
@@ -242,7 +293,7 @@ impl EnvelopeTracker {
         if !code.fits_receipt(DeliveryState::Failed, Observer::Sender) {
             return false;
         }
-        self.held.push(HeldState {
+        self.held.add(&HeldState {
             state: DeliveryState::Failed,
             observer: Observer::Sender,
         });
@@ -256,7 +307,7 @@ impl EnvelopeTracker {
         if r.envelope_id() != &self.id || r.envelope_from().as_str() != self.from.as_str() {
             return false;
         }
-        self.held.push(HeldState {
+        self.held.add(&HeldState {
             state: r.effective_state(),
             observer: r.observer(),
         });
@@ -268,8 +319,8 @@ impl EnvelopeTracker {
         self.copies_passed
     }
 
-    /// The states held, in arrival order.
-    pub fn held(&self) -> &[HeldState] {
+    /// The states held, as the rules read them.
+    pub fn held(&self) -> &Held {
         &self.held
     }
 
@@ -429,7 +480,79 @@ mod tests {
             .unwrap(),
         );
         assert!(!t.receipt(&other));
-        assert!(t.held().is_empty());
+        assert_eq!(t.held(), &Held::new());
+    }
+
+    fn h(state: DeliveryState, observer: Observer) -> HeldState {
+        HeldState { state, observer }
+    }
+
+    /// The observer distinctions of [SC-RCP-085] rules 3 and 5 and of [SC-RCP-082]: only a
+    /// receiver's `unknown` decides rule 3 and forbids a retry; only the sender's own error
+    /// state decides rule 5.
+    #[test]
+    fn observers_matter() {
+        use DeliveryState as S;
+        use Observer::{Receiver as R, Sender as Snd};
+        // Rule 3: a sender-observed `unknown` is not a receiver's.
+        let sender_unknown = Held::of(&[h(S::AcceptedByAdapter, Snd), h(S::Unknown, Snd)]);
+        assert_eq!(
+            combined_state(1, &sender_unknown, false),
+            S::AcceptedByAdapter
+        );
+        let receiver_unknown = Held::of(&[h(S::Unknown, R)]);
+        assert_eq!(combined_state(1, &receiver_unknown, false), S::Unknown);
+        // Retry: a sender's `unknown` (rule 6) allows one after the deadline; a receiver's
+        // does not.
+        assert!(retry_allowed(1, &sender_unknown, S::Unknown, true));
+        assert!(!retry_allowed(1, &receiver_unknown, S::Unknown, true));
+        // Rule 5: with no copy passed, a receiver's error state is not the sender's own.
+        let receiver_error = Held::of(&[h(S::Rejected, R)]);
+        assert_eq!(
+            combined_state(0, &receiver_error, false),
+            S::AcceptedByAdapter
+        );
+        let sender_error = Held::of(&[h(S::Failed, Snd)]);
+        assert_eq!(combined_state(0, &sender_error, false), S::Failed);
+        // Rule 4: one copy passed, the first receiver error; the sender's is not read.
+        let both = Held::of(&[h(S::Failed, Snd), h(S::Expired, R), h(S::Rejected, R)]);
+        assert_eq!(combined_state(1, &both, false), S::Expired);
+        assert_eq!(combined_state(2, &both, false), S::AcceptedByAdapter);
+    }
+
+    /// [SC-RCP-030] in core: an unrecognized code is `failed`, except for `duplicate`.
+    #[test]
+    fn unrecognized_code_is_failed() {
+        let r = Observer::Receiver;
+        assert_eq!(
+            HeldState::processed(DeliveryState::Rejected, r, Some("from-a-later-minor")).state,
+            DeliveryState::Failed
+        );
+        assert_eq!(
+            HeldState::processed(DeliveryState::Duplicate, r, Some("from-a-later-minor")).state,
+            DeliveryState::Duplicate
+        );
+        assert_eq!(
+            HeldState::processed(DeliveryState::Rejected, r, Some("unauthorized")).state,
+            DeliveryState::Rejected
+        );
+    }
+
+    /// A receipt replayed many times leaves the tracker as one copy of it does: its memory
+    /// is fixed ([`Held`]).
+    #[test]
+    fn replayed_receipts_add_nothing() {
+        let env = envelope(60_000);
+        let mut t = EnvelopeTracker::new(&env);
+        t.passed();
+        let r = receipt(&env, DeliveryState::Failed, Some(ErrorCode::HandoffFailed));
+        assert!(t.receipt(&r));
+        let once = *t.held();
+        for _ in 0..10_000 {
+            assert!(t.receipt(&r));
+        }
+        assert_eq!(*t.held(), once);
+        assert_eq!(t.state(&ts("2026-10-03T12:00:10Z")), DeliveryState::Failed);
     }
 
     /// §8.3.3 order: presence before version, version before `active_inbound`, part types

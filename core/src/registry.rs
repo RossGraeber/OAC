@@ -74,7 +74,14 @@ pub enum PresenceDiscard {
     /// Its `seq` is not greater than that of the latest record accepted for the session
     /// ([SC-DLV-042]): a late or second copy.
     NotNewer,
+    /// A record for a session the registry does not hold, while it holds
+    /// [`PresenceRegistry::capacity`] sessions and none of them is `unreachable`.
+    Full,
 }
+
+/// The most sessions, other than its own bound ones, a registry holds unless built with
+/// another capacity.
+pub const DEFAULT_PRESENCE_CAPACITY: usize = 4096;
 
 /// The outcome of offering a record to the registry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,18 +124,95 @@ struct Own {
 }
 
 /// The presence registry of one implementation. See the module documentation.
-#[derive(Clone, Debug, Default)]
+///
+/// # Bound
+///
+/// Besides the sessions the implementation binds now, it holds at most
+/// [`PresenceRegistry::capacity`] sessions (default [`DEFAULT_PRESENCE_CAPACITY`]): held
+/// records and ended own sessions together. A trusted device that announces fresh session
+/// ids cannot grow it past that. When a record for a new session arrives and the registry
+/// is full, it first forgets every session that is `unreachable` at that instant, which
+/// [SC-DLV-048] permits; if every held session is still `online`, the record is discarded
+/// as [`PresenceDiscard::Full`]. An own session that ends while the registry is full makes
+/// room by forgetting an ended one. Forgotten session ids are kept, also at most
+/// `capacity` of them, until [`PresenceRegistry::take_forgotten`] hands them to the
+/// caller, which may then remove their binding-table entries ([SEC-PRS-009]).
+#[derive(Clone, Debug)]
 pub struct PresenceRegistry {
     own: BTreeMap<SessionId, Own>,
     /// Own sessions whose binding has ended: `unreachable` until forgotten (§7.2.1).
     ended: BTreeMap<SessionId, ()>,
     held: HashMap<SessionId, Held>,
+    capacity: usize,
+    forgotten: Vec<SessionId>,
+}
+
+impl Default for PresenceRegistry {
+    fn default() -> PresenceRegistry {
+        PresenceRegistry::with_capacity(DEFAULT_PRESENCE_CAPACITY)
+    }
 }
 
 impl PresenceRegistry {
     /// An empty registry: every session is `unknown`.
     pub fn new() -> PresenceRegistry {
         PresenceRegistry::default()
+    }
+
+    /// An empty registry that holds at most `capacity` sessions besides its own bound ones
+    /// (at least one).
+    pub fn with_capacity(capacity: usize) -> PresenceRegistry {
+        PresenceRegistry {
+            own: BTreeMap::new(),
+            ended: BTreeMap::new(),
+            held: HashMap::new(),
+            capacity: capacity.max(1),
+            forgotten: Vec::new(),
+        }
+    }
+
+    /// The most sessions held besides the own bound ones.
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// The number of sessions held besides the own bound ones: held records and ended own
+    /// sessions.
+    pub fn len(&self) -> usize {
+        self.held.len() + self.ended.len()
+    }
+
+    /// Whether no session is held besides the own bound ones.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The session ids forgotten to make room since the last call, oldest first.
+    pub fn take_forgotten(&mut self) -> Vec<SessionId> {
+        std::mem::take(&mut self.forgotten)
+    }
+
+    fn note_forgotten(&mut self, s: SessionId) {
+        if self.forgotten.len() >= self.capacity {
+            self.forgotten.remove(0);
+        }
+        self.forgotten.push(s);
+    }
+
+    /// Forgets every session that is `unreachable` at `now` ([SC-DLV-048]).
+    fn sweep(&mut self, now: Instant) {
+        let stale: Vec<SessionId> = self
+            .held
+            .iter()
+            .filter(|(s, h)| !self.own.contains_key(*s) && h.state(now) != PresenceState::Online)
+            .map(|(s, _)| s.clone())
+            .chain(self.ended.keys().cloned())
+            .collect();
+        for s in stale {
+            self.held.remove(&s);
+            self.ended.remove(&s);
+            self.note_forgotten(s);
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -169,6 +253,13 @@ impl PresenceRegistry {
     /// presence survives one session's exit (C2 §5). False when it was not an own session.
     pub fn deregister_own(&mut self, session: &SessionId) -> bool {
         if self.own.remove(session).is_some() {
+            if self.len() >= self.capacity
+                && let Some(evicted) = self.ended.keys().next().cloned()
+            {
+                self.ended.remove(&evicted);
+                self.held.remove(&evicted);
+                self.note_forgotten(evicted);
+            }
             self.ended.insert(session.clone(), ());
             true
         } else {
@@ -225,6 +316,12 @@ impl PresenceRegistry {
             .is_some_and(|h| record.seq() <= h.record.seq())
         {
             return PresenceAcceptance::Discarded(PresenceDiscard::NotNewer);
+        }
+        if !self.held.contains_key(record.session_id()) && self.len() >= self.capacity {
+            self.sweep(now);
+            if self.len() >= self.capacity {
+                return PresenceAcceptance::Discarded(PresenceDiscard::Full);
+            }
         }
         let effective_lifetime_ms = match record.kind() {
             PresenceKind::Announcement { lifetime_ms, .. } => Some(match origin {
@@ -762,6 +859,83 @@ mod tests {
         assert_eq!(r.state(&b, t), PresenceState::Online);
         assert!(r.forget(&own, t));
         assert_eq!(r.state(&own, t), PresenceState::Unknown);
+    }
+
+    /// The bound: fresh session ids from a peer fill the registry to its capacity and no
+    /// further while all are `online`; once some are `unreachable` they are forgotten to make
+    /// room and handed to the caller; ended own sessions count and make room too.
+    #[test]
+    fn bounded_by_capacity() {
+        let t = Instant::now();
+        let mut r = PresenceRegistry::with_capacity(3);
+        let ids: Vec<SessionId> = (1..=5u8)
+            .map(|n| SessionId::from_random_octets([n; 16]))
+            .collect();
+        for s in &ids[..3] {
+            assert!(matches!(
+                r.accept(
+                    announce(s, 1, 60_000),
+                    carrier("x"),
+                    RecordOrigin::OtherImplementation,
+                    t
+                ),
+                PresenceAcceptance::Accepted { .. }
+            ));
+        }
+        assert_eq!(
+            r.accept(
+                announce(&ids[3], 1, 60_000),
+                carrier("x"),
+                RecordOrigin::OtherImplementation,
+                t
+            ),
+            PresenceAcceptance::Discarded(PresenceDiscard::Full)
+        );
+        assert_eq!(r.len(), 3);
+        // A newer record for a held session still fits.
+        assert!(matches!(
+            r.accept(
+                withdraw(&ids[0], 2),
+                carrier("x"),
+                RecordOrigin::OtherImplementation,
+                t
+            ),
+            PresenceAcceptance::Accepted { .. }
+        ));
+        // ids[0] is now unreachable: it is forgotten to make room.
+        assert!(matches!(
+            r.accept(
+                announce(&ids[3], 1, 60_000),
+                carrier("x"),
+                RecordOrigin::OtherImplementation,
+                t
+            ),
+            PresenceAcceptance::Accepted { .. }
+        ));
+        assert_eq!(r.take_forgotten(), vec![ids[0].clone()]);
+        assert_eq!(r.state(&ids[0], t), PresenceState::Unknown);
+        // After every lifetime has run out, all of them make room.
+        let later = t + Duration::from_secs(61);
+        assert!(matches!(
+            r.accept(
+                announce(&ids[4], 1, 60_000),
+                carrier("x"),
+                RecordOrigin::OtherImplementation,
+                later
+            ),
+            PresenceAcceptance::Accepted { .. }
+        ));
+        assert_eq!(r.len(), 1);
+        assert_eq!(r.take_forgotten().len(), 3);
+        // Ended own sessions: bounded the same way.
+        let mut o = PresenceRegistry::with_capacity(2);
+        for s in &ids {
+            o.register_own(descriptor(s));
+            assert!(o.deregister_own(s));
+            assert!(o.len() <= 2);
+        }
+        // Three were forgotten; the list keeps the newest `capacity` of them.
+        assert_eq!(o.take_forgotten(), vec![ids[1].clone(), ids[2].clone()]);
     }
 
     /// [SC-DLV-050] to [SC-DLV-057]: seq grows across announce, withdraw and re-announce;
