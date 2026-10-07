@@ -48,12 +48,29 @@
 //!   first.
 //! - **Bound.** Eviction bounds the store by the inbound rate times the window
 //!   (C5 §8). On top of that it holds at most [`DuplicateStore::capacity`] entries
-//!   (default [`DEFAULT_CAPACITY`]). An authorized copy that finds the store full of live
-//!   entries is refused with `failed` and `internal-error`, an error unrelated to the
-//!   envelope's validity whose next step is to retransmit (`spec/session-channels.md`
-//!   Table 8.3), and adds nothing. Nothing is evicted early to make room, because that
-//!   could let a duplicate through ([SEC-RPL-023]). Only an authorized sender can fill the
-//!   store, since entries are added after step 4.
+//!   (default [`DEFAULT_CAPACITY`]). An authorized copy that finds no room (below) is
+//!   refused with `failed` and `internal-error`, an error unrelated to the envelope's
+//!   validity whose next step is to retransmit (`spec/session-channels.md` Table 8.3), and
+//!   adds nothing. Nothing is evicted early to make room, because that could let a
+//!   duplicate through ([SEC-RPL-023]). Only an authorized sender can fill the store, since
+//!   entries are added after step 4.
+//! - **Shares (#320).** Entries are counted per `key_id`, the key the copy verified under.
+//!   A copy whose key holds `n` entries, in flight or handed off, is admitted only when
+//!   both hold:
+//!   - **quota:** `n` is below [`DuplicateStore::per_key_share`] (default a quarter of the
+//!     capacity, [`DEFAULT_KEY_SHARE_DIVISOR`]);
+//!   - **headroom:** `n` is below the number of free places, that is `len + n <
+//!     capacity`. A key never holds more entries than the store has left, so a key that
+//!     holds nothing is refused only when the store is full, and keys that keep adding
+//!     converge on an equal split of the capacity instead of filling it.
+//!
+//!   A key past either limit is refused alone; other keys keep their headroom. The presence
+//!   registry and the record lists make room by evicting from the heaviest holder
+//!   ([`crate::registry`], [`crate::authorization`]). This store cannot: every entry is
+//!   live until its deadline ([SEC-RPL-023]), so it refuses instead. The residual
+//!   (`docs/planning/v0.1/11-risks.md` RISK-REPLAY-STORE): `k` colluding granted keys that
+//!   keep adding push every key's share toward `capacity / (k + 1)`, and the store can be
+//!   filled only by about `capacity` distinct keys each holding an entry.
 //! - **Restart.** The store is process memory and is not persisted
 //!   (C5 §8, "In-memory, not on-disk"; [SEC-RPL-025] permits this). A new process starts
 //!   with an empty store, so for up to the replay window after a restart a copy of an
@@ -81,6 +98,11 @@ const WINDOW_NANOS: i128 = REPLAY_WINDOW_MS as i128 * 1_000_000;
 
 /// The most entries a [`DuplicateStore`] holds unless built with another capacity.
 pub const DEFAULT_CAPACITY: usize = 65_536;
+
+/// The share of the capacity one `key_id` may hold unless the store is built with another
+/// quota: a quarter (#320), as in the presence registry
+/// ([`crate::registry::DEFAULT_ISSUER_SHARE_DIVISOR`]).
+pub const DEFAULT_KEY_SHARE_DIVISOR: usize = 4;
 
 /// A message that has not passed steps 1 and 2: its `created_at` and nonce are not yet
 /// trusted ([SEC-STG-003]). Reaching steps 3 or 5 with one is a defect in the caller, so it
@@ -278,6 +300,9 @@ impl fmt::Debug for Waiters {
 struct Inner {
     entries: HashMap<DuplicateKey, Entry>,
     by_deadline: BTreeSet<(i128, DuplicateKey)>,
+    /// Entries held per `key_id`, in flight or handed off (#320); a key holding none has no
+    /// count.
+    per_key: HashMap<String, usize>,
     waiters: Waiters,
 }
 
@@ -302,18 +327,36 @@ impl Inner {
             .cloned()
             .collect();
         for item in due {
-            self.entries.remove(&item.1);
-            self.by_deadline.remove(&item);
+            self.remove(&item.1);
         }
     }
 
     fn remove(&mut self, key: &DuplicateKey) {
         if let Some(e) = self.entries.remove(key) {
             self.by_deadline.remove(&(e.deadline, key.clone()));
+            if let Some(n) = self.per_key.get_mut(key.key_id()) {
+                *n -= 1;
+                if *n == 0 {
+                    self.per_key.remove(key.key_id());
+                }
+            }
         }
     }
 
+    /// The entries `key_id` holds.
+    fn held_by(&self, key_id: &str) -> usize {
+        self.per_key.get(key_id).copied().unwrap_or(0)
+    }
+
+    /// Whether a new entry under `key_id` fits: the key is below its quota, and holds fewer
+    /// entries than the store has free places (the module documentation, "Shares").
+    fn has_room(&self, key_id: &str, capacity: usize, per_key_share: usize) -> bool {
+        let n = self.held_by(key_id);
+        n < per_key_share && self.entries.len() + n < capacity
+    }
+
     fn insert(&mut self, key: DuplicateKey, deadline: i128, phase: Phase) {
+        *self.per_key.entry(key.key_id().to_owned()).or_default() += 1;
         self.by_deadline.insert((deadline, key.clone()));
         self.entries.insert(
             key,
@@ -331,6 +374,7 @@ struct Shared {
     settled: Condvar,
     clock: Arc<dyn Clock>,
     capacity: usize,
+    per_key_share: usize,
 }
 
 /// The duplicate store of `spec/security.md` §8.3. A handle: clones share one store.
@@ -344,6 +388,7 @@ impl fmt::Debug for DuplicateStore {
         f.debug_struct("DuplicateStore")
             .field("len", &self.len())
             .field("capacity", &self.shared.capacity)
+            .field("per_key_share", &self.shared.per_key_share)
             .finish()
     }
 }
@@ -362,14 +407,27 @@ impl DuplicateStore {
         DuplicateStore::with_capacity(clock, DEFAULT_CAPACITY)
     }
 
-    /// An empty store of at most `capacity` entries.
+    /// An empty store of at most `capacity` entries, each `key_id` at most a quarter of
+    /// them ([`DEFAULT_KEY_SHARE_DIVISOR`]; at least one).
     pub fn with_capacity(clock: Arc<dyn Clock>, capacity: usize) -> DuplicateStore {
+        DuplicateStore::with_limits(clock, capacity, capacity / DEFAULT_KEY_SHARE_DIVISOR)
+    }
+
+    /// An empty store of at most `capacity` entries, each `key_id` at most `per_key_share`
+    /// of them; the share is at least one and at most the capacity. The headroom rule (the
+    /// module documentation, "Shares") applies on top of it.
+    pub fn with_limits(
+        clock: Arc<dyn Clock>,
+        capacity: usize,
+        per_key_share: usize,
+    ) -> DuplicateStore {
         DuplicateStore {
             shared: Arc::new(Shared {
                 inner: Mutex::new(Inner::default()),
                 settled: Condvar::new(),
                 clock,
                 capacity,
+                per_key_share: per_key_share.clamp(1, capacity.max(1)),
             }),
         }
     }
@@ -384,6 +442,16 @@ impl DuplicateStore {
     /// The most entries the store holds.
     pub fn capacity(&self) -> usize {
         self.shared.capacity
+    }
+
+    /// The most entries one `key_id` holds (#320).
+    pub fn per_key_share(&self) -> usize {
+        self.shared.per_key_share
+    }
+
+    /// The entries held under `key_id`, in flight or handed off.
+    pub fn held_by(&self, key_id: &str) -> usize {
+        self.lock().held_by(key_id)
     }
 
     /// The number of entries held, in flight or handed off.
@@ -418,7 +486,8 @@ impl DuplicateStore {
     ///
     /// # Errors
     ///
-    /// `failed` with `internal-error` when the store is full.
+    /// `failed` with `internal-error` when the store has no room for the key (the module
+    /// documentation, "Shares").
     #[doc(hidden)]
     pub fn insert_handed_off(
         &self,
@@ -431,7 +500,7 @@ impl DuplicateStore {
         if inner.entries.contains_key(&key) {
             return Ok(());
         }
-        if inner.entries.len() >= self.shared.capacity {
+        if !self.has_room(&inner, &key) {
             return Err(full());
         }
         inner.insert(key, deadline.unix_nanos(), Phase::HandedOff);
@@ -464,8 +533,9 @@ impl DuplicateStore {
     ///
     /// # Errors
     ///
-    /// `failed` with `internal-error` when the store is full of live entries or `msg` is
-    /// not verified.
+    /// `failed` with `internal-error` when the store has no room for `msg`'s key (full of
+    /// live entries, or the key past its share; the module documentation, "Shares"), or
+    /// when `msg` is not verified.
     pub fn admit(&self, msg: &AuthorizedMessage) -> Result<Admission, SecurityRejection> {
         let (key, deadline) = Self::key_and_deadline(msg)?;
         let mut inner = self.lock();
@@ -513,7 +583,7 @@ impl DuplicateStore {
         deadline: i128,
     ) -> Option<Result<Admission, SecurityRejection>> {
         inner.evict(self.shared.clock.now().unix_nanos());
-        let full_now = inner.entries.len() >= self.shared.capacity;
+        let room = self.has_room(inner, key);
         match inner.entries.get_mut(key) {
             Some(Entry {
                 phase: Phase::InFlight,
@@ -524,7 +594,7 @@ impl DuplicateStore {
                 e.duplicate_receipt_sent = true;
                 Some(Ok(Admission::Duplicate { receipt_allowed }))
             }
-            None if full_now => Some(Err(full())),
+            None if !room => Some(Err(full())),
             None => {
                 inner.insert(key.clone(), deadline, Phase::InFlight);
                 Some(Ok(Admission::Admitted(Reservation {
@@ -534,6 +604,14 @@ impl DuplicateStore {
                 })))
             }
         }
+    }
+
+    fn has_room(&self, inner: &Inner, key: &DuplicateKey) -> bool {
+        inner.has_room(
+            key.key_id(),
+            self.shared.capacity,
+            self.shared.per_key_share,
+        )
     }
 
     fn settle(&self, key: &DuplicateKey, handed_off: bool) {
@@ -1050,32 +1128,120 @@ mod tests {
     #[test]
     fn a_full_store_refuses_without_evicting_live_entries() {
         let f = fx();
-        let store = f.store(2);
-        assert_eq!(store.capacity(), 2);
+        let store = DuplicateStore::with_limits(f.clock.clone(), 3, 3);
+        assert_eq!(store.capacity(), 3);
         let a = f.signed("2026-10-03T12:00:00.000Z", Some(60_000));
         let b = f.signed("2026-10-03T12:00:00.500Z", None);
         let c = f.signed("2026-10-03T12:00:01.000Z", None);
         admitted(store.admit(&f.authorized(&a))).handed_off();
         let in_flight = admitted(store.admit(&f.authorized(&b)));
+        // Another key takes the last place.
+        let other = DuplicateKey::new(&"0".repeat(64), "n");
+        store
+            .insert_handed_off(other.clone(), &ts("2026-10-03T12:01:00Z"))
+            .unwrap();
         let rej = store.admit(&f.authorized(&c)).unwrap_err();
         assert_eq!(
             (rej.state, rej.error),
             (DeliveryState::Failed, ErrorCode::InternalError)
         );
-        assert_eq!(store.len(), 2);
+        assert_eq!(store.len(), 3);
         // Copies of held envelopes are still recognized while full.
         assert!(duplicate(store.admit(&f.authorized(&a))));
         assert!(store.try_admit(&f.authorized(&b)).unwrap().is_none());
-        // A refused admission added nothing, and the next one succeeds once `a` reaches its
-        // deadline.
+        // A refused admission added nothing, and the next one succeeds once `a` and the
+        // other key's entry reach their deadline.
         f.clock.set(ts("2026-10-03T12:01:00Z"));
         admitted(store.admit(&f.authorized(&c))).handed_off();
         in_flight.handed_off();
         assert_eq!(store.len(), 2);
+        assert!(!store.contains(&other));
+        let default = DuplicateStore::new(f.clock.clone());
+        assert_eq!(default.capacity(), DEFAULT_CAPACITY);
         assert_eq!(
-            DuplicateStore::new(f.clock.clone()).capacity(),
-            DEFAULT_CAPACITY
+            default.per_key_share(),
+            DEFAULT_CAPACITY / DEFAULT_KEY_SHARE_DIVISOR
         );
+    }
+
+    /// #320, quota: one key that reaches its share is refused alone, with `failed` /
+    /// `internal-error`; another key is still admitted, nothing is evicted, and the key
+    /// gets its places back as its own entries reach their deadline.
+    #[test]
+    fn a_key_at_its_share_is_refused_alone() {
+        let f = fx();
+        let store = f.store(16);
+        assert_eq!(store.per_key_share(), 4);
+        let alice = f.alice.key_id().as_str().to_owned();
+        for _ in 0..4 {
+            let env = f.signed("2026-10-03T12:00:00.000Z", Some(60_000));
+            admitted(store.admit(&f.authorized(&env))).handed_off();
+        }
+        let fifth = f.signed("2026-10-03T12:00:00.000Z", None);
+        let rej = store.admit(&f.authorized(&fifth)).unwrap_err();
+        assert_eq!(
+            (rej.state, rej.error),
+            (DeliveryState::Failed, ErrorCode::InternalError)
+        );
+        assert_eq!(store.held_by(&alice), 4);
+        let other = DuplicateKey::new(&"1".repeat(64), "n");
+        store
+            .insert_handed_off(other.clone(), &ts("2026-10-03T12:05:00Z"))
+            .unwrap();
+        assert_eq!(store.len(), 5);
+        f.clock.set(ts("2026-10-03T12:01:00Z"));
+        admitted(store.admit(&f.authorized(&fifth))).handed_off();
+        assert_eq!(store.held_by(&alice), 1);
+        assert!(store.contains(&other));
+    }
+
+    /// #320, headroom: a key never holds more entries than the store has free, so one key
+    /// alone holds at most half, keys that keep adding converge on an equal split, and a
+    /// key that holds nothing is refused only when the store is full.
+    #[test]
+    fn keys_converge_on_an_equal_split_and_a_new_key_finds_room() {
+        let f = fx();
+        let store = DuplicateStore::with_limits(f.clock.clone(), 8, 8);
+        let deadline = ts("2026-10-03T12:05:00Z");
+        let mut n = 0u32;
+        let mut put = |k: char| {
+            n += 1;
+            store
+                .insert_handed_off(
+                    DuplicateKey::new(&k.to_string().repeat(64), &n.to_string()),
+                    &deadline,
+                )
+                .is_ok()
+        };
+        // One key alone: half the store.
+        let alone: Vec<bool> = (0..8).map(|_| put('a')).collect();
+        assert_eq!(alone.iter().filter(|x| **x).count(), 4, "{alone:?}");
+        let store = DuplicateStore::with_limits(f.clock.clone(), 8, 8);
+        let mut n = 0u32;
+        let mut put = |k: char| {
+            n += 1;
+            store
+                .insert_handed_off(
+                    DuplicateKey::new(&k.to_string().repeat(64), &n.to_string()),
+                    &deadline,
+                )
+                .is_ok()
+        };
+        // Three keys taking turns: two each, then all three are refused.
+        for _ in 0..4 {
+            for k in ['a', 'b', 'c'] {
+                put(k);
+            }
+        }
+        for k in ['a', 'b', 'c'] {
+            assert_eq!(store.held_by(&k.to_string().repeat(64)), 2);
+        }
+        // Keys that hold nothing still find room until the store is full.
+        assert!(put('d'));
+        assert!(!put('d'));
+        assert!(put('e'));
+        assert_eq!(store.len(), 8);
+        assert!(!put('f'));
     }
 
     /// Restart ([SEC-RPL-025], C5 §8): the store is not persisted. A new process starts with

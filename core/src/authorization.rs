@@ -73,10 +73,14 @@ pub const MAX_RECORDS_PER_PARTITION: usize = 4096;
 
 /// The most partitions each record list holds at once. A partition goes as soon as it is
 /// empty, when its session ends (sent records, and an own sender's hand-off records), when
-/// its key is removed from trust, and, once the list is at this many, when every record in
-/// it is past its reply period. A record for a new partition is not kept (fail-closed)
-/// only while this many partitions all hold a live record; no live partition is evicted
-/// for it.
+/// its key is removed from trust, and as soon as every record in it is past its reply
+/// period (found in order of expiry, #328). A record for a new partition is not kept
+/// (fail-closed) only while this many partitions all hold a live record; no live partition
+/// is evicted for it.
+///
+/// A hand-off record from an own session that is no longer bound is not kept either
+/// (#328): a late copy from an ended own session would otherwise make that session's
+/// partition again, after [`AuthorizationEngine::end_session`] dropped it.
 pub const MAX_RECORD_PARTITIONS: usize = 4096;
 
 /// The most records each record list holds in all, across its partitions. Past it, the
@@ -84,14 +88,49 @@ pub const MAX_RECORD_PARTITIONS: usize = 4096;
 /// (this over the number of partitions) whatever the others do.
 pub const MAX_RECORDS_TOTAL: usize = 262_144;
 
-/// A record that carries the instant its reply period starts.
+/// The most binding-table entries that security step 4 creates (#325) one key holds:
+/// twice [`MAX_RECORDS_PER_PARTITION`], so a key at it always holds an entry that no
+/// hand-off record is looked up through.
+pub const MAX_ENVELOPE_BINDINGS_PER_KEY: usize = 2 * MAX_RECORDS_PER_PARTITION;
+
+/// The most binding-table entries that security step 4 creates (#325), in all.
+///
+/// An envelope that passes step 4 binds its unbound `from` to the verifying key
+/// ([SEC-PRS-005]). Such an entry is counted here until something else refers to it: an
+/// own session's registration replaces it, a presence record confirms it
+/// ([`AuthorizationEngine::bind`], after which the presence registry bounds it and
+/// [`AuthorizationEngine::forget_binding`] removes it), or it becomes a conflict mark. To
+/// add one:
+///
+/// - **Share.** A key holds at most [`MAX_ENVELOPE_BINDINGS_PER_KEY`]; at it, the key's
+///   own oldest entry goes.
+/// - **Fair share.** In a full table, a key holding `n` takes the oldest entry of a key that
+///   holds at least `n + 2`, the most of any; among the keys holding the most, the one whose
+///   latest entry is newest gives it up, so no key can steer the eviction onto another by
+///   its key id or its session ids.
+/// - **Kept.** An entry a hand-off record is looked up through ([SEC-AUZ-016],
+///   [SC-RCP-053], [SC-RCP-054]) is never evicted. A conflict mark and an own session's
+///   binding are never counted, so never evicted.
+///
+/// With no entry to evict, the envelope is refused with `failed` and `internal-error`, as
+/// a full duplicate store refuses it, and nothing is bound. Removing an entry is what
+/// [SEC-PRS-009] permits once the session is forgotten: the presence registry holds no
+/// record of it. A later envelope or announcement binds it again.
+pub const MAX_ENVELOPE_BINDINGS: usize = 65_536;
+
+/// A record that carries the instant its reply period starts and the session that sent its
+/// envelope.
 trait Dated {
     fn created_at(&self) -> &Timestamp;
+    fn sender(&self) -> &SessionId;
 }
 
 impl Dated for SentRecord {
     fn created_at(&self) -> &Timestamp {
         &self.created_at
+    }
+    fn sender(&self) -> &SessionId {
+        &self.from
     }
 }
 
@@ -99,11 +138,51 @@ impl Dated for HandOffRecord {
     fn created_at(&self) -> &Timestamp {
         &self.created_at
     }
+    fn sender(&self) -> &SessionId {
+        &self.from
+    }
 }
 
 /// The instant, in Unix nanoseconds, at which a record created at `t` stops counting.
 fn period_end(t: &Timestamp) -> i128 {
     t.unix_nanos() + i128::from(REPLY_PERIOD_MS) * NANOS_PER_MS
+}
+
+/// Records per (partition, sending session), kept for the hand-off records only, and the
+/// changes the engine reads to keep envelope-created bindings it must not evict (#325).
+#[derive(Debug)]
+struct SenderIndex<K> {
+    enabled: bool,
+    counts: BTreeMap<(K, SessionId), usize>,
+    changes: Vec<(K, SessionId, bool)>,
+}
+
+impl<K: Ord + Clone> SenderIndex<K> {
+    fn add(&mut self, key: &K, sender: &SessionId) {
+        if !self.enabled {
+            return;
+        }
+        let n = self
+            .counts
+            .entry((key.clone(), sender.clone()))
+            .or_default();
+        *n += 1;
+        if *n == 1 {
+            self.changes.push((key.clone(), sender.clone(), true));
+        }
+    }
+
+    fn remove(&mut self, key: &K, sender: &SessionId) {
+        let k = (key.clone(), sender.clone());
+        let Some(n) = self.counts.get_mut(&k) else {
+            return;
+        };
+        *n -= 1;
+        if *n == 0 {
+            self.counts.remove(&k);
+            self.changes.push((key.clone(), sender.clone(), false));
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -116,29 +195,49 @@ struct Partition<R> {
 
 /// A record list in partitions ([`MAX_RECORDS_PER_PARTITION`], [`MAX_RECORD_PARTITIONS`],
 /// [`MAX_RECORDS_TOTAL`]). Adding a record touches its own partition, in amortized constant
-/// time plus logarithmic index upkeep; a sweep of whole expired partitions runs only at the
-/// partition cap, and only once some partition can have expired since the last one.
+/// time plus logarithmic index upkeep.
+///
+/// Whole expired partitions are found through `by_end`, the partitions ordered by the
+/// instant they expire: a priority queue keyed on partition expiry whose entries are moved,
+/// not duplicated, when a partition's expiry moves (#328). Each push looks at its first
+/// entry only and drops the partitions that have expired, so finding them costs
+/// `O(log n)` per partition dropped and nothing for the ones still live, whatever order
+/// their writers refresh them in.
 #[derive(Debug)]
 struct RecordBook<K: Ord, R> {
     parts: BTreeMap<K, Partition<R>>,
     /// Partition sizes, for the largest one.
     by_size: BTreeSet<(usize, K)>,
+    /// Partition expiries (`Partition::ends`), earliest first.
+    by_end: BTreeSet<(i128, K)>,
+    /// How many records each partition holds from each sending session (hand-off records
+    /// only): a binding that a record is looked up through is not evicted (#325).
+    senders: SenderIndex<K>,
     total: usize,
-    /// No partition can be wholly expired before this instant (Unix nanoseconds); `None`
-    /// before the first sweep.
-    next_sweep: Option<i128>,
-    /// [`MAX_RECORD_PARTITIONS`].
+    /// [`MAX_RECORD_PARTITIONS`], or a smaller cap in a test.
     max_partitions: usize,
 }
 
 impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
-    fn new() -> Self {
+    /// An empty list; `index_senders` keeps [`RecordBook::holds_sender`] and its changes.
+    fn new(index_senders: bool) -> Self {
+        RecordBook::with_max_partitions(MAX_RECORD_PARTITIONS, index_senders)
+    }
+
+    /// A list of at most `max_partitions` partitions: [`MAX_RECORD_PARTITIONS`] outside
+    /// tests.
+    fn with_max_partitions(max_partitions: usize, index_senders: bool) -> Self {
         RecordBook {
             parts: BTreeMap::new(),
             by_size: BTreeSet::new(),
+            by_end: BTreeSet::new(),
+            senders: SenderIndex {
+                enabled: index_senders,
+                counts: BTreeMap::new(),
+                changes: Vec::new(),
+            },
             total: 0,
-            next_sweep: None,
-            max_partitions: MAX_RECORD_PARTITIONS,
+            max_partitions,
         }
     }
 
@@ -152,6 +251,41 @@ impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
         self.parts.len()
     }
 
+    /// Whether partition `key` holds a record whose envelope `sender` sent (an indexed
+    /// list only).
+    fn holds_sender(&self, key: &K, sender: &SessionId) -> bool {
+        self.senders
+            .counts
+            .contains_key(&(key.clone(), sender.clone()))
+    }
+
+    /// The (partition, sender) pairs that gained their first record (`true`) or lost their
+    /// last (`false`) since the last call, in order.
+    fn take_sender_changes(&mut self) -> Vec<(K, SessionId, bool)> {
+        std::mem::take(&mut self.senders.changes)
+    }
+
+    /// Removes partition `key` from the indexes once it has gone from `parts`.
+    fn forget_partition(&mut self, key: &K, len: usize, ends: i128) {
+        self.by_size.remove(&(len, key.clone()));
+        self.by_end.remove(&(ends, key.clone()));
+    }
+
+    /// Notes that partition `key` went from `before` records to `after`, dropping it when it
+    /// is empty.
+    fn resized(&mut self, key: &K, before: usize, after: usize) {
+        if before == after {
+            return;
+        }
+        self.total -= before - after;
+        self.by_size.remove(&(before, key.clone()));
+        if after > 0 {
+            self.by_size.insert((after, key.clone()));
+        } else if let Some(p) = self.parts.remove(key) {
+            self.by_end.remove(&(p.ends, key.clone()));
+        }
+    }
+
     /// Removes one record from the front of partition `key`, dropping the partition when
     /// it empties.
     fn pop_front(&mut self, key: &K) {
@@ -159,51 +293,42 @@ impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
             return;
         };
         let n = p.records.len();
-        if p.records.pop_front().is_none() {
+        let Some(r) = p.records.pop_front() else {
             return;
-        }
-        self.total -= 1;
-        self.by_size.remove(&(n, key.clone()));
-        if n > 1 {
-            self.by_size.insert((n - 1, key.clone()));
-        } else {
-            self.parts.remove(key);
-        }
+        };
+        self.senders.remove(key, r.sender());
+        self.resized(key, n, n - 1);
     }
 
     fn drop_partition(&mut self, key: &K) {
         if let Some(p) = self.parts.remove(key) {
+            for r in &p.records {
+                self.senders.remove(key, r.sender());
+            }
             self.total -= p.records.len();
-            self.by_size.remove(&(p.records.len(), key.clone()));
+            self.forget_partition(key, p.records.len(), p.ends);
         }
     }
 
-    /// Drops every partition whose records are all past their reply period at `now`, and
-    /// notes when the next one can be.
+    /// Drops every partition whose records are all past their reply period at `now`: the
+    /// first entries of `by_end`, and no others.
     fn sweep(&mut self, now: i128) {
-        let gone: Vec<K> = self
-            .parts
-            .iter()
-            .filter(|(_, p)| p.ends <= now)
-            .map(|(k, _)| k.clone())
-            .collect();
-        for k in &gone {
-            self.drop_partition(k);
+        while self.by_end.first().is_some_and(|(ends, _)| *ends <= now) {
+            // Taken off first, so each pass removes an entry and the loop ends even if an
+            // entry outlived its partition.
+            if let Some((_, key)) = self.by_end.pop_first() {
+                self.drop_partition(&key);
+            }
         }
-        self.next_sweep = self.parts.values().map(|p| p.ends).min();
     }
 
     /// Adds `r` to partition `key` at `now`; false, keeping nothing, when a new partition
-    /// would pass [`MAX_RECORD_PARTITIONS`] after a sweep of expired ones.
+    /// would pass the partition cap after the expired ones are dropped.
     fn push(&mut self, key: K, r: R, now: &Timestamp) -> bool {
         let now = now.unix_nanos();
+        self.sweep(now);
         if !self.parts.contains_key(&key) && self.parts.len() >= self.max_partitions {
-            if self.next_sweep.is_none_or(|t| t <= now) {
-                self.sweep(now);
-            }
-            if self.parts.len() >= self.max_partitions {
-                return false;
-            }
+            return false;
         }
         // Its own expired records first, then its own oldest at the cap.
         while self
@@ -228,21 +353,27 @@ impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
             self.pop_front(&largest);
         }
         let ends = period_end(r.created_at());
+        self.senders.add(&key, r.sender());
         let p = self.parts.entry(key.clone()).or_insert(Partition {
             records: VecDeque::new(),
             ends,
         });
         let n = p.records.len();
+        let before = p.ends;
         p.records.push_back(r);
         p.ends = p.ends.max(ends);
+        let after = p.ends;
         if n > 0 {
             self.by_size.remove(&(n, key.clone()));
+            if after != before {
+                self.by_end.remove(&(before, key.clone()));
+                self.by_end.insert((after, key.clone()));
+            }
+        } else {
+            self.by_end.insert((after, key.clone()));
         }
         self.by_size.insert((n + 1, key));
         self.total += 1;
-        if self.next_sweep.is_some_and(|t| ends < t) {
-            self.next_sweep = Some(ends);
-        }
         true
     }
 
@@ -266,17 +397,16 @@ impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
                 continue;
             };
             let before = p.records.len();
-            p.records.retain(&mut keep);
-            let after = p.records.len();
-            if after != before {
-                self.total -= before - after;
-                self.by_size.remove(&(before, k.clone()));
-                if after == 0 {
-                    self.parts.remove(&k);
-                } else {
-                    self.by_size.insert((after, k));
+            let senders = &mut self.senders;
+            p.records.retain(|r| {
+                let kept = keep(r);
+                if !kept {
+                    senders.remove(&k, r.sender());
                 }
-            }
+                kept
+            });
+            let after = p.records.len();
+            self.resized(&k, before, after);
         }
     }
 
@@ -297,15 +427,143 @@ impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
             return false;
         };
         let n = p.records.len();
-        p.records.remove(i);
-        self.total -= 1;
-        self.by_size.remove(&(n, key.clone()));
-        if n > 1 {
-            self.by_size.insert((n - 1, key.clone()));
-        } else {
-            self.parts.remove(key);
+        if let Some(r) = p.records.remove(i) {
+            self.senders.remove(key, r.sender());
         }
+        self.resized(key, n, n - 1);
         true
+    }
+}
+
+/// One binding-table entry an envelope created (#325).
+#[derive(Debug)]
+struct EnvelopeBinding {
+    key: KeyId,
+    /// Its place in creation order.
+    seq: u64,
+    /// A hand-off record is looked up through it, so it is not evicted.
+    pinned: bool,
+}
+
+/// The envelope-created entries of one key.
+#[derive(Debug, Default)]
+struct KeyBindings {
+    /// Entries no hand-off record is looked up through, oldest first: the ones that may go.
+    free: BTreeMap<u64, SessionId>,
+    pinned: usize,
+    /// The creation order of the key's latest entry: among keys holding the most, the one
+    /// that added last gives an entry up.
+    latest: u64,
+}
+
+impl KeyBindings {
+    fn len(&self) -> usize {
+        self.free.len() + self.pinned
+    }
+}
+
+/// The binding-table entries security step 4 created and nothing else refers to: not an
+/// own session's, not a conflict mark, and not one a presence record has since confirmed
+/// ([`AuthorizationEngine::bind`]), which the presence registry bounds. The rules are at
+/// [`MAX_ENVELOPE_BINDINGS`].
+#[derive(Debug)]
+struct EnvelopeBindings {
+    sessions: BTreeMap<SessionId, EnvelopeBinding>,
+    keys: BTreeMap<KeyId, KeyBindings>,
+    next: u64,
+    per_key: usize,
+    capacity: usize,
+}
+
+impl EnvelopeBindings {
+    fn new(capacity: usize, per_key: usize) -> EnvelopeBindings {
+        let capacity = capacity.max(1);
+        EnvelopeBindings {
+            sessions: BTreeMap::new(),
+            keys: BTreeMap::new(),
+            next: 0,
+            per_key: per_key.clamp(1, capacity),
+            capacity,
+        }
+    }
+
+    fn held_by(&self, key: &KeyId) -> usize {
+        self.keys.get(key).map_or(0, KeyBindings::len)
+    }
+
+    fn track(&mut self, session: SessionId, key: KeyId, pinned: bool) {
+        self.untrack(&session);
+        self.next += 1;
+        let seq = self.next;
+        let kb = self.keys.entry(key.clone()).or_default();
+        kb.latest = seq;
+        if pinned {
+            kb.pinned += 1;
+        } else {
+            kb.free.insert(seq, session.clone());
+        }
+        self.sessions
+            .insert(session, EnvelopeBinding { key, seq, pinned });
+    }
+
+    fn untrack(&mut self, session: &SessionId) {
+        let Some(e) = self.sessions.remove(session) else {
+            return;
+        };
+        if let Some(kb) = self.keys.get_mut(&e.key) {
+            if e.pinned {
+                kb.pinned -= 1;
+            } else {
+                kb.free.remove(&e.seq);
+            }
+            if kb.len() == 0 {
+                self.keys.remove(&e.key);
+            }
+        }
+    }
+
+    fn set_pinned(&mut self, session: &SessionId, key: &KeyId, pinned: bool) {
+        let Some(e) = self.sessions.get_mut(session) else {
+            return;
+        };
+        if &e.key != key || e.pinned == pinned {
+            return;
+        }
+        e.pinned = pinned;
+        let Some(kb) = self.keys.get_mut(key) else {
+            return;
+        };
+        if pinned {
+            kb.free.remove(&e.seq);
+            kb.pinned += 1;
+        } else {
+            kb.pinned -= 1;
+            kb.free.insert(e.seq, session.clone());
+        }
+    }
+
+    /// Whether `key` may add an entry with nothing evicted.
+    fn has_room(&self, key: &KeyId) -> bool {
+        self.held_by(key) < self.per_key && self.sessions.len() < self.capacity
+    }
+
+    /// The entry to evict so that `key` may add one; `None` when there is none to evict.
+    ///
+    /// - At its share, `key` gives up its own oldest unpinned entry.
+    /// - Below its share in a full table, holding `n`: the oldest unpinned entry of the key
+    ///   that holds the most of the keys holding at least `n + 2` (so that it still holds at
+    ///   least as many as `key` after the insert) with an unpinned entry; among those, the
+    ///   key whose latest entry is newest.
+    fn victim(&self, key: &KeyId) -> Option<SessionId> {
+        let n = self.held_by(key);
+        if n >= self.per_key {
+            return self.keys.get(key)?.free.values().next().cloned();
+        }
+        self.keys
+            .iter()
+            .filter(|(k, kb)| *k != key && kb.len() >= n + 2 && !kb.free.is_empty())
+            .max_by_key(|(_, kb)| (kb.len(), kb.latest))
+            .and_then(|(_, kb)| kb.free.values().next().cloned())
     }
 }
 
@@ -881,11 +1139,15 @@ impl DecisionLog for MemoryDecisionLog {
 
 /// Why security step 4 refused an envelope: `rejected` with `unauthorized` (Table 7.1), the
 /// requirement that failed, for a log line, and the finding [SEC-PRS-004] requires, if any.
+/// The one exception is an envelope that passed authorization but found no room to bind
+/// its `from` ([`MAX_ENVELOPE_BINDINGS`]): `failed` with `internal-error`, as a full
+/// duplicate store refuses one, which only an authorized sender can see.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthorizationRefusal {
-    /// `rejected`.
+    /// `rejected`; `failed` for no room in the binding table.
     pub state: DeliveryState,
-    /// `unauthorized`, whatever the reason, so a sender learns nothing else ([SC-RCP-073]).
+    /// `unauthorized`, whatever the reason, so a sender learns nothing else ([SC-RCP-073]);
+    /// `internal-error` for no room in the binding table.
     pub error: ErrorCode,
     /// The requirement that failed. Not sent to a peer.
     pub requirement: &'static str,
@@ -1039,6 +1301,8 @@ pub struct AuthorizationEngine {
     own_sessions: BTreeMap<SessionId, WorkingDirectoryScope>,
     grants: Vec<Grant>,
     bindings: BTreeMap<SessionId, Binding>,
+    /// The entries of `bindings` that security step 4 created ([`MAX_ENVELOPE_BINDINGS`]).
+    envelope_bound: EnvelopeBindings,
     sent: RecordBook<SessionId, SentRecord>,
     handed_off: RecordBook<HandOffPartition, HandOffRecord>,
     relay: BTreeSet<SessionId>,
@@ -1081,8 +1345,12 @@ impl AuthorizationEngine {
             own_sessions: BTreeMap::new(),
             grants: Vec::new(),
             bindings: BTreeMap::new(),
-            sent: RecordBook::new(),
-            handed_off: RecordBook::new(),
+            envelope_bound: EnvelopeBindings::new(
+                MAX_ENVELOPE_BINDINGS,
+                MAX_ENVELOPE_BINDINGS_PER_KEY,
+            ),
+            sent: RecordBook::new(false),
+            handed_off: RecordBook::new(true),
             relay: BTreeSet::new(),
             clock,
             log,
@@ -1283,10 +1551,12 @@ impl AuthorizationEngine {
             .collect();
         for s in &bindings {
             self.bindings.remove(s);
+            self.envelope_bound.untrack(s);
         }
         // Hand-off records the key verified go with it (#313).
         let removed_key = Some(key_id.clone());
         self.handed_off.drop_partitions(|(k, _)| k == &removed_key);
+        self.sync_pins();
         self.change(format!(
             "removed key {key_id}: {} grant(s), {} binding(s)",
             removed.len(),
@@ -1394,6 +1664,7 @@ impl AuthorizationEngine {
         );
         // An own session is never under conflict ([SEC-PRS-015]): its registration record
         // is authoritative over any earlier claim on the id.
+        self.envelope_bound.untrack(&s);
         self.bindings.insert(s, Binding::Key(self.own_key.clone()));
         true
     }
@@ -1416,12 +1687,15 @@ impl AuthorizationEngine {
         let own = Some(self.own_key.clone());
         self.handed_off
             .drop_partitions(|(k, f)| k == &own && f.as_ref() == Some(&s));
+        self.sync_pins();
         true
     }
 
     /// Binds another implementation's session id `session` to `key`, from an accepted
     /// announcement ([SEC-PRS-005]). Only an unbound session id is bound; an envelope binds
-    /// through [`AuthorizationEngine::authorize_delivery`].
+    /// through [`AuthorizationEngine::authorize_delivery`]. An entry an envelope created
+    /// for the same key is confirmed: from then on the presence registry bounds it, not
+    /// [`MAX_ENVELOPE_BINDINGS`].
     pub fn bind(&mut self, session: &SessionId, key: &KeyId) -> BindOutcome {
         match self.bindings.get(session) {
             None => {
@@ -1429,7 +1703,10 @@ impl AuthorizationEngine {
                     .insert(session.clone(), Binding::Key(key.clone()));
                 BindOutcome::Bound
             }
-            Some(Binding::Key(k)) if k == key => BindOutcome::AlreadyBound,
+            Some(Binding::Key(k)) if k == key => {
+                self.envelope_bound.untrack(session);
+                BindOutcome::AlreadyBound
+            }
             Some(Binding::Key(k)) => BindOutcome::BoundToOther(k.clone()),
             Some(Binding::Conflict(_)) => BindOutcome::UnderConflict,
         }
@@ -1456,6 +1733,7 @@ impl AuthorizationEngine {
             }
         };
         *entry = Binding::Conflict(keys);
+        self.envelope_bound.untrack(session);
         true
     }
 
@@ -1471,7 +1749,59 @@ impl AuthorizationEngine {
         {
             return false;
         }
+        self.envelope_bound.untrack(session);
         self.bindings.remove(session).is_some()
+    }
+
+    /// The number of binding-table entries that security step 4 created and nothing else
+    /// refers to yet ([`MAX_ENVELOPE_BINDINGS`]).
+    pub fn envelope_bindings(&self) -> usize {
+        self.envelope_bound.sessions.len()
+    }
+
+    /// The same engine with the bound on envelope-created binding-table entries set to
+    /// `capacity` in all and `per_key` for each key (each at least one, the share at most
+    /// the capacity), in place of [`MAX_ENVELOPE_BINDINGS`] and
+    /// [`MAX_ENVELOPE_BINDINGS_PER_KEY`]. Call it on a new engine, before any envelope is
+    /// authorized: entries made before it are not counted. A share at or below
+    /// [`MAX_RECORDS_PER_PARTITION`] can leave a key whose every entry a hand-off record is
+    /// looked up through; its next new `from` is then refused, fail-closed.
+    pub fn with_envelope_binding_limits(
+        mut self,
+        capacity: usize,
+        per_key: usize,
+    ) -> AuthorizationEngine {
+        self.envelope_bound = EnvelopeBindings::new(capacity, per_key);
+        self
+    }
+
+    /// Updates which envelope-created entries a hand-off record is looked up through, after
+    /// any change to the hand-off records.
+    fn sync_pins(&mut self) {
+        for ((key, _), sender, held) in self.handed_off.take_sender_changes() {
+            if let Some(k) = key {
+                self.envelope_bound.set_pinned(&sender, &k, held);
+            }
+        }
+    }
+
+    /// Binds `from` to `key` for an envelope that passed step 4 ([SEC-PRS-005]), within
+    /// [`MAX_ENVELOPE_BINDINGS`]; false, binding nothing, when there is no room.
+    fn bind_from_envelope(&mut self, from: &SessionId, key: &KeyId) -> bool {
+        if !self.envelope_bound.has_room(key) {
+            let Some(victim) = self.envelope_bound.victim(key) else {
+                return false;
+            };
+            self.envelope_bound.untrack(&victim);
+            self.bindings.remove(&victim);
+        }
+        let pinned = self
+            .handed_off
+            .holds_sender(&self.handoff_partition(Some(key), from), from);
+        self.bindings
+            .insert(from.clone(), Binding::Key(key.clone()));
+        self.envelope_bound.track(from.clone(), key.clone(), pinned);
+        true
     }
 
     // ---- Records ----------------------------------------------------------------------
@@ -1495,14 +1825,61 @@ impl AuthorizationEngine {
     /// bounded as [`AuthorizationEngine::record_sent`] is: a forgotten record ends that
     /// sender's discovery right and leaves a reply to that envelope uncorrelated
     /// ([SC-RCP-050]), both fail-closed, and no writer can make another's records go.
+    ///
+    /// The record is of an envelope that passed security step 4. Two further rules:
+    ///
+    /// - **A late copy from an ended own session records nothing (#328).** An envelope
+    ///   under this device's own key whose `from` is not an own session now came from a
+    ///   session that has ended. Its partition went with it
+    ///   ([`AuthorizationEngine::end_session`]), and a record could serve nothing, since the
+    ///   session can no longer be addressed, so the partition is not made again. This is
+    ///   consistent with [SEC-AUZ-016]: the right it grants is the receiving session's, to
+    ///   discover the sender, and a sender that can no longer be addressed has nothing to
+    ///   discover; `end_session` already drops the same partition (PR #326 re-review).
+    /// - **An evicted `from` is bound again (#325).** When the envelope-created binding of
+    ///   `from` was evicted between step 4 and this call ([`MAX_ENVELOPE_BINDINGS`]), or
+    ///   forgotten with its presence record, `from` is bound again to the verifying key, if
+    ///   it is still trusted, so that the record can be looked up ([SEC-AUZ-016],
+    ///   [SC-RCP-053]). [SEC-PRS-005] permits it: the envelope passed step 4 with that
+    ///   `from`. The entry is kept while a record from `from` is, and room is made for it
+    ///   as for any new entry. When there is none, because every entry that could go is in
+    ///   use, it is kept above the bound. Such entries number at most the hand-offs that
+    ///   were in flight when their bindings went.
     pub fn record_handoff(&mut self, record: HandOffRecord, outcome: DeliveryState) {
-        if matches!(
+        if !matches!(
             outcome,
             DeliveryState::HandedToHarness | DeliveryState::Unknown
         ) {
-            let now = self.clock.now();
-            let key = self.handoff_partition(record.key_id.as_ref(), &record.from);
-            self.handed_off.push(key, record, &now);
+            return;
+        }
+        let own = record.key_id.as_ref() == Some(&self.own_key);
+        if own && !self.own_sessions.contains_key(&record.from) {
+            return;
+        }
+        let rebind = match (own, record.key_id.clone(), self.bindings.get(&record.from)) {
+            (false, Some(k), None) if self.trusted.get(&k).is_some() => Some(k),
+            _ => None,
+        };
+        let from = record.from.clone();
+        let now = self.clock.now();
+        let key = self.handoff_partition(record.key_id.as_ref(), &record.from);
+        self.handed_off.push(key.clone(), record, &now);
+        self.sync_pins();
+        if let Some(k) = rebind {
+            // Within the bound when an entry can go; otherwise above it, as the
+            // documentation above says.
+            if !self.envelope_bound.has_room(&k)
+                && let Some(victim) = self.envelope_bound.victim(&k)
+            {
+                self.envelope_bound.untrack(&victim);
+                self.bindings.remove(&victim);
+            }
+            // Pinned by what the partition holds now, this record and any earlier one from
+            // `from`: no change is emitted for a sender that already had a record (PR #334
+            // review B1).
+            let pinned = self.handed_off.holds_sender(&key, &from);
+            self.bindings.insert(from.clone(), Binding::Key(k.clone()));
+            self.envelope_bound.track(from, k, pinned);
         }
     }
 
@@ -1512,9 +1889,11 @@ impl AuthorizationEngine {
     /// is neither `handed-to-harness` nor `unknown` (#313).
     pub fn forget_handoff(&mut self, record: &HandOffRecord) -> bool {
         let key = self.handoff_partition(record.key_id.as_ref(), &record.from);
-        self.handed_off.remove_first(&key, |r| {
+        let removed = self.handed_off.remove_first(&key, |r| {
             r.id == record.id && r.from == record.from && r.to == record.to
-        })
+        });
+        self.sync_pins();
+        removed
     }
 
     /// The hand-off records of envelopes from `from`: its partition when a binding names
@@ -1555,6 +1934,7 @@ impl AuthorizationEngine {
             .retain(|r| within_reply_period(&r.created_at, now));
         self.handed_off
             .retain(|r| within_reply_period(&r.created_at, now));
+        self.sync_pins();
     }
 
     // ---- Decisions --------------------------------------------------------------------
@@ -1763,9 +2143,11 @@ impl AuthorizationEngine {
     /// (`spec/security.md` §7.1).
     ///
     /// When the envelope passes and `from` has no binding yet, `from` is bound to the
-    /// verifying key ([SEC-PRS-005]). When it fails, nothing is bound. A claim on a session
-    /// id bound to another key returns a finding, also written to the log ([SEC-PRS-004]).
-    /// An envelope never sets a conflict mark.
+    /// verifying key ([SEC-PRS-005]), within [`MAX_ENVELOPE_BINDINGS`] (#325): when that
+    /// bound leaves no entry to evict, the envelope is refused with `failed` and
+    /// `internal-error`, and nothing is bound. When it fails, nothing is bound. A claim on a
+    /// session id bound to another key returns a finding, also written to the log
+    /// ([SEC-PRS-004]). An envelope never sets a conflict mark.
     ///
     /// # Errors
     ///
@@ -1813,7 +2195,15 @@ impl AuthorizationEngine {
         if !decision.permits(Kind::Deliver) {
             return Err(refuse("SEC-AUZ-001", None));
         }
-        self.bindings.entry(from).or_insert(Binding::Key(key));
+        // [SEC-PRS-005], within [`MAX_ENVELOPE_BINDINGS`] (#325).
+        if !self.bindings.contains_key(&from) && !self.bind_from_envelope(&from, &key) {
+            return Err(AuthorizationRefusal {
+                state: DeliveryState::Failed,
+                error: ErrorCode::InternalError,
+                requirement: "SEC-PRS-005",
+                finding: None,
+            });
+        }
         Ok(AuthorizedMessage {
             message: msg,
             decision,
@@ -2706,18 +3096,33 @@ mod tests {
         KeyId::parse(&format!("{n:064x}")).unwrap()
     }
 
-    /// PR #326 re-review B2', the reviewer's churn scenario: 4096 short-lived own sessions
-    /// each send, hand one message to a live own session, and end. Their partitions go with
+    /// PR #326 re-review B2', the reviewer's churn scenario, at a partition cap of 16 so it
+    /// runs in every `cargo test` (#328): as many short-lived own sessions as the cap each
+    /// send, hand one message to a live own session, and end. Their partitions go with
     /// them, so a new peer's hand-off is still recorded, its reply correlates
-    /// ([SC-RCP-053]) and its sender stays discoverable ([SEC-AUZ-016]). (Each session's
-    /// registration record takes a signature and a verification, so this test is slow in a
-    /// debug build.)
+    /// ([SC-RCP-053]) and its sender stays discoverable ([SEC-AUZ-016]).
     #[test]
     fn ended_sessions_free_their_partitions() {
+        churn_frees_partitions(16);
+    }
+
+    /// [`ended_sessions_free_their_partitions`] at the real cap, [`MAX_RECORD_PARTITIONS`].
+    /// Each session's registration record takes a signature and a verification, so this
+    /// takes about a minute in a debug build and about a second in a release one: it runs
+    /// in the opt-in `scale-optin.yml` workflow, or by hand with
+    /// `cargo test -p oac-core --release -- --ignored full_scale` (#328).
+    #[test]
+    #[ignore = "full scale: run with --release -- --ignored full_scale (scale-optin.yml)"]
+    fn full_scale_ended_sessions_free_their_partitions() {
+        churn_frees_partitions(MAX_RECORD_PARTITIONS);
+    }
+
+    fn churn_frees_partitions(cap: usize) {
         let me = identity("p");
         let clock = Arc::new(crate::clock::ManualClock::new(now()));
         let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
-        let cap = MAX_RECORD_PARTITIONS;
+        e.sent = RecordBook::with_max_partitions(cap, false);
+        e.handed_off = RecordBook::with_max_partitions(cap, true);
         register(&mut e, &me, B1, "/w");
         let own = Some(me.key_id().clone());
         for n in 0..cap as u32 {
@@ -2840,5 +3245,302 @@ mod tests {
         }
         assert_eq!(e.handed_off.len(), MAX_RECORDS_TOTAL);
         assert!(e.handoff_records().any(|r| r.id.as_str() == "small"));
+    }
+
+    const HOUR: i128 = 3_600_000_000_000;
+
+    /// #328: expired partitions are found in order of expiry, and a partition whose writer
+    /// refreshes it moves in that order instead of leaving a stale entry. Four writers, one
+    /// an hour apart, at a cap of four; the first refreshes after the last.
+    #[test]
+    fn expired_partitions_go_in_expiry_order() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e =
+            AuthorizationEngine::new(&me, clock.clone(), Box::new(MemoryDecisionLog::new()));
+        e.handed_off = RecordBook::with_max_partitions(4, true);
+        let put = |e: &mut AuthorizationEngine, id: &str, n: u32| {
+            let mut r = handoff(id, &sid(A1), &sid(B1), Some(kid_u32(n)));
+            r.created_at = e.now();
+            e.record_handoff(r, DeliveryState::HandedToHarness);
+            e.handoff_records().any(|r| r.id.as_str() == id)
+        };
+        for n in 0..4 {
+            assert!(put(&mut e, &format!("w{n}"), n));
+            clock.advance_nanos(HOUR);
+        }
+        // Writer 0 refreshes at hour 4: its partition now expires at hour 28, not 24.
+        assert!(put(&mut e, "w0b", 0));
+        assert_eq!(e.handed_off.by_end.len(), e.handed_off.partitions());
+        // Hour 24: every partition is live, writer 0's too; a new writer is refused.
+        clock.advance_nanos(20 * HOUR);
+        assert!(!put(&mut e, "late", 9));
+        assert!(e.handoff_records().any(|r| r.id.as_str() == "w0b"));
+        // Hour 25: writer 1's partition (hour 1 plus 24) has expired; it alone goes.
+        clock.advance_nanos(HOUR);
+        assert!(put(&mut e, "late", 9));
+        let left: Vec<&str> = e.handoff_records().map(|r| r.id.as_str()).collect();
+        assert!(!left.contains(&"w1"), "{left:?}");
+        for id in ["w0", "w0b", "w2", "w3", "late"] {
+            assert!(left.contains(&id), "{id} in {left:?}");
+        }
+        assert_eq!(e.handed_off.by_end.len(), e.handed_off.partitions());
+    }
+
+    /// #328: a late copy from an ended own session does not make that session's partition
+    /// again: no hand-off record from a session that is not bound now is kept under this
+    /// device's own key. A record from a live own session still is.
+    #[test]
+    fn a_late_copy_from_an_ended_own_session_records_nothing() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        register(&mut e, &me, A1, "/w");
+        register(&mut e, &me, B1, "/w");
+        let own = Some(me.key_id().clone());
+        e.record_handoff(
+            handoff("live", &sid(A1), &sid(B1), own.clone()),
+            DeliveryState::HandedToHarness,
+        );
+        assert_eq!(e.handed_off.partitions(), 1);
+        assert!(e.end_session(&sid(A1)));
+        assert_eq!(e.handed_off.partitions(), 0);
+        e.record_handoff(
+            handoff("late", &sid(A1), &sid(B1), own),
+            DeliveryState::Unknown,
+        );
+        assert_eq!(e.handed_off.partitions(), 0);
+        assert_eq!(e.handoff_records().count(), 0);
+    }
+
+    /// Bob's engine with Alice and Carol paired, each granted to write to any own session,
+    /// and the envelope bindings bounded at `capacity` in all and `per_key` each.
+    fn bounded(capacity: usize, per_key: usize) -> (Pair, DeviceIdentity) {
+        let mut p = pair();
+        p.bob_engine = p.bob_engine.with_envelope_binding_limits(capacity, per_key);
+        let carol = identity("principal-c");
+        p.bob_engine
+            .pair(
+                PairedPeer::confirmed(carol.principal().clone(), *carol.public_key(), now()),
+                &p.store,
+            )
+            .unwrap();
+        for k in [p.alice.key_id().clone(), carol.key_id().clone()] {
+            p.bob_engine
+                .add_grant(
+                    inbound(PeerSide::device(k), LocalSide::Device),
+                    ok(),
+                    &p.store,
+                )
+                .unwrap();
+        }
+        (p, carol)
+    }
+
+    fn held(e: &AuthorizationEngine, k: &KeyId) -> usize {
+        e.bindings()
+            .filter(|(_, b)| **b == Binding::Key(k.clone()))
+            .count()
+    }
+
+    /// #325: the binding-table entries step 4 creates are bounded per key. A device that
+    /// sends from fresh session ids evicts only its own oldest entries; the entry a
+    /// hand-off record is looked up through stays, so the reply still correlates
+    /// ([SC-RCP-053]) and the sender stays discoverable ([SEC-AUZ-016]); another key still
+    /// binds.
+    #[test]
+    fn envelope_bindings_are_bounded_and_keep_what_records_use() {
+        let (mut p, carol) = bounded(4, 2);
+        let ak = p.alice.key_id().clone();
+        let first = message(&p.alice, &p.bob_engine, A1, B1, None);
+        let first = p
+            .bob_engine
+            .authorize_delivery_at(first, &now())
+            .unwrap()
+            .into_message();
+        p.bob_engine.record_handoff(
+            HandOffRecord::of(first.envelope()),
+            DeliveryState::HandedToHarness,
+        );
+        for n in 0..20 {
+            let m = message(&p.alice, &p.bob_engine, sid_n(n).as_str(), B1, None);
+            p.bob_engine.authorize_delivery_at(m, &now()).unwrap();
+            assert!(held(&p.bob_engine, &ak) <= 2);
+        }
+        assert_eq!(
+            p.bob_engine.binding(&sid(A1)),
+            Some(&Binding::Key(ak.clone()))
+        );
+        assert_eq!(
+            p.bob_engine.binding(&sid_n(19)),
+            Some(&Binding::Key(ak.clone()))
+        );
+        assert!(p.bob_engine.binding(&sid_n(18)).is_none());
+        assert!(
+            p.bob_engine
+                .reply_headers(&sid(B1), &sid(A1), Some("msg-1"))
+                .correlated()
+        );
+        let m = message(&carol, &p.bob_engine, B2, B1, None);
+        assert!(
+            p.bob_engine.authorize_delivery_at(m, &now()).is_err(),
+            "B2 is own"
+        );
+        let m = message(&carol, &p.bob_engine, sid_n(100).as_str(), B1, None);
+        p.bob_engine.authorize_delivery_at(m, &now()).unwrap();
+        assert_eq!(p.bob_engine.envelope_bindings(), 3);
+        // Once the record is forgotten, A1's entry may go too.
+        assert!(
+            p.bob_engine
+                .forget_handoff(&HandOffRecord::of(first.envelope()))
+        );
+        for n in 200..202 {
+            let m = message(&p.alice, &p.bob_engine, sid_n(n).as_str(), B1, None);
+            p.bob_engine.authorize_delivery_at(m, &now()).unwrap();
+        }
+        assert!(p.bob_engine.binding(&sid(A1)).is_none());
+    }
+
+    /// PR #334 review B1, R4, R5, R7: an entry is kept while a hand-off record from its
+    /// session is held, also when the record came before the entry. An announcement binds
+    /// `S`, a record from `S` is kept, the registry forgets `S`; a later hand-off from `S`
+    /// binds it again, and a later envelope binds another such id. Fresh ids then evict
+    /// neither, so discovery ([SEC-AUZ-016]) and correlation ([SC-RCP-053]) still work.
+    /// Once `prune` drops the records, the entries may go at once.
+    #[test]
+    fn entries_whose_records_came_first_are_kept() {
+        let (mut p, _carol) = bounded(16, 3);
+        let ak = p.alice.key_id().clone();
+        let mut fresh = 1000;
+        let mut flood = |p: &mut Pair, n: u32| {
+            for _ in 0..n {
+                fresh += 1;
+                let m = message(&p.alice, &p.bob_engine, sid_n(fresh).as_str(), B1, None);
+                p.bob_engine.authorize_delivery_at(m, &now()).unwrap();
+            }
+        };
+        // B1: the hand-off binds `S` again.
+        let s = sid_n(500);
+        assert_eq!(p.bob_engine.bind(&s, &ak), BindOutcome::Bound);
+        let r1 = handoff("r1", &s, &sid(B1), Some(ak.clone()));
+        p.bob_engine
+            .record_handoff(r1, DeliveryState::HandedToHarness);
+        assert!(p.bob_engine.forget_binding(&s));
+        p.bob_engine.record_handoff(
+            handoff("r2", &s, &sid(B1), Some(ak.clone())),
+            DeliveryState::HandedToHarness,
+        );
+        assert_eq!(p.bob_engine.binding(&s), Some(&Binding::Key(ak.clone())));
+        assert_eq!(p.bob_engine.envelope_bindings(), 1, "the rebind is counted");
+        flood(&mut p, 4);
+        assert_eq!(p.bob_engine.binding(&s), Some(&Binding::Key(ak.clone())));
+        let d = p.bob_engine.decide(&AuthorizationRequest::Discover {
+            requester: Requester::Session(sid(B1)),
+            session: s.clone(),
+        });
+        assert!(matches!(d.basis(), Some(Basis::HandOff(_))));
+        assert!(
+            p.bob_engine
+                .reply_headers(&sid(B1), &s, Some("r1"))
+                .correlated()
+        );
+        // R5: an envelope binds `S2`, whose record came first.
+        let s2 = sid_n(600);
+        assert_eq!(p.bob_engine.bind(&s2, &ak), BindOutcome::Bound);
+        p.bob_engine.record_handoff(
+            handoff("r3", &s2, &sid(B1), Some(ak.clone())),
+            DeliveryState::HandedToHarness,
+        );
+        assert!(p.bob_engine.forget_binding(&s2));
+        let m = message(&p.alice, &p.bob_engine, s2.as_str(), B1, None);
+        p.bob_engine.authorize_delivery_at(m, &now()).unwrap();
+        flood(&mut p, 4);
+        assert_eq!(p.bob_engine.binding(&s2), Some(&Binding::Key(ak.clone())));
+        assert_eq!(p.bob_engine.binding(&s), Some(&Binding::Key(ak.clone())));
+        assert_eq!(held(&p.bob_engine, &ak), 3);
+        // R4: past the reply period `prune` drops the records, and the entries are free at
+        // once: the next fresh id takes the oldest, `S`.
+        p.bob_engine.prune_at(&ts("2026-10-04T13:00:00Z"));
+        flood(&mut p, 1);
+        assert!(p.bob_engine.binding(&s).is_none());
+        assert_eq!(held(&p.bob_engine, &ak), 3);
+    }
+
+    /// #325: entries that something else now refers to leave the bound: an announcement
+    /// confirms one ([`AuthorizationEngine::bind`]), a registration replaces one, and a
+    /// conflict mark replaces one. A share filled only with entries hand-off records use
+    /// refuses the next new `from` with `failed` / `internal-error`, binding nothing; an
+    /// entry evicted between step 4 and the hand-off is bound again by its record.
+    #[test]
+    fn envelope_bindings_leave_the_bound_when_referred_to() {
+        let (mut p, carol) = bounded(8, 2);
+        let ak = p.alice.key_id().clone();
+        let authorize = |p: &mut Pair, by_carol: bool, from: &SessionId| {
+            let signer = if by_carol { &carol } else { &p.alice };
+            let m = message(signer, &p.bob_engine, from.as_str(), B1, None);
+            p.bob_engine.authorize_delivery_at(m, &now())
+        };
+        authorize(&mut p, false, &sid_n(1)).unwrap();
+        assert_eq!(p.bob_engine.envelope_bindings(), 1);
+        assert_eq!(p.bob_engine.bind(&sid_n(1), &ak), BindOutcome::AlreadyBound);
+        assert_eq!(p.bob_engine.envelope_bindings(), 0);
+        authorize(&mut p, false, &sid_n(2)).unwrap();
+        assert!(p.bob_engine.mark_conflict(&sid_n(2), carol.key_id()));
+        assert_eq!(p.bob_engine.envelope_bindings(), 0);
+        // Two entries in use by hand-off records fill Alice's share: the next is refused.
+        for n in [3, 4] {
+            let m = authorize(&mut p, false, &sid_n(n)).unwrap().into_message();
+            p.bob_engine.record_handoff(
+                HandOffRecord::of(m.envelope()),
+                DeliveryState::HandedToHarness,
+            );
+        }
+        let r = authorize(&mut p, false, &sid_n(5)).unwrap_err();
+        assert_eq!(
+            (r.state, r.error, r.requirement),
+            (
+                DeliveryState::Failed,
+                ErrorCode::InternalError,
+                "SEC-PRS-005"
+            )
+        );
+        assert!(p.bob_engine.binding(&sid_n(5)).is_none());
+        // Evicted between step 4 and the hand-off: the record binds the id again.
+        let m = authorize(&mut p, true, &sid_n(6)).unwrap().into_message();
+        authorize(&mut p, true, &sid_n(7)).unwrap();
+        authorize(&mut p, true, &sid_n(8)).unwrap();
+        assert!(p.bob_engine.binding(&sid_n(6)).is_none(), "evicted");
+        p.bob_engine.record_handoff(
+            HandOffRecord::of(m.envelope()),
+            DeliveryState::HandedToHarness,
+        );
+        assert_eq!(
+            p.bob_engine.binding(&sid_n(6)),
+            Some(&Binding::Key(carol.key_id().clone()))
+        );
+        // Room is made for it as for any new entry: Carol's oldest free entry goes, and
+        // she stays at her share (PR #334 review N3).
+        assert!(p.bob_engine.binding(&sid_n(7)).is_none());
+        assert_eq!(held(&p.bob_engine, carol.key_id()), 2);
+        let d = p.bob_engine.decide(&AuthorizationRequest::Discover {
+            requester: Requester::Session(sid(B1)),
+            session: sid_n(6),
+        });
+        assert!(matches!(d.basis(), Some(Basis::HandOff(_))));
+        // A registration replaces an entry.
+        let own = sid_n(8);
+        let rec = p
+            .bob
+            .register(
+                own.clone(),
+                Token::parse("h").unwrap(),
+                "n",
+                "/w",
+                ts("2026-10-03T11:00:00Z"),
+            )
+            .unwrap();
+        let before = p.bob_engine.envelope_bindings();
+        assert!(p.bob_engine.register_session(&rec, &p.bob));
+        assert_eq!(p.bob_engine.envelope_bindings(), before - 1);
     }
 }
