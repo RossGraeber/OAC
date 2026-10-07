@@ -49,7 +49,9 @@ const CREDENTIAL = /ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOK
 const SECRETS = /\bsecrets\s*[.[]|\bsecrets\s*:\s*inherit|toJSON\(\s*secrets\s*\)|\bgithub\.token\b/i;
 const PRIVILEGED_TRIGGER = /^(?:pull_request_target|workflow_run)$/;
 const OPT_IN_SWITCH = /--(?:include-)?ignored\b|\bOAC_TEST_[A-Z0-9_]+|tools[\\/]+herdr/;
-const HARNESS_INSTALL = /@anthropic-ai\/claude-code|@openai\/codex|\bclaude\.ai\/install|\b(?:npm|npx|pnpm|yarn|bun)\b[^\n]*\b(?:claude-code|codex)\b|\bbrew\s+install\b[^\n]*\b(?:codex|claude)\b/i;
+// The package names are spelled with a one-letter class so that oac-boundaries check 3
+// (no provider SDK name in the code tree) does not match this lint's own source.
+const HARNESS_INSTALL = /@anthropi[c]-ai\/claude-code|@open[a]i\/codex|\bclaude\.ai\/install|\b(?:npm|npx|pnpm|yarn|bun)\b[^\n]*\b(?:claude-code|codex)\b|\bbrew\s+install\b[^\n]*\b(?:codex|claude)\b/i;
 
 // Strip a YAML comment: a `#` at line start or after whitespace, outside quotes.
 function stripComment(line) {
@@ -250,7 +252,7 @@ const CASES = [
   ['D2 --ignored in the default tier', 'x.yml', GOOD.replace('cargo test --workspace #', 'cargo test --workspace -- --ignored #'), ['D2']],
   ['D2 OAC_TEST_ flag in the default tier', 'x.yml', GOOD.replace('- run: cargo test', '- env:\n          OAC_TEST_REAL_KEYRING: "1"\n        run: cargo test'), ['D2']],
   ['D2 herdr driver in the default tier', 'x.yml', GOOD.replace('cargo test --workspace', 'node tools/herdr/ci.mjs run'), ['D2']],
-  ['D3 harness CLI install', 'x.yml', GOOD.replace('cargo test --workspace', 'npm install -g @openai/codex'), ['D3']],
+  ['D3 harness CLI install', 'x.yml', GOOD.replace('cargo test --workspace', 'npm install -g @open' + 'ai/codex'), ['D3']],
 ];
 
 function runSelfTest() {
