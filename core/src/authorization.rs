@@ -47,6 +47,7 @@ use crate::ids::{KeyId, SessionId, Timestamp, Token};
 use crate::keys::DeviceIdentity;
 use crate::pairing::{PairedPeer, PairingRecord, PairingSnapshot, PairingStore, PairingStoreError};
 use crate::registration::RegistrationRecord;
+use crate::reply::{EnvelopeRecord, ReplyHeaders, reply_headers};
 use crate::trust::{AddKeyError, TrustedKeySet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -54,6 +55,10 @@ use std::sync::{Arc, Mutex};
 
 /// The reply period of `spec/security.md` §9.5: 86400000 milliseconds (24 hours).
 pub const REPLY_PERIOD_MS: u64 = 86_400_000;
+
+/// The most sent records, and the most hand-off records, an engine holds at once (#313):
+/// both live in process memory ([SEC-AUZ-013], [SEC-AUZ-016]), so they are bounded.
+pub const MAX_RECORDS: usize = 65_536;
 
 const NANOS_PER_MS: i128 = 1_000_000;
 
@@ -253,6 +258,10 @@ impl SentRecord {
 
 /// A record of an envelope this implementation handed off to one of its own sessions with
 /// the outcome `handed-to-harness` or `unknown` ([SEC-AUZ-016]).
+///
+/// It is also the hand-off record of `spec/session-channels.md` §8.2.2, so it keeps the
+/// envelope's `conversation_id` and `correlation_id`: a reply copies them from here, never
+/// from the harness ([SC-RCP-053], [SC-RCP-054]; #313).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HandOffRecord {
     /// The envelope's `id`.
@@ -263,6 +272,10 @@ pub struct HandOffRecord {
     pub to: SessionId,
     /// The envelope's `created_at`.
     pub created_at: Timestamp,
+    /// The envelope's `conversation_id`, when present.
+    pub conversation_id: Option<Token>,
+    /// The envelope's `correlation_id`, when present.
+    pub correlation_id: Option<Token>,
 }
 
 impl HandOffRecord {
@@ -273,6 +286,19 @@ impl HandOffRecord {
             from: env.from().clone(),
             to: env.to().clone(),
             created_at: env.created_at().clone(),
+            conversation_id: env.conversation_id().cloned(),
+            correlation_id: env.correlation_id().cloned(),
+        }
+    }
+
+    /// The record as [`crate::reply`] reads it.
+    pub fn envelope_record(&self) -> EnvelopeRecord {
+        EnvelopeRecord {
+            id: self.id.clone(),
+            from: self.from.clone(),
+            to: self.to.clone(),
+            conversation_id: self.conversation_id.clone(),
+            correlation_id: self.correlation_id.clone(),
         }
     }
 }
@@ -878,6 +904,31 @@ impl AuthorizationEngine {
         &self.sent
     }
 
+    /// The hand-off records ([SEC-AUZ-016]) still held, in the order they were recorded.
+    pub fn handoff_records(&self) -> &[HandOffRecord] {
+        &self.handed_off
+    }
+
+    /// The reply headers for a reply from the own session `from` to `to` that answers
+    /// `requested_target`, read from the hand-off records this engine keeps
+    /// ([`crate::reply::reply_headers`]; [SC-RCP-050] to [SC-RCP-054]). `reply_to` is set
+    /// only for a target handed off to `from` from `to`, and `conversation_id` and
+    /// `correlation_id` are then copied from that record.
+    pub fn reply_headers(
+        &self,
+        from: &SessionId,
+        to: &SessionId,
+        requested_target: Option<&str>,
+    ) -> ReplyHeaders {
+        let records: Vec<EnvelopeRecord> = self
+            .handed_off
+            .iter()
+            .filter(|r| &r.to == from && &r.from == to)
+            .map(HandOffRecord::envelope_record)
+            .collect();
+        reply_headers(&records, from, to, requested_target)
+    }
+
     /// The binding-table entry for `session`.
     pub fn binding(&self, session: &SessionId) -> Option<&Binding> {
         self.bindings.get(session)
@@ -1142,18 +1193,36 @@ impl AuthorizationEngine {
 
     /// Records a reply right for an envelope an own session passed to a transport
     /// ([SEC-AUZ-013]); build the record with [`SentRecord::of`].
+    ///
+    /// At most [`MAX_RECORDS`] are held: when full, records whose reply period has ended
+    /// are forgotten first, then the oldest. Forgetting one fails closed: its reply right
+    /// ends, and a receipt for its envelope is discarded ([SEC-RCT-003] check 3).
     pub fn record_sent(&mut self, record: SentRecord) {
+        if self.sent.len() >= MAX_RECORDS {
+            self.prune();
+            if self.sent.len() >= MAX_RECORDS {
+                self.sent.remove(0);
+            }
+        }
         self.sent.push(record);
     }
 
     /// Records a hand-off to an own session, when its outcome was `handed-to-harness` or
     /// `unknown` ([SEC-AUZ-016]); any other outcome records nothing. Build the record with
-    /// [`HandOffRecord::of`].
+    /// [`HandOffRecord::of`]. Bounded as [`AuthorizationEngine::record_sent`] is: a
+    /// forgotten record ends the sender's discovery right and leaves a reply to that
+    /// envelope uncorrelated ([SC-RCP-050]), both fail-closed.
     pub fn record_handoff(&mut self, record: HandOffRecord, outcome: DeliveryState) {
         if matches!(
             outcome,
             DeliveryState::HandedToHarness | DeliveryState::Unknown
         ) {
+            if self.handed_off.len() >= MAX_RECORDS {
+                self.prune();
+                if self.handed_off.len() >= MAX_RECORDS {
+                    self.handed_off.remove(0);
+                }
+            }
             self.handed_off.push(record);
         }
     }
@@ -2144,5 +2213,48 @@ mod tests {
         assert!(!q.bob_engine.add_grant(g.clone(), ok(), &q.store).unwrap());
         assert!(q.bob_engine.remove_grant(&g, &q.store).unwrap());
         assert!(!q.bob_engine.remove_grant(&g, &q.store).unwrap());
+    }
+
+    /// #313: the hand-off records keep `conversation_id` and `correlation_id` and serve the
+    /// reply headers ([SC-RCP-053], [SC-RCP-054]); both record lists are bounded, and a
+    /// forgotten record fails closed (an uncorrelated reply).
+    #[test]
+    fn records_are_bounded_and_serve_reply_headers() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        let rec = |i: usize| HandOffRecord {
+            id: Token::parse(&format!("m{i}")).unwrap(),
+            from: sid(A1),
+            to: sid(B1),
+            created_at: now(),
+            conversation_id: Token::parse("conv"),
+            correlation_id: Token::parse("corr"),
+        };
+        for i in 0..=MAX_RECORDS {
+            e.record_handoff(rec(i), DeliveryState::HandedToHarness);
+        }
+        assert_eq!(e.handoff_records().len(), MAX_RECORDS);
+        assert_eq!(e.handoff_records()[0].id.as_str(), "m1");
+        let h = e.reply_headers(&sid(B1), &sid(A1), Some("m7"));
+        assert!(h.correlated());
+        assert_eq!(h.conversation_id, Token::parse("conv"));
+        assert_eq!(h.correlation_id, Token::parse("corr"));
+        assert!(!e.reply_headers(&sid(B1), &sid(A1), Some("m0")).correlated());
+        assert!(!e.reply_headers(&sid(B2), &sid(A1), Some("m7")).correlated());
+        let env = me.sign_envelope(
+            EnvelopeDraft::new(
+                Token::parse("msg-s").unwrap(),
+                sid(A1),
+                sid(B1),
+                now(),
+                vec![TextPart::new("x").unwrap()],
+            )
+            .unwrap(),
+        );
+        for _ in 0..=MAX_RECORDS {
+            e.record_sent(SentRecord::of(&env, me.key_id().clone()));
+        }
+        assert_eq!(e.sent_records().len(), MAX_RECORDS);
     }
 }

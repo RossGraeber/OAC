@@ -4,50 +4,64 @@
 //! registry, send decision, receiver pipeline and receipt state machine:
 //!
 //! - `presence` (`spec/session-channels.md` §7.5), in full: `discarded`, `states` and
-//!   `send`, through [`PresenceRegistry`] on a scripted monotonic clock and
-//!   [`check_send`]. Records are taken as authenticated, and the 300-second cap of
+//!   `send`, through [`PresenceRegistry`] on a scripted monotonic clock and the send stage,
+//!   [`prepare_send`]. Records are taken as authenticated, and the 300-second cap of
 //!   [SEC-PRS-007] does not apply (§7.5), so they enter as
 //!   [`RecordOrigin::SameImplementation`].
 //! - `discovery` (§7.5): [`discovery_result`].
-//! - `send` (§6.10): [`check_send`], with a session that `declarations` holds taken as
-//!   `online` and any other as `unknown` (§7.5).
-//! - `routing` and `receive` (§8.5): envelope stage, security, then the delivery stage.
-//!   `receive` runs [`receive`]: steps 1 to 5 of Table 7.1 in order, step 4 through the
-//!   real `AuthorizationEngine` built from the fixture's context (no verdict is taken from
-//!   the fixture), then the whole delivery stage, with a hand-off call that succeeds. The
-//!   engine, the duplicate store and the receiver pipeline read one [`ManualClock`].
-//!   `routing` takes authorization from `authorized` and has placeholder signatures, so it
-//!   runs [`delivery_checks`] and the hand-off-deadline re-check, the delivery-stage steps
-//!   [`deliver`] runs.
+//! - `send` (§6.10): the send stage, [`prepare_send`], with a session that `declarations`
+//!   holds taken as `online` and any other as `unknown` (§7.5). Its size step measures the
+//!   envelope the stage builds and signs under the agreed revision, not an estimate
+//!   (#313), and a `sent` result's envelope must carry that revision and the requester as
+//!   `from`.
+//! - `routing` and `receive` (§8.5): envelope stage, security, then the delivery stage,
+//!   both through [`receive`]: steps 1 to 5 of Table 7.1 in order, step 4 through the real
+//!   `AuthorizationEngine` (no verdict is taken from the fixture), then the whole delivery
+//!   stage, with a hand-off call that succeeds. The engine, the duplicate store and the
+//!   receiver pipeline read one [`ManualClock`]. `receive` builds the engine from the
+//!   fixture's context. A `routing` fixture has placeholder signatures and names its
+//!   authorized pairs in `authorized` (§8.5), so after the envelope stage the runner signs
+//!   the same envelope with a device key of its own and gives the engine an inbound grant
+//!   for each authorized pair: a pair not named is refused by the engine at step 4 (#313).
 //! - `combine` (§8.5): [`combined_state`] and [`retry_allowed`].
 //! - `presence-auth` (`spec/security.md` §3.3), all 15 fixtures (`sec-prs` and `sec-auz`):
 //!   [`accept_authenticated_record`] into a [`PresenceRegistry`], with the real
 //!   `AuthorizationEngine` (binding table, conflict marks, and the [SEC-AUZ-017] relation
 //!   test as its `accept-presence` decision), built by `authorization::engine`.
 //! - `receipt-auth` (`spec/security.md` §3.3): [`accept_receipt`] against the same engine.
-//! - `reply` and `correlation` (§8.5): [`reply_headers`] and [`answered`].
+//! - `reply` (§8.5): the hand-off records go into an `AuthorizationEngine`, and the reply
+//!   headers come from the engine's own records
+//!   (`AuthorizationEngine::reply_headers`, [SC-RCP-053], [SC-RCP-054]; #313).
+//! - `correlation` (§8.5): [`answered`].
 //! - `security`, every fixture, again through [`receive_octets`] (result, code and
 //!   `receipt_permitted` from [`may_send_receipt`]): the production order of Table 7.1.
 
 use super::authorization::{check_bindings_after, engine, own_identity, security_engine};
 use super::{Fixture, envelope_limits, implemented, input_octets, limits, obj, str_of, uint};
+use oac_core::adapter::{Connection, SendRequest};
+use oac_core::authorization::{
+    AuthorizationEngine, Grant, HandOffRecord, LocalSide, MemoryDecisionLog, OperatorConfirmed,
+    PeerSide,
+};
 use oac_core::capabilities::{SessionCapabilities, SessionDescriptor};
 use oac_core::clock::ManualClock;
 use oac_core::delivery::{DeliveryState, ErrorCode, Observer};
-use oac_core::envelope::{EnvelopeLimits, receive_envelope};
+use oac_core::envelope::{ContentPart, EnvelopeDraft, EnvelopeLimits, receive_envelope};
 use oac_core::ids::{KeyId, SessionId, Timestamp, Token, Version};
 use oac_core::json::{self, Json, JsonObject};
+use oac_core::keys::{DeviceIdentity, DeviceKey};
+use oac_core::pairing::MemoryPairingStore;
 use oac_core::presence::{PresenceRecord, PresenceState};
 use oac_core::presence_auth::{AuthenticatedPresenceRecord, accept_authenticated_record};
 use oac_core::receipt_auth::{AuthenticatedReceipt, accept_receipt};
 use oac_core::receiver::{
-    DeliveryTarget, HandOffOutcome, ReceiptLimiter, Received, ReceiverReport, delivery_checks,
-    may_send_receipt, receive_octets,
+    DeliveryTarget, HandOffOutcome, ReceiptLimiter, Received, ReceiverReport, may_send_receipt,
+    receive, receive_octets,
 };
 use oac_core::registry::{PresenceAcceptance, PresenceRegistry, RecordOrigin, discovery_result};
-use oac_core::replay::{DuplicateKey, DuplicateStore, HandOffDeadline, REPLAY_WINDOW_MS};
-use oac_core::reply::{EnvelopeRecord, answered, reply_headers};
-use oac_core::sender::{Held, HeldState, check_send, combined_state, retry_allowed};
+use oac_core::replay::{DuplicateKey, DuplicateStore, REPLAY_WINDOW_MS};
+use oac_core::reply::{EnvelopeRecord, ReplyHeaders, answered};
+use oac_core::sender::{Held, HeldState, combined_state, prepare_send, retry_allowed};
 use oac_core::transport::CarrierHandle;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -97,36 +111,64 @@ fn may_discover(pairs: &Option<BTreeSet<(String, String)>>, r: &SessionId, s: &S
         .is_none_or(|p| p.contains(&(r.as_str().to_owned(), s.as_str().to_owned())))
 }
 
-/// The size of the envelope a sender would build for a request, with each header member at
-/// its largest plausible length, as the reference runner estimates it (only a request near
-/// the limit depends on the estimate).
-fn estimate_octets(from: &str, to: &str, version: Version, content: &Json) -> u64 {
-    let x = |n| "x".repeat(n);
-    let text = format!(
-        "{{\"version\":\"{version}\",\"id\":\"{}\",\"from\":\"{from}\",\"to\":\"{to}\",\
-         \"created_at\":\"2026-10-03T12:00:00.000000000Z\",\"ttl_ms\":86400000,\"content\":{},\
-         \"security\":{{\"principal\":\"{}\",\"key_id\":\"{}\",\"nonce\":\"{}\",\"signature\":\"{}\"}}}}",
-        x(128),
-        content.to_compact(),
-        x(128),
-        x(64),
-        x(22),
-        x(86)
-    );
-    text.len() as u64
+/// A send request (§6.10) as the send stage takes it: from an attachment the runner made,
+/// to `to`, with each content part read through [`ContentPart::from_json`].
+fn send_request(to: &SessionId, content: &Json) -> Result<SendRequest, String> {
+    let content = content
+        .as_array()
+        .ok_or("content is not an array")?
+        .iter()
+        .map(|p| ContentPart::from_json(p).ok_or_else(|| format!("content part {p:?}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(SendRequest {
+        attachment: Connection::accept(std::io::empty(), std::io::sink())
+            .handle()
+            .clone(),
+        to: to.clone(),
+        content,
+        requested_target: None,
+        conversation_id: None,
+        correlation_id: None,
+    })
 }
 
-fn part_types(content: &Json) -> Vec<String> {
-    content
-        .as_array()
-        .unwrap_or(&[])
-        .iter()
-        .filter_map(|p| {
-            p.as_object()
-                .and_then(|o| str_of(o, "type"))
-                .map(str::to_owned)
-        })
-        .collect()
+/// The send stage for `request` from `requester`: [`prepare_send`], which builds and signs
+/// the envelope with a runner device key, so its size step reads the real envelope. A `sent`
+/// result's envelope must carry the agreed revision ([SC-ID-087], [SC-ENV-021]) and the
+/// requester as `from` ([SC-ID-160]).
+fn send_stage<'d>(
+    requester: Option<&SessionId>,
+    request: &SendRequest,
+    presence: impl FnOnce(&SessionId, &SessionId) -> Result<&'d SessionCapabilities, ErrorCode>,
+    context: &JsonObject,
+) -> Result<Result<Version, ErrorCode>, String> {
+    let me = DeviceIdentity::new(DeviceKey::generate(), Token::parse("oac-runner").unwrap());
+    let got = prepare_send(
+        requester,
+        request,
+        presence,
+        &implemented(context),
+        ReplyHeaders::default(),
+        &me,
+        Token::parse("msg-runner-1").unwrap(),
+        Timestamp::parse("2026-10-03T12:00:00Z").unwrap(),
+    );
+    let p = match got {
+        Err(e) => return Ok(Err(e)),
+        Ok(p) => p,
+    };
+    let env = &p.envelope;
+    if env.version() != p.agreed.revision {
+        return Err(format!(
+            "built under {}, agreed {}",
+            env.version(),
+            p.agreed.revision
+        ));
+    }
+    if Some(env.from()) != requester || env.to() != &request.to {
+        return Err(format!("built from {} to {}", env.from(), env.to()));
+    }
+    Ok(Ok(env.version()))
 }
 
 /// Compares a send decision with a fixture's expected `send` object.
@@ -214,19 +256,14 @@ pub(super) fn run_presence(fx: &Fixture) -> Result<(), String> {
             let from = str_of(send, "from").ok_or("send.from")?;
             let to = str_of(send, "to").ok_or("send.to")?;
             let content = send.get("content").ok_or("send.content")?;
-            let types = part_types(content);
-            let types: Vec<&str> = types.iter().map(String::as_str).collect();
             let pairs = discoverable(context);
-            let to_id = sid(to)?;
-            let got = check_send(
+            let request = send_request(&sid(to)?, content)?;
+            let got = send_stage(
                 Some(&sid(from)?),
-                &to_id,
+                &request,
                 |r, t| registry.send_presence(r, t, |r, t| may_discover(&pairs, r, t), query),
-                &implemented(context),
-                &types,
-                |v| estimate_octets(from, to, v, content),
-            )
-            .map(|a| a.revision);
+                context,
+            )?;
             compare_send(got, from, want.as_object().ok_or("expected.send")?)
         }
         _ => Err("input.send and expected.send must come together".into()),
@@ -305,8 +342,6 @@ pub(super) fn run_send(fx: &Fixture) -> Result<(), String> {
     let requester = attached(context, str_of(request, "attachment").ok_or("attachment")?);
     let to = str_of(request, "to").ok_or("to")?;
     let content = request.get("content").ok_or("content")?;
-    let types = part_types(content);
-    let types: Vec<&str> = types.iter().map(String::as_str).collect();
     let declarations: BTreeMap<String, SessionCapabilities> = context
         .get("declarations")
         .and_then(Json::as_object)
@@ -322,19 +357,16 @@ pub(super) fn run_send(fx: &Fixture) -> Result<(), String> {
         .map(|s| s.to_string())
         .unwrap_or_default();
     let got = match &to_id {
-        Some(to_id) => check_send(
+        Some(to_id) => send_stage(
             requester.as_ref(),
-            to_id,
+            &send_request(to_id, content)?,
             |_, t| {
                 declarations
                     .get(t.as_str())
                     .ok_or(ErrorCode::UnknownDestination)
             },
-            &implemented(context),
-            &types,
-            |v| estimate_octets(&from, to, v, content),
-        )
-        .map(|a| a.revision),
+            context,
+        )?,
         None => Err(ErrorCode::InvalidRequest),
     };
     compare_send(got, &from, obj(&fx.v, "expected"))
@@ -382,7 +414,13 @@ fn compare_result(got: (&str, Option<&str>), expected: &JsonObject) -> Result<()
     Ok(())
 }
 
-/// Stage `routing` (§8.5).
+/// Stage `routing` (§8.5), through [`receive`] (see the module documentation). The
+/// envelope stage reads the fixture's octets as given; the copy that goes on is the same
+/// envelope signed with the runner's own device key, since the fixture's signature is a
+/// placeholder. An inbound grant for each `authorized` pair is the engine's only
+/// configuration, so step 4 decides `unauthorized` itself. The hand-off happens at
+/// `handoff_time` (`receiver_time` when omitted), set at the session lookup, so the
+/// hand-off-deadline re-check of delivery-stage step 4 reads it ([SC-RCP-091]).
 pub(super) fn run_routing(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     if context.get("replay_window_ms").map(uint) != Some(REPLAY_WINDOW_MS) {
@@ -398,28 +436,94 @@ pub(super) fn run_routing(fx: &Fixture) -> Result<(), String> {
         }
     };
     let env = msg.envelope();
-    let authorized = arr(context, "authorized")
+    for (name, v) in [
+        ("conversation_id", env.conversation_id()),
+        ("reply_to", env.reply_to()),
+        ("correlation_id", env.correlation_id()),
+    ] {
+        if v.is_some() {
+            return Err(format!(
+                "a routing envelope with {name}: the runner does not re-sign it"
+            ));
+        }
+    }
+    let me = DeviceIdentity::new(DeviceKey::generate(), Token::parse("oac-runner").unwrap());
+    let mut draft = EnvelopeDraft::with_parts(
+        env.id().clone(),
+        env.from().clone(),
+        env.to().clone(),
+        env.created_at().clone(),
+        env.content().to_vec(),
+    )
+    .ok_or("a routing envelope without content")?
+    .with_version(env.version());
+    if let Some(t) = env.ttl_ms() {
+        draft = draft.with_ttl_ms(t).ok_or("ttl_ms")?;
+    }
+    let signed = me.sign_envelope(draft);
+    // The real security members are longer than the placeholders; the fixture's own octets
+    // passed the envelope stage, so the re-signed copy gets the room it needs.
+    let roomy = l
+        .clone()
+        .with_max_envelope_octets(l.max_envelope_octets() + 1024)
+        .ok_or("limits")?;
+    let copy = receive_envelope(signed.octets(), &roomy, &now)
+        .map_err(|r| format!("the re-signed copy fails the envelope stage: {r}"))?;
+    let clock = Arc::new(ManualClock::new(now.clone()));
+    let mut engine =
+        AuthorizationEngine::new(&me, clock.clone(), Box::new(MemoryDecisionLog::new()));
+    let store = MemoryPairingStore::new();
+    for p in arr(context, "authorized")
         .iter()
         .filter_map(Json::as_object)
-        .any(|p| {
-            str_of(p, "from") == Some(env.from().as_str())
-                && str_of(p, "to") == Some(env.to().as_str())
-        });
-    if !authorized {
-        return compare_result(("rejected", Some("unauthorized")), expected);
+    {
+        let from = sid(str_of(p, "from").ok_or("authorized.from")?)?;
+        let to = sid(str_of(p, "to").ok_or("authorized.to")?)?;
+        engine
+            .add_grant(
+                Grant::Inbound {
+                    writer: PeerSide::session(me.key_id().clone(), from),
+                    target: LocalSide::Session(to),
+                },
+                OperatorConfirmed::by_operator(),
+                &store,
+            )
+            .map_err(|e| e.to_string())?;
     }
     let sessions = targets(obj(context, "sessions"))?;
-    if let Err((s, e)) = delivery_checks(env, sessions.get(env.to().as_str())) {
-        return compare_result((s.as_str(), Some(e.as_str())), expected);
-    }
     let handoff = str_of(context, "handoff_time")
         .map(|t| Timestamp::parse(t).ok_or("handoff_time"))
-        .transpose()?
-        .unwrap_or(now);
-    match HandOffDeadline::of(env).refusal_at(&handoff) {
-        Some((s, e)) => compare_result((s.as_str(), Some(e.as_str())), expected),
-        None => compare_result(("valid", None), expected),
+        .transpose()?;
+    let duplicates = DuplicateStore::new(clock.clone());
+    let mut called = false;
+    let out = receive(
+        copy,
+        &mut engine,
+        &duplicates,
+        &*clock,
+        |to| {
+            if let Some(h) = &handoff {
+                clock.set(h.clone());
+            }
+            sessions.get(to.as_str()).cloned()
+        },
+        |_| {
+            called = true;
+            HandOffOutcome::Completed
+        },
+    );
+    let report = match out.received {
+        Received::InFlight(_) => return Err("in flight with no earlier copy".into()),
+        Received::Reported(r) => r,
+    };
+    if called != (report.state() == DeliveryState::HandedToHarness) {
+        return Err("the hand-off call and the reported state disagree".into());
     }
+    let state = match report.state() {
+        DeliveryState::HandedToHarness => "valid",
+        s => s.as_str(),
+    };
+    compare_result((state, report.error().map(ErrorCode::as_str)), expected)
 }
 
 /// What one copy did when driven through [`receive_octets`].
@@ -771,10 +875,28 @@ fn records(context: &JsonObject, name: &str) -> Result<Vec<EnvelopeRecord>, Stri
 
 /// Stage `reply` (§8.5).
 pub(super) fn run_reply(fx: &Fixture) -> Result<(), String> {
-    let handed = records(obj(&fx.v, "context"), "handed_off")?;
+    let now = Timestamp::parse("2026-10-03T12:00:00Z").ok_or("now")?;
+    let me = DeviceIdentity::new(DeviceKey::generate(), Token::parse("oac-runner").unwrap());
+    let mut engine = AuthorizationEngine::new(
+        &me,
+        Arc::new(ManualClock::new(now.clone())),
+        Box::new(MemoryDecisionLog::new()),
+    );
+    for r in records(obj(&fx.v, "context"), "handed_off")? {
+        engine.record_handoff(
+            HandOffRecord {
+                id: r.id,
+                from: r.from,
+                to: r.to,
+                created_at: now.clone(),
+                conversation_id: r.conversation_id,
+                correlation_id: r.correlation_id,
+            },
+            DeliveryState::HandedToHarness,
+        );
+    }
     let req = obj(obj(&fx.v, "input"), "reply_request");
-    let h = reply_headers(
-        &handed,
+    let h = engine.reply_headers(
         &sid(str_of(req, "from").ok_or("from")?)?,
         &sid(str_of(req, "to").ok_or("to")?)?,
         str_of(req, "requested_target"),
