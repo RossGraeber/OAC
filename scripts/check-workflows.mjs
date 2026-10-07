@@ -33,16 +33,18 @@
 //       an `if:` written without `${{ }}` is an expression too and is read the same way
 //       (#332); `secrets: inherit` fails; no provider or harness credential name; no
 //       `pull_request_target` or `workflow_run` trigger.
-//   W5  no script injection (#332): inside a `run:` script or an actions/github-script
-//       `script:` input, where GitHub pastes an expression's text into the code before it
-//       runs, an expression may read only an allowlist (PR #336 re-review R3): `matrix.*`,
-//       `runner.*`, `github.sha`, `github.workspace`, `github.run_id`, `github.run_number`,
-//       `github.run_attempt`, `github.event_name`, `steps.<id>.outcome` and `.conclusion`,
-//       `strategy.job-index` and `.job-total`, literals, and the built-in functions. Every
-//       other expression is refused, `env.*`, `steps.*.outputs.*`, `inputs.*`, `vars.*`,
-//       `needs.*` and `github.event...` included, and so is any index (`x[..]`): a value
-//       reaches a script through `env:` and a shell variable (`"$X"`), never pasted in. Step
-//       outputs are refused rather than tracked for taint.
+//   W5  no script injection (#332): inside a `run:` script, an actions/github-script
+//       `script:` input or a `shell:` (defence in depth), where GitHub pastes an
+//       expression's text in before it runs, an expression may read only an allowlist
+//       (PR #336 re-review R3): `runner.*`, `github.sha`, `github.workspace`,
+//       `github.run_id`, `github.run_number`, `github.run_attempt`, `github.event_name`,
+//       `steps.<id>.outcome` and `.conclusion`, `strategy.job-index` and `.job-total`,
+//       literals, and the built-in functions. Every other expression is refused, `matrix.*`
+//       (a matrix value can be an expression over untrusted text, PR #336 third review S2),
+//       `env.*`, `steps.*.outputs.*`, `inputs.*`, `vars.*`, `needs.*` and `github.event...`
+//       included, and so is any index (`x[..]`): a value reaches a script through `env:`
+//       and a shell variable (`"$X"`), never pasted in. Step outputs are refused rather
+//       than tracked for taint.
 // Default-tier workflows (any trigger other than workflow_dispatch: a `schedule` runs
 // unattended, with no opt-in, so it is the default tier too, oac-testing section 2; the
 // herdr opt-in workflow is the exception, with its own stricter rules in
@@ -93,8 +95,10 @@ const EXPRESSION_RULES = [
 // W5: the only expressions that may be pasted into code a step runs (PR #336 re-review R3).
 // An allowlist of values no outsider or caller can choose; everything else, `env.*` and
 // `steps.*.outputs.*` included, reaches a script through `env:` and a shell variable.
+// Not `matrix.*`: a matrix value can itself be an expression over untrusted text
+// (`t: ["${{ github.event.issue.title }}"]`, `matrix: ${{ fromJSON(needs.x.outputs.m) }}`),
+// which GitHub evaluates and then pastes (PR #336 third review S2).
 const SAFE_IN_SCRIPT = [
-  /^matrix(?:\.[\w-]+)*$/i,
   /^runner(?:\.[\w-]+)*$/i,
   /^github\.(?:sha|workspace|run_id|run_number|run_attempt|event_name)$/i,
   /^steps\.[\w-]+\.(?:outcome|conclusion)$/i,
@@ -603,6 +607,8 @@ function commonRules(text, defaultTier, hit) {
       }
       // W5: untrusted text pasted into a script (#332).
       if (p.key === 'run' && p.value.t === 'str') injection(p.value, 'a run: script');
+      // `shell:` (a step's, or `defaults.run.shell`): defence in depth (N-c).
+      if (p.key === 'shell' && p.value.t === 'str') injection(p.value, 'a shell:');
     }
   }
 
@@ -907,10 +913,18 @@ const CASES = [
   ['W5 needs.*.outputs in run:', 'x.yml', withStep('      - run: echo "${{ needs.a.outputs.b }}"'), ['W5']],
   ['W5 vars.* in run:', 'x.yml', withStep('      - run: echo "${{ vars.NAME }}"'), ['W5']],
   ['W5 github.ref_name in run:', 'x.yml', withStep('      - run: echo "${{ github.ref_name }}"'), ['W5']],
-  ['W5 an allowlisted root, indexed', 'x.yml', withStep("      - run: echo \"${{ matrix['os'] }}\""), ['W5']],
-  ['W5 an unknown function', 'x.yml', withStep('      - run: echo "${{ fromJSONx(matrix.os) }}"'), ['W5']],
-  ['W5 an allowlisted value next to a refused one', 'x.yml', withStep("      - run: echo \"${{ format('{0}-{1}', matrix.os, env.X) }}\""), ['W5']],
-  ['control: allowlisted expressions in run:', 'x.yml', withStep("      - run: |\n          echo \"${{ matrix.os }} ${{ runner.temp }} ${{ github.sha }} ${{ github.run_id }}\"\n          echo \"${{ steps.s.outcome == 'success' && 'yes' || 'no' }} ${{ format('{0}-x', matrix.os) }}\"\n          echo \"${{ hashFiles('Cargo.lock') }} ${{ 3 }} ${{ true }} ${{ 'it''s env.X, a string' }}\""), []],
+  ['W5 an allowlisted root, indexed', 'x.yml', withStep("      - run: echo \"${{ runner['os'] }}\""), ['W5']],
+  ['W5 an unknown function', 'x.yml', withStep('      - run: echo "${{ fromJSONx(runner.os) }}"'), ['W5']],
+  ['W5 an allowlisted value next to a refused one', 'x.yml', withStep("      - run: echo \"${{ format('{0}-{1}', runner.os, env.X) }}\""), ['W5']],
+  // PR #336 third review S2: a matrix value can carry untrusted text.
+  ["W5 the third review's matrix plant (S2)", 'x.yml', GOOD.replace('    runs-on: ${{ matrix.os }}', '    strategy:\n      matrix:\n        t: ["${{ github.event.issue.title }}"]\n    runs-on: ubuntu-latest').replace('      - run: cargo test', '      - run: echo ${{ matrix.t }}\n      - run: cargo test'), ['W5']],
+  ['W5 a matrix from fromJSON(needs..) (S2)', 'x.yml', GOOD.replace('    runs-on: ${{ matrix.os }}', '    strategy:\n      matrix: ${{ fromJSON(needs.x.outputs.m) }}\n    runs-on: ubuntu-latest').replace('      - run: cargo test', '      - run: echo "${{ matrix.t }}"\n      - run: cargo test'), ['W5']],
+  ['W5 matrix.os in a github-script script:', 'x.yml', withStep(`      - uses: actions/github-script@${SHA}\n        with:\n          script: core.info('\${{ matrix.os }}')`), ['W5']],
+  // N-c: `shell:` too, as defence in depth.
+  ['W5 event text in a step shell: (N-c)', 'x.yml', withStep('      - shell: bash -c "${{ github.event.issue.title }} {0}"\n        run: true'), ['W5']],
+  ['W5 event text in defaults.run.shell (N-c)', 'x.yml', GOOD.replace('jobs:\n  test:\n', 'defaults:\n  run:\n    shell: "${{ github.head_ref }} {0}"\njobs:\n  test:\n'), ['W5']],
+  ['control: allowlisted expressions in run:', 'x.yml', withStep("      - run: |\n          echo \"${{ runner.os }} ${{ runner.temp }} ${{ github.sha }} ${{ github.run_id }}\"\n          echo \"${{ steps.s.outcome == 'success' && 'yes' || 'no' }} ${{ format('{0}-x', runner.os) }}\"\n          echo \"${{ hashFiles('Cargo.lock') }} ${{ 3 }} ${{ true }} ${{ 'it''s env.X, a string' }}\""), []],
+  ['control: matrix.* through env: and a plain shell:', 'x.yml', withStep('      - shell: bash\n        env:\n          OS: ${{ matrix.os }}\n        run: echo "$OS"'), []],
   ['W0 an anchor after a tag', 'x.yml', withStep('      - env:\n          T: !!str &t echo hi\n        run: true'), ['W0']],
   // PR #336 review B4: anchors, aliases and merge keys are refused (W0).
   ["W0 the review's alias evasion of W5", 'x.yml', GOOD.replace('jobs:\n  test:\n', 'env:\n  T: &t echo "${{ github.event.issue.title }}"\njobs:\n  test:\n').replace('      - run: cargo test', '      - run: *t\n      - run: cargo test'), ['W0']],
