@@ -80,7 +80,7 @@ dependency is added.
   visibly (`ResponderPairing`; PR #316 review N1), so a substituted key matches with
   probability 10^-6 per operator-visible exchange. The 6-digit, 120-second and 5-attempt
   parameters are unchanged. This departs from a recorded decision; C5 §10(b) carries a dated
-  note for it, **pending operator acknowledgement on #54**. `spec/security.md` §5.3 fixes
+  note for it, **acknowledged by the operator on #54** (approved and merged PR #316, recorded at https://github.com/RossGraeber/OAC/issues/54#issuecomment-6030852812). `spec/security.md` §5.3 fixes
   what pairing establishes, not the exchange, so [SEC-KEY-032] to [SEC-KEY-034] are met as
   frozen. Its informative reference implementation note leaves out the nonce exchange; the
   follow-up is recorded for the #308 batch. `11-risks.md` rows 25 and 26 are updated.

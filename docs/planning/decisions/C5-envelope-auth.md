@@ -668,7 +668,7 @@ devices is the lowest-friction "explicit" step available.
   exchange, but cannot make its substituted key produce the same fingerprint-derived
   code as the legitimate key without breaking the hash function the fingerprint uses.
 
-  *Dated note, 2026-10-06 (#54, PR #316; pending operator acknowledgement on #54): finding
+  *Dated note, 2026-10-06 (#54, PR #316; acknowledged by the operator, who approved and merged PR #316 on 2026-10-06, recorded at https://github.com/RossGraeber/OAC/issues/54#issuecomment-6030852812): finding
   F5-1. The argument of the "MITM defeat" bullet above does not hold for a code of 10^6
   values (about 20 bits). The attacker needs only a match on the six-digit code, not a
   fingerprint collision. It can generate key pairs offline, about 2^20 of them, which takes
