@@ -496,6 +496,58 @@ list.
   - **The daemon must call `Pipelines::disconnect`** when it observes a local connection
     end, by end of stream or a broken pipe, never on a timeout. Otherwise connections
     that carry only native signals never free their place in `max_connections`.)
+  (Dated note, 2026-10-07, #335: the pending-signal cap is now shared. Each held or
+  queued native signal counts against its *holder*: the observed pairing key under the
+  adapter that reported it, else its connection, else one holder shared by signals with
+  neither. At the cap (`PipelineConfig::max_pending_signals`, default 64), a holder with
+  at least two more than the newcomer, the most of any, gives up its oldest. Among tied
+  holders, the one whose latest signal arrived last pays. No holder can steer that choice
+  by its key or connection identity, though the timing of its own signals can decide a
+  tie. Otherwise the newcomer gives up its own oldest, or is dropped when it has none.
+  A dropped signal still records SC-ID-128 and withholds what its key attributes it to
+  (SC-ID-154), whether it was the newcomer or an evicted held or queued signal. Only a
+  signal reported after the dropped one releases the withholding (PR #337): a decision
+  already running for an earlier signal neither releases it nor re-binds the attachment
+  delivering, and nor does `Pipelines::bind`. Before PR #337, a drop that landed during
+  such a decision was undone by it, so delivery could continue into a conversation the
+  session had left (also on the refused-newcomer path #333 added). A
+  flooding key or connection with `n` pending evicts from another holder only while
+  that holder has at least `n + 2`, so it can bring another holder down to `n + 1`, never
+  lower; once it holds the most, it evicts only its own signals. So a holder with one
+  pending signal is never evicted. Memory stays bounded: at most the cap is pending, plus
+  the one signal being decided. Proving tests are in `core/tests/pipeline.rs`
+  (`a_flooding_key_cannot_evict_another_keys_held_signal`,
+  `many_flooding_keys_cannot_evict_another_keys_held_signal`,
+  `a_flood_cannot_evict_another_keys_queued_signal`,
+  `the_heaviest_holder_makes_room_for_a_newcomer`,
+  `held_signals_count_while_a_pass_decides_them`,
+  `a_queued_transition_evicted_by_the_fair_share_still_withholds`,
+  `a_queued_transition_replaced_by_its_own_holder_after_disconnect_still_withholds`,
+  `an_evicted_held_signal_withholds_its_bound_attachment`, `a_key_is_shared_per_adapter`,
+  `an_earlier_decision_does_not_release_a_later_drop`,
+  `a_drop_between_bindings_withholds_the_new_binding`,
+  `an_external_bind_does_not_answer_a_drop`) and the `pipeline::tests` unit tests for the
+  boundary, the tie-break, the holders and "a later signal".
+  The residuals are availability only, inside 06 row 13's same-UID boundary:
+  - **Residual: many holders.** A process that presents at least the cap's worth of
+    distinct holders, each with one pending signal, makes a holder with nothing pending
+    lose its new signal. It must keep each one fresh within `native_signal_window`
+    (10 s). A held signal always has an observed key, so the holders that last are
+    distinct keys, which means distinct harness processes as the G9 key reports them.
+    Unkeyed connections, up to `max_connections` (1024), hold places only while a
+    decision is in progress (below). When the lost signal is a transition, its
+    harness's bound attachment is withheld (SC-ID-154) until a later signal pairs: a
+    DoS, never a hijack.
+    Early-warning signal: bursts of SC-ID-128 diagnostics from many holders.
+    Response: the G9 key design limits how cheaply such holders can be made.
+  - **Residual: a burst is trimmed.** A holder with several pending signals can be
+    trimmed to `n + 1` by a newcomer holding `n`, so to one by newcomers that hold none.
+    Where holders tie, an attacker can time its own signals so that the victim pays
+    first. The victim keeps its newest, since its oldest go first.
+  - **Signals with no key are never held.** A signal with no observed key, whether or
+    not it names a connection, is unpairable and fails closed at its decision
+    (SC-ID-125). It takes a place only while it is queued behind a decision in progress.
+    Signals that name no connection share one holder there.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption
