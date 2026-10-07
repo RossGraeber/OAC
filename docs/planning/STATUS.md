@@ -30,7 +30,7 @@ graph (07 §5).
   `rust-workspace.yml` on every OS, compares the map with the tests cargo compiled
   (`--list`, `--list --ignored`) and runs the gated ones. It fails on a mapped proof that is
   compiled out or ignored, on an unmapped compiled test, and on a gated placeholder that
-  passes. Its self-test (Linux) plants each evasion the PR #327 reviews found.
+  passes. Its self-test (ubuntu image) plants each evasion the PR #327 reviews found.
 - **Mutation check.** `tests/security/mutation-check.mjs` plants one regression at a time in
   a copy of `core/`; each is caught by a named suite test, or, for the one mutant the suite
   cannot reach (a pairing code without the keys), by the cited core test.
