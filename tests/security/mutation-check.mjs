@@ -175,7 +175,7 @@ function touchTree(dir, when) {
   }
 }
 
-function copyWorkspace(ws) {
+export function copyWorkspace(ws) {
   rmSync(ws, { recursive: true, force: true });
   mkdirSync(ws, { recursive: true });
   // Entry by entry: the work directory may sit inside the repository's target/.

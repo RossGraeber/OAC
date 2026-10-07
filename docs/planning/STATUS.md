@@ -25,7 +25,12 @@ graph (07 §5).
   19, 21, 22 and of exhaustion: G4 (#65), G7 (#68), G8 (#69), G9 (#70), G1/G3 (#62, #64), H2
   (#74), L10 (#175), the core pipelines (#313) and the envelope-binding bound (#325,
   RISK-BINDING-TABLE). Each gated test is `#[ignore = "GATED on #N ..."]` with a body that is
-  a single `panic!`. Row 23 stays an open risk. These parts remain v0.1 gaps (06 §15).
+  a single `std::panic!`. Row 23 stays an open risk. These parts remain v0.1 gaps (06 §15).
+- **Runtime cross-check.** `tests/security/check-compiled-tests.mjs`, a new step of
+  `rust-workspace.yml` on every OS, compares the map with the tests cargo compiled
+  (`--list`, `--list --ignored`) and runs the gated ones. It fails on a mapped proof that is
+  compiled out or ignored, on an unmapped compiled test, and on a gated placeholder that
+  passes. Its self-test (Linux) plants each evasion the PR #327 reviews found.
 - **Mutation check.** `tests/security/mutation-check.mjs` plants one regression at a time in
   a copy of `core/`; each is caught by a named suite test, or, for the one mutant the suite
   cannot reach (a pairing code without the keys), by the cited core test.

@@ -304,7 +304,7 @@ fn s13_unauthorized_refusal_is_the_same_whether_or_not_the_session_exists() {
 #[test]
 #[ignore = "GATED on #313 (core send and receive pipelines): needs the composed send -> transport -> receive path"]
 fn gated_row02_unauthorized_send_through_the_composed_pipeline() {
-    panic!(
+    std::panic!(
         "GATED on #313: no composed send and receive pipeline exists yet; this test must be written against it"
     );
 }

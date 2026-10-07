@@ -525,7 +525,8 @@ opt-in provider-integration scenario blocked until Stage 5 opens, never CI-defau
 `tests/security/` (`oac-security-suite`, CI-default: no live provider, no API key, loopback
 only). The table below is its threat-to-test map, rendered from `THREATS` in
 `tests/security/src/lib.rs`; `tests/security/tests/threat_map.rs` fails if it drifts from
-that map or names a test that does not exist. "Proven" means every test named passes in the
+that map or names a test that does not exist, and `tests/security/check-compiled-tests.mjs`
+(CI, every OS) fails if a test the map counts is not what cargo compiled and ran. "Proven" means every test named passes in the
 default `cargo test` run and drives the real core (envelope stage, security steps 1 to 5,
 authorization, presence and receipt authentication, pairing, key removal), with envelopes
 over the in-memory transport where the row is about the carrying path, and the fake Claude

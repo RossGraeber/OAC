@@ -165,7 +165,7 @@ fn row12_hand_off_is_made_at_most_once_and_no_outcome_steers() {
 #[test]
 #[ignore = "GATED on #65 (G4, Claude adapter): the permission-relay surface is the adapter's"]
 fn gated_row11_adapter_never_relays_without_a_relay_permit() {
-    panic!("GATED on #65: drive a permission request through the Claude adapter and the fake");
+    std::panic!("GATED on #65: drive a permission request through the Claude adapter and the fake");
 }
 
 /// 06 row 12, adapter half ([SEC-AUZ-025] to [SEC-AUZ-027]): the Codex adapter hands off
@@ -175,7 +175,7 @@ fn gated_row11_adapter_never_relays_without_a_relay_permit() {
 #[test]
 #[ignore = "GATED on #68 (G7, Codex adapter inbound injection): queue-only hand-off is the adapter's"]
 fn gated_row12_codex_hand_off_is_queue_only() {
-    panic!(
+    std::panic!(
         "GATED on #68: drive mid-turn deliveries through the Codex adapter and the fake app-server"
     );
 }
@@ -187,7 +187,7 @@ fn gated_row12_codex_hand_off_is_queue_only() {
 #[test]
 #[ignore = "GATED on #74 (H2, security verification against the real harnesses)"]
 fn gated_s13_no_harness_consent_step_is_automated() {
-    panic!(
+    std::panic!(
         "GATED on #74: review the OAC-enabled launch path and assert no consent step is answered for the operator"
     );
 }

@@ -364,7 +364,7 @@ fn row22_a_cited_memory_reference_is_never_provenance_or_authority() {
 #[test]
 #[ignore = "GATED on #65 (G4, Claude adapter inbound delivery): the refusal is the adapter's"]
 fn gated_row15_adapter_refuses_a_partial_provenance_set() {
-    panic!("GATED on #65: write against the Claude adapter's inbound delivery");
+    std::panic!("GATED on #65: write against the Claude adapter's inbound delivery");
 }
 
 /// 06 row 16, adapter half ([SEC-PRV-001], [SEC-PRV-002], [MCPB-META-007]): the Claude
@@ -374,7 +374,7 @@ fn gated_row15_adapter_refuses_a_partial_provenance_set() {
 #[test]
 #[ignore = "GATED on #65 (G4, Claude adapter inbound delivery): replaces the stand-in mapping"]
 fn gated_row16_adapter_takes_provenance_only_from_verified_members() {
-    panic!("GATED on #65: run the row16 cases through the real Claude adapter");
+    std::panic!("GATED on #65: run the row16 cases through the real Claude adapter");
 }
 
 /// 06 row 17 ([SEC-PRV-007] to [SEC-PRV-010]): the Codex adapter frames the body with a
@@ -385,7 +385,7 @@ fn gated_row16_adapter_takes_provenance_only_from_verified_members() {
 #[test]
 #[ignore = "GATED on #68 (G7, Codex adapter inbound injection): the frame builder is the adapter's"]
 fn gated_row17_codex_frame_uses_a_receiver_generated_delimiter() {
-    panic!(
+    std::panic!(
         "GATED on #68: run the forged-header cases through the Codex adapter and the fake app-server"
     );
 }
@@ -396,5 +396,5 @@ fn gated_row17_codex_frame_uses_a_receiver_generated_delimiter() {
 #[test]
 #[ignore = "GATED on #69 (G8, Codex adapter reply correlation)"]
 fn gated_row18_codex_reply_correlation_is_not_trusted_alone() {
-    panic!("GATED on #69: write against the Codex adapter's reply correlation");
+    std::panic!("GATED on #69: write against the Codex adapter's reply correlation");
 }

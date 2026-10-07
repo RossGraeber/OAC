@@ -11,7 +11,7 @@
 #[test]
 #[ignore = "GATED on #70 (G9, daemon, MCP shims and authenticated local IPC)"]
 fn gated_row13_ipc_admits_only_the_same_user() {
-    panic!("GATED on #70: connect as another user and assert the daemon refuses the peer");
+    std::panic!("GATED on #70: connect as another user and assert the daemon refuses the peer");
 }
 
 /// 06 row 19: a session's lifetime follows its IPC connection, so a registration held open
@@ -19,7 +19,7 @@ fn gated_row13_ipc_admits_only_the_same_user() {
 #[test]
 #[ignore = "GATED on #70 (G9, daemon, MCP shims and authenticated local IPC)"]
 fn gated_row19_session_lifetime_follows_the_ipc_connection() {
-    panic!("GATED on #70: drop the shim's connection and assert the session ends with it");
+    std::panic!("GATED on #70: drop the shim's connection and assert the session ends with it");
 }
 
 /// 06 row 24: a same-user process that sets `CLAUDE_CODE_SESSION_ID` to another session's id
@@ -28,7 +28,7 @@ fn gated_row19_session_lifetime_follows_the_ipc_connection() {
 #[test]
 #[ignore = "GATED on #70 (G9, daemon, MCP shims and authenticated local IPC)"]
 fn gated_row24_spoofed_session_variable_binds_nothing() {
-    panic!(
+    std::panic!(
         "GATED on #70: start a shim with a spoofed session variable and assert it binds nothing"
     );
 }

@@ -166,7 +166,7 @@ fn x_oversized_envelope_is_refused_before_parsing() {
 #[test]
 #[ignore = "GATED on #325 (bound the binding-table entries authorize_delivery creates)"]
 fn gated_x_envelope_bindings_are_bounded() {
-    panic!(
+    std::panic!(
         "GATED on #325: assert the binding table stays within its bound under a flood of fresh `from` ids"
     );
 }

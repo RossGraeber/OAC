@@ -84,9 +84,11 @@ fn row04_the_window_is_open_at_its_edge() {
 }
 
 /// `spec/security.md` §13 "Duplicate suppression that blocks a legitimate retransmission"
-/// ([SEC-RPL-022], [SC-RCP-009]): a copy that was not handed off, because the session was
-/// not accepting input or because the hand-off call failed, leaves no store entry, so its
-/// retransmission is delivered rather than reported `duplicate`.
+/// ([SEC-RPL-022], [SC-RCP-009]): a copy that was not handed off leaves no store entry, so
+/// its retransmission is delivered rather than reported `duplicate`. Two ways: the hand-off
+/// call failed (`failed`), and the addressed session had ended, so it was not bound here
+/// (`unreachable` with `unknown-destination`) and registered again before the
+/// retransmission.
 #[test]
 fn s13_a_copy_not_handed_off_does_not_block_its_retransmission() {
     let (alice, mut bob) = granted_pair();

@@ -34,6 +34,16 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
 - **`tests/threat_map.rs`** checks `THREATS` against the parsed test sources (every file
   under `tests/`), against `spec/security.md` §13 and against the table in
   `09-test-strategy.md` §12.
+- **`check-compiled-tests.mjs`** checks the same map against what cargo actually compiled,
+  which no parser sees fully (`#[cfg]`, `#[path]`, `tests/<dir>/main.rs`, macro-generated
+  tests, other spellings of the test attribute). It lists every test target's tests with
+  `--list` and `--list --ignored`, and runs the ignored ones. It fails when:
+  - a mapped proof or fact is not compiled exactly once, or is ignored;
+  - a gated placeholder is not ignored, or passes when run;
+  - a compiled test is in no row.
+
+  CI runs it on every OS. `--self-test` plants each known evasion in a copy and checks it
+  is caught, and runs on Linux.
 - **`gated_*` tests** hold the place of mitigations that need a component not built yet:
   - Epic G adapters;
   - the G9 daemon and IPC;
@@ -41,8 +51,8 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
   - #325;
   - H2 and L10.
 
-  Each is `#[ignore = "GATED on #N ..."]`. Its body is a single `panic!`, so it fails if
-  run and is never a pass.
+  Each is `#[ignore = "GATED on #N ..."]`. Its body is a single `std::panic!`, so it fails
+  if run and is never a pass.
 - **Un-gating a G4, G7 or G8 placeholder** means driving a real adapter. The crate rule does
   not let this suite reach `adapters/*` today. That rule must first admit an adapter as a
   dev-dependency, or the test must move into the adapter's crate.
