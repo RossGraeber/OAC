@@ -70,6 +70,7 @@ struct Common {
     bound: HashMap<Attachment, Option<SessionId>>,
     open: Vec<Attachment>,
     down: bool,
+    last_tool_use: Option<String>,
 }
 
 impl Common {
@@ -158,6 +159,8 @@ enum ChannelBreach {
     /// Declares an MCP `resources` capability, an inbox the session could read
     /// ([IFC-ADP-040]; [MCPB-DLV-002]).
     DeclaresResources,
+    /// Names the last tool-use id it saw in its health detail ([IFC-TYP-092]).
+    HealthNamesToolUse,
 }
 
 struct ChannelStandIn {
@@ -274,6 +277,10 @@ impl ChannelStandIn {
                     .and_then(|p| member_str(p, "name"))
                     .unwrap_or_default();
                 let args = params.and_then(|p| member(p, "arguments"));
+                common.lock().unwrap().last_tool_use = params
+                    .and_then(|p| member(p, "_meta"))
+                    .and_then(|m| member_str(m, "claudecode/toolUseId"))
+                    .map(str::to_owned);
                 let label = if breach == ChannelBreach::ForgesAttachment {
                     forge::handle()
                 } else {
@@ -439,6 +446,13 @@ impl ProviderAdapter for ChannelStandIn {
     }
 
     fn health(&self) -> HealthStatus {
+        if self.breach == ChannelBreach::HealthNamesToolUse {
+            let t = self.common.lock().unwrap().last_tool_use.clone();
+            return HealthStatus::with_detail(
+                HealthState::Healthy,
+                format!("last call {}", t.unwrap_or_default()),
+            );
+        }
         HealthStatus::new(HealthState::Healthy)
     }
 
@@ -498,7 +512,8 @@ fn the_channel_stand_in_passes_under_both_mid_turn_release_settings() {
 
 #[test]
 fn the_suite_catches_each_planted_channel_breach() {
-    let cases: [(ChannelBreach, &[&str]); 10] = [
+    let cases: [(ChannelBreach, &[&str]); 11] = [
+        (ChannelBreach::HealthNamesToolUse, &["IFC-TYP-092"]),
         (ChannelBreach::DeclaresResources, &["IFC-ADP-040"]),
         (ChannelBreach::OffersInbox, &["IFC-ADP-040"]),
         (ChannelBreach::IgnoresBinding, &["IFC-ADP-030"]),

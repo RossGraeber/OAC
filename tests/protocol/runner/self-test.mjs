@@ -239,6 +239,12 @@ export function selfTest() {
   expect('contract/: a directory without Cargo.toml is stray', contractStrays([
     { name: 'ifc-trn', isDir: true, hasCargoToml: false },
   ]).length === 1);
+  expect('contract/: Rust sources and manifests inside a crate are skipped', contractStrays([
+    { name: 'transport', isDir: true, hasCargoToml: true, files: ['Cargo.toml', 'src/lib.rs', 'tests/x.rs'] },
+  ]).length === 0);
+  expect('contract/: a fixture inside a crate is stray', contractStrays([
+    { name: 'transport', isDir: true, hasCargoToml: true, files: ['src/lib.rs', 'zz.json'] },
+  ]).length === 1);
 
   return failures;
 }

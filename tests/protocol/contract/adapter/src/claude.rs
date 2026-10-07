@@ -468,4 +468,30 @@ impl AdapterHarness for ClaudeHarness {
     fn source_files(&self) -> Vec<PathBuf> {
         self.files.clone()
     }
+
+    /// The Claude path's native ids that reach the server: every `claudecode/toolUseId`
+    /// seen, and the `toolu_` prefix itself so that a leak of one never seen is caught too.
+    /// The JSON-RPC request ids are bare numbers, which no text check can tell from other
+    /// numbers, and the channel path gives the server no session id (no fixture records
+    /// one), so neither is listed.
+    fn native_ids(&self) -> Vec<String> {
+        let mut ids = vec!["toolu_".to_owned()];
+        for s in &self.sessions {
+            for fr in s.fake.transcript() {
+                if fr.direction != Direction::ToServer {
+                    continue;
+                }
+                let Ok(v) = json::parse(fr.text.as_bytes()) else {
+                    continue;
+                };
+                if let Some(t) = member(&v, "params")
+                    .and_then(|p| member(p, "_meta"))
+                    .and_then(|m| member_str(m, "claudecode/toolUseId"))
+                {
+                    ids.push(t.to_owned());
+                }
+            }
+        }
+        ids
+    }
 }

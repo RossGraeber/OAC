@@ -27,7 +27,12 @@
 //! `use` trees are expanded (groups, nesting, `self`, renames such as
 //! `use oac_core as c` or `use oac_core::adapter::ProviderAdapter as PA`), renames chain
 //! (`use c::transport as t`), `extern crate oac_core as c` counts as a rename, and
-//! whitespace inside a path does not matter (the parser sees tokens). A glob import
+//! whitespace inside a path does not matter (the parser sees tokens). Raw identifiers
+//! (`r#transport`) are read without their prefix. Leading `crate`, `self` and `super`
+//! segments are dropped, every suffix of a path is resolved, and the imports and `pub use`
+//! re-exports of all the files given are collected before any is checked, so
+//! `crate::Port` in one file reaches `pub use oac_core::adapter::ProviderAdapter as Port`
+//! in another. Paths in attribute token lists (`#[derive(..)]`) are checked. A glob import
 //! (`use oac_core::*`) is itself checked, and a path whose first segment is not otherwise
 //! resolved is also tried under every glob prefix of the file. Renames are collected for the
 //! whole file, whatever block or module they appear in, which can only add findings.
@@ -49,7 +54,9 @@
 //!   that wraps a transport operation is invisible here. The dynamic checks of the suite
 //!   carry that ([IFC-ADP-003], [IFC-ADP-004]).
 //! - Re-exports from other crates: if a dependency re-exports a forbidden item under
-//!   another path, only that dependency's own scan finds it.
+//!   another path, only that dependency's own scan finds it. Within the files given,
+//!   module structure is not modelled: every import counts everywhere, which can only add
+//!   findings.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -140,28 +147,28 @@ impl Imports {
         match tree {
             syn::UseTree::Path(p) => {
                 let mut next = prefix.to_vec();
-                next.push(p.ident.to_string());
+                next.push(id(&p.ident));
                 self.add_tree(&next, &p.tree);
             }
             syn::UseTree::Name(n) => {
-                let id = n.ident.to_string();
-                if id == "self" {
+                let name = id(&n.ident);
+                if name == "self" {
                     if let Some(last) = prefix.last() {
                         self.renames.insert(last.clone(), prefix.to_vec());
                     }
                 } else {
                     let mut path = prefix.to_vec();
-                    path.push(id.clone());
-                    self.renames.insert(id, path);
+                    path.push(name.clone());
+                    self.renames.insert(name, path);
                 }
             }
             syn::UseTree::Rename(r) => {
-                let id = r.ident.to_string();
+                let name = id(&r.ident);
                 let mut path = prefix.to_vec();
-                if id != "self" {
-                    path.push(id);
+                if name != "self" {
+                    path.push(name);
                 }
-                self.renames.insert(r.rename.to_string(), path);
+                self.renames.insert(id(&r.rename), path);
             }
             syn::UseTree::Glob(_) => self.globs.push(prefix.to_vec()),
             syn::UseTree::Group(g) => {
@@ -173,13 +180,16 @@ impl Imports {
     }
 
     /// The path with its first segment replaced by what it was imported as, repeatedly.
+    /// Leading `crate`, `self` and `super` segments are dropped first, and after each
+    /// replacement: imports are collected for every file given, whatever its module, so a
+    /// relative path is looked up among all of them (which can only add findings).
     fn resolve(&self, path: &[String]) -> Vec<String> {
-        let mut p = path.to_vec();
+        let mut p = strip_relative(path).to_vec();
         for _ in 0..16 {
             let Some(first) = p.first() else { break };
             match self.renames.get(first) {
                 Some(full) if full.first() != Some(first) || full.len() > 1 => {
-                    let mut next = full.clone();
+                    let mut next = strip_relative(full).to_vec();
                     next.extend_from_slice(&p[1..]);
                     if next == p {
                         break;
@@ -192,20 +202,45 @@ impl Imports {
         p
     }
 
-    /// Every reading of `path`: resolved through the renames, and under each glob prefix.
+    /// Every reading of `path`: the path as written, and each of its suffixes (so a
+    /// segment imported anywhere is resolved wherever it stands in the path, as
+    /// `crate::module::Name` reaches a `pub use` re-export), each resolved through the
+    /// renames and also under each glob prefix.
     fn candidates(&self, path: &[String]) -> Vec<Vec<String>> {
-        let mut out = vec![self.resolve(path)];
-        for g in &self.globs {
-            let mut p = self.resolve(g);
-            p.extend_from_slice(path);
-            out.push(self.resolve(&p));
+        let path = strip_relative(path);
+        let mut out = Vec::new();
+        for start in 0..path.len().max(1) {
+            let tail = &path[start.min(path.len())..];
+            out.push(self.resolve(tail));
+            for g in &self.globs {
+                let mut p = self.resolve(g);
+                p.extend_from_slice(tail);
+                out.push(self.resolve(&p));
+            }
         }
+        out.sort();
+        out.dedup();
         out
     }
 }
 
+/// An identifier as a string, without a raw `r#` prefix: `r#transport` and `transport`
+/// name the same item.
+fn id(i: &syn::Ident) -> String {
+    syn::ext::IdentExt::unraw(i).to_string()
+}
+
+/// `path` without its leading `crate`, `self` and `super` segments.
+fn strip_relative(path: &[String]) -> &[String] {
+    let n = path
+        .iter()
+        .take_while(|s| matches!(s.as_str(), "crate" | "self" | "super"))
+        .count();
+    &path[n..]
+}
+
 fn segments(path: &syn::Path) -> Vec<String> {
-    path.segments.iter().map(|s| s.ident.to_string()).collect()
+    path.segments.iter().map(|s| id(&s.ident)).collect()
 }
 
 /// Collects imports from anywhere in the file.
@@ -216,11 +251,11 @@ impl<'ast> Visit<'ast> for ImportCollector<'_> {
         self.0.add_tree(&[], &u.tree);
     }
     fn visit_item_extern_crate(&mut self, e: &'ast syn::ItemExternCrate) {
-        let name = e.ident.to_string();
+        let name = id(&e.ident);
         let alias = e
             .rename
             .as_ref()
-            .map_or_else(|| name.clone(), |(_, r)| r.to_string());
+            .map_or_else(|| name.clone(), |(_, r)| id(r));
         self.0.renames.insert(alias, vec![name]);
     }
 }
@@ -260,7 +295,11 @@ impl Checker<'_> {
     }
 
     fn check_tokens(&mut self, tokens: &str, line: usize) {
-        let text: String = tokens.chars().filter(|c| !c.is_whitespace()).collect();
+        let text: String = tokens
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            .replace("r#", "");
         let mut prefixes: Vec<(String, Vec<String>)> =
             vec![("oac_core".into(), vec!["oac_core".into()])];
         for (name, full) in &self.imports.renames {
@@ -307,7 +346,7 @@ impl<'ast> Visit<'ast> for Checker<'_> {
 
     fn visit_item_extern_crate(&mut self, e: &'ast syn::ItemExternCrate) {
         let line = line_of(e.ident.span());
-        self.check_path(&[e.ident.to_string()], line);
+        self.check_path(&[id(&e.ident)], line);
     }
 
     fn visit_path(&mut self, p: &'ast syn::Path) {
@@ -317,13 +356,34 @@ impl<'ast> Visit<'ast> for Checker<'_> {
     }
 
     fn visit_expr_method_call(&mut self, m: &'ast syn::ExprMethodCall) {
-        let name = m.method.to_string();
+        let name = id(&m.method);
         for (req, method) in FORBIDDEN_METHODS {
             if name == *method {
                 self.push(req, line_of(m.method.span()), format!(".{name}(..)"));
             }
         }
         visit::visit_expr_method_call(self, m);
+    }
+
+    fn visit_attribute(&mut self, a: &'ast syn::Attribute) {
+        // The attribute's own path is a path like any other; a token list (`derive(..)`,
+        // a tool attribute) is read as comma-separated paths where it parses as such, and
+        // as text otherwise.
+        let line = a
+            .path()
+            .segments
+            .first()
+            .map_or(0, |s| line_of(s.ident.span()));
+        if let syn::Meta::List(list) = &a.meta {
+            let parser = syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated;
+            if let Ok(paths) = syn::parse::Parser::parse2(parser, list.tokens.clone()) {
+                for p in paths {
+                    self.check_path(&segments(&p), line);
+                }
+            }
+            self.check_tokens(&list.tokens.to_string(), line);
+        }
+        visit::visit_attribute(self, a);
     }
 
     fn visit_macro(&mut self, m: &'ast syn::Macro) {
@@ -376,26 +436,70 @@ fn everywhere(file: &Path, line: usize, what: &str) -> Vec<Finding> {
     .collect()
 }
 
-/// Both scans of one file's text: forbidden reaches, and `ProviderAdapter` implementations.
-/// A file that does not parse is a finding under every requirement, so it fails closed.
-pub fn analyse(file: &Path, text: &str) -> (Vec<Finding>, Vec<Finding>) {
-    let ast = match syn::parse_file(text) {
-        Ok(a) => a,
-        Err(e) => {
-            let all = everywhere(file, line_of(e.span()), &format!("does not parse: {e}"));
-            return (all.clone(), all);
-        }
-    };
+/// Both scans over a set of files read as one crate: imports and `pub use` re-exports of
+/// every file are collected first, then every file is checked against all of them. Each
+/// item is (path, text, or why it could not be read). A file that cannot be read or does
+/// not parse is a finding under every requirement, so it fails closed.
+fn analyse_set(files: &[(PathBuf, Result<String, String>)]) -> (Vec<Finding>, Vec<Finding>) {
     let mut imports = Imports::default();
-    ImportCollector(&mut imports).visit_file(&ast);
-    let mut c = Checker {
-        imports: &imports,
-        file,
-        findings: Vec::new(),
-        implements: Vec::new(),
-    };
-    c.visit_file(&ast);
-    (c.findings, c.implements)
+    let mut parsed = Vec::new();
+    let (mut findings, mut implements) = (Vec::new(), Vec::new());
+    for (path, text) in files {
+        match text.as_ref().map(|t| syn::parse_file(t)) {
+            Ok(Ok(ast)) => {
+                ImportCollector(&mut imports).visit_file(&ast);
+                parsed.push((path, ast));
+            }
+            Ok(Err(e)) => {
+                let all = everywhere(path, line_of(e.span()), &format!("does not parse: {e}"));
+                findings.extend(all.clone());
+                implements.extend(all);
+            }
+            Err(why) => {
+                let all = everywhere(path, 0, &format!("cannot be read: {why}"));
+                findings.extend(all.clone());
+                implements.extend(all);
+            }
+        }
+    }
+    for (path, ast) in parsed {
+        let mut c = Checker {
+            imports: &imports,
+            file: path,
+            findings: Vec::new(),
+            implements: Vec::new(),
+        };
+        c.visit_file(&ast);
+        findings.extend(c.findings);
+        implements.extend(c.implements);
+    }
+    (findings, implements)
+}
+
+fn read_all(files: &[PathBuf]) -> Vec<(PathBuf, Result<String, String>)> {
+    files
+        .iter()
+        .map(|f| {
+            (
+                f.clone(),
+                std::fs::read_to_string(f).map_err(|e| e.to_string()),
+            )
+        })
+        .collect()
+}
+
+/// Both scans of one file's text: forbidden reaches, and `ProviderAdapter` implementations.
+pub fn analyse(file: &Path, text: &str) -> (Vec<Finding>, Vec<Finding>) {
+    analyse_set(&[(file.to_path_buf(), Ok(text.to_owned()))])
+}
+
+/// Both scans of several files' texts, read as one crate ([`scan`]).
+pub fn analyse_texts(files: &[(&str, &str)]) -> (Vec<Finding>, Vec<Finding>) {
+    let set: Vec<_> = files
+        .iter()
+        .map(|(p, t)| (PathBuf::from(p), Ok((*t).to_owned())))
+        .collect();
+    analyse_set(&set)
 }
 
 /// The forbidden reaches in one file's text.
@@ -403,27 +507,15 @@ pub fn scan_text(file: &Path, text: &str) -> Vec<Finding> {
     analyse(file, text).0
 }
 
-/// Scan `files`; a file that cannot be read is a finding under every requirement.
+/// Scan `files`, read as one crate (imports and re-exports of every file apply to all).
 pub fn scan(files: &[PathBuf]) -> Vec<Finding> {
-    files
-        .iter()
-        .flat_map(|f| read_and(f, |p, t| analyse(p, t).0))
-        .collect()
+    analyse_set(&read_all(files)).0
 }
 
-/// Every `impl` of `oac_core::adapter::ProviderAdapter` in `files`, under any alias.
+/// Every `impl` of `oac_core::adapter::ProviderAdapter` in `files`, read as one crate,
+/// under any alias or re-export.
 pub fn implements_provider_adapter(files: &[PathBuf]) -> Vec<Finding> {
-    files
-        .iter()
-        .flat_map(|f| read_and(f, |p, t| analyse(p, t).1))
-        .collect()
-}
-
-fn read_and(f: &Path, g: impl Fn(&Path, &str) -> Vec<Finding>) -> Vec<Finding> {
-    match std::fs::read_to_string(f) {
-        Ok(t) => g(f, &t),
-        Err(e) => everywhere(f, 0, &format!("cannot be read: {e}")),
-    }
+    analyse_set(&read_all(files)).1
 }
 
 /// Every `.rs` file under `dir`, recursively, in path order.
@@ -638,5 +730,100 @@ mod tests {
             "mod m { use oac_core::adapter::ProviderAdapter; struct P; impl ProviderAdapter for P {} }"
         ));
         assert!(!implements("struct P;\nimpl Other for P {}\nimpl P {}"));
+    }
+
+    // The PR #323 re-review probes (B2).
+    #[test]
+    fn raw_identifiers() {
+        assert_eq!(
+            reqs("use oac_core::r#transport::Transport;"),
+            ["IFC-ADP-001"]
+        );
+        assert_eq!(
+            reqs("fn f(_: &dyn oac_core::r#transport::Transport) {}"),
+            ["IFC-ADP-001"]
+        );
+        assert_eq!(reqs("use r#oac_core::transport::Payload;"), ["IFC-ADP-001"]);
+        assert!(implements(
+            "struct P;\nimpl oac_core::adapter::r#ProviderAdapter for P {}"
+        ));
+        assert_eq!(
+            reqs(
+                "use oac_core::adapter::Connection;\nfn f(r: R, w: W) { let _ = Connection::r#accept(r, w); }"
+            ),
+            ["IFC-ADP-013"]
+        );
+        assert_eq!(
+            reqs("fn f(i: &I, d: D) { i.r#sign_envelope(d); }"),
+            ["IFC-ADP-002"]
+        );
+        assert_eq!(
+            reqs("fn f() { m!(oac_core::r#transport::Payload); }"),
+            ["IFC-ADP-001"]
+        );
+    }
+
+    #[test]
+    fn crate_self_and_super_paths() {
+        for rel in ["crate", "self", "super"] {
+            assert_eq!(
+                reqs(&format!(
+                    "pub use oac_core::*;\nfn f(_: &dyn {rel}::transport::Transport) {{}}"
+                )),
+                ["IFC-ADP-001"],
+                "{rel}"
+            );
+            assert!(
+                implements(&format!(
+                    "pub use oac_core::adapter::ProviderAdapter;\nstruct P;\nimpl {rel}::ProviderAdapter for P {{}}"
+                )),
+                "{rel}"
+            );
+        }
+        assert!(implements(
+            "mod m { pub use oac_core::adapter::ProviderAdapter as Port; }\nstruct P;\nimpl crate::m::Port for P {}"
+        ));
+    }
+
+    #[test]
+    fn re_exports_across_files() {
+        let (findings, impls) = analyse_texts(&[
+            (
+                "lib.rs",
+                "pub use oac_core::adapter::ProviderAdapter as Port;\npub use oac_core::*;\nmod other;",
+            ),
+            (
+                "other.rs",
+                "struct P;\nimpl crate::Port for P {}\nfn f(_: &dyn crate::transport::Transport) {}",
+            ),
+        ]);
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        assert!(impls[0].file.ends_with("other.rs"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.requirement == "IFC-ADP-001" && f.file.ends_with("other.rs")),
+            "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn the_review_plant() {
+        // The 4-line example planted in adapters/codex/src/lib.rs by the re-review.
+        let plant = "pub use oac_core::adapter::ProviderAdapter;\npub struct Planted;\nimpl crate::ProviderAdapter for Planted {}\npub fn f(_: &dyn oac_core::r#transport::Transport) {}";
+        assert!(implements(plant));
+        assert_eq!(reqs(plant), ["IFC-ADP-001"]);
+    }
+
+    #[test]
+    fn paths_in_attributes() {
+        assert_eq!(
+            reqs("#[derive(Debug, oac_core::transport::X)]\nstruct S;"),
+            ["IFC-ADP-001"]
+        );
+        assert_eq!(
+            reqs("use oac_core as c;\n#[tool(c::signing::x)]\nfn f() {}"),
+            ["IFC-ADP-002"]
+        );
     }
 }
