@@ -7,9 +7,13 @@
 //!
 //! # One copy, start to finish
 //!
-//! A receiver runs, for each copy: envelope-stage validation, security steps 1 to 4
-//! ([`crate::signing::authenticate`], [`crate::replay::check_replay_window`],
-//! authorization), then [`deliver`], which does the rest:
+//! A receiver runs envelope-stage validation ([`crate::envelope::receive_envelope`]), then
+//! [`receive`], which runs the security stage in Table 7.1 order: steps 1 and 2
+//! ([`crate::signing::authenticate`] against the engine's trusted key set), step 3
+//! ([`crate::replay::check_replay_window`] on the receiver's clock) and step 4
+//! ([`AuthorizationEngine::authorize_delivery`]). Step 4 is the only source of an
+//! [`AuthorizedMessage`], and [`deliver`] takes nothing else, so no copy reaches the
+//! duplicate store without passing authorization ([SEC-RPL-022]). [`deliver`] does the rest:
 //!
 //! 1. security step 5 through [`DuplicateStore::try_admit`], which never waits. A copy whose
 //!    earlier twin is still being handed off comes back as [`Received::InFlight`], and the
@@ -42,14 +46,16 @@
 //! A copy is handed off now or refused now: a session not accepting input is reported
 //! `destination-unavailable` at once, never held for later ([SC-DLV-007], [IFC-ADP-056]).
 
+use crate::authorization::{AuthorizationEngine, AuthorizedMessage, HandOffRecord};
 use crate::clock::Clock;
 use crate::delivery::{DeliveryState, ErrorCode, Observer};
 use crate::envelope::{ChannelMessage, Envelope};
 use crate::ids::{KeyId, SessionId, Timestamp};
 use crate::receipt::DeliveryReceipt;
+use crate::replay::check_replay_window;
 use crate::replay::{Admission, DuplicateStore, HandOffDeadline, Reservation};
 use crate::sender::ObservedReceipt;
-use crate::signing::SecurityRejection;
+use crate::signing::{SecurityRejection, authenticate};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -210,7 +216,8 @@ pub enum Received {
 }
 
 /// Security step 5 and the delivery stage for `msg`, a copy that passed security steps 1
-/// to 4 (see the module documentation for the order).
+/// to 4: the [`AuthorizedMessage`] step 4 built (see the module documentation for the
+/// order).
 ///
 /// - `target` looks up the addressed session once the copy is admitted.
 /// - `clock` is the receiver's clock, read for the hand-off-deadline re-check right before
@@ -224,7 +231,7 @@ pub enum Received {
 /// is not verified ([`DuplicateStore::try_admit`]).
 pub fn deliver(
     store: &DuplicateStore,
-    msg: &ChannelMessage,
+    msg: &AuthorizedMessage,
     target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
     clock: &dyn Clock,
     hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
@@ -242,11 +249,88 @@ pub fn deliver(
     };
     Ok(Received::Reported(delivery_stage(
         reservation,
-        msg,
+        msg.message(),
         target,
         clock,
         hand_off,
     )))
+}
+
+/// What [`receive`] did with one copy.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReceiveOutcome {
+    /// The copy's outcome, or [`Received::InFlight`] to re-queue it.
+    pub received: Received,
+    /// The key id the copy verified under at steps 1 and 2; `None` when it failed one of
+    /// them, and then no receipt may be sent for it ([`may_send_receipt`], [SEC-RCT-005]).
+    pub verified_by: Option<KeyId>,
+    /// Whether step 4 refused the copy with a finding: its `from` is bound to another key
+    /// ([SEC-PRS-004]). The engine has logged it.
+    pub finding: bool,
+}
+
+/// The security stage, in Table 7.1 order, and then [`deliver`], for `msg`, a copy that
+/// passed envelope-stage validation.
+///
+/// - `engine`: the authorization engine. Its trusted key set serves steps 1 and 2, and
+///   [`AuthorizationEngine::authorize_delivery`] is step 4. A copy handed off with
+///   `handed-to-harness` or `unknown` is recorded in it ([SEC-AUZ-016]).
+/// - `store`, `clock`, `target` and `hand_off`: as for [`deliver`]. `clock` is the
+///   receiver clock step 3 reads; it must be the clock the engine and the store were built
+///   with, so every check of one copy reads one clock.
+pub fn receive(
+    msg: ChannelMessage,
+    engine: &mut AuthorizationEngine,
+    store: &DuplicateStore,
+    clock: &dyn Clock,
+    target: impl FnOnce(&SessionId) -> Option<DeliveryTarget>,
+    hand_off: impl FnOnce(&ChannelMessage) -> HandOffOutcome,
+) -> ReceiveOutcome {
+    let reported = |r: ReceiverReport, verified_by, finding| ReceiveOutcome {
+        received: Received::Reported(r),
+        verified_by,
+        finding,
+    };
+    // Steps 1 and 2.
+    let msg = match authenticate(msg, engine.trusted_keys()) {
+        Ok(m) => m,
+        Err(r) => return reported(ReceiverReport::from_rejection(&r), None, false),
+    };
+    let verified_by = msg.verified_by().map(|p| p.key_id().clone());
+    // Step 3.
+    if let Err(r) = check_replay_window(&msg, &clock.now()) {
+        return reported(ReceiverReport::from_rejection(&r), verified_by, false);
+    }
+    // Step 4.
+    let authorized = match engine.authorize_delivery(msg) {
+        Ok(a) => a,
+        Err(r) => {
+            let finding = r.finding.is_some();
+            return reported(
+                ReceiverReport::of(r.state, Some(r.error)),
+                verified_by,
+                finding,
+            );
+        }
+    };
+    // Step 5 and the delivery stage.
+    let received = match deliver(store, &authorized, target, clock, hand_off) {
+        Ok(r) => r,
+        Err(r) => Received::Reported(ReceiverReport::from_rejection(&r)),
+    };
+    if let Received::Reported(r) = &received
+        && matches!(
+            r.state,
+            DeliveryState::HandedToHarness | DeliveryState::Unknown
+        )
+    {
+        engine.record_handoff(HandOffRecord::of(authorized.message().envelope()), r.state);
+    }
+    ReceiveOutcome {
+        received,
+        verified_by,
+        finding: false,
+    }
 }
 
 fn refuse(reservation: Reservation, (state, code): (DeliveryState, ErrorCode)) -> ReceiverReport {
@@ -453,7 +537,10 @@ mod tests {
         keys: TrustedKeySet,
         clock: Arc<ManualClock>,
         store: DuplicateStore,
-        msg: ChannelMessage,
+        msg: AuthorizedMessage,
+        /// The same copy before steps 1 to 4, for [`receive`].
+        raw: ChannelMessage,
+        id: DeviceIdentity,
     }
 
     fn fx(ttl_ms: u64) -> Fx {
@@ -473,13 +560,16 @@ mod tests {
         let keys = TrustedKeySet::new(&id);
         let clock = Arc::new(ManualClock::new(ts("2026-10-03T12:00:00.500Z")));
         let msg = receive_envelope(env.octets(), &EnvelopeLimits::default(), &clock.now()).unwrap();
-        let msg = authenticate(msg, &keys).unwrap();
+        let raw = msg.clone();
+        let msg = AuthorizedMessage::for_tests(authenticate(msg, &keys).unwrap());
         let store = DuplicateStore::new(clock.clone());
         Fx {
             keys,
             clock,
             store,
             msg,
+            raw,
+            id,
         }
     }
 
@@ -600,6 +690,71 @@ mod tests {
         assert!(f.store.is_empty());
     }
 
+    /// [`receive`] runs steps 1 to 4 before the store: with no grant, step 4 refuses the copy
+    /// with `unauthorized` and it adds no entry; with one, it is handed off and admitted.
+    #[test]
+    fn receive_runs_step_4_before_the_store() {
+        use crate::authorization::{
+            AuthorizationRequest, Grant, Kind, LocalSide, MemoryDecisionLog, OperatorConfirmed,
+            PeerSide,
+        };
+        use crate::pairing::MemoryPairingStore;
+        let f = fx(60_000);
+        let mut e =
+            AuthorizationEngine::new(&f.id, f.clock.clone(), Box::new(MemoryDecisionLog::new()));
+        let from = f.raw.envelope().from().clone();
+        let related = |e: &mut AuthorizationEngine| {
+            e.decide(&AuthorizationRequest::AcceptPresence {
+                signing_key: f.id.key_id().clone(),
+                session: from.clone(),
+            })
+            .permits(Kind::AcceptPresence)
+        };
+        let out = receive(
+            f.raw.clone(),
+            &mut e,
+            &f.store,
+            &*f.clock,
+            |_| target(),
+            |_| panic!("no call"),
+        );
+        assert_eq!(
+            out.received,
+            Received::Reported(ReceiverReport::of(
+                DeliveryState::Rejected,
+                Some(ErrorCode::Unauthorized)
+            ))
+        );
+        assert_eq!(out.verified_by.as_ref(), Some(f.id.key_id()));
+        assert!(f.store.is_empty());
+        // Nothing relates the sender's device yet ([SEC-AUZ-017]).
+        assert!(!related(&mut e));
+        let store = MemoryPairingStore::new();
+        e.add_grant(
+            Grant::Inbound {
+                writer: PeerSide::session(f.id.key_id().clone(), from.clone()),
+                target: LocalSide::Session(f.raw.envelope().to().clone()),
+            },
+            OperatorConfirmed::by_operator(),
+            &store,
+        )
+        .unwrap();
+        let out = receive(
+            f.raw.clone(),
+            &mut e,
+            &f.store,
+            &*f.clock,
+            |_| target(),
+            |_| HandOffOutcome::Completed,
+        );
+        assert_eq!(
+            out.received,
+            Received::Reported(ReceiverReport::of(DeliveryState::HandedToHarness, None))
+        );
+        assert_eq!(f.store.len(), 1);
+        let _ = &f.keys;
+    }
+
     /// PR #317 review N2, item 2: a copy whose twin is being handed off comes back in
     /// flight, at once, adding nothing; it decides once the twin has settled.
     #[test]
@@ -610,9 +765,15 @@ mod tests {
             &f.msg,
             |_| target(),
             &*f.clock,
-            |m| {
+            |_| {
                 // The twin arrives while this hand-off call is running.
-                let twin = deliver(&f.store, m, |_| target(), &*f.clock, |_| panic!("no call"));
+                let twin = deliver(
+                    &f.store,
+                    &f.msg,
+                    |_| target(),
+                    &*f.clock,
+                    |_| panic!("no call"),
+                );
                 assert_eq!(twin.unwrap(), Received::InFlight);
                 HandOffOutcome::Failed
             },

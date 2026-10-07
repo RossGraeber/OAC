@@ -510,7 +510,7 @@ opt-in provider-integration scenario blocked until Stage 5 opens, never CI-defau
 | 12 | Unauthorized Codex `turn/steer` | F11; task G7; gate G2 | v0.1 gap — `NOT RUN` |
 | 13 | Local IPC peer spoofing | F11; G9 (§7 "Local IPC peer auth") | v0.1 gap — `NOT RUN` |
 | 14 | Cross-project leakage via `list_sessions` | H2 (§7 "Cross-project leakage") | v0.1 gap — `NOT RUN` |
-| 15 | Silently dropped `meta` key yielding unlabelled provenance | F8; task G4 | v0.1 gap — `NOT RUN`; neither test exists yet |
+| 15 | Silently dropped `meta` key yielding unlabelled provenance | F8; task G4 | F8 fake reproduces the drop (`tests/fakes/claude/tests/replay.rs` `g5_meta_key_cases`, replaying G5 C4/C4b, passes); the adapter-side test (G4) is not written — still a v0.1 gap |
 | 16 | Provenance spoofing via message body, Claude | gate G1; gate G5 | gate **G1 `PASS`** (originally on Claude Code `v2.1.282`, invalidated by the 2026-09-27 pin float, re-run and PASSED again 2026-09-28 on `v2.1.283` — `docs/planning/gates/G1-result.md`); gate **G5 `FAIL`; Claude criteria met** (2026-09-27, `docs/planning/gates/G5-result.md`) — still a v0.1 gap: a gate result is not one of this file's test tiers (F11/H2 `NOT RUN`), so it does not by itself close this row |
 | 17 | Provenance spoofing via forged header/delimiter, Codex | gate G2; gate G5 | gate G2 `PASS`; gate **G5 `FAIL`; Codex criteria 2/3 f** (2026-09-27, `docs/planning/gates/G5-result.md`) — v0.1 gap, tracked as conflict-register entry C13, required before Stage 2's interface freeze on this surface |
 | 18 | Reply misattribution via forged `in_reply_to` | task G8 | v0.1 gap — `NOT RUN`; whether Codex reliably echoes a header-supplied id back at all is itself UNVERIFIED (`docs/planning/STATUS.md`) |
@@ -575,6 +575,12 @@ longer forces a re-capture either. Each fixture records the version it was captu
 carries `version_matches_pin: false`, which is a warning. Re-capture when a newer
 version changes the behaviour a fixture documents.
 
+*Dated note, 2026-10-06, #57 (F8): the fake Claude endpoint, `tests/fakes/claude/`, reads
+the fixtures in place from `docs/planning/gates/fixtures/` (compiled in), so there is no
+runtime copy under `tests/` to drift. Each value it sends or renders is checked against a
+named fixture line by `tests/fakes/claude/tests/replay.rs`; behaviour no fixture shows makes
+it halt, refuse or leave the text unfixed, never guess (crate docs).*
+
 **The Stage 3 runtime fixture path under `tests/` is deliberately not fixed here.**
 `docs/planning/DESIGN.md`'s "Suggested repository shape" sketches
 `tests/{protocol,security,integration}/` and labels it "Suggested," not fixed — this file
@@ -608,6 +614,11 @@ caveat on its "Suggested repository shape," and per `oac-testing`'s own §3: inv
 ad hoc test location before F8/F9 confirm the actual Stage 3 layout is forbidden. Any
 fixture path this file or a future test-writing task needs is provisional until F8/F9
 land.
+
+*Dated note, 2026-10-06, #57: F8 confirms the fake-endpoint location: `tests/fakes/<name>/`.
+The fake Claude endpoint is `tests/fakes/claude/`, a test-only workspace member that
+product crates may take as a dev-dependency only (`07-repository-and-dependencies.md` §1,
+§3).*
 
 ---
 

@@ -20,13 +20,18 @@
 //!
 //! # The binding table and the relation test
 //!
-//! Both belong to authorization (`spec/security.md` §9, §11.3; task F5). This module reaches
-//! them only through [`ConsumerBindings`], which the authorization engine implements, so the
-//! presence checks hold no second copy of either.
+//! Both belong to authorization (`spec/security.md` §9, §11.3; #54, F5). This module reads
+//! and changes them only through [`AuthorizationEngine`]: the binding table
+//! ([`AuthorizationEngine::binding`], [`AuthorizationEngine::bind`],
+//! [`AuthorizationEngine::mark_conflict`], which refuses an own session, [SEC-PRS-015]) and
+//! the relation test, the engine's `accept-presence` decision
+//! ([`AuthorizationEngine::decide`] with [`AuthorizationRequest::AcceptPresence`]). Every
+//! time-dependent check reads the engine's clock, the receiver clock the replay checks read.
 //!
 //! An accepted record is still untrusted content as far as what it says goes (§1.2): its
 //! descriptor is display and capability data, never authority.
 
+use crate::authorization::{AuthorizationEngine, AuthorizationRequest, Binding, Kind};
 use crate::canonical::SigningDomain;
 use crate::ids::{KeyId, SessionId, Timestamp};
 use crate::json::{Json, JsonObject};
@@ -36,44 +41,7 @@ use crate::registry::{PresenceAcceptance, PresenceRegistry, RecordOrigin};
 use crate::replay::inside_replay_window;
 use crate::signing::verify_signed;
 use crate::transport::{CarrierHandle, Destination, Payload, PayloadKind};
-use crate::trust::TrustedKeySet;
 use std::time::Instant;
-
-/// A binding-table entry for one session id (§11.3).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BindingEntry {
-    /// The table holds nothing for the session id.
-    Unbound,
-    /// The session id is bound to this key.
-    Bound(KeyId),
-    /// The session id is under a conflict mark: bound to no key ([SEC-PRS-012]).
-    Conflict,
-}
-
-/// What the presence and receipt checks need from the binding table and the authorization
-/// engine (`spec/security.md` §9, §11.3). The authorization engine of task F5 implements
-/// it.
-pub trait ConsumerBindings {
-    /// The entry for `session`.
-    fn binding(&self, session: &SessionId) -> BindingEntry;
-
-    /// Whether `session` is one the consumer binds by a registration record of its own
-    /// ([SEC-PRS-015]).
-    fn is_own_session(&self, session: &SessionId) -> bool;
-
-    /// The relation test of [SEC-AUZ-017] at `now`: whether a grant names `key` (with
-    /// `session`, or with no session) as an inbound grant's writer or an outbound grant's
-    /// target, or the consumer sent an envelope to `session` under `key`, or handed off one
-    /// from `session`, within the reply period.
-    fn related(&self, key: &KeyId, session: &SessionId, now: &Timestamp) -> bool;
-
-    /// Binds an unbound `session` to `key` ([SEC-PRS-005]).
-    fn bind(&mut self, session: &SessionId, key: &KeyId);
-
-    /// Marks `session`, bound to `bound`, as under conflict, naming `bound` and `claimant`
-    /// ([SEC-PRS-014]).
-    fn mark_conflict(&mut self, session: &SessionId, bound: &KeyId, claimant: &KeyId);
-}
 
 /// An authenticated presence record (§11.1): a presence record, the one device it is issued
 /// to, and the issuer's signature over both. It keeps the object as received.
@@ -194,19 +162,15 @@ impl PresenceAuthOutcome {
 /// `carrier`, in the order of §11.4; an accepted record goes to `registry` as
 /// [`RecordOrigin::OtherImplementation`].
 ///
-/// - `keys`: the trusted key set; `own_key_id`: this device's key id.
-/// - `bindings`: the binding table and the relation test.
-/// - `now_wall`: the consumer's clock, for freshness and the relation test.
-/// - `now`: the same instant on the monotonic clock the registry measures lifetimes on.
-#[allow(clippy::too_many_arguments)]
+/// - `engine`: the trusted key set, this device's key id, the binding table and the
+///   relation test, and the clock freshness is read on.
+/// - `now`: the engine clock's instant on the monotonic clock the registry measures
+///   lifetimes on.
 pub fn accept_authenticated_record(
     record: &AuthenticatedPresenceRecord,
-    keys: &TrustedKeySet,
-    own_key_id: &KeyId,
-    bindings: &mut dyn ConsumerBindings,
+    engine: &mut AuthorizationEngine,
     registry: &mut PresenceRegistry,
     carrier: CarrierHandle,
-    now_wall: &Timestamp,
     now: Instant,
 ) -> PresenceAuthOutcome {
     use PresenceAuthDiscard as D;
@@ -215,7 +179,7 @@ pub fn accept_authenticated_record(
         return PresenceAuthOutcome::discard(D::Malformed);
     };
     // Signature ([SEC-PRS-002]); `verify_signed` refuses a malformed `security`.
-    let key = match verify_signed(keys, SigningDomain::Presence, o) {
+    let key = match verify_signed(engine.trusted_keys(), SigningDomain::Presence, o) {
         Ok(entry) => entry.key_id().clone(),
         Err(crate::signing::VerifyError::MalformedSecurity) => {
             return PresenceAuthOutcome::discard(D::Malformed);
@@ -223,7 +187,7 @@ pub fn accept_authenticated_record(
         Err(_) => return PresenceAuthOutcome::discard(D::Signature),
     };
     // Audience ([SEC-PRS-013]).
-    if audience.as_str() != Some(own_key_id.as_str()) {
+    if audience.as_str() != Some(engine.own_key_id().as_str()) {
         return PresenceAuthOutcome::discard(D::Audience);
     }
     let Some(inner_obj) = inner.as_object() else {
@@ -234,7 +198,7 @@ pub fn accept_authenticated_record(
         .get("issued_at")
         .and_then(Json::as_str)
         .and_then(Timestamp::parse)
-        .is_some_and(|t| inside_replay_window(&t, now_wall));
+        .is_some_and(|t| inside_replay_window(&t, &engine.now()));
     if !fresh {
         return PresenceAuthOutcome::discard(D::Stale);
     }
@@ -244,15 +208,16 @@ pub fn accept_authenticated_record(
         .and_then(SessionId::parse);
     let present = inner_obj.get("present").and_then(Json::as_bool);
     // Conflict ([SEC-PRS-003], [SEC-PRS-012], [SEC-PRS-014], [SEC-PRS-015]).
-    let entry = session
-        .as_ref()
-        .map_or(BindingEntry::Unbound, |s| bindings.binding(s));
+    let entry = session.as_ref().and_then(|s| engine.binding(s).cloned());
     match (&entry, &session) {
-        (BindingEntry::Conflict, _) => return PresenceAuthOutcome::discard(D::UnderConflict),
-        (BindingEntry::Bound(b), Some(s)) if b != &key => {
-            if !bindings.is_own_session(s) && bindings.related(&key, s, now_wall) {
-                let b = b.clone();
-                bindings.mark_conflict(s, &b, &key);
+        (Some(Binding::Conflict(_)), _) => {
+            return PresenceAuthOutcome::discard(D::UnderConflict);
+        }
+        (Some(Binding::Key(b)), Some(s)) if b != &key => {
+            // Only a related claimant locks the id ([SEC-PRS-014]); the engine never marks an
+            // own session ([SEC-PRS-015]).
+            if engine.scope_of(s).is_none() && related(engine, &key, s) {
+                engine.mark_conflict(s, &key);
             }
             return PresenceAuthOutcome {
                 result: Err(D::BoundElsewhere),
@@ -262,11 +227,7 @@ pub fn accept_authenticated_record(
         _ => {}
     }
     // Relation, for an announcement ([SEC-AUZ-017]).
-    if present == Some(true)
-        && !session
-            .as_ref()
-            .is_some_and(|s| bindings.related(&key, s, now_wall))
-    {
+    if present == Some(true) && !session.as_ref().is_some_and(|s| related(engine, &key, s)) {
         return PresenceAuthOutcome::discard(D::Unrelated);
     }
     // The record itself (§7.2.3).
@@ -281,7 +242,7 @@ pub fn accept_authenticated_record(
         return PresenceAuthOutcome::discard(D::Registry);
     }
     // [SEC-PRS-005]: a withdrawal never binds.
-    if !parsed.present() && entry == BindingEntry::Unbound {
+    if !parsed.present() && entry.is_none() {
         return PresenceAuthOutcome::discard(D::WithdrawalUnbound);
     }
     let sid = parsed.session_id().clone();
@@ -289,8 +250,8 @@ pub fn accept_authenticated_record(
     if !matches!(acceptance, PresenceAcceptance::Accepted { .. }) {
         return PresenceAuthOutcome::discard(D::Registry);
     }
-    if entry == BindingEntry::Unbound {
-        bindings.bind(&sid, &key);
+    if entry.is_none() {
+        engine.bind(&sid, &key);
     }
     PresenceAuthOutcome {
         result: Ok(acceptance),
@@ -298,42 +259,57 @@ pub fn accept_authenticated_record(
     }
 }
 
+/// The relation test of [SEC-AUZ-017]: the engine's `accept-presence` decision for `key`
+/// and `session`, at the engine clock's time, logged with its basis.
+fn related(engine: &mut AuthorizationEngine, key: &KeyId, session: &SessionId) -> bool {
+    engine
+        .decide(&AuthorizationRequest::AcceptPresence {
+            signing_key: key.clone(),
+            session: session.clone(),
+        })
+        .permits(Kind::AcceptPresence)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authorization::{Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide};
     use crate::capabilities::{CapabilitiesEntry, SessionCapabilities, SessionDescriptor};
-    use crate::ids::{EXTENSION_ID_V0, Token, Version};
+    use crate::clock::ManualClock;
+    use crate::ids::{EXTENSION_ID_V0, Timestamp, Token, Version};
     use crate::keys::DeviceKey;
+    use crate::pairing::{MemoryPairingStore, PairedPeer};
     use crate::presence::PresenceState;
-    use std::collections::HashMap;
+    use std::sync::Arc;
     use std::time::Duration;
-
-    #[derive(Default)]
-    struct Table {
-        map: HashMap<SessionId, BindingEntry>,
-        related: bool,
-    }
-
-    impl ConsumerBindings for Table {
-        fn binding(&self, s: &SessionId) -> BindingEntry {
-            self.map.get(s).cloned().unwrap_or(BindingEntry::Unbound)
-        }
-        fn is_own_session(&self, _: &SessionId) -> bool {
-            false
-        }
-        fn related(&self, _: &KeyId, _: &SessionId, _: &Timestamp) -> bool {
-            self.related
-        }
-        fn bind(&mut self, s: &SessionId, k: &KeyId) {
-            self.map.insert(s.clone(), BindingEntry::Bound(k.clone()));
-        }
-        fn mark_conflict(&mut self, s: &SessionId, _: &KeyId, _: &KeyId) {
-            self.map.insert(s.clone(), BindingEntry::Conflict);
-        }
-    }
 
     fn ident(p: &str) -> DeviceIdentity {
         DeviceIdentity::new(DeviceKey::generate(), Token::parse(p).unwrap())
+    }
+
+    fn ts(s: &str) -> Timestamp {
+        Timestamp::parse(s).unwrap()
+    }
+
+    fn pair(e: &mut AuthorizationEngine, peer: &DeviceIdentity, store: &MemoryPairingStore) {
+        let p = PairedPeer::by_key_id_comparison(
+            peer.principal().clone(),
+            *peer.public_key(),
+            peer.key_id(),
+            ts("2026-10-03T00:00:00Z"),
+            OperatorConfirmed::by_operator(),
+        )
+        .unwrap();
+        e.pair(p, store).unwrap();
+    }
+
+    fn grant_to(e: &mut AuthorizationEngine, peer: &DeviceIdentity, store: &MemoryPairingStore) {
+        let g = Grant::Outbound {
+            writer: LocalSide::Device,
+            target: PeerSide::device(peer.key_id().clone()),
+        };
+        e.add_grant(g, OperatorConfirmed::by_operator(), store)
+            .unwrap();
     }
 
     fn announcement(seq: u64, lifetime_ms: u64, at: &str) -> PresenceRecord {
@@ -345,118 +321,69 @@ mod tests {
         .unwrap();
         PresenceRecord::announcement(
             seq,
-            Timestamp::parse(at).unwrap(),
+            ts(at),
             lifetime_ms,
             SessionDescriptor::new(sid, caps, None, None).unwrap(),
         )
         .unwrap()
     }
 
-    /// Issue, accept, bind; the cap applies; a forwarded copy, a stale one and an unrelated
-    /// one are refused.
+    /// Through the real engine: an unrelated announcement is refused ([SEC-AUZ-017]); with
+    /// an outbound grant naming the issuer it is accepted, binds, and is capped; a forwarded
+    /// copy and a stale one are refused; a related second claimant is refused with a finding
+    /// and locks the session id.
     #[test]
-    fn issue_and_accept() {
+    fn issue_and_accept_through_the_engine() {
         let (me, peer, other) = (ident("me"), ident("peer"), ident("other"));
-        let mut keys = TrustedKeySet::new(&me);
-        keys.add_paired_key(peer.principal().clone(), *peer.public_key())
-            .unwrap();
-        keys.add_paired_key(other.principal().clone(), *other.public_key())
-            .unwrap();
-        let now_wall = Timestamp::parse("2026-10-03T12:00:01Z").unwrap();
+        let clock = Arc::new(ManualClock::new(ts("2026-10-03T12:00:01Z")));
+        let store = MemoryPairingStore::new();
+        let mut e =
+            AuthorizationEngine::new(&me, clock.clone(), Box::new(MemoryDecisionLog::new()));
+        pair(&mut e, &peer, &store);
+        pair(&mut e, &other, &store);
         let t = Instant::now();
         let rec = announcement(4, 3_600_000, "2026-10-03T12:00:00Z");
         let sid = rec.session_id().clone();
         let carrier = CarrierHandle::from_opaque(b"c".to_vec());
         let mut reg = PresenceRegistry::new();
-
-        let mut unrelated = Table::default();
         let ar = AuthenticatedPresenceRecord::issue(&peer, &rec, me.key_id());
-        let out = accept_authenticated_record(
-            &ar,
-            &keys,
-            me.key_id(),
-            &mut unrelated,
-            &mut reg,
-            carrier.clone(),
-            &now_wall,
-            t,
-        );
+
+        let out = accept_authenticated_record(&ar, &mut e, &mut reg, carrier.clone(), t);
         assert_eq!(out.result, Err(PresenceAuthDiscard::Unrelated));
 
-        let mut table = Table {
-            related: true,
-            ..Table::default()
-        };
+        grant_to(&mut e, &peer, &store);
+        grant_to(&mut e, &other, &store);
         let forwarded = AuthenticatedPresenceRecord::issue(&peer, &rec, other.key_id());
-        let out = accept_authenticated_record(
-            &forwarded,
-            &keys,
-            me.key_id(),
-            &mut table,
-            &mut reg,
-            carrier.clone(),
-            &now_wall,
-            t,
-        );
+        let out = accept_authenticated_record(&forwarded, &mut e, &mut reg, carrier.clone(), t);
         assert_eq!(out.result, Err(PresenceAuthDiscard::Audience));
 
-        let late = Timestamp::parse("2026-10-03T12:05:00Z").unwrap();
-        let out = accept_authenticated_record(
-            &ar,
-            &keys,
-            me.key_id(),
-            &mut table,
-            &mut reg,
-            carrier.clone(),
-            &late,
-            t,
-        );
+        clock.set(ts("2026-10-03T12:05:00Z"));
+        let out = accept_authenticated_record(&ar, &mut e, &mut reg, carrier.clone(), t);
         assert_eq!(out.result, Err(PresenceAuthDiscard::Stale));
+        clock.set(ts("2026-10-03T12:00:01Z"));
 
-        let out = accept_authenticated_record(
-            &ar,
-            &keys,
-            me.key_id(),
-            &mut table,
-            &mut reg,
-            carrier.clone(),
-            &now_wall,
-            t,
-        );
+        let out = accept_authenticated_record(&ar, &mut e, &mut reg, carrier.clone(), t);
         assert_eq!(
             out.result,
             Ok(PresenceAcceptance::Accepted {
                 effective_lifetime_ms: Some(300_000)
             })
         );
-        assert_eq!(
-            table.binding(&sid),
-            BindingEntry::Bound(peer.key_id().clone())
-        );
+        assert_eq!(e.binding(&sid), Some(&Binding::Key(peer.key_id().clone())));
         assert_eq!(
             reg.state(&sid, t + Duration::from_millis(300_000)),
             PresenceState::Unreachable
         );
 
-        // A related second claimant: discarded, finding, conflict mark.
         let squat = AuthenticatedPresenceRecord::issue(
             &other,
             &announcement(9, 60_000, "2026-10-03T12:00:00Z"),
             me.key_id(),
         );
-        let out = accept_authenticated_record(
-            &squat,
-            &keys,
-            me.key_id(),
-            &mut table,
-            &mut reg,
-            carrier,
-            &now_wall,
-            t,
-        );
+        let out = accept_authenticated_record(&squat, &mut e, &mut reg, carrier, t);
         assert_eq!(out.result, Err(PresenceAuthDiscard::BoundElsewhere));
         assert!(out.finding);
-        assert_eq!(table.binding(&sid), BindingEntry::Conflict);
+        assert!(matches!(e.binding(&sid), Some(Binding::Conflict(_))));
         let (dest, payload) = ar.to_payload().unwrap();
         assert_eq!(dest, Destination::Device(me.key_id().clone()));
         assert_eq!(payload.kind(), PayloadKind::Presence);

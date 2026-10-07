@@ -9,26 +9,17 @@
 //! `duplicate` receipt per store entry, rate-limited per sending device). Sending one is
 //! optional ([SC-RCP-042]).
 
+use crate::authorization::{AuthorizationEngine, Binding};
 use crate::canonical::SigningDomain;
 use crate::delivery::Observer;
 use crate::envelope::Envelope;
 use crate::ids::{KeyId, SessionId};
 use crate::json::{Json, JsonObject};
 use crate::keys::DeviceIdentity;
-use crate::presence_auth::{BindingEntry, ConsumerBindings};
 use crate::receipt::DeliveryReceipt;
 use crate::sender::ObservedReceipt;
 use crate::signing::verify_signed;
 use crate::transport::{Destination, Payload, PayloadKind};
-use crate::trust::TrustedKeySet;
-
-/// The sending implementation's records of the envelopes it sent, as check 3 of
-/// [SEC-RCT-003] reads them. The authorization engine of task F5 keeps them (its sent
-/// records, which also carry reply rights).
-pub trait SentEnvelopes {
-    /// Whether it sent an envelope with this `id`, `from`, `to` and `security.nonce`.
-    fn was_sent(&self, id: &str, from: &str, to: &str, nonce: &str) -> bool;
-}
 
 /// An authenticated receipt (§10.1). It keeps the object as received or built.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,7 +95,9 @@ pub enum ReceiptDiscard {
     NotReceiver,
 }
 
-/// The checks of [SEC-RCT-003] on an authenticated receipt. On success, the receipt as a
+/// The checks of [SEC-RCT-003] on an authenticated receipt, against `engine`: its trusted
+/// key set (checks 1 and 2), its sent records, which carry each envelope's nonce (check 3),
+/// and its binding table (check 4). On success, the receipt as a
 /// receiver-observed state the sending implementation may hold ([SC-RCP-040]).
 ///
 /// # Errors
@@ -112,9 +105,7 @@ pub enum ReceiptDiscard {
 /// The first check that fails.
 pub fn accept_receipt(
     ar: &AuthenticatedReceipt,
-    keys: &TrustedKeySet,
-    bindings: &dyn ConsumerBindings,
-    sent: &dyn SentEnvelopes,
+    engine: &AuthorizationEngine,
 ) -> Result<ObservedReceipt, ReceiptDiscard> {
     let o = &ar.wire;
     let s = |m| o.get(m).and_then(Json::as_str);
@@ -125,7 +116,7 @@ pub fn accept_receipt(
     };
     let receipt = DeliveryReceipt::from_json(inner).map_err(|_| ReceiptDiscard::InvalidReceipt)?;
     // Checks 1 and 2.
-    let key = match verify_signed(keys, SigningDomain::Receipt, o) {
+    let key = match verify_signed(engine.trusted_keys(), SigningDomain::Receipt, o) {
         Ok(e) => e.key_id().clone(),
         Err(crate::signing::VerifyError::MalformedSecurity) => {
             return Err(ReceiptDiscard::Malformed);
@@ -133,17 +124,18 @@ pub fn accept_receipt(
         Err(_) => return Err(ReceiptDiscard::Signature),
     };
     // Check 3.
-    if !sent.was_sent(
-        receipt.envelope_id().as_str(),
-        receipt.envelope_from().as_str(),
-        to,
-        nonce,
-    ) {
+    let sent = engine.sent_records().iter().any(|r| {
+        r.id == *receipt.envelope_id()
+            && r.from.as_str() == receipt.envelope_from().as_str()
+            && r.to.as_str() == to
+            && r.nonce == nonce
+    });
+    if !sent {
         return Err(ReceiptDiscard::NotSent);
     }
     // Check 4: a conflict mark binds no key.
-    let bound = SessionId::parse(to).map(|sid| bindings.binding(&sid));
-    if bound != Some(BindingEntry::Bound(key)) {
+    let bound = SessionId::parse(to).and_then(|sid| engine.binding(&sid).cloned());
+    if bound != Some(Binding::Key(key)) {
         return Err(ReceiptDiscard::WrongReceiver);
     }
     // Check 5.
@@ -156,44 +148,18 @@ pub fn accept_receipt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authorization::{MemoryDecisionLog, OperatorConfirmed, SentRecord};
+    use crate::clock::ManualClock;
     use crate::delivery::DeliveryState;
     use crate::envelope::{EnvelopeDraft, TextPart};
     use crate::ids::{Timestamp, Token};
     use crate::keys::DeviceKey;
-
-    struct One(Option<(SessionId, KeyId)>);
-    impl ConsumerBindings for One {
-        fn binding(&self, s: &SessionId) -> BindingEntry {
-            match &self.0 {
-                Some((sid, k)) if sid == s => BindingEntry::Bound(k.clone()),
-                _ => BindingEntry::Unbound,
-            }
-        }
-        fn is_own_session(&self, _: &SessionId) -> bool {
-            false
-        }
-        fn related(&self, _: &KeyId, _: &SessionId, _: &Timestamp) -> bool {
-            false
-        }
-        fn bind(&mut self, _: &SessionId, _: &KeyId) {}
-        fn mark_conflict(&mut self, _: &SessionId, _: &KeyId, _: &KeyId) {}
-    }
-
-    struct Sent(Envelope);
-    impl SentEnvelopes for Sent {
-        fn was_sent(&self, id: &str, from: &str, to: &str, nonce: &str) -> bool {
-            let e = &self.0;
-            (
-                e.id().as_str(),
-                e.from().as_str(),
-                e.to().as_str(),
-                e.security().nonce(),
-            ) == (id, from, to, nonce)
-        }
-    }
+    use crate::pairing::{MemoryPairingStore, PairedPeer};
+    use std::sync::Arc;
 
     #[test]
     fn round_trip_and_checks() {
+        let ts = |s| Timestamp::parse(s).unwrap();
         let (alice, bob) = (
             DeviceIdentity::new(DeviceKey::generate(), Token::parse("a").unwrap()),
             DeviceIdentity::new(DeviceKey::generate(), Token::parse("b").unwrap()),
@@ -203,7 +169,7 @@ mod tests {
                 Token::parse("m1").unwrap(),
                 SessionId::parse("01harn7x9k2m4p6q8r0s2t4v6w").unwrap(),
                 SessionId::parse("7gq3m8z2c5k9t1w4x6b0n2r8vd").unwrap(),
-                Timestamp::parse("2026-10-03T12:00:00Z").unwrap(),
+                ts("2026-10-03T12:00:00Z"),
                 vec![TextPart::new("hi").unwrap()],
             )
             .unwrap(),
@@ -214,21 +180,30 @@ mod tests {
             DeliveryState::HandedToHarness,
             Observer::Receiver,
             None,
-            Timestamp::parse("2026-10-03T12:00:01Z").unwrap(),
+            ts("2026-10-03T12:00:01Z"),
         )
         .unwrap();
         let ar = AuthenticatedReceipt::issue(&bob, &receipt, &env);
-        let mut keys = TrustedKeySet::new(&alice);
-        keys.add_paired_key(bob.principal().clone(), *bob.public_key())
-            .unwrap();
-        let bound = One(Some((env.to().clone(), bob.key_id().clone())));
-        let sent = Sent(env.clone());
-        let got = accept_receipt(&ar, &keys, &bound, &sent).unwrap();
+        let clock = Arc::new(ManualClock::new(ts("2026-10-03T12:00:01Z")));
+        let store = MemoryPairingStore::new();
+        let mut e = AuthorizationEngine::new(&alice, clock, Box::new(MemoryDecisionLog::new()));
+        let peer = PairedPeer::by_key_id_comparison(
+            bob.principal().clone(),
+            *bob.public_key(),
+            bob.key_id(),
+            ts("2026-10-03T00:00:00Z"),
+            OperatorConfirmed::by_operator(),
+        )
+        .unwrap();
+        e.pair(peer, &store).unwrap();
+        // Not sent yet: check 3.
+        assert_eq!(accept_receipt(&ar, &e), Err(ReceiptDiscard::NotSent));
+        e.record_sent(SentRecord::of(&env, bob.key_id().clone()));
+        // Sent, but `to` not bound to Bob: check 4.
+        assert_eq!(accept_receipt(&ar, &e), Err(ReceiptDiscard::WrongReceiver));
+        e.bind(env.to(), bob.key_id());
+        let got = accept_receipt(&ar, &e).unwrap();
         assert_eq!(got.receipt(), &receipt);
-        assert_eq!(
-            accept_receipt(&ar, &keys, &One(None), &sent),
-            Err(ReceiptDiscard::WrongReceiver)
-        );
         let (dest, p) = ar.to_payload(alice.key_id().clone());
         assert_eq!(dest, Destination::Device(alice.key_id().clone()));
         assert_eq!(p.kind(), PayloadKind::Receipt);

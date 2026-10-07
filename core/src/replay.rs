@@ -4,14 +4,17 @@
 //! the security stage (§7.1, Table 7.1), and the hand-off deadline that bounds both
 //! (`spec/session-channels.md` §8.1.3).
 //!
-//! Step 4, authorization, sits between them and is task F5 (#54); this module neither
-//! performs nor assumes it. A receiver runs, for each envelope:
+//! Step 4, authorization, sits between them: [`crate::authorization`] (#54, F5). Step 5
+//! takes only the [`AuthorizedMessage`] that step 4 produces, so a copy refused at step 4
+//! can never add an entry. A receiver runs, for each envelope:
 //!
 //! 1. [`crate::envelope::receive_envelope`]: envelope-stage validation;
 //! 2. [`crate::signing::authenticate`]: steps 1 and 2. Only after them is `created_at`
 //!    trusted ([SEC-STG-003]);
 //! 3. [`check_replay_window`]: step 3, `outside-replay-window` with state `expired`;
-//! 4. authorization (F5): step 4, `unauthorized`. A copy refused there adds no entry;
+//! 4. [`crate::authorization::AuthorizationEngine::authorize_delivery`]: step 4,
+//!    `unauthorized`. A copy refused there adds no entry, because it has no
+//!    [`AuthorizedMessage`];
 //! 5. [`DuplicateStore::admit`]: step 5, which tests for an entry and adds one as a single
 //!    step ([SEC-RPL-021]), waiting while an earlier copy is being handed off
 //!    ([SEC-RPL-026]);
@@ -60,6 +63,7 @@
 //! - **Receipts.** At most one `duplicate` receipt per entry ([SEC-RPL-030]):
 //!   [`Admission::Duplicate`] says whether this copy may draw it.
 
+use crate::authorization::AuthorizedMessage;
 use crate::clock::Clock;
 use crate::delivery::{DeliveryState, ErrorCode};
 use crate::envelope::{ChannelMessage, Envelope};
@@ -446,7 +450,7 @@ impl DuplicateStore {
     ///
     /// `failed` with `internal-error` when the store is full of live entries or `msg` is
     /// not verified.
-    pub fn admit(&self, msg: &ChannelMessage) -> Result<Admission, SecurityRejection> {
+    pub fn admit(&self, msg: &AuthorizedMessage) -> Result<Admission, SecurityRejection> {
         let (key, deadline) = Self::key_and_deadline(msg)?;
         let mut inner = self.lock();
         loop {
@@ -468,13 +472,19 @@ impl DuplicateStore {
     /// # Errors
     ///
     /// As [`DuplicateStore::admit`].
-    pub fn try_admit(&self, msg: &ChannelMessage) -> Result<Option<Admission>, SecurityRejection> {
+    pub fn try_admit(
+        &self,
+        msg: &AuthorizedMessage,
+    ) -> Result<Option<Admission>, SecurityRejection> {
         let (key, deadline) = Self::key_and_deadline(msg)?;
         let mut inner = self.lock();
         self.decide(&mut inner, &key, deadline).transpose()
     }
 
-    fn key_and_deadline(msg: &ChannelMessage) -> Result<(DuplicateKey, i128), SecurityRejection> {
+    fn key_and_deadline(
+        msg: &AuthorizedMessage,
+    ) -> Result<(DuplicateKey, i128), SecurityRejection> {
+        let msg = msg.message();
         let key = DuplicateKey::of(msg).ok_or_else(unverified)?;
         Ok((key, HandOffDeadline::of(msg.envelope()).unix_nanos()))
     }
@@ -632,6 +642,10 @@ mod tests {
             authenticate(msg, &self.keys).unwrap()
         }
 
+        fn authorized(&self, env: &Envelope) -> AuthorizedMessage {
+            AuthorizedMessage::for_tests(self.arrive(env))
+        }
+
         fn store(&self, capacity: usize) -> DuplicateStore {
             DuplicateStore::with_capacity(self.clock.clone(), capacity)
         }
@@ -689,7 +703,12 @@ mod tests {
             unverified()
         );
         assert!(DuplicateKey::of(&raw).is_none());
-        assert_eq!(f.store(4).admit(&raw).unwrap_err(), unverified());
+        assert_eq!(
+            f.store(4)
+                .admit(&AuthorizedMessage::for_tests(raw))
+                .unwrap_err(),
+            unverified()
+        );
     }
 
     /// [SEC-STG-005]: two envelopes that differ only in `to` get the same step-3 verdict at
@@ -763,11 +782,11 @@ mod tests {
         let f = fx();
         let store = f.store(16);
         let env = f.signed("2026-10-03T12:00:00.000Z", Some(600_000));
-        admitted(store.admit(&f.arrive(&env))).handed_off();
+        admitted(store.admit(&f.authorized(&env))).handed_off();
         f.clock.advance_nanos(29 * SECOND);
-        assert!(duplicate(store.admit(&f.arrive(&env)))); // [SEC-RPL-030]
-        assert!(!duplicate(store.admit(&f.arrive(&env))));
-        assert!(!duplicate(store.admit(&f.arrive(&env))));
+        assert!(duplicate(store.admit(&f.authorized(&env)))); // [SEC-RPL-030]
+        assert!(!duplicate(store.admit(&f.authorized(&env))));
+        assert!(!duplicate(store.admit(&f.authorized(&env))));
         assert_eq!(store.len(), 1);
     }
 
@@ -790,8 +809,8 @@ mod tests {
         )));
         // A second envelope (a new nonce) is not a duplicate of the first.
         let other = f.signed("2026-10-03T12:00:00.000Z", None);
-        admitted(store.admit(&f.arrive(&other))).handed_off();
-        assert!(duplicate(store.admit(&f.arrive(&env))));
+        admitted(store.admit(&f.authorized(&other))).handed_off();
+        assert!(duplicate(store.admit(&f.authorized(&env))));
     }
 
     #[test]
@@ -800,17 +819,17 @@ mod tests {
         let store = f.store(16);
         // `unknown`: the harness may hold the content ([SEC-RPL-022]).
         let a = f.signed("2026-10-03T12:00:00.000Z", None);
-        admitted(store.admit(&f.arrive(&a))).handed_off();
-        assert!(duplicate(store.admit(&f.arrive(&a))));
+        admitted(store.admit(&f.authorized(&a))).handed_off();
+        assert!(duplicate(store.admit(&f.authorized(&a))));
         // Refused by the delivery stage, or `handoff-failed`: the entry goes.
         let b = f.signed("2026-10-03T12:00:00.000Z", None);
-        admitted(store.admit(&f.arrive(&b))).not_handed_off();
+        admitted(store.admit(&f.authorized(&b))).not_handed_off();
         assert!(!store.contains(&DuplicateKey::of(&f.arrive(&b)).unwrap()));
-        admitted(store.admit(&f.arrive(&b))).handed_off();
+        admitted(store.admit(&f.authorized(&b))).handed_off();
         // Dropped unsettled: indeterminate, kept.
         let c = f.signed("2026-10-03T12:00:00.000Z", None);
-        drop(admitted(store.admit(&f.arrive(&c))));
-        assert!(duplicate(store.admit(&f.arrive(&c))));
+        drop(admitted(store.admit(&f.authorized(&c))));
+        assert!(duplicate(store.admit(&f.authorized(&c))));
     }
 
     #[test]
@@ -818,16 +837,16 @@ mod tests {
         let f = fx();
         let store = f.store(16);
         let env = f.signed("2026-10-03T12:00:00.000Z", None);
-        let first = admitted(store.admit(&f.arrive(&env)));
-        assert!(store.try_admit(&f.arrive(&env)).unwrap().is_none());
+        let first = admitted(store.admit(&f.authorized(&env)));
+        assert!(store.try_admit(&f.authorized(&env)).unwrap().is_none());
         first.not_handed_off();
         // [SEC-RPL-026], fixture SEC-RPL-026.p01: the earlier hand-off failed, so this copy
         // proceeds as if it had found no entry.
-        let second = admitted(store.try_admit(&f.arrive(&env)).map(Option::unwrap));
-        assert!(store.try_admit(&f.arrive(&env)).unwrap().is_none());
+        let second = admitted(store.try_admit(&f.authorized(&env)).map(Option::unwrap));
+        assert!(store.try_admit(&f.authorized(&env)).unwrap().is_none());
         second.handed_off();
         assert!(duplicate(
-            store.try_admit(&f.arrive(&env)).map(Option::unwrap)
+            store.try_admit(&f.authorized(&env)).map(Option::unwrap)
         ));
     }
 
@@ -850,7 +869,7 @@ mod tests {
     fn concurrent_round(f: &Fx) {
         let store = f.store(16);
         let env = f.signed("2026-10-03T12:00:00.000Z", None);
-        let copies: Vec<ChannelMessage> = (0..16).map(|_| f.arrive(&env)).collect();
+        let copies: Vec<AuthorizedMessage> = (0..16).map(|_| f.authorized(&env)).collect();
         let (tx, rx) = mpsc::channel();
         let barrier = Arc::new(std::sync::Barrier::new(copies.len()));
         let handles: Vec<_> = copies
@@ -891,8 +910,8 @@ mod tests {
         let store = f.store(16);
         let no_ttl = f.signed("2026-10-03T12:00:00.000Z", None);
         let short = f.signed("2026-10-03T12:00:00.000Z", Some(60_000));
-        admitted(store.admit(&f.arrive(&no_ttl))).handed_off();
-        admitted(store.admit(&f.arrive(&short))).handed_off();
+        admitted(store.admit(&f.authorized(&no_ttl))).handed_off();
+        admitted(store.admit(&f.authorized(&short))).handed_off();
         f.clock.set(ts("2026-10-03T12:00:59.999999999Z"));
         store.evict_expired();
         assert_eq!(store.len(), 2);
@@ -900,7 +919,7 @@ mod tests {
         store.evict_expired();
         assert_eq!(store.len(), 1);
         f.clock.set(ts("2026-10-03T12:04:59.999999999Z"));
-        assert!(duplicate(store.admit(&f.arrive(&no_ttl))));
+        assert!(duplicate(store.admit(&f.authorized(&no_ttl))));
         f.clock.set(ts("2026-10-03T12:05:00Z"));
         store.evict_expired();
         assert!(store.is_empty());
@@ -923,7 +942,7 @@ mod tests {
         let f = fx();
         let store = f.store(16);
         let env = f.signed("2026-10-03T12:00:00.000Z", None);
-        let r = admitted(store.admit(&f.arrive(&env)));
+        let r = admitted(store.admit(&f.authorized(&env)));
         f.clock.set(ts("2026-10-03T12:10:00Z"));
         store.evict_expired();
         assert_eq!(store.len(), 1);
@@ -942,21 +961,21 @@ mod tests {
         let a = f.signed("2026-10-03T12:00:00.000Z", Some(60_000));
         let b = f.signed("2026-10-03T12:00:00.500Z", None);
         let c = f.signed("2026-10-03T12:00:01.000Z", None);
-        admitted(store.admit(&f.arrive(&a))).handed_off();
-        let in_flight = admitted(store.admit(&f.arrive(&b)));
-        let rej = store.admit(&f.arrive(&c)).unwrap_err();
+        admitted(store.admit(&f.authorized(&a))).handed_off();
+        let in_flight = admitted(store.admit(&f.authorized(&b)));
+        let rej = store.admit(&f.authorized(&c)).unwrap_err();
         assert_eq!(
             (rej.state, rej.error),
             (DeliveryState::Failed, ErrorCode::InternalError)
         );
         assert_eq!(store.len(), 2);
         // Copies of held envelopes are still recognized while full.
-        assert!(duplicate(store.admit(&f.arrive(&a))));
-        assert!(store.try_admit(&f.arrive(&b)).unwrap().is_none());
+        assert!(duplicate(store.admit(&f.authorized(&a))));
+        assert!(store.try_admit(&f.authorized(&b)).unwrap().is_none());
         // A refused admission added nothing, and the next one succeeds once `a` reaches its
         // deadline.
         f.clock.set(ts("2026-10-03T12:01:00Z"));
-        admitted(store.admit(&f.arrive(&c))).handed_off();
+        admitted(store.admit(&f.authorized(&c))).handed_off();
         in_flight.handed_off();
         assert_eq!(store.len(), 2);
         assert_eq!(
@@ -975,16 +994,16 @@ mod tests {
         let env = f.signed("2026-10-03T12:00:00.000Z", None);
         {
             let before = f.store(16);
-            admitted(before.admit(&f.arrive(&env))).handed_off();
-            assert!(duplicate(before.admit(&f.arrive(&env))));
+            admitted(before.admit(&f.authorized(&env))).handed_off();
+            assert!(duplicate(before.admit(&f.authorized(&env))));
         } // the process ends; nothing of the store survives it
         f.clock.set(ts("2026-10-03T12:02:00Z"));
         let after = f.store(16);
         assert!(after.is_empty());
         let copy = f.arrive(&env);
         assert!(check_replay_window(&copy, &f.clock.now()).is_ok());
-        admitted(after.admit(&copy)).handed_off(); // handed off a second time
-        assert!(duplicate(after.admit(&f.arrive(&env))));
+        admitted(after.admit(&AuthorizedMessage::for_tests(copy))).handed_off(); // handed off a second time
+        assert!(duplicate(after.admit(&f.authorized(&env))));
         let later = f.store(16);
         f.clock.set(ts("2026-10-03T12:05:00Z"));
         let copy = authenticate(

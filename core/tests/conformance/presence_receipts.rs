@@ -12,23 +12,23 @@
 //! - `send` (§6.10): [`check_send`], with a session that `declarations` holds taken as
 //!   `online` and any other as `unknown` (§7.5).
 //! - `routing` and `receive` (§8.5): envelope stage, security, then the delivery stage.
-//!   `receive` runs security steps 1 to 3, the fixture's step-4 verdict (F5, #54, is not
-//!   merged; the module note of `conformance.rs`), and [`deliver`] for step 5 and the whole
-//!   delivery stage, with a hand-off call that succeeds. `routing` takes authorization from
-//!   `authorized` and has placeholder signatures, so it runs [`delivery_checks`] and the
-//!   hand-off-deadline re-check, the delivery-stage steps [`deliver`] runs.
+//!   `receive` runs [`receive`]: steps 1 to 5 of Table 7.1 in order, step 4 through the
+//!   real `AuthorizationEngine` built from the fixture's context (no verdict is taken from
+//!   the fixture), then the whole delivery stage, with a hand-off call that succeeds. The
+//!   engine, the duplicate store and the receiver pipeline read one [`ManualClock`].
+//!   `routing` takes authorization from `authorized` and has placeholder signatures, so it
+//!   runs [`delivery_checks`] and the hand-off-deadline re-check, the delivery-stage steps
+//!   [`deliver`] runs.
 //! - `combine` (§8.5): [`combined_state`] and [`retry_allowed`].
-//! - `presence-auth` (`spec/security.md` §3.3): [`accept_authenticated_record`] into a
-//!   [`PresenceRegistry`], with a binding table and relation test built from the fixture's
-//!   `bindings`, `sessions`, `grants`, `sent` and `handed_off` ([`FixtureBindings`]).
-//! - `receipt-auth` (`spec/security.md` §3.3): [`accept_receipt`].
+//! - `presence-auth` (`spec/security.md` §3.3), all 15 fixtures (`sec-prs` and `sec-auz`):
+//!   [`accept_authenticated_record`] into a [`PresenceRegistry`], with the real
+//!   `AuthorizationEngine` (binding table, conflict marks, and the [SEC-AUZ-017] relation
+//!   test as its `accept-presence` decision), built by `authorization::engine`.
+//! - `receipt-auth` (`spec/security.md` §3.3): [`accept_receipt`] against the same engine.
 //! - `reply` and `correlation` (§8.5): [`reply_headers`] and [`answered`].
 //! - `security`, `receipt_permitted` (§10.3): [`may_send_receipt`].
-//!
-//! [`FixtureBindings`] is the runner's stand-in for F5's binding table and relation test,
-//! read from `spec/security.md` §9.2, §9.4 and §11.3; when F5 lands, its engine implements
-//! [`ConsumerBindings`] and replaces it.
 
+use super::authorization::{check_bindings_after, engine, own_identity, security_engine};
 use super::{
     Fixture, envelope_limits, implemented, input_octets, limits, obj, str_of, trusted_keys, uint,
 };
@@ -36,16 +36,14 @@ use oac_core::capabilities::{SessionCapabilities, SessionDescriptor};
 use oac_core::clock::ManualClock;
 use oac_core::delivery::{DeliveryState, ErrorCode, Observer};
 use oac_core::envelope::receive_envelope;
-use oac_core::ids::{KeyId, SessionId, Timestamp, Token, Version};
-use oac_core::json::{self, Json, JsonObject};
+use oac_core::ids::{SessionId, Timestamp, Token, Version};
+use oac_core::json::{Json, JsonObject};
 use oac_core::presence::{PresenceRecord, PresenceState};
-use oac_core::presence_auth::{
-    AuthenticatedPresenceRecord, BindingEntry, ConsumerBindings, accept_authenticated_record,
-};
-use oac_core::receipt_auth::{AuthenticatedReceipt, SentEnvelopes, accept_receipt};
+use oac_core::presence_auth::{AuthenticatedPresenceRecord, accept_authenticated_record};
+use oac_core::receipt_auth::{AuthenticatedReceipt, accept_receipt};
 use oac_core::receiver::{
-    DeliveryTarget, HandOffOutcome, ReceiptLimiter, Received, ReceiverReport, deliver,
-    delivery_checks, may_send_receipt,
+    DeliveryTarget, HandOffOutcome, ReceiptLimiter, Received, ReceiverReport, delivery_checks,
+    may_send_receipt, receive,
 };
 use oac_core::registry::{PresenceAcceptance, PresenceRegistry, RecordOrigin, discovery_result};
 use oac_core::replay::{DuplicateKey, DuplicateStore, HandOffDeadline, REPLAY_WINDOW_MS};
@@ -56,9 +54,6 @@ use oac_core::transport::CarrierHandle;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-/// The reply period of `spec/security.md` §9.5, in milliseconds.
-const REPLY_PERIOD_MS: i128 = 86_400_000;
 
 fn sid(s: &str) -> Result<SessionId, String> {
     SessionId::parse(s).ok_or_else(|| format!("{s} is not a session id"))
@@ -429,31 +424,23 @@ pub(super) fn run_routing(fx: &Fixture) -> Result<(), String> {
     }
 }
 
-/// Stage `receive` (§8.5).
+/// Stage `receive` (§8.5): envelope-stage validation, then [`receive`] (Table 7.1 steps 1
+/// to 5 and the delivery stage). The hand-off happens at `handoff_time`: the clock moves
+/// there when the delivery stage looks the addressed session up, after steps 1 to 5 ran at
+/// `receiver_time`.
 pub(super) fn run_receive(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let (_, now) = limits(context);
     let l = receiver_limits(context);
     let expected = obj(&fx.v, "expected");
-    let refused =
-        |s: DeliveryState, e: ErrorCode| compare_result((s.as_str(), Some(e.as_str())), expected);
     let msg = match receive_envelope(&input_octets(obj(&fx.v, "input")), &l, &now) {
         Ok(m) => m,
-        Err(rej) => return refused(rej.state, rej.error),
+        Err(rej) => {
+            return compare_result((rej.state.as_str(), Some(rej.error.as_str())), expected);
+        }
     };
-    let keys = trusted_keys(context)?;
-    let msg = match authenticate(msg, &keys) {
-        Ok(m) => m,
-        Err(rej) => return refused(rej.state, rej.error),
-    };
-    if let Err(rej) = oac_core::replay::check_replay_window(&msg, &now) {
-        return refused(rej.state, rej.error);
-    }
-    // Step 4: F5 (#54); the fixture's verdict until then.
-    if str_of(expected, "error") == Some("unauthorized") {
-        return refused(DeliveryState::Rejected, ErrorCode::Unauthorized);
-    }
     let clock = Arc::new(ManualClock::new(now.clone()));
+    let (mut engine, _) = security_engine(context, clock.clone());
     let store = DuplicateStore::new(clock.clone());
     let until =
         Timestamp::from_unix_nanos(now.unix_nanos() + i128::from(REPLAY_WINDOW_MS) * 1_000_000)
@@ -472,28 +459,43 @@ pub(super) fn run_receive(fx: &Fixture) -> Result<(), String> {
             )
             .map_err(|e| e.to_string())?;
     }
+    let before = store.len();
     let delivery = targets(obj(context, "delivery"))?;
-    if let Some(h) = str_of(context, "handoff_time") {
-        clock.set(Timestamp::parse(h).ok_or("handoff_time")?);
-    }
+    let handoff = str_of(context, "handoff_time")
+        .map(|h| Timestamp::parse(h).ok_or("handoff_time"))
+        .transpose()?;
     let mut called = false;
-    let got = deliver(
+    let out = receive(
+        msg,
+        &mut engine,
         &store,
-        &msg,
-        |to| delivery.get(to.as_str()).cloned(),
         &*clock,
+        |to| {
+            if let Some(h) = &handoff {
+                clock.set(h.clone());
+            }
+            delivery.get(to.as_str()).cloned()
+        },
         |_| {
             called = true;
             HandOffOutcome::Completed
         },
-    )
-    .map_err(|e| e.to_string())?;
-    let report = match got {
+    );
+    let report = match out.received {
         Received::InFlight => return Err("in flight with no earlier copy".into()),
         Received::Reported(r) => r,
     };
     if called != (report.state == DeliveryState::HandedToHarness) {
         return Err("the hand-off call and the reported state disagree".into());
+    }
+    // Nothing reaches the store without passing step 4; a copy refused before it, or by the
+    // delivery stage, leaves the store as it was.
+    let added = store.len() - before;
+    if added != usize::from(report.state == DeliveryState::HandedToHarness) {
+        return Err(format!(
+            "{added} store entr(y/ies) added for {}",
+            report.state
+        ));
     }
     let state = match report.state {
         DeliveryState::HandedToHarness => "valid",
@@ -554,130 +556,15 @@ pub(super) fn run_combine(fx: &Fixture) -> Result<(), String> {
     Ok(())
 }
 
-/// The runner's binding table and relation test (see the module documentation), read from
-/// a `spec/security.md` §3.3 context.
-pub(super) struct FixtureBindings {
-    own: BTreeSet<String>,
-    table: BTreeMap<String, Json>,
-    grants: Vec<JsonObject>,
-    sent: Vec<JsonObject>,
-    handed_off: Vec<JsonObject>,
-}
-
-impl FixtureBindings {
-    pub(super) fn from_context(c: &JsonObject) -> FixtureBindings {
-        let objs = |n| {
-            arr(c, n)
-                .iter()
-                .filter_map(Json::as_object)
-                .cloned()
-                .collect()
-        };
-        FixtureBindings {
-            own: c
-                .get("sessions")
-                .and_then(Json::as_object)
-                .map(|s| s.names().map(str::to_owned).collect())
-                .unwrap_or_default(),
-            table: c
-                .get("bindings")
-                .and_then(Json::as_object)
-                .map(|b| b.iter().map(|(k, v)| (k.to_owned(), v.clone())).collect())
-                .unwrap_or_default(),
-            grants: objs("grants"),
-            sent: objs("sent"),
-            handed_off: objs("handed_off"),
-        }
-    }
-
-    /// The table as a binding map (§3.3), for `bindings_after`.
-    fn as_map(&self) -> BTreeMap<String, String> {
-        self.table
-            .iter()
-            .map(|(k, v)| (k.clone(), v.to_compact()))
-            .collect()
-    }
-}
-
-fn within_reply_period(created_at: Option<&str>, now: &Timestamp) -> bool {
-    created_at
-        .and_then(Timestamp::parse)
-        .is_some_and(|c| now.unix_nanos() < c.unix_nanos() + REPLY_PERIOD_MS * 1_000_000)
-}
-
-impl ConsumerBindings for FixtureBindings {
-    fn binding(&self, session: &SessionId) -> BindingEntry {
-        match self.table.get(session.as_str()) {
-            None => BindingEntry::Unbound,
-            Some(Json::String(k)) => {
-                KeyId::parse(k).map_or(BindingEntry::Conflict, BindingEntry::Bound)
-            }
-            Some(_) => BindingEntry::Conflict,
-        }
-    }
-
-    fn is_own_session(&self, session: &SessionId) -> bool {
-        self.own.contains(session.as_str())
-    }
-
-    fn related(&self, key: &KeyId, session: &SessionId, now: &Timestamp) -> bool {
-        let names = |side: Option<&Json>| {
-            side.and_then(Json::as_object).is_some_and(|s| {
-                str_of(s, "key_id") == Some(key.as_str())
-                    && str_of(s, "session_id").is_none_or(|r| r == session.as_str())
-            })
-        };
-        self.grants.iter().any(|g| match str_of(g, "direction") {
-            Some("inbound") => names(g.get("writer")),
-            Some("outbound") => names(g.get("target")),
-            _ => false,
-        }) || self.sent.iter().any(|e| {
-            str_of(e, "to") == Some(session.as_str())
-                && str_of(e, "to_key_id") == Some(key.as_str())
-                && within_reply_period(str_of(e, "created_at"), now)
-        }) || self.handed_off.iter().any(|h| {
-            str_of(h, "from") == Some(session.as_str())
-                && within_reply_period(str_of(h, "created_at"), now)
-        })
-    }
-
-    fn bind(&mut self, session: &SessionId, key: &KeyId) {
-        self.table
-            .insert(session.to_string(), Json::String(key.to_string()));
-    }
-
-    fn mark_conflict(&mut self, session: &SessionId, bound: &KeyId, claimant: &KeyId) {
-        let mut keys = [bound.to_string(), claimant.to_string()];
-        keys.sort();
-        let text = format!("{{\"conflict\":[\"{}\",\"{}\"]}}", keys[0], keys[1]);
-        self.table.insert(
-            session.to_string(),
-            json::parse(text.as_bytes()).expect("a conflict mark"),
-        );
-    }
-}
-
-impl SentEnvelopes for FixtureBindings {
-    fn was_sent(&self, id: &str, from: &str, to: &str, nonce: &str) -> bool {
-        self.sent.iter().any(|e| {
-            str_of(e, "id") == Some(id)
-                && str_of(e, "from") == Some(from)
-                && str_of(e, "to") == Some(to)
-                && str_of(e, "nonce") == Some(nonce)
-        })
-    }
-}
-
 /// Stage `presence-auth` (`spec/security.md` §3.3).
 pub(super) fn run_presence_auth(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let expected = obj(&fx.v, "expected");
     let now = Timestamp::parse(str_of(context, "consumer_time").ok_or("consumer_time")?)
         .ok_or("consumer_time")?;
-    let own_key =
-        KeyId::parse(str_of(context, "own_key_id").ok_or("own_key_id")?).ok_or("own_key_id")?;
-    let keys = trusted_keys(context)?;
-    let mut bindings = FixtureBindings::from_context(context);
+    let own = own_identity(str_of(context, "own_key_id"));
+    let clock = Arc::new(ManualClock::new(now.clone()));
+    let (mut e, _) = engine(&own, context, clock);
     let mut registry = PresenceRegistry::new();
     let t = Instant::now();
     // `latest_seq`: the latest record accepted earlier, as a registry holds it.
@@ -692,16 +579,7 @@ pub(super) fn run_presence_auth(fx: &Fixture) -> Result<(), String> {
         .get("authenticated_record")
         .and_then(AuthenticatedPresenceRecord::from_json)
         .ok_or("authenticated_record is not an object")?;
-    let out = accept_authenticated_record(
-        &ar,
-        &keys,
-        &own_key,
-        &mut bindings,
-        &mut registry,
-        carrier("peer"),
-        &now,
-        t,
-    );
+    let out = accept_authenticated_record(&ar, &mut e, &mut registry, carrier("peer"), t);
     let result = if out.accepted() {
         "accepted"
     } else {
@@ -745,31 +623,30 @@ pub(super) fn run_presence_auth(fx: &Fixture) -> Result<(), String> {
             return Err("the registry does not apply the effective lifetime".into());
         }
     }
-    if let Some(want) = expected.get("bindings_after").and_then(Json::as_object) {
-        let want: BTreeMap<String, String> = want
-            .iter()
-            .map(|(k, v)| (k.to_owned(), v.to_compact()))
-            .collect();
-        if bindings.as_map() != want {
-            return Err(format!(
-                "bindings after {:?}; expected {want:?}",
-                bindings.as_map()
-            ));
-        }
-    }
-    Ok(())
+    // A `presence-auth` binding map lists the consumer's own sessions only when the fixture
+    // is about one (`SEC-PRS-015.n01`); compare like with like.
+    let own_listed = context
+        .get("bindings")
+        .and_then(Json::as_object)
+        .is_some_and(|b| {
+            b.names()
+                .any(|s| SessionId::parse(s).is_some_and(|s| e.scope_of(&s).is_some()))
+        });
+    check_bindings_after(&e, expected, own_listed)
 }
 
 /// Stage `receipt-auth` (`spec/security.md` §3.3).
 pub(super) fn run_receipt_auth(fx: &Fixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
-    let keys = trusted_keys(context)?;
-    let bindings = FixtureBindings::from_context(context);
+    let clock = Arc::new(ManualClock::new(
+        Timestamp::parse("2026-10-03T12:00:01Z").ok_or("time")?,
+    ));
+    let (engine, _) = security_engine(context, clock);
     let ar = obj(&fx.v, "input")
         .get("authenticated_receipt")
         .and_then(AuthenticatedReceipt::from_json);
     let got = match &ar {
-        Some(ar) => accept_receipt(ar, &keys, &bindings, &bindings).map(|_| ()),
+        Some(ar) => accept_receipt(ar, &engine).map(|_| ()),
         None => Err(oac_core::receipt_auth::ReceiptDiscard::Malformed),
     };
     let result = if got.is_ok() {

@@ -12,47 +12,24 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use oac_core::authorization::{
+    AuthorizationEngine, Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide,
+};
 use oac_core::capabilities::{CapabilitiesEntry, SessionCapabilities, SessionDescriptor};
 use oac_core::clock::{Clock, SystemClock};
-use oac_core::ids::{EXTENSION_ID_V0, KeyId, SessionId, Timestamp, Token, Version};
+use oac_core::ids::{EXTENSION_ID_V0, SessionId, Token, Version};
 use oac_core::json;
 use oac_core::keys::{DeviceIdentity, DeviceKey};
+use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::presence::{PresenceRecord, PresenceState};
-use oac_core::presence_auth::{
-    AuthenticatedPresenceRecord, BindingEntry, ConsumerBindings, accept_authenticated_record,
-};
+use oac_core::presence_auth::{AuthenticatedPresenceRecord, accept_authenticated_record};
 use oac_core::registry::PresenceRegistry;
 use oac_core::transport::{Deadline, PresenceEvent, PublishResult, Reach, Transport};
-use oac_core::trust::TrustedKeySet;
 use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
-
-/// A binding table that relates every key, for this test only; authorization is F5's.
-#[derive(Default)]
-struct Related(std::collections::HashMap<SessionId, KeyId>);
-
-impl ConsumerBindings for Related {
-    fn binding(&self, s: &SessionId) -> BindingEntry {
-        self.0
-            .get(s)
-            .map_or(BindingEntry::Unbound, |k| BindingEntry::Bound(k.clone()))
-    }
-    fn is_own_session(&self, _: &SessionId) -> bool {
-        false
-    }
-    fn related(&self, _: &KeyId, _: &SessionId, _: &Timestamp) -> bool {
-        true
-    }
-    fn bind(&mut self, s: &SessionId, k: &KeyId) {
-        self.0.insert(s.clone(), k.clone());
-    }
-    fn mark_conflict(&mut self, s: &SessionId, _: &KeyId, _: &KeyId) {
-        self.0.remove(s);
-    }
-}
 
 struct Consumer {
     registry: PresenceRegistry,
-    bindings: Related,
+    engine: AuthorizationEngine,
 }
 
 #[test]
@@ -69,34 +46,49 @@ fn watch_presence_feeds_the_registry_and_carrier_loss_ends_it() {
     b.start(consumer.key_id(), MemoryConfiguration::wrap(&network))
         .unwrap();
 
-    let mut keys = TrustedKeySet::new(&consumer);
-    keys.add_paired_key(issuer.principal().clone(), *issuer.public_key())
+    // The consumer's authorization engine: the issuer's key paired, and an outbound grant
+    // naming it, which relates it to the consumer ([SEC-AUZ-017]).
+    let store = MemoryPairingStore::new();
+    let mut engine = AuthorizationEngine::new(
+        &consumer,
+        Arc::new(SystemClock),
+        Box::new(MemoryDecisionLog::new()),
+    );
+    let peer = PairedPeer::by_key_id_comparison(
+        issuer.principal().clone(),
+        *issuer.public_key(),
+        issuer.key_id(),
+        SystemClock.now(),
+        OperatorConfirmed::by_operator(),
+    )
+    .unwrap();
+    engine.pair(peer, &store).unwrap();
+    engine
+        .add_grant(
+            Grant::Outbound {
+                writer: LocalSide::Device,
+                target: PeerSide::device(issuer.key_id().clone()),
+            },
+            OperatorConfirmed::by_operator(),
+            &store,
+        )
         .unwrap();
-    let own = consumer.key_id().clone();
     let state = Arc::new(Mutex::new(Consumer {
         registry: PresenceRegistry::new(),
-        bindings: Related::default(),
+        engine,
     }));
     let s = state.clone();
     b.watch_presence(Arc::new(move |event| {
         let mut st = s.lock().unwrap();
-        let Consumer { registry, bindings } = &mut *st;
+        let Consumer { registry, engine } = &mut *st;
         match event {
             PresenceEvent::Record { payload, carrier } => {
                 let ar = json::parse(payload.octets())
                     .ok()
                     .and_then(|v| AuthenticatedPresenceRecord::from_json(&v))
                     .expect("an authenticated presence record");
-                let out = accept_authenticated_record(
-                    &ar,
-                    &keys,
-                    &own,
-                    bindings,
-                    registry,
-                    carrier,
-                    &SystemClock.now(),
-                    Instant::now(),
-                );
+                let out =
+                    accept_authenticated_record(&ar, engine, registry, carrier, Instant::now());
                 assert!(out.accepted(), "{out:?}");
             }
             PresenceEvent::CarrierLoss { carrier } => {

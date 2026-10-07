@@ -55,6 +55,16 @@ docs/
 rule: it depends on `core/` only (§3), and adds no third-party crate of its own. The `Transport`
 contract and the §4.11 transport-boundary types it implements live in `core/`, which
 calls them; `spec/interfaces.md` §6.1 notes the in-memory transport.)
+(Dated note, 2026-10-06, #57: F8 confirms where fake endpoints live, the deferral §2's
+`tests/` row and `09-test-strategy.md` §13-§14 left open. Fake harness endpoints live at
+`tests/fakes/<name>/` (F9's Codex fake follows the same convention). The fake Claude Code
+channel endpoint is `tests/fakes/claude/`, a Rust workspace member (`oac-fake-claude`),
+because the Rust contract and security suites link it in-process. It is test-only: it depends on `core/`
+only (for the JSON reader) and on no third-party crate, and a product crate may take it as
+a dev-dependency only, never a normal or build one, so it is never built into the `oac`
+binary (§3). It reads the recorded fixtures in place from `docs/planning/gates/fixtures/`;
+nothing is copied under `tests/`. It is not herdr and does not drive a harness:
+`tests/integration/` stays the opt-in provider-integration leaf.)
 (Dated note, 2026-10-06, #58: fake harness endpoints live under `tests/fakes/<name>/`,
 inside the `tests/` row of §2. F9's fake Codex app-server is
 `tests/fakes/codex-app-server/`: Node built-ins only, no `package.json`, never a workspace
@@ -136,6 +146,8 @@ transports/zenoh/ -> core/           (only)
 transports/memory/ -> core/          (only; #56)
 core/             -> (nothing in-repo)
 (nothing)         -> cli/
+tests/fakes/* (Rust workspace members) -> core/   (only; #57)
+adapters/*, transports/*, cli/ -> tests/fakes/* (Rust members)   (dev-dependency only; #57)
 ```
 
 (Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305
@@ -182,6 +194,9 @@ is the Stage 3 owner of enforcing this diagram in the actual workspace (lint/CI 
 this file states the rule, not the enforcement mechanism.
 (Dated note, 2026-10-05, #50: the mechanism is `scripts/check-crate-deps.mjs`, which checks
 these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.yml`.)
+(Dated note, 2026-10-06, #57: the same script admits `tests/fakes/<name>` members, lets
+them reach `core/` only, and fails any product member (`core/`, `cli/`, an adapter or a
+transport) that reaches one over normal or build edges; `core/` may not reach one at all.)
 
 ---
 
