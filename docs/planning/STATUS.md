@@ -4,6 +4,20 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #338: an older native signal never re-binds over a
+newer one.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text
+changes.
+
+- **Core.** A held signal is decided when its candidate opens, so two held signals for one
+  key could be decided out of arrival order, binding the attachment back to the older
+  conversation (a stale binding, present since #331). Each attachment now remembers the
+  arrival order of the latest signal that paired with it; an older signal that pairs
+  after it is dropped with its diagnostic ([SC-ID-128]), binding and withholding nothing.
+  The module documentation no longer claims every signal is decided in arrival order.
+- **Also (PR #337 re-review).** A test pins that `unbind` keeps a drop's place (N6);
+  `ProviderAdapter::set_binding` is documented as advisory, able to lag the core under
+  concurrent changes (N7); the signal counter bump uses `checked_add`.)
+
 **Last updated:** 2026-10-07 (**Issue #335: a fair share of the pending native-signal
 cap.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text changes;
 §6.7.2 leaves the bound to the implementation, and every MUST holds.

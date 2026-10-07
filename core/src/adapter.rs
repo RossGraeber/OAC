@@ -447,6 +447,13 @@ pub trait ProviderAdapter: Send + Sync {
 
     /// `set_binding`: the core's binding for `attachment`, the session id it bound, or
     /// `None` ([IFC-ADP-030]).
+    ///
+    /// Advisory: the core calls it after it has changed its own state, outside its lock,
+    /// so under concurrent changes (a native signal dropped on another thread while a
+    /// binding is made or released) two calls can reach the adapter in the other order, and
+    /// its view can lag the core's until the next call. The core does not rely on it: it
+    /// refuses a hand-off or a send request for an attachment it withholds by its own
+    /// state ([SC-ID-154]; PR #337 re-review, N7).
     fn set_binding(&self, attachment: &Attachment, session: Option<SessionId>);
 
     /// `capabilities` for `attachment` (§5.5; [IFC-ADP-040], [IFC-ADP-041]).

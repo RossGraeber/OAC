@@ -492,7 +492,13 @@ list.
     the shim from other descendants, if the OS allows it.
   - **The stale-binding residual is closed where the key allows it.** The core withholds
     a bound attachment when an unpairable signal, or one dropped at the window or the
-    pending cap, is attributed to it by its observed key.
+    pending cap, is attributed to it by its observed key. (Dated note, 2026-10-07, #338:
+    nor can ordering reopen it. A held signal is decided when its candidate opens, so an
+    older one could pair after a newer one for the same attachment and bind it back to
+    the older conversation. An attachment now remembers the latest signal that paired
+    with it, and an older one is dropped (SC-ID-128), binding and withholding nothing.
+    Proving tests: `an_older_held_signal_does_not_rebind_over_a_newer_one`,
+    `an_older_signal_dropped_after_a_newer_pairing_withholds_nothing`.)
   - **The daemon must call `Pipelines::disconnect`** when it observes a local connection
     end, by end of stream or a broken pipe, never on a timeout. Otherwise connections
     that carry only native signals never free their place in `max_connections`.)

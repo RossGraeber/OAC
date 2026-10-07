@@ -90,14 +90,23 @@
 //! An unpairable or dropped signal that the observed key attributes to bound attachments
 //! withholds delivery to them and their send requests until a signal reported after it
 //! pairs with one ([SC-ID-154]): a decision already running for an earlier signal neither
-//! releases the attachment nor binds it delivering, and nor does [`Pipelines::bind`]. Signals are decided one at a time, in arrival order, by whichever thread
-//! holds the binding turn; a signal reported, or an attachment opened, while the turn is
-//! held makes the holder pass again. The held and queued signals together are bounded by
+//! releases the attachment nor binds it delivering, and nor does [`Pipelines::bind`].
+//!
+//! Signals are decided one at a time by whichever thread holds the binding turn; a signal
+//! reported, or an attachment opened, while the turn is held makes the holder pass again.
+//! Queued signals are decided in arrival order, but a held signal is decided when a
+//! candidate opens, so an older held signal can come to its decision after a newer signal
+//! for the same attachment (one whose candidate opened in the middle of a pass). Each
+//! signal carries its place in arrival order, and an attachment remembers the latest
+//! signal that paired with it: an older signal that pairs after a newer one is dropped
+//! with its diagnostic ([SC-ID-128]), binding nothing and withholding nothing, so it can
+//! never bind the attachment back to a conversation the harness has left (#338).
+//!
+//! The held and queued signals together are bounded by
 //! [`PipelineConfig::max_pending_signals`], shared fairly between the observed keys (and
 //! the connections of signals without one), so that one key cannot evict another's
-//! signals by flooding (#335). A held signal's window is checked on every
-//! adapter event and when the owner's timer calls [`Pipelines::expire_native_signals`];
-//! nothing polls.
+//! signals by flooding (#335). A held signal's window is checked on every adapter event
+//! and when the owner's timer calls [`Pipelines::expire_native_signals`]; nothing polls.
 //!
 //! The daemon calls [`Pipelines::disconnect`] when it observes a local connection end, so
 //! that connections which only carry native signals, and never become attachments, free
@@ -299,6 +308,10 @@ struct AttachmentEntry {
     /// for an earlier signal neither releases it nor binds it delivering, and a drop that
     /// lands while the attachment is between bindings is still answered (PR #337).
     withheld_by: Option<u64>,
+    /// The arrival `seq` of the latest native signal that paired with it and was decided.
+    /// An older signal that pairs after it is superseded: it is dropped, and neither binds
+    /// nor withholds (#338).
+    paired_seq: Option<u64>,
 }
 
 /// A native signal waiting for its decision, with the pairing key observed for its
@@ -1634,6 +1647,7 @@ impl Inner {
                                 cross_check,
                                 withheld: false,
                                 withheld_by: None,
+                                paired_seq: None,
                             });
                     }
                 }
@@ -1661,7 +1675,11 @@ impl Inner {
                     // The key is snapshot now, while the connection is known (B3).
                     let key = Inner::observed_key(&core, adapter, &signal);
                     let seq = core.next_signal_seq;
-                    core.next_signal_seq += 1;
+                    // One total arrival order; 2^64 signals never arrive, but say so rather
+                    // than wrap silently in a release build.
+                    core.next_signal_seq = seq
+                        .checked_add(1)
+                        .expect("fewer than 2^64 native signals in one process");
                     let queued = QueuedSignal {
                         adapter,
                         signal,
@@ -1937,6 +1955,28 @@ impl Inner {
             PairAttempt::Unpairable(bound) => (Pairing::Unpairable, bound),
             PairAttempt::NotYet(_) => return,
         };
+        // #338: a held signal is decided when its candidate opens, so it can come to its
+        // decision after a newer signal already paired with the same attachment. Deciding
+        // it now would bind the attachment back to the older conversation: it is dropped
+        // instead, binding nothing ([SC-ID-124], [SC-ID-128]). The newer pairing already
+        // answers it, so it withholds nothing either ([SC-ID-154]).
+        if let Pairing::Paired(a) = &pairing {
+            let superseded = {
+                let mut core = self.lock();
+                match core.attachments.get_mut(a) {
+                    Some(e) if e.paired_seq.is_some_and(|p| p > seq) => true,
+                    Some(e) => {
+                        e.paired_seq = Some(seq);
+                        false
+                    }
+                    None => false,
+                }
+            };
+            if superseded {
+                self.drop_signal(signal, PairAttempt::Unpairable(Vec::new()), seq);
+                return;
+            }
+        }
         let (decision, session) = {
             let core = self.lock();
             let states = Inner::attachment_states(&core, adapter);
@@ -2022,7 +2062,13 @@ impl Inner {
     /// and no send request from it until a signal that arrived after `seq` pairs with it;
     /// the adapter is told its binding names no session (`spec/interfaces.md` §5.4). An
     /// attachment between bindings (a decision for an earlier signal is re-binding it) has
-    /// nothing to stop yet; `seq` is kept, so that re-binding starts withheld.
+    /// nothing to stop yet; `seq` is kept, so that re-binding starts withheld. A signal that
+    /// arrived after `seq` and already paired with it has answered `seq` (#338).
+    ///
+    /// The adapter is told after the lock is released, as every adapter call is: under a
+    /// concurrent drop or release its view can briefly lag the core's. The core's own
+    /// `withheld` check, taken under the lock, is what refuses hand-offs and send requests
+    /// (PR #337 re-review, N7).
     fn withhold(&self, attachment: &Attachment, seq: u64) {
         let (adapter, session) = {
             let mut guard = self.lock();
@@ -2030,6 +2076,9 @@ impl Inner {
             let Some(e) = core.attachments.get_mut(attachment) else {
                 return;
             };
+            if e.paired_seq.is_some_and(|p| p > seq) {
+                return;
+            }
             e.withheld_by = Some(withheld_until_after(e.withheld_by, seq));
             let Some(s) = e.session.clone() else { return };
             e.withheld = true;
