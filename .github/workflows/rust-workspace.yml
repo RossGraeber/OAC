@@ -8,7 +8,7 @@
 #                                 (C1 section 10, 07 sections 5-7), with its self-test
 #                                 and a mutation test planting GPL dependencies.
 # #60 (F11) adds tests/security/check-compiled-tests.mjs: the security suite's threat map
-# against the tests cargo compiled, with a self-test (Linux only) planting known evasions.
+# against the tests cargo compiled, with a self-test (ubuntu image only) planting known evasions.
 # The toolchain comes from rust-toolchain.toml (1.98.1, docs/planning/PINS.md) through the
 # rustup already on the hosted images; no toolchain action and no cargo plugin is used.
 #
@@ -80,7 +80,7 @@ jobs:
         run: node tests/security/check-compiled-tests.mjs
 
       - name: Security suite threat map check self-test (each planted evasion must be caught)
-        if: runner.os == 'Linux'
+        if: matrix.os == 'ubuntu-latest'
         run: node tests/security/check-compiled-tests.mjs --self-test
 
       - name: Dependency direction self-test (each planted violation must fail)

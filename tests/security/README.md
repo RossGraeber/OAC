@@ -43,7 +43,7 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
   - a compiled test is in no row.
 
   CI runs it on every OS. `--self-test` plants each known evasion in a copy and checks it
-  is caught, and runs on Linux.
+  is caught; CI runs it on the ubuntu image.
 - **`gated_*` tests** hold the place of mitigations that need a component not built yet:
   - Epic G adapters;
   - the G9 daemon and IPC;
