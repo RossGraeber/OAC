@@ -1646,8 +1646,9 @@ fn a_held_signal_is_dropped_when_its_window_ends() {
     assert_eq!(n.pipes.binding(&a), None);
 }
 
-/// Bounded memory ([SC-ID-123]): past `max_pending_signals`, the oldest held signal is
-/// dropped with a diagnostic.
+/// Bounded memory ([SC-ID-123]): past `max_pending_signals`, a signal is dropped with a
+/// diagnostic. With one place, another key's only held signal is kept and the newcomer
+/// goes (#335); a second signal under the held one's own key replaces it.
 #[test]
 fn held_signals_are_bounded() {
     let bus = Bus::default();
@@ -1664,10 +1665,234 @@ fn held_signals_are_bounded() {
     n.adapter
         .emit(signal(Some(&c2), "native-y", StartKind::Fresh, None));
     assert_eq!(requirements(&log), ["SC-ID-128"]);
-    let a1 = observed_attachment(&n, "harness-1", None);
+    n.adapter
+        .emit(signal(Some(&c1), "native-x2", StartKind::Fresh, None));
+    assert_eq!(requirements(&log), ["SC-ID-128", "SC-ID-128"]);
     let a2 = observed_attachment(&n, "harness-2", None);
-    assert_eq!(n.pipes.binding(&a1), None, "its signal was dropped");
-    assert!(n.pipes.binding(&a2).is_some());
+    assert_eq!(n.pipes.binding(&a2), None, "the newcomer was dropped");
+    let a1 = observed_attachment(&n, "harness-1", Some("native-x2"));
+    assert!(
+        n.pipes.binding(&a1).is_some(),
+        "the held key kept its place"
+    );
+    assert_eq!(n.pipes.next_native_signal_expiry(), None);
+}
+
+/// #335: one key flooding the cap cannot evict another key's held signal; once it holds
+/// the most, each of its new signals evicts its own oldest.
+#[test]
+fn a_flooding_key_cannot_evict_another_keys_held_signal() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 4,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let log = binding_log(&n);
+    let victim = carrier(&n, "harness-v");
+    let flood = carrier(&n, "harness-f");
+    n.adapter
+        .emit(signal(Some(&victim), "native-v", StartKind::Fresh, None));
+    for i in 0..20 {
+        n.adapter.emit(signal(
+            Some(&flood),
+            &format!("native-f{i}"),
+            StartKind::Fresh,
+            None,
+        ));
+    }
+    // 21 signals, 4 places: 17 dropped, every one the flooder's.
+    assert_eq!(requirements(&log), ["SC-ID-128"; 17]);
+    let v = observed_attachment(&n, "harness-v", None);
+    assert!(
+        n.pipes.binding(&v).is_some(),
+        "the victim's signal was held"
+    );
+}
+
+/// #335: many keys, one signal each, cannot evict another key's held signal either: a
+/// newcomer with nothing pending is refused while every holder has one.
+#[test]
+fn many_flooding_keys_cannot_evict_another_keys_held_signal() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 3,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let log = binding_log(&n);
+    let victim = carrier(&n, "harness-v");
+    n.adapter
+        .emit(signal(Some(&victim), "native-v", StartKind::Fresh, None));
+    for i in 0..10 {
+        let c = carrier(&n, &format!("harness-f{i}"));
+        n.adapter.emit(signal(
+            Some(&c),
+            &format!("native-f{i}"),
+            StartKind::Fresh,
+            None,
+        ));
+    }
+    assert_eq!(requirements(&log), ["SC-ID-128"; 8]);
+    let v = observed_attachment(&n, "harness-v", None);
+    assert!(
+        n.pipes.binding(&v).is_some(),
+        "the victim's signal was held"
+    );
+    // The two flooders admitted first kept theirs; the refused ones hold nothing.
+    let f0 = observed_attachment(&n, "harness-f0", None);
+    let f9 = observed_attachment(&n, "harness-f9", None);
+    assert!(n.pipes.binding(&f0).is_some());
+    assert_eq!(n.pipes.binding(&f9), None);
+}
+
+/// #335: a key flooding while a decision holds the binding turn, so that every signal is
+/// still queued, cannot evict another key's queued signal; an unkeyed connection
+/// flooding counts against that connection's own share.
+#[test]
+fn a_flood_cannot_evict_another_keys_queued_signal() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 3,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let x = observed_attachment(&n, "harness-x", None);
+    let victim = carrier(&n, "harness-v");
+    let flood = carrier(&n, "harness-f");
+    let bare = Connection::accept(std::io::empty(), std::io::sink());
+    let unkeyed = bare.handle().clone();
+    n.pipes.connect(n.adapter_id, bare).unwrap();
+    let log = binding_log(&n);
+    let adapter = n.adapter.clone();
+    during_next_decision(&n, move || {
+        adapter.emit(signal(Some(&victim), "native-v", StartKind::Fresh, None));
+        for i in 0..10 {
+            adapter.emit(signal(
+                Some(&flood),
+                &format!("native-f{i}"),
+                StartKind::Fresh,
+                None,
+            ));
+        }
+        for i in 0..10 {
+            adapter.emit(signal(
+                Some(&unkeyed),
+                &format!("native-u{i}"),
+                StartKind::Fresh,
+                None,
+            ));
+        }
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    assert!(n.pipes.binding(&x).is_some());
+    let ids = requirements(&log);
+    // 21 queued in 3 places: 18 dropped, then the victim's and one flood signal held and
+    // the unkeyed connection's last one decided unpairable.
+    assert_eq!(
+        ids.iter().filter(|r| **r == "SC-ID-128").count(),
+        18,
+        "{ids:?}"
+    );
+    assert_eq!(
+        ids.iter().filter(|r| **r == "SC-ID-129").count(),
+        1,
+        "{ids:?}"
+    );
+    let v = observed_attachment(&n, "harness-v", None);
+    assert!(
+        n.pipes.binding(&v).is_some(),
+        "the victim's signal was kept"
+    );
+}
+
+/// #335, fair share: a holder with at least two more than the newcomer gives up its
+/// oldest, held or queued, so a newcomer is not refused while one holder has the cap.
+#[test]
+fn the_heaviest_holder_makes_room_for_a_newcomer() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 3,
+        ..PipelineConfig::default()
+    };
+    // Held: three signals of one key fill the cap; a new key's signal takes a place.
+    let n = node(&bus, "device-a", config.clone());
+    let log = binding_log(&n);
+    let heavy = carrier(&n, "harness-h");
+    let fresh = carrier(&n, "harness-n");
+    for i in 0..3 {
+        n.adapter.emit(signal(
+            Some(&heavy),
+            &format!("native-h{i}"),
+            StartKind::Fresh,
+            None,
+        ));
+    }
+    assert!(requirements(&log).is_empty());
+    n.adapter
+        .emit(signal(Some(&fresh), "native-n", StartKind::Fresh, None));
+    assert_eq!(requirements(&log), ["SC-ID-128"]);
+    let a = observed_attachment(&n, "harness-n", None);
+    assert!(n.pipes.binding(&a).is_some(), "the newcomer was held");
+    // Queued: the same while a decision holds the turn.
+    let n = node(&bus, "device-b", config);
+    let x = observed_attachment(&n, "harness-x", Some("native-x"));
+    let heavy = carrier(&n, "harness-h");
+    let fresh = carrier(&n, "harness-n");
+    let log = binding_log(&n);
+    let adapter = n.adapter.clone();
+    during_next_decision(&n, move || {
+        for i in 0..3 {
+            adapter.emit(signal(
+                Some(&heavy),
+                &format!("native-h{i}"),
+                StartKind::Fresh,
+                None,
+            ));
+        }
+        adapter.emit(signal(Some(&fresh), "native-n", StartKind::Fresh, None));
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    assert_eq!(requirements(&log), ["SC-ID-128"]);
+    let a = observed_attachment(&n, "harness-n", None);
+    assert!(
+        n.pipes.binding(&a).is_some(),
+        "the newcomer was queued, then held"
+    );
+}
+
+/// #335: while a pass decides the held signals, those not yet decided still count against
+/// the cap and their holders' shares, so signals reported meanwhile cannot exceed it.
+#[test]
+fn held_signals_count_while_a_pass_decides_them() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 2,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let l = carrier(&n, "harness-l");
+    let m = carrier(&n, "harness-m");
+    let f = carrier(&n, "harness-f");
+    n.adapter
+        .emit(signal(Some(&l), "native-l", StartKind::Fresh, None));
+    n.adapter
+        .emit(signal(Some(&m), "native-m", StartKind::Fresh, None));
+    let log = binding_log(&n);
+    let adapter = n.adapter.clone();
+    during_next_decision(&n, move || {
+        // `m`'s held signal and the first of these fill the cap; the second replaces the
+        // first, its holder's own.
+        adapter.emit(signal(Some(&f), "native-f1", StartKind::Fresh, None));
+        adapter.emit(signal(Some(&f), "native-f2", StartKind::Fresh, None));
+    });
+    let al = observed_attachment(&n, "harness-l", Some("native-l"));
+    assert!(n.pipes.binding(&al).is_some());
+    assert_eq!(requirements(&log), ["SC-ID-128"]);
+    let am = observed_attachment(&n, "harness-m", Some("native-m"));
+    assert!(n.pipes.binding(&am).is_some(), "`m`'s held signal was kept");
 }
 
 /// [SC-ID-125], [SC-ID-129], [SC-ID-154]: with two candidate attachments the signal is

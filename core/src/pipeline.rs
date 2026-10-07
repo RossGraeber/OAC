@@ -92,7 +92,9 @@
 //! ([SC-ID-154]). Signals are decided one at a time, in arrival order, by whichever thread
 //! holds the binding turn; a signal reported, or an attachment opened, while the turn is
 //! held makes the holder pass again. The held and queued signals together are bounded by
-//! [`PipelineConfig::max_pending_signals`]. A held signal's window is checked on every
+//! [`PipelineConfig::max_pending_signals`], shared fairly between the observed keys (and
+//! the connections of signals without one), so that one key cannot evict another's
+//! signals by flooding (#335). A held signal's window is checked on every
 //! adapter event and when the owner's timer calls [`Pipelines::expire_native_signals`];
 //! nothing polls.
 //!
@@ -190,11 +192,23 @@ pub struct PipelineConfig {
     /// with ([SC-ID-123]); `spec/session-channels.md` §6.7.2 leaves the length to the
     /// implementation.
     pub native_signal_window: Duration,
-    /// The most native signals held or waiting for their decision at once. Past it the
-    /// oldest held signal, or a new one when none is held, is dropped with a diagnostic
-    /// ([SC-ID-123], [SC-ID-128]), withholding any bound attachment its observed key
-    /// attributes it to ([SC-ID-154]). The cap is shared by every key: a per-key share is
-    /// #335.
+    /// The most native signals held or waiting for their decision at once, at least 1.
+    ///
+    /// Each signal counts against its *holder*: the pairing key observed for its
+    /// connection, else that connection, else the one holder of signals with neither. At
+    /// the cap, a new signal from a holder with `n` pending signals makes room (#335):
+    ///
+    /// - **Fair share.** When a holder has at least `n + 2`, the most of any, its oldest
+    ///   signal goes; among the holders with the most, the one whose latest signal arrived
+    ///   last gives it up, so no holder can steer the eviction onto another by its key or
+    ///   its connection.
+    /// - **Own share.** Otherwise, when `n > 0`, the holder's own oldest signal goes.
+    /// - **Refused.** Otherwise (`n == 0`) the new signal goes.
+    ///
+    /// So a holder is never brought below the number the newcomer then holds, and a
+    /// flooding holder only ever evicts its own signals once it is the heaviest. The
+    /// signal that goes is dropped with a diagnostic ([SC-ID-123], [SC-ID-128]),
+    /// withholding any bound attachment its observed key attributes it to ([SC-ID-154]).
     pub max_pending_signals: usize,
 }
 
@@ -283,6 +297,14 @@ struct QueuedSignal {
     adapter: AdapterId,
     signal: NativeSignal,
     key: Option<PairingKey>,
+    /// Its place in arrival order, among every native signal reported.
+    seq: u64,
+}
+
+impl QueuedSignal {
+    fn holder(&self) -> SignalHolder {
+        SignalHolder::of(self.key.as_ref(), self.signal.connection.as_ref())
+    }
 }
 
 /// A native signal that is not yet pairable, held for the window ([SC-ID-123]).
@@ -291,6 +313,30 @@ struct HeldSignal {
     signal: NativeSignal,
     key: PairingKey,
     held_at: Instant,
+    /// Its [`QueuedSignal::seq`].
+    seq: u64,
+}
+
+/// Whose share of [`PipelineConfig::max_pending_signals`] a pending native signal counts
+/// against (#335).
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum SignalHolder {
+    /// The pairing key observed for its connection when it was reported.
+    Key(PairingKey),
+    /// The connection it arrived on, which had no observed key.
+    Connection(ConnectionHandle),
+    /// Neither: such signals share one holder.
+    Unattributed,
+}
+
+impl SignalHolder {
+    fn of(key: Option<&PairingKey>, connection: Option<&ConnectionHandle>) -> SignalHolder {
+        match (key, connection) {
+            (Some(k), _) => SignalHolder::Key(k.clone()),
+            (None, Some(c)) => SignalHolder::Connection(c.clone()),
+            (None, None) => SignalHolder::Unattributed,
+        }
+    }
 }
 
 /// How a native signal pairs, at one moment (§6.7.2).
@@ -343,6 +389,8 @@ struct Core {
     signals: VecDeque<QueuedSignal>,
     /// Native signals held as not yet pairable, in arrival order.
     held: VecDeque<HeldSignal>,
+    /// The `seq` the next native signal reported takes.
+    next_signal_seq: u64,
 }
 
 struct Inner {
@@ -420,6 +468,7 @@ impl Pipelines {
             observed: HashMap::new(),
             signals: VecDeque::new(),
             held: VecDeque::new(),
+            next_signal_seq: 0,
         };
         Pipelines {
             inner: Arc::new(Inner {
@@ -836,6 +885,37 @@ fn fresh_id() -> Token {
     getrandom::fill(&mut octets).expect("the operating system's random number generator");
     Token::parse(&format!("msg-{}", crate::base64url::encode(&octets)))
         .expect("base64url is identifier-token safe")
+}
+
+/// The rule of [`PipelineConfig::max_pending_signals`] over `pending`, each pending signal's
+/// holder and `seq` (#335): the `seq` of the signal that makes room for a new one from
+/// `holder`, or `None` when the new one goes instead.
+fn fair_share_victim<H: Eq + std::hash::Hash>(
+    pending: impl Iterator<Item = (H, u64)>,
+    holder: &H,
+) -> Option<u64> {
+    // Per holder: how many it has pending, and the seq of its latest and its oldest.
+    let mut counts: HashMap<H, (usize, u64, u64)> = HashMap::new();
+    for (h, seq) in pending {
+        let c = counts.entry(h).or_insert((0, seq, seq));
+        c.0 += 1;
+        c.1 = c.1.max(seq);
+        c.2 = c.2.min(seq);
+    }
+    let mine = counts.get(holder).map_or(0, |c| c.0);
+    let most = counts.values().map(|c| c.0).max().unwrap_or(0);
+    if most >= mine + 2 {
+        // Fair share: the oldest of the heaviest holder whose latest signal arrived last,
+        // so neither a key's octets nor the map's order picks it.
+        counts
+            .values()
+            .filter(|c| c.0 == most)
+            .max_by_key(|c| c.1)
+            .map(|c| c.2)
+    } else {
+        // Own share; `None` when this holder has nothing pending.
+        counts.get(holder).map(|c| c.2)
+    }
 }
 
 /// The request sink an adapter is given: every request it passes enters the send path
@@ -1511,28 +1591,29 @@ impl Inner {
                     let mut core = self.lock();
                     // The key is snapshot now, while the connection is known (B3).
                     let key = Inner::observed_key(&core, adapter, &signal);
+                    let seq = core.next_signal_seq;
+                    core.next_signal_seq += 1;
+                    let queued = QueuedSignal {
+                        adapter,
+                        signal,
+                        key,
+                        seq,
+                    };
                     let full = core.signals.len() + core.held.len()
                         >= self.config.max_pending_signals.max(1);
                     if !full {
-                        core.signals.push_back(QueuedSignal {
-                            adapter,
-                            signal,
-                            key,
-                        });
+                        core.signals.push_back(queued);
                         None
-                    } else if let Some(oldest) = core.held.pop_front() {
-                        // Past the bound, the oldest held signal goes ([SC-ID-123]).
-                        core.signals.push_back(QueuedSignal {
-                            adapter,
-                            signal,
-                            key,
-                        });
-                        let attempt = Inner::pair_by_key(&core, oldest.adapter, &oldest.key);
-                        Some((oldest.signal, attempt))
+                    } else if let Some(victim) = Inner::pending_victim(&core, &queued.holder()) {
+                        // Past the bound, a signal of the heaviest holder, or of this one,
+                        // goes ([SC-ID-123]; #335).
+                        let dropped = Inner::take_pending(&mut core, victim);
+                        core.signals.push_back(queued);
+                        dropped
                     } else {
-                        // With none held, this one does.
-                        let attempt = Inner::pair(&core, adapter, key.as_ref());
-                        Some((signal, attempt))
+                        // This holder has none to give up: this one goes.
+                        let attempt = Inner::pair(&core, adapter, queued.key.as_ref());
+                        Some((queued.signal, attempt))
                     }
                 };
                 if let Some((s, attempt)) = dropped {
@@ -1541,6 +1622,31 @@ impl Inner {
                 self.drain_binding();
             }
         }
+    }
+
+    /// The `seq` of the pending signal that makes room for a new one from `holder` at
+    /// [`PipelineConfig::max_pending_signals`], by the rule documented there; `None` when
+    /// the new one goes instead.
+    fn pending_victim(core: &Core, holder: &SignalHolder) -> Option<u64> {
+        let pending = core
+            .held
+            .iter()
+            .map(|h| (SignalHolder::Key(h.key.clone()), h.seq))
+            .chain(core.signals.iter().map(|q| (q.holder(), q.seq)));
+        fair_share_victim(pending, holder)
+    }
+
+    /// Removes the pending signal `seq`, held or queued, with how it pairs now, to drop.
+    fn take_pending(core: &mut Core, seq: u64) -> Option<(NativeSignal, PairAttempt)> {
+        if let Some(i) = core.held.iter().position(|h| h.seq == seq) {
+            let h = core.held.remove(i)?;
+            let attempt = Inner::pair_by_key(core, h.adapter, &h.key);
+            return Some((h.signal, attempt));
+        }
+        let i = core.signals.iter().position(|q| q.seq == seq)?;
+        let q = core.signals.remove(i)?;
+        let attempt = Inner::pair(core, q.adapter, q.key.as_ref());
+        Some((q.signal, attempt))
     }
 
     /// Drops `signal` unbound, with its diagnostic ([SC-ID-124], [SC-ID-128]). When its
@@ -1627,12 +1733,24 @@ impl Inner {
             // [SC-ID-124], [SC-ID-128]: dropped, binding nothing; [SC-ID-154].
             self.drop_signal(&h.signal, attempt);
         }
-        let held: Vec<HeldSignal> = self.lock().held.drain(..).collect();
-        for h in held {
-            let attempt = Inner::pair_by_key(&self.lock(), h.adapter, &h.key);
-            match attempt {
-                PairAttempt::NotYet(_) => self.lock().held.push_back(h),
-                attempt => self.resolve(h.adapter, &h.signal, attempt),
+        // A held signal stays in `held` until it is decided, so it keeps counting against
+        // its holder's share and keeps its place in arrival order (#335). One evicted
+        // meanwhile is no longer there.
+        let held: Vec<u64> = self.lock().held.iter().map(|h| h.seq).collect();
+        for seq in held {
+            let decided = {
+                let mut core = self.lock();
+                let Some(i) = core.held.iter().position(|h| h.seq == seq) else {
+                    continue;
+                };
+                let attempt = Inner::pair_by_key(&core, core.held[i].adapter, &core.held[i].key);
+                match attempt {
+                    PairAttempt::NotYet(_) => None,
+                    attempt => core.held.remove(i).map(|h| (h, attempt)),
+                }
+            };
+            if let Some((h, attempt)) = decided {
+                self.resolve(h.adapter, &h.signal, attempt);
             }
         }
         for _ in 0..queued {
@@ -1640,6 +1758,7 @@ impl Inner {
                 adapter,
                 signal,
                 key,
+                seq,
             }) = self.lock().signals.pop_front()
             else {
                 return;
@@ -1651,6 +1770,7 @@ impl Inner {
                     signal,
                     key,
                     held_at: now,
+                    seq,
                 }),
                 attempt => self.resolve(adapter, &signal, attempt),
             }
@@ -1994,5 +2114,90 @@ impl Inner {
                 .transport
                 .send_presence(&destination, payload, self.control_deadline());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SignalHolder, fair_share_victim};
+    use crate::adapter::Connection;
+    use crate::session_binding::PairingKey;
+
+    /// #335: a signal counts against its observed key, whatever connection it came on;
+    /// without a key, against its connection; with neither, against the one shared holder.
+    #[test]
+    fn a_signal_counts_against_its_key_else_its_connection() {
+        let key = |s: &str| PairingKey::from_observation(s.as_bytes().to_vec());
+        let c1 = Connection::accept(std::io::empty(), std::io::sink());
+        let c2 = Connection::accept(std::io::empty(), std::io::sink());
+        let (c1, c2) = (c1.handle(), c2.handle());
+        let k = key("k");
+        assert!(
+            SignalHolder::of(Some(&k), Some(c1)) == SignalHolder::of(Some(&k), Some(c2)),
+            "one key over two connections is one holder"
+        );
+        assert!(SignalHolder::of(Some(&k), Some(c1)) == SignalHolder::of(Some(&k), None));
+        assert!(SignalHolder::of(Some(&k), None) != SignalHolder::of(Some(&key("j")), None));
+        assert!(
+            SignalHolder::of(None, Some(c1)) != SignalHolder::of(None, Some(c2)),
+            "two unkeyed connections are two holders"
+        );
+        assert!(SignalHolder::of(None, Some(c1)) == SignalHolder::of(None, Some(c1)));
+        assert!(SignalHolder::of(None, Some(c1)) != SignalHolder::of(None, None));
+        assert!(SignalHolder::of(None, None) == SignalHolder::of(None, None));
+        assert!(SignalHolder::of(Some(&k), Some(c1)) != SignalHolder::of(None, Some(c1)));
+    }
+
+    /// The victim for a newcomer from `holder`, over `pending` given as (holder, seq).
+    fn victim(pending: &[(char, u64)], holder: char) -> Option<u64> {
+        fair_share_victim(pending.iter().copied(), &holder)
+    }
+
+    /// #335, boundary: another holder pays only when it has at least two more than the
+    /// newcomer; with one more, the newcomer gives up its own oldest, or itself.
+    #[test]
+    fn fair_share_boundary() {
+        // `a` has 2, the newcomer `b` has 0: 2 >= 0 + 2, so `a`'s oldest goes.
+        assert_eq!(victim(&[('a', 0), ('a', 1)], 'b'), Some(0));
+        // `a` has 2, `b` has 1: 2 < 1 + 2, so `b` gives up its own oldest.
+        assert_eq!(victim(&[('a', 0), ('a', 1), ('b', 2)], 'b'), Some(2));
+        // `a` has 1, `b` has 0: `b`'s new signal is refused.
+        assert_eq!(victim(&[('a', 0)], 'b'), None);
+        // `a` has 3, `b` has 1: 3 >= 1 + 2, so `a`'s oldest goes, not `b`'s.
+        assert_eq!(
+            victim(&[('b', 0), ('a', 1), ('a', 2), ('a', 3)], 'b'),
+            Some(1)
+        );
+        // `b` has 2 (seq 0 and 4), `a` has 3: `b` gives up its own oldest.
+        assert_eq!(
+            victim(&[('b', 0), ('a', 1), ('a', 2), ('a', 3), ('b', 4)], 'b'),
+            Some(0)
+        );
+        // The flooding holder at the most only ever gives up its own.
+        assert_eq!(
+            victim(&[('b', 0), ('a', 1), ('a', 2), ('a', 3)], 'a'),
+            Some(1)
+        );
+        // Nothing pending at all: refused.
+        assert_eq!(victim(&[], 'a'), None);
+    }
+
+    /// #335, tie-break: among holders tied at the most, the one whose latest signal arrived
+    /// last pays, with its oldest, whatever the holders' names or order.
+    #[test]
+    fn fair_share_tie_break_is_by_recency() {
+        // `z` and `a` tie at 2; `a` reported last.
+        let pending = [('z', 0), ('z', 1), ('a', 2), ('a', 3)];
+        assert_eq!(victim(&pending, 'n'), Some(2));
+        // The names swapped: still the one that reported last.
+        let pending = [('a', 0), ('a', 1), ('z', 2), ('z', 3)];
+        assert_eq!(victim(&pending, 'n'), Some(2));
+        // Interleaved: `z` holds 0 and 3, `a` holds 1 and 2. `z`'s latest is newest, so
+        // its oldest (0) goes: not the overall newest, and not `a`'s.
+        let pending = [('z', 0), ('a', 1), ('a', 2), ('z', 3)];
+        assert_eq!(victim(&pending, 'n'), Some(0));
+        // A lighter holder that reported last is not among the heaviest and never pays.
+        let pending = [('z', 0), ('z', 1), ('a', 2), ('a', 3), ('m', 4)];
+        assert_eq!(victim(&pending, 'n'), Some(2));
     }
 }

@@ -4,6 +4,20 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #335: a fair share of the pending native-signal
+cap.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text changes;
+§6.7.2 leaves the bound to the implementation, and every MUST holds.
+
+- **Core.** `Pipelines` counts each held or queued native signal against its observed
+  pairing key, else its connection. At `max_pending_signals`, the heaviest holder pays
+  when it holds at least two more than the newcomer, with ties going to the holder that
+  signalled last. Otherwise the newcomer gives up its own oldest, or is dropped. A dropped
+  signal still records [SC-ID-128] and withholds per [SC-ID-154]. Held signals stay
+  counted while a pass decides them.
+- **Risks.** `11-risks.md` RISK-LOCAL-IPC records the remaining availability-only
+  residuals: many distinct keys can deny a holder with nothing pending, and a burst can be
+  trimmed to its newest signal.)
+
 **Last updated:** 2026-10-07 (**Issue #331: the core binds from native signals
 (`spec/session-channels.md` §6.7).** No `spec/` file, gate verdict, pin, third-party
 dependency or ADR text changes.
