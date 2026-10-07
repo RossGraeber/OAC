@@ -23,6 +23,12 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+# No doc-tests (#329): neither the static threat map nor check-compiled-tests.mjs's listing
+# sees one, so a doc-test could never count as a proof. tests/threat_map.rs checks this
+# setting, and that no target here sets a test harness of its own.
+[lib]
+doctest = false
+
 [dependencies]
 oac-core.workspace = true
 oac-fake-claude = { path = "../fakes/claude" }

@@ -42,8 +42,15 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
   - a gated placeholder is not ignored, or passes when run;
   - a compiled test is in no row.
 
+  It also fails on a test no listing sees (#329): a target with doc-tests on (the crate
+  sets `[lib] doctest = false`), and a target whose `--list` is not libtest's (a
+  `harness = false` target). `tests/threat_map.rs` refuses both statically, and refuses a
+  function that is a test only through `#[cfg_attr(.., test)]`.
+
   CI runs it on every OS. `--self-test` plants each known evasion in a copy and checks it
-  is caught; CI runs it on the ubuntu image.
+  is caught; CI runs it on the ubuntu image. `--self-test --work-dir <dir>` puts the copy
+  and its `target/` under `<dir>` (default `target/security-compiled-tests`), so a short
+  path keeps Windows under its path-length limit.
 - **`gated_*` tests** hold the place of mitigations that need a component not built yet:
   - Epic G adapters;
   - the G9 daemon and IPC;
@@ -63,9 +70,13 @@ the suite catches each one.
 - A mutant marked `coreOnly` is one the suite cannot reach through the public API. For
   example, a pairing code that drops the keys cannot be caught when the nonces are random.
   Such a mutant must instead be caught by the `oac-core` test that `THREATS` cites.
-- CI does not run the check, because it recompiles the core for each mutation:
+- It is the one check that catches a proof which returns early before it asserts.
+- The default CI tier does not run it, because it recompiles the core for each mutation.
+  It runs in the opt-in tier instead (#329): weekly and on manual dispatch, in
+  `.github/workflows/security-mutation-optin.yml`.
 
 ```sh
 node tests/security/mutation-check.mjs          # all mutations
 node tests/security/mutation-check.mjs --only "row 4"
+node tests/security/mutation-check.mjs --work-dir <dir>   # default: target/security-mutation
 ```

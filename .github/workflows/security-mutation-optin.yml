@@ -1,0 +1,61 @@
+# Security suite mutation check (#329; tests/security/mutation-check.mjs, #60 F11): plants
+# one regression at a time in a copy of core/ and expects the security suite, or the cited
+# oac-core test for a `coreOnly` mutant, to fail. It is the one check that catches a proof
+# which returns early before it asserts, which neither the static threat map nor
+# check-compiled-tests.mjs can see.
+#
+# Opt-in tier, NOT the default CI tier (oac-testing section 2): it recompiles core/ and the
+# suite once per mutation, so it runs weekly on a schedule and by manual dispatch, never
+# from a pull request or a push. Like the default tier it needs no live provider, no API
+# key and no network beyond loopback: the one networked step is `cargo fetch`, every cargo
+# step after it runs with CARGO_NET_OFFLINE (the script also passes --offline), and the
+# tests run under scripts/loopback-only.sh where the kernel has network namespaces.
+#
+# No secrets. Permissions contents: read; checkout does not persist the job token; every
+# action is pinned by commit SHA. The work directory (the copied workspace and its target/)
+# is under the runner's temporary directory.
+name: security-mutation-optin
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  mutation-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: |
+          set -eu
+          rustup toolchain install
+          rustc --version | grep -q '^rustc 1\.98\.1 ' || { echo "toolchain is not the 1.98.1 pin"; exit 1; }
+
+      # The one networked cargo step.
+      - name: cargo fetch
+        run: cargo fetch --locked
+
+      - name: Select the loopback-only sandbox (by kernel, not by image name)
+        run: bash scripts/loopback-only.sh --select >> "$GITHUB_ENV"
+
+      - name: Loopback-only sandbox probe (loopback connects, nothing else is reachable)
+        if: env.LOOPBACK_ONLY != ''
+        run: bash scripts/loopback-only.sh --probe
+
+      - name: Mutation check (every planted core regression must be caught)
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: $LOOPBACK_ONLY node tests/security/mutation-check.mjs --work-dir "$RUNNER_TEMP/security-mutation"

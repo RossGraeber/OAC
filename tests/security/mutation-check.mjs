@@ -15,14 +15,16 @@
 //   node tests/security/mutation-check.mjs --work-dir <dir>   # default: target/security-mutation
 //
 // Not part of the default CI run: each mutation recompiles core/ and the suite (a few
-// minutes in all, with the work directory's target/ reused between runs). Run it when the
-// suite or a core mitigation changes. Node built-ins only; cargo runs with --offline.
+// minutes in all, with the work directory's target/ reused between runs). It runs in the
+// opt-in tier instead (#329): weekly and on manual dispatch, in
+// .github/workflows/security-mutation-optin.yml. Run it by hand too when the suite or a core
+// mitigation changes. Node built-ins only; cargo runs with --offline.
 // Exit codes: 0 = every mutation caught and the control passes; 1 = a mutation survived
 // or the control failed; 2 = usage or environment error.
 
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -291,9 +293,14 @@ function touchTree(dir, when) {
 export function copyWorkspace(ws) {
   rmSync(ws, { recursive: true, force: true });
   mkdirSync(ws, { recursive: true });
-  // Entry by entry: the work directory may sit inside the repository's target/.
+  // Entry by entry: the work directory may sit inside the repository's target/, or (given
+  // with --work-dir) inside any other top-level entry, which is then not copied into itself.
+  const inside = (dir) => {
+    const r = relative(dir, ws);
+    return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+  };
   for (const entry of readdirSync(repoRoot)) {
-    if (EXCLUDE_TOP.has(entry)) continue;
+    if (EXCLUDE_TOP.has(entry) || inside(join(repoRoot, entry))) continue;
     cpSync(join(repoRoot, entry), join(ws, entry), { recursive: true });
   }
   touchTree(ws, new Date());
