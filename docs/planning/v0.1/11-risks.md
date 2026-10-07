@@ -498,7 +498,11 @@ list.
     or a new attachment after a shim reconnect, back to the older conversation. Now a
     held signal's window ends when a newer signal of its key, under its adapter, pairs
     (SC-ID-123): it is dropped before it pairs (SC-ID-124, SC-ID-128), binding and
-    withholding nothing, and no state outlives an attachment. Proving tests:
+    withholding nothing, and no state outlives an attachment. A drop already taken for
+    eviction on another thread before that pairing, and applied after it, is answered by
+    the attachment's latest pairing and withholds nothing either. Proving tests:
+    `a_late_eviction_drop_does_not_withhold_a_newer_binding`,
+    `a_late_eviction_drop_is_answered_by_the_latest_pairing`,
     `an_older_held_signal_does_not_rebind_over_a_newer_one`,
     `an_older_held_signal_does_not_bind_a_reconnected_attachment`,
     `every_older_held_signal_of_the_key_goes_when_a_newer_one_pairs`,

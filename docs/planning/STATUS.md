@@ -14,7 +14,8 @@ changes.
   #331). Now a held signal's window ends when a newer signal of its key, under its
   adapter, pairs ([SC-ID-123]): it is dropped before it pairs ([SC-ID-124],
   [SC-ID-128]), binding and withholding nothing, with no state that outlives an
-  attachment. The module documentation no longer claims every signal is decided in
+  attachment. An eviction drop still in flight on another thread when that pairing
+  happens is answered by the attachment's latest pairing, and withholds nothing. The module documentation no longer claims every signal is decided in
   arrival order.
 - **Also (PR #337 re-review).** A test pins that `unbind` keeps a drop's place (N6);
   `ProviderAdapter::set_binding` is documented as advisory, able to lag the core under

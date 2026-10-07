@@ -309,6 +309,12 @@ struct AttachmentEntry {
     /// for an earlier signal neither releases it nor binds it delivering, and a drop that
     /// lands while the attachment is between bindings is still answered (PR #337).
     withheld_by: Option<u64>,
+    /// The arrival `seq` of the latest native signal that paired with it and was decided.
+    /// A drop of an older signal, applied late (taken for eviction on another thread
+    /// before that pairing, withheld after it), is answered already and withholds nothing
+    /// ([SC-ID-154]; PR #339 review). Kept per attachment, as `withhold` acts on the
+    /// attachment: a new attachment after a reconnect has nothing to withhold.
+    paired_seq: Option<u64>,
 }
 
 /// A native signal waiting for its decision, with the pairing key observed for its
@@ -1644,6 +1650,7 @@ impl Inner {
                                 cross_check,
                                 withheld: false,
                                 withheld_by: None,
+                                paired_seq: None,
                             });
                     }
                 }
@@ -1960,11 +1967,17 @@ impl Inner {
         // allows "at most a bounded window"): each is dropped before it pairs, binding
         // nothing ([SC-ID-124], [SC-ID-128]). This pairing is the later signal that answers
         // them, so they withhold nothing ([SC-ID-154]). No state outlives an attachment:
-        // a held signal's seq is lower than every queued one's, so the older signals of a
-        // key are always still held at this point.
+        // a held signal's seq is lower than every queued one's, so a key's older signals
+        // that are still pending are all held here. One can also be in flight: taken for
+        // eviction on another thread, its drop not yet applied. That drop reaches
+        // `withhold` after this pairing, which `paired_seq` (set here, under the same lock)
+        // makes it ignore (PR #339 review).
         if let Pairing::Paired(a) = &pairing {
             let superseded = {
                 let mut core = self.lock();
+                if let Some(e) = core.attachments.get_mut(a) {
+                    e.paired_seq = Some(e.paired_seq.map_or(seq, |p| p.max(seq)));
+                }
                 match core.observed.get(a).and_then(|o| o.pairing_key.clone()) {
                     Some(key) => {
                         let (gone, kept): (VecDeque<HeldSignal>, VecDeque<HeldSignal>) = core
@@ -2068,10 +2081,11 @@ impl Inner {
     /// attachment between bindings (a decision for an earlier signal is re-binding it) has
     /// nothing to stop yet; `seq` is kept, so that re-binding starts withheld.
     ///
-    /// Never called for a signal older than one that already paired with its key: when a
-    /// signal pairs, the older held signals of its key are dropped there and then without
-    /// withholding (they are answered, #338), and every queued signal is newer than every
-    /// held one.
+    /// A signal older than one that already paired with `attachment` is answered already
+    /// and withholds nothing. When a signal pairs, the older held signals of its key are
+    /// dropped there without withholding (#338); but a drop taken for eviction on another
+    /// thread before that pairing can reach here after it, and `paired_seq` makes it a
+    /// no-op (PR #339 review).
     ///
     /// The adapter is told after the lock is released, as every adapter call is: under a
     /// concurrent drop or release its view can briefly lag the core's. The core's own
@@ -2084,6 +2098,9 @@ impl Inner {
             let Some(e) = core.attachments.get_mut(attachment) else {
                 return;
             };
+            if e.paired_seq.is_some_and(|p| p > seq) {
+                return;
+            }
             e.withheld_by = Some(withheld_until_after(e.withheld_by, seq));
             let Some(s) = e.session.clone() else { return };
             e.withheld = true;
