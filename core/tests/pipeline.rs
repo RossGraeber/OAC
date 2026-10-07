@@ -22,8 +22,9 @@ use oac_core::adapter::{
 };
 use oac_core::authorization::{
     AuthorizationEngine, Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide,
+    REPLY_PERIOD_MS,
 };
-use oac_core::clock::{Clock, SystemClock};
+use oac_core::clock::{Clock, ManualClock, SystemClock};
 use oac_core::delivery::{DeliveryState, ErrorCode, Observer, Scope};
 use oac_core::envelope::{ContentPart, TextPart};
 use oac_core::health::{HealthState, HealthStatus};
@@ -404,8 +405,11 @@ struct Node {
 }
 
 fn node(bus: &Bus, principal: &str, config: PipelineConfig) -> Node {
+    node_on(bus, principal, config, Arc::new(SystemClock))
+}
+
+fn node_on(bus: &Bus, principal: &str, config: PipelineConfig, clock: Arc<dyn Clock>) -> Node {
     let identity = DeviceIdentity::new(DeviceKey::generate(), Token::parse(principal).unwrap());
-    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let engine =
         AuthorizationEngine::new(&identity, clock.clone(), Box::new(MemoryDecisionLog::new()));
     let pipes = Pipelines::new(
@@ -1333,4 +1337,28 @@ fn a_panicking_hand_off_is_unknown_and_the_requeue_still_drains() {
     // duplicate of it, offered at once rather than left waiting for the next envelope.
     assert_eq!(states, [DeliveryState::Unknown, DeliveryState::Duplicate]);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+/// PR #326 re-review: `AuthorizationEngine::prune` is wired. When a session ends, every
+/// sent and hand-off record past its reply period goes, including those of sessions still
+/// bound, which would otherwise wait for their own partition's next record.
+#[test]
+fn a_session_end_prunes_expired_records() {
+    let bus = Bus::default();
+    let clock = Arc::new(ManualClock::new(SystemClock.now()));
+    let n = node_on(&bus, "device-a", PipelineConfig::default(), clock.clone());
+    let (a, sa) = session(&n, 1);
+    let (_b, sb) = session(&n, 2);
+    let (c, _sc) = session(&n, 3);
+    local_grant(&n, &sa, &sb);
+    sent(n.adapter.sink().send(request(&a, &sb, "old")));
+    let counts = |n: &Node| {
+        n.pipes
+            .with_engine(|e| (e.sent_records().count(), e.handoff_records().count()))
+    };
+    assert_eq!(counts(&n), (1, 1));
+    clock.advance_nanos(i128::from(REPLY_PERIOD_MS) * 1_000_000);
+    assert_eq!(counts(&n), (1, 1));
+    n.pipes.unbind(&c);
+    assert_eq!(counts(&n), (0, 0));
 }

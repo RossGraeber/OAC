@@ -501,7 +501,8 @@ impl Pipelines {
 
     /// Ends the binding of `attachment`, if it has one: the adapter is told first, so it
     /// hands nothing more off to it ([IFC-ADP-030]); the transport subscription ends
-    /// ([IFC-TRN-042]); the engine forgets the session's reply rights ([SEC-AUZ-015]); the
+    /// ([IFC-TRN-042]); the engine forgets the session's reply rights ([SEC-AUZ-015]) and
+    /// its record partitions, and prunes every record past its reply period; the
     /// registry reads it `unreachable` ([SC-DLV-055]); and each device it was announced to
     /// is sent its withdrawal.
     pub fn unbind(&self, attachment: &Attachment) {
@@ -1086,10 +1087,11 @@ impl Inner {
     fn hand_off(&self, msg: &ChannelMessage) -> HandOffOutcome {
         let target = {
             let core = self.lock();
+            // The re-check is this lookup: `unbind`, and so an attachment's close, removes the
+            // session's entry in the same step as its attachment's binding.
             core.sessions.get(msg.envelope().to()).and_then(|a| {
                 let e = core.attachments.get(a)?;
-                (e.open && e.session.is_some())
-                    .then(|| (core.adapters[e.adapter.0].clone(), a.clone()))
+                Some((core.adapters[e.adapter.0].clone(), a.clone()))
             })
         };
         let Some((adapter, attachment)) = target else {
@@ -1362,6 +1364,7 @@ impl Inner {
             }
             core.sessions.remove(&session);
             core.engine.end_session(&session);
+            core.engine.prune();
             core.registry.deregister_own(&session);
             let sub = core.subscriptions.remove(&session);
             let devices: Vec<KeyId> = core

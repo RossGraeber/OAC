@@ -71,68 +71,238 @@ pub const REPLY_PERIOD_MS: u64 = 86_400_000;
 /// early for that writer alone (`docs/planning/v0.1/11-risks.md` RISK-RECORD-PARTITIONS).
 pub const MAX_RECORDS_PER_PARTITION: usize = 4096;
 
-/// The most partitions each record list holds. Partitions are own sessions (sent records)
-/// and trusted keys (hand-off records), both of which an operator or the local daemon
-/// bounds; a record for a new partition past this many is not kept (fail-closed), and no
-/// existing partition is evicted for it.
+/// The most partitions each record list holds at once. A partition goes as soon as it is
+/// empty, when its session ends (sent records, and an own sender's hand-off records), when
+/// its key is removed from trust, and, once the list is at this many, when every record in
+/// it is past its reply period. A record for a new partition is not kept (fail-closed)
+/// only while this many partitions all hold a live record; no live partition is evicted
+/// for it.
 pub const MAX_RECORD_PARTITIONS: usize = 4096;
 
-/// A record list in partitions ([`MAX_RECORDS_PER_PARTITION`]). Adding a record touches its
-/// own partition only, in constant time apart from dropping expired records at its front.
-#[derive(Debug)]
-struct RecordBook<K: Ord, R> {
-    parts: BTreeMap<K, VecDeque<R>>,
+/// The most records each record list holds in all, across its partitions. Past it, the
+/// largest partition gives up its oldest record, so a writer keeps at least its fair share
+/// (this over the number of partitions) whatever the others do.
+pub const MAX_RECORDS_TOTAL: usize = 262_144;
+
+/// A record that carries the instant its reply period starts.
+trait Dated {
+    fn created_at(&self) -> &Timestamp;
 }
 
-impl<K: Ord + Clone, R> RecordBook<K, R> {
+impl Dated for SentRecord {
+    fn created_at(&self) -> &Timestamp {
+        &self.created_at
+    }
+}
+
+impl Dated for HandOffRecord {
+    fn created_at(&self) -> &Timestamp {
+        &self.created_at
+    }
+}
+
+/// The instant, in Unix nanoseconds, at which a record created at `t` stops counting.
+fn period_end(t: &Timestamp) -> i128 {
+    t.unix_nanos() + i128::from(REPLY_PERIOD_MS) * NANOS_PER_MS
+}
+
+#[derive(Debug)]
+struct Partition<R> {
+    records: VecDeque<R>,
+    /// The latest reply-period end of any record it ever held: once that is past, every
+    /// record in it is.
+    ends: i128,
+}
+
+/// A record list in partitions ([`MAX_RECORDS_PER_PARTITION`], [`MAX_RECORD_PARTITIONS`],
+/// [`MAX_RECORDS_TOTAL`]). Adding a record touches its own partition, in amortized constant
+/// time plus logarithmic index upkeep; a sweep of whole expired partitions runs only at the
+/// partition cap, and only once some partition can have expired since the last one.
+#[derive(Debug)]
+struct RecordBook<K: Ord, R> {
+    parts: BTreeMap<K, Partition<R>>,
+    /// Partition sizes, for the largest one.
+    by_size: BTreeSet<(usize, K)>,
+    total: usize,
+    /// No partition can be wholly expired before this instant (Unix nanoseconds); `None`
+    /// before the first sweep.
+    next_sweep: Option<i128>,
+    /// [`MAX_RECORD_PARTITIONS`].
+    max_partitions: usize,
+}
+
+impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
     fn new() -> Self {
         RecordBook {
             parts: BTreeMap::new(),
+            by_size: BTreeSet::new(),
+            total: 0,
+            next_sweep: None,
+            max_partitions: MAX_RECORD_PARTITIONS,
         }
     }
 
-    /// Adds `r` to partition `key`; false, keeping nothing, when a new partition would
-    /// pass [`MAX_RECORD_PARTITIONS`].
-    fn push(&mut self, key: K, r: R, expired: impl Fn(&R) -> bool) -> bool {
-        if !self.parts.contains_key(&key) && self.parts.len() >= MAX_RECORD_PARTITIONS {
-            return false;
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.total
+    }
+
+    #[cfg(test)]
+    fn partitions(&self) -> usize {
+        self.parts.len()
+    }
+
+    /// Removes one record from the front of partition `key`, dropping the partition when
+    /// it empties.
+    fn pop_front(&mut self, key: &K) {
+        let Some(p) = self.parts.get_mut(key) else {
+            return;
+        };
+        let n = p.records.len();
+        if p.records.pop_front().is_none() {
+            return;
         }
-        let q = self.parts.entry(key).or_default();
-        while q.front().is_some_and(&expired) {
-            q.pop_front();
+        self.total -= 1;
+        self.by_size.remove(&(n, key.clone()));
+        if n > 1 {
+            self.by_size.insert((n - 1, key.clone()));
+        } else {
+            self.parts.remove(key);
         }
-        if q.len() >= MAX_RECORDS_PER_PARTITION {
-            q.pop_front();
+    }
+
+    fn drop_partition(&mut self, key: &K) {
+        if let Some(p) = self.parts.remove(key) {
+            self.total -= p.records.len();
+            self.by_size.remove(&(p.records.len(), key.clone()));
         }
-        q.push_back(r);
+    }
+
+    /// Drops every partition whose records are all past their reply period at `now`, and
+    /// notes when the next one can be.
+    fn sweep(&mut self, now: i128) {
+        let gone: Vec<K> = self
+            .parts
+            .iter()
+            .filter(|(_, p)| p.ends <= now)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in &gone {
+            self.drop_partition(k);
+        }
+        self.next_sweep = self.parts.values().map(|p| p.ends).min();
+    }
+
+    /// Adds `r` to partition `key` at `now`; false, keeping nothing, when a new partition
+    /// would pass [`MAX_RECORD_PARTITIONS`] after a sweep of expired ones.
+    fn push(&mut self, key: K, r: R, now: &Timestamp) -> bool {
+        let now = now.unix_nanos();
+        if !self.parts.contains_key(&key) && self.parts.len() >= self.max_partitions {
+            if self.next_sweep.is_none_or(|t| t <= now) {
+                self.sweep(now);
+            }
+            if self.parts.len() >= self.max_partitions {
+                return false;
+            }
+        }
+        // Its own expired records first, then its own oldest at the cap.
+        while self
+            .parts
+            .get(&key)
+            .and_then(|p| p.records.front())
+            .is_some_and(|f| period_end(f.created_at()) <= now)
+        {
+            self.pop_front(&key);
+        }
+        if self
+            .parts
+            .get(&key)
+            .is_some_and(|p| p.records.len() >= MAX_RECORDS_PER_PARTITION)
+        {
+            self.pop_front(&key);
+        }
+        // Past the total, the largest partition gives one up.
+        if self.total >= MAX_RECORDS_TOTAL
+            && let Some((_, largest)) = self.by_size.last().cloned()
+        {
+            self.pop_front(&largest);
+        }
+        let ends = period_end(r.created_at());
+        let p = self.parts.entry(key.clone()).or_insert(Partition {
+            records: VecDeque::new(),
+            ends,
+        });
+        let n = p.records.len();
+        p.records.push_back(r);
+        p.ends = p.ends.max(ends);
+        if n > 0 {
+            self.by_size.remove(&(n, key.clone()));
+        }
+        self.by_size.insert((n + 1, key));
+        self.total += 1;
+        if self.next_sweep.is_some_and(|t| ends < t) {
+            self.next_sweep = Some(ends);
+        }
         true
     }
 
     fn iter(&self) -> impl Iterator<Item = &R> {
-        self.parts.values().flatten()
+        self.parts.values().flat_map(|p| p.records.iter())
     }
 
     fn partition(&self, key: &K) -> impl Iterator<Item = &R> + use<'_, K, R> {
-        self.parts.get(key).into_iter().flatten()
+        self.parts
+            .get(key)
+            .into_iter()
+            .flat_map(|p| p.records.iter())
     }
 
+    /// Keeps only the records `keep` accepts, dropping emptied partitions. A full pass: for
+    /// [`AuthorizationEngine::prune`] and session ends, never per record.
     fn retain(&mut self, mut keep: impl FnMut(&R) -> bool) {
-        for q in self.parts.values_mut() {
-            q.retain(&mut keep);
+        let keys: Vec<K> = self.parts.keys().cloned().collect();
+        for k in keys {
+            let Some(p) = self.parts.get_mut(&k) else {
+                continue;
+            };
+            let before = p.records.len();
+            p.records.retain(&mut keep);
+            let after = p.records.len();
+            if after != before {
+                self.total -= before - after;
+                self.by_size.remove(&(before, k.clone()));
+                if after == 0 {
+                    self.parts.remove(&k);
+                } else {
+                    self.by_size.insert((after, k));
+                }
+            }
         }
-        self.parts.retain(|_, q| !q.is_empty());
+    }
+
+    /// Drops every partition whose key `matches`.
+    fn drop_partitions(&mut self, matches: impl Fn(&K) -> bool) {
+        let keys: Vec<K> = self.parts.keys().filter(|k| matches(k)).cloned().collect();
+        for k in &keys {
+            self.drop_partition(k);
+        }
     }
 
     /// Removes the first record of partition `key` that `matches`.
     fn remove_first(&mut self, key: &K, matches: impl Fn(&R) -> bool) -> bool {
-        let Some(q) = self.parts.get_mut(key) else {
+        let Some(p) = self.parts.get_mut(key) else {
             return false;
         };
-        let Some(i) = q.iter().position(matches) else {
+        let Some(i) = p.records.iter().position(matches) else {
             return false;
         };
-        q.remove(i);
-        if q.is_empty() {
+        let n = p.records.len();
+        p.records.remove(i);
+        self.total -= 1;
+        self.by_size.remove(&(n, key.clone()));
+        if n > 1 {
+            self.by_size.insert((n - 1, key.clone()));
+        } else {
             self.parts.remove(key);
         }
         true
@@ -1114,6 +1284,9 @@ impl AuthorizationEngine {
         for s in &bindings {
             self.bindings.remove(s);
         }
+        // Hand-off records the key verified go with it (#313).
+        let removed_key = Some(key_id.clone());
+        self.handed_off.drop_partitions(|(k, _)| k == &removed_key);
         self.change(format!(
             "removed key {key_id}: {} grant(s), {} binding(s)",
             removed.len(),
@@ -1234,8 +1407,15 @@ impl AuthorizationEngine {
             return false;
         }
         self.bindings.remove(session);
-        self.sent.retain(|r| &r.from != session);
+        // Its reply rights ([SEC-AUZ-015]), in its own partition.
+        let s = session.clone();
+        self.sent.drop_partitions(|k| k == &s);
+        // What it was handed, and, as a sender that can no longer be addressed, the
+        // partition of what it sent to the sessions still bound (#313, PR #326 re-review).
         self.handed_off.retain(|r| &r.to != session);
+        let own = Some(self.own_key.clone());
+        self.handed_off
+            .drop_partitions(|(k, f)| k == &own && f.as_ref() == Some(&s));
         true
     }
 
@@ -1306,8 +1486,7 @@ impl AuthorizationEngine {
     pub fn record_sent(&mut self, record: SentRecord) {
         let now = self.clock.now();
         let key = record.from.clone();
-        self.sent
-            .push(key, record, |r| !within_reply_period(&r.created_at, &now));
+        self.sent.push(key, record, &now);
     }
 
     /// Records a hand-off to an own session, when its outcome was `handed-to-harness` or
@@ -1323,8 +1502,7 @@ impl AuthorizationEngine {
         ) {
             let now = self.clock.now();
             let key = self.handoff_partition(record.key_id.as_ref(), &record.from);
-            self.handed_off
-                .push(key, record, |r| !within_reply_period(&r.created_at, &now));
+            self.handed_off.push(key, record, &now);
         }
     }
 
@@ -1340,7 +1518,11 @@ impl AuthorizationEngine {
     }
 
     /// The hand-off records of envelopes from `from`: its partition when a binding names
-    /// its key, else every partition.
+    /// its key, and the partition of records kept with no key. An unbound sender's records
+    /// are not looked for: no scan of every partition runs under a decision. A sender is
+    /// unbound only once forgotten, removed from trust, or ended (own sessions), and its
+    /// records then serve nothing a send to it could use; it is bound again, to the same
+    /// partition, by its next announcement or envelope.
     fn handoffs_from<'a>(
         &'a self,
         from: &'a SessionId,
@@ -1353,12 +1535,16 @@ impl AuthorizationEngine {
                     self.handed_off.partition(&(None, None)),
                 ))
             }
-            _ => Box::new(self.handed_off.iter()),
+            _ => Box::new(self.handed_off.partition(&(None, None))),
         }
     }
 
     /// Forgets sent and hand-off records whose reply period has ended on the engine's
-    /// clock. They no longer count after that instant anyway.
+    /// clock. They no longer count after that instant anyway. A full pass over both lists,
+    /// bounded by [`MAX_RECORDS_TOTAL`] each: the receive and send pipelines run it when a
+    /// session ends ([`crate::pipeline::Pipelines::unbind`]), never per record; between
+    /// passes each partition drops its own expired records as it grows, and whole expired
+    /// partitions go at the partition cap.
     pub fn prune(&mut self) {
         let now = self.clock.now();
         self.prune_at(&now);
@@ -2375,6 +2561,9 @@ mod tests {
         let clock = Arc::new(crate::clock::ManualClock::new(now()));
         let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
         let peer = Some(kid_n(7));
+        // A handed-off envelope bound its sender to the key that verified it
+        // ([SEC-PRS-005]); the records are looked up through that binding.
+        e.bind(&sid(A1), &kid_n(7));
         let r = handoff("m7", &sid(A1), &sid(B1), peer.clone());
         e.record_handoff(r.clone(), DeliveryState::HandedToHarness);
         e.record_handoff(
@@ -2511,5 +2700,145 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    fn kid_u32(n: u32) -> KeyId {
+        KeyId::parse(&format!("{n:064x}")).unwrap()
+    }
+
+    /// PR #326 re-review B2', the reviewer's churn scenario: 4096 short-lived own sessions
+    /// each send, hand one message to a live own session, and end. Their partitions go with
+    /// them, so a new peer's hand-off is still recorded, its reply correlates
+    /// ([SC-RCP-053]) and its sender stays discoverable ([SEC-AUZ-016]). (Each session's
+    /// registration record takes a signature and a verification, so this test is slow in a
+    /// debug build.)
+    #[test]
+    fn ended_sessions_free_their_partitions() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        let cap = MAX_RECORD_PARTITIONS;
+        register(&mut e, &me, B1, "/w");
+        let own = Some(me.key_id().clone());
+        for n in 0..cap as u32 {
+            let s = sid_n(n);
+            register(&mut e, &me, s.as_str(), "/w");
+            let sent = me.sign_envelope(
+                EnvelopeDraft::new(
+                    Token::parse("s").unwrap(),
+                    s.clone(),
+                    sid(B3),
+                    now(),
+                    vec![TextPart::new("x").unwrap()],
+                )
+                .unwrap(),
+            );
+            e.record_sent(SentRecord::of(&sent, kid_n(3)));
+            e.record_handoff(
+                handoff("m", &s, &sid(B1), own.clone()),
+                DeliveryState::HandedToHarness,
+            );
+            assert!(e.end_session(&s));
+        }
+        assert_eq!(e.handed_off.partitions(), 0);
+        assert_eq!(e.sent.partitions(), 0);
+        let peer = kid_n(42);
+        e.bind(&sid(A1), &peer);
+        e.record_handoff(
+            handoff("legit", &sid(A1), &sid(B1), Some(peer)),
+            DeliveryState::HandedToHarness,
+        );
+        assert!(
+            e.reply_headers(&sid(B1), &sid(A1), Some("legit"))
+                .correlated()
+        );
+        let d = e.decide(&AuthorizationRequest::Discover {
+            requester: Requester::Session(sid(B1)),
+            session: sid(A1),
+        });
+        assert!(matches!(d.basis(), Some(Basis::HandOff(_))));
+    }
+
+    /// B2': at the partition cap, partitions whose records are all past their reply period
+    /// are swept before a new one is refused; one emptied partition can be made again; a
+    /// key removed from trust takes its partition with it.
+    #[test]
+    fn expired_emptied_and_removed_partitions_are_reclaimed() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e =
+            AuthorizationEngine::new(&me, clock.clone(), Box::new(MemoryDecisionLog::new()));
+        for n in 0..MAX_RECORD_PARTITIONS as u32 {
+            e.record_handoff(
+                handoff("m", &sid(A1), &sid(B1), Some(kid_u32(n))),
+                DeliveryState::HandedToHarness,
+            );
+        }
+        // At the cap, all live: a new writer is refused, no live partition evicted.
+        let late = handoff("late", &sid(A1), &sid(B1), Some(kid_u32(1 << 20)));
+        e.record_handoff(late.clone(), DeliveryState::HandedToHarness);
+        assert_eq!(e.handed_off.partitions(), MAX_RECORD_PARTITIONS);
+        assert!(!e.handoff_records().any(|r| r.id.as_str() == "late"));
+        // One partition emptied by `forget_handoff` is gone, so it can be made again.
+        assert!(e.forget_handoff(&handoff("m", &sid(A1), &sid(B1), Some(kid_u32(7)))));
+        e.record_handoff(late.clone(), DeliveryState::HandedToHarness);
+        assert!(e.handoff_records().any(|r| r.id.as_str() == "late"));
+        // Past the reply period every partition is expired: the next new one sweeps them.
+        clock.advance_nanos(i128::from(REPLY_PERIOD_MS) * NANOS_PER_MS);
+        let mut fresh = handoff("fresh", &sid(A1), &sid(B1), Some(kid_u32(1 << 21)));
+        fresh.created_at = e.now();
+        e.record_handoff(fresh, DeliveryState::HandedToHarness);
+        assert_eq!(e.handed_off.partitions(), 1);
+        assert!(e.handoff_records().any(|r| r.id.as_str() == "fresh"));
+        // A key removed from trust drops its partition.
+        let q = identity("q");
+        let store = MemoryPairingStore::new();
+        e.pair(
+            PairedPeer::confirmed(q.principal().clone(), *q.public_key(), e.now()),
+            &store,
+        )
+        .unwrap();
+        let mut theirs = handoff("theirs", &sid(A1), &sid(B1), Some(q.key_id().clone()));
+        theirs.created_at = e.now();
+        e.record_handoff(theirs, DeliveryState::HandedToHarness);
+        assert_eq!(e.handed_off.partitions(), 2);
+        e.remove_key(q.key_id(), ok(), &store).unwrap();
+        assert_eq!(e.handed_off.partitions(), 1);
+        assert!(!e.handoff_records().any(|r| r.id.as_str() == "theirs"));
+    }
+
+    /// The total across partitions is bounded ([`MAX_RECORDS_TOTAL`]): past it, the largest
+    /// partition gives up its oldest record, never a small writer's.
+    #[test]
+    fn the_total_is_bounded_by_the_largest_partition() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        let full = MAX_RECORDS_TOTAL / MAX_RECORDS_PER_PARTITION;
+        for n in 0..full as u32 {
+            for i in 0..MAX_RECORDS_PER_PARTITION {
+                e.record_handoff(
+                    handoff(&format!("m{i}"), &sid(A1), &sid(B1), Some(kid_u32(n))),
+                    DeliveryState::HandedToHarness,
+                );
+            }
+        }
+        assert_eq!(e.handed_off.len(), MAX_RECORDS_TOTAL);
+        let small = Some(kid_u32(1 << 22));
+        e.record_handoff(
+            handoff("small", &sid(A1), &sid(B1), small.clone()),
+            DeliveryState::HandedToHarness,
+        );
+        assert_eq!(e.handed_off.len(), MAX_RECORDS_TOTAL);
+        assert!(e.handoff_records().any(|r| r.id.as_str() == "small"));
+        // The flood continues; the small writer keeps its record.
+        for i in 0..100 {
+            e.record_handoff(
+                handoff(&format!("x{i}"), &sid(A1), &sid(B1), Some(kid_u32(0))),
+                DeliveryState::HandedToHarness,
+            );
+        }
+        assert_eq!(e.handed_off.len(), MAX_RECORDS_TOTAL);
+        assert!(e.handoff_records().any(|r| r.id.as_str() == "small"));
     }
 }

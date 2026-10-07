@@ -32,8 +32,10 @@ changes.
   `correlation_id`, and `AuthorizationEngine::reply_headers` serves [SC-RCP-053] and
   [SC-RCP-054] from the engine's own records; sent and hand-off records are bounded per
   writer (`MAX_RECORDS_PER_PARTITION`, partitioned by sending own session and by verifying
-  key, so no peer or local session can evict another's records; `11-risks.md`
-  RISK-RECORD-PARTITIONS). `receiver::receive` is split into crate-private phases so the
+  key, so no peer or local session can evict another's records; a total ceiling taken from
+  the largest partition; partitions reclaimed when emptied, when their session ends or key
+  is removed, and, at the partition cap, when wholly expired; every session end prunes;
+  `11-risks.md` RISK-RECORD-PARTITIONS). `receiver::receive` is split into crate-private phases so the
   pipeline does not hold the engine across a hand-off call; behaviour is unchanged.
   `EnvelopeDraft::with_parts` and `ContentPart::from_json` let a request carry a non-text
   part a session advertises.
