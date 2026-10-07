@@ -68,8 +68,8 @@ nothing is copied under `tests/`. It is not herdr and does not drive a harness:
 (Dated note, 2026-10-06, #59: the contract suites of F10 live under `tests/protocol/contract/<name>/`,
 inside the `tests/` row of §2, as `docs/planning/v0.1/10-stages.md` places them: the transport
 suite `oac-contract-transport` and the adapter suite `oac-contract-adapter`, Rust workspace
-members that depend on `core/` and, for the adapter suite, the fake Claude endpoint only, and
-on no third-party crate. A product crate may take one as a dev-dependency only, never a normal
+members that depend on `core/` and, for the adapter suite, the fake Claude endpoint only; the
+adapter suite's only third-party crates are `syn` and `proc-macro2` (§5, test-only). A product crate may take one as a dev-dependency only, never a normal
 or build one (§3), so neither is built into the `oac` binary. The adapter suite spawns the
 fake Codex app-server by path, as #58 below allows.)
 (Dated note, 2026-10-06, #58: fake harness endpoints live under `tests/fakes/<name>/`,
@@ -274,6 +274,8 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `zeroize` | `1.9.0` | Apache-2.0 OR MIT | Zeroizing buffers for the private seed ([SEC-KEY-004]). Already in the graph through `ed25519-dalek`'s default `zeroize` feature, same version | No | Yes — OAC elects the Apache-2.0 arm | #52 | `core/` (`keys`), `cli/` (`keystore`) |
 | `subtle` | `2.6.1` | BSD-3-Clause | Constant-time comparison of the read-back seed (#315 review N-e). Already in the graph under `ed25519-dalek`, same version | No | Yes — permissive (see the accepted list) | #52 | `core/` (`keys`) |
 | `curve25519-dalek` | `5.0.0` | BSD-3-Clause | Dev-dependency only: scalar arithmetic that builds malleable and small-order signatures in `signing.rs`'s tests (#315 review N-g). Already `ed25519-dalek`'s curve crate, same version; not a new crate in the build | No | Yes — permissive | #52 | `core/` (tests only) |
+| `syn` | `2.0.119` | MIT OR Apache-2.0 | Test-only: parses adapter sources for the adapter contract suite's static routing checks (#59, PR #323 review B1; features `full`, `parsing`, `visit`). Already in the graph at this version; not a new crate | No | Yes — OAC elects the Apache-2.0 arm | #59 | `tests/protocol/contract/adapter/` (test-only; never in the `oac` binary) |
+| `proc-macro2` | `1.0.107` | MIT OR Apache-2.0 | Test-only: `syn`'s token types; feature `span-locations` gives findings their line numbers (#59). Already in the graph at this version; not a new crate | No | Yes — OAC elects the Apache-2.0 arm | #59 | `tests/protocol/contract/adapter/` (test-only; never in the `oac` binary) |
 
 (Dated note, 2026-10-06, #52 / F3.) **Consuming module of the key-storage crates.** The
 `keyring`, `keyring-core`, `windows-native-keyring-store` and `age` rows above say "daemon

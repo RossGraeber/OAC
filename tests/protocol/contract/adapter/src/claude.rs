@@ -52,6 +52,10 @@ pub const FETCH_METHODS: [&str; 6] = [
     "subscriptions/listen",
 ];
 
+/// Server capabilities that offer something a session could read repeatedly: an inbox
+/// shape that [MCPB-DLV-002] forbids while active inbound is claimed.
+pub const FETCH_CAPABILITIES: [&str; 3] = ["resources", "prompts", "subscriptions"];
+
 /// The opening methods: the first no-polling class.
 pub const ESTABLISHMENT_METHODS: [&str; 3] = ["server/discover", "initialize", "tools/list"];
 
@@ -238,6 +242,26 @@ impl ClaudeHarness {
     }
 }
 
+/// The channel notifications a server sent to `f`: its hand-off calls.
+fn channel_calls(f: &FakeClaude) -> Vec<HandOffCall> {
+    f.transcript()
+        .iter()
+        .filter(|fr| fr.direction == Direction::FromServer)
+        .filter_map(|fr| json::parse(fr.text.as_bytes()).ok())
+        .filter(|v| member_str(v, "method") == Some(CHANNEL_NOTIFICATION))
+        .map(|v| HandOffCall {
+            operation: CHANNEL_NOTIFICATION.to_owned(),
+            text: member(&v, "params")
+                .and_then(|p| member_str(p, "content"))
+                .unwrap_or_default()
+                .to_owned(),
+            steering: false,
+            override_members: Vec::new(),
+            accepted: f.halted().is_none(),
+        })
+        .collect()
+}
+
 fn halted(fake: &FakeClaude) -> Option<String> {
     fake.halted().map(ToString::to_string)
 }
@@ -369,28 +393,19 @@ impl AdapterHarness for ClaudeHarness {
     }
 
     fn observe(&mut self, s: usize) -> Observations {
+        for other in &mut self.sessions {
+            other.pump();
+        }
+        let client_hand_off_calls: Vec<HandOffCall> = self
+            .sessions
+            .iter()
+            .flat_map(|x| channel_calls(&x.fake))
+            .collect();
         let Ok(sess) = self.session(s) else {
             return Observations::default();
         };
-        sess.pump();
         let f = &sess.fake;
-        let hand_off_calls = f
-            .transcript()
-            .iter()
-            .filter(|fr| fr.direction == Direction::FromServer)
-            .filter_map(|fr| json::parse(fr.text.as_bytes()).ok())
-            .filter(|v| member_str(v, "method") == Some(CHANNEL_NOTIFICATION))
-            .map(|v| HandOffCall {
-                operation: CHANNEL_NOTIFICATION.to_owned(),
-                text: member(&v, "params")
-                    .and_then(|p| member_str(p, "content"))
-                    .unwrap_or_default()
-                    .to_owned(),
-                steering: false,
-                override_members: Vec::new(),
-                accepted: f.halted().is_none(),
-            })
-            .collect();
+        let hand_off_calls = channel_calls(f);
         let inputs = f
             .events()
             .iter()
@@ -413,8 +428,31 @@ impl AdapterHarness for ClaudeHarness {
                 .filter(|t| !OAC_TOOLS.contains(&t.as_str()))
                 .map(|t| format!("tools/call {t}")),
         );
+        // [MCPB-DLV-002]: a server capability that offers resources, prompts or
+        // subscriptions is an inbox the session could poll, whether or not it ever does.
+        let mut offered_fetch_surfaces: Vec<String> = f
+            .tools()
+            .iter()
+            .filter(|t| !OAC_TOOLS.contains(&t.as_str()))
+            .map(|t| format!("tool {t}"))
+            .collect();
+        for fr in f.transcript() {
+            if fr.direction != Direction::FromServer {
+                continue;
+            }
+            let Ok(v) = json::parse(fr.text.as_bytes()) else {
+                continue;
+            };
+            let caps = member(&v, "result").and_then(|r| member(r, "capabilities"));
+            for c in FETCH_CAPABILITIES {
+                if caps.and_then(|x| member(x, c)).is_some() {
+                    offered_fetch_surfaces.push(format!("capability {c}"));
+                }
+            }
+        }
         Observations {
             hand_off_calls,
+            client_hand_off_calls,
             inputs,
             held: f.queued(),
             establishment_calls: sent
@@ -422,12 +460,7 @@ impl AdapterHarness for ClaudeHarness {
                 .filter(|m| ESTABLISHMENT_METHODS.contains(&m.as_str()))
                 .count(),
             fetch_calls,
-            offered_fetch_surfaces: f
-                .tools()
-                .iter()
-                .filter(|t| !OAC_TOOLS.contains(&t.as_str()))
-                .cloned()
-                .collect(),
+            offered_fetch_surfaces,
             halted: halted(f),
         }
     }

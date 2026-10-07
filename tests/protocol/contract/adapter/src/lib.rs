@@ -50,8 +50,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use oac_core::adapter::{
-    AdapterEvent, AdapterEventHandler, Attachment, Connection, ConnectionHandle, HandOff,
-    HandOffOutcome, ProviderAdapter, ReceiptStream, Request, RequestResult, RequestSink,
+    AdapterEvent, AdapterEventHandler, Attachment, Connection, ConnectionHandle, DiscoveryRequest,
+    DiscoveryRequestResult, HandOff, HandOffOutcome, ProviderAdapter, ReceiptStream, RequestSink,
+    SendRequest, SendRequestResult,
 };
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::delivery::ErrorCode;
@@ -110,6 +111,10 @@ pub struct HandOffCall {
 pub struct Observations {
     /// Every hand-off call the adapter made for this session, in order.
     pub hand_off_calls: Vec<HandOffCall>,
+    /// Every hand-off call the adapter made on the harness's surface, for any session or
+    /// none (a call naming no thread, or another thread, included). The never-steer and
+    /// binding rules read this list.
+    pub client_hand_off_calls: Vec<HandOffCall>,
     /// The text of each input the session took into a turn, in order. The harness leaves
     /// out input it made itself (its own user's turns).
     pub inputs: Vec<String>,
@@ -220,8 +225,16 @@ pub trait AdapterHarness {
     /// What the fake observed of session `s`.
     fn observe(&mut self, s: usize) -> Observations;
 
-    /// The adapter's source files, for the static checks of [`source`].
+    /// The adapter's source files, for the static checks of [`source`]
+    /// ([`source::crate_files`] gives a crate's `src/` and `build.rs`).
     fn source_files(&self) -> Vec<PathBuf>;
+
+    /// The harness-native ids the fake harness knows for its sessions (thread ids,
+    /// session ids): none of them may appear in the adapter's `health` detail
+    /// ([IFC-TYP-092]).
+    fn native_ids(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 // ---- the core side ----------------------------------------------------------------------
@@ -237,12 +250,32 @@ pub enum Scripted {
     NotPass(ErrorCode),
 }
 
+/// A request the adapter passed into the sink.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Request {
+    /// A `SendRequest`.
+    Send(SendRequest),
+    /// A `DiscoveryRequest`.
+    Discovery(DiscoveryRequest),
+}
+
+impl Request {
+    /// The attachment the request is labelled with.
+    pub fn attachment(&self) -> &Attachment {
+        match self {
+            Request::Send(r) => &r.attachment,
+            Request::Discovery(r) => &r.attachment,
+        }
+    }
+}
+
 /// One request the adapter passed into the sink, and what the core side answered.
 #[derive(Clone, Debug)]
 pub struct RecordedRequest {
     /// The request.
     pub request: Request,
-    /// The outcome returned.
+    /// The outcome returned: `refused`, `not-passed` or `sent` for a send (§4.10), and
+    /// `discovery-result` for a discovery (the suite's own label).
     pub outcome: &'static str,
     /// The code returned, if any.
     pub error: Option<ErrorCode>,
@@ -344,34 +377,8 @@ impl CoreSide {
     }
 
     /// The request sink for `accept_requests`.
-    pub fn sink(self: &Arc<Self>) -> RequestSink {
-        let me = self.clone();
-        Arc::new(move |r: Request| {
-            let result = match &r {
-                Request::Discovery(_) => RequestResult::Discovered(Vec::new()),
-                Request::Send(_) => {
-                    let id =
-                        Token::parse(&format!("m{}", me.next_id.fetch_add(1, Ordering::Relaxed)))
-                            .expect("a token");
-                    match lock(&me.script).pop_front().unwrap_or(Scripted::Send) {
-                        Scripted::Send => RequestResult::Sent {
-                            id,
-                            correlation: None,
-                            receipts: ReceiptStream(std::sync::mpsc::channel().1),
-                        },
-                        Scripted::Refuse(error) => RequestResult::Refused { error },
-                        Scripted::NotPass(error) => RequestResult::NotPassed { id, error },
-                    }
-                }
-            };
-            lock(&me.requests).push(RecordedRequest {
-                request: r,
-                outcome: result.outcome(),
-                error: result.error(),
-                id: result.id().map(|t| t.as_str().to_owned()),
-            });
-            result
-        })
+    pub fn sink(self: &Arc<Self>) -> Arc<dyn RequestSink> {
+        Arc::new(Sink(self.clone()))
     }
 
     /// A verified message from `from` to `to` with one text part.
@@ -432,6 +439,43 @@ impl CoreSide {
             HandOff::new(attachment.clone(), msg).expect("a verified message"),
             text,
         )
+    }
+}
+
+/// The core side's request sink.
+struct Sink(Arc<CoreSide>);
+
+impl RequestSink for Sink {
+    fn send(&self, request: SendRequest) -> SendRequestResult {
+        let me = &self.0;
+        let id = Token::parse(&format!("m{}", me.next_id.fetch_add(1, Ordering::Relaxed)))
+            .expect("a token");
+        let result = match lock(&me.script).pop_front().unwrap_or(Scripted::Send) {
+            Scripted::Send => SendRequestResult::Sent {
+                id,
+                correlation: None,
+                receipts: ReceiptStream(std::sync::mpsc::channel().1),
+            },
+            Scripted::Refuse(error) => SendRequestResult::Refused { error },
+            Scripted::NotPass(error) => SendRequestResult::NotPassed { id, error },
+        };
+        lock(&me.requests).push(RecordedRequest {
+            request: Request::Send(request),
+            outcome: result.outcome(),
+            error: result.error(),
+            id: result.id().map(|t| t.as_str().to_owned()),
+        });
+        result
+    }
+
+    fn discover(&self, request: DiscoveryRequest) -> DiscoveryRequestResult {
+        lock(&self.0.requests).push(RecordedRequest {
+            request: Request::Discovery(request),
+            outcome: "discovery-result",
+            error: None,
+            id: None,
+        });
+        DiscoveryRequestResult::DiscoveryResult(Vec::new())
     }
 }
 
@@ -1237,15 +1281,15 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     });
     check!(ctx, "SEC-AUZ-022", "never-steers", {
         let steering: Vec<_> = o
-            .hand_off_calls
+            .client_hand_off_calls
             .iter()
             .filter(|c| c.steering)
             .map(|c| c.operation.clone())
             .collect();
         if steering.is_empty() {
             Verdict::Pass(format!(
-                "{} hand-off call(s), none steering",
-                o.hand_off_calls.len()
+                "{} hand-off call(s) by the adapter, on any session, none steering",
+                o.client_hand_off_calls.len()
             ))
         } else {
             Verdict::Fail(format!("steering hand-off calls: {steering:?}"))
@@ -1256,7 +1300,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             Rule::OnlyHolding => {
                 let op = profile.holding_hand_off.unwrap_or("(none)");
                 let other: Vec<_> = o
-                    .hand_off_calls
+                    .client_hand_off_calls
                     .iter()
                     .filter(|c| c.operation != op)
                     .map(|c| c.operation.clone())
@@ -1269,7 +1313,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             }
             Rule::Never(op) => {
                 let n = o
-                    .hand_off_calls
+                    .client_hand_off_calls
                     .iter()
                     .filter(|c| c.operation == *op)
                     .count();
@@ -1281,7 +1325,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             }
             Rule::NoOverrides => {
                 let m: Vec<_> = o
-                    .hand_off_calls
+                    .client_hand_off_calls
                     .iter()
                     .flat_map(|c| c.override_members.clone())
                     .collect();
@@ -1294,6 +1338,13 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         };
         ctx.row(id, "binding-hand-off-rule", v);
     }
+    let files = ctx.h.source_files();
+    let findings = source::scan(&files);
+    let static_013: Vec<String> = findings
+        .iter()
+        .filter(|f| f.requirement == "IFC-ADP-013")
+        .map(ToString::to_string)
+        .collect();
     check!(ctx, "IFC-ADP-013", "only-core-made-connections", {
         let foreign: Vec<_> = ctx
             .core
@@ -1313,10 +1364,18 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             )
             .filter(|h| !ctx.core.issued(h))
             .collect();
-        if foreign.is_empty() {
-            Verdict::Pass("every handle in events and requests is one the core issued".into())
-        } else {
+        if !foreign.is_empty() {
             Verdict::Fail(format!("handles the core never issued: {foreign:?}"))
+        } else if !static_013.is_empty() {
+            Verdict::Fail(format!(
+                "the adapter's source makes connections: {}",
+                static_013.join("; ")
+            ))
+        } else {
+            Verdict::Pass(
+                "every handle in events and requests is one the core issued; no Connection::accept in the source"
+                    .into(),
+            )
         }
     });
     if let Some(halted) = &o.halted {
@@ -1331,7 +1390,11 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     check!(ctx, "IFC-TYP-092", "health-holds-no-secret-or-native-id", {
         let h = ctx.adapter.health();
         match &h.detail {
-            None => Verdict::Pass(format!("{} with no detail", h.state.as_str())),
+            None => Verdict::Pass(format!(
+                "{} with no detail (checked for directories, addresses and {} native id(s))",
+                h.state.as_str(),
+                ctx.h.native_ids().len()
+            )),
             Some(d) => {
                 let mut forbidden: Vec<String> = Vec::new();
                 if let Ok(c) = std::env::current_dir() {
@@ -1344,6 +1407,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                         forbidden.push(x);
                     }
                 }
+                forbidden.extend(ctx.h.native_ids().into_iter().filter(|x| !x.is_empty()));
                 match forbidden.iter().find(|f| d.contains(f.as_str())) {
                     Some(f) => Verdict::Fail(format!("health detail {d:?} contains {f:?}")),
                     None if d.contains("://") => {
@@ -1356,8 +1420,6 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     });
 
     // ---- static: routes through the core ([IFC-ADP-001], [IFC-ADP-002], [IFC-ADP-007]) ---
-    let files = ctx.h.source_files();
-    let findings = source::scan(&files);
     for (id, name) in [
         ("IFC-ADP-001", "no-transport-operation"),
         ("IFC-ADP-002", "no-envelope-signing-or-verifying"),
@@ -1372,7 +1434,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             Verdict::NotApplicable("the harness gave no source files to scan".into())
         } else if mine.is_empty() {
             Verdict::Pass(format!(
-                "{} source file(s) scanned; and the adapter's operations take no transport",
+                "{} source file(s) parsed, paths resolved through their imports; and the adapter's operations take no transport",
                 files.len()
             ))
         } else {

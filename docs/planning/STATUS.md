@@ -26,12 +26,17 @@ added.
   under both `MidTurnRelease` settings) and the fake Codex app-server (spawned with `node` on
   loopback, read through its call log). It asserts the named test `contract/adapter/no-polling`
   ([IFC-ADP-040]), never-steer and the holding hand-off ([SEC-AUZ-022], [SEC-AUZ-025] to
-  [SEC-AUZ-027]; [MCPB-CDX-002] to [MCPB-CDX-005] on the Codex profile), and routing through
-  the core (every request reaches the core's sink, [IFC-ADP-003]; a source scan,
-  [IFC-ADP-001], [IFC-ADP-002], [IFC-ADP-007]). **No adapter implements `ProviderAdapter`
+  [SEC-AUZ-027]; [MCPB-CDX-002] to [MCPB-CDX-005] on the Codex profile, over every call
+  of the adapter, any thread), and routing through the core (every request reaches the
+  core's sink, [IFC-ADP-003]; a `syn` parse of the adapter's sources with imports and
+  renames resolved, [IFC-ADP-001], [IFC-ADP-002], [IFC-ADP-007], [IFC-ADP-013]). **No adapter implements `ProviderAdapter`
   yet** (Epic G): the suite runs today against two test-only stand-ins, and a tripwire test
   fails when `adapters/claude` or `adapters/codex` first implements the trait. #59 therefore
-  stays open for its first acceptance item.
+  stays open for its first acceptance item. Adapter-owned rows of Appendix C that these
+  suites do not check, owned by G4 to G8 and F11: [SEC-AUZ-021], [SEC-AUZ-023], the
+  SEC-PRV adapter rows, [SC-DLV-001] to [SC-DLV-009] (adapter rows), [SC-RCP-004] to
+  [SC-RCP-006], the SC-ENV adapter rows, and the MCPB adapter rows other than [MCPB-CDX-002]
+  to [MCPB-CDX-005].
 - **Layout.** `tests/protocol/contract/<name>` is a new test-only crate kind in
   `scripts/check-crate-deps.mjs` (core/ and fakes only; product crates reach it by
   dev-dependency only); the conformance runner skips `tests/protocol/contract/`.)

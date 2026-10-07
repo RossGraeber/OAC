@@ -215,25 +215,6 @@ pub struct DiscoveryRequest {
     pub attachment: Attachment,
 }
 
-/// What the request sink of `accept_requests` takes (Table 5.2).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Request {
-    /// A `SendRequest`.
-    Send(SendRequest),
-    /// A `DiscoveryRequest`.
-    Discovery(DiscoveryRequest),
-}
-
-impl Request {
-    /// The attachment the request is labelled with.
-    pub fn attachment(&self) -> &Attachment {
-        match self {
-            Request::Send(r) => &r.attachment,
-            Request::Discovery(r) => &r.attachment,
-        }
-    }
-}
-
 /// Whether a reply was correlated (`spec/session-channels.md` [SC-RCP-055]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Correlation {
@@ -253,9 +234,16 @@ impl fmt::Debug for ReceiptStream {
     }
 }
 
-/// `RequestResult` of `spec/interfaces.md` §4.10: the core's answer to a request.
+/// `RequestResult` of `spec/interfaces.md` §4.10 for a `SendRequest`: one of its three
+/// outcomes.
+///
+/// §4.10 defines one `RequestResult` whose forms depend on the request's kind: three
+/// outcomes for a `SendRequest`, and the discovery result or `refused` for a
+/// `DiscoveryRequest`. This binding gives each kind its own type
+/// ([`SendRequestResult`], [`DiscoveryRequestResult`]), so that no value pairs a result with
+/// the wrong kind of request.
 #[derive(Debug)]
-pub enum RequestResult {
+pub enum SendRequestResult {
     /// `refused`: no envelope was created; `error` has `request` in its Table 8.3 scope.
     Refused {
         /// The refusal's code.
@@ -278,48 +266,72 @@ pub enum RequestResult {
         /// The receipts the core later holds for the envelope.
         receipts: ReceiptStream,
     },
-    /// The discovery result of a `DiscoveryRequest`.
-    Discovered(Vec<SessionDescriptor>),
 }
 
-impl RequestResult {
-    /// The outcome's name: `refused`, `not-passed`, `sent` or, for discovery, `discovered`.
+impl SendRequestResult {
+    /// The outcome's name in §4.10: `refused`, `not-passed` or `sent`.
     pub fn outcome(&self) -> &'static str {
         match self {
-            RequestResult::Refused { .. } => "refused",
-            RequestResult::NotPassed { .. } => "not-passed",
-            RequestResult::Sent { .. } => "sent",
-            RequestResult::Discovered(_) => "discovered",
+            SendRequestResult::Refused { .. } => "refused",
+            SendRequestResult::NotPassed { .. } => "not-passed",
+            SendRequestResult::Sent { .. } => "sent",
         }
     }
 
     /// The error code, for `refused` and `not-passed`.
     pub fn error(&self) -> Option<ErrorCode> {
         match self {
-            RequestResult::Refused { error } | RequestResult::NotPassed { error, .. } => {
+            SendRequestResult::Refused { error } | SendRequestResult::NotPassed { error, .. } => {
                 Some(*error)
             }
-            _ => None,
+            SendRequestResult::Sent { .. } => None,
         }
     }
 
     /// The delivery state the result reports: `failed` for `not-passed`,
-    /// `accepted-by-adapter` for `sent`, none otherwise (§4.10).
+    /// `accepted-by-adapter` for `sent`, none for `refused` (§4.10).
     pub fn state(&self) -> Option<DeliveryState> {
         match self {
-            RequestResult::NotPassed { .. } => Some(DeliveryState::Failed),
-            RequestResult::Sent { .. } => Some(DeliveryState::AcceptedByAdapter),
-            _ => None,
+            SendRequestResult::Refused { .. } => None,
+            SendRequestResult::NotPassed { .. } => Some(DeliveryState::Failed),
+            SendRequestResult::Sent { .. } => Some(DeliveryState::AcceptedByAdapter),
         }
     }
 
     /// The envelope id, for `not-passed` and `sent`.
     pub fn id(&self) -> Option<&Token> {
         match self {
-            RequestResult::NotPassed { id, .. } | RequestResult::Sent { id, .. } => Some(id),
-            _ => None,
+            SendRequestResult::NotPassed { id, .. } | SendRequestResult::Sent { id, .. } => {
+                Some(id)
+            }
+            SendRequestResult::Refused { .. } => None,
         }
     }
+}
+
+/// `RequestResult` of `spec/interfaces.md` §4.10 for a `DiscoveryRequest`: the discovery
+/// result, or `refused` (see [`SendRequestResult`] for why the kinds are split).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DiscoveryRequestResult {
+    /// The discovery result: an array of `SessionDescriptor`.
+    DiscoveryResult(Vec<SessionDescriptor>),
+    /// `refused`, with an `ErrorCode`.
+    Refused {
+        /// The refusal's code.
+        error: ErrorCode,
+    },
+}
+
+/// The request sink of `accept_requests` (Table 5.2): "an operation that takes a
+/// `SendRequest` or a `DiscoveryRequest` and returns a `RequestResult`". In this binding it
+/// is one method per kind of request, each returning that kind's result
+/// ([IFC-ADP-003], [IFC-ADP-060]).
+pub trait RequestSink: Send + Sync {
+    /// Take a `SendRequest`.
+    fn send(&self, request: SendRequest) -> SendRequestResult;
+
+    /// Take a `DiscoveryRequest`.
+    fn discover(&self, request: DiscoveryRequest) -> DiscoveryRequestResult;
 }
 
 /// `HandOff` of `spec/interfaces.md` §4.10: what the core gives an adapter to hand off.
@@ -408,10 +420,6 @@ impl HandOffOutcome {
     }
 }
 
-/// The request sink that `accept_requests` gives the adapter (Table 5.2): it takes a
-/// request and returns the core's result ([IFC-ADP-003], [IFC-ADP-060]).
-pub type RequestSink = Arc<dyn Fn(Request) -> RequestResult + Send + Sync>;
-
 /// The handler of the `watch_attachments` event stream (Table 5.2). The adapter calls it.
 pub type AdapterEventHandler = Arc<dyn Fn(AdapterEvent) + Send + Sync>;
 
@@ -442,7 +450,7 @@ pub trait ProviderAdapter: Send + Sync {
     fn deliver(&self, hand_off: HandOff) -> HandOffOutcome;
 
     /// `accept_requests`: the request sink to pass every harness request into (§5.6).
-    fn accept_requests(&self, sink: RequestSink);
+    fn accept_requests(&self, sink: Arc<dyn RequestSink>);
 
     /// `health` (§5.7; [IFC-TYP-092]).
     fn health(&self) -> HealthStatus;
@@ -553,14 +561,14 @@ mod tests {
     #[test]
     fn request_results_report_their_outcome_state_and_code() {
         let id = Token::parse("m1").unwrap();
-        let r = RequestResult::Refused {
+        let r = SendRequestResult::Refused {
             error: ErrorCode::Unauthorized,
         };
         assert_eq!(
             (r.outcome(), r.error(), r.state(), r.id()),
             ("refused", Some(ErrorCode::Unauthorized), None, None)
         );
-        let r = RequestResult::NotPassed {
+        let r = SendRequestResult::NotPassed {
             id: id.clone(),
             error: ErrorCode::TransportFailure,
         };
@@ -568,7 +576,7 @@ mod tests {
         assert_eq!(r.state(), Some(DeliveryState::Failed));
         assert_eq!(r.id(), Some(&id));
         let (_tx, rx) = std::sync::mpsc::channel();
-        let r = RequestResult::Sent {
+        let r = SendRequestResult::Sent {
             id: id.clone(),
             correlation: Some(Correlation::Uncorrelated),
             receipts: ReceiptStream(rx),
@@ -577,13 +585,12 @@ mod tests {
             (r.outcome(), r.error(), r.state()),
             ("sent", None, Some(DeliveryState::AcceptedByAdapter))
         );
-        assert_eq!(RequestResult::Discovered(vec![]).outcome(), "discovered");
-        let d = Request::Discovery(DiscoveryRequest {
-            attachment: Connection::accept(std::io::empty(), std::io::sink())
-                .handle()
-                .clone(),
-        });
-        assert!(format!("{:?}", d.attachment()).starts_with("ConnectionHandle(#"));
+        assert_ne!(
+            DiscoveryRequestResult::DiscoveryResult(vec![]),
+            DiscoveryRequestResult::Refused {
+                error: ErrorCode::Unauthorized
+            }
+        );
         assert_eq!(StartKind::Transition.as_str(), "transition");
     }
 }

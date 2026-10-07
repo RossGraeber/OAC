@@ -29,8 +29,8 @@ use oac_contract_adapter::{
 };
 use oac_core::adapter::{
     AdapterCapabilities, AdapterEvent, AdapterEventHandler, Attachment, Connection,
-    DiscoveryRequest, HandOff, HandOffOutcome, ProviderAdapter, Request, RequestResult,
-    RequestSink, SendRequest,
+    DiscoveryRequest, DiscoveryRequestResult, HandOff, HandOffOutcome, ProviderAdapter,
+    RequestSink, SendRequest, SendRequestResult,
 };
 use oac_core::envelope::{ContentPart, TextPart};
 use oac_core::health::{HealthState, HealthStatus};
@@ -38,6 +38,11 @@ use oac_core::ids::SessionId;
 use oac_core::json::{self, Json};
 use oac_fake_claude::MidTurnRelease;
 use oac_fake_claude::evidence::{member, member_str};
+
+// The one planted breach that mints a connection handle lives in a file of its own, outside
+// the sources the static scan is given, so that the well-behaved stand-ins scan clean.
+#[path = "support/forge.rs"]
+mod forge;
 
 fn this_file() -> Vec<PathBuf> {
     vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/stand_in.rs")]
@@ -61,7 +66,7 @@ fn hand_off_text(h: &HandOff) -> String {
 #[derive(Default)]
 struct Common {
     events: Option<AdapterEventHandler>,
-    sink: Option<RequestSink>,
+    sink: Option<Arc<dyn RequestSink>>,
     bound: HashMap<Attachment, Option<SessionId>>,
     open: Vec<Attachment>,
     down: bool,
@@ -150,6 +155,9 @@ enum ChannelBreach {
     RewritesContent,
     /// Keeps handing off after shutdown ([IFC-ADP-070]).
     WorksAfterShutdown,
+    /// Declares an MCP `resources` capability, an inbox the session could read
+    /// ([IFC-ADP-040]; [MCPB-DLV-002]).
+    DeclaresResources,
 }
 
 struct ChannelStandIn {
@@ -217,7 +225,14 @@ impl ChannelStandIn {
                     a,
                     &respond(
                         id,
-                        "\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{\"claude/channel\":{}},\"tools\":{}},\"serverInfo\":{\"name\":\"oac-stand-in\",\"version\":\"0\"}}",
+                        &format!(
+                            "\"result\":{{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{{\"experimental\":{{\"claude/channel\":{{}}}},\"tools\":{{}}{}}},\"serverInfo\":{{\"name\":\"oac-stand-in\",\"version\":\"0\"}}}}",
+                            if breach == ChannelBreach::DeclaresResources {
+                                ",\"resources\":{}"
+                            } else {
+                                ""
+                            }
+                        ),
                     ),
                 );
             }
@@ -260,13 +275,11 @@ impl ChannelStandIn {
                     .unwrap_or_default();
                 let args = params.and_then(|p| member(p, "arguments"));
                 let label = if breach == ChannelBreach::ForgesAttachment {
-                    Connection::accept(std::io::empty(), std::io::sink())
-                        .handle()
-                        .clone()
+                    forge::handle()
                 } else {
                     a.clone()
                 };
-                let request = match name {
+                let body = match name {
                     "send" => {
                         let to = args
                             .and_then(|x| member_str(x, "to"))
@@ -282,16 +295,47 @@ impl ChannelStandIn {
                             );
                             return;
                         };
-                        Request::Send(SendRequest {
-                            attachment: label,
-                            to,
-                            content: vec![ContentPart::Text(text)],
-                            requested_target: None,
-                            conversation_id: None,
-                            correlation_id: None,
-                        })
+                        if breach == ChannelBreach::BypassesTheCore {
+                            tool_result(false, "m0 accepted-by-adapter")
+                        } else {
+                            let r = sink.send(SendRequest {
+                                attachment: label,
+                                to,
+                                content: vec![ContentPart::Text(text)],
+                                requested_target: None,
+                                conversation_id: None,
+                                correlation_id: None,
+                            });
+                            match (&r, breach) {
+                                (_, ChannelBreach::AltersResults) => {
+                                    tool_result(false, "m0 accepted-by-adapter")
+                                }
+                                (SendRequestResult::Sent { id: mid, .. }, _) => tool_result(
+                                    false,
+                                    &format!("{} accepted-by-adapter", mid.as_str()),
+                                ),
+                                (SendRequestResult::Refused { error }, _) => {
+                                    tool_result(true, error.as_str())
+                                }
+                                (SendRequestResult::NotPassed { id: mid, error }, _) => {
+                                    tool_result(
+                                        true,
+                                        &format!("{} {}", error.as_str(), mid.as_str()),
+                                    )
+                                }
+                            }
+                        }
                     }
-                    "list_sessions" => Request::Discovery(DiscoveryRequest { attachment: label }),
+                    "list_sessions" => {
+                        match sink.discover(DiscoveryRequest { attachment: label }) {
+                            DiscoveryRequestResult::DiscoveryResult(d) => {
+                                tool_result(false, &format!("{} sessions", d.len()))
+                            }
+                            DiscoveryRequestResult::Refused { error } => {
+                                tool_result(true, error.as_str())
+                            }
+                        }
+                    }
                     _ => {
                         send_line(
                             writers,
@@ -302,30 +346,6 @@ impl ChannelStandIn {
                             ),
                         );
                         return;
-                    }
-                };
-                if breach == ChannelBreach::BypassesTheCore && matches!(request, Request::Send(_)) {
-                    send_line(
-                        writers,
-                        a,
-                        &respond(id, &tool_result(false, "m0 accepted-by-adapter")),
-                    );
-                    return;
-                }
-                let r = sink(request);
-                let body = match (&r, breach) {
-                    (_, ChannelBreach::AltersResults) => {
-                        tool_result(false, "m0 accepted-by-adapter")
-                    }
-                    (RequestResult::Sent { id: mid, .. }, _) => {
-                        tool_result(false, &format!("{} accepted-by-adapter", mid.as_str()))
-                    }
-                    (RequestResult::Refused { error }, _) => tool_result(true, error.as_str()),
-                    (RequestResult::NotPassed { id: mid, error }, _) => {
-                        tool_result(true, &format!("{} {}", error.as_str(), mid.as_str()))
-                    }
-                    (RequestResult::Discovered(d), _) => {
-                        tool_result(false, &format!("{} sessions", d.len()))
                     }
                 };
                 send_line(writers, a, &respond(id, &body));
@@ -414,7 +434,7 @@ impl ProviderAdapter for ChannelStandIn {
         }
     }
 
-    fn accept_requests(&self, sink: RequestSink) {
+    fn accept_requests(&self, sink: Arc<dyn RequestSink>) {
         self.common.lock().unwrap().sink = Some(sink);
     }
 
@@ -478,7 +498,8 @@ fn the_channel_stand_in_passes_under_both_mid_turn_release_settings() {
 
 #[test]
 fn the_suite_catches_each_planted_channel_breach() {
-    let cases: [(ChannelBreach, &[&str]); 9] = [
+    let cases: [(ChannelBreach, &[&str]); 10] = [
+        (ChannelBreach::DeclaresResources, &["IFC-ADP-040"]),
         (ChannelBreach::OffersInbox, &["IFC-ADP-040"]),
         (ChannelBreach::IgnoresBinding, &["IFC-ADP-030"]),
         (ChannelBreach::DoubleCall, &["IFC-ADP-057"]),
@@ -617,6 +638,11 @@ enum QueueBreach {
     PollsTurns,
     /// Re-subscribes to the thread for every hand-off ([IFC-ADP-040]).
     ResubscribesPerMessage,
+    /// Steers with no thread named, besides the proper hand-off ([SEC-AUZ-022],
+    /// [MCPB-CDX-004]).
+    SteersElsewhere,
+    /// Names a thread id in its health detail ([IFC-TYP-092]).
+    HealthNamesThread,
 }
 
 struct QueueStandIn {
@@ -735,6 +761,9 @@ impl ProviderAdapter for QueueStandIn {
             ),
         };
         let r = ws.call(method, &params);
+        if self.breach == QueueBreach::SteersElsewhere {
+            let _ = ws.call("turn/steer", &format!("{{\"input\":{input}}}"));
+        }
         if self.breach == QueueBreach::PollsTurns {
             let _ = ws.call("thread/turns/list", &format!("{{\"threadId\":{},\"limit\":1,\"sortDirection\":\"desc\",\"itemsView\":\"full\"}}", json_string(&thread)));
         }
@@ -755,11 +784,18 @@ impl ProviderAdapter for QueueStandIn {
         }
     }
 
-    fn accept_requests(&self, sink: RequestSink) {
+    fn accept_requests(&self, sink: Arc<dyn RequestSink>) {
         self.common.lock().unwrap().sink = Some(sink);
     }
 
     fn health(&self) -> HealthStatus {
+        if self.breach == QueueBreach::HealthNamesThread {
+            let t = self.threads.lock().unwrap().values().next().cloned();
+            return HealthStatus::with_detail(
+                HealthState::Healthy,
+                format!("serving {}", t.unwrap_or_default()),
+            );
+        }
         HealthStatus::new(HealthState::Healthy)
     }
 
@@ -835,6 +871,9 @@ impl AdapterHarness for QueueHarness {
         self.fake
             .observations(STAND_IN_CLIENT, &self.sessions[s].0, &self.own)
     }
+    fn native_ids(&self) -> Vec<String> {
+        self.sessions.iter().map(|(t, _)| t.clone()).collect()
+    }
     fn source_files(&self) -> Vec<PathBuf> {
         this_file()
     }
@@ -882,7 +921,12 @@ fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
 
 #[test]
 fn the_suite_catches_each_planted_queue_breach() {
-    let cases: [(QueueBreach, &[&str]); 5] = [
+    let cases: [(QueueBreach, &[&str]); 7] = [
+        (
+            QueueBreach::SteersElsewhere,
+            &["SEC-AUZ-022", "MCPB-CDX-004"],
+        ),
+        (QueueBreach::HealthNamesThread, &["IFC-TYP-092"]),
         (
             QueueBreach::StartsTurns,
             &["SEC-AUZ-022", "SEC-AUZ-025", "MCPB-CDX-002", "MCPB-CDX-003"],

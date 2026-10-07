@@ -22,6 +22,7 @@ const leBytes = (x) => {
 const L = 2n ** 252n + 27742317777372353535851937790883648493n;
 import { parseTimestamp, isSessionId, isToken } from './core.mjs';
 import { checkOwners } from './index-check.mjs';
+import { contractStrays } from './layout.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -226,5 +227,18 @@ export function selfTest() {
   for (const [name, block] of Object.entries(fenced)) {
     expect(`owner index: ${name} stays clean`, checkOwners(withInterfaces(appended(block))).length === 0);
   }
+  // #59 (PR #323 review N1): under tests/protocol/contract/ only crate directories are
+  // skipped; a stray fixture file or a directory without a Cargo.toml is reported.
+  expect('contract/: crate directories are skipped', contractStrays([
+    { name: 'transport', isDir: true, hasCargoToml: true },
+    { name: 'adapter', isDir: true, hasCargoToml: true },
+  ]).length === 0);
+  expect('contract/: a fixture file is stray', contractStrays([
+    { name: 'IFC-TRN-011.n01-dup.json', isDir: false, hasCargoToml: false },
+  ]).length === 1);
+  expect('contract/: a directory without Cargo.toml is stray', contractStrays([
+    { name: 'ifc-trn', isDir: true, hasCargoToml: false },
+  ]).length === 1);
+
   return failures;
 }

@@ -423,3 +423,122 @@ fn the_suite_catches_each_planted_breach() {
         assert!(report.failed("IFC-TRN-003"), "{report}");
     }
 }
+
+// ---- asynchronous subscriptions (PR #323 review N2) ---------------------------------------
+
+/// A subscription or presence watch waiting for [`Medium::subscribed`].
+type Pending = Box<dyn FnOnce() + Send>;
+
+/// A transport whose `subscribe` and `watch_presence` take effect only when the medium's
+/// `subscribed` hook runs, as a network transport's interest declarations take effect
+/// some time after the call. A suite that published before the hook would lose payloads.
+struct Lazy {
+    inner: Arc<MemoryTransport>,
+    pending: Arc<Mutex<Vec<Pending>>>,
+}
+
+impl Transport for Lazy {
+    fn start(
+        &self,
+        local_device: &KeyId,
+        configuration: TransportConfiguration,
+    ) -> Result<TransportCapabilities, TransportError> {
+        self.inner.start(local_device, configuration)
+    }
+    fn publish(&self, d: &Destination, p: Payload, deadline: Deadline) -> PublishResult {
+        self.inner.publish(d, p, deadline)
+    }
+    fn subscribe(
+        &self,
+        d: &Destination,
+        handler: InboundHandler,
+    ) -> Result<Subscription, TransportError> {
+        let slot: Arc<Mutex<Option<Subscription>>> = Arc::default();
+        let (inner, dest, s) = (self.inner.clone(), d.clone(), slot.clone());
+        self.pending.lock().unwrap().push(Box::new(move || {
+            if let Ok(sub) = inner.subscribe(&dest, handler) {
+                *s.lock().unwrap() = Some(sub);
+            }
+        }));
+        Ok(Subscription::new(move || {
+            if let Some(sub) = slot.lock().unwrap().take() {
+                sub.end();
+            }
+        }))
+    }
+    fn send_presence(&self, d: &Destination, p: Payload, deadline: Deadline) -> PublishResult {
+        self.inner.send_presence(d, p, deadline)
+    }
+    fn watch_presence(&self, handler: PresenceHandler) -> Result<(), TransportError> {
+        let inner = self.inner.clone();
+        self.pending.lock().unwrap().push(Box::new(move || {
+            let _ = inner.watch_presence(handler);
+        }));
+        Ok(())
+    }
+    fn health(&self) -> HealthStatus {
+        self.inner.health()
+    }
+    fn shutdown(&self) {
+        self.inner.shutdown();
+    }
+}
+
+struct LazyHarness(MemoryHarness);
+
+struct LazyMedium {
+    inner: MemoryMedium,
+    pending: Arc<Mutex<Vec<Pending>>>,
+}
+
+impl TransportHarness for LazyHarness {
+    fn name(&self) -> String {
+        format!("asynchronous subscriptions over {}", self.0.name())
+    }
+    fn medium(&self) -> Box<dyn Medium> {
+        Box::new(LazyMedium {
+            inner: memory_medium(self.0),
+            pending: Arc::default(),
+        })
+    }
+}
+
+impl Medium for LazyMedium {
+    fn transport(&self) -> Box<dyn Transport> {
+        Box::new(Lazy {
+            inner: Arc::new(MemoryTransport::new()),
+            pending: self.pending.clone(),
+        })
+    }
+    fn configuration(&self) -> TransportConfiguration {
+        self.inner.configuration()
+    }
+    fn now(&self) -> Instant {
+        self.inner.now()
+    }
+    fn advance(&self, by: Duration) {
+        self.inner.advance(by)
+    }
+    fn settle(&self) {
+        self.inner.settle()
+    }
+    fn subscribed(&self) {
+        let pending: Vec<Pending> = std::mem::take(&mut *self.pending.lock().unwrap());
+        for p in pending {
+            p();
+        }
+    }
+    fn faults(&self) -> Option<&dyn FaultControl> {
+        self.inner.faults()
+    }
+}
+
+#[test]
+fn the_suite_waits_for_each_subscription_to_take_effect() {
+    // Every check that publishes after subscribing calls the hook first, so a transport
+    // whose subscriptions take effect later still passes, unchanged.
+    for h in [MEDIA[1], MEDIA[3]] {
+        let report = run(&LazyHarness(h));
+        report.assert_conformant();
+    }
+}

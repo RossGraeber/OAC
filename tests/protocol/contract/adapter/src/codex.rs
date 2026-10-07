@@ -271,25 +271,33 @@ impl CodexFake {
                 })
                 .unwrap_or_default()
         };
+        let to_call = |c: &Json| HandOffCall {
+            operation: method(c),
+            text: text_of(member(c, "params").and_then(|p| member(p, "input"))),
+            steering: flag(c, "steering").and_then(|f| f.as_bool()) == Some(true),
+            override_members: flag(c, "overrideMembers")
+                .and_then(|f| {
+                    f.as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                })
+                .unwrap_or_default(),
+            accepted: member_str(c, "outcome") == Some("result"),
+        };
+        // Every hand-off or steering call of the client, on any thread or none.
+        let hand_off_class = |c: &&Json| {
+            flag(c, "handOff").and_then(|f| f.as_bool()) == Some(true)
+                || flag(c, "steering").and_then(|f| f.as_bool()) == Some(true)
+        };
+        let client_hand_off_calls: Vec<HandOffCall> =
+            calls.iter().filter(hand_off_class).map(to_call).collect();
         let hand_off_calls = calls
             .iter()
-            .filter(|c| flag(c, "handOff").and_then(|f| f.as_bool()) == Some(true))
+            .filter(hand_off_class)
             .filter(|c| member(c, "params").and_then(|p| member_str(p, "threadId")) == Some(thread))
-            .map(|c| HandOffCall {
-                operation: method(c),
-                text: text_of(member(c, "params").and_then(|p| member(p, "input"))),
-                steering: flag(c, "steering").and_then(|f| f.as_bool()) == Some(true),
-                override_members: flag(c, "overrideMembers")
-                    .and_then(|f| {
-                        f.as_array().map(|a| {
-                            a.iter()
-                                .filter_map(|x| x.as_str().map(str::to_owned))
-                                .collect()
-                        })
-                    })
-                    .unwrap_or_default(),
-                accepted: member_str(c, "outcome") == Some("result"),
-            })
+            .map(to_call)
             .collect();
         let st = self.thread_state(thread);
         let mut inputs = Vec::new();
@@ -318,6 +326,7 @@ impl CodexFake {
         }
         Observations {
             hand_off_calls,
+            client_hand_off_calls,
             inputs,
             held: member(&st, "queue")
                 .and_then(Json::as_array)

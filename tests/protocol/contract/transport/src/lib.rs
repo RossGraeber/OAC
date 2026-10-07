@@ -88,6 +88,15 @@ pub trait Medium: Send + Sync {
         thread::sleep(REAL_SETTLE);
     }
 
+    /// Wait until a subscription or presence watch just made is in effect, so that a
+    /// payload published next can reach it. The suite calls this after every `subscribe`
+    /// and `watch_presence`, before it publishes (PR #323 review N2). A transport whose
+    /// interest declarations propagate asynchronously, as a network transport's do, needs
+    /// it; the default waits as [`Medium::settle`] does.
+    fn subscribed(&self) {
+        self.settle();
+    }
+
     /// Fault control, when the medium has it.
     fn faults(&self) -> Option<&dyn FaultControl> {
         None
@@ -431,9 +440,21 @@ impl Seen<PresenceEvent> {
     }
 }
 
-fn sub(ep: &Ep, d: &Destination, seen: &Seen<Inbound>) -> Subscription {
-    ep.t.subscribe(d, seen.handler())
-        .unwrap_or_else(|e| panic!("subscribe {d:?}: {e}"))
+impl World {
+    /// Subscribe `ep` to `d`, then wait for the subscription to be in effect.
+    fn sub(&self, ep: &Ep, d: &Destination, seen: &Seen<Inbound>) -> Subscription {
+        let s =
+            ep.t.subscribe(d, seen.handler())
+                .unwrap_or_else(|e| panic!("subscribe {d:?}: {e}"));
+        self.m.subscribed();
+        s
+    }
+
+    /// Watch presence on `ep`, then wait for the watch to be in effect.
+    fn watch(&self, ep: &Ep, handler: PresenceHandler) {
+        ep.t.watch_presence(handler).expect("watch_presence");
+        self.m.subscribed();
+    }
 }
 
 macro_rules! fail_if {
@@ -452,9 +473,9 @@ pub fn ifc_trn_001(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let (env, rct, prs) = (Seen::default(), Seen::default(), Seen::default());
-    let _s1 = sub(r, &session(1), &env);
-    let _s2 = sub(r, &Destination::Device(r.key.clone()), &rct);
-    r.t.watch_presence(prs.watcher()).expect("watch_presence");
+    let _s1 = w.sub(r, &session(1), &env);
+    let _s2 = w.sub(r, &Destination::Device(r.key.clone()), &rct);
+    w.watch(r, prs.watcher());
     let dl = w.deadline(LONG);
     let dev = Destination::Device(r.key.clone());
     let results = [
@@ -525,7 +546,7 @@ pub fn ifc_trn_021_ordering(h: &dyn TransportHarness) -> Verdict {
     }
     let r = w.recv();
     let seen = Seen::default();
-    let _s = sub(r, &session(2), &seen);
+    let _s = w.sub(r, &session(2), &seen);
     let n = 10u8;
     if let Some(f) = w.faults() {
         // Earlier payloads are delayed longer: a medium that reorders would show it.
@@ -617,7 +638,7 @@ pub fn ifc_trn_030(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let seen = Seen::default();
-    let _s = sub(r, &session(3), &seen);
+    let _s = w.sub(r, &session(3), &seen);
     let every: Vec<u8> = (0..=255).collect();
     let max = usize::try_from(w.a.caps.max_payload_octets.min(1 << 20)).unwrap_or(1 << 20);
     let big: Vec<u8> = (0..max).map(|i| (i % 251) as u8).collect();
@@ -671,9 +692,9 @@ pub fn ifc_trn_031(h: &dyn TransportHarness) -> Verdict {
     let r = w.recv();
     let (env, rct, prs) = (Seen::default(), Seen::default(), Seen::default());
     let dev = Destination::Device(r.key.clone());
-    let _s1 = sub(r, &session(4), &env);
-    let _s2 = sub(r, &dev, &rct);
-    r.t.watch_presence(prs.watcher()).expect("watch_presence");
+    let _s1 = w.sub(r, &session(4), &env);
+    let _s2 = w.sub(r, &dev, &rct);
+    w.watch(r, prs.watcher());
     let dl = w.deadline(LONG);
     let mut results = Vec::new();
     for i in 0..5u8 {
@@ -716,7 +737,7 @@ pub fn ifc_trn_033(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let first = Seen::default();
-    let s1 = sub(r, &session(5), &first);
+    let s1 = w.sub(r, &session(5), &first);
     w.a.t.publish(
         &session(5),
         payload(PayloadKind::Envelope, b"once-033"),
@@ -728,9 +749,9 @@ pub fn ifc_trn_033(h: &dyn TransportHarness) -> Verdict {
     );
     s1.end();
     let later = Seen::default();
-    let _s2 = sub(r, &session(5), &later);
+    let _s2 = w.sub(r, &session(5), &later);
     let elsewhere = Seen::default();
-    let _s3 = sub(&w.a, &session(5), &elsewhere);
+    let _s3 = w.sub(&w.a, &session(5), &elsewhere);
     w.m.advance(Duration::from_secs(1));
     w.quiet();
     fail_if!(
@@ -748,7 +769,7 @@ pub fn ifc_trn_034(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let seen = Seen::default();
-    let _s = sub(r, &session(6), &seen);
+    let _s = w.sub(r, &session(6), &seen);
     let at = w.m.now();
     w.a.t.publish(
         &session(6),
@@ -808,7 +829,7 @@ pub fn ifc_trn_035(h: &dyn TransportHarness) -> Verdict {
         let w = World::new(h);
         let r = w.recv();
         let before = Seen::default();
-        let _s = sub(r, &session(7), &before);
+        let _s = w.sub(r, &session(7), &before);
         let delayed = w.faults().is_some();
         if let Some(f) = w.faults() {
             f.next(Fate::Delay(Duration::from_secs(1)));
@@ -833,6 +854,7 @@ pub fn ifc_trn_035(h: &dyn TransportHarness) -> Verdict {
         let _s2 = again
             .subscribe(&session(7), after.handler())
             .expect("subscribe after restart");
+        w.m.subscribed();
         w.m.advance(Duration::from_secs(2));
         w.quiet();
         fail_if!(
@@ -855,7 +877,7 @@ pub fn ifc_trn_035(h: &dyn TransportHarness) -> Verdict {
         let w = World::new(h);
         if let (Some(f), Some(b)) = (w.faults(), w.b.as_ref()) {
             let seen = Seen::default();
-            let _s = sub(b, &session(8), &seen);
+            let _s = w.sub(b, &session(8), &seen);
             f.next(Fate::Delay(Duration::from_secs(1)));
             w.a.t.publish(
                 &session(8),
@@ -891,7 +913,7 @@ pub fn ifc_trn_036(h: &dyn TransportHarness) -> Verdict {
     );
     w.quiet();
     let later = Seen::default();
-    let _s = sub(r, &session(9), &later);
+    let _s = w.sub(r, &session(9), &later);
     w.m.advance(Duration::from_secs(1));
     w.quiet();
     fail_if!(
@@ -912,7 +934,7 @@ pub fn ifc_trn_040(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let seen = Seen::default();
-    let _s = sub(r, &session(10), &seen);
+    let _s = w.sub(r, &session(10), &seen);
     for i in 0..3u8 {
         w.a.t.publish(
             &session(10),
@@ -945,7 +967,7 @@ pub fn ifc_trn_043(h: &dyn TransportHarness) -> Verdict {
         w.a.t
             .publish(&session(11), payload(PayloadKind::Envelope, b"x"), dl);
     let seen = Seen::default();
-    let _s = sub(b, &session(11), &seen);
+    let _s = w.sub(b, &session(11), &seen);
     let subd =
         w.a.t
             .publish(&session(11), payload(PayloadKind::Envelope, b"x"), dl);
@@ -995,8 +1017,8 @@ pub fn ifc_trn_044(h: &dyn TransportHarness) -> Verdict {
             .publish(&dev, payload(PayloadKind::Receipt, b"044"), dl)
     };
     let (e0, r0) = (env(12), rct());
-    let _s1 = sub(r, &session(12), &Seen::<Inbound>::default());
-    let _s2 = sub(r, &dev, &Seen::<Inbound>::default());
+    let _s1 = w.sub(r, &session(12), &Seen::<Inbound>::default());
+    let _s2 = w.sub(r, &dev, &Seen::<Inbound>::default());
     let (e1, r1) = (env(12), rct());
     fail_if!(
         e0 != e1 || r0 != r1,
@@ -1016,11 +1038,9 @@ pub fn ifc_trn_050(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let (at_r, at_a) = (Seen::default(), Seen::default());
-    r.t.watch_presence(at_r.watcher()).expect("watch_presence");
+    w.watch(r, at_r.watcher());
     if w.b.is_some() {
-        w.a.t
-            .watch_presence(at_a.watcher())
-            .expect("watch_presence");
+        w.watch(&w.a, at_a.watcher());
     }
     let record: Vec<u8> = (0..4096u32).map(|i| (i % 253) as u8).collect();
     let res = w.a.t.send_presence(
@@ -1062,7 +1082,7 @@ pub fn ifc_trn_060(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let seen = Seen::default();
-    r.t.watch_presence(seen.watcher()).expect("watch_presence");
+    w.watch(r, seen.watcher());
     for i in 0..3u8 {
         w.a.t.send_presence(
             &Destination::Device(r.key.clone()),
@@ -1117,6 +1137,7 @@ pub fn ifc_trn_071(h: &dyn TransportHarness) -> Verdict {
         }
     }))
     .expect("watch_presence");
+    w.m.subscribed();
     if let Some(f) = w.faults() {
         f.next(Fate::Delay(Duration::from_secs(1)));
     }
@@ -1166,8 +1187,8 @@ pub fn ifc_trn_080(h: &dyn TransportHarness) -> Verdict {
         return Verdict::NotApplicable("a third implementation could not start".into());
     };
     let (at_b, at_c) = (Seen::default(), Seen::default());
-    b.t.watch_presence(at_b.watcher()).expect("watch_presence");
-    c.t.watch_presence(at_c.watcher()).expect("watch_presence");
+    w.watch(b, at_b.watcher());
+    w.watch(&c, at_c.watcher());
     w.a.t.send_presence(
         &Destination::Device(b.key.clone()),
         payload(PayloadKind::Presence, b"for-b-only"),
@@ -1194,7 +1215,7 @@ pub fn ifc_neu_003(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
     let seen = Seen::default();
-    let _s = sub(r, &session(14), &seen);
+    let _s = w.sub(r, &session(14), &seen);
     w.a.t.publish(
         &session(14),
         payload(PayloadKind::Envelope, b"neu"),
