@@ -667,6 +667,24 @@ devices is the lowest-friction "explicit" step available.
   numeric-comparison pairing defeat of a LAN MITM: the attacker can intercept the key
   exchange, but cannot make its substituted key produce the same fingerprint-derived
   code as the legitimate key without breaking the hash function the fingerprint uses.
+
+  *Dated note, 2026-10-06 (#54, PR #316; pending operator acknowledgement on #54): finding
+  F5-1. The argument of the "MITM defeat" bullet above does not hold for a code of 10^6
+  values (about 20 bits). The attacker needs only a match on the six-digit code, not a
+  fingerprint collision. It can generate key pairs offline, about 2^20 of them, which takes
+  seconds, until its substituted keys give both devices the same code. The reference
+  implementation therefore adds a commit-then-reveal nonce exchange before the code exists,
+  as numeric-comparison pairing does (`core/src/pairing.rs`). The initiator commits to a
+  32-octet random nonce before it sees the responder's nonce. The responder sends its nonce
+  before it sees the initiator's. The code is derived from both principals, both public keys
+  and both nonces. Neither side, and no one between them, can then choose keys or nonces to
+  reach a given code. A substituted key matches with probability 10^-6 per operator-visible
+  exchange. One rule falls to the caller, so that an attacker cannot simply restart
+  exchanges until its code matches: a responder answers one offer per operator-started
+  pairing, and an exchange abandoned before the code is shown ends that pairing visibly. The
+  6-digit, 120-second and 5-attempt parameters are unchanged.
+  `spec/security.md` [SEC-KEY-032] to [SEC-KEY-034] are met as frozen. The §5.3 informative
+  note's follow-up is recorded for the #308 batch.*
 - **Where LAN certificates come from, and the common-name link (forward reference to
   §12).** Where pairing issues LAN certificates for the Zenoh TLS/QUIC transport, the
   certificate's common name is **derived from the device public key fingerprint** —

@@ -8,10 +8,12 @@
 //! [`TrustedKeySet::add_paired_key`], and it is the only source of a
 //! [`SecurityPrincipal`] ([IFC-TYP-070]).
 //!
-//! Not here: pairing itself, the operator-confirmed exchange that leads to
-//! [`TrustedKeySet::add_paired_key`] ([SEC-KEY-032]; task F5), and removing a key, which
-//! must remove every grant and binding that names it in the same step ([SEC-KEY-035]) and so
-//! lands with the grants (F5) and the binding table (F6).
+//! Pairing, the operator-confirmed exchange that leads to [`TrustedKeySet::add_paired_key`]
+//! ([SEC-KEY-032]), is [`crate::pairing`] (#54, F5). Removing a key must remove every grant
+//! and binding that names it in the same step ([SEC-KEY-035]), so the set's own removal is
+//! crate-private: the one public way to remove a key is
+//! [`crate::authorization::AuthorizationEngine::remove_key`], which holds the grants and the
+//! binding table beside this set.
 
 use crate::envelope::SecurityPrincipal;
 use crate::ids::{KeyId, Token};
@@ -125,6 +127,14 @@ impl TrustedKeySet {
         self.entries
             .get(&key_id)
             .filter(|e| e.principal == principal)
+    }
+
+    /// Removes the entry for `key_id`. Crate-private: a key leaves the set only together with
+    /// every grant and binding that names it ([SEC-KEY-035]), through
+    /// [`crate::authorization::AuthorizationEngine::remove_key`], which also refuses this
+    /// device's own key ([SEC-KEY-031]).
+    pub(crate) fn remove(&mut self, key_id: &KeyId) -> Option<TrustedKey> {
+        self.entries.remove(key_id)
     }
 
     /// The entry for `key_id`, under whatever principal.
