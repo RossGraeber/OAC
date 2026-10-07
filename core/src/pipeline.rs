@@ -27,7 +27,10 @@
 //!    signed with the device key;
 //! 3. the sender's own announcement to the recipient's device, issued before the envelope
 //!    is passed to the transport, when the release is authorized ([SEC-PRS-010],
-//!    [SEC-AUZ-011]) and the transport may carry it ([IFC-TRN-081]);
+//!    [SEC-AUZ-011]) and the transport may carry it ([IFC-TRN-081]). An announcement
+//!    counts as issued once the transport took it; when it does not take this send's
+//!    announcement, the envelope is not passed either (`not-passed`, `transport-failure`),
+//!    and a send that finds another thread's announcement not yet taken issues its own;
 //! 4. the sent record ([SEC-AUZ-013]), so the reply right and the receipt check
 //!    ([SEC-RCT-003]) hold before any reply or receipt can arrive;
 //! 5. `publish`;
@@ -45,7 +48,8 @@
 //! 2. security steps 1 to 4, under the engine ([`crate::receiver::receive`]'s order);
 //! 3. security step 5 and the delivery stage, with the hand-off call made through the
 //!    attachment's adapter (`ProviderAdapter::deliver`) and no lock held across it;
-//! 4. the hand-off record ([SEC-AUZ-016]);
+//! 4. the hand-off record ([SEC-AUZ-016]), kept from just before the call so that a reply
+//!    made during it correlates, and removed again when the call does not hand off;
 //! 5. the receipt gate ([`crate::receiver::may_send_receipt`]);
 //! 6. the receipt: for an envelope this device signed, the receiver-observed state goes
 //!    straight to its tracker ([SC-RCP-040]); otherwise an authenticated receipt is issued
@@ -83,8 +87,8 @@ use crate::adapter::{
     HandOffOutcome, ProviderAdapter, ReceiptStream, RequestSink, SendRequest, SendRequestResult,
 };
 use crate::authorization::{
-    AuthorizationEngine, AuthorizationRequest, AuthorizedMessage, Binding, Kind, Requester,
-    SentRecord,
+    AuthorizationEngine, AuthorizationRequest, AuthorizedMessage, Binding, HandOffRecord, Kind,
+    Requester, SentRecord,
 };
 use crate::capabilities::{CapabilitiesEntry, Implemented, SessionCapabilities, SessionDescriptor};
 use crate::clock::Clock;
@@ -98,7 +102,7 @@ use crate::receipt::DeliveryReceipt;
 use crate::receipt_auth::{AuthenticatedReceipt, accept_receipt};
 use crate::receiver::{
     DeliveryTarget, ReceiptLimiter, ReceiveOutcome, Received, ReceiverReport, deliver_unrecorded,
-    may_send_receipt, record_outcome, security_steps,
+    may_send_receipt, security_steps,
 };
 use crate::registration::RegistrationRecord;
 use crate::registry::{CROSS_IMPLEMENTATION_PRESENCE_CAP_MS, PresenceIssuer, PresenceRegistry};
@@ -768,6 +772,16 @@ impl Inner {
                 self.transport
                     .send_presence(&destination, payload, self.control_deadline());
             self.announcement_taken(env.from(), &to_key, mono, result);
+            if result == PublishResult::NotTaken {
+                // [SEC-PRS-010]: the announcement was not issued, so the envelope is not
+                // passed either: `failed` with `transport-failure`, no copy passed (§8.4.1).
+                // The sent record stays; no copy of its envelope exists to answer.
+                self.lock().trackers.remove(&key);
+                return SendRequestResult::NotPassed {
+                    id,
+                    error: ErrorCode::TransportFailure,
+                };
+            }
         }
         let deadline = self.deadline_at(HandOffDeadline::of(&env).unix_nanos());
         let result = self.transport.publish(
@@ -1013,14 +1027,16 @@ impl Inner {
     /// hand-off call; then the hand-off record, and the receipt or the re-queue.
     fn deliver_now(&self, authorized: AuthorizedMessage) {
         let env = authorized.message().envelope().clone();
-        let (out, record) = deliver_unrecorded(
+        // The hand-off record is kept by `hand_off` itself, before the call, so a reply the
+        // harness makes during the call correlates; it is removed again unless the outcome
+        // is `handed-to-harness` or `unknown` ([SEC-AUZ-016], [SC-RCP-050]).
+        let (out, _record) = deliver_unrecorded(
             authorized,
             &self.store,
             &*self.clock,
             |to| self.target(to),
             |m| self.hand_off(m),
         );
-        record_outcome(&mut self.lock().engine, record, &out);
         match out {
             ReceiveOutcome {
                 received: Received::InFlight(key),
@@ -1059,6 +1075,14 @@ impl Inner {
     /// The hand-off call: at most one `deliver` on the adapter of the attachment bound to
     /// the envelope's `to` ([IFC-ADP-057]). A binding that ended since the delivery-stage
     /// checks makes no call and is `not-now` ([SC-DLV-007]).
+    ///
+    /// The hand-off record goes into the engine just before the call, so a reply the
+    /// harness makes while the call is still running is correlated and the sender may be
+    /// discovered ([SEC-AUZ-016]). It is removed when the call ends `not-now`, `failed` or
+    /// `refused`, so a refused hand-off leaves no reply right or discovery right behind. A
+    /// call that panics is contained and counts as `indeterminate` ([SC-RCP-006]): the
+    /// content may have reached the harness, the record stays, and the thread goes on to
+    /// offer any re-queued copy.
     fn hand_off(&self, msg: &ChannelMessage) -> HandOffOutcome {
         let target = {
             let core = self.lock();
@@ -1071,12 +1095,21 @@ impl Inner {
         let Some((adapter, attachment)) = target else {
             return HandOffOutcome::NotNow;
         };
-        match HandOff::new(attachment, msg.clone()) {
-            Some(h) => adapter.deliver(h),
-            // [IFC-TYP-091]: only a verified message is handed off; this one is, so this
-            // arm records a fault, never a hand-off.
-            None => HandOffOutcome::Refused,
+        // [IFC-TYP-091]: only a verified message is handed off; this one is, so the `None`
+        // arm records a fault, never a hand-off.
+        let Some(h) = HandOff::new(attachment, msg.clone()) else {
+            return HandOffOutcome::Refused;
+        };
+        let record = HandOffRecord::of(msg.envelope());
+        self.lock()
+            .engine
+            .record_handoff(record.clone(), DeliveryState::HandedToHarness);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| adapter.deliver(h)))
+            .unwrap_or(HandOffOutcome::Indeterminate);
+        if !outcome.may_be_handed_off() {
+            self.lock().engine.forget_handoff(&record);
         }
+        outcome
     }
 
     /// Re-queues an in-flight copy until its twin settles ([SEC-RPL-026]), within

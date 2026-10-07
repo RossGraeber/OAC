@@ -891,6 +891,7 @@ pub(super) fn run_reply(fx: &Fixture) -> Result<(), String> {
                 created_at: now.clone(),
                 conversation_id: r.conversation_id,
                 correlation_id: r.correlation_id,
+                key_id: None,
             },
             DeliveryState::HandedToHarness,
         );

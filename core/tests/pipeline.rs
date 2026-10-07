@@ -30,7 +30,7 @@ use oac_core::health::{HealthState, HealthStatus};
 use oac_core::ids::{KeyId, SessionId, Token};
 use oac_core::keys::{DeviceIdentity, DeviceKey};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
-use oac_core::pipeline::{AdapterId, PipelineConfig, Pipelines};
+use oac_core::pipeline::{AdapterId, PipelineConfig, PipelineError, Pipelines};
 use oac_core::receipt::DeliveryReceipt;
 use oac_core::transport::{
     CarrierHandle, Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind,
@@ -55,6 +55,11 @@ struct BusState {
     refuse_presence: usize,
     /// The last envelope payload taken, for re-injecting a copy.
     last_envelope: Option<Payload>,
+    /// Declare `destination_restricted` absent ([IFC-TRN-081] then keeps presence off).
+    unrestricted: bool,
+    /// Run once, on the sender's thread, when the next presence record is passed and
+    /// before it is taken.
+    on_presence: Option<Box<dyn FnOnce() + Send>>,
 }
 
 /// A loopback medium for several endpoints, one per device key.
@@ -111,6 +116,7 @@ impl Transport for Endpoint {
         _configuration: TransportConfiguration,
     ) -> Result<TransportCapabilities, TransportError> {
         *self.key.lock().unwrap() = Some(local_device.clone());
+        let unrestricted = self.bus.0.lock().unwrap().unrestricted;
         Ok(TransportCapabilities {
             reliability: false,
             persistence: false,
@@ -119,7 +125,7 @@ impl Transport for Endpoint {
             multicast_discovery: false,
             routing_federation: false,
             reach: Reach::CrossImplementation,
-            destination_restricted: true,
+            destination_restricted: !unrestricted,
             max_payload_octets: 65_536 * 4,
         })
     }
@@ -201,6 +207,10 @@ impl Transport for Endpoint {
         if payload.kind() != PayloadKind::Presence {
             return PublishResult::NotTaken;
         }
+        let hook = self.bus.0.lock().unwrap().on_presence.take();
+        if let Some(hook) = hook {
+            hook();
+        }
         let watchers: Vec<PresenceHandler> = {
             let mut st = self.bus.0.lock().unwrap();
             if st.refuse_presence > 0 {
@@ -258,6 +268,8 @@ struct TestAdapter {
     on_deliver: Mutex<Option<OnDeliver>>,
     caps: Mutex<AdapterCapabilities>,
     deliver_calls: AtomicUsize,
+    /// Run once at the next `capabilities` call.
+    on_capabilities: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl TestAdapter {
@@ -275,7 +287,16 @@ impl TestAdapter {
                 max_envelope_octets: None,
             }),
             deliver_calls: AtomicUsize::new(0),
+            on_capabilities: Mutex::default(),
         })
+    }
+
+    /// Reports `e` to the core, as if the adapter observed it.
+    fn emit(&self, e: AdapterEvent) {
+        let h = self.events.lock().unwrap().clone();
+        if let Some(h) = h {
+            h(e);
+        }
     }
 
     fn sink(&self) -> Arc<dyn RequestSink> {
@@ -327,6 +348,10 @@ impl ProviderAdapter for TestAdapter {
     }
 
     fn capabilities(&self, _attachment: &Attachment) -> AdapterCapabilities {
+        let hook = self.on_capabilities.lock().unwrap().take();
+        if let Some(hook) = hook {
+            hook();
+        }
         self.caps.lock().unwrap().clone()
     }
 
@@ -959,12 +984,19 @@ fn two_devices_exchange_a_message_and_a_correlated_reply() {
     assert_eq!(x.adapter.texts(), ["pong"]);
 }
 
-/// [SEC-PRS-010]: an announcement the transport did not take does not count as issued;
-/// the next envelope to that device is preceded by another one. Once one is taken, later
-/// envelopes within the refresh interval need none.
-#[test]
-fn an_announcement_not_taken_is_issued_again() {
+/// Two devices with one grant from `sx` on x to `sy` on y, and `sy` bound on y.
+struct TwoDevices {
+    bus: Bus,
+    x: Node,
+    y: Node,
+    xk: KeyId,
+    xa: Attachment,
+    sy: SessionId,
+}
+
+fn two_devices(unrestricted: bool) -> TwoDevices {
     let bus = Bus::default();
+    bus.0.lock().unwrap().unrestricted = unrestricted;
     let x = node(&bus, "device-x", PipelineConfig::default());
     let y = node(&bus, "device-y", PipelineConfig::default());
     pair(&x, &y);
@@ -979,30 +1011,326 @@ fn an_announcement_not_taken_is_issued_again() {
         &x,
         Grant::Outbound {
             writer: LocalSide::Session(sx.clone()),
-            target: PeerSide::session(yk.clone(), sy.clone()),
+            target: PeerSide::session(yk, sy.clone()),
         },
     );
     grant(
         &y,
         Grant::Inbound {
-            writer: PeerSide::session(xk.clone(), sx.clone()),
+            writer: PeerSide::session(xk.clone(), sx),
             target: LocalSide::Session(sy.clone()),
         },
     );
     session(&y, 2);
-    let from_x = |k: PayloadKind| {
-        bus.log()
+    TwoDevices {
+        bus,
+        x,
+        y,
+        xk,
+        xa,
+        sy,
+    }
+}
+
+impl TwoDevices {
+    fn count_from_x(&self, k: PayloadKind) -> usize {
+        self.bus
+            .log()
             .iter()
-            .filter(|(f, kind, _)| f == &xk && *kind == k)
+            .filter(|(f, kind, _)| f == &self.xk && *kind == k)
             .count()
+    }
+}
+
+/// [SEC-PRS-010] (PR #326 review B1): when the transport does not take this send's own
+/// announcement, the announcement was not issued, so the envelope is not passed either:
+/// `not-passed` with `transport-failure`. The next send issues it again before its envelope;
+/// once one is taken, later envelopes within the refresh interval need none.
+#[test]
+fn an_announcement_not_taken_is_issued_again() {
+    let t = two_devices(false);
+    t.bus.0.lock().unwrap().refuse_presence = 1;
+    let r = t.x.adapter.sink().send(request(&t.xa, &t.sy, "one"));
+    check_result_tables(&r);
+    assert!(
+        matches!(
+            r,
+            SendRequestResult::NotPassed {
+                error: ErrorCode::TransportFailure,
+                ..
+            }
+        ),
+        "{r:?}"
+    );
+    assert_eq!(t.count_from_x(PayloadKind::Presence), 0);
+    assert_eq!(t.count_from_x(PayloadKind::Envelope), 0);
+    sent(t.x.adapter.sink().send(request(&t.xa, &t.sy, "two")));
+    sent(t.x.adapter.sink().send(request(&t.xa, &t.sy, "three")));
+    let kinds: Vec<PayloadKind> = t
+        .bus
+        .log()
+        .iter()
+        .filter(|(f, ..)| f == &t.xk)
+        .map(|(_, k, _)| *k)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            PayloadKind::Presence,
+            PayloadKind::Envelope,
+            PayloadKind::Envelope
+        ]
+    );
+    assert_eq!(t.y.adapter.texts(), ["two", "three"]);
+}
+
+/// The 9f70686 race (PR #326 review N3): a send that finds another send's announcement
+/// issued but not yet taken issues its own, so its envelope never overtakes the only
+/// announcement. Here the second send runs while the first one's announcement is being
+/// passed to the transport.
+#[test]
+fn a_send_does_not_rely_on_an_announcement_still_in_flight() {
+    let t = two_devices(false);
+    let (x2, xa, sy) = (t.x.adapter.clone(), t.xa.clone(), t.sy.clone());
+    t.bus.0.lock().unwrap().on_presence = Some(Box::new(move || {
+        sent(x2.sink().send(request(&xa, &sy, "second")));
+    }));
+    sent(t.x.adapter.sink().send(request(&t.xa, &t.sy, "first")));
+    let kinds: Vec<PayloadKind> = t
+        .bus
+        .log()
+        .iter()
+        .filter(|(f, ..)| f == &t.xk)
+        .map(|(_, k, _)| *k)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            PayloadKind::Presence,
+            PayloadKind::Envelope,
+            PayloadKind::Presence,
+            PayloadKind::Envelope
+        ]
+    );
+    assert_eq!(t.y.adapter.texts(), ["second", "first"]);
+}
+
+/// [IFC-TRN-081] (PR #326 review B3): over a transport that does not declare
+/// `destination_restricted`, no presence record crosses to another implementation, so the
+/// sender holds no declaration for the peer's session and the send is refused before any
+/// envelope.
+#[test]
+fn no_presence_crosses_an_unrestricted_transport() {
+    let t = two_devices(true);
+    assert_eq!(
+        refused(t.x.adapter.sink().send(request(&t.xa, &t.sy, "x"))),
+        ErrorCode::UnknownDestination
+    );
+    let kinds: Vec<PayloadKind> = t.bus.log().iter().map(|(_, k, _)| *k).collect();
+    assert!(kinds.is_empty(), "{kinds:?}");
+}
+
+/// [SC-ID-160], [IFC-ADP-031] (PR #326 review B3): a request is attributed only on the
+/// adapter that reported the attachment. A second adapter that labels a request with the
+/// first adapter's bound attachment is refused `unauthorized`.
+#[test]
+fn another_adapters_attachment_is_not_attributed() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (a, sa) = session(&n, 1);
+    let (_b, sb) = session(&n, 2);
+    local_grant(&n, &sa, &sb);
+    let other = TestAdapter::new();
+    n.pipes.add_adapter(other.clone());
+    assert_eq!(
+        refused(other.sink().send(request(&a, &sb, "spoofed"))),
+        ErrorCode::Unauthorized
+    );
+    assert!(bus.log().is_empty());
+    // The owner's own request is attributed.
+    sent(n.adapter.sink().send(request(&a, &sb, "own")));
+}
+
+/// [IFC-ADP-013] (PR #326 review B3): an adapter cannot make a handle an attachment unless
+/// the core gave it that connection: one the core never gave it, or gave another adapter,
+/// cannot be bound.
+#[test]
+fn an_attachment_needs_a_connection_given_to_that_adapter() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let other = TestAdapter::new();
+    n.pipes.add_adapter(other.clone());
+    let record = |seed: u8| {
+        n.pipes
+            .device()
+            .register(
+                SessionId::from_random_octets([seed; 16]),
+                Token::parse("test-harness").unwrap(),
+                "native",
+                "/work",
+                SystemClock.now(),
+            )
+            .unwrap()
     };
-    bus.0.lock().unwrap().refuse_presence = 1;
-    sent(x.adapter.sink().send(request(&xa, &sy, "one")));
-    assert_eq!(from_x(PayloadKind::Presence), 0);
-    sent(x.adapter.sink().send(request(&xa, &sy, "two")));
-    assert_eq!(from_x(PayloadKind::Presence), 1);
-    sent(x.adapter.sink().send(request(&xa, &sy, "three")));
-    assert_eq!(from_x(PayloadKind::Presence), 1);
-    assert_eq!(from_x(PayloadKind::Envelope), 3);
-    assert_eq!(y.adapter.texts(), ["one", "two", "three"]);
+    // A handle the core minted but gave to no adapter.
+    let forged = Connection::accept(std::io::empty(), std::io::sink())
+        .handle()
+        .clone();
+    other.emit(AdapterEvent::AttachmentOpened {
+        attachment: forged.clone(),
+        cross_check: None,
+    });
+    assert_eq!(
+        n.pipes.bind(&forged, &record(5), None),
+        Err(PipelineError::UnknownAttachment)
+    );
+    // A handle given to the first adapter, reported open by the other one.
+    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let theirs = conn.handle().clone();
+    n.pipes.connect(n.adapter_id, conn).unwrap();
+    n.pipes.unbind(&theirs);
+    other.emit(AdapterEvent::AttachmentClosed {
+        attachment: theirs.clone(),
+    });
+    // Still the first adapter's: the other adapter's close is ignored, and its own open
+    // event for the handle would be too.
+    other.emit(AdapterEvent::AttachmentOpened {
+        attachment: theirs.clone(),
+        cross_check: None,
+    });
+    n.pipes.bind(&theirs, &record(6), None).unwrap();
+    assert_eq!(
+        refused(other.sink().send(request(
+            &theirs,
+            &SessionId::from_random_octets([6; 16]),
+            "x"
+        ))),
+        ErrorCode::Unauthorized
+    );
+}
+
+/// The receipt gate (PR #326 review B3; [SEC-RPL-030]): copies of an envelope already
+/// handed off draw one `duplicate` receipt between them, never more.
+#[test]
+fn the_receipt_gate_allows_one_duplicate_receipt() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (a, sa) = session(&n, 1);
+    let (_b, sb) = session(&n, 2);
+    local_grant(&n, &sa, &sb);
+    let (_, _, receipts) = sent(n.adapter.sink().send(request(&a, &sb, "once")));
+    assert_eq!(
+        receipts.0.recv_timeout(WAIT).unwrap().state(),
+        DeliveryState::HandedToHarness
+    );
+    let p = bus.0.lock().unwrap().last_envelope.clone().unwrap();
+    let to = Destination::Session(sb.clone());
+    for _ in 0..3 {
+        bus.redeliver(n.pipes.device().key_id(), &to, p.clone());
+    }
+    assert_eq!(
+        receipts.0.recv_timeout(WAIT).unwrap().state(),
+        DeliveryState::Duplicate
+    );
+    assert!(receipts.0.try_recv().is_err());
+    assert_eq!(n.adapter.deliver_calls.load(Ordering::SeqCst), 1);
+}
+
+/// The binding re-check right before the hand-off call (PR #326 review N3; [SC-DLV-007]):
+/// a session unbound after the delivery-stage checks gets no call, and the copy is
+/// `unreachable` with `destination-unavailable`.
+#[test]
+fn a_binding_that_ends_before_the_call_gets_no_call() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (a, sa) = session(&n, 1);
+    let (b, sb) = session(&n, 2);
+    local_grant(&n, &sa, &sb);
+    let (pipes, b2) = (n.pipes.clone(), b.clone());
+    // The delivery stage reads the adapter's capabilities after it has looked the session
+    // up; the session's binding ends right then.
+    *n.adapter.on_capabilities.lock().unwrap() = Some(Box::new(move || pipes.unbind(&b2)));
+    let (_, _, receipts) = sent(n.adapter.sink().send(request(&a, &sb, "late")));
+    let r = receipts.0.recv_timeout(WAIT).unwrap();
+    check_receipt_tables(&r);
+    assert_eq!(
+        (r.state(), r.error().map(|e| e.as_str().to_owned())),
+        (
+            DeliveryState::Unreachable,
+            Some("destination-unavailable".to_owned())
+        )
+    );
+    assert_eq!(n.adapter.deliver_calls.load(Ordering::SeqCst), 0);
+}
+
+/// PR #326 review N1: the hand-off record exists while the hand-off call runs, so a reply
+/// the harness makes before the call returns is correlated; a call that ends `failed`
+/// leaves no record, so a later reply naming it goes uncorrelated.
+#[test]
+fn a_reply_during_the_hand_off_call_is_correlated() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (a, sa) = session(&n, 1);
+    let (b, sb) = session(&n, 2);
+    local_grant(&n, &sa, &sb);
+    // A grant back, so a reply that goes uncorrelated is still sent and can be read.
+    local_grant(&n, &sb, &sa);
+    let (adapter, b2, sa2) = (n.adapter.clone(), b.clone(), sa.clone());
+    let replied = Arc::new(Mutex::new(None));
+    let r2 = replied.clone();
+    *n.adapter.on_deliver.lock().unwrap() = Some(Box::new(move |h: &HandOff| {
+        if h.message().envelope().to() == &sa2 {
+            return HandOffOutcome::Completed;
+        }
+        let mut reply = request(&b2, &sa2, "quick answer");
+        reply.requested_target = Some(h.message().envelope().id().as_str().to_owned());
+        if let SendRequestResult::Sent { correlation, .. } = adapter.sink().send(reply) {
+            *r2.lock().unwrap() = correlation;
+        }
+        HandOffOutcome::Failed
+    }));
+    let (id, _, _) = sent(n.adapter.sink().send(request(&a, &sb, "question")));
+    assert_eq!(*replied.lock().unwrap(), Some(Correlation::Correlated));
+    // The call failed: the record is gone, and a reply naming it now is uncorrelated.
+    *n.adapter.on_deliver.lock().unwrap() = None;
+    let mut late = request(&b, &sa, "late answer");
+    late.requested_target = Some(id.as_str().to_owned());
+    let (_, correlation, _) = sent(n.adapter.sink().send(late));
+    assert_eq!(correlation, Some(Correlation::Uncorrelated));
+}
+
+/// PR #326 review N2: a panicking hand-off call is contained, counts as `indeterminate`
+/// (`unknown`), and the copy that was re-queued behind it is still offered on that thread.
+#[test]
+fn a_panicking_hand_off_is_unknown_and_the_requeue_still_drains() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (a, sa) = session(&n, 1);
+    let (_b, sb) = session(&n, 2);
+    local_grant(&n, &sa, &sb);
+    let (bus2, key, to) = (
+        bus.clone(),
+        n.pipes.device().key_id().clone(),
+        Destination::Session(sb.clone()),
+    );
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    *n.adapter.on_deliver.lock().unwrap() = Some(Box::new(move |_h: &HandOff| {
+        if c.fetch_add(1, Ordering::SeqCst) == 0 {
+            let p = bus2.0.lock().unwrap().last_envelope.clone().unwrap();
+            bus2.redeliver(&key, &to, p);
+            panic!("the adapter's input call failed hard");
+        }
+        HandOffOutcome::Completed
+    }));
+    let (_, _, receipts) = sent(n.adapter.sink().send(request(&a, &sb, "boom")));
+    let states: Vec<DeliveryState> = (0..2)
+        .map(|_| receipts.0.recv_timeout(WAIT).unwrap())
+        .inspect(check_receipt_tables)
+        .map(|r| r.state())
+        .collect();
+    // The panicked call may have handed the content off, so the re-queued twin is a
+    // duplicate of it, offered at once rather than left waiting for the next envelope.
+    assert_eq!(states, [DeliveryState::Unknown, DeliveryState::Duplicate]);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

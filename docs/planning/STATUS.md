@@ -14,20 +14,26 @@ changes.
   itself, built under the agreed revision with reply headers from the engine's hand-off
   records and signed; the sender's announcement to the recipient's device before the first
   envelope when the release is authorized and the transport may carry it ([SEC-PRS-010],
-  [SEC-AUZ-011], [IFC-TRN-081]); `record_sent`; `publish`; the `EnvelopeTracker`, whose
-  receipts feed the `sent` result's receipt stream ([IFC-ADP-062]).
+  [SEC-AUZ-011], [IFC-TRN-081]); an announcement the transport did not take means the
+  envelope is not passed either (`not-passed`, `transport-failure`); `record_sent`;
+  `publish`; the `EnvelopeTracker`, whose receipts feed the `sent` result's receipt
+  stream ([IFC-ADP-062]).
 - **Receive path.** Session subscription, envelope stage (receiver-wide part types are the
   ones some bound session takes), security steps 1 to 4 under the engine, then step 5, the
-  delivery stage and the adapter's `deliver` with no lock held across the call; the hand-off
-  record; the receipt gate; the receiver-observed state straight to the local tracker for
+  delivery stage and the adapter's `deliver` with no lock held across the call, contained
+  by `catch_unwind` (a panic is `unknown`); the hand-off record, kept from just before the
+  call so a reply made during it correlates, and removed if the call does not hand off; the
+  receipt gate; the receiver-observed state straight to the local tracker for
   this device's own envelopes ([SC-RCP-040]), or an authenticated receipt published to the
   verifying device. In-flight copies are re-queued through `DuplicateStore::when_settled` and
   offered again on the settling thread, with no timer ([SEC-RPL-026]). Presence records and
   receipts from other devices arrive through `watch_presence` and the device subscription.
 - **F5/F6 changes, minimal.** `HandOffRecord` carries `conversation_id` and
   `correlation_id`, and `AuthorizationEngine::reply_headers` serves [SC-RCP-053] and
-  [SC-RCP-054] from the engine's own records; sent and hand-off records are bounded
-  (`MAX_RECORDS`, fail-closed). `receiver::receive` is split into crate-private phases so the
+  [SC-RCP-054] from the engine's own records; sent and hand-off records are bounded per
+  writer (`MAX_RECORDS_PER_PARTITION`, partitioned by sending own session and by verifying
+  key, so no peer or local session can evict another's records; `11-risks.md`
+  RISK-RECORD-PARTITIONS). `receiver::receive` is split into crate-private phases so the
   pipeline does not hold the engine across a hand-off call; behaviour is unchanged.
   `EnvelopeDraft::with_parts` and `ContentPart::from_json` let a request carry a non-text
   part a session advertises.
@@ -39,7 +45,10 @@ changes.
   every hand-off outcome against Tables 8.1 and 8.3, refusals, re-queue, bounds) and
   `transports/memory/tests/pipelines.rs` (the fake Claude Code endpoint and the fake Codex
   app-server behind test adapters, over the in-memory transport; both mid-turn release
-  settings). No adapter crate implements `ProviderAdapter` yet (Epic G); the tripwire stands.)
+  settings; and two devices over a `cross-implementation` memory network, where
+  [IFC-TRN-081] keeps presence off a transport that does not declare
+  `destination_restricted`, so nothing crosses). No adapter crate implements
+  `ProviderAdapter` yet (Epic G); the tripwire stands.)
 
 **Last updated:** 2026-10-06 (**Issue #55 (F6): the presence registry and the delivery
 receipt state machine land in `core/`**, against `spec/session-channels.md` §7 and §8 and

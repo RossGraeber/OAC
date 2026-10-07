@@ -41,7 +41,7 @@ use oac_core::health::{HealthState, HealthStatus};
 use oac_core::ids::{SessionId, Token};
 use oac_core::json::{self, Json};
 use oac_core::keys::{DeviceIdentity, DeviceKey};
-use oac_core::pairing::MemoryPairingStore;
+use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::pipeline::{PipelineConfig, Pipelines};
 use oac_core::receipt::DeliveryReceipt;
 use oac_fake_claude::MidTurnRelease;
@@ -742,4 +742,132 @@ fn claude_and_codex_fakes_exchange_through_the_core_pipelines() {
     for release in MidTurnRelease::BOTH {
         run(release);
     }
+}
+
+fn device(network: &MemoryNetwork, principal: &str) -> Pipelines {
+    let identity = DeviceIdentity::new(DeviceKey::generate(), Token::parse(principal).unwrap());
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let engine =
+        AuthorizationEngine::new(&identity, clock.clone(), Box::new(MemoryDecisionLog::new()));
+    let net = network.clone();
+    let pipes = Pipelines::new(
+        identity,
+        engine,
+        clock,
+        Arc::new(move || net.now()),
+        Arc::new(MemoryTransport::new()),
+        PipelineConfig::default(),
+    );
+    pipes.start(MemoryConfiguration::wrap(network)).unwrap();
+    pipes
+}
+
+fn pair_with(me: &Pipelines, peer: &Pipelines, store: &MemoryPairingStore) {
+    let p = PairedPeer::by_key_id_comparison(
+        peer.device().principal().clone(),
+        *peer.device().public_key(),
+        peer.device().key_id(),
+        SystemClock.now(),
+        OperatorConfirmed::by_operator(),
+    )
+    .unwrap();
+    me.with_engine(|e| e.pair(p, store).unwrap());
+}
+
+/// Two devices over one `cross-implementation` in-memory network, paired, with the grant
+/// "the Claude session on x may write to the Codex session on y" recorded on both.
+///
+/// The in-memory transport does not declare `destination_restricted`: it cannot keep a
+/// payload to the device its `Destination` names, so it may not claim to ([IFC-TRN-021]).
+/// [IFC-TRN-081] then keeps every presence record off it for another implementation, so x
+/// never holds y's declaration and nothing crosses: x's send is refused before any envelope
+/// exists, and y's harness gets nothing. The announcement, the wire receipt and the send
+/// order between two devices are exercised over a destination-restricted test transport in
+/// `core/tests/pipeline.rs` (`two_devices_...`, `an_announcement_...`, `a_send_does_not_...`).
+#[test]
+fn two_devices_over_the_memory_transport_exchange_no_presence() {
+    let network = MemoryNetwork::builder()
+        .reach(oac_core::transport::Reach::CrossImplementation)
+        .build();
+    let (x, y) = (device(&network, "device-x"), device(&network, "device-y"));
+    let (xs, ys) = (MemoryPairingStore::new(), MemoryPairingStore::new());
+    pair_with(&x, &y, &xs);
+    pair_with(&y, &x, &ys);
+
+    let channel = Arc::new(ChannelAdapter::default());
+    let claude_id = x.add_adapter(channel.clone());
+    let mut claude = ClaudeHarness::new(
+        channel.clone(),
+        MidTurnRelease::OnePerBoundary,
+        encode,
+        Vec::new(),
+    );
+    let accept = CoreSide::new();
+    let (cs, conns) = claude.open_session(&accept).unwrap();
+    let claude_att = conns[0].handle().clone();
+    for c in conns {
+        x.connect(claude_id, c).unwrap();
+    }
+    claude.session_ready(cs).unwrap();
+
+    let fake = Arc::new(CodexFake::spawn().expect("spawn the fake Codex app-server with node"));
+    let thread = fake.create_thread();
+    let queue = Arc::new(QueueAdapter::new(fake.clone()));
+    let codex_id = y.add_adapter(queue.clone());
+    let (mut to_adapter, adapter_reads) = pipe();
+    let (writer, _never_read): (PipeWriter, _) = pipe();
+    to_adapter
+        .write_all(format!("{{\"thread\":{}}}\n", json_string(&thread)).as_bytes())
+        .unwrap();
+    let conn = Connection::accept(adapter_reads, writer);
+    let codex_att = conn.handle().clone();
+    y.connect(codex_id, conn).unwrap();
+
+    let claude_sid = SessionId::from_random_octets([1; 16]);
+    let codex_sid = SessionId::from_random_octets([2; 16]);
+    let (xk, yk) = (x.device().key_id().clone(), y.device().key_id().clone());
+    x.with_engine(|e| {
+        e.add_grant(
+            Grant::Outbound {
+                writer: LocalSide::Session(claude_sid.clone()),
+                target: PeerSide::session(yk, codex_sid.clone()),
+            },
+            OperatorConfirmed::by_operator(),
+            &xs,
+        )
+        .unwrap();
+    });
+    y.with_engine(|e| {
+        e.add_grant(
+            Grant::Inbound {
+                writer: PeerSide::session(xk, claude_sid.clone()),
+                target: LocalSide::Session(codex_sid.clone()),
+            },
+            OperatorConfirmed::by_operator(),
+            &ys,
+        )
+        .unwrap();
+    });
+    assert_eq!(bind(&x, &claude_att, 1, "claude-code"), claude_sid);
+    assert_eq!(bind(&y, &codex_att, 2, "codex"), codex_sid);
+    network.settle();
+
+    let r = claude
+        .request(
+            cs,
+            &HarnessRequest::Send {
+                to: codex_sid.clone(),
+                text: "across devices".into(),
+                claimed_from: None,
+            },
+        )
+        .unwrap();
+    assert!(r.is_error && r.text == "unknown-destination", "{r:?}");
+    network.settle();
+    assert!(codex_inputs(&fake, &thread).is_empty());
+    assert_eq!(network.in_flight(), 0);
+
+    x.shutdown();
+    y.shutdown();
+    drop(to_adapter);
 }

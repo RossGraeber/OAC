@@ -49,16 +49,99 @@ use crate::pairing::{PairedPeer, PairingRecord, PairingSnapshot, PairingStore, P
 use crate::registration::RegistrationRecord;
 use crate::reply::{EnvelopeRecord, ReplyHeaders, reply_headers};
 use crate::trust::{AddKeyError, TrustedKeySet};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
 /// The reply period of `spec/security.md` §9.5: 86400000 milliseconds (24 hours).
 pub const REPLY_PERIOD_MS: u64 = 86_400_000;
 
-/// The most sent records, and the most hand-off records, an engine holds at once (#313):
-/// both live in process memory ([SEC-AUZ-013], [SEC-AUZ-016]), so they are bounded.
-pub const MAX_RECORDS: usize = 65_536;
+/// The most sent records, or hand-off records, one partition holds (#313). Both live in
+/// process memory ([SEC-AUZ-013], [SEC-AUZ-016]), so they are bounded, and partitioned so
+/// that no writer can evict another's records:
+///
+/// - sent records by the own session that sent them: one local session's sends evict only
+///   its own reply rights;
+/// - hand-off records by the key that verified the envelope, and, for this device's own
+///   key, by the sending session too: one peer device, or one local session, evicts only
+///   the records of what it sent itself.
+///
+/// A full partition forgets its own records whose reply period has ended first, then its
+/// oldest. Forgetting fails closed: a reply right, a discovery right or a correlation ends
+/// early for that writer alone (`docs/planning/v0.1/11-risks.md` RISK-RECORD-PARTITIONS).
+pub const MAX_RECORDS_PER_PARTITION: usize = 4096;
+
+/// The most partitions each record list holds. Partitions are own sessions (sent records)
+/// and trusted keys (hand-off records), both of which an operator or the local daemon
+/// bounds; a record for a new partition past this many is not kept (fail-closed), and no
+/// existing partition is evicted for it.
+pub const MAX_RECORD_PARTITIONS: usize = 4096;
+
+/// A record list in partitions ([`MAX_RECORDS_PER_PARTITION`]). Adding a record touches its
+/// own partition only, in constant time apart from dropping expired records at its front.
+#[derive(Debug)]
+struct RecordBook<K: Ord, R> {
+    parts: BTreeMap<K, VecDeque<R>>,
+}
+
+impl<K: Ord + Clone, R> RecordBook<K, R> {
+    fn new() -> Self {
+        RecordBook {
+            parts: BTreeMap::new(),
+        }
+    }
+
+    /// Adds `r` to partition `key`; false, keeping nothing, when a new partition would
+    /// pass [`MAX_RECORD_PARTITIONS`].
+    fn push(&mut self, key: K, r: R, expired: impl Fn(&R) -> bool) -> bool {
+        if !self.parts.contains_key(&key) && self.parts.len() >= MAX_RECORD_PARTITIONS {
+            return false;
+        }
+        let q = self.parts.entry(key).or_default();
+        while q.front().is_some_and(&expired) {
+            q.pop_front();
+        }
+        if q.len() >= MAX_RECORDS_PER_PARTITION {
+            q.pop_front();
+        }
+        q.push_back(r);
+        true
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &R> {
+        self.parts.values().flatten()
+    }
+
+    fn partition(&self, key: &K) -> impl Iterator<Item = &R> + use<'_, K, R> {
+        self.parts.get(key).into_iter().flatten()
+    }
+
+    fn retain(&mut self, mut keep: impl FnMut(&R) -> bool) {
+        for q in self.parts.values_mut() {
+            q.retain(&mut keep);
+        }
+        self.parts.retain(|_, q| !q.is_empty());
+    }
+
+    /// Removes the first record of partition `key` that `matches`.
+    fn remove_first(&mut self, key: &K, matches: impl Fn(&R) -> bool) -> bool {
+        let Some(q) = self.parts.get_mut(key) else {
+            return false;
+        };
+        let Some(i) = q.iter().position(matches) else {
+            return false;
+        };
+        q.remove(i);
+        if q.is_empty() {
+            self.parts.remove(key);
+        }
+        true
+    }
+}
+
+/// The partition of a hand-off record: the verifying key, and the sending session when that
+/// key is this device's own.
+type HandOffPartition = (Option<KeyId>, Option<SessionId>);
 
 const NANOS_PER_MS: i128 = 1_000_000;
 
@@ -276,10 +359,14 @@ pub struct HandOffRecord {
     pub conversation_id: Option<Token>,
     /// The envelope's `correlation_id`, when present.
     pub correlation_id: Option<Token>,
+    /// The key id that verified the envelope: the partition the record is kept in
+    /// ([`MAX_RECORDS_PER_PARTITION`]). `None` for a record built without one.
+    pub key_id: Option<KeyId>,
 }
 
 impl HandOffRecord {
-    /// The record for `env`.
+    /// The record for `env`, an envelope that passed security steps 1 and 2, so its
+    /// `security.key_id` is the key that verified it.
     pub fn of(env: &Envelope) -> HandOffRecord {
         HandOffRecord {
             id: env.id().clone(),
@@ -288,6 +375,7 @@ impl HandOffRecord {
             created_at: env.created_at().clone(),
             conversation_id: env.conversation_id().cloned(),
             correlation_id: env.correlation_id().cloned(),
+            key_id: KeyId::parse(env.security().key_id()),
         }
     }
 
@@ -474,6 +562,9 @@ impl Basis {
 }
 
 /// `permit`, with its basis, or `deny`.
+// A decision is a short-lived value; boxing the basis would change a public shape for no
+// gain once `HandOffRecord` carries its partition key (#313).
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// Permitted, because of this recorded fact.
@@ -778,8 +869,8 @@ pub struct AuthorizationEngine {
     own_sessions: BTreeMap<SessionId, WorkingDirectoryScope>,
     grants: Vec<Grant>,
     bindings: BTreeMap<SessionId, Binding>,
-    sent: Vec<SentRecord>,
-    handed_off: Vec<HandOffRecord>,
+    sent: RecordBook<SessionId, SentRecord>,
+    handed_off: RecordBook<HandOffPartition, HandOffRecord>,
     relay: BTreeSet<SessionId>,
     clock: Arc<dyn Clock>,
     log: Box<dyn DecisionLog>,
@@ -820,8 +911,8 @@ impl AuthorizationEngine {
             own_sessions: BTreeMap::new(),
             grants: Vec::new(),
             bindings: BTreeMap::new(),
-            sent: Vec::new(),
-            handed_off: Vec::new(),
+            sent: RecordBook::new(),
+            handed_off: RecordBook::new(),
             relay: BTreeSet::new(),
             clock,
             log,
@@ -899,14 +990,29 @@ impl AuthorizationEngine {
         self.clock.now()
     }
 
-    /// The sent records ([SEC-AUZ-013]) still held, in the order they were recorded.
-    pub fn sent_records(&self) -> &[SentRecord] {
-        &self.sent
+    /// The sent records ([SEC-AUZ-013]) still held: by sending session, each in the order
+    /// recorded.
+    pub fn sent_records(&self) -> impl Iterator<Item = &SentRecord> {
+        self.sent.iter()
     }
 
-    /// The hand-off records ([SEC-AUZ-016]) still held, in the order they were recorded.
-    pub fn handoff_records(&self) -> &[HandOffRecord] {
-        &self.handed_off
+    /// The sent records of the own session `from`, in the order recorded.
+    pub fn sent_records_from(
+        &self,
+        from: &SessionId,
+    ) -> impl Iterator<Item = &SentRecord> + use<'_> {
+        self.sent.partition(from)
+    }
+
+    /// The hand-off records ([SEC-AUZ-016]) still held: by partition, each in the order
+    /// recorded.
+    pub fn handoff_records(&self) -> impl Iterator<Item = &HandOffRecord> {
+        self.handed_off.iter()
+    }
+
+    fn handoff_partition(&self, key: Option<&KeyId>, from: &SessionId) -> HandOffPartition {
+        let own = key == Some(&self.own_key);
+        (key.cloned(), own.then(|| from.clone()))
     }
 
     /// The reply headers for a reply from the own session `from` to `to` that answers
@@ -921,8 +1027,7 @@ impl AuthorizationEngine {
         requested_target: Option<&str>,
     ) -> ReplyHeaders {
         let records: Vec<EnvelopeRecord> = self
-            .handed_off
-            .iter()
+            .handoffs_from(to)
             .filter(|r| &r.to == from && &r.from == to)
             .map(HandOffRecord::envelope_record)
             .collect();
@@ -1194,36 +1299,61 @@ impl AuthorizationEngine {
     /// Records a reply right for an envelope an own session passed to a transport
     /// ([SEC-AUZ-013]); build the record with [`SentRecord::of`].
     ///
-    /// At most [`MAX_RECORDS`] are held: when full, records whose reply period has ended
-    /// are forgotten first, then the oldest. Forgetting one fails closed: its reply right
-    /// ends, and a receipt for its envelope is discarded ([SEC-RCT-003] check 3).
+    /// Kept in the sending session's partition ([`MAX_RECORDS_PER_PARTITION`]): a full
+    /// partition forgets its own expired records, then its oldest, and never another
+    /// session's. Forgetting one fails closed: its reply right ends, and a receipt for its
+    /// envelope is discarded ([SEC-RCT-003] check 3).
     pub fn record_sent(&mut self, record: SentRecord) {
-        if self.sent.len() >= MAX_RECORDS {
-            self.prune();
-            if self.sent.len() >= MAX_RECORDS {
-                self.sent.remove(0);
-            }
-        }
-        self.sent.push(record);
+        let now = self.clock.now();
+        let key = record.from.clone();
+        self.sent
+            .push(key, record, |r| !within_reply_period(&r.created_at, &now));
     }
 
     /// Records a hand-off to an own session, when its outcome was `handed-to-harness` or
     /// `unknown` ([SEC-AUZ-016]); any other outcome records nothing. Build the record with
-    /// [`HandOffRecord::of`]. Bounded as [`AuthorizationEngine::record_sent`] is: a
-    /// forgotten record ends the sender's discovery right and leaves a reply to that
-    /// envelope uncorrelated ([SC-RCP-050]), both fail-closed.
+    /// [`HandOffRecord::of`]. Kept in its writer's partition ([`MAX_RECORDS_PER_PARTITION`]),
+    /// bounded as [`AuthorizationEngine::record_sent`] is: a forgotten record ends that
+    /// sender's discovery right and leaves a reply to that envelope uncorrelated
+    /// ([SC-RCP-050]), both fail-closed, and no writer can make another's records go.
     pub fn record_handoff(&mut self, record: HandOffRecord, outcome: DeliveryState) {
         if matches!(
             outcome,
             DeliveryState::HandedToHarness | DeliveryState::Unknown
         ) {
-            if self.handed_off.len() >= MAX_RECORDS {
-                self.prune();
-                if self.handed_off.len() >= MAX_RECORDS {
-                    self.handed_off.remove(0);
-                }
+            let now = self.clock.now();
+            let key = self.handoff_partition(record.key_id.as_ref(), &record.from);
+            self.handed_off
+                .push(key, record, |r| !within_reply_period(&r.created_at, &now));
+        }
+    }
+
+    /// Removes a hand-off record, the one [`AuthorizationEngine::record_handoff`] kept for
+    /// `record`'s envelope. A receive pipeline records a hand-off before its hand-off call,
+    /// so a reply made during the call correlates, and removes it when the call's outcome
+    /// is neither `handed-to-harness` nor `unknown` (#313).
+    pub fn forget_handoff(&mut self, record: &HandOffRecord) -> bool {
+        let key = self.handoff_partition(record.key_id.as_ref(), &record.from);
+        self.handed_off.remove_first(&key, |r| {
+            r.id == record.id && r.from == record.from && r.to == record.to
+        })
+    }
+
+    /// The hand-off records of envelopes from `from`: its partition when a binding names
+    /// its key, else every partition.
+    fn handoffs_from<'a>(
+        &'a self,
+        from: &'a SessionId,
+    ) -> Box<dyn Iterator<Item = &'a HandOffRecord> + 'a> {
+        match self.bindings.get(from) {
+            Some(Binding::Key(k)) => {
+                let key = self.handoff_partition(Some(k), from);
+                Box::new(self.handed_off.partition(&key).chain(
+                    // Records kept before the binding, under no key.
+                    self.handed_off.partition(&(None, None)),
+                ))
             }
-            self.handed_off.push(record);
+            _ => Box::new(self.handed_off.iter()),
         }
     }
 
@@ -1342,7 +1472,7 @@ impl AuthorizationEngine {
         }
         let reply_to = q.reply_to.as_ref()?;
         self.sent
-            .iter()
+            .partition(&q.to)
             .find(|e| {
                 e.to_key_id == q.verifying_key
                     && e.to == q.from
@@ -1383,8 +1513,7 @@ impl AuthorizationEngine {
                 Grant::Outbound { .. } => Basis::OutboundGrant(g.clone()),
             });
         }
-        self.handed_off
-            .iter()
+        self.handoffs_from(s)
             .find(|h| &h.to == l && &h.from == s && within_reply_period(&h.created_at, now))
             .map(|h| Basis::HandOff(h.clone()))
     }
@@ -1434,8 +1563,7 @@ impl AuthorizationEngine {
                     .map(|e| Basis::Sent(e.clone()))
             })
             .or_else(|| {
-                self.handed_off
-                    .iter()
+                self.handoffs_from(r)
                     .find(|h| &h.from == r && within_reply_period(&h.created_at, now))
                     .map(|h| Basis::HandOff(h.clone()))
             })
@@ -2215,46 +2343,173 @@ mod tests {
         assert!(!q.bob_engine.remove_grant(&g, &q.store).unwrap());
     }
 
-    /// #313: the hand-off records keep `conversation_id` and `correlation_id` and serve the
-    /// reply headers ([SC-RCP-053], [SC-RCP-054]); both record lists are bounded, and a
-    /// forgotten record fails closed (an uncorrelated reply).
-    #[test]
-    fn records_are_bounded_and_serve_reply_headers() {
-        let me = identity("p");
-        let clock = Arc::new(crate::clock::ManualClock::new(now()));
-        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
-        let rec = |i: usize| HandOffRecord {
-            id: Token::parse(&format!("m{i}")).unwrap(),
-            from: sid(A1),
-            to: sid(B1),
+    fn kid_n(n: u8) -> KeyId {
+        KeyId::parse(&format!("{n:02x}").repeat(32)).unwrap()
+    }
+
+    fn sid_n(n: u32) -> SessionId {
+        let mut o = [0u8; 16];
+        o[..4].copy_from_slice(&n.to_be_bytes());
+        o[15] = 1;
+        SessionId::from_random_octets(o)
+    }
+
+    fn handoff(id: &str, from: &SessionId, to: &SessionId, key: Option<KeyId>) -> HandOffRecord {
+        HandOffRecord {
+            id: Token::parse(id).unwrap(),
+            from: from.clone(),
+            to: to.clone(),
             created_at: now(),
             conversation_id: Token::parse("conv"),
             correlation_id: Token::parse("corr"),
-        };
-        for i in 0..=MAX_RECORDS {
-            e.record_handoff(rec(i), DeliveryState::HandedToHarness);
+            key_id: key,
         }
-        assert_eq!(e.handoff_records().len(), MAX_RECORDS);
-        assert_eq!(e.handoff_records()[0].id.as_str(), "m1");
+    }
+
+    /// #313: the hand-off records keep `conversation_id` and `correlation_id` and serve the
+    /// reply headers ([SC-RCP-053], [SC-RCP-054]); a forgotten record fails closed (an
+    /// uncorrelated reply), and `forget_handoff` removes one.
+    #[test]
+    fn handoff_records_serve_reply_headers() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        let peer = Some(kid_n(7));
+        let r = handoff("m7", &sid(A1), &sid(B1), peer.clone());
+        e.record_handoff(r.clone(), DeliveryState::HandedToHarness);
+        e.record_handoff(
+            handoff("m8", &sid(A1), &sid(B1), peer),
+            DeliveryState::Failed,
+        );
         let h = e.reply_headers(&sid(B1), &sid(A1), Some("m7"));
         assert!(h.correlated());
         assert_eq!(h.conversation_id, Token::parse("conv"));
         assert_eq!(h.correlation_id, Token::parse("corr"));
-        assert!(!e.reply_headers(&sid(B1), &sid(A1), Some("m0")).correlated());
+        assert!(!e.reply_headers(&sid(B1), &sid(A1), Some("m8")).correlated());
         assert!(!e.reply_headers(&sid(B2), &sid(A1), Some("m7")).correlated());
-        let env = me.sign_envelope(
-            EnvelopeDraft::new(
-                Token::parse("msg-s").unwrap(),
-                sid(A1),
-                sid(B1),
-                now(),
-                vec![TextPart::new("x").unwrap()],
-            )
-            .unwrap(),
+        assert!(e.forget_handoff(&r));
+        assert!(!e.forget_handoff(&r));
+        assert!(!e.reply_headers(&sid(B1), &sid(A1), Some("m7")).correlated());
+    }
+
+    /// PR #326 review B2, remote side: one peer device handed off more than a partition
+    /// holds evicts only its own records; another peer's record, its correlation and its
+    /// sender's discovery right ([SEC-AUZ-016]) survive. The flood's own oldest goes.
+    #[test]
+    fn one_peer_cannot_evict_another_peers_handoff_records() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        register(&mut e, &me, B1, "/w");
+        let (good, flood) = (kid_n(1), kid_n(2));
+        e.bind(&sid(A1), &good);
+        e.bind(&sid(B2), &flood);
+        e.record_handoff(
+            handoff("keep", &sid(A1), &sid(B1), Some(good)),
+            DeliveryState::HandedToHarness,
         );
-        for _ in 0..=MAX_RECORDS {
-            e.record_sent(SentRecord::of(&env, me.key_id().clone()));
+        for i in 0..=MAX_RECORDS_PER_PARTITION {
+            e.record_handoff(
+                handoff(&format!("f{i}"), &sid(B2), &sid(B1), Some(flood.clone())),
+                DeliveryState::HandedToHarness,
+            );
         }
-        assert_eq!(e.sent_records().len(), MAX_RECORDS);
+        assert_eq!(e.handoff_records().count(), MAX_RECORDS_PER_PARTITION + 1);
+        assert!(
+            e.reply_headers(&sid(B1), &sid(A1), Some("keep"))
+                .correlated()
+        );
+        assert!(!e.reply_headers(&sid(B1), &sid(B2), Some("f0")).correlated());
+        assert!(e.reply_headers(&sid(B1), &sid(B2), Some("f1")).correlated());
+        let d = e.decide(&AuthorizationRequest::Discover {
+            requester: Requester::Session(sid(B1)),
+            session: sid(A1),
+        });
+        assert!(matches!(d.basis(), Some(Basis::HandOff(_))));
+    }
+
+    /// PR #326 review B2, local side: one own session that sends a flood evicts only its own
+    /// sent records, never another own session's reply right ([SEC-AUZ-013]); and one own
+    /// session handed off to another evicts only its own hand-off records.
+    #[test]
+    fn one_local_session_cannot_evict_another_sessions_records() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        register(&mut e, &me, A1, "/w");
+        register(&mut e, &me, B1, "/w");
+        let sign = |from: &str, id: &str| {
+            me.sign_envelope(
+                EnvelopeDraft::new(
+                    Token::parse(id).unwrap(),
+                    sid(from),
+                    sid(B3),
+                    now(),
+                    vec![TextPart::new("x").unwrap()],
+                )
+                .unwrap(),
+            )
+        };
+        let peer = kid_n(9);
+        e.record_sent(SentRecord::of(&sign(A1, "keep"), peer.clone()));
+        let flood = sign(B1, "flood");
+        for _ in 0..=MAX_RECORDS_PER_PARTITION {
+            e.record_sent(SentRecord::of(&flood, peer.clone()));
+        }
+        assert_eq!(
+            e.sent_records_from(&sid(B1)).count(),
+            MAX_RECORDS_PER_PARTITION
+        );
+        assert_eq!(
+            e.sent_records_from(&sid(A1))
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            ["keep"]
+        );
+        // Hand-off records under this device's own key are partitioned by sending session.
+        let own = Some(me.key_id().clone());
+        e.record_handoff(
+            handoff("mine", &sid(A1), &sid(B2), own.clone()),
+            DeliveryState::HandedToHarness,
+        );
+        for i in 0..=MAX_RECORDS_PER_PARTITION {
+            e.record_handoff(
+                handoff(&format!("f{i}"), &sid(B1), &sid(B2), own.clone()),
+                DeliveryState::HandedToHarness,
+            );
+        }
+        assert!(
+            e.reply_headers(&sid(B2), &sid(A1), Some("mine"))
+                .correlated()
+        );
+    }
+
+    /// A record for a new partition past [`MAX_RECORD_PARTITIONS`] is not kept; no existing
+    /// partition is evicted for it.
+    #[test]
+    fn partitions_are_bounded_without_eviction() {
+        let me = identity("p");
+        let clock = Arc::new(crate::clock::ManualClock::new(now()));
+        let mut e = AuthorizationEngine::new(&me, clock, Box::new(MemoryDecisionLog::new()));
+        for n in 0..=MAX_RECORD_PARTITIONS as u32 {
+            let env = me.sign_envelope(
+                EnvelopeDraft::new(
+                    Token::parse("m").unwrap(),
+                    sid_n(n),
+                    sid(B3),
+                    now(),
+                    vec![TextPart::new("x").unwrap()],
+                )
+                .unwrap(),
+            );
+            e.record_sent(SentRecord::of(&env, kid_n(1)));
+        }
+        assert_eq!(e.sent_records().count(), MAX_RECORD_PARTITIONS);
+        assert_eq!(e.sent_records_from(&sid_n(0)).count(), 1);
+        assert_eq!(
+            e.sent_records_from(&sid_n(MAX_RECORD_PARTITIONS as u32))
+                .count(),
+            0
+        );
     }
 }

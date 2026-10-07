@@ -630,6 +630,31 @@ list.
 - **Response.** Follow-up #325 bounds the table. Until then, an operator removes the
   device's grant or key ([SEC-KEY-035]), which removes its bindings in the same step.
 
+### RISK-RECORD-PARTITIONS — A writer's own sent and hand-off records end early under a flood
+
+- **Risk.** Sent and hand-off records live in process memory and are bounded (#313, PR
+  #326 review B2). They are partitioned so that no writer can evict another's records:
+  - sent records by the own session that sent them;
+  - hand-off records by the key that verified the envelope, and by the sending session as
+    well under this device's own key.
+
+  A partition holds `MAX_RECORDS_PER_PARTITION` (4096) records. A writer that is handed
+  off, or that sends, more than that within the 24-hour reply period ([SEC-AUZ-013],
+  [SEC-AUZ-016]) loses its own oldest records early. That ends its own reply rights,
+  discovery rights and [SC-RCP-053]/[SC-RCP-054] correlation for those envelopes, which
+  fails closed. A record for a new partition past `MAX_RECORD_PARTITIONS` (4096) is not
+  kept at all; no existing partition is evicted for it.
+- **What it invalidates.** Nothing in the ADR-001 validation criterion. These are MUSTs
+  for the full reply period, which a writer above about 0.05 records per second for a day
+  gives up for itself only. A peer cannot use it against another peer or another local
+  session (tests `one_peer_cannot_evict_another_peers_handoff_records` and
+  `one_local_session_cannot_evict_another_sessions_records`).
+- **Early-warning signal.** Correlated replies to a busy peer arriving uncorrelated, or
+  `unauthorized` replies from it, within 24 hours of the envelope.
+- **Response.** Raise the per-partition cap for that deployment, or have the peer reply
+  sooner. The partition count is bounded by own sessions and trusted keys, which the
+  operator and the daemon control.
+
 ## R5 — Low-impact / non-dependency risks
 
 ### RISK-ACP — ACP schema v2 alpha status unconfirmed

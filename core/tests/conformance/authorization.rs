@@ -282,6 +282,7 @@ pub(super) fn engine(
                 created_at: ts(str_of(r, "created_at").unwrap()),
                 conversation_id: str_of(r, "conversation_id").and_then(Token::parse),
                 correlation_id: str_of(r, "correlation_id").and_then(Token::parse),
+                key_id: None,
             },
             DeliveryState::HandedToHarness,
         );
