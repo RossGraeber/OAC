@@ -39,10 +39,11 @@ use oac_core::json::{self, Json};
 use oac_fake_claude::MidTurnRelease;
 use oac_fake_claude::evidence::{member, member_str};
 
-// The one planted breach that mints a connection handle lives in a file of its own, outside
-// the sources the static scan is given, so that the well-behaved stand-ins scan clean.
-#[path = "support/forge.rs"]
-mod forge;
+// The one planted breach that mints a connection handle lives in the suite's library
+// (`plant`), outside the sources the static scan is given and outside every module this
+// file declares (the scan follows `mod` and `#[path]`, #324), so that the well-behaved
+// stand-ins scan clean.
+use oac_contract_adapter::plant;
 
 fn this_file() -> Vec<PathBuf> {
     vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/stand_in.rs")]
@@ -282,7 +283,7 @@ impl ChannelStandIn {
                     .and_then(|m| member_str(m, "claudecode/toolUseId"))
                     .map(str::to_owned);
                 let label = if breach == ChannelBreach::ForgesAttachment {
-                    forge::handle()
+                    plant::forged_attachment()
                 } else {
                     a.clone()
                 };

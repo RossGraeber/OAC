@@ -37,18 +37,38 @@
 //! resolved is also tried under every glob prefix of the file. Renames are collected for the
 //! whole file, whatever block or module they appear in, which can only add findings.
 //!
+//! # Which files are read
+//!
+//! The files given, and every file a `mod` declaration in them loads (#324): `mod m;` at
+//! `m.rs` or `m/mod.rs`, and `#[path = ".."] mod m;` at its path, resolved against the
+//! declaring file's directory as rustc resolves it, inline modules included. Every candidate
+//! location that exists is read, which can only add findings. A `#[path]` that names no file,
+//! that is not a string literal, or that sits in a `cfg_attr`, and any `include!`, fail closed:
+//! a finding under every requirement, as for a file that does not parse. So do a `#[path]`
+//! attribute and an `include!` written inside a macro's tokens.
+//!
+//! # Macro tokens
+//!
+//! Macro bodies are token streams, not paths. The scan walks each macro's tokens (an
+//! invocation's arguments, a `macro_rules!` body, an attribute's list) and resolves every
+//! run of `::`-joined identifiers as it resolves a parsed path, so renames, globs and
+//! `crate`/`self`/`super` apply, and `$crate` is read as `crate` (#324). An
+//! `impl Trait for ..` in a macro's tokens is seen by the tripwire under the same
+//! resolution; an `impl $t for ..` whose trait is a metavariable counts when some macro
+//! invocation in the crate is handed a path to `ProviderAdapter`. The token text, string
+//! literals included, is also matched for the forbidden paths written in full.
+//!
 //! # What a static scan still cannot see
 //!
 //! It is a tripwire, not a proof. It reads source, not behaviour:
 //!
-//! - Macro bodies are token streams, not paths. The scan checks each macro's tokens as
-//!   text, with whitespace removed, for the forbidden paths under the file's renames, but a
-//!   macro that builds a path from pieces (`concat_idents!`, a `macro_rules!` that pastes an
-//!   ident) or a procedural macro that expands to one is not seen.
-//! - Code the scan is not given: `build.rs` output, `include!` of a generated file, a
-//!   `#[path]` module outside the scanned set, and other crates (a helper crate the adapter
-//!   depends on is scanned only if its files are passed in; `check-crate-deps.mjs` stops
-//!   that crate from being a transport).
+//! - A macro that builds a path from pieces (`concat_idents!`, a `macro_rules!` that pastes
+//!   an ident, as `oac_core::$i::..`) or a procedural macro that expands to one is not seen,
+//!   and neither is a `mod m;` written inside a macro's tokens (its file is read only if it
+//!   is in the set already).
+//! - Code the scan is not given: `build.rs` output, and other crates (a helper crate the
+//!   adapter depends on is scanned only if its files are passed in; `check-crate-deps.mjs`
+//!   stops that crate from being a transport).
 //! - Calls through values: a `dyn Transport` handed in from outside is a type, and
 //!   `oac_core::transport` would be named to get it, but a closure or trait object
 //!   that wraps a transport operation is invisible here. The dynamic checks of the suite
@@ -58,10 +78,11 @@
 //!   module structure is not modelled: every import counts everywhere, which can only add
 //!   findings.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
+use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use syn::visit::{self, Visit};
 
 /// One forbidden reach found in an adapter source file.
@@ -266,6 +287,10 @@ struct Checker<'a> {
     file: &'a Path,
     findings: Vec<Finding>,
     implements: Vec<Finding>,
+    /// Lines of an `impl $t for ..` in a macro's tokens, the trait a metavariable.
+    meta_trait_impls: Vec<usize>,
+    /// Lines of a macro invocation handed a path that resolves to `ProviderAdapter`.
+    adapter_in_args: Vec<usize>,
 }
 
 impl Checker<'_> {
@@ -282,6 +307,13 @@ impl Checker<'_> {
         }
     }
 
+    fn is_provider_adapter(&self, raw: &[String]) -> bool {
+        self.imports
+            .candidates(raw)
+            .iter()
+            .any(|c| c == PROVIDER_ADAPTER)
+    }
+
     fn push(&mut self, requirement: &'static str, line: usize, what: String) {
         let f = Finding {
             requirement,
@@ -294,7 +326,39 @@ impl Checker<'_> {
         }
     }
 
-    fn check_tokens(&mut self, tokens: &str, line: usize) {
+    fn implementation(&mut self, line: usize, what: String) {
+        let f = Finding {
+            requirement: "IFC-ADP-010",
+            file: self.file.to_path_buf(),
+            line,
+            what,
+        };
+        if !self.implements.contains(&f) {
+            self.implements.push(f);
+        }
+    }
+
+    /// Code the scan cannot read: a finding under every requirement, so it fails closed.
+    fn fail_closed(&mut self, line: usize, what: &str) {
+        // As for a file that does not parse: every row in both lists.
+        for f in everywhere(self.file, line, what) {
+            if !self.implements.contains(&f) {
+                self.implements.push(f.clone());
+            }
+            if !self.findings.contains(&f) {
+                self.findings.push(f);
+            }
+        }
+    }
+
+    /// A macro's or an attribute's tokens: walked for paths, `impl`s and hazards, and
+    /// matched as text for the forbidden paths written in full (string literals included).
+    fn check_tokens(&mut self, tokens: &TokenStream, line: usize, invocation: bool) {
+        self.check_text(&tokens.to_string(), line);
+        self.walk(tokens.clone(), invocation);
+    }
+
+    fn check_text(&mut self, tokens: &str, line: usize) {
         let text: String = tokens
             .chars()
             .filter(|c| !c.is_whitespace())
@@ -326,6 +390,170 @@ impl Checker<'_> {
             self.push("IFC-ADP-001", line, "oac_transport_* (in a macro)".into());
         }
     }
+
+    /// One level of a token stream; groups are walked in turn.
+    fn walk(&mut self, ts: TokenStream, invocation: bool) {
+        let toks: Vec<TokenTree> = ts.into_iter().collect();
+        let mut i = 0;
+        while i < toks.len() {
+            match &toks[i] {
+                TokenTree::Group(g) => {
+                    let attribute = g.delimiter() == Delimiter::Bracket
+                        && (is_punct(toks.get(i.wrapping_sub(1)), '#')
+                            || (is_punct(toks.get(i.wrapping_sub(1)), '!')
+                                && is_punct(toks.get(i.wrapping_sub(2)), '#')));
+                    if attribute && attribute_names_a_path(&g.stream()) {
+                        self.fail_closed(
+                            line_of(g.span()),
+                            "#[path] inside a macro's tokens: a module the scan cannot follow",
+                        );
+                    }
+                    self.walk(g.stream(), invocation);
+                    i += 1;
+                }
+                TokenTree::Ident(id) if id == "include" && is_punct(toks.get(i + 1), '!') => {
+                    self.fail_closed(
+                        line_of(id.span()),
+                        "include! inside a macro's tokens: a file the scan cannot read",
+                    );
+                    i += 1;
+                }
+                TokenTree::Ident(id) if id == "impl" => {
+                    self.macro_impl(&toks, i);
+                    i += 1;
+                }
+                _ => match path_at(&toks, i) {
+                    Some((segs, end, line)) => {
+                        self.check_path(&segs, line);
+                        if invocation && self.is_provider_adapter(&segs) {
+                            self.adapter_in_args.push(line);
+                        }
+                        i = end;
+                    }
+                    None => i += 1,
+                },
+            }
+        }
+    }
+
+    /// `impl [<..>] [!] Trait [<..>] for` at `toks[i]` (the `impl`).
+    fn macro_impl(&mut self, toks: &[TokenTree], i: usize) {
+        let line = line_of(toks[i].span());
+        let mut j = skip_generics(toks, i + 1);
+        if is_punct(toks.get(j), '!') {
+            j += 1;
+        }
+        // A metavariable trait: `impl $t for ..`.
+        if is_punct(toks.get(j), '$')
+            && matches!(toks.get(j + 1), Some(TokenTree::Ident(v)) if v != "crate")
+        {
+            let k = skip_generics(toks, j + 2);
+            if matches!(toks.get(k), Some(TokenTree::Ident(f)) if f == "for") {
+                self.meta_trait_impls.push(line);
+            }
+            return;
+        }
+        let Some((segs, end, _)) = path_at(toks, j) else {
+            return;
+        };
+        let k = skip_generics(toks, end);
+        if matches!(toks.get(k), Some(TokenTree::Ident(f)) if f == "for")
+            && self.is_provider_adapter(&segs)
+        {
+            self.implementation(
+                line,
+                format!("impl {} for .. (in a macro)", segs.join("::")),
+            );
+        }
+    }
+}
+
+fn is_punct(t: Option<&TokenTree>, c: char) -> bool {
+    matches!(t, Some(TokenTree::Punct(p)) if p.as_char() == c)
+}
+
+/// The two-token `::` at `toks[i]`.
+fn is_path_sep(toks: &[TokenTree], i: usize) -> bool {
+    matches!(toks.get(i), Some(TokenTree::Punct(p)) if p.as_char() == ':' && p.spacing() == Spacing::Joint)
+        && is_punct(toks.get(i + 1), ':')
+}
+
+/// One path segment at `toks[i]`: an identifier (without `r#`), or `$crate` read as
+/// `crate`. Returns the segment and the index after it.
+fn segment_at(toks: &[TokenTree], i: usize) -> Option<(String, usize)> {
+    match toks.get(i)? {
+        TokenTree::Ident(id) => Some((id.to_string().trim_start_matches("r#").to_owned(), i + 1)),
+        TokenTree::Punct(p) if p.as_char() == '$' => match toks.get(i + 1)? {
+            TokenTree::Ident(id) if id == "crate" => Some(("crate".to_owned(), i + 2)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A run of `::`-joined segments at `toks[i]`, with an optional leading `::`: the
+/// segments, the index after the run and the line of its first token.
+fn path_at(toks: &[TokenTree], i: usize) -> Option<(Vec<String>, usize, usize)> {
+    let line = line_of(toks.get(i)?.span());
+    let mut j = i;
+    if is_path_sep(toks, j) {
+        j += 2;
+    }
+    let (first, mut j) = segment_at(toks, j)?;
+    let mut segs = vec![first];
+    while is_path_sep(toks, j) {
+        match segment_at(toks, j + 2) {
+            Some((s, next)) => {
+                segs.push(s);
+                j = next;
+            }
+            None => break,
+        }
+    }
+    Some((segs, j, line))
+}
+
+/// The index after a `<..>` at `toks[i]`, or `i` when there is none. A `>` after `-` (an
+/// `->` in a bound) does not close it.
+fn skip_generics(toks: &[TokenTree], i: usize) -> usize {
+    if !is_punct(toks.get(i), '<') {
+        return i;
+    }
+    let mut depth = 0usize;
+    let mut j = i;
+    while j < toks.len() {
+        if is_punct(toks.get(j), '<') {
+            depth += 1;
+        } else if is_punct(toks.get(j), '>') && !is_punct(toks.get(j.wrapping_sub(1)), '-') {
+            depth -= 1;
+            if depth == 0 {
+                return j + 1;
+            }
+        }
+        j += 1;
+    }
+    j
+}
+
+/// An attribute's tokens (inside `#[..]`) that set a module path: `path = ..`, or a
+/// `cfg_attr(.., path = ..)`.
+fn attribute_names_a_path(ts: &TokenStream) -> bool {
+    let toks: Vec<TokenTree> = ts.clone().into_iter().collect();
+    match toks.first() {
+        Some(TokenTree::Ident(i)) if i == "path" => is_punct(toks.get(1), '='),
+        Some(TokenTree::Ident(i)) if i == "cfg_attr" => match toks.get(1) {
+            Some(TokenTree::Group(g)) => names_path(&g.stream()),
+            _ => true,
+        },
+        _ => false,
+    }
+}
+
+/// A `path = ..` anywhere at the top level of a token list.
+fn names_path(ts: &TokenStream) -> bool {
+    let toks: Vec<TokenTree> = ts.clone().into_iter().collect();
+    toks.windows(2)
+        .any(|w| matches!(&w[0], TokenTree::Ident(i) if i == "path") && is_punct(Some(&w[1]), '='))
 }
 
 fn line_of(span: proc_macro2::Span) -> usize {
@@ -367,21 +595,14 @@ impl<'ast> Visit<'ast> for Checker<'_> {
 
     fn visit_attribute(&mut self, a: &'ast syn::Attribute) {
         // The attribute's own path is a path like any other; a token list (`derive(..)`,
-        // a tool attribute) is read as comma-separated paths where it parses as such, and
-        // as text otherwise.
+        // a tool attribute) is walked as a macro's tokens are.
         let line = a
             .path()
             .segments
             .first()
             .map_or(0, |s| line_of(s.ident.span()));
         if let syn::Meta::List(list) = &a.meta {
-            let parser = syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated;
-            if let Ok(paths) = syn::parse::Parser::parse2(parser, list.tokens.clone()) {
-                for p in paths {
-                    self.check_path(&segments(&p), line);
-                }
-            }
-            self.check_tokens(&list.tokens.to_string(), line);
+            self.check_tokens(&list.tokens, line, false);
         }
         visit::visit_attribute(self, a);
     }
@@ -392,25 +613,20 @@ impl<'ast> Visit<'ast> for Checker<'_> {
             .segments
             .first()
             .map_or(0, |s| line_of(s.ident.span()));
-        self.check_tokens(&m.tokens.to_string(), line);
+        let name = m.path.segments.last().map(|s| id(&s.ident));
+        if name.as_deref() == Some("include") {
+            self.fail_closed(line, "include!: a file the scan cannot read");
+        }
+        let invocation = name.as_deref() != Some("macro_rules");
+        self.check_tokens(&m.tokens, line, invocation);
         visit::visit_macro(self, m);
     }
 
     fn visit_item_impl(&mut self, i: &'ast syn::ItemImpl) {
         if let Some((_, path, _)) = &i.trait_ {
             let line = path.segments.first().map_or(0, |s| line_of(s.ident.span()));
-            if self
-                .imports
-                .candidates(&segments(path))
-                .iter()
-                .any(|c| c == PROVIDER_ADAPTER)
-            {
-                self.implements.push(Finding {
-                    requirement: "IFC-ADP-010",
-                    file: self.file.to_path_buf(),
-                    line,
-                    what: format!("impl {} for ..", segments(path).join("::")),
-                });
+            if self.is_provider_adapter(&segments(path)) {
+                self.implementation(line, format!("impl {} for ..", segments(path).join("::")));
             }
         }
         visit::visit_item_impl(self, i);
@@ -436,70 +652,255 @@ fn everywhere(file: &Path, line: usize, what: &str) -> Vec<Finding> {
     .collect()
 }
 
-/// Both scans over a set of files read as one crate: imports and `pub use` re-exports of
-/// every file are collected first, then every file is checked against all of them. Each
-/// item is (path, text, or why it could not be read). A file that cannot be read or does
-/// not parse is a finding under every requirement, so it fails closed.
-fn analyse_set(files: &[(PathBuf, Result<String, String>)]) -> (Vec<Finding>, Vec<Finding>) {
+// ---- following `mod` declarations ---------------------------------------------------------
+
+/// `path` with `.` dropped and `..` applied where it can be, without touching the disk.
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+                    out.pop();
+                } else {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// One out-of-line `mod` declaration: the files it may load. A `#[path]` one must load one.
+struct ModDecl {
+    candidates: Vec<PathBuf>,
+    required: bool,
+    line: usize,
+    what: String,
+}
+
+/// The `#[path = ".."]` value among `attrs`; `Err` when there is a module path the scan
+/// cannot resolve (not a string literal, or inside a `cfg_attr`).
+fn path_attribute(attrs: &[syn::Attribute]) -> Result<Option<String>, &'static str> {
+    let mut found = None;
+    for a in attrs {
+        if a.path().is_ident("path") {
+            match &a.meta {
+                syn::Meta::NameValue(syn::MetaNameValue {
+                    value:
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(s),
+                            ..
+                        }),
+                    ..
+                }) => found = Some(s.value()),
+                _ => return Err("a #[path] that is not a string literal"),
+            }
+        } else if a.path().is_ident("cfg_attr")
+            && let syn::Meta::List(l) = &a.meta
+            && names_path(&l.tokens)
+        {
+            return Err("a #[cfg_attr(.., path = ..)] the scan cannot resolve");
+        }
+    }
+    Ok(found)
+}
+
+/// Collects the `mod` declarations of one file, as rustc resolves them: relative to the
+/// file's directory, through the inline modules around them (for a file other than
+/// `lib.rs`, `main.rs` or `mod.rs`, under a directory named for the file too). Both readings
+/// are tried for every file, since a file reached through `#[path]` may be read either way;
+/// an extra candidate that exists can only add findings.
+struct ModFollower<'a> {
+    file: &'a Path,
+    inline: Vec<String>,
+    decls: Vec<ModDecl>,
+    unresolvable: Vec<(usize, String)>,
+}
+
+impl ModFollower<'_> {
+    fn bases(&self) -> Vec<PathBuf> {
+        let dir = self.file.parent().unwrap_or_else(|| Path::new(""));
+        let stem = self.file.file_stem().unwrap_or_default();
+        [dir.to_path_buf(), dir.join(stem)]
+            .into_iter()
+            .map(|mut b| {
+                b.extend(&self.inline);
+                b
+            })
+            .collect()
+    }
+}
+
+impl<'ast> Visit<'ast> for ModFollower<'_> {
+    fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
+        let name = id(&m.ident);
+        let line = line_of(m.ident.span());
+        let attr = path_attribute(&m.attrs).unwrap_or_else(|why| {
+            self.unresolvable.push((line, format!("mod {name}: {why}")));
+            None
+        });
+        if m.content.is_some() {
+            self.inline.push(attr.unwrap_or(name));
+            visit::visit_item_mod(self, m);
+            self.inline.pop();
+            return;
+        }
+        let decl = match attr {
+            Some(p) => ModDecl {
+                candidates: if self.inline.is_empty() {
+                    let dir = self.file.parent().unwrap_or_else(|| Path::new(""));
+                    vec![dir.join(&p)]
+                } else {
+                    self.bases().into_iter().map(|b| b.join(&p)).collect()
+                },
+                required: true,
+                line,
+                what: format!("#[path = {p:?}] mod {name}"),
+            },
+            None => ModDecl {
+                candidates: self
+                    .bases()
+                    .into_iter()
+                    .flat_map(|b| [b.join(format!("{name}.rs")), b.join(&name).join("mod.rs")])
+                    .collect(),
+                // A missing file is a build error, or a module compiled out.
+                required: false,
+                line,
+                what: format!("mod {name}"),
+            },
+        };
+        self.decls.push(decl);
+    }
+}
+
+/// Where file texts come from: `None` when there is no such file.
+type Load<'a> = dyn Fn(&Path) -> Option<Result<String, String>> + 'a;
+
+fn load_from_disk(path: &Path) -> Option<Result<String, String>> {
+    path.is_file()
+        .then(|| std::fs::read_to_string(path).map_err(|e| e.to_string()))
+}
+
+/// Both scans over `roots` and every file their `mod` declarations load, read as one
+/// crate: imports and `pub use` re-exports of every file are collected first, then every
+/// file is checked against all of them. A file that cannot be read or does not parse, a
+/// `#[path]` that cannot be resolved and an `include!` are findings under every
+/// requirement, so they fail closed.
+fn analyse_set(roots: &[PathBuf], load: &Load<'_>) -> (Vec<Finding>, Vec<Finding>) {
     let mut imports = Imports::default();
     let mut parsed = Vec::new();
     let (mut findings, mut implements) = (Vec::new(), Vec::new());
-    for (path, text) in files {
+    let mut fail = |all: Vec<Finding>| {
+        findings.extend(all.clone());
+        implements.extend(all);
+    };
+    let mut queue: VecDeque<PathBuf> = roots.iter().map(|p| normalize(p)).collect();
+    let mut seen = HashSet::new();
+    while let Some(path) = queue.pop_front() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let text = load(&path).unwrap_or_else(|| Err("no such file".to_owned()));
         match text.as_ref().map(|t| syn::parse_file(t)) {
             Ok(Ok(ast)) => {
                 ImportCollector(&mut imports).visit_file(&ast);
+                let mut mods = ModFollower {
+                    file: &path,
+                    inline: Vec::new(),
+                    decls: Vec::new(),
+                    unresolvable: Vec::new(),
+                };
+                mods.visit_file(&ast);
+                for (line, why) in mods.unresolvable {
+                    fail(everywhere(&path, line, &why));
+                }
+                for d in mods.decls {
+                    let found: Vec<PathBuf> = d
+                        .candidates
+                        .iter()
+                        .map(|c| normalize(c))
+                        .filter(|c| seen.contains(c) || load(c).is_some())
+                        .collect();
+                    if d.required && found.is_empty() {
+                        let why = format!("{}: names no file the scan can read", d.what);
+                        fail(everywhere(&path, d.line, &why));
+                    }
+                    queue.extend(found);
+                }
                 parsed.push((path, ast));
             }
-            Ok(Err(e)) => {
-                let all = everywhere(path, line_of(e.span()), &format!("does not parse: {e}"));
-                findings.extend(all.clone());
-                implements.extend(all);
-            }
-            Err(why) => {
-                let all = everywhere(path, 0, &format!("cannot be read: {why}"));
-                findings.extend(all.clone());
-                implements.extend(all);
-            }
+            Ok(Err(e)) => fail(everywhere(
+                &path,
+                line_of(e.span()),
+                &format!("does not parse: {e}"),
+            )),
+            Err(why) => fail(everywhere(&path, 0, &format!("cannot be read: {why}"))),
         }
     }
-    for (path, ast) in parsed {
+    let (mut meta_trait_impls, mut adapter_in_args) = (Vec::new(), Vec::new());
+    for (path, ast) in &parsed {
         let mut c = Checker {
             imports: &imports,
             file: path,
             findings: Vec::new(),
             implements: Vec::new(),
+            meta_trait_impls: Vec::new(),
+            adapter_in_args: Vec::new(),
         };
-        c.visit_file(&ast);
+        c.visit_file(ast);
         findings.extend(c.findings);
         implements.extend(c.implements);
+        meta_trait_impls.extend(c.meta_trait_impls.into_iter().map(|l| (path.clone(), l)));
+        adapter_in_args.extend(c.adapter_in_args.into_iter().map(|l| (path.clone(), l)));
+    }
+    // A macro that implements a trait it is handed, handed `ProviderAdapter`.
+    if !meta_trait_impls.is_empty() {
+        for (file, line) in adapter_in_args {
+            implements.push(Finding {
+                requirement: "IFC-ADP-010",
+                file,
+                line,
+                what: "ProviderAdapter handed to a macro, where a macro implements a trait \
+                       it is handed (impl $t for ..)"
+                    .into(),
+            });
+        }
     }
     (findings, implements)
 }
 
-fn read_all(files: &[PathBuf]) -> Vec<(PathBuf, Result<String, String>)> {
-    files
-        .iter()
-        .map(|f| {
-            (
-                f.clone(),
-                std::fs::read_to_string(f).map_err(|e| e.to_string()),
-            )
-        })
-        .collect()
+/// A loader over in-memory files, keyed by normalized path.
+fn in_memory<'a>(
+    files: &'a [(&str, &str)],
+) -> impl Fn(&Path) -> Option<Result<String, String>> + 'a {
+    move |p: &Path| {
+        files
+            .iter()
+            .find(|(f, _)| normalize(Path::new(f)) == p)
+            .map(|(_, t)| Ok((*t).to_owned()))
+    }
 }
 
 /// Both scans of one file's text: forbidden reaches, and `ProviderAdapter` implementations.
 pub fn analyse(file: &Path, text: &str) -> (Vec<Finding>, Vec<Finding>) {
-    analyse_set(&[(file.to_path_buf(), Ok(text.to_owned()))])
+    let name = file.to_string_lossy();
+    analyse_files(&[name.as_ref()], &[(name.as_ref(), text)])
 }
 
 /// Both scans of several files' texts, read as one crate ([`scan`]).
 pub fn analyse_texts(files: &[(&str, &str)]) -> (Vec<Finding>, Vec<Finding>) {
-    let set: Vec<_> = files
-        .iter()
-        .map(|(p, t)| (PathBuf::from(p), Ok((*t).to_owned())))
-        .collect();
-    analyse_set(&set)
+    let roots: Vec<&str> = files.iter().map(|(p, _)| *p).collect();
+    analyse_files(&roots, files)
+}
+
+/// Both scans from `roots`, with `files` the in-memory file system the `mod` declarations
+/// are followed through (a file not in `files` does not exist).
+pub fn analyse_files(roots: &[&str], files: &[(&str, &str)]) -> (Vec<Finding>, Vec<Finding>) {
+    let roots: Vec<PathBuf> = roots.iter().map(PathBuf::from).collect();
+    analyse_set(&roots, &in_memory(files))
 }
 
 /// The forbidden reaches in one file's text.
@@ -507,15 +908,16 @@ pub fn scan_text(file: &Path, text: &str) -> Vec<Finding> {
     analyse(file, text).0
 }
 
-/// Scan `files`, read as one crate (imports and re-exports of every file apply to all).
+/// Scan `files`, and every file their `mod` declarations load, read as one crate (imports
+/// and re-exports of every file apply to all).
 pub fn scan(files: &[PathBuf]) -> Vec<Finding> {
-    analyse_set(&read_all(files)).0
+    analyse_set(files, &load_from_disk).0
 }
 
-/// Every `impl` of `oac_core::adapter::ProviderAdapter` in `files`, read as one crate,
-/// under any alias or re-export.
+/// Every `impl` of `oac_core::adapter::ProviderAdapter` in `files` and the files their
+/// `mod` declarations load, read as one crate, under any alias or re-export.
 pub fn implements_provider_adapter(files: &[PathBuf]) -> Vec<Finding> {
-    analyse_set(&read_all(files)).1
+    analyse_set(files, &load_from_disk).1
 }
 
 /// Every `.rs` file under `dir`, recursively, in path order.
@@ -540,7 +942,7 @@ pub fn rust_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// An adapter crate's sources for the scan: everything under `src/`, and `build.rs` when
-/// there is one.
+/// there is one. The scan also follows their `mod` declarations, `#[path]` ones included.
 pub fn crate_files(crate_dir: &Path) -> Vec<PathBuf> {
     let mut v = rust_files(&crate_dir.join("src"));
     let build = crate_dir.join("build.rs");
@@ -824,6 +1226,202 @@ mod tests {
         assert_eq!(
             reqs("use oac_core as c;\n#[tool(c::signing::x)]\nfn f() {}"),
             ["IFC-ADP-002"]
+        );
+    }
+
+    // ---- #324: the PR #323 third-review follow-ups ------------------------------------
+
+    /// Every row, as a file that cannot be read gives (`everywhere`).
+    const EVERY: [&str; 5] = [
+        "IFC-ADP-001",
+        "IFC-ADP-002",
+        "IFC-ADP-007",
+        "IFC-ADP-010",
+        "IFC-ADP-013",
+    ];
+
+    fn reqs_of(findings: &[Finding]) -> Vec<&'static str> {
+        let mut v: Vec<_> = findings.iter().map(|f| f.requirement).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    fn fails_closed(text: &str) {
+        let (findings, impls) = analyse(Path::new("x.rs"), text);
+        assert_eq!(reqs_of(&findings), EVERY, "{text}: {findings:?}");
+        assert!(!impls.is_empty(), "{text}");
+    }
+
+    const HIDDEN: &str = "pub struct Q;\nimpl oac_core::adapter::ProviderAdapter for Q {}\n\
+        pub fn f(_: &dyn oac_core::transport::Transport) {}";
+
+    /// The review's plant: a module outside `src/`, wired in with `#[path]`.
+    #[test]
+    fn a_path_module_outside_src_is_followed() {
+        let (findings, impls) = analyse_files(
+            &["a/src/lib.rs"],
+            &[
+                ("a/src/lib.rs", "#[path = \"../zzhidden/h.rs\"]\nmod h;"),
+                ("a/zzhidden/h.rs", HIDDEN),
+            ],
+        );
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        assert!(impls[0].file.ends_with("zzhidden/h.rs"), "{impls:?}");
+        assert_eq!(reqs_of(&findings), ["IFC-ADP-001"]);
+        assert!(findings[0].file.ends_with("zzhidden/h.rs"));
+        // Without the file in place the same declaration fails closed.
+        let (findings, impls) = analyse_files(
+            &["a/src/lib.rs"],
+            &[("a/src/lib.rs", "#[path = \"../zzhidden/h.rs\"]\nmod h;")],
+        );
+        assert_eq!(reqs_of(&findings), EVERY);
+        assert!(!impls.is_empty());
+    }
+
+    #[test]
+    fn path_modules_inside_inline_modules_and_their_own_modules_are_followed() {
+        // In lib.rs (a mod-rs file) the inline module is a directory.
+        let (_, impls) = analyse_files(
+            &["src/lib.rs"],
+            &[
+                (
+                    "src/lib.rs",
+                    "mod m {\n    #[path = \"x.rs\"]\n    mod y;\n}",
+                ),
+                ("src/m/x.rs", HIDDEN),
+            ],
+        );
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        // In a.rs, under a directory named for the file.
+        let (_, impls) = analyse_files(
+            &["src/a.rs"],
+            &[
+                ("src/a.rs", "mod b {\n    #[path = \"x.rs\"]\n    mod y;\n}"),
+                ("src/a/b/x.rs", HIDDEN),
+            ],
+        );
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        // A plain `mod` in a file reached through `#[path]`, both readings of its directory.
+        for inner in ["out/inner.rs", "out/h/inner.rs"] {
+            let (findings, impls) = analyse_files(
+                &["src/lib.rs"],
+                &[
+                    ("src/lib.rs", "#[path = \"../out/h.rs\"]\nmod h;"),
+                    ("out/h.rs", "mod inner;"),
+                    (inner, HIDDEN),
+                ],
+            );
+            assert_eq!(impls.len(), 1, "{inner}: {impls:?}");
+            assert_eq!(reqs_of(&findings), ["IFC-ADP-001"], "{inner}");
+        }
+        // An absent plain module is the compiler's to refuse, not a finding.
+        assert_eq!(reqs("mod not_here;"), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn unresolvable_module_paths_and_include_fail_closed() {
+        fails_closed("#[path = \"nowhere.rs\"]\nmod h;");
+        fails_closed("#[cfg_attr(unix, path = \"u.rs\")]\nmod h;");
+        fails_closed("#[path = concat!(\"x\", \".rs\")]\nmod h;");
+        fails_closed("include!(\"generated.rs\");");
+        fails_closed("fn f() { include!(concat!(env!(\"OUT_DIR\"), \"/g.rs\")); }");
+        fails_closed("fn f() { std::include!(\"g.rs\"); }");
+        // The same, written inside a macro's tokens.
+        fails_closed("macro_rules! m { () => { include!(\"g.rs\"); } }");
+        fails_closed("macro_rules! m { () => { #[path = \"../x.rs\"] mod h; } }\nm!();");
+        fails_closed("macro_rules! m { () => { #[cfg_attr(all(), path = \"x.rs\")] mod h; } }");
+        // include_str! and include_bytes! read data, not code.
+        assert_eq!(
+            reqs(
+                "const S: &str = include_str!(\"x.txt\");\nconst B: &[u8] = include_bytes!(\"x.bin\");"
+            ),
+            Vec::<&str>::new()
+        );
+    }
+
+    #[test]
+    fn macro_tokens_resolve_globs_crate_and_dollar_crate() {
+        for body in [
+            "crate::transport::Payload",
+            "$crate::transport::Payload",
+            "self::transport::Payload",
+            "super::transport::Payload",
+            "transport::Payload",
+            "$crate :: r#transport :: Payload",
+        ] {
+            assert_eq!(
+                reqs(&format!(
+                    "pub use oac_core::*;\nmacro_rules! m {{ () => {{ let _: Option<{body}> = None; }} }}"
+                )),
+                ["IFC-ADP-001"],
+                "{body}"
+            );
+        }
+        // A glob of a module, and a rename, reached through `$crate`.
+        assert_eq!(
+            reqs(
+                "pub use oac_core::ids::*;\nmacro_rules! m { () => { $crate::SessionId::from_random_octets([0; 16]) } }"
+            ),
+            ["IFC-ADP-007"]
+        );
+        assert_eq!(
+            reqs(
+                "pub use oac_core::transport as net;\nmacro_rules! m { () => { $crate::net::Payload } }"
+            ),
+            ["IFC-ADP-001"]
+        );
+        // In an invocation's arguments too.
+        assert_eq!(
+            reqs("pub use oac_core::*;\nfn f() { m!(crate::signing::authenticate); }"),
+            ["IFC-ADP-002"]
+        );
+    }
+
+    #[test]
+    fn the_tripwire_reads_macro_bodies() {
+        for src in [
+            "pub use oac_core::adapter::ProviderAdapter;\nmacro_rules! m { ($t:ty) => { impl crate::ProviderAdapter for $t {} } }",
+            "pub use oac_core::adapter::ProviderAdapter;\nmacro_rules! m { ($t:ty) => { impl $crate::ProviderAdapter for $t {} } }",
+            "pub use oac_core::*;\nmacro_rules! m { ($t:ty) => { impl<T: Fn() -> u8> $crate::adapter::ProviderAdapter for $t {} } }",
+            "use oac_core::adapter as a;\nmacro_rules! m { ($t:ident) => { unsafe impl a::ProviderAdapter for $t {} } }",
+            "macro_rules! m { ($t:ty) => { impl ::oac_core::adapter::ProviderAdapter for $t {} } }",
+            "fn f() { m!(impl oac_core::adapter::ProviderAdapter for P {}); }",
+        ] {
+            assert!(implements(src), "{src}");
+        }
+        // The trait as a metavariable, handed ProviderAdapter at the call.
+        let generic = "macro_rules! imp { ($tr:path, $t:ty) => { impl $tr for $t {} } }\n";
+        assert!(implements(&format!(
+            "{generic}pub use oac_core::adapter::ProviderAdapter as Port;\nstruct P;\nimp!(crate::Port, P);"
+        )));
+        let (_, impls) = analyse_texts(&[
+            (
+                "lib.rs",
+                "pub use oac_core::adapter::ProviderAdapter;\nmod a;\nmod b;",
+            ),
+            ("a.rs", generic),
+            ("b.rs", "struct P;\ncrate::imp!(crate::ProviderAdapter, P);"),
+        ]);
+        assert_eq!(impls.len(), 1, "{impls:?}");
+        assert!(impls[0].file.ends_with("b.rs"));
+        // Controls: other traits, and a generic macro handed another trait.
+        assert!(!implements(
+            "macro_rules! m { ($t:ty) => { impl Clone for $t { fn clone(&self) -> Self { todo!() } } } }"
+        ));
+        assert!(!implements(&format!("{generic}struct P;\nimp!(Clone, P);")));
+        assert!(!implements(
+            "pub use oac_core::adapter::ProviderAdapter;\nfn f() { let _ = format!(\"{}\", 1); m!(crate::ProviderAdapter); }"
+        ));
+    }
+
+    #[test]
+    fn clean_macros_pass() {
+        assert_eq!(
+            reqs(
+                "use oac_core::ids::SessionId;\nfn f(transport: u8) -> String { format!(\"{transport} {:?}\", SessionId::parse(\"x\")) }\nmacro_rules! m { ($t:ty) => { impl Default for $t { fn default() -> Self { todo!() } } } }"
+            ),
+            Vec::<&str>::new()
         );
     }
 }
