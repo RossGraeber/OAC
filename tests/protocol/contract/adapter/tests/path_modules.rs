@@ -188,26 +188,103 @@ fn layout_keys_and_unvetted_dependencies_fail_closed() {
     }
 }
 
-/// The control: a crate on cargo's default layout, with a path dependency on a vetted name
-/// (`[dependencies]` keys are not layout keys).
+/// The repository's own `core/`, written for a manifest (forward slashes).
+fn repo_core() -> String {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../core")
+        .canonicalize()
+        .unwrap()
+        .display()
+        .to_string()
+        .trim_start_matches(r"\\?\")
+        .replace('\\', "/")
+}
+
+/// An `oac-core` that is not the repository's: a macro that loads a file from a literal.
+const EVIL: &[(&str, &str)] = &[
+    (
+        "evil/Cargo.toml",
+        "[package]\nname = \"oac-core\"\nversion = \"0.0.1\"\nedition = \"2024\"\n",
+    ),
+    (
+        "evil/src/lib.rs",
+        "#[macro_export]\nmacro_rules! load { ($f:literal) => { include!($f); } }\n",
+    ),
+];
+
+/// PR #336 fourth review V1: a dependency is vetted by identity, not by name. The
+/// reviewer's plant (a second crate named `oac-core`, renamed with `package = ..`) and the
+/// same crate without the rename both fail closed.
+#[test]
+fn a_crate_merely_named_oac_core_fails_closed() {
+    let core = repo_core();
+    for (name, deps) in [
+        (
+            "renamed-evil",
+            format!(
+                "oac-core = {{ path = \"{core}\" }}\ncore2 = {{ package = \"oac-core\", path = \"evil\" }}\n"
+            ),
+        ),
+        (
+            "unrenamed-evil",
+            "oac-core = { path = \"evil\" }\n".to_owned(),
+        ),
+        (
+            "renamed-real-core",
+            format!("core2 = {{ package = \"oac-core\", path = \"{core}\" }}\n"),
+        ),
+        // A build dependency only (cargo itself refuses one `oac-core` at two paths).
+        (
+            "build-dep-evil",
+            "\n[build-dependencies]\noac-core = { path = \"evil\" }\n".to_owned(),
+        ),
+    ] {
+        let mut files = vec![
+            (
+                "Cargo.toml".to_owned(),
+                format!("{PACKAGE}\n[dependencies]\n{deps}{OWN_WORKSPACE}"),
+            ),
+            ("src/lib.rs".to_owned(), "pub fn f() {}\n".to_owned()),
+        ];
+        files.extend(EVIL.iter().map(|(p, t)| ((*p).to_owned(), (*t).to_owned())));
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(p, t)| (p.as_str(), t.as_str()))
+            .collect();
+        let dir = scratch_crate(&format!("vet-{name}"), &files);
+        let s = package_sources(&dir);
+        for req in ROWS {
+            assert!(
+                s.findings
+                    .iter()
+                    .any(|f| f.requirement == req && f.what.starts_with("dependency `oac-core`")),
+                "{name} {req}: {:?}",
+                s.findings
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The control: a crate on cargo's default layout, depending on the repository's own
+/// `core/` under its own name (`[dependencies]` keys are not layout keys), with any
+/// dev-dependency.
 #[test]
 fn a_default_layout_crate_passes_the_manifest_checks() {
+    let core = repo_core();
     let dir = scratch_crate(
         "default-layout",
         &[
             (
                 "Cargo.toml",
                 &format!(
-                    "{PACKAGE}\n[dependencies]\noac-core = {{ path = \"core\" }}\n\n[dev-dependencies]\nanything = {{ path = \"core\", package = \"oac-core\" }}\n{OWN_WORKSPACE}"
+                    "{PACKAGE}\n[dependencies]\noac-core = {{ path = \"{core}\" }}\n\n[dev-dependencies]\nanything = {{ path = \"evil\", package = \"oac-core\" }}\n{OWN_WORKSPACE}"
                 ),
             ),
             ("src/lib.rs", "pub fn f() {}\n"),
             ("tests/t.rs", "#[test]\nfn t() {}\n"),
-            (
-                "core/Cargo.toml",
-                "[package]\nname = \"oac-core\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
-            ),
-            ("core/src/lib.rs", "\n"),
+            EVIL[0],
+            EVIL[1],
         ],
     );
     let s = package_sources(&dir);

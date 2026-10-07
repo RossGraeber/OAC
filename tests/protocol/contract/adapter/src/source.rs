@@ -61,7 +61,9 @@
 //! What cargo compiles is taken from `cargo metadata`, not from the `src/` convention
 //! ([`package_sources`]): every target's `src_path`, the build script included. A manifest
 //! that moves a target (`path`, `build`) or switches discovery (`autobins` and the like)
-//! fails closed, and so does a normal or build dependency not in [`VETTED_DEPENDENCIES`].
+//! fails closed, and so does a normal or build dependency that is not a vetted crate by
+//! identity: in [`VETTED_DEPENDENCIES`], with no `source`, under its own name, and at the
+//! repository's own directory for it ([`vet_dependency`]).
 //!
 //! # Which files are read
 //!
@@ -1030,7 +1032,9 @@ pub fn crate_files(crate_dir: &Path) -> Vec<PathBuf> {
 /// The dependencies an adapter may take (normal and build), each vetted to export no macro
 /// and to be no proc-macro: a macro from another crate can expand to `mod`, `#[path]` or
 /// `include!` from a bare literal, which no static scan sees (PR #336 third review N-b).
-/// Adding one is a deliberate change to this list.
+/// Vetted by identity, not by name ([`vet_dependency`]): the repository's own crate, at
+/// its own path, under its own name. Adding one is a deliberate change to this list and to
+/// [`vetted_dependency_dirs`].
 pub const VETTED_DEPENDENCIES: &[&str] = &["oac-core"];
 
 /// Target kinds whose code builds into the adapter. Test, bench and example targets are the
@@ -1197,20 +1201,93 @@ pub fn package_sources(crate_dir: &Path) -> PackageSources {
         .iter()
         .filter_map(|d| d.as_object())
     {
-        let name = d.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-        let dev = d.get("kind").and_then(|k| k.as_str()) == Some("dev");
-        if !dev && !VETTED_DEPENDENCIES.contains(&name) {
-            fail(
-                &mut s,
-                format!(
-                    "dependency `{name}` is not vetted: a macro from another crate can load a \
-                     file the scan never reads (VETTED_DEPENDENCIES)"
-                ),
-            );
+        let text = |k: &str| d.get(k).and_then(|v| v.as_str()).map(str::to_owned);
+        let dep = Dependency {
+            name: text("name").unwrap_or_default(),
+            kind: text("kind"),
+            rename: text("rename"),
+            source: text("source"),
+            path: text("path").map(PathBuf::from),
+        };
+        if let Some(why) = vet_dependency(&dep, &vetted_dependency_dirs()) {
+            fail(&mut s, why);
         }
     }
     s.built.extend(crate_files(crate_dir));
     s
+}
+
+/// One dependency of a package, as `cargo metadata` lists it.
+#[derive(Clone, Debug, Default)]
+pub struct Dependency {
+    /// The package name (not the key it is depended on under).
+    pub name: String,
+    /// `None` for a normal dependency, `"build"` or `"dev"` otherwise.
+    pub kind: Option<String>,
+    /// The key it is depended on under, when that differs from `name` (`package = ..`).
+    pub rename: Option<String>,
+    /// Where it comes from: `None` for a path dependency, a `registry+..` or `git+..` URL
+    /// otherwise.
+    pub source: Option<String>,
+    /// Its directory, for a path dependency.
+    pub path: Option<PathBuf>,
+}
+
+/// Each vetted dependency by identity: its package name and the directory it must be
+/// (the repository's own `core/`). [`VETTED_DEPENDENCIES`] names them.
+pub fn vetted_dependency_dirs() -> Vec<(&'static str, PathBuf)> {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+    VETTED_DEPENDENCIES
+        .iter()
+        .map(|name| match *name {
+            "oac-core" => (*name, repo.join("core")),
+            other => (other, PathBuf::new()),
+        })
+        .collect()
+}
+
+/// Why a normal or build dependency is not the vetted crate it claims to be, or `None`
+/// (PR #336 fourth review V1). A name is not an identity: any crate can call itself
+/// `oac-core`. So each one must be a path dependency (no `source`: no registry, no git),
+/// under its own name (no `package = ..` rename), whose directory canonicalizes to the
+/// vetted one. A dev-dependency is the adapter's own tests' business.
+pub fn vet_dependency(d: &Dependency, vetted: &[(&str, PathBuf)]) -> Option<String> {
+    if d.kind.as_deref() == Some("dev") {
+        return None;
+    }
+    let what = |why: &str| {
+        Some(format!(
+            "dependency `{}`{}: {why}; a macro from another crate can load a file the scan never \
+             reads (VETTED_DEPENDENCIES)",
+            d.name,
+            d.rename
+                .as_deref()
+                .map_or(String::new(), |r| format!(" (as `{r}`)"))
+        ))
+    };
+    let Some((_, dir)) = vetted.iter().find(|(n, _)| *n == d.name) else {
+        return what("not vetted");
+    };
+    if d.rename.is_some() {
+        return what("renamed (a `package = ..` alias)");
+    }
+    if let Some(source) = &d.source {
+        return what(&format!("from {source}, not the repository's own crate"));
+    }
+    let same = match (&d.path, std::fs::canonicalize(dir)) {
+        (Some(p), Ok(want)) => std::fs::canonicalize(p).is_ok_and(|got| got == want),
+        _ => false,
+    };
+    if !same {
+        return what(&format!(
+            "at {}, not the repository's own {}",
+            d.path
+                .as_deref()
+                .map_or_else(|| "no path".to_owned(), |p| p.display().to_string()),
+            dir.display()
+        ));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -1721,6 +1798,87 @@ mod tests {
         // The same tree without the symlink is clean.
         let (findings, _) = analyse_files(&["src/lib.rs"], &files);
         assert_eq!(reqs_of(&findings), Vec::<&str>::new());
+    }
+
+    /// V1 of the PR #336 fourth review: a dependency is vetted by identity, not by name.
+    #[test]
+    fn dependencies_are_vetted_by_identity() {
+        let vetted = vetted_dependency_dirs();
+        let core = vetted[0].1.clone();
+        let ok = Dependency {
+            name: "oac-core".into(),
+            path: Some(core.clone()),
+            ..Dependency::default()
+        };
+        assert_eq!(vet_dependency(&ok, &vetted), None);
+        let build = Dependency {
+            kind: Some("build".into()),
+            ..ok.clone()
+        };
+        assert_eq!(vet_dependency(&build, &vetted), None);
+        for (case, bad) in [
+            (
+                "a git source",
+                Dependency {
+                    source: Some("git+file:///tmp/evil#0123".into()),
+                    path: None,
+                    ..ok.clone()
+                },
+            ),
+            (
+                "a registry source",
+                Dependency {
+                    source: Some("registry+https://github.com/rust-lang/crates.io-index".into()),
+                    path: None,
+                    ..ok.clone()
+                },
+            ),
+            (
+                "a rename",
+                Dependency {
+                    rename: Some("core2".into()),
+                    ..ok.clone()
+                },
+            ),
+            (
+                "another path",
+                Dependency {
+                    path: Some(core.join("../tests")),
+                    ..ok.clone()
+                },
+            ),
+            (
+                "no path",
+                Dependency {
+                    path: None,
+                    ..ok.clone()
+                },
+            ),
+            (
+                "another name",
+                Dependency {
+                    name: "serde".into(),
+                    ..ok.clone()
+                },
+            ),
+            (
+                "a build dependency with a git source",
+                Dependency {
+                    source: Some("git+file:///tmp/evil".into()),
+                    ..build.clone()
+                },
+            ),
+        ] {
+            assert!(vet_dependency(&bad, &vetted).is_some(), "{case}: {bad:?}");
+        }
+        // A dev-dependency is the adapter's tests' business.
+        let dev = Dependency {
+            name: "anything".into(),
+            kind: Some("dev".into()),
+            source: Some("registry+x".into()),
+            ..Dependency::default()
+        };
+        assert_eq!(vet_dependency(&dev, &vetted), None);
     }
 
     #[test]

@@ -38,7 +38,11 @@ is a finding under every row:
   dependency table, and `autolib`, `autobins`, `autoexamples`, `autotests` or
   `autobenches`;
 - **a normal or build dependency that is not vetted**: `VETTED_DEPENDENCIES` lists them,
-  `oac-core` only today. Each one is checked to export no macro and to be no proc-macro;
+  `oac-core` only today, and each one is checked to export no macro and to be no
+  proc-macro. A dependency is vetted by identity, not by name, since any crate can call
+  itself `oac-core`. It must be a path dependency with no `source` (no registry, no git),
+  must be depended on under its own name (no `package = ..` rename), and its directory
+  must canonicalize to the repository's own `core/`;
 - **a symlink** on the way to a module file, or among the files scanned;
 - a file that cannot be read or does not parse.
 
