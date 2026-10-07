@@ -18,10 +18,10 @@
 //!
 //! Startup waits up to [`STARTUP_WAIT`] for the listener, apart from the per-call
 //! [`WAIT`], and fails at once if `node` exits first. On any startup error the child is
-//! killed and reaped before the error returns, its whole tree with it (its own process
-//! group on Unix, `taskkill /T` on Windows), and the error carries the child's exit status
-//! and its stderr so far, read for at most a second more, so that a descendant holding the
-//! pipe cannot hang it (#340, PR #341 review).
+//! killed and reaped before the error returns (on Unix its whole process group with it; on
+//! Windows the direct child only, see `kill_group`), and the error carries the child's exit
+//! status and its stderr so far, read for at most a second more, so that a descendant
+//! holding the pipe cannot hang it (#340, PR #341 review).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
@@ -94,20 +94,22 @@ const STARTUP_POLL: Duration = Duration::from_millis(100);
 /// How long a failed startup waits for the stderr reader to finish, at most.
 const READER_GRACE: Duration = Duration::from_secs(1);
 
-/// Kill process `pid` and every process it started: its process group on Unix (the child
-/// leads its own, `spawn_command`), its tree on Windows. Best effort; the caller still kills
-/// and reaps the child itself.
-fn kill_tree(pid: u32) {
-    let mut cmd = if cfg!(windows) {
-        let mut c = Command::new("taskkill");
-        c.args(["/T", "/F", "/PID", &pid.to_string()]);
-        c
-    } else {
-        let mut c = Command::new("kill");
-        c.args(["-s", "KILL", "--", &format!("-{pid}")]);
-        c
-    };
-    let _ = cmd
+/// On Unix, kill the process group `pid` leads (the child leads its own, `spawn_command`),
+/// so that its descendants die with it. Best effort; the caller still kills and reaps the
+/// child itself.
+///
+/// Windows has no such kill here, on purpose. `taskkill /T` walks the tree by each
+/// process's recorded `ParentProcessId`, which Windows never clears: once a parent exits
+/// its pid can be reused, and a process whose stale parent id names the reused pid is
+/// killed as a "child", which can be any unrelated process, `explorer.exe` included (PR #341
+/// delta review). On Windows only the direct child is killed (`Child::kill`); a descendant
+/// that outlives it is not, but cannot hang the caller either, since the stderr reader is
+/// waited for at most [`READER_GRACE`]. A Job Object would kill the tree safely, at the
+/// cost of a Windows API dependency.
+#[cfg(unix)]
+fn kill_group(pid: u32) {
+    let _ = Command::new("kill")
+        .args(["-s", "KILL", "--", &format!("-{pid}")])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -175,7 +177,7 @@ impl CodexFake {
     #[doc(hidden)]
     pub fn spawn_command(mut cmd: Command, startup: Duration) -> Result<CodexFake, StartupError> {
         // Its own process group on Unix, so that a startup failure can kill the whole tree
-        // (PR #341 review N1); on Windows `taskkill /T` walks the tree instead.
+        // (PR #341 review N1). Windows has no safe equivalent here (`kill_group`).
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
         let mut child = cmd
@@ -244,9 +246,11 @@ impl CodexFake {
         // Wait for the listener, failing fast if `node` exits first (#340).
         let deadline = Instant::now() + startup;
         let failed = |reason: String, mut child: Child| {
-            // Kill and reap on every error path: the child never outlives the error. The
-            // whole tree first, so that no descendant keeps running (or keeps the pipe).
-            kill_tree(child.id());
+            // Kill and reap on every error path: the child never outlives the error. On Unix
+            // its process group first, so that no descendant keeps running (or keeps the
+            // pipe); on Windows the direct child only (`kill_group`).
+            #[cfg(unix)]
+            kill_group(child.id());
             let _ = child.kill();
             let exit = child.wait().ok();
             // Give the reader a moment to finish the lines already written, but no more:
@@ -595,12 +599,13 @@ mod tests {
     }
 
     /// PR #341 review N1: a grandchild that inherits stderr and outlives the child must not
-    /// stretch a failed startup past its timeout, and is killed with the child (its process
-    /// group on Unix, its tree on Windows).
+    /// stretch a failed startup past its timeout. On Unix it is killed with the child's
+    /// process group. On Windows it is not (no tree kill there, see `kill_group`), so this
+    /// test only bounds the return and then cleans the grandchild up itself.
     ///
-    /// The bound on the return is checked always. The grandchild's own death is checked when
-    /// its pid was read before the timeout: on a cold runner `node` may not get as far as
-    /// starting it within the timeout, and then there is no grandchild to check.
+    /// The bound on the return is checked always. The grandchild's own death (Unix) is
+    /// checked when its pid was read before the timeout: on a cold runner `node` may not get
+    /// as far as starting it within the timeout, and then there is no grandchild to check.
     #[test]
     fn a_grandchild_holding_stderr_does_not_hang_a_failed_startup() {
         let script = "const { spawn } = require('child_process');\
@@ -625,8 +630,21 @@ mod tests {
             .iter()
             .find_map(|l| l.strip_prefix("grandchild "))
             .and_then(|p| p.trim().parse::<u32>().ok());
-        if let Some(g) = grandchild {
-            // `taskkill /T` and a group kill are asynchronous to us: allow a moment.
+        let Some(g) = grandchild else {
+            return;
+        };
+        if cfg!(windows) {
+            // Not killed by the startup error on Windows: clean up this one pid (and only if
+            // it is still a `node.exe`), without `/T`.
+            if alive(g) {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/PID", &g.to_string(), "/FI", "IMAGENAME eq node.exe"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        } else {
+            // A group kill is asynchronous to us: allow a moment.
             let deadline = Instant::now() + Duration::from_secs(10);
             while alive(g) && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(100));
