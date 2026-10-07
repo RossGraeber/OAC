@@ -11,23 +11,31 @@
 //
 // Every workflow, and every local composite action (`uses: ./dir` -> dir/action.yml or
 // dir/action.yaml, plus every .github/actions/**/action.y*ml):
-//   W1  every `uses:` (block or flow style) names an action at a full 40-hex commit SHA (no
-//       tag, no branch, no docker:// image). A local action (`./dir`) is read and held to
-//       these same rules; one whose action file is missing fails. A local reusable workflow
-//       (`./.github/workflows/x.yml`) is checked as a workflow in its own right.
+//   W0  the structural reader can read it (fails closed): block and flow mappings and
+//       sequences, quoted and plain keys and scalars, block scalars.
+//   W1  every `uses:` (block or flow style, the key quoted or not) names an action at a full
+//       40-hex commit SHA (no tag, no branch, no docker:// image). A local action (`./dir`)
+//       is read and held to these same rules, and so is every local action it uses in turn,
+//       wherever it lives (#332); one whose action file is missing fails. A local reusable
+//       workflow (`./.github/workflows/x.yml`) is checked as a workflow in its own right.
 //   W2  a top-level `permissions:` that is exactly `contents: read` (block or flow), and
-//       every job-level `permissions:` (block, flow or quoted values) holds only `read` or
-//       `none`, or is `read-all` or `{}`;
+//       every job's `permissions:` (`jobs.<id>.permissions`, the job written in block or
+//       flow style, #332) holds only `read` or `none`, or is `read-all` or `{}`. A key
+//       named `permissions` anywhere else (an action input under `with:`) is not a job's.
 //   W3  every actions/checkout step sets `persist-credentials: false` under its `with:`;
 //   W4  no secrets context and no job token: every `${{ ... }}` expression is read from the
 //       raw text, comments and run: block scalars included (GitHub evaluates an expression
 //       inside a block scalar, a heredoc `#` line too), joined across line breaks, and
 //       fails on `secrets` in any form, `github.token`, `github[...]` (an index such as
 //       `github['token']`) and the whole `github` context (`toJSON(github)`, `${{ github }}`);
-//       `secrets: inherit` fails; no provider or harness credential name; no
+//       an `if:` written without `${{ }}` is an expression too and is read the same way
+//       (#332); `secrets: inherit` fails; no provider or harness credential name; no
 //       `pull_request_target` or `workflow_run` trigger.
-// Default-tier workflows (any trigger other than workflow_dispatch; the herdr opt-in
-// workflow is the exception, with its own stricter rules in
+//   W5  no script injection (#332): no `${{ github.event... }}` expression inside a `run:`
+//       script, where GitHub pastes the text of an issue title, a branch name or a commit
+//       message into the shell before it runs. Pass the value through `env:` instead.
+// Default-tier workflows (any trigger other than workflow_dispatch and schedule; the herdr
+// opt-in workflow is the exception, with its own stricter rules in
 // scripts/check-herdr-containment.mjs check 9), and the local actions they use:
 //   D1  no self-hosted runner: `self-hosted` anywhere outside a comment, so a runner label
 //       routed through a matrix fails too (check 9 also refuses every runner label in any
@@ -36,14 +44,19 @@
 //       opt-in variable, no tools/herdr driver;
 //   D3  no harness CLI install (the Claude Code or Codex npm packages, `codex`/`claude`
 //       installers).
-// Opt-in workflows (workflow_dispatch only) may use D1-D3; W1-W4 still hold.
+// Opt-in workflows (workflow_dispatch and/or schedule only: a scheduled job is opt-in tier,
+// it never runs for a pull request or a push) may use D1-D3; W0-W5 still hold.
 //
-// The reader is line-based and fails closed: a workflow whose `on:` or top-level
-// `permissions:` it cannot read is a violation. YAML comments are stripped before W1-W3,
-// D1-D3 and the credential-name match, so a header saying "no secrets" is not a hit; the
-// text of a block scalar (a run: script) is never treated as a comment. W4's expression
-// rules read the raw text, so an expression inside a YAML comment fails too (GitHub would
-// not evaluate it there; failing on it is the safe side). Node built-ins only.
+// Two readers, both failing closed. The structural one parses the YAML into mappings,
+// sequences and scalars for W0-W3, the `if:` part of W4 and W5; a workflow whose `on:` or
+// top-level `permissions:` it cannot find is a violation. The line one reads the text for
+// W1 too (so a `uses:` either reader sees is checked), and for W4 and D1-D3: YAML comments
+// are stripped before W1, D1-D3 and the credential-name match, so a header saying "no
+// secrets" is not a hit; the text of a block scalar (a run: script) is never treated as a
+// comment. W4's expression rules read the raw text, so an expression inside a YAML comment
+// fails too (GitHub would not evaluate it there; failing on it is the safe side).
+// Anchors, aliases and tags are read as plain text, so an alias where a permission value
+// belongs is not `read` and fails W2. Node built-ins only.
 // Exit codes: 0 = clean; 1 = violation (or failed self-test); 2 = usage or environment error.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -56,6 +69,8 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 // Governed by check 9 (scripts/check-herdr-containment.mjs): push-to-main on PINS.md and
 // dispatch, self-hosted harness runners, no opt-in flag beyond its scenario input.
 const HERDR_OPTIN = 'herdr-provider-optin.yml';
+// The triggers of an opt-in workflow: neither runs for a pull request or a push.
+const OPT_IN_TRIGGERS = new Set(['workflow_dispatch', 'schedule']);
 
 const SHA_PIN = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/;
 const CREDENTIAL = /ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|CODEX_API_KEY|OPENAI_ORG|\bGITHUB_TOKEN\b|\bauth\.json\b|\.credentials\.json/i;
@@ -65,6 +80,9 @@ const EXPRESSION_RULES = [
   { re: /\bgithub\s*\[/i, msg: 'github context indexed (github[...]) in an expression' },
   { re: /\bgithub\b(?!\s*[.[])/i, msg: 'whole github context (it holds the token) in an expression' },
 ];
+// W5: the event payload, which an outside contributor writes (titles, bodies, branch
+// names, commit messages). `github.event_name` is not part of it.
+const EVENT_PAYLOAD = /\bgithub\s*\.\s*event\b/i;
 const SECRETS_INHERIT = /\bsecrets\s*:\s*['"]?inherit\b/i;
 const PRIVILEGED_TRIGGER = /^(?:pull_request_target|workflow_run)$/;
 const SELF_HOSTED = /\bself-hosted\b/i;
@@ -72,9 +90,10 @@ const OPT_IN_SWITCH = /--(?:include-)?ignored\b|\bOAC_TEST_[A-Z0-9_]+|tools[\\/]
 // The package names are spelled with a one-letter class so that oac-boundaries check 3
 // (no provider SDK name in the code tree) does not match this lint's own source.
 const HARNESS_INSTALL = /@anthropi[c]-ai\/claude-code|@open[a]i\/codex|\bclaude\.ai\/install|\b(?:npm|npx|pnpm|yarn|bun)\b[^\n]*\b(?:claude-code|codex)\b|\bbrew\s+install\b[^\n]*\b(?:codex|claude)\b/i;
-const USES = /(?:^|[\s{,-])uses\s*:\s*(['"]?)([^'",}\s]+)\1/g;
+// A `uses:` key, quoted or not (#332), and its value.
+const USES = /(?:^|[\s{,-])(['"]?)uses\1\s*:\s*(['"]?)([^'",}\s]+)\2/g;
 
-// ---- a line-based YAML reader ---------------------------------------------------------
+// ---- the line reader ------------------------------------------------------------------
 
 // Strip a YAML comment: a `#` at line start or after whitespace, outside quotes.
 function stripComment(line) {
@@ -93,7 +112,6 @@ function stripComment(line) {
 }
 
 const indentOf = (l) => l.match(/^ */)[0].length;
-const unquote = (s) => s.trim().replace(/^(['"])(.*)\1$/, '$2');
 
 // Per line: `code` is the comment-stripped YAML ('' inside a block scalar), `scan` is what
 // the text rules read (the code, or the raw line inside a block scalar), `block` marks a
@@ -121,119 +139,400 @@ function readLines(text) {
   return { raw, code, scan, block };
 }
 
-// The children of the mapping key on line i, at the first deeper indent, or its inline value.
-function mappingAt(code, i) {
-  const m = code[i].match(/^\s*(?:-\s*)?['"]?[\w-]+['"]?\s*:(.*)$/);
-  const inline = m ? m[1].trim() : '';
-  if (inline) return { inline, children: [] };
-  const base = indentOf(code[i]);
-  const children = [];
-  let childIndent = null;
-  for (let j = i + 1; j < code.length; j++) {
-    const l = code[j];
-    if (l.trim() === '') continue;
-    const ind = indentOf(l);
-    if (ind <= base) break;
-    if (childIndent === null) childIndent = ind;
-    if (ind !== childIndent) continue;
-    const t = l.trim();
-    const kv = t.match(/^-\s*(.+)$/) ?? t.match(/^([^:]+):\s*(.*)$/);
-    if (!kv) return { inline: null, children: null };
-    children.push(t.startsWith('-') ? { key: unquote(kv[1]), value: '', line: j } : { key: unquote(kv[1]), value: unquote(kv[2] ?? ''), line: j });
+// ---- the structural reader -------------------------------------------------------------
+//
+// Nodes: { t: 'map', line, pairs: [{ key, line, value }] }, { t: 'seq', line, items },
+// { t: 'str', line, v }. Lines are 1-based. Throws YamlError on what it cannot read.
+
+class YamlError extends Error {
+  constructor(line, msg) {
+    super(msg);
+    this.line = line;
   }
-  return { inline: null, children };
 }
 
-// A flow mapping `{ a: b, c: 'd' }` (one level) as key/value pairs, or null.
-function flowPairs(s) {
-  const m = s.trim().match(/^\{(.*)\}$/);
-  if (!m) return null;
-  if (m[1].trim() === '') return [];
-  return m[1].split(',').map((p) => {
-    const kv = p.match(/^\s*([^:]+?)\s*:\s*(.*?)\s*$/);
-    return kv ? { key: unquote(kv[1]), value: unquote(kv[2]) } : { key: p.trim(), value: null };
+const str = (line, v) => ({ t: 'str', line, v });
+
+// A quoted scalar at s[i] (s[i] is the quote): its value and the index after it.
+function readQuoted(s, i, line) {
+  const q = s[i];
+  let out = '';
+  let j = i + 1;
+  while (j < s.length) {
+    const c = s[j];
+    if (q === "'" && c === "'" && s[j + 1] === "'") {
+      out += "'";
+      j += 2;
+    } else if (c === q) {
+      return { v: out, end: j + 1 };
+    } else if (q === '"' && c === '\\' && j + 1 < s.length) {
+      out += s[j + 1];
+      j += 2;
+    } else {
+      out += c;
+      j++;
+    }
+  }
+  throw new YamlError(line, 'unterminated quoted scalar');
+}
+
+// A flow collection or scalar at s[i]; returns { node, end }.
+function readFlow(s, i, line) {
+  const ws = () => {
+    while (i < s.length && /\s/.test(s[i])) i++;
+  };
+  ws();
+  const c = s[i];
+  if (c === '{' || c === '[') {
+    const close = c === '{' ? '}' : ']';
+    const node = c === '{' ? { t: 'map', line, pairs: [] } : { t: 'seq', line, items: [] };
+    i++;
+    for (;;) {
+      ws();
+      if (s[i] === close) return { node, end: i + 1 };
+      if (i >= s.length) throw new YamlError(line, `unterminated flow ${c}`);
+      if (node.t === 'map') {
+        let key;
+        if (s[i] === '"' || s[i] === "'") {
+          const q = readQuoted(s, i, line);
+          key = q.v;
+          i = q.end;
+        } else {
+          const m = /^[^:,{}[\]]*/.exec(s.slice(i));
+          key = m[0].trim();
+          i += m[0].length;
+        }
+        ws();
+        let value = str(line, '');
+        if (s[i] === ':') {
+          const r = readFlow(s, i + 1, line);
+          value = r.node;
+          i = r.end;
+        }
+        node.pairs.push({ key, line, value });
+      } else {
+        const r = readFlow(s, i, line);
+        node.items.push(r.node);
+        i = r.end;
+      }
+      ws();
+      if (s[i] === ',') i++;
+      else if (s[i] !== close) throw new YamlError(line, `expected , or ${close} in a flow collection`);
+    }
+  }
+  if (c === '"' || c === "'") {
+    const q = readQuoted(s, i, line);
+    return { node: str(line, q.v), end: q.end };
+  }
+  // A plain scalar, up to a flow indicator at depth 0; a `${{ ... }}` is taken whole.
+  let j = i;
+  let out = '';
+  while (j < s.length) {
+    if (s.startsWith('${{', j)) {
+      const e = s.indexOf('}}', j);
+      if (e === -1) throw new YamlError(line, 'unterminated ${{ in a flow scalar');
+      out += s.slice(j, e + 2);
+      j = e + 2;
+      continue;
+    }
+    if (/[,{}[\]]/.test(s[j])) break;
+    out += s[j];
+    j++;
+  }
+  return { node: str(line, out.trim()), end: j };
+}
+
+// Is `s` balanced in its flow brackets (outside quotes and `${{ }}`)?
+function flowDepth(s) {
+  let d = 0;
+  let q = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === q) q = null;
+    } else if (c === '"' || c === "'") q = c;
+    else if (s.startsWith('${{', i)) {
+      const e = s.indexOf('}}', i);
+      if (e === -1) return d + 1;
+      i = e + 1;
+    } else if (c === '{' || c === '[') d++;
+    else if (c === '}' || c === ']') d--;
+  }
+  return d;
+}
+
+// The key of a block mapping line's content, or null: { key, rest }.
+function splitKey(content, line) {
+  if (content[0] === '"' || content[0] === "'") {
+    const q = readQuoted(content, 0, line);
+    const after = content.slice(q.end);
+    const m = /^\s*:(?:\s+|$)/.exec(after);
+    return m ? { key: q.v, rest: after.slice(m[0].length) } : null;
+  }
+  if (/^[-?:,[\]{}#&*!|>%@`]/.test(content) && !/^-[^\s]/.test(content)) return null;
+  const m = /^([^#]*?)\s*:(?:\s+|$)/.exec(content);
+  if (!m || m[1] === '') return null;
+  return { key: m[1], rest: content.slice(m[0].length) };
+}
+
+function parseYaml(text) {
+  const raw = text.split(/\r?\n/);
+  const lines = raw.map((l) => {
+    if (/\t/.test(l.match(/^\s*/)[0])) throw new YamlError(0, 'tab in indentation');
+    return l;
   });
-}
+  let i = 0;
+  const content = (k) => stripComment(lines[k]).trim();
+  const blankAt = (k) => content(k) === '';
+  const skip = () => {
+    while (i < lines.length && blankAt(i)) i++;
+  };
 
-function topLevelIndex(code, key) {
-  const re = new RegExp(`^(?:${key}|"${key}"|'${key}')\\s*:`);
-  return code.findIndex((l) => re.test(l));
-}
-
-function triggers(code) {
-  const i = topLevelIndex(code, 'on');
-  if (i === -1) return null;
-  const on = mappingAt(code, i);
-  if (on.children === null) return null;
-  if (on.inline) {
-    const flow = flowPairs(on.inline);
-    if (flow) return flow.map((p) => p.key);
-    return on.inline.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean);
+  // A block scalar's lines after line `i` (the indicator line), deeper than `ind`.
+  function blockScalar(ind) {
+    const out = [];
+    let j = i + 1;
+    let inner = null;
+    while (j < lines.length) {
+      const l = lines[j];
+      if (l.trim() === '') {
+        out.push('');
+        j++;
+        continue;
+      }
+      if (indentOf(l) <= ind) break;
+      if (inner === null) inner = indentOf(l);
+      out.push(l.slice(Math.min(inner, indentOf(l))));
+      j++;
+    }
+    i = j;
+    while (out.length && out[out.length - 1] === '') out.pop();
+    return out.join('\n');
   }
-  return on.children.map((c) => c.key);
+
+  // A value that starts on line i at text `rest` (after `key:` or `- `), for a node at `ind`.
+  function inlineValue(rest, ind) {
+    const line = i + 1;
+    if (/^[|>][1-9+-]{0,2}$/.test(rest)) return str(line, blockScalar(ind));
+    if (rest[0] === '{' || rest[0] === '[') {
+      let s = rest;
+      let j = i;
+      while (flowDepth(s) > 0 && j + 1 < lines.length) {
+        j++;
+        s += ` ${content(j)}`;
+      }
+      const r = readFlow(s, 0, line);
+      if (s.slice(r.end).trim() !== '') throw new YamlError(line, 'text after a flow collection');
+      i = j + 1;
+      return r.node;
+    }
+    if (rest[0] === '"' || rest[0] === "'") {
+      let s = rest;
+      let j = i;
+      for (;;) {
+        try {
+          const q = readQuoted(s, 0, line);
+          i = j + 1;
+          return str(line, q.v);
+        } catch (e) {
+          if (j + 1 >= lines.length) throw e;
+          j++;
+          s += ` ${lines[j].trim()}`;
+        }
+      }
+    }
+    // A plain scalar, continued on deeper lines.
+    let v = rest;
+    i++;
+    while (i < lines.length && !blankAt(i) && indentOf(lines[i]) > ind) {
+      v += ` ${content(i)}`;
+      i++;
+    }
+    return str(line, v);
+  }
+
+  function parseMap(ind) {
+    const node = { t: 'map', line: i + 1, pairs: [] };
+    for (;;) {
+      skip();
+      if (i >= lines.length) break;
+      const l = lines[i];
+      const li = indentOf(l);
+      if (li < ind) break;
+      if (li > ind) throw new YamlError(i + 1, 'unexpected indentation');
+      const c = content(i);
+      if (c.startsWith('- ') || c === '-') break;
+      const kv = splitKey(c, i + 1);
+      if (!kv) throw new YamlError(i + 1, `not a mapping key: ${c}`);
+      const keyLine = i + 1;
+      let value;
+      if (kv.rest === '') {
+        i++;
+        skip();
+        if (i < lines.length && indentOf(lines[i]) === ind && /^-(\s|$)/.test(content(i))) value = parseSeq(ind);
+        else if (i < lines.length && indentOf(lines[i]) > ind) value = parseNode(indentOf(lines[i]));
+        else value = str(keyLine, '');
+      } else {
+        value = inlineValue(kv.rest, ind);
+      }
+      node.pairs.push({ key: kv.key, line: keyLine, value });
+    }
+    return node;
+  }
+
+  function parseSeq(ind) {
+    const node = { t: 'seq', line: i + 1, items: [] };
+    for (;;) {
+      skip();
+      if (i >= lines.length) break;
+      const l = lines[i];
+      if (indentOf(l) !== ind || !/^-(\s|$)/.test(content(i))) {
+        if (indentOf(l) > ind) throw new YamlError(i + 1, 'unexpected indentation in a sequence');
+        break;
+      }
+      const after = stripComment(l).slice(ind + 1);
+      const rest = after.trim();
+      if (rest === '') {
+        i++;
+        skip();
+        node.items.push(i < lines.length && indentOf(lines[i]) > ind ? parseNode(indentOf(lines[i])) : str(i, ''));
+        continue;
+      }
+      const col = ind + 1 + (after.length - after.trimStart().length);
+      if (!/^[{[]/.test(rest) && splitKey(rest, i + 1)) {
+        // A compact mapping: its first key sits at `col`.
+        lines[i] = ' '.repeat(col) + lines[i].slice(col);
+        node.items.push(parseMap(col));
+      } else if (/^-(\s|$)/.test(rest)) {
+        lines[i] = ' '.repeat(col) + lines[i].slice(col);
+        node.items.push(parseSeq(col));
+      } else {
+        node.items.push(inlineValue(rest, ind));
+      }
+    }
+    return node;
+  }
+
+  function parseNode(ind) {
+    skip();
+    if (i >= lines.length) return str(i, '');
+    const c = content(i);
+    if (/^-(\s|$)/.test(c)) return parseSeq(ind);
+    if (splitKey(c, i + 1)) return parseMap(ind);
+    return inlineValue(c, ind - 1);
+  }
+
+  skip();
+  if (i >= lines.length) return { t: 'map', line: 1, pairs: [] };
+  if (indentOf(lines[i]) !== 0) throw new YamlError(i + 1, 'the document does not start at column 0');
+  const doc = parseNode(0);
+  skip();
+  if (i < lines.length) throw new YamlError(i + 1, 'text the reader could not place');
+  return doc;
 }
 
-// Permission pairs from line i: block children, a flow mapping, or a scalar.
-function permissionsAt(code, i) {
-  const p = mappingAt(code, i);
-  if (p.children === null) return { scalar: null, pairs: null };
-  if (p.inline) {
-    const flow = flowPairs(p.inline);
-    return flow ? { scalar: null, pairs: flow } : { scalar: unquote(p.inline), pairs: null };
+const get = (node, key) => (node?.t === 'map' ? node.pairs.find((p) => p.key === key) : undefined);
+
+// Every (key, value) pair in the tree, depth first.
+function* pairsOf(node) {
+  if (!node) return;
+  if (node.t === 'map') {
+    for (const p of node.pairs) {
+      yield p;
+      yield* pairsOf(p.value);
+    }
+  } else if (node.t === 'seq') {
+    for (const n of node.items) yield* pairsOf(n);
   }
-  return { scalar: null, pairs: p.children };
+}
+
+// The steps of every job (a workflow) or of `runs:` (a composite action).
+function stepsOf(doc) {
+  const out = [];
+  const add = (seq) => {
+    if (seq?.t === 'seq') for (const s of seq.items) if (s.t === 'map') out.push(s);
+  };
+  const jobs = get(doc, 'jobs')?.value;
+  if (jobs?.t === 'map') for (const j of jobs.pairs) add(get(j.value, 'steps')?.value);
+  add(get(get(doc, 'runs')?.value, 'steps')?.value);
+  return out;
 }
 
 // ---- the checks -----------------------------------------------------------------------
 
-// The rules a workflow and a local action share: W1, W3, W4 (not the trigger part), and
-// D1-D3 when `defaultTier`. Returns local actions it references.
-function commonRules(lines, text, defaultTier, hit) {
+// The `${{ ... }}` expressions in `s`, with their offset.
+const expressions = (s) => [...s.matchAll(/\$\{\{([\s\S]*?)\}\}/g)].map((m) => ({ expr: m[1].replace(/\s+/g, ' '), index: m.index }));
+
+// The rules a workflow and a local action share: W0, W1, W3, W4 (not the trigger part), W5,
+// and D1-D3 when `defaultTier`. Returns the parsed document (or null) and the local actions
+// it references.
+function commonRules(text, defaultTier, hit) {
+  const lines = readLines(text);
   const { code, scan, block } = lines;
   const locals = [];
-
-  // W1: every action pinned by commit SHA (block and flow style).
-  code.forEach((l, i) => {
-    if (block[i]) return;
-    for (const m of l.matchAll(USES)) {
-      const ref = m[2];
-      if (ref.startsWith('./')) {
-        if (/^\.\/\.github\/workflows\/[^/]+\.ya?ml$/.test(ref)) continue; // checked as a workflow
-        locals.push({ ref, line: i + 1 });
-        continue;
-      }
-      if (!SHA_PIN.test(ref)) hit('W1', i + 1, `action not pinned to a commit SHA: ${ref}`);
-    }
-  });
-
-  // W3: checkout never persists the job token; the setting must be an input (`with:`).
-  code.forEach((l, i) => {
-    if (block[i] || !/(?:^|[\s{,-])uses\s*:\s*['"]?actions\/checkout@/.test(l)) return;
-    if (/\{/.test(l)) {
-      if (!/with\s*:\s*\{[^}]*persist-credentials\s*:\s*['"]?false['"]?\s*[,}]/.test(l)) {
-        hit('W3', i + 1, 'actions/checkout without persist-credentials: false under with:');
-      }
+  const seenUses = new Set();
+  const usesRef = (ref, line) => {
+    if (seenUses.has(`${line}\n${ref}`)) return;
+    seenUses.add(`${line}\n${ref}`);
+    if (ref.startsWith('./')) {
+      if (/^\.\/\.github\/workflows\/[^/]+\.ya?ml$/.test(ref)) return; // checked as a workflow
+      locals.push({ ref, line });
       return;
     }
-    let start = i;
-    while (start > 0 && !/^\s*-\s/.test(code[start])) start--;
-    const stepIndent = indentOf(code[start]);
-    let end = start + 1;
-    while (end < code.length && (code[end].trim() === '' || indentOf(code[end]) > stepIndent)) end++;
-    let ok = false;
-    for (let j = start; j < end; j++) {
-      if (!/^\s*(?:-\s*)?with\s*:/.test(code[j])) continue;
-      const w = mappingAt(code, j);
-      const pairs = w.inline ? flowPairs(w.inline) : w.children;
-      if (pairs && pairs.some((p) => p.key === 'persist-credentials' && p.value === 'false')) ok = true;
-    }
-    if (!ok) hit('W3', i + 1, 'actions/checkout without persist-credentials: false under with:');
+    if (!SHA_PIN.test(ref)) hit('W1', line, `action not pinned to a commit SHA: ${ref}`);
+  };
+
+  let doc = null;
+  try {
+    doc = parseYaml(text);
+  } catch (e) {
+    if (!(e instanceof YamlError)) throw e;
+    hit('W0', e.line, `the structural reader cannot read this file (fails closed): ${e.message}`);
+  }
+
+  // W1: every action pinned by commit SHA, as either reader sees it.
+  code.forEach((l, i) => {
+    if (block[i]) return;
+    for (const m of l.matchAll(USES)) usesRef(m[3], i + 1);
   });
+  for (const p of pairsOf(doc)) {
+    if (p.key === 'uses' && p.value.t === 'str') usesRef(p.value.v, p.line);
+  }
+
+  if (doc) {
+    // W3: checkout never persists the job token; the setting must be an input (`with:`).
+    for (const s of stepsOf(doc)) {
+      const uses = get(s, 'uses')?.value;
+      if (uses?.t !== 'str' || !/^actions\/checkout@/.test(uses.v)) continue;
+      const pc = get(get(s, 'with')?.value, 'persist-credentials')?.value;
+      if (!(pc?.t === 'str' && pc.v === 'false')) hit('W3', uses.line, 'actions/checkout without persist-credentials: false under with:');
+    }
+    for (const p of pairsOf(doc)) {
+      // W4: an `if:` without `${{ }}` is an expression all the same (#332).
+      if (p.key === 'if' && p.value.t === 'str' && !p.value.v.includes('${{')) {
+        for (const r of EXPRESSION_RULES) {
+          if (r.re.test(p.value.v)) {
+            hit('W4', p.line, `${r.msg} (a bare if: condition)`);
+            break;
+          }
+        }
+      }
+      // W5: the event payload pasted into a script (#332).
+      if (p.key === 'run' && p.value.t === 'str') {
+        for (const { expr, index } of expressions(p.value.v)) {
+          if (EVENT_PAYLOAD.test(expr)) {
+            const offset = p.value.v.slice(0, index).split('\n').length - 1;
+            const line = p.value.line + (p.value.v.includes('\n') || offset > 0 ? offset + 1 : 0);
+            hit('W5', line, `\${{${expr}}} inside run: is pasted into the script before it runs (script injection); pass it through env:`);
+          }
+        }
+      }
+    }
+  }
 
   // W4: expressions, read raw and joined across line breaks.
-  for (const m of text.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
-    const expr = m[1].replace(/\s+/g, ' ');
-    const line = text.slice(0, m.index).split('\n').length;
+  for (const { expr, index } of expressions(text)) {
+    const line = text.slice(0, index).split('\n').length;
     for (const r of EXPRESSION_RULES) {
       if (r.re.test(expr)) {
         hit('W4', line, r.msg);
@@ -253,65 +552,87 @@ function commonRules(lines, text, defaultTier, hit) {
       if (HARNESS_INSTALL.test(l)) hit('D3', i + 1, 'harness CLI install in the default tier');
     });
   }
-  return locals;
+  return { doc, locals };
 }
 
-// One workflow. `readLocal(ref)` returns { path, text } for a local action, or null.
-function checkWorkflow(name, text, readLocal = () => null) {
-  const lines = readLines(text);
-  const { code, block } = lines;
-  const v = [];
-  const hit = (rule, line, msg) => v.push({ rule, line, msg });
-
-  const on = triggers(code);
-  if (on === null || on.length === 0) hit('W4', 0, 'no readable `on:` triggers');
-  for (const t of on ?? []) if (PRIVILEGED_TRIGGER.test(t)) hit('W4', 0, `privileged trigger ${t}`);
-  const optIn = on !== null && on.length > 0 && on.every((t) => t === 'workflow_dispatch');
-  const defaultTier = !optIn && name !== HERDR_OPTIN;
-
-  // W2: top-level permissions exactly contents: read.
-  const top = topLevelIndex(code, 'permissions');
-  if (top === -1) hit('W2', 0, 'no top-level permissions');
-  else {
-    const p = permissionsAt(code, top);
-    const kv = (p.pairs ?? []).map((c) => `${c.key}: ${c.value}`);
-    if (!p.pairs || kv.length !== 1 || kv[0] !== 'contents: read') {
-      hit('W2', top + 1, `top-level permissions must be exactly contents: read (found ${p.scalar ?? (kv.join(', ') || 'none')})`);
-    }
-  }
-  // W2: every job-level permissions read-only.
-  code.forEach((l, i) => {
-    if (block[i] || !/^\s+(?:-\s*)?['"]?permissions['"]?\s*:/.test(l)) return;
-    const p = permissionsAt(code, i);
-    if (p.scalar !== null) {
-      if (p.scalar !== 'read-all') hit('W2', i + 1, `job permissions ${p.scalar}`);
-      return;
-    }
-    if (p.pairs === null) return hit('W2', i + 1, 'unreadable job permissions');
-    for (const c of p.pairs) {
-      if (c.value !== 'read' && c.value !== 'none') hit('W2', (c.line ?? i) + 1, `job permission ${c.key}: ${c.value}`);
-    }
-  });
-
-  const locals = commonRules(lines, text, defaultTier, hit);
+// The local actions `locals` reference, checked with the rules, and every local action they
+// use in turn (#332), each action once. `report(rule, line, msg)` gets each violation with
+// `line` the referencing line in the top file.
+function checkLocals(locals, defaultTier, readLocal, report, seen = new Set()) {
   for (const { ref, line } of locals) {
     const action = readLocal(ref);
     if (!action) {
-      hit('W1', line, `local action ${ref} has no action.yml or action.yaml (fails closed)`);
+      report('W1', line, `local action ${ref} has no action.yml or action.yaml (fails closed)`);
       continue;
     }
-    const sub = [];
-    commonRules(readLines(action.text), action.text, defaultTier, (rule, l, msg) => sub.push({ rule, line, msg: `${action.path}:${l}: ${msg}` }));
-    v.push(...sub);
+    if (seen.has(action.path)) continue;
+    seen.add(action.path);
+    const sub = commonRules(action.text, defaultTier, (rule, l, msg) => report(rule, line, `${action.path}:${l}: ${msg}`));
+    checkLocals(sub.locals, defaultTier, readLocal, (rule, _l, msg) => report(rule, line, `${action.path}: ${msg}`), seen);
   }
-  return v;
 }
 
-// A composite action file found on disk, held to the rules on its own (default tier).
-function checkAction(text) {
+// The trigger names of `on:`: a scalar, a sequence or a mapping.
+function triggers(doc) {
+  const on = get(doc, 'on')?.value;
+  if (!on) return null;
+  if (on.t === 'str') return on.v === '' ? [] : [on.v];
+  if (on.t === 'seq') return on.items.map((n) => (n.t === 'str' ? n.v : '?'));
+  return on.pairs.map((p) => p.key);
+}
+
+// A permission value: read and none are read-only.
+const readOnly = (v) => v?.t === 'str' && (v.v === 'read' || v.v === 'none');
+
+// One workflow. `readLocal(ref)` returns { path, text } for a local action, or null.
+function checkWorkflow(name, text, readLocal = () => null) {
   const v = [];
-  const locals = commonRules(readLines(text), text, true, (rule, line, msg) => v.push({ rule, line, msg }));
-  return { v, locals };
+  const hit = (rule, line, msg) => v.push({ rule, line, msg });
+
+  const { doc, locals } = commonRules(text, null, hit);
+  // (An unreadable document is already a W0 violation.)
+  const on = doc ? triggers(doc) : null;
+  if (doc && (on === null || on.length === 0)) hit('W4', 0, 'no readable `on:` triggers');
+  for (const t of on ?? []) if (PRIVILEGED_TRIGGER.test(t)) hit('W4', 0, `privileged trigger ${t}`);
+  const optIn = on !== null && on.length > 0 && on.every((t) => OPT_IN_TRIGGERS.has(t));
+  const defaultTier = !optIn && name !== HERDR_OPTIN;
+
+  if (doc) {
+    // W2: top-level permissions exactly contents: read.
+    const top = get(doc, 'permissions');
+    if (!top) hit('W2', 0, 'no top-level permissions');
+    else {
+      const p = top.value;
+      const kv = p.t === 'map' ? p.pairs.map((c) => `${c.key}: ${c.value.t === 'str' ? c.value.v : '?'}`) : [];
+      if (p.t !== 'map' || kv.length !== 1 || kv[0] !== 'contents: read') {
+        hit('W2', top.line, `top-level permissions must be exactly contents: read (found ${p.t === 'str' ? p.v : kv.join(', ') || 'none'})`);
+      }
+    }
+    // W2: every job's permissions read-only, the job in block or flow style.
+    const jobs = get(doc, 'jobs')?.value;
+    for (const job of jobs?.t === 'map' ? jobs.pairs : []) {
+      const perm = get(job.value, 'permissions');
+      if (!perm) continue;
+      const p = perm.value;
+      if (p.t === 'str') {
+        if (p.v !== 'read-all') hit('W2', perm.line, `job ${job.key} permissions ${p.v}`);
+      } else if (p.t === 'map') {
+        for (const c of p.pairs) if (!readOnly(c.value)) hit('W2', c.line, `job ${job.key} permission ${c.key}: ${c.value.t === 'str' ? c.value.v : '(not a scalar)'}`);
+      } else hit('W2', perm.line, `job ${job.key}: unreadable permissions`);
+    }
+  }
+
+  // D1-D3 need the tier, known only now: run them over the workflow's own text again.
+  if (defaultTier) {
+    const { scan } = readLines(text);
+    scan.forEach((l, i) => {
+      if (SELF_HOSTED.test(l)) hit('D1', i + 1, 'self-hosted runner in the default tier');
+      if (OPT_IN_SWITCH.test(l)) hit('D2', i + 1, 'opt-in switch in the default tier');
+      if (HARNESS_INSTALL.test(l)) hit('D3', i + 1, 'harness CLI install in the default tier');
+    });
+  }
+  checkLocals(locals, defaultTier, readLocal, hit);
+  return v;
 }
 
 function readLocalFrom(root) {
@@ -336,6 +657,16 @@ function walkActions(dir, out = []) {
   return out;
 }
 
+// A composite action file found on disk, held to the rules on its own (default tier), with
+// every local action it uses.
+function checkAction(text, readLocal) {
+  const v = [];
+  const hit = (rule, line, msg) => v.push({ rule, line, msg });
+  const { locals } = commonRules(text, true, hit);
+  checkLocals(locals, true, readLocal, hit);
+  return v;
+}
+
 function checkAll(root) {
   const wfDir = join(root, '.github', 'workflows');
   const files = existsSync(wfDir) ? readdirSync(wfDir).filter((f) => /\.ya?ml$/.test(f)).sort() : [];
@@ -352,8 +683,7 @@ function checkAll(root) {
   }
   const actions = walkActions(join(root, '.github', 'actions'));
   for (const p of actions) {
-    const { v, locals } = checkAction(readFileSync(p, 'utf8'));
-    for (const { ref, line } of locals) if (!readLocal(ref)) v.push({ rule: 'W1', line, msg: `local action ${ref} has no action file (fails closed)` });
+    const v = checkAction(readFileSync(p, 'utf8'), readLocal);
     const rel = p.slice(root.length + 1).split('\\').join('/');
     for (const x of v) console.log(`${rel}:${x.line} [${x.rule}] ${x.msg}`);
     total += v.length;
@@ -409,6 +739,7 @@ jobs:
 `;
 const withJob = (perm) => GOOD.replace('    runs-on:', `${perm}\n    runs-on:`);
 const withStep = (step) => GOOD.replace('      - run: cargo test', `${step}\n      - run: cargo test`);
+const withJobs = (jobs) => GOOD.replace(/jobs:\n[\s\S]*$/, `jobs:\n${jobs}\n`);
 const ACTION_GOOD = `name: setup
 runs:
   using: composite
@@ -417,19 +748,37 @@ runs:
       with:
         key: x
 `;
+const ACTION_NESTING = (inner) => `name: outer
+runs:
+  using: composite
+  steps:
+    - uses: ${inner}
+`;
+const SETUP = { './.github/actions/setup': ACTION_GOOD };
 
 const CASES = [
   ['control: default-tier workflow', 'good.yml', GOOD, []],
   ['control: opt-in workflow may use --ignored and OAC_TEST_*', 'optin.yml', OPTIN, []],
+  ['control: a scheduled workflow is opt-in tier', 'optin.yml', OPTIN.replace('  workflow_dispatch:', "  schedule:\n    - cron: '0 5 * * 1'\n  workflow_dispatch:"), []],
   ['control: inline on list', 'x.yml', GOOD.replace(/on:\n  push:\n    branches: \[main\]\n  pull_request:\n/, 'on: [push, pull_request]\n'), []],
   ['control: top-level permissions as a flow mapping', 'x.yml', GOOD.replace('permissions:\n  contents: read', 'permissions: { contents: read }'), []],
   ['control: job-level read and none, block and flow', 'x.yml', withJob('    permissions:\n      contents: read\n      id-token: none').replace('  test:', '  other:\n    permissions: { contents: "read" }\n    runs-on: x\n  test:'), []],
-  ['control: a local action held to the rules', 'x.yml', withStep('      - uses: ./.github/actions/setup'), [], { './.github/actions/setup': ACTION_GOOD }],
+  ['control: a local action held to the rules', 'x.yml', withStep('      - uses: ./.github/actions/setup'), [], SETUP],
+  ['control: an action input named permissions under with: (block)', 'x.yml', withStep(`      - uses: actions/github-script@${SHA}\n        with:\n          permissions: write`), []],
+  ['control: an action input named permissions under with: (flow)', 'x.yml', withStep(`      - uses: actions/github-script@${SHA}\n        with: { permissions: write-all }`), []],
+  ['control: a bare if: on a safe context', 'x.yml', withStep("      - if: github.event_name == 'push' && matrix.os == 'ubuntu-latest'\n        run: true"), []],
+  ['control: the event payload through env:, and event_name in run:', 'x.yml', withStep('      - env:\n          TITLE: ${{ github.event.issue.title }}\n        run: echo "$TITLE ${{ github.event_name }}"'), []],
+  ['control: a local action that uses itself (no loop)', 'x.yml', withStep('      - uses: ./.github/actions/self'), [], { './.github/actions/self': ACTION_NESTING('./.github/actions/self') }],
   ['W1 tag-pinned action', 'x.yml', GOOD.replace(`checkout@${SHA}`, 'checkout@v5'), ['W1']],
   ['W1 docker image', 'x.yml', GOOD.replace(`actions/cache/restore@${SHA}`, 'docker://alpine:3'), ['W1']],
   ['W1 flow-style step', 'x.yml', withStep('      - { uses: actions/setup-node@v4 }'), ['W1']],
+  ['W1 quoted "uses" key (#332)', 'x.yml', withStep('      - "uses": actions/setup-node@v4'), ['W1']],
+  ["W1 single-quoted 'uses' key in a flow step (#332)", 'x.yml', withStep("      - { 'uses': actions/setup-node@v4 }"), ['W1']],
   ['W1 local action file missing (fails closed)', 'x.yml', withStep('      - uses: ./.github/actions/missing'), ['W1']],
   ['W1 tag-pinned action inside a local action', 'x.yml', withStep('      - uses: ./.github/actions/setup'), ['W1'], { './.github/actions/setup': ACTION_GOOD.replace(`restore@${SHA}`, 'restore@v4') }],
+  ['W1 tag-pinned action in a local action outside .github/actions/, used by a local action (#332)', 'x.yml', withStep('      - uses: ./.github/actions/outer'), ['W1'], { './.github/actions/outer': ACTION_NESTING('./tools/inner'), './tools/inner': ACTION_GOOD.replace(`restore@${SHA}`, 'restore@v4') }],
+  ['W1 nested local action file missing (#332)', 'x.yml', withStep('      - uses: ./.github/actions/outer'), ['W1'], { './.github/actions/outer': ACTION_NESTING('./tools/gone') }],
+  ['W4 secrets two local actions deep (#332)', 'x.yml', withStep('      - uses: ./.github/actions/outer'), ['W4'], { './.github/actions/outer': ACTION_NESTING('./tools/inner'), './tools/inner': ACTION_GOOD.replace('key: x', 'key: ${{ secrets.K }}') }],
   ['W4 secrets inside a local action', 'x.yml', withStep('      - uses: ./.github/actions/setup'), ['W4'], { './.github/actions/setup': ACTION_GOOD.replace('key: x', 'key: ${{ secrets.K }}') }],
   ['W2 write permission at top level', 'x.yml', GOOD.replace('contents: read', 'contents: write'), ['W2']],
   ['W2 read-all at top level', 'x.yml', GOOD.replace('permissions:\n  contents: read', 'permissions: read-all'), ['W2']],
@@ -439,8 +788,14 @@ const CASES = [
   ['W2 job-level write (flow)', 'x.yml', withJob('    permissions: { contents: write }'), ['W2']],
   ['W2 job-level write (quoted)', 'x.yml', withJob("    permissions:\n      contents: 'write'"), ['W2']],
   ['W2 job-level write-all', 'x.yml', withJob('    permissions: write-all'), ['W2']],
+  ['W2 job-level quoted "permissions" key (#332)', 'x.yml', withJob('    "permissions": write-all'), ['W2']],
+  ['W2 a job written as one flow mapping (#332)', 'x.yml', withJobs('  test: { permissions: write-all, runs-on: ubuntu-latest, steps: [ { run: "true" } ] }'), ['W2']],
+  ['W2 a flow-style job with nested write (#332)', 'x.yml', withJobs('  test: { runs-on: x, permissions: { contents: read, pull-requests: write }, steps: [] }'), ['W2']],
+  ['W2 a flow-style job over several lines (#332)', 'x.yml', withJobs('  test: {\n    runs-on: x,\n    permissions: write-all,\n    steps: []\n  }'), ['W2']],
+  ['W2 the jobs mapping itself in flow style (#332)', 'x.yml', withJobs('  { test: { "permissions": { "contents": "write" }, runs-on: x } }').replace('jobs:\n  {', 'jobs: {'), ['W2']],
   ['W3 checkout persisting credentials', 'x.yml', GOOD.replace('persist-credentials: false', 'fetch-depth: 0'), ['W3']],
   ['W3 persist-credentials under env, not with', 'x.yml', GOOD.replace('        with:\n          persist-credentials: false', '        env:\n          persist-credentials: false'), ['W3']],
+  ['W3 a flow-style checkout step without the setting', 'x.yml', withStep(`      - { uses: actions/checkout@${SHA}, with: { fetch-depth: 0 } }`), ['W3']],
   ['W4 secrets context', 'x.yml', GOOD.replace('key: cargo-', 'key: ${{ secrets.CACHE_KEY }}-'), ['W4']],
   ['W4 github.token', 'x.yml', GOOD.replace('key: cargo-', 'key: ${{ github.token }}-'), ['W4']],
   ["W4 github['token']", 'x.yml', GOOD.replace('key: cargo-', "key: ${{ github['token'] }}-"), ['W4']],
@@ -451,12 +806,25 @@ const CASES = [
   ['W4 provider key variable', 'x.yml', withStep('      - env:\n          ANTHROPIC_API_KEY: x\n        run: true'), ['W4']],
   ['W4 secrets in an opt-in workflow', 'optin.yml', OPTIN.replace('OAC_TEST_REAL_KEYRING: "1"', 'TOKEN: ${{ secrets.T }}'), ['W4']],
   ['W4 pull_request_target', 'x.yml', GOOD.replace('  pull_request:', '  pull_request_target:'), ['W4']],
+  ['W4 bare if: on github.token (#332)', 'x.yml', withStep("      - if: startsWith(github.token, 'ghs_')\n        run: true"), ['W4']],
+  ['W4 bare if: on the whole github context (#332)', 'x.yml', withStep("      - if: contains(toJSON(github), 'x')\n        run: true"), ['W4']],
+  ['W4 bare job-level if: on secrets (#332)', 'x.yml', withJob("    if: secrets.K != ''"), ['W4']],
+  ['W4 bare if: under a quoted key, over two lines (#332)', 'x.yml', withStep("      - \"if\": always() &&\n          github.token != ''\n        run: true"), ['W4']],
+  ['W4 bare if: as a block scalar (#332)', 'x.yml', withStep("      - if: >\n          github['token'] != ''\n        run: true"), ['W4']],
+  ['W5 github.event in an inline run: (#332)', 'x.yml', withStep('      - run: echo "${{ github.event.issue.title }}"'), ['W5']],
+  ['W5 github.event in a run: block scalar (#332)', 'x.yml', GOOD.replace('          echo done', '          echo "${{ github.event.pull_request.head.ref }}"'), ['W5']],
+  ['W5 spaced, upper-case and split github . event (#332)', 'x.yml', GOOD.replace('          echo done', '          echo "${{ GITHUB .\n            EVENT.comment.body }}"'), ['W5']],
+  ['W5 toJSON(github.event) in run: (#332)', 'x.yml', withStep('      - run: echo \'${{ toJSON(github.event) }}\''), ['W5']],
+  ['W5 a flow-style step with a quoted run: (#332)', 'x.yml', withStep('      - { "run": "echo ${{ github.event.head_commit.message }}" }'), ['W5']],
+  ['W5 github.event in a run: inside a local action (#332)', 'x.yml', withStep('      - uses: ./.github/actions/setup'), ['W5'], { './.github/actions/setup': `${ACTION_GOOD}    - shell: bash\n      run: echo "\${{ github.event.issue.body }}"\n` }],
+  ['W0 a workflow the structural reader cannot read', 'x.yml', GOOD.replace('jobs:\n  test:', 'jobs:\n  test: {'), ['W0']],
   ['D1 self-hosted runner', 'x.yml', GOOD.replace('${{ matrix.os }}', '[self-hosted, x]'), ['D1']],
   ['D1 self-hosted routed through a matrix', 'x.yml', GOOD.replace('    runs-on: ${{ matrix.os }}', '    strategy:\n      matrix:\n        r: [self-hosted]\n    runs-on: ${{ matrix.r }}'), ['D1']],
   ['D2 --ignored in the default tier', 'x.yml', GOOD.replace('cargo test --workspace #', 'cargo test --workspace -- --ignored #'), ['D2']],
   ['D2 --ignored inside a run: block', 'x.yml', GOOD.replace('          echo done', '          cargo test -- --include-ignored'), ['D2']],
   ['D2 OAC_TEST_ flag in the default tier', 'x.yml', withStep('      - env:\n          OAC_TEST_REAL_KEYRING: "1"\n        run: true'), ['D2']],
   ['D2 herdr driver in the default tier', 'x.yml', GOOD.replace('cargo test --workspace', 'node tools/herdr/ci.mjs run'), ['D2']],
+  ['D2 a schedule beside a push is still the default tier', 'x.yml', GOOD.replace('  pull_request:', "  pull_request:\n  schedule:\n    - cron: '0 5 * * 1'").replace('cargo test --workspace #', 'cargo test -- --ignored #'), ['D2']],
   ['D3 harness CLI install', 'x.yml', GOOD.replace('cargo test --workspace', 'npm install -g @open' + 'ai/codex'), ['D3']],
 ];
 
