@@ -17,11 +17,11 @@ use std::time::{Duration, Instant};
 
 use oac_core::adapter::{
     AdapterCapabilities, AdapterEvent, AdapterEventHandler, Attachment, Connection, Correlation,
-    DiscoveryRequest, DiscoveryRequestResult, HandOff, HandOffOutcome, ProviderAdapter,
-    RequestSink, SendRequest, SendRequestResult,
+    DiscoveryRequest, DiscoveryRequestResult, HandOff, HandOffOutcome, NativeSignal,
+    ProviderAdapter, RequestSink, SendRequest, SendRequestResult, StartKind,
 };
 use oac_core::authorization::{
-    AuthorizationEngine, Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide,
+    AuthorizationEngine, Binding, Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide,
     REPLY_PERIOD_MS,
 };
 use oac_core::clock::{Clock, ManualClock, SystemClock};
@@ -33,6 +33,9 @@ use oac_core::keys::{DeviceIdentity, DeviceKey};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::pipeline::{AdapterId, PipelineConfig, PipelineError, Pipelines};
 use oac_core::receipt::DeliveryReceipt;
+use oac_core::session_binding::{
+    BindingResult, MemoryBindingLog, PairingKey, PeerObservation, RecordKind,
+};
 use oac_core::transport::{
     CarrierHandle, Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind,
     PresenceEvent, PresenceHandler, PublishResult, Reach, Subscription, Transport,
@@ -271,6 +274,10 @@ struct TestAdapter {
     deliver_calls: AtomicUsize,
     /// Run once at the next `capabilities` call.
     on_capabilities: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The next connection taken carries native signals only: it is not an attachment.
+    carrier_next: Mutex<bool>,
+    /// The cross-check value reported with the next `attachment-opened`.
+    cross_check_next: Mutex<Option<String>>,
 }
 
 impl TestAdapter {
@@ -289,6 +296,8 @@ impl TestAdapter {
             }),
             deliver_calls: AtomicUsize::new(0),
             on_capabilities: Mutex::default(),
+            carrier_next: Mutex::default(),
+            cross_check_next: Mutex::default(),
         })
     }
 
@@ -327,12 +336,16 @@ impl TestAdapter {
 impl ProviderAdapter for TestAdapter {
     fn take_connection(&self, connection: Connection) {
         let (a, _, _) = connection.into_parts();
+        if std::mem::take(&mut *self.carrier_next.lock().unwrap()) {
+            return;
+        }
         self.bound.lock().unwrap().insert(a.clone(), None);
+        let cross_check = self.cross_check_next.lock().unwrap().take();
         let h = self.events.lock().unwrap().clone();
         if let Some(h) = h {
             h(AdapterEvent::AttachmentOpened {
                 attachment: a,
-                cross_check: None,
+                cross_check,
             });
         }
     }
@@ -1361,4 +1374,346 @@ fn a_session_end_prunes_expired_records() {
     assert_eq!(counts(&n), (1, 1));
     n.pipes.unbind(&c);
     assert_eq!(counts(&n), (0, 0));
+}
+
+// ---- binding from native signals (`spec/session-channels.md` §6.7, #331) -----------------
+
+/// What the core process observed about a peer: the pairing key `key`, and a scope.
+fn observed(key: &str) -> PeerObservation {
+    PeerObservation {
+        pairing_key: Some(PairingKey::from_observation(key.as_bytes().to_vec())),
+        harness_label: Some(Token::parse("test-harness").unwrap()),
+        working_directory: Some("/work".into()),
+    }
+}
+
+/// A binding log `n` writes to from now on.
+fn binding_log(n: &Node) -> MemoryBindingLog {
+    let log = MemoryBindingLog::new(64);
+    n.pipes.set_binding_log(Box::new(log.clone()));
+    log
+}
+
+fn requirements(log: &MemoryBindingLog) -> Vec<&'static str> {
+    log.entries().iter().map(|e| e.record.requirement).collect()
+}
+
+/// An attachment whose peer was observed with `key`, reporting cross-check value `e`.
+fn observed_attachment(n: &Node, key: &str, e: Option<&str>) -> Attachment {
+    *n.adapter.cross_check_next.lock().unwrap() = e.map(str::to_owned);
+    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let a = conn.handle().clone();
+    n.pipes
+        .connect_observed(n.adapter_id, conn, observed(key))
+        .unwrap();
+    a
+}
+
+/// A connection observed with `key` that carries native signals and is no attachment.
+fn carrier(n: &Node, key: &str) -> Attachment {
+    *n.adapter.carrier_next.lock().unwrap() = true;
+    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let c = conn.handle().clone();
+    n.pipes
+        .connect_observed(n.adapter_id, conn, observed(key))
+        .unwrap();
+    c
+}
+
+fn signal(on: Option<&Attachment>, native: &str, s: StartKind, e: Option<&str>) -> AdapterEvent {
+    AdapterEvent::NativeSignal(NativeSignal {
+        native_id: native.into(),
+        start_kind: Some(s),
+        cross_check: e.map(str::to_owned),
+        connection: on.cloned(),
+    })
+}
+
+/// The adapter's view: the session the core's latest `set_binding` named.
+fn told(n: &Node, a: &Attachment) -> Option<SessionId> {
+    n.adapter.bound.lock().unwrap().get(a).cloned().flatten()
+}
+
+/// [SC-ID-125], [SC-ID-129], [SC-ID-122]: with no observed pairing key, which is every
+/// connection until G9 establishes one, a native signal binds nothing, even when its
+/// cross-check value matches, and records a finding.
+#[test]
+fn a_native_signal_without_an_observed_key_fails_closed() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let a = conn.handle().clone();
+    n.pipes.connect(n.adapter_id, conn).unwrap();
+    n.adapter.emit(signal(
+        Some(&a),
+        "native-x",
+        StartKind::Fresh,
+        Some("native-x"),
+    ));
+    n.adapter
+        .emit(signal(None, "native-x", StartKind::Fresh, None));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(told(&n, &a), None);
+    assert_eq!(requirements(&log), ["SC-ID-129", "SC-ID-129"]);
+    assert!(log.entries().iter().all(|e| {
+        e.result == BindingResult::FailedClosed && e.record.kind == RecordKind::Finding
+    }));
+    assert_eq!(n.pipes.next_native_signal_expiry(), None, "nothing held");
+}
+
+/// Case 3(a) ([SC-ID-136]): a fresh signal paired with an attachment whose cross-check value
+/// is N binds N under a fresh session id, registered to this device's key with the observed
+/// scope ([SC-ID-009]). Case 1 ([SC-ID-130], [SC-ID-007]): a repeat keeps it.
+#[test]
+fn a_paired_fresh_signal_binds_under_a_fresh_session_id() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    let sid = n.pipes.binding(&a).expect("bound");
+    assert_eq!(told(&n, &a), Some(sid.clone()));
+    let own = n.pipes.device().key_id().clone();
+    n.pipes.with_engine(|e| {
+        assert_eq!(e.binding(&sid), Some(&Binding::Key(own)));
+        assert!(e.scope_of(&sid).is_some());
+    });
+    assert!(log.entries().is_empty(), "case 3(a) records nothing");
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Transition, None));
+    assert_eq!(n.pipes.binding(&a), Some(sid));
+    assert!(log.entries().is_empty(), "case 1 records nothing");
+}
+
+/// Case 3(c) ([SC-ID-139], [SC-ID-141]): no cross-check value binds, with a diagnostic.
+#[test]
+fn a_fresh_signal_without_a_cross_check_value_binds_with_a_diagnostic() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "harness-1", None);
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    assert!(n.pipes.binding(&a).is_some());
+    assert_eq!(requirements(&log), ["SC-ID-141"]);
+    assert_eq!(log.entries()[0].record.kind, RecordKind::Diagnostic);
+}
+
+/// Case 4 ([SC-ID-140], [SC-ID-142], [SC-ID-150], [SC-ID-151]): a transition to another N
+/// deregisters the earlier binding and binds under a new session id. The earlier id is no
+/// longer reachable, and a grant naming it does not follow to the new one.
+#[test]
+fn a_transition_rebinds_under_a_new_session_id() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    let old = n.pipes.binding(&a).expect("bound");
+    let (b, sb) = session(&n, 9);
+    local_grant(&n, &sb, &old);
+    n.adapter
+        .emit(signal(Some(&a), "native-y", StartKind::Transition, None));
+    let new = n.pipes.binding(&a).expect("re-bound");
+    assert_ne!(new, old);
+    assert_eq!(told(&n, &a), Some(new.clone()));
+    assert_eq!(
+        requirements(&log),
+        ["SC-ID-142"],
+        "the attachment's value differs"
+    );
+    n.pipes
+        .with_engine(|e| assert_eq!(e.binding(&old), None, "deregistered"));
+    for to in [&old, &new] {
+        let r = n.adapter.sink().send(request(&b, to, "hi"));
+        assert!(
+            matches!(r, SendRequestResult::Refused { .. }),
+            "{to}: {r:?}"
+        );
+    }
+}
+
+/// Case 2 ([SC-ID-131] to [SC-ID-133]): N bound to a live attachment refuses a newcomer
+/// with a finding, and the existing binding is untouched.
+#[test]
+fn a_duplicate_native_id_is_refused_and_displaces_nothing() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    let sa = n.pipes.binding(&a).expect("bound");
+    let log = binding_log(&n);
+    let b = observed_attachment(&n, "harness-2", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&b), "native-x", StartKind::Fresh, None));
+    assert_eq!(n.pipes.binding(&b), None);
+    assert_eq!(n.pipes.binding(&a), Some(sa.clone()));
+    assert_eq!(told(&n, &a), Some(sa));
+    assert_eq!(requirements(&log), ["SC-ID-132"]);
+    assert_eq!(log.entries()[0].result, BindingResult::Refused);
+}
+
+/// Case 3(b) on a bound attachment ([SC-ID-137], [SC-ID-138], [SC-ID-152], [SC-ID-153]): a
+/// fresh signal for another N whose own cross-check value differs fails closed, and the
+/// attachment's stale binding is deregistered.
+#[test]
+fn a_cross_check_mismatch_fails_closed_and_ends_a_stale_binding() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    let old = n.pipes.binding(&a).expect("bound");
+    let log = binding_log(&n);
+    n.adapter.emit(signal(
+        Some(&a),
+        "native-y",
+        StartKind::Fresh,
+        Some("native-z"),
+    ));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(told(&n, &a), None);
+    n.pipes.with_engine(|e| assert_eq!(e.binding(&old), None));
+    assert_eq!(requirements(&log), ["SC-ID-138", "SC-ID-153"]);
+}
+
+/// Signals are decided one at a time (§6.7.3): eight threads reporting the same N on eight
+/// attachments at once bind exactly one, and the other seven are refused under case 2.
+#[test]
+fn concurrent_signals_for_one_native_id_bind_once() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let atts: Vec<Attachment> = (0..8)
+        .map(|k| observed_attachment(&n, &format!("harness-{k}"), None))
+        .collect();
+    std::thread::scope(|s| {
+        for a in &atts {
+            let adapter = n.adapter.clone();
+            s.spawn(move || adapter.emit(signal(Some(a), "native-x", StartKind::Fresh, None)));
+        }
+    });
+    let bound = atts.iter().filter(|a| n.pipes.binding(a).is_some()).count();
+    assert_eq!(bound, 1);
+    let mut ids = requirements(&log);
+    ids.sort_unstable();
+    let mut want = vec!["SC-ID-132"; 7];
+    want.push("SC-ID-141");
+    assert_eq!(ids, want);
+}
+
+/// [SC-ID-123]: a signal that arrives before its attachment is held, and the attachment
+/// that opens within the window pairs with it.
+#[test]
+fn a_signal_before_its_attachment_is_held_and_pairs() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let c = carrier(&n, "harness-1");
+    n.adapter
+        .emit(signal(Some(&c), "native-x", StartKind::Fresh, None));
+    assert!(n.pipes.next_native_signal_expiry().is_some(), "held");
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    assert!(n.pipes.binding(&a).is_some());
+    assert_eq!(n.pipes.next_native_signal_expiry(), None);
+    assert!(log.entries().is_empty());
+}
+
+/// [SC-ID-124], [SC-ID-128]: a held signal whose window ended is dropped with a
+/// diagnostic, and an attachment that opens later binds nothing.
+#[test]
+fn a_held_signal_is_dropped_when_its_window_ends() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        native_signal_window: Duration::ZERO,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let log = binding_log(&n);
+    let c = carrier(&n, "harness-1");
+    n.adapter
+        .emit(signal(Some(&c), "native-x", StartKind::Fresh, None));
+    assert!(n.pipes.next_native_signal_expiry().is_some());
+    n.pipes.expire_native_signals();
+    assert_eq!(n.pipes.next_native_signal_expiry(), None);
+    assert_eq!(requirements(&log), ["SC-ID-128"]);
+    assert_eq!(log.entries()[0].result, BindingResult::Dropped);
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    assert_eq!(n.pipes.binding(&a), None);
+}
+
+/// Bounded memory ([SC-ID-123]): past `max_pending_signals`, the oldest held signal is
+/// dropped with a diagnostic.
+#[test]
+fn held_signals_are_bounded() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let log = binding_log(&n);
+    let c1 = carrier(&n, "harness-1");
+    let c2 = carrier(&n, "harness-2");
+    n.adapter
+        .emit(signal(Some(&c1), "native-x", StartKind::Fresh, None));
+    n.adapter
+        .emit(signal(Some(&c2), "native-y", StartKind::Fresh, None));
+    assert_eq!(requirements(&log), ["SC-ID-128"]);
+    let a1 = observed_attachment(&n, "harness-1", None);
+    let a2 = observed_attachment(&n, "harness-2", None);
+    assert_eq!(n.pipes.binding(&a1), None, "its signal was dropped");
+    assert!(n.pipes.binding(&a2).is_some());
+}
+
+/// [SC-ID-125], [SC-ID-129], [SC-ID-154]: with two candidate attachments the signal is
+/// unpairable and fails closed; the observed key attributes it to the harness process
+/// behind the bound one, so delivery to it and its send requests are withheld until a
+/// later signal pairs with it.
+#[test]
+fn an_unpairable_signal_withholds_the_attachments_it_is_attributed_to() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let a = observed_attachment(&n, "harness-1", None);
+    let sa = SessionId::from_random_octets([40; 16]);
+    let record = n
+        .pipes
+        .device()
+        .register(
+            sa.clone(),
+            Token::parse("test-harness").unwrap(),
+            "native-x",
+            "/work",
+            SystemClock.now(),
+        )
+        .unwrap();
+    n.pipes.bind(&a, &record, None).unwrap();
+    let (c, sc) = session(&n, 41);
+    local_grant(&n, &sc, &sa);
+    local_grant(&n, &sa, &sc);
+    let b = observed_attachment(&n, "harness-1", None);
+    let log = binding_log(&n);
+    n.adapter
+        .emit(signal(Some(&b), "native-y", StartKind::Transition, None));
+    assert_eq!(requirements(&log), ["SC-ID-129", "SC-ID-154"]);
+    assert_eq!(n.pipes.binding(&a), Some(sa.clone()), "still registered");
+    assert_eq!(told(&n, &a), None, "the adapter hands nothing off to it");
+    let r = n.adapter.sink().send(request(&a, &sc, "from a"));
+    assert_eq!(r.error(), Some(ErrorCode::Unauthorized));
+    let calls = n.adapter.deliver_calls.load(Ordering::SeqCst);
+    let (_, _, rx) = sent(n.adapter.sink().send(request(&c, &sa, "to a")));
+    let receipt = rx.0.recv_timeout(WAIT).unwrap();
+    assert_ne!(receipt.state(), DeliveryState::HandedToHarness);
+    assert_eq!(n.adapter.deliver_calls.load(Ordering::SeqCst), calls);
+    // The other candidate ends; the next signal pairs with `a` (case 1) and releases it.
+    n.adapter
+        .emit(AdapterEvent::AttachmentClosed { attachment: b });
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Transition, None));
+    assert_eq!(told(&n, &a), Some(sa.clone()));
+    sent(n.adapter.sink().send(request(&a, &sc, "from a again")));
 }

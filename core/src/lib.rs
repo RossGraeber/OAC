@@ -66,6 +66,10 @@
 //! above between provider adapters and a transport, the only path between the two
 //! ([IFC-ADP-001]).
 //!
+//! Added by #331: [`session_binding`], binding a session id to a live session from native
+//! signals (`spec/session-channels.md` §6.7), which [`pipeline`] applies to each
+//! `native-signal` event.
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 pub mod adapter;
@@ -92,6 +96,7 @@ pub mod registry;
 pub mod replay;
 pub mod reply;
 pub mod sender;
+pub mod session_binding;
 pub mod signing;
 pub mod transport;
 pub mod trust;

@@ -44,18 +44,22 @@
 //! (`SEC-RPL-022.p03`). `presence-auth`, every fixture, runs in [`presence_receipts`]
 //! through the engine [`authorization`] builds.
 //!
+//! - `binding` (§6.10; #331): [`run_binding`], through `oac_core::session_binding`, the
+//!   decision the pipelines apply to each native signal. Every `binding` fixture must run
+//!   and pass ([`BINDING_FIXTURES`]).
+//!
 //! Stages not run here are listed by name, so a fixture of an unlisted stage fails instead
-//! of silently not running (#61, F12): `binding` is the core's, pending #331 (no
-//! binding-from-native-signal logic yet); `mcp-binding`, `provenance` and `body` are
-//! adapter work.
+//! of silently not running (#61, F12): `mcp-binding`, `provenance` and `body` are adapter
+//! work.
 
+use oac_core::adapter::{NativeSignal, StartKind};
 use oac_core::authorization::{AuthorizationEngine, HandOffRecord, Kind};
 use oac_core::canonical::{SigningDomain, signed_text, signing_input};
 use oac_core::capabilities::{Implemented, SessionCapabilities};
 use oac_core::clock::{Clock, ManualClock};
 use oac_core::delivery::DeliveryState;
 use oac_core::envelope::{ChannelMessage, EnvelopeLimits, receive_envelope};
-use oac_core::ids::{Timestamp, Token, Version};
+use oac_core::ids::{SessionId, Timestamp, Token, Version};
 use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::{DeviceIdentity, DeviceKey, PublicKey};
 use oac_core::receipt::DeliveryReceipt;
@@ -64,6 +68,7 @@ use oac_core::replay::{
     Admission, DuplicateKey, DuplicateStore, HandOffDeadline, REPLAY_WINDOW_MS, Reservation,
     check_replay_window,
 };
+use oac_core::session_binding::{self, AttachmentState, NativeBinding, Pairing};
 use oac_core::signing::authenticate;
 use oac_core::trust::TrustedKeySet;
 use std::collections::{BTreeMap, BTreeSet};
@@ -350,6 +355,132 @@ fn run_negotiation(fx: &Fixture) -> Result<(), String> {
         }
         (got, want) => Err(format!("got {got:?}, expected {want}")),
     }
+}
+
+/// An attachment list of §6.10, as the binding decision's states, labels standing for
+/// attachments.
+fn attachment_list(v: &Json) -> Result<Vec<AttachmentState<String>>, String> {
+    v.as_array()
+        .ok_or("attachment list is not an array")?
+        .iter()
+        .map(|a| {
+            let a = a.as_object().ok_or("attachment is not an object")?;
+            let binding = match a.get("binding") {
+                None => None,
+                Some(b) => {
+                    let b = b.as_object().ok_or("binding is not an object")?;
+                    let sid = str_of(b, "session_id").ok_or("binding.session_id")?;
+                    Some(NativeBinding {
+                        native_id: str_of(b, "native_id").ok_or("binding.native_id")?.into(),
+                        session_id: SessionId::parse(sid)
+                            .ok_or_else(|| format!("{sid} is not a session id"))?,
+                    })
+                }
+            };
+            Ok(AttachmentState {
+                attachment: str_of(a, "attachment").ok_or("attachment")?.to_owned(),
+                cross_check: str_of(a, "cross_check").map(str::to_owned),
+                binding,
+            })
+        })
+        .collect()
+}
+
+/// Stage `binding` (`spec/session-channels.md` §6.10): the scripted attachment list and one
+/// native signal through [`session_binding::decide`] and [`session_binding::apply`], the
+/// decision [`oac_core::pipeline::Pipelines`] applies to each `native-signal` event, with
+/// session ids from [`session_binding::fresh_session_id`]. A `session_id` of `new` in
+/// `expected.attachments` must be a session id equal to none in `context`.
+fn run_binding(fx: &Fixture) -> Result<(), String> {
+    let before = attachment_list(
+        obj(&fx.v, "context")
+            .get("attachments")
+            .ok_or("context.attachments")?,
+    )?;
+    let s = obj(obj(&fx.v, "input"), "signal");
+    let start_kind = match str_of(s, "start_kind") {
+        None => None,
+        Some("fresh") => Some(StartKind::Fresh),
+        Some("transition") => Some(StartKind::Transition),
+        Some("unmapped") => Some(StartKind::Unmapped),
+        Some(other) => return Err(format!("unknown start_kind {other}")),
+    };
+    let signal = NativeSignal {
+        native_id: str_of(s, "native_id").ok_or("signal.native_id")?.to_owned(),
+        start_kind,
+        cross_check: str_of(s, "cross_check").map(str::to_owned),
+        connection: None,
+    };
+    let pairing = match str_of(s, "pairing") {
+        Some("paired") => Pairing::Paired(
+            str_of(s, "attachment")
+                .ok_or("signal.attachment")?
+                .to_owned(),
+        ),
+        Some("window-expired") => Pairing::WindowExpired,
+        Some("unpairable") => Pairing::Unpairable,
+        other => return Err(format!("unknown pairing {other:?}")),
+    };
+    let decision = session_binding::decide(&before, &signal, &pairing);
+    let mut after = before.clone();
+    session_binding::apply(&mut after, &decision, session_binding::fresh_session_id);
+
+    let expected = obj(&fx.v, "expected");
+    let want_result = str_of(expected, "result").ok_or("expected.result")?;
+    if decision.result.as_str() != want_result {
+        return Err(format!(
+            "result {}, expected {want_result}",
+            decision.result.as_str()
+        ));
+    }
+    let record = decision.record().map_or("none", |r| r.as_str());
+    let want_record = str_of(expected, "record").ok_or("expected.record")?;
+    if record != want_record {
+        return Err(format!("record {record}, expected {want_record}"));
+    }
+    let want = expected
+        .get("attachments")
+        .and_then(Json::as_array)
+        .ok_or("expected.attachments")?;
+    if want.len() != after.len() {
+        return Err(format!(
+            "{} attachments, expected {}",
+            after.len(),
+            want.len()
+        ));
+    }
+    let old: BTreeSet<&str> = before
+        .iter()
+        .filter_map(|a| a.binding.as_ref().map(|b| b.session_id.as_str()))
+        .collect();
+    for (got, w) in after.iter().zip(want) {
+        let w = w
+            .as_object()
+            .ok_or("expected attachment is not an object")?;
+        let label = &got.attachment;
+        if str_of(w, "attachment") != Some(label.as_str())
+            || str_of(w, "cross_check") != got.cross_check.as_deref()
+        {
+            return Err(format!("attachment {label} differs from {w:?}"));
+        }
+        match (w.get("binding").and_then(Json::as_object), &got.binding) {
+            (None, None) => {}
+            (Some(wb), Some(gb)) => {
+                if str_of(wb, "native_id") != Some(gb.native_id.as_str()) {
+                    return Err(format!("{label}: native id {}", gb.native_id));
+                }
+                let ok = match str_of(wb, "session_id") {
+                    Some("new") => !old.contains(gb.session_id.as_str()),
+                    want => want == Some(gb.session_id.as_str()),
+                };
+                if !ok {
+                    return Err(format!("{label}: session id {}", gb.session_id));
+                }
+            }
+            (w, g) => return Err(format!("{label}: binding {g:?}, expected {w:?}")),
+        }
+    }
+    Ok(())
 }
 
 /// The trusted key set of a fixture's `context.trusted_keys` (`spec/security.md` §3.3).
@@ -774,12 +905,12 @@ fn conformance_fixtures() {
             "discovery-auth" => Some(authorization::run_discovery_auth(&fx)),
             "key-removal" => Some(authorization::run_key_removal(&fx)),
             "exchange" => Some(authorization::run_exchange(&fx)),
-            // Not run here yet. `binding` (§6.7) is the core's, pending #331: the core has no
-            // binding-from-native-signal logic to drive it through. `mcp-binding` (the MCP
-            // binding document), `provenance` and `body` (provenance rendering) are adapter
-            // work (Epic G). The reference runner (`tests/protocol/runner/`, CI on every OS)
-            // evaluates all four from the spec text.
-            "binding" | "mcp-binding" | "provenance" | "body" => None,
+            "binding" => Some(run_binding(&fx)),
+            // Not run here: `mcp-binding` (the MCP binding document), `provenance` and `body`
+            // (provenance rendering) are adapter work (Epic G). The reference runner
+            // (`tests/protocol/runner/`, CI on every OS) evaluates all three from the spec
+            // text.
+            "mcp-binding" | "provenance" | "body" => None,
             // A stage nobody named fails, rather than its fixtures silently not running.
             other => Some(Err(format!(
                 "stage `{other}` is neither run here nor listed as owned elsewhere"
@@ -811,6 +942,8 @@ fn conformance_fixtures() {
         "receipt negative",
         "negotiation positive",
         "negotiation negative",
+        "binding positive",
+        "binding negative",
         "presence positive",
         "presence negative",
         "discovery positive",
@@ -855,6 +988,13 @@ fn conformance_fixtures() {
     for name in SEND_STAGE_PINNED {
         assert!(passed.contains(name), "{name} did not run and pass");
     }
+    // #331: every `binding` fixture runs through the core, at least the 26 of revision 0.1.
+    let binding_run = counts.get("binding positive").copied().unwrap_or(0)
+        + counts.get("binding negative").copied().unwrap_or(0);
+    assert!(
+        binding_run >= BINDING_FIXTURES,
+        "{binding_run} binding fixtures ran, expected at least {BINDING_FIXTURES}"
+    );
     assert!(
         failures.is_empty(),
         "{} fixture(s) failed:\n{}",
@@ -862,6 +1002,9 @@ fn conformance_fixtures() {
         failures.join("\n")
     );
 }
+
+/// The `binding`-stage fixtures of `tests/protocol/sc-id/` at revision 0.1 (#331).
+const BINDING_FIXTURES: usize = 26;
 
 /// The F2 deferrals F12 (#61) checks by name: [SC-ENV-021] and [SC-ENV-066].
 const SEND_STAGE_PINNED: [&str; 2] = [

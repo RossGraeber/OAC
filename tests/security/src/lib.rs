@@ -30,7 +30,10 @@
 //! (#325), and the live checks of H2 and L10. A test for such a mitigation is
 //! `#[ignore = "GATED on #N ..."]`, and its body fails if it is run: it is never a pass.
 //! [`THREATS`] lists each one with its owning issue. The composed send and receive pipelines
-//! (#313) have landed; [`pipeline`] runs them with a stub adapter.
+//! (#313) have landed; [`pipeline`] runs them with a stub adapter. So has the core's binding
+//! from native signals (#331), which the `row19_` and `row24_` tests in `tests/local_ipc.rs`
+//! drive with a pairing key the test supplies; the OS facility that observes that key stays
+//! with the daemon (G9, #70).
 //!
 //! # The stand-in provenance mapping
 //!
@@ -910,6 +913,7 @@ pub const THREATS: &[Threat] = &[
         tests: &[
             "row19_a_registration_record_signed_by_another_device_binds_nothing",
             "row19_an_ended_session_receives_nothing",
+            "row19_a_resume_takes_a_new_registration_and_the_old_one_ends",
             "gated_row19_session_lifetime_follows_the_ipc_connection",
         ],
         facts: &[],
@@ -976,13 +980,19 @@ pub const THREATS: &[Threat] = &[
         row: "06-24",
         attack: "Session binding through a spoofed CLAUDE_CODE_SESSION_ID",
         spec13: &[],
-        tests: &["gated_row24_spoofed_session_variable_binds_nothing"],
+        tests: &[
+            "row24_a_spoofed_session_variable_is_never_a_pairing_key",
+            "row24_a_newcomer_never_displaces_a_bound_hook_id",
+            "row24_an_unpairable_payload_fails_closed",
+            "row24_a_refused_payload_deregisters_a_stale_shim",
+            "gated_row24_spoofed_session_variable_binds_nothing",
+        ],
         facts: &[],
-        core_tests: &[],
-        status: Status::Gated,
+        core_tests: &["tests/conformance.rs::conformance_fixtures"],
+        status: Status::Proven,
         gated: &[Gate {
             issue: G9,
-            what: "the daemon's binding of native signals to attachments (gated_row24_spoofed_session_variable_binds_nothing)",
+            what: "the daemon's IPC and the OS-observed pairing key (peer PID and ancestry, UNVERIFIED per platform) that the core's binding decision takes as given (gated_row24_spoofed_session_variable_binds_nothing)",
         }],
     },
     Threat {

@@ -4,6 +4,24 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #331: the core binds from native signals
+(`spec/session-channels.md` §6.7).** No `spec/` file, gate verdict, pin, third-party
+dependency or ADR text changes.
+
+- **Core.** New `core/src/session_binding.rs`: the pairing outcome, the ordered cases of
+  §6.7.3, the stale-binding rule of §6.7.4 and their findings and diagnostics. `Pipelines`
+  now decides every `native-signal` event with it (pairing by the key the core process
+  observed for a connection, `Pipelines::connect_observed`; a bounded hold window; one
+  decision at a time; [SC-ID-154] withholding when an unpairable signal can be attributed).
+- **Pairing key still UNVERIFIED.** Which OS facility yields the key stays open with G9
+  (#70). A connection given through `Pipelines::connect` has none, so every native signal
+  fails closed with a finding ([SC-ID-125], [SC-ID-129]) until G9 supplies one.
+- **Conformance.** `core/tests/conformance.rs` runs all 26 `binding` fixtures through the
+  core; `binding` leaves the not-run list (`mcp-binding`, `provenance` and `body` stay
+  adapter work).
+- **Security suite.** 06 row 24 is proven against the core with its G9 part still gated;
+  row 19 gains a resume test. The F11 table in 09 §12 is updated to match.)
+
 **Last updated:** 2026-10-07 (**Issue #61 (F12): the default CI tier.** No `spec/` file,
 `core/` source file, gate verdict, pin, third-party dependency or ADR text changes.
 
