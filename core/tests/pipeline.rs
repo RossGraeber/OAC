@@ -34,7 +34,8 @@ use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::pipeline::{AdapterId, PipelineConfig, PipelineError, Pipelines};
 use oac_core::receipt::DeliveryReceipt;
 use oac_core::session_binding::{
-    BindingResult, MemoryBindingLog, PairingKey, PeerObservation, RecordKind,
+    BindingLog, BindingLogEntry, BindingResult, MemoryBindingLog, PairingKey, PeerObservation,
+    RecordKind,
 };
 use oac_core::transport::{
     CarrierHandle, Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind,
@@ -277,6 +278,9 @@ struct TestAdapter {
     /// Run once at the next `set_binding` that names a session: after the core registered
     /// it, while the decision that bound it still holds the binding turn.
     on_set_binding: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Run once at the next `set_binding` that names no session: while the core is
+    /// deregistering a binding (it tells the adapter first), still holding the binding turn.
+    on_unset_binding: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// The next connection taken carries native signals only: it is not an attachment.
     carrier_next: Mutex<bool>,
     /// The cross-check value reported with the next `attachment-opened`.
@@ -300,6 +304,7 @@ impl TestAdapter {
             deliver_calls: AtomicUsize::new(0),
             on_capabilities: Mutex::default(),
             on_set_binding: Mutex::default(),
+            on_unset_binding: Mutex::default(),
             carrier_next: Mutex::default(),
             cross_check_next: Mutex::default(),
         })
@@ -364,11 +369,13 @@ impl ProviderAdapter for TestAdapter {
             .lock()
             .unwrap()
             .insert(attachment.clone(), session);
-        if names {
-            let hook = self.on_set_binding.lock().unwrap().take();
-            if let Some(hook) = hook {
-                hook();
-            }
+        let hook = if names {
+            self.on_set_binding.lock().unwrap().take()
+        } else {
+            self.on_unset_binding.lock().unwrap().take()
+        };
+        if let Some(hook) = hook {
+            hook();
         }
     }
 
@@ -2038,6 +2045,453 @@ fn an_external_bind_does_not_answer_a_drop() {
         "a later signal released it"
     );
     assert!(told(&n, &a).is_some());
+}
+
+/// #338 (the reviewer's reproduction): held `[s1(K), h2(L), s2(K)]`; L's attachment opens,
+/// and K's opens while h2's decision runs, after s1 was found not yet pairable in that
+/// pass. s2 then pairs and binds first. s1's window ends when s2 pairs ([SC-ID-123]): it
+/// is dropped before it pairs ([SC-ID-124], [SC-ID-128]), so it never binds the
+/// attachment back to the older native id, and a later signal for the newer one finds the
+/// binding unchanged (case 1).
+#[test]
+fn an_older_held_signal_does_not_rebind_over_a_newer_one() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let ck = carrier(&n, "harness-k");
+    let cl = carrier(&n, "harness-l");
+    n.adapter
+        .emit(signal(Some(&ck), "native-1", StartKind::Fresh, None));
+    n.adapter
+        .emit(signal(Some(&cl), "native-h2", StartKind::Fresh, None));
+    n.adapter
+        .emit(signal(Some(&ck), "native-2", StartKind::Fresh, None));
+    let log = binding_log(&n);
+    let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
+    let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
+    // During h2's decision: K's attachment opens.
+    during_next_decision(&n, move || {
+        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        *slot.lock().unwrap() = Some(conn.handle().clone());
+        pipes
+            .connect_observed(id, conn, observed("harness-k"))
+            .unwrap();
+    });
+    let l = observed_attachment(&n, "harness-l", Some("native-h2"));
+    assert!(n.pipes.binding(&l).is_some());
+    let a = opened.lock().unwrap().clone().expect("opened during h2");
+    let ids = requirements(&log);
+    assert_eq!(
+        count(&ids, "SC-ID-128"),
+        1,
+        "the older signal is dropped: {ids:?}"
+    );
+    assert_eq!(
+        n.pipes.next_native_signal_expiry(),
+        None,
+        "nothing left held"
+    );
+    let s = n.pipes.binding(&a).expect("bound to the newer signal");
+    assert_eq!(told(&n, &a), Some(s.clone()));
+    // A later signal for the newer native id: case 1, nothing changes.
+    n.adapter
+        .emit(signal(Some(&a), "native-2", StartKind::Fresh, None));
+    assert_eq!(
+        n.pipes.binding(&a),
+        Some(s.clone()),
+        "bound to native-2 all along"
+    );
+    assert_eq!(told(&n, &a), Some(s));
+}
+
+/// #338 ([SC-ID-154]): an older signal whose window ended when a newer signal of its key
+/// paired withholds nothing, as the newer pairing answered it, and is no longer pending:
+/// held `[s1(K), h2(L), s2(K)]` as above; while s2's binding is told to the adapter, two
+/// fillers and K's third signal fit in the cap of 3 without evicting anything, because s1
+/// has already gone.
+#[test]
+fn an_older_signal_dropped_after_a_newer_pairing_withholds_nothing() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 3,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let ck = carrier(&n, "harness-k");
+    let cl = carrier(&n, "harness-l");
+    let cx = carrier(&n, "harness-x");
+    let cy = carrier(&n, "harness-y");
+    n.adapter
+        .emit(signal(Some(&ck), "native-1", StartKind::Fresh, None));
+    n.adapter
+        .emit(signal(Some(&cl), "native-h2", StartKind::Fresh, None));
+    n.adapter
+        .emit(signal(Some(&ck), "native-2", StartKind::Fresh, None));
+    let log = binding_log(&n);
+    let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
+    let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
+    during_next_decision(&n, move || {
+        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        *slot.lock().unwrap() = Some(conn.handle().clone());
+        pipes
+            .connect_observed(id, conn, observed("harness-k"))
+            .unwrap();
+    });
+    // The first binding told is `l`'s (h2); it arms the hook for the next, `a`'s (s2).
+    let (adapter, outer) = (n.adapter.clone(), n.adapter.clone());
+    *n.adapter.on_set_binding.lock().unwrap() = Some(Box::new(move || {
+        *outer.on_set_binding.lock().unwrap() = Some(Box::new(move || {
+            adapter.emit(signal(Some(&cx), "native-x", StartKind::Fresh, None));
+            adapter.emit(signal(Some(&cy), "native-y", StartKind::Fresh, None));
+            adapter.emit(signal(Some(&ck), "native-3", StartKind::Fresh, None));
+        }));
+    }));
+    observed_attachment(&n, "harness-l", Some("native-h2"));
+    let a = opened.lock().unwrap().clone().expect("opened during h2");
+    let ids = requirements(&log);
+    assert_eq!(count(&ids, "SC-ID-128"), 1, "s1 is dropped: {ids:?}");
+    assert_eq!(
+        count(&ids, "SC-ID-154"),
+        0,
+        "and withholds nothing: {ids:?}"
+    );
+    assert!(n.pipes.binding(&a).is_some());
+}
+
+/// The held `[older.., h2(L), s2(K)]` set-up of #338, `older` being K's earlier signals:
+/// once the caller opens L's attachment, K's opens while h2's decision runs, so s2 pairs
+/// with it before them. Returns the binding log (set before L's attachment opens) and the
+/// slot K's attachment is put in.
+fn k_opens_during_h2(
+    n: &Node,
+    older: &[&str],
+) -> (MemoryBindingLog, Arc<Mutex<Option<Attachment>>>) {
+    let ck = carrier(n, "harness-k");
+    let cl = carrier(n, "harness-l");
+    for native in older {
+        n.adapter
+            .emit(signal(Some(&ck), native, StartKind::Fresh, None));
+    }
+    n.adapter
+        .emit(signal(Some(&cl), "native-h2", StartKind::Fresh, None));
+    n.adapter
+        .emit(signal(Some(&ck), "native-2", StartKind::Fresh, None));
+    let log = binding_log(n);
+    let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
+    let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
+    during_next_decision(n, move || {
+        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        *slot.lock().unwrap() = Some(conn.handle().clone());
+        pipes
+            .connect_observed(id, conn, observed("harness-k"))
+            .unwrap();
+    });
+    (log, opened)
+}
+
+/// PR #339 review B1: the ordering belongs to the key (the harness process), not to one
+/// attachment. s2 pairs with `a`; `a`'s connection ends while its binding is told to the
+/// adapter; the shim reconnects as `b` under the same key. s1, older, must not bind `b`
+/// to the older conversation: its window ended when s2 paired.
+#[test]
+fn an_older_held_signal_does_not_bind_a_reconnected_attachment() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (log, opened) = k_opens_during_h2(&n, &["native-1"]);
+    // The first binding told is `l`'s; it arms the hook for `a`'s: `a` disconnects.
+    let (outer, pipes, slot) = (n.adapter.clone(), n.pipes.clone(), opened.clone());
+    *n.adapter.on_set_binding.lock().unwrap() = Some(Box::new(move || {
+        *outer.on_set_binding.lock().unwrap() = Some(Box::new(move || {
+            let a = slot.lock().unwrap().clone().expect("opened during h2");
+            pipes.disconnect(&a);
+        }));
+    }));
+    observed_attachment(&n, "harness-l", Some("native-h2"));
+    let a = opened.lock().unwrap().clone().expect("opened during h2");
+    assert_eq!(n.pipes.binding(&a), None, "disconnected");
+    let b = observed_attachment(&n, "harness-k", None);
+    assert_eq!(n.pipes.binding(&b), None, "s1 is gone: nothing binds `b`");
+    let ids = requirements(&log);
+    assert_eq!(count(&ids, "SC-ID-128"), 1, "{ids:?}");
+    assert_eq!(
+        n.pipes.next_native_signal_expiry(),
+        None,
+        "nothing left held"
+    );
+}
+
+/// PR #339 review N2: every older held signal of the key goes when a newer one pairs, not
+/// only the latest of them; and a later signal for the newer native id finds the binding
+/// unchanged, so nothing moved it backwards.
+#[test]
+fn every_older_held_signal_of_the_key_goes_when_a_newer_one_pairs() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (log, opened) = k_opens_during_h2(&n, &["native-0", "native-1"]);
+    observed_attachment(&n, "harness-l", Some("native-h2"));
+    let a = opened.lock().unwrap().clone().expect("opened during h2");
+    let ids = requirements(&log);
+    assert_eq!(count(&ids, "SC-ID-128"), 2, "s0 and s1: {ids:?}");
+    assert_eq!(
+        n.pipes.next_native_signal_expiry(),
+        None,
+        "nothing left held"
+    );
+    let s = n.pipes.binding(&a).expect("bound to native-2");
+    n.adapter
+        .emit(signal(Some(&a), "native-2", StartKind::Fresh, None));
+    assert_eq!(n.pipes.binding(&a), Some(s.clone()), "case 1: unchanged");
+    assert_eq!(told(&n, &a), Some(s));
+}
+
+/// #338: a pairing ends only the windows of its own key under its own adapter. An older
+/// held signal of another key, and one of the same key under another adapter, stay held
+/// and still bind when their candidates open.
+#[test]
+fn a_pairing_ends_only_its_own_keys_windows() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let other = TestAdapter::new();
+    let other_id = n.pipes.add_adapter(other.clone());
+    *other.carrier_next.lock().unwrap() = true;
+    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let q = conn.handle().clone();
+    n.pipes
+        .connect_observed(other_id, conn, observed("harness-k"))
+        .unwrap();
+    other.emit(signal(Some(&q), "native-q", StartKind::Fresh, None));
+    let cl = carrier(&n, "harness-l");
+    n.adapter
+        .emit(signal(Some(&cl), "native-l", StartKind::Fresh, None));
+    // A newer signal of key K pairs at once with this adapter's K attachment.
+    let a = observed_attachment(&n, "harness-k", Some("native-k"));
+    let log = binding_log(&n);
+    n.adapter
+        .emit(signal(Some(&a), "native-k", StartKind::Fresh, None));
+    assert!(n.pipes.binding(&a).is_some());
+    assert_eq!(count(&requirements(&log), "SC-ID-128"), 0);
+    let l = observed_attachment(&n, "harness-l", Some("native-l"));
+    assert!(
+        n.pipes.binding(&l).is_some(),
+        "another key's signal stayed held"
+    );
+    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let aq = conn.handle().clone();
+    n.pipes
+        .connect_observed(other_id, conn, observed("harness-k"))
+        .unwrap();
+    assert!(
+        n.pipes.binding(&aq).is_some(),
+        "the same key under another adapter stayed held"
+    );
+}
+
+/// A binding log that runs a hook, on the thread writing it, at the first entry for
+/// `requirement`: in the drop path that is after the signal was taken under the core lock
+/// and before its withholding is applied. Entries are kept as `MemoryBindingLog` keeps them.
+struct HookedLog {
+    inner: MemoryBindingLog,
+    requirement: &'static str,
+    hook: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl BindingLog for HookedLog {
+    fn record(&mut self, entry: BindingLogEntry) {
+        let fire = entry.record.requirement == self.requirement;
+        self.inner.record(entry);
+        if fire && let Some(hook) = self.hook.take() {
+            hook();
+        }
+    }
+}
+
+/// PR #339 review B1 ([SC-ID-154]): an eviction drop still in flight (its signal taken under
+/// the lock on one thread, its withholding applied after the lock is released) can land
+/// after a newer signal of the same key paired with the attachment on the turn holder's
+/// thread. It is answered already and must withhold nothing.
+///
+/// Deterministic: cap 2, K's s1 held. While x's decision holds the turn, K's attachment
+/// `a` opens and a filler queues; another thread then reports K's s2, which takes s1 by
+/// K's own share and stops in the drop path (at s1's diagnostic) until s2 has paired and
+/// bound `a` on the turn holder's thread.
+#[test]
+fn a_late_eviction_drop_does_not_withhold_a_newer_binding() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 2,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let ck = carrier(&n, "harness-k");
+    let cf = carrier(&n, "harness-f");
+    let x = observed_attachment(&n, "harness-x", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&ck), "native-1", StartKind::Fresh, None));
+    let (evicted_tx, evicted_rx) = std::sync::mpsc::channel::<()>();
+    let (bound_tx, bound_rx) = std::sync::mpsc::channel::<()>();
+    let entries = MemoryBindingLog::new(64);
+    n.pipes.set_binding_log(Box::new(HookedLog {
+        inner: entries.clone(),
+        requirement: "SC-ID-128",
+        hook: Some(Box::new(move || {
+            evicted_tx.send(()).unwrap();
+            bound_rx.recv_timeout(WAIT).expect("s2 bound `a`");
+        })),
+    }));
+    let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
+    let other: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
+    let (pipes, id, adapter) = (n.pipes.clone(), n.adapter_id, n.adapter.clone());
+    let (slot, joiner, outer) = (opened.clone(), other.clone(), n.adapter.clone());
+    during_next_decision(&n, move || {
+        // x's binding is told first; it arms the hook for the next, `a`'s (s2's).
+        *outer.on_set_binding.lock().unwrap() = Some(Box::new({
+            let outer = outer.clone();
+            move || {
+                *outer.on_set_binding.lock().unwrap() = Some(Box::new(move || {
+                    bound_tx.send(()).unwrap();
+                }));
+            }
+        }));
+        *adapter.cross_check_next.lock().unwrap() = Some("native-2".into());
+        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        *slot.lock().unwrap() = Some(conn.handle().clone());
+        pipes
+            .connect_observed(id, conn, observed("harness-k"))
+            .unwrap();
+        adapter.emit(signal(Some(&cf), "native-f", StartKind::Fresh, None));
+        let reporter = adapter.clone();
+        *joiner.lock().unwrap() = Some(std::thread::spawn(move || {
+            reporter.emit(signal(Some(&ck), "native-2", StartKind::Fresh, None));
+        }));
+        evicted_rx
+            .recv_timeout(WAIT)
+            .expect("s1 taken for eviction");
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    other
+        .lock()
+        .unwrap()
+        .take()
+        .expect("spawned")
+        .join()
+        .unwrap();
+    let a = opened.lock().unwrap().clone().expect("opened");
+    let s = n.pipes.binding(&a).expect("s2 bound `a`");
+    let ids: Vec<&str> = entries
+        .entries()
+        .iter()
+        .map(|e| e.record.requirement)
+        .collect();
+    assert_eq!(count(&ids, "SC-ID-128"), 1, "s1 was dropped: {ids:?}");
+    assert_eq!(count(&ids, "SC-ID-154"), 0, "and withheld nothing: {ids:?}");
+    assert_eq!(told(&n, &a), Some(s), "`a` still delivers");
+}
+
+/// PR #339 review B1, with an attachment already bound: what answers a late drop is the
+/// attachment's *latest* pairing, not its first. `a` is bound by s0. While x's decision
+/// holds the turn, a filler and `a`'s s1 queue (cap 2); another thread reports `a`'s s2,
+/// which takes s1 by `a`'s key's own share and stops in the drop path. s2 then pairs on
+/// the turn holder's thread (case 1, same native id), and only then is s1's drop applied:
+/// s1 is newer than s0 but older than s2, so it withholds nothing.
+#[test]
+fn a_late_eviction_drop_is_answered_by_the_latest_pairing() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 2,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let a = observed_attachment(&n, "harness-k", Some("native-k"));
+    n.adapter
+        .emit(signal(Some(&a), "native-k", StartKind::Fresh, None));
+    let s = n.pipes.binding(&a).expect("bound by s0");
+    let cf = carrier(&n, "harness-f");
+    let x = observed_attachment(&n, "harness-x", Some("native-x"));
+    let (evicted_tx, evicted_rx) = std::sync::mpsc::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let entries = MemoryBindingLog::new(64);
+    n.pipes.set_binding_log(Box::new(HookedLog {
+        inner: entries.clone(),
+        requirement: "SC-ID-128",
+        hook: Some(Box::new(move || {
+            evicted_tx.send(()).unwrap();
+            go_rx.recv_timeout(WAIT).expect("s2 decided");
+        })),
+    }));
+    let other: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
+    let (adapter, joiner, aa) = (n.adapter.clone(), other.clone(), a.clone());
+    during_next_decision(&n, move || {
+        adapter.emit(signal(Some(&cf), "native-f", StartKind::Fresh, None));
+        adapter.emit(signal(Some(&aa), "native-k", StartKind::Fresh, None));
+        let reporter = adapter.clone();
+        *joiner.lock().unwrap() = Some(std::thread::spawn(move || {
+            reporter.emit(signal(Some(&aa), "native-k", StartKind::Fresh, None));
+        }));
+        evicted_rx
+            .recv_timeout(WAIT)
+            .expect("s1 taken for eviction");
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    // s2 has paired with `a` on this thread; now let s1's drop land.
+    go_tx.send(()).unwrap();
+    other
+        .lock()
+        .unwrap()
+        .take()
+        .expect("spawned")
+        .join()
+        .unwrap();
+    let ids: Vec<&str> = entries
+        .entries()
+        .iter()
+        .map(|e| e.record.requirement)
+        .collect();
+    assert_eq!(count(&ids, "SC-ID-128"), 1, "s1 was dropped: {ids:?}");
+    assert_eq!(count(&ids, "SC-ID-154"), 0, "and withheld nothing: {ids:?}");
+    assert_eq!(n.pipes.binding(&a), Some(s.clone()), "case 1: unchanged");
+    assert_eq!(told(&n, &a), Some(s), "`a` still delivers");
+}
+
+/// PR #337 re-review N6 ([SC-ID-154]): a later transition dropped while `unbind` tells the
+/// adapter (an earlier transition's re-binding, after its deregistration began and before
+/// it registers again) still makes the new binding start withheld: `unbind` keeps the
+/// drop's place in arrival order.
+#[test]
+fn a_drop_while_unbinding_withholds_the_new_binding() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let a = observed_attachment(&n, "harness-a", Some("native-a"));
+    n.adapter
+        .emit(signal(Some(&a), "native-a", StartKind::Fresh, None));
+    let sa = n.pipes.binding(&a).expect("bound");
+    let g = carrier(&n, "harness-g");
+    let log = binding_log(&n);
+    let (adapter, aa) = (n.adapter.clone(), a.clone());
+    *n.adapter.on_unset_binding.lock().unwrap() = Some(Box::new(move || {
+        adapter.emit(signal(Some(&g), "native-g", StartKind::Fresh, None));
+        adapter.emit(signal(Some(&aa), "native-a2", StartKind::Transition, None));
+    }));
+    n.adapter
+        .emit(signal(Some(&a), "native-a1", StartKind::Transition, None));
+    let s1 = n
+        .pipes
+        .binding(&a)
+        .expect("re-bound to the earlier transition");
+    assert_ne!(s1, sa);
+    let ids = requirements(&log);
+    assert!(ids.contains(&"SC-ID-128"), "{ids:?}");
+    assert_eq!(told(&n, &a), None, "the new binding starts withheld");
+    observed_attachment(&n, "harness-g", Some("native-g"));
+    n.adapter
+        .emit(signal(Some(&a), "native-a3", StartKind::Transition, None));
+    let now = n.pipes.binding(&a).expect("re-bound");
+    assert_ne!(now, s1);
+    assert_eq!(told(&n, &a), Some(now));
 }
 
 fn count(ids: &[&str], id: &str) -> usize {
