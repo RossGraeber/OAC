@@ -650,6 +650,29 @@ fake, never to grant a default-tier waiver. A failing criterion 5 sends the work
 Stage 1 for a fixture capture, because a fake built from the spec proves only that the
 spec agrees with itself.
 
+**Current verdict (2026-10-07, #6): Gate S3, go proposed; decided by the lead's review of
+the exit PR.** The exit decision, with evidence per criterion, is
+`docs/planning/decisions/F-6-stage3-exit.md`. Approval records go, and Stage 3 exits and
+Stage 4 opens on the merge; requesting changes records no-go on criterion 5 (record §5).
+
+- **Criteria 1-4 hold**, re-checked on `main` at `5877b39` (the PR #339 merge):
+  - the default tier is green on ubuntu, windows and macos with no live provider, no API
+    key and no network beyond loopback (`ci.yml`; loopback-only namespace on ubuntu);
+  - a plain `cargo test --workspace` runs no provider test: its only ignored tests are
+    gated security placeholders and opt-in non-provider tests (credential store, full
+    scale);
+  - `scripts/check-crate-deps.mjs` is clean;
+  - `contract/adapter/no-polling` passes, in the call-class shape, through both fakes.
+- **Criterion 5: finding F-1.** Every recorded behaviour of both fakes is traced to a
+  Stage 1 fixture, and unrecorded methods get the fake's own `not-modelled` error. Eight
+  fake Codex behaviours (error, refusal, interrupt and queue-edge paths) are modelled
+  from Codex source at `rust-v0.160.0`, not from a fixture, and are labelled UNVERIFIED
+  with owners G6 (#67) and G7 (#68) (record §3).
+- **Every exit artifact exists.** The provider-integration tier is the herdr opt-in
+  workflow; provider tests of OAC's own adapters are pending with G4 (#65) and H1 (#73).
+- **#59 (F10) stays open until Epic G**: the real-adapter and Zenoh halves of its
+  acceptance are Stage 4's demonstration 1 (record §4).
+
 ---
 
 ## 8. Stage 4 — Adapters and Zenoh transport
