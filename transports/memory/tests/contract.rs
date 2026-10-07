@@ -14,9 +14,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use oac_contract_transport::{
-    Fate, FaultControl, Medium, Report, TransportHarness, Verdict, run,
-};
+use oac_contract_transport::{Fate, FaultControl, Medium, Report, TransportHarness, Verdict, run};
 use oac_core::health::HealthStatus;
 use oac_core::ids::KeyId;
 use oac_core::transport::{
@@ -255,11 +253,21 @@ impl Transport for Broken {
     fn publish(&self, d: &Destination, p: Payload, deadline: Deadline) -> PublishResult {
         match self.breach {
             Breach::RevealsSubscriptions
-                if !self.shared.subscribed.lock().unwrap().contains(&dest_key(d)) =>
+                if !self
+                    .shared
+                    .subscribed
+                    .lock()
+                    .unwrap()
+                    .contains(&dest_key(d)) =>
             {
                 return PublishResult::NotTaken;
             }
-            Breach::HoldsCopies => self.shared.kept.lock().unwrap().push((d.clone(), p.clone())),
+            Breach::HoldsCopies => self
+                .shared
+                .kept
+                .lock()
+                .unwrap()
+                .push((d.clone(), p.clone())),
             Breach::ExtendsDeadlines => {
                 let r = self.inner.publish(d, p.clone(), deadline);
                 let far = Deadline::at(deadline.instant() + Duration::from_secs(3600));
@@ -389,7 +397,10 @@ fn the_suite_catches_each_planted_breach() {
     let cases: [(Breach, &[&str]); 10] = [
         (Breach::AltersOctets, &["IFC-TRN-030"]),
         (Breach::LiesNotTaken, &["IFC-TRN-031"]),
-        (Breach::RevealsSubscriptions, &["IFC-TRN-043", "IFC-TRN-044"]),
+        (
+            Breach::RevealsSubscriptions,
+            &["IFC-TRN-043", "IFC-TRN-044"],
+        ),
         (Breach::HoldsCopies, &["IFC-TRN-033", "IFC-TRN-036"]),
         (Breach::IgnoresShutdown, &["IFC-TRN-071"]),
         (Breach::ClaimsPersistence, &["IFC-TRN-026"]),
@@ -404,7 +415,10 @@ fn the_suite_catches_each_planted_breach() {
             breach,
         });
         for id in ids {
-            assert!(report.failed(id), "{breach:?} not caught as {id}:\n{report}");
+            assert!(
+                report.failed(id),
+                "{breach:?} not caught as {id}:\n{report}"
+            );
         }
         assert!(report.failed("IFC-TRN-003"), "{report}");
     }

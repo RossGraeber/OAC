@@ -204,7 +204,11 @@ pub type Check = fn(&dyn TransportHarness) -> Verdict;
 pub const CHECKS: &[(&str, &str, Check)] = &[
     ("IFC-TRN-001", "carries-each-kind", ifc_trn_001),
     ("IFC-TRN-020", "declares-every-capability", ifc_trn_020),
-    ("IFC-TRN-021", "declared-ordering-is-provided", ifc_trn_021_ordering),
+    (
+        "IFC-TRN-021",
+        "declared-ordering-is-provided",
+        ifc_trn_021_ordering,
+    ),
     (
         "IFC-TRN-021",
         "declared-reliability-is-provided",
@@ -225,13 +229,25 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
     ("IFC-TRN-036", "nothing-kept-for-unreachable", ifc_trn_036),
     ("IFC-TRN-040", "handed-over-on-own-initiative", ifc_trn_040),
     ("IFC-TRN-043", "subscriptions-not-revealed", ifc_trn_043),
-    ("IFC-TRN-044", "result-independent-of-subscription", ifc_trn_044),
+    (
+        "IFC-TRN-044",
+        "result-independent-of-subscription",
+        ifc_trn_044,
+    ),
     ("IFC-TRN-050", "presence-whole-to-named-device", ifc_trn_050),
-    ("IFC-TRN-060", "presence-handed-on-own-initiative", ifc_trn_060),
+    (
+        "IFC-TRN-060",
+        "presence-handed-on-own-initiative",
+        ifc_trn_060,
+    ),
     ("IFC-TRN-071", "no-handler-after-shutdown", ifc_trn_071),
     ("IFC-TRN-080", "destination-restricted", ifc_trn_080),
     ("IFC-NEU-003", "no-native-address-to-core", ifc_neu_003),
-    ("IFC-TYP-092", "health-holds-no-secret-or-address", ifc_typ_092),
+    (
+        "IFC-TYP-092",
+        "health-holds-no-secret-or-address",
+        ifc_typ_092,
+    ),
     ("IFC-TYP-095", "destination-is-session-or-key", ifc_typ_095),
 ];
 
@@ -244,11 +260,7 @@ pub fn run(harness: &dyn TransportHarness) -> Report {
             Ok(v) => v,
             Err(p) => Verdict::Fail(format!("panicked: {}", panic_text(&p))),
         };
-        rows.push(Row {
-            id,
-            check,
-            verdict,
-        });
+        rows.push(Row { id, check, verdict });
     }
     let failed: Vec<_> = rows
         .iter()
@@ -479,7 +491,10 @@ pub fn ifc_trn_001(h: &dyn TransportHarness) -> Verdict {
             ),
         "kinds arrived as {kinds:?}"
     );
-    Verdict::Pass(format!("envelope, receipt and presence carried ({})", w.sides()))
+    Verdict::Pass(format!(
+        "envelope, receipt and presence carried ({})",
+        w.sides()
+    ))
 }
 
 // ---- §6.3: the declaration ----------------------------------------------------------
@@ -666,10 +681,7 @@ pub fn ifc_trn_031(h: &dyn TransportHarness) -> Verdict {
             w.a.t
                 .publish(&session(4), payload(PayloadKind::Envelope, &[i]), dl),
         );
-        results.push(
-            w.a.t
-                .publish(&dev, payload(PayloadKind::Receipt, &[i]), dl),
-        );
+        results.push(w.a.t.publish(&dev, payload(PayloadKind::Receipt, &[i]), dl));
         results.push(
             w.a.t
                 .send_presence(&dev, payload(PayloadKind::Presence, &[i]), dl),
@@ -692,7 +704,10 @@ pub fn ifc_trn_031(h: &dyn TransportHarness) -> Verdict {
         rct.len(),
         prs.records().len()
     );
-    Verdict::Pass(format!("15 deliverable payloads taken and delivered ({})", w.sides()))
+    Verdict::Pass(format!(
+        "15 deliverable payloads taken and delivered ({})",
+        w.sides()
+    ))
 }
 
 /// [IFC-TRN-033]: a copy is held only while in flight. A delivered payload is not handed
@@ -926,18 +941,14 @@ pub fn ifc_trn_043(h: &dyn TransportHarness) -> Verdict {
     };
     let dl = w.deadline(LONG);
     let before_health = w.a.t.health();
-    let unsub = w.a.t.publish(
-        &session(11),
-        payload(PayloadKind::Envelope, b"x"),
-        dl,
-    );
+    let unsub =
+        w.a.t
+            .publish(&session(11), payload(PayloadKind::Envelope, b"x"), dl);
     let seen = Seen::default();
     let _s = sub(b, &session(11), &seen);
-    let subd = w.a.t.publish(
-        &session(11),
-        payload(PayloadKind::Envelope, b"x"),
-        dl,
-    );
+    let subd =
+        w.a.t
+            .publish(&session(11), payload(PayloadKind::Envelope, b"x"), dl);
     let after_health = w.a.t.health();
     fail_if!(
         unsub != subd,
@@ -949,15 +960,15 @@ pub fn ifc_trn_043(h: &dyn TransportHarness) -> Verdict {
     );
     let third = start(&*w.m, 3);
     let refused = match &third {
-        Ok(c) => c
-            .t
-            .subscribe(&session(11), Seen::<Inbound>::default().handler())
-            .err(),
-        Err(_) => w
-            .a
-            .t
-            .subscribe(&session(11), Seen::<Inbound>::default().handler())
-            .err(),
+        Ok(c) => {
+            c.t.subscribe(&session(11), Seen::<Inbound>::default().handler())
+                .err()
+        }
+        Err(_) => {
+            w.a.t
+                .subscribe(&session(11), Seen::<Inbound>::default().handler())
+                .err()
+        }
     };
     fail_if!(
         refused.is_some(),
@@ -979,7 +990,10 @@ pub fn ifc_trn_044(h: &dyn TransportHarness) -> Verdict {
         w.a.t
             .publish(&session(n), payload(PayloadKind::Envelope, b"044"), dl)
     };
-    let rct = || w.a.t.publish(&dev, payload(PayloadKind::Receipt, b"044"), dl);
+    let rct = || {
+        w.a.t
+            .publish(&dev, payload(PayloadKind::Receipt, b"044"), dl)
+    };
     let (e0, r0) = (env(12), rct());
     let _s1 = sub(r, &session(12), &Seen::<Inbound>::default());
     let _s2 = sub(r, &dev, &Seen::<Inbound>::default());
@@ -1004,7 +1018,9 @@ pub fn ifc_trn_050(h: &dyn TransportHarness) -> Verdict {
     let (at_r, at_a) = (Seen::default(), Seen::default());
     r.t.watch_presence(at_r.watcher()).expect("watch_presence");
     if w.b.is_some() {
-        w.a.t.watch_presence(at_a.watcher()).expect("watch_presence");
+        w.a.t
+            .watch_presence(at_a.watcher())
+            .expect("watch_presence");
     }
     let record: Vec<u8> = (0..4096u32).map(|i| (i % 253) as u8).collect();
     let res = w.a.t.send_presence(
@@ -1012,7 +1028,10 @@ pub fn ifc_trn_050(h: &dyn TransportHarness) -> Verdict {
         payload(PayloadKind::Presence, &record),
         w.deadline(LONG),
     );
-    fail_if!(res != PublishResult::Taken, "send_presence returned {res:?}");
+    fail_if!(
+        res != PublishResult::Taken,
+        "send_presence returned {res:?}"
+    );
     w.eventually(|| !at_r.records().is_empty());
     w.quiet();
     let got = at_r.records();
@@ -1081,9 +1100,8 @@ pub fn ifc_trn_071(h: &dyn TransportHarness) -> Verdict {
     let down = Arc::new(AtomicBool::new(false));
     let late = Arc::new(AtomicUsize::new(0));
     let (d1, l1) = (down.clone(), late.clone());
-    let _s = r
-        .t
-        .subscribe(
+    let _s =
+        r.t.subscribe(
             &session(13),
             Arc::new(move |_| {
                 if d1.load(Ordering::SeqCst) {
@@ -1201,10 +1219,10 @@ fn forbidden_in_health(m: &dyn Medium) -> Vec<String> {
         v.push(d.display().to_string());
     }
     for var in ["HOME", "USERPROFILE"] {
-        if let Ok(x) = std::env::var(var) {
-            if !x.is_empty() {
-                v.push(x);
-            }
+        if let Ok(x) = std::env::var(var)
+            && !x.is_empty()
+        {
+            v.push(x);
         }
     }
     v

@@ -55,7 +55,9 @@ use oac_core::adapter::{
 };
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::delivery::ErrorCode;
-use oac_core::envelope::{ChannelMessage, EnvelopeDraft, EnvelopeLimits, TextPart, receive_envelope};
+use oac_core::envelope::{
+    ChannelMessage, EnvelopeDraft, EnvelopeLimits, TextPart, receive_envelope,
+};
 use oac_core::ids::{SessionId, Token};
 use oac_core::keys::{DeviceIdentity, DeviceKey};
 use oac_core::signing::authenticate;
@@ -348,11 +350,9 @@ impl CoreSide {
             let result = match &r {
                 Request::Discovery(_) => RequestResult::Discovered(Vec::new()),
                 Request::Send(_) => {
-                    let id = Token::parse(&format!(
-                        "m{}",
-                        me.next_id.fetch_add(1, Ordering::Relaxed)
-                    ))
-                    .expect("a token");
+                    let id =
+                        Token::parse(&format!("m{}", me.next_id.fetch_add(1, Ordering::Relaxed)))
+                            .expect("a token");
                     match lock(&me.script).pop_front().unwrap_or(Scripted::Send) {
                         Scripted::Send => RequestResult::Sent {
                             id,
@@ -593,8 +593,7 @@ impl Ctx<'_> {
         }
         let attachment = opened(&self.core.events()).expect("seen above");
         let session = SessionId::from_random_octets([n; 16]);
-        self.adapter
-            .set_binding(&attachment, Some(session.clone()));
+        self.adapter.set_binding(&attachment, Some(session.clone()));
         Ok(Session {
             index,
             attachment,
@@ -672,7 +671,10 @@ pub fn run(harness: &mut dyn AdapterHarness) -> Report {
         check: "every-adapter-requirement",
         verdict,
     });
-    Report { harness: name, rows }
+    Report {
+        harness: name,
+        rows,
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -685,7 +687,11 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     let mut s1 = match ctx.open(1) {
         Ok(s) => s,
         Err(why) => {
-            ctx.row("IFC-ADP-020", "reports-attachments-observed", Verdict::Fail(why.clone()));
+            ctx.row(
+                "IFC-ADP-020",
+                "reports-attachments-observed",
+                Verdict::Fail(why.clone()),
+            );
             return Err(why);
         }
     };
@@ -714,7 +720,9 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     let after = ctx.h.observe(s1.index);
     check!(ctx, "IFC-ADP-040", "contract/adapter/no-polling", {
         if !caps.active_inbound {
-            Verdict::NotApplicable("the adapter reports active_inbound false for the attachment".into())
+            Verdict::NotApplicable(
+                "the adapter reports active_inbound false for the attachment".into(),
+            )
         } else {
             let mut bad = Vec::new();
             if after.establishment_calls != before.establishment_calls {
@@ -723,12 +731,16 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                     before.establishment_calls, after.establishment_calls
                 ));
             }
-            let fetched: Vec<_> = after.fetch_calls[before.fetch_calls.len().min(after.fetch_calls.len())..].to_vec();
+            let fetched: Vec<_> =
+                after.fetch_calls[before.fetch_calls.len().min(after.fetch_calls.len())..].to_vec();
             if !fetched.is_empty() {
                 bad.push(format!("message-fetch calls between arrivals: {fetched:?}"));
             }
             if !after.offered_fetch_surfaces.is_empty() {
-                bad.push(format!("inbox-style surfaces offered: {:?}", after.offered_fetch_surfaces));
+                bad.push(format!(
+                    "inbox-style surfaces offered: {:?}",
+                    after.offered_fetch_surfaces
+                ));
             }
             for (t, out) in &idle {
                 if *out != HandOffOutcome::Completed {
@@ -762,12 +774,18 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                 ctx.h.drain(s1.index).map_err(|g| g.to_string())?;
                 let o = ctx.h.observe(s1.index);
                 if out == HandOffOutcome::Completed && took(&o, &text) {
-                    Verdict::Pass(format!("a message at the reported {max}-octet limit handed off unchanged"))
+                    Verdict::Pass(format!(
+                        "a message at the reported {max}-octet limit handed off unchanged"
+                    ))
                 } else {
                     Verdict::Fail(format!(
                         "a message at the reported {max}-octet limit: {} and {}",
                         out.as_str(),
-                        if took(&o, &text) { "taken" } else { "not taken unchanged" }
+                        if took(&o, &text) {
+                            "taken"
+                        } else {
+                            "not taken unchanged"
+                        }
                     ))
                 }
             }
@@ -799,10 +817,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                     if calls.iter().any(|c| c.steering) {
                         bad.push(format!("{t:?} was handed off by a steering operation"));
                     }
-                    if let Some(op) = holding {
-                        if calls.iter().any(|c| c.operation != op) {
-                            bad.push(format!("{t:?} was not handed off through {op}"));
-                        }
+                    if let Some(op) = holding
+                        && calls.iter().any(|c| c.operation != op)
+                    {
+                        bad.push(format!("{t:?} was not handed off through {op}"));
                     }
                     if *out == HandOffOutcome::Completed && !took(o, t) {
                         bad.push(format!("{t:?} completed but never became input"));
@@ -820,7 +838,9 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             check!(ctx, "SEC-AUZ-026", "order-kept-through-the-hold", {
                 let pos = |t: &str| o.inputs.iter().position(|i| i.contains(t));
                 match (pos(&a.0), pos(&b.0)) {
-                    (Some(x), Some(y)) if x < y => Verdict::Pass("taken in the order handed off".into()),
+                    (Some(x), Some(y)) if x < y => {
+                        Verdict::Pass("taken in the order handed off".into())
+                    }
                     (Some(_), Some(_)) => Verdict::Fail("taken out of the order handed off".into()),
                     _ => Verdict::Fail(format!("not both taken: inputs {:?}", o.inputs)),
                 }
@@ -828,8 +848,16 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         }
         Err(g) => {
             let why = format!("the fake harness cannot start a turn: {g}");
-            ctx.row("SEC-AUZ-025", "holding-hand-off-while-running", Verdict::NotApplicable(why.clone()));
-            ctx.row("SEC-AUZ-026", "order-kept-through-the-hold", Verdict::NotApplicable(why));
+            ctx.row(
+                "SEC-AUZ-025",
+                "holding-hand-off-while-running",
+                Verdict::NotApplicable(why.clone()),
+            );
+            ctx.row(
+                "SEC-AUZ-026",
+                "order-kept-through-the-hold",
+                Verdict::NotApplicable(why),
+            );
         }
     }
 
@@ -849,7 +877,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             let calls = calls_with(o, t);
             check!(ctx, "SEC-AUZ-027", "turned-away-makes-no-other-call", {
                 if calls.len() == 1 && !calls[0].accepted && !calls[0].steering {
-                    Verdict::Pass(format!("one {} call, turned away, and no other call", calls[0].operation))
+                    Verdict::Pass(format!(
+                        "one {} call, turned away, and no other call",
+                        calls[0].operation
+                    ))
                 } else {
                     Verdict::Fail(format!("calls for the turned-away message: {calls:?}"))
                 }
@@ -864,14 +895,19 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         }
         Err(g) => {
             let why = format!("the fake harness cannot turn a hand-off away: {g}");
-            ctx.row("SEC-AUZ-027", "turned-away-makes-no-other-call", Verdict::NotApplicable(why));
+            ctx.row(
+                "SEC-AUZ-027",
+                "turned-away-makes-no-other-call",
+                Verdict::NotApplicable(why),
+            );
         }
     }
 
     // ---- an unbound attachment ([IFC-ADP-030]) ---------------------------------------------
     ctx.adapter.set_binding(&s1.attachment, None);
     let (unbound, out) = ctx.deliver(&mut s1, "unbound");
-    ctx.adapter.set_binding(&s1.attachment, Some(s1.session.clone()));
+    ctx.adapter
+        .set_binding(&s1.attachment, Some(s1.session.clone()));
     ctx.h.drain(s1.index).map_err(|g| g.to_string())?;
     let o = ctx.h.observe(s1.index);
     check!(ctx, "IFC-ADP-030", "no-hand-off-when-unbound", {
@@ -879,7 +915,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         if n == 0 && !took(&o, &unbound) && out != HandOffOutcome::Completed {
             Verdict::Pass(format!("{} and no hand-off call", out.as_str()))
         } else {
-            Verdict::Fail(format!("{} with {n} hand-off call(s) after set_binding(None)", out.as_str()))
+            Verdict::Fail(format!(
+                "{} with {n} hand-off call(s) after set_binding(None)",
+                out.as_str()
+            ))
         }
     });
 
@@ -938,17 +977,27 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                 .filter(|r| matches!(&r.request, Request::Send(s) if s.content.iter().any(|p| matches!(p, oac_core::envelope::ContentPart::Text(t) if t.text().contains(text.as_str())))))
                 .collect();
             if mine.len() != 1 {
-                missing.push(format!("{text:?}: {} request(s) reached the sink", mine.len()));
+                missing.push(format!(
+                    "{text:?}: {} request(s) reached the sink",
+                    mine.len()
+                ));
                 continue;
             }
             let rec = mine[0];
             if rec.request.attachment() != &s1.attachment {
-                mislabelled.push(format!("{text:?}{} labelled {:?}", if *spoof { " (spoofed sender)" } else { "" }, rec.request.attachment()));
+                mislabelled.push(format!(
+                    "{text:?}{} labelled {:?}",
+                    if *spoof { " (spoofed sender)" } else { "" },
+                    rec.request.attachment()
+                ));
             }
             let ok = match scripted {
                 Scripted::Send => {
                     !observed.is_error
-                        && rec.id.as_deref().is_some_and(|id| observed.text.contains(id))
+                        && rec
+                            .id
+                            .as_deref()
+                            .is_some_and(|id| observed.text.contains(id))
                         && observed.text.contains("accepted-by-adapter")
                 }
                 Scripted::Refuse(code) | Scripted::NotPass(code) => {
@@ -967,9 +1016,15 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                         .filter(|r| matches!(r.request, Request::Discovery(_)))
                         .collect();
                     if mine.len() != 1 {
-                        missing.push(format!("discovery: {} request(s) reached the sink", mine.len()));
+                        missing.push(format!(
+                            "discovery: {} request(s) reached the sink",
+                            mine.len()
+                        ));
                     } else if mine[0].request.attachment() != &s1.attachment {
-                        mislabelled.push(format!("discovery labelled {:?}", mine[0].request.attachment()));
+                        mislabelled.push(format!(
+                            "discovery labelled {:?}",
+                            mine[0].request.attachment()
+                        ));
                     }
                     if observed.is_error {
                         changed.push(format!("discovery came back as an error: {observed:?}"));
@@ -978,21 +1033,42 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                 Err(g) => missing.push(format!("discovery request failed: {g}")),
             }
         }
-        check!(ctx, "IFC-ADP-003", "requests-reach-the-core", if missing.is_empty() {
-            Verdict::Pass(format!("{} send and 1 discovery request each reached the sink once", req_results.len()))
-        } else {
-            Verdict::Fail(missing.join("; "))
-        });
-        check!(ctx, "IFC-ADP-031", "requests-labelled-by-connection", if mislabelled.is_empty() {
-            Verdict::Pass("every request labelled with its connection, a spoofed sender claim included".into())
-        } else {
-            Verdict::Fail(mislabelled.join("; "))
-        });
-        check!(ctx, "IFC-ADP-060", "results-returned-unchanged", if changed.is_empty() {
-            Verdict::Pass("sent, refused (unauthorized), not-passed (transport-failure) and discovery results reached the harness unchanged".into())
-        } else {
-            Verdict::Fail(changed.join("; "))
-        });
+        check!(
+            ctx,
+            "IFC-ADP-003",
+            "requests-reach-the-core",
+            if missing.is_empty() {
+                Verdict::Pass(format!(
+                    "{} send and 1 discovery request each reached the sink once",
+                    req_results.len()
+                ))
+            } else {
+                Verdict::Fail(missing.join("; "))
+            }
+        );
+        check!(
+            ctx,
+            "IFC-ADP-031",
+            "requests-labelled-by-connection",
+            if mislabelled.is_empty() {
+                Verdict::Pass(
+                    "every request labelled with its connection, a spoofed sender claim included"
+                        .into(),
+                )
+            } else {
+                Verdict::Fail(mislabelled.join("; "))
+            }
+        );
+        check!(
+            ctx,
+            "IFC-ADP-060",
+            "results-returned-unchanged",
+            if changed.is_empty() {
+                Verdict::Pass("sent, refused (unauthorized), not-passed (transport-failure) and discovery results reached the harness unchanged".into())
+            } else {
+                Verdict::Fail(changed.join("; "))
+            }
+        );
     }
 
     // ---- a second session, then its end ([IFC-ADP-022]) -----------------------------------
@@ -1008,7 +1084,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                 for (s, o) in [(&s1, &o1), (&s2, &o2)] {
                     for i in &o.inputs {
                         if !s.delivered.iter().any(|(t, _)| i.contains(t.as_str())) {
-                            bad.push(format!("session {} took input the core never passed it: {i:?}", s.index));
+                            bad.push(format!(
+                                "session {} took input the core never passed it: {i:?}",
+                                s.index
+                            ));
                         }
                     }
                 }
@@ -1019,7 +1098,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                     bad.push("a hand-off to the second session never reached it".into());
                 }
                 if bad.is_empty() {
-                    Verdict::Pass(format!("{} inputs, each one the core passed to that session", o1.inputs.len() + o2.inputs.len()))
+                    Verdict::Pass(format!(
+                        "{} inputs, each one the core passed to that session",
+                        o1.inputs.len() + o2.inputs.len()
+                    ))
                 } else {
                     Verdict::Fail(bad.join("; "))
                 }
@@ -1027,11 +1109,16 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             ctx.h.end_session(s2.index).map_err(|g| g.to_string())?;
             let att2 = s2.attachment.clone();
             let closed = ctx.core.wait_for(|ev| ev.iter().any(|e| matches!(e, AdapterEvent::AttachmentClosed { attachment } if *attachment == att2)));
-            check!(ctx, "IFC-ADP-022", "reports-attachment-closed", if closed {
-                Verdict::Pass("attachment-closed when the harness ended the session".into())
-            } else {
-                Verdict::Fail("no attachment-closed after the harness ended the session".into())
-            });
+            check!(
+                ctx,
+                "IFC-ADP-022",
+                "reports-attachment-closed",
+                if closed {
+                    Verdict::Pass("attachment-closed when the harness ended the session".into())
+                } else {
+                    Verdict::Fail("no attachment-closed after the harness ended the session".into())
+                }
+            );
             for (t, o) in s2.delivered.drain(..) {
                 s1.delivered.push((format!("[s2] {t}"), o));
             }
@@ -1047,80 +1134,197 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         .filter(|(t, _)| !t.starts_with("[s2] "))
         .cloned()
         .collect();
-    check!(ctx, "IFC-ADP-050", "one-outcome-per-hand-off", Verdict::Pass(format!(
-        "{} hand-offs, {} outcomes (deliver returns exactly one by its signature)",
-        delivered.len(), delivered.len()
-    )));
+    check!(
+        ctx,
+        "IFC-ADP-050",
+        "one-outcome-per-hand-off",
+        Verdict::Pass(format!(
+            "{} hand-offs, {} outcomes (deliver returns exactly one by its signature)",
+            delivered.len(),
+            delivered.len()
+        ))
+    );
     check!(ctx, "IFC-ADP-057", "at-most-one-call-per-hand-off", {
         let over: Vec<_> = delivered
             .iter()
-            .filter_map(|(t, _)| { let n = calls_with(&o, t).len(); (n > 1).then(|| format!("{t:?}: {n} calls")) })
+            .filter_map(|(t, _)| {
+                let n = calls_with(&o, t).len();
+                (n > 1).then(|| format!("{t:?}: {n} calls"))
+            })
             .collect();
-        if over.is_empty() { Verdict::Pass(format!("{} hand-offs, none with more than one call", delivered.len())) } else { Verdict::Fail(over.join("; ")) }
+        if over.is_empty() {
+            Verdict::Pass(format!(
+                "{} hand-offs, none with more than one call",
+                delivered.len()
+            ))
+        } else {
+            Verdict::Fail(over.join("; "))
+        }
     });
     check!(ctx, "IFC-ADP-051", "completed-only-on-success", {
         let bad: Vec<_> = delivered
             .iter()
-            .filter(|(t, out)| *out == HandOffOutcome::Completed && !calls_with(&o, t).iter().any(|c| c.accepted))
+            .filter(|(t, out)| {
+                *out == HandOffOutcome::Completed && !calls_with(&o, t).iter().any(|c| c.accepted)
+            })
             .map(|(t, _)| t.clone())
             .collect();
-        if bad.is_empty() { Verdict::Pass("every completed hand-off has a call the harness took".into()) } else { Verdict::Fail(format!("completed with no call the harness took: {bad:?}")) }
+        if bad.is_empty() {
+            Verdict::Pass("every completed hand-off has a call the harness took".into())
+        } else {
+            Verdict::Fail(format!("completed with no call the harness took: {bad:?}"))
+        }
     });
     check!(ctx, "IFC-ADP-052", "not-now-only-when-turned-away", {
-        let nn: Vec<_> = delivered.iter().filter(|(_, out)| *out == HandOffOutcome::NotNow).collect();
-        let bad: Vec<_> = nn.iter().filter(|(t, _)| took(&o, t) || calls_with(&o, t).iter().any(|c| c.accepted)).map(|(t, _)| t.clone()).collect();
-        if !bad.is_empty() { Verdict::Fail(format!("not-now although the harness took the input: {bad:?}")) }
-        else if nn.is_empty() { Verdict::Pass("no not-now outcome reported".into()) }
-        else { Verdict::Pass(format!("{} not-now outcome(s), each for input the harness did not take", nn.len())) }
+        let nn: Vec<_> = delivered
+            .iter()
+            .filter(|(_, out)| *out == HandOffOutcome::NotNow)
+            .collect();
+        let bad: Vec<_> = nn
+            .iter()
+            .filter(|(t, _)| took(&o, t) || calls_with(&o, t).iter().any(|c| c.accepted))
+            .map(|(t, _)| t.clone())
+            .collect();
+        if !bad.is_empty() {
+            Verdict::Fail(format!(
+                "not-now although the harness took the input: {bad:?}"
+            ))
+        } else if nn.is_empty() {
+            Verdict::Pass("no not-now outcome reported".into())
+        } else {
+            Verdict::Pass(format!(
+                "{} not-now outcome(s), each for input the harness did not take",
+                nn.len()
+            ))
+        }
     });
     check!(ctx, "IFC-ADP-053", "indeterminate-when-no-answer", Verdict::NotApplicable(
         "neither fake harness leaves an input call without success or failure; exercised by the adapter tasks (G4, G7)".into()
     ));
     check!(ctx, "IFC-ADP-054", "refused-without-a-call", {
-        let r: Vec<_> = delivered.iter().filter(|(_, out)| *out == HandOffOutcome::Refused).collect();
-        let bad: Vec<_> = r.iter().filter(|(t, _)| !calls_with(&o, t).is_empty()).map(|(t, _)| t.clone()).collect();
-        if !bad.is_empty() { Verdict::Fail(format!("refused but an input call was made: {bad:?}")) }
-        else if r.is_empty() { Verdict::NotApplicable("no provenance-hostile hand-off is exercised (the suite's messages carry well-formed provenance); F11, G4, G7".into()) }
-        else { Verdict::Pass(format!("{} refused, none with an input call", r.len())) }
+        let r: Vec<_> = delivered
+            .iter()
+            .filter(|(_, out)| *out == HandOffOutcome::Refused)
+            .collect();
+        let bad: Vec<_> = r
+            .iter()
+            .filter(|(t, _)| !calls_with(&o, t).is_empty())
+            .map(|(t, _)| t.clone())
+            .collect();
+        if !bad.is_empty() {
+            Verdict::Fail(format!("refused but an input call was made: {bad:?}"))
+        } else if r.is_empty() {
+            Verdict::NotApplicable("no provenance-hostile hand-off is exercised (the suite's messages carry well-formed provenance); F11, G4, G7".into())
+        } else {
+            Verdict::Pass(format!("{} refused, none with an input call", r.len()))
+        }
     });
     check!(ctx, "IFC-ADP-056", "no-hand-off-held-for-later", {
-        let bad: Vec<_> = delivered.iter().filter(|(t, out)| *out != HandOffOutcome::Completed && took(&o, t)).map(|(t, _)| t.clone()).collect();
-        let n = delivered.iter().filter(|(_, out)| *out != HandOffOutcome::Completed).count();
-        if !bad.is_empty() { Verdict::Fail(format!("handed off later although not completed: {bad:?}")) }
-        else { Verdict::Pass(format!("{n} hand-off(s) not completed; none taken later")) }
+        let bad: Vec<_> = delivered
+            .iter()
+            .filter(|(t, out)| *out != HandOffOutcome::Completed && took(&o, t))
+            .map(|(t, _)| t.clone())
+            .collect();
+        let n = delivered
+            .iter()
+            .filter(|(_, out)| *out != HandOffOutcome::Completed)
+            .count();
+        if !bad.is_empty() {
+            Verdict::Fail(format!("handed off later although not completed: {bad:?}"))
+        } else {
+            Verdict::Pass(format!("{n} hand-off(s) not completed; none taken later"))
+        }
     });
     check!(ctx, "SEC-AUZ-022", "never-steers", {
-        let steering: Vec<_> = o.hand_off_calls.iter().filter(|c| c.steering).map(|c| c.operation.clone()).collect();
-        if steering.is_empty() { Verdict::Pass(format!("{} hand-off call(s), none steering", o.hand_off_calls.len())) } else { Verdict::Fail(format!("steering hand-off calls: {steering:?}")) }
+        let steering: Vec<_> = o
+            .hand_off_calls
+            .iter()
+            .filter(|c| c.steering)
+            .map(|c| c.operation.clone())
+            .collect();
+        if steering.is_empty() {
+            Verdict::Pass(format!(
+                "{} hand-off call(s), none steering",
+                o.hand_off_calls.len()
+            ))
+        } else {
+            Verdict::Fail(format!("steering hand-off calls: {steering:?}"))
+        }
     });
     for (id, rule) in profile.rules {
         let v = match rule {
             Rule::OnlyHolding => {
                 let op = profile.holding_hand_off.unwrap_or("(none)");
-                let other: Vec<_> = o.hand_off_calls.iter().filter(|c| c.operation != op).map(|c| c.operation.clone()).collect();
-                if other.is_empty() { Verdict::Pass(format!("every hand-off call is {op}")) } else { Verdict::Fail(format!("hand-off calls other than {op}: {other:?}")) }
+                let other: Vec<_> = o
+                    .hand_off_calls
+                    .iter()
+                    .filter(|c| c.operation != op)
+                    .map(|c| c.operation.clone())
+                    .collect();
+                if other.is_empty() {
+                    Verdict::Pass(format!("every hand-off call is {op}"))
+                } else {
+                    Verdict::Fail(format!("hand-off calls other than {op}: {other:?}"))
+                }
             }
             Rule::Never(op) => {
-                let n = o.hand_off_calls.iter().filter(|c| c.operation == *op).count();
-                if n == 0 { Verdict::Pass(format!("no {op} call")) } else { Verdict::Fail(format!("{n} {op} call(s)")) }
+                let n = o
+                    .hand_off_calls
+                    .iter()
+                    .filter(|c| c.operation == *op)
+                    .count();
+                if n == 0 {
+                    Verdict::Pass(format!("no {op} call"))
+                } else {
+                    Verdict::Fail(format!("{n} {op} call(s)"))
+                }
             }
             Rule::NoOverrides => {
-                let m: Vec<_> = o.hand_off_calls.iter().flat_map(|c| c.override_members.clone()).collect();
-                if m.is_empty() { Verdict::Pass("no hand-off call carries a setting override".into()) } else { Verdict::Fail(format!("override members: {m:?}")) }
+                let m: Vec<_> = o
+                    .hand_off_calls
+                    .iter()
+                    .flat_map(|c| c.override_members.clone())
+                    .collect();
+                if m.is_empty() {
+                    Verdict::Pass("no hand-off call carries a setting override".into())
+                } else {
+                    Verdict::Fail(format!("override members: {m:?}"))
+                }
             }
         };
         ctx.row(id, "binding-hand-off-rule", v);
     }
     check!(ctx, "IFC-ADP-013", "only-core-made-connections", {
-        let foreign: Vec<_> = ctx.core.events().iter().flat_map(|e| match e {
-            AdapterEvent::AttachmentOpened { attachment, .. } | AdapterEvent::CapabilitiesChanged { attachment } | AdapterEvent::AttachmentClosed { attachment } => vec![attachment.clone()],
-            AdapterEvent::NativeSignal(s) => s.connection.clone().into_iter().collect(),
-        }).chain(ctx.core.requests().iter().map(|r| r.request.attachment().clone()))
-        .filter(|h| !ctx.core.issued(h)).collect();
-        if foreign.is_empty() { Verdict::Pass("every handle in events and requests is one the core issued".into()) } else { Verdict::Fail(format!("handles the core never issued: {foreign:?}")) }
+        let foreign: Vec<_> = ctx
+            .core
+            .events()
+            .iter()
+            .flat_map(|e| match e {
+                AdapterEvent::AttachmentOpened { attachment, .. }
+                | AdapterEvent::CapabilitiesChanged { attachment }
+                | AdapterEvent::AttachmentClosed { attachment } => vec![attachment.clone()],
+                AdapterEvent::NativeSignal(s) => s.connection.clone().into_iter().collect(),
+            })
+            .chain(
+                ctx.core
+                    .requests()
+                    .iter()
+                    .map(|r| r.request.attachment().clone()),
+            )
+            .filter(|h| !ctx.core.issued(h))
+            .collect();
+        if foreign.is_empty() {
+            Verdict::Pass("every handle in events and requests is one the core issued".into())
+        } else {
+            Verdict::Fail(format!("handles the core never issued: {foreign:?}"))
+        }
     });
     if let Some(halted) = &o.halted {
-        ctx.row("IFC-ADP-010", "fake-harness-not-halted", Verdict::Fail(format!("the fake harness halted: {halted}")));
+        ctx.row(
+            "IFC-ADP-010",
+            "fake-harness-not-halted",
+            Verdict::Fail(format!("the fake harness halted: {halted}")),
+        );
     }
 
     // ---- health ([IFC-TYP-092]) -------------------------------------------------------------
@@ -1130,11 +1334,21 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             None => Verdict::Pass(format!("{} with no detail", h.state.as_str())),
             Some(d) => {
                 let mut forbidden: Vec<String> = Vec::new();
-                if let Ok(c) = std::env::current_dir() { forbidden.push(c.display().to_string()); }
-                for v in ["HOME", "USERPROFILE"] { if let Ok(x) = std::env::var(v) { if !x.is_empty() { forbidden.push(x); } } }
+                if let Ok(c) = std::env::current_dir() {
+                    forbidden.push(c.display().to_string());
+                }
+                for v in ["HOME", "USERPROFILE"] {
+                    if let Ok(x) = std::env::var(v)
+                        && !x.is_empty()
+                    {
+                        forbidden.push(x);
+                    }
+                }
                 match forbidden.iter().find(|f| d.contains(f.as_str())) {
                     Some(f) => Verdict::Fail(format!("health detail {d:?} contains {f:?}")),
-                    None if d.contains("://") => Verdict::Fail(format!("health detail {d:?} holds an address")),
+                    None if d.contains("://") => {
+                        Verdict::Fail(format!("health detail {d:?} holds an address"))
+                    }
                     None => Verdict::Pass(format!("{}: {d:?}", h.state.as_str())),
                 }
             }
@@ -1149,11 +1363,18 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         ("IFC-ADP-002", "no-envelope-signing-or-verifying"),
         ("IFC-ADP-007", "no-binding-session-id-or-authorization"),
     ] {
-        let mine: Vec<_> = findings.iter().filter(|f| f.requirement == id).map(|f| f.to_string()).collect();
+        let mine: Vec<_> = findings
+            .iter()
+            .filter(|f| f.requirement == id)
+            .map(|f| f.to_string())
+            .collect();
         let v = if files.is_empty() {
             Verdict::NotApplicable("the harness gave no source files to scan".into())
         } else if mine.is_empty() {
-            Verdict::Pass(format!("{} source file(s) scanned; and the adapter's operations take no transport", files.len()))
+            Verdict::Pass(format!(
+                "{} source file(s) scanned; and the adapter's operations take no transport",
+                files.len()
+            ))
         } else {
             Verdict::Fail(mine.join("; "))
         };
@@ -1162,9 +1383,14 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     check!(ctx, "IFC-NEU-002", "no-harness-native-names-to-core", Verdict::Pass(
         "by construction: events carry handles and the NativeSignal/cross_check strings only; requests carry the members of SendRequest and DiscoveryRequest".into()
     ));
-    check!(ctx, "IFC-TYP-090", "send-request-names-no-requester", Verdict::Pass(
-        "by construction: SendRequest has no such member (core/src/adapter.rs test)".into()
-    ));
+    check!(
+        ctx,
+        "IFC-TYP-090",
+        "send-request-names-no-requester",
+        Verdict::Pass(
+            "by construction: SendRequest has no such member (core/src/adapter.rs test)".into()
+        )
+    );
     check!(ctx, "IFC-TYP-091", "hand-off-carries-verified-by", Verdict::Pass(
         "by construction: HandOff::new refuses a message without verified_by; every hand-off here was verified".into()
     ));
@@ -1180,7 +1406,14 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     let ev = ctx.core.events();
     check!(ctx, "IFC-ADP-071", "closes-every-attachment-on-shutdown", {
         let left: Vec<_> = open.iter().filter(|a| !ev.iter().any(|e| matches!(e, AdapterEvent::AttachmentClosed { attachment } if attachment == *a))).collect();
-        if left.is_empty() { Verdict::Pass(format!("{} open attachment(s) closed before shutdown returned", open.len())) } else { Verdict::Fail(format!("still open when shutdown returned: {left:?}")) }
+        if left.is_empty() {
+            Verdict::Pass(format!(
+                "{} open attachment(s) closed before shutdown returned",
+                open.len()
+            ))
+        } else {
+            Verdict::Fail(format!("still open when shutdown returned: {left:?}"))
+        }
     });
     let requests_before = ctx.core.requests().len();
     let (late, out) = ctx.deliver(&mut s1, "after-shutdown");
@@ -1189,13 +1422,30 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     let o = ctx.h.observe(s1.index);
     check!(ctx, "IFC-ADP-070", "nothing-after-shutdown", {
         let mut bad = Vec::new();
-        if !calls_with(&o, &late).is_empty() || took(&o, &late) { bad.push("handed off after shutdown".to_owned()); }
-        if out == HandOffOutcome::Completed { bad.push("deliver after shutdown returned completed".into()); }
+        if !calls_with(&o, &late).is_empty() || took(&o, &late) {
+            bad.push("handed off after shutdown".to_owned());
+        }
+        if out == HandOffOutcome::Completed {
+            bad.push("deliver after shutdown returned completed".into());
+        }
         let passed = ctx.core.requests().len() - requests_before;
-        if passed > 0 { bad.push(format!("{passed} request(s) passed to the core after shutdown")); }
+        if passed > 0 {
+            bad.push(format!(
+                "{passed} request(s) passed to the core after shutdown"
+            ));
+        }
         if bad.is_empty() {
-            Verdict::Pass(format!("deliver after shutdown: {}, no call; harness request after shutdown: {}", out.as_str(), match &late_req { Ok(_) => "answered without reaching the core", Err(_) => "not answered" }))
-        } else { Verdict::Fail(bad.join("; ")) }
+            Verdict::Pass(format!(
+                "deliver after shutdown: {}, no call; harness request after shutdown: {}",
+                out.as_str(),
+                match &late_req {
+                    Ok(_) => "answered without reaching the core",
+                    Err(_) => "not answered",
+                }
+            ))
+        } else {
+            Verdict::Fail(bad.join("; "))
+        }
     });
     Ok(())
 }

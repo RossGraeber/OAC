@@ -92,14 +92,13 @@ impl CodexFake {
         std::thread::spawn(move || {
             let mut sent = false;
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if !sent {
-                    if let Ok(v) = json::parse(line.as_bytes()) {
-                        if let Some(u) = member_str(&v, "url") {
-                            let _ = url_tx.send(u.to_owned());
-                            sent = true;
-                            continue;
-                        }
-                    }
+                if !sent
+                    && let Ok(v) = json::parse(line.as_bytes())
+                    && let Some(u) = member_str(&v, "url")
+                {
+                    let _ = url_tx.send(u.to_owned());
+                    sent = true;
+                    continue;
                 }
                 eprintln!("fake codex: {line}");
             }
@@ -127,9 +126,9 @@ impl CodexFake {
                 }
             }
         });
-        let url = url_rx
-            .recv_timeout(WAIT)
-            .map_err(|_| io::Error::other("the fake Codex app-server did not report its listener"))?;
+        let url = url_rx.recv_timeout(WAIT).map_err(|_| {
+            io::Error::other("the fake Codex app-server did not report its listener")
+        })?;
         Ok(CodexFake {
             child,
             stdin: Mutex::new(stdin),
@@ -275,17 +274,18 @@ impl CodexFake {
         let hand_off_calls = calls
             .iter()
             .filter(|c| flag(c, "handOff").and_then(|f| f.as_bool()) == Some(true))
-            .filter(|c| {
-                member(c, "params").and_then(|p| member_str(p, "threadId")) == Some(thread)
-            })
+            .filter(|c| member(c, "params").and_then(|p| member_str(p, "threadId")) == Some(thread))
             .map(|c| HandOffCall {
                 operation: method(c),
                 text: text_of(member(c, "params").and_then(|p| member(p, "input"))),
                 steering: flag(c, "steering").and_then(|f| f.as_bool()) == Some(true),
                 override_members: flag(c, "overrideMembers")
                     .and_then(|f| {
-                        f.as_array()
-                            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                        f.as_array().map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(str::to_owned))
+                                .collect()
+                        })
                     })
                     .unwrap_or_default(),
                 accepted: member_str(c, "outcome") == Some("result"),

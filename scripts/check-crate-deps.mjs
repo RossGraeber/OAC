@@ -11,23 +11,26 @@
 //   core/         -> nothing in-repo
 //   (nothing)     -> cli/
 //   tests/fakes/* -> core/ only        (#57: test doubles, never in a product build)
+//   tests/protocol/contract/* -> core/ and tests/fakes/* only
+//                                      (#59: the contract suites, never in a product build)
 //
 // What is checked, for every workspace member, over every dependency kind (normal, build
 // and dev: cargo itself allows a dev-dependency cycle, so a core/ dev-dependency on an
 // adapter would otherwise go unnoticed), every target platform, and every feature
 // (`--all-features`, so an optional dependency behind a non-default feature is seen):
 //   1. The member sits in the module layout: core, cli, adapters/<name> or
-//      transports/<name>, or is a test double at tests/fakes/<name> (#57). Anything else
-//      fails.
+//      transports/<name>, or is a test double at tests/fakes/<name> (#57) or a contract
+//      suite at tests/protocol/contract/<name> (#59). Anything else fails.
 //   2. Reachability, not just direct edges: the member's transitive closure contains no
 //      workspace crate the rule above forbids, whatever path (including through a
 //      third-party crate) leads there.
 //   3. Every adapter and transport has a normal dependency on core/.
-//   5. Test doubles stay out of every product build (#57): no product member (core, cli,
-//      an adapter or a transport) reaches a tests/fakes/<name> crate over normal and build
-//      edges alone, so none is compiled into the `oac` binary. An adapter, a transport or
-//      cli/ may take one as a dev-dependency (rule 2 allows the reach); core/ may not,
-//      because core/ reaches nothing in-repo.
+//   5. Test doubles and contract suites stay out of every product build (#57, #59): no
+//      product member (core, cli, an adapter or a transport) reaches a tests/fakes/<name>
+//      or tests/protocol/contract/<name> crate over normal and build edges alone, so none
+//      is compiled into the `oac` binary. An adapter, a transport or cli/ may take one as a
+//      dev-dependency (rule 2 allows the reach); core/ may not, because core/ reaches
+//      nothing in-repo.
 //   4. Provider and transport crates stay with their owner: the zenoh crates may be a
 //      direct dependency of transports/zenoh only, the Codex app-server crates of
 //      adapters/codex only (07 section 5, "Consuming module"); and neither may be reachable
@@ -96,6 +99,8 @@ export function moduleOf(relDir) {
   if (m) return { kind: 'transport', path: d };
   m = /^tests\/fakes\/([a-z0-9][a-z0-9_-]*)$/.exec(d);
   if (m) return { kind: 'fake', path: d };
+  m = /^tests\/protocol\/contract\/([a-z0-9][a-z0-9_-]*)$/.exec(d);
+  if (m) return { kind: 'suite', path: d };
   return null;
 }
 
@@ -106,8 +111,9 @@ function allowedReach(from, to) {
   if (from.kind === 'cli') return true;
   if (from.kind === 'core') return false;
   if (from.kind === 'fake') return to.kind === 'core'; // test doubles: core/ only
-  // adapters and transports: core/, and a fake as a dev-dependency (rule 5)
-  return to.kind === 'core' || to.kind === 'fake';
+  if (from.kind === 'suite') return to.kind === 'core' || to.kind === 'fake'; // contract suites
+  // adapters and transports: core/, and a fake or a suite as a dev-dependency (rule 5)
+  return to.kind === 'core' || to.kind === 'fake' || to.kind === 'suite';
 }
 
 // Pure check over a parsed `cargo metadata --format-version 1` document. Returns a list of
@@ -128,7 +134,7 @@ export function checkMetadata(meta) {
     if (!mod) {
       violations.push(
         `${p.name} (${rel.split(sep).join('/') || '.'}): workspace member outside the module layout ` +
-          '(core, cli, adapters/<name>, transports/<name>, tests/fakes/<name>)',
+          '(core, cli, adapters/<name>, transports/<name>, tests/fakes/<name>, tests/protocol/contract/<name>)',
       );
       continue;
     }
@@ -193,7 +199,7 @@ export function checkMetadata(meta) {
       }
     }
     // 5. No test double in a product build: reachability over normal and build edges only.
-    if (mod.kind !== 'fake') {
+    if (mod.kind !== 'fake' && mod.kind !== 'suite') {
       const built = new Map([[id, null]]);
       const q = [id];
       while (q.length) {
@@ -206,10 +212,11 @@ export function checkMetadata(meta) {
       }
       for (const reached of built.keys()) {
         const tmod = members.get(reached);
-        if (tmod?.kind !== 'fake') continue;
+        if (tmod?.kind !== 'fake' && tmod?.kind !== 'suite') continue;
         const chain = [];
         for (let c = reached; c !== null; c = built.get(c)) chain.unshift(nameOf(c));
-        violations.push(`${name} builds in test double ${tmod.path} (allowed only as a dev-dependency): ${chain.join(' -> ')}`);
+        const what = tmod.kind === 'fake' ? 'test double' : 'contract suite';
+        violations.push(`${name} builds in ${what} ${tmod.path} (allowed only as a dev-dependency): ${chain.join(' -> ')}`);
       }
     }
   }
@@ -276,6 +283,19 @@ const BASE_EDGES = [
 ];
 const FAKE_MEMBERS = { ...BASE_MEMBERS, 'oac-fake-claude': 'tests/fakes/claude' };
 const FAKE_EDGES = [...BASE_EDGES, ['oac-fake-claude', 'oac-core']];
+const SUITE_MEMBERS = {
+  ...FAKE_MEMBERS,
+  'oac-transport-memory': 'transports/memory',
+  'oac-contract-transport': 'tests/protocol/contract/transport',
+  'oac-contract-adapter': 'tests/protocol/contract/adapter',
+};
+const SUITE_EDGES = [
+  ...FAKE_EDGES,
+  ['oac-transport-memory', 'oac-core'],
+  ['oac-contract-transport', 'oac-core'],
+  ['oac-contract-adapter', 'oac-core'],
+  ['oac-contract-adapter', 'oac-fake-claude'],
+];
 const without = (edges, f, t) => edges.filter(([a, b]) => !(a === f && b === t));
 
 const SELF_TEST_CASES = [
@@ -385,6 +405,29 @@ const SELF_TEST_CASES = [
   { name: 'fake depends on zenoh', meta: synth({ members: FAKE_MEMBERS, externals: ['zenoh'], edges: [...FAKE_EDGES, ['oac-fake-claude', 'zenoh']] }) },
   { name: 'fake outside tests/fakes/<name> (tests/claude)', meta: synth({ members: { ...BASE_MEMBERS, 'oac-fake-claude': 'tests/claude' }, edges: FAKE_EDGES }) },
   { name: 'nested fake path (tests/fakes/claude/inner)', meta: synth({ members: { ...BASE_MEMBERS, 'oac-fake-claude': 'tests/fakes/claude/inner' }, edges: FAKE_EDGES }) },
+  // #59: the contract suites at tests/protocol/contract/<name> stay out of every product build.
+  {
+    name: 'control: suites depend on core/ and a fake; a transport, an adapter and cli/ dev-depend on them',
+    expectClean: true,
+    meta: synth({
+      members: SUITE_MEMBERS,
+      edges: [...SUITE_EDGES, ['oac-transport-memory', 'oac-contract-transport', 'dev'],
+        ['oac-adapter-claude', 'oac-contract-adapter', 'dev'], ['oac-cli', 'oac-contract-adapter', 'dev']],
+    }),
+  },
+  { name: 'transport -> suite (normal)', meta: synth({ members: SUITE_MEMBERS, edges: [...SUITE_EDGES, ['oac-transport-memory', 'oac-contract-transport']] }) },
+  { name: 'cli -> suite (build-dependency)', meta: synth({ members: SUITE_MEMBERS, edges: [...SUITE_EDGES, ['oac-cli', 'oac-contract-adapter', 'build']] }) },
+  { name: 'core -> suite (dev-dependency)', meta: synth({ members: SUITE_MEMBERS, edges: [...SUITE_EDGES, ['oac-core', 'oac-contract-transport', 'dev']] }) },
+  { name: 'suite -> transport', meta: synth({ members: SUITE_MEMBERS, edges: [...SUITE_EDGES, ['oac-contract-transport', 'oac-transport-memory']] }) },
+  { name: 'suite -> adapter (dev-dependency)', meta: synth({ members: SUITE_MEMBERS, edges: [...SUITE_EDGES, ['oac-contract-adapter', 'oac-adapter-claude', 'dev']] }) },
+  { name: 'suite -> sibling suite', meta: synth({ members: SUITE_MEMBERS, edges: [...SUITE_EDGES, ['oac-contract-adapter', 'oac-contract-transport']] }) },
+  { name: 'fake -> suite', meta: synth({ members: SUITE_MEMBERS, edges: [...SUITE_EDGES, ['oac-fake-claude', 'oac-contract-adapter']] }) },
+  { name: 'suite depends on zenoh', meta: synth({ members: SUITE_MEMBERS, externals: ['zenoh'], edges: [...SUITE_EDGES, ['oac-contract-transport', 'zenoh']] }) },
+  { name: 'suite outside tests/protocol/contract/<name> (tests/contract/x)', meta: synth({ members: { ...SUITE_MEMBERS, 'oac-contract-transport': 'tests/contract/transport' }, edges: SUITE_EDGES }) },
+  {
+    name: 'adapter builds in a suite through a third-party crate',
+    meta: synth({ members: SUITE_MEMBERS, externals: ['shim'], edges: [...SUITE_EDGES, ['oac-adapter-codex', 'shim'], ['shim', 'oac-contract-adapter']] }),
+  },
 ];
 
 function selfTest() {
@@ -496,6 +539,10 @@ const MUTATIONS = [
   { name: 'adapters/claude depends on tests/fakes/claude', file: 'adapters/claude/Cargo.toml', edit: addDep('dependencies', 'oac-fake-claude = { path = "../../tests/fakes/claude" }') },
   { name: 'core/ dev-depends on tests/fakes/claude', file: 'core/Cargo.toml', edit: addDep('dev-dependencies', 'oac-fake-claude = { path = "../tests/fakes/claude" }') },
   { name: 'tests/fakes/claude depends on adapters/claude', file: 'tests/fakes/claude/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../../../adapters/claude" }') },
+  // #59: the contract suites are never a normal dependency of a product crate.
+  { name: 'transports/memory depends on the transport suite', file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'oac-contract-transport = { path = "../../tests/protocol/contract/transport" }') },
+  { name: 'cli/ depends on the adapter suite', file: 'cli/Cargo.toml', edit: addDep('dependencies', 'oac-contract-adapter = { path = "../tests/protocol/contract/adapter" }') },
+  { name: 'the transport suite depends on transports/memory', file: 'tests/protocol/contract/transport/Cargo.toml', edit: addDep('dependencies', 'oac-transport-memory = { path = "../../../../transports/memory" }') },
 ];
 
 // Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error

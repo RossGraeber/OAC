@@ -189,7 +189,9 @@ mod tests {
         let bad = "use oac_core::transport::Transport;\nfn f() { let d = EnvelopeDraft::new(); }\n";
         let f = scan_text(p, bad);
         assert_eq!(
-            f.iter().map(|x| (x.requirement, x.line)).collect::<Vec<_>>(),
+            f.iter()
+                .map(|x| (x.requirement, x.line))
+                .collect::<Vec<_>>(),
             [("IFC-ADP-001", 1), ("IFC-ADP-002", 2)]
         );
         assert!(

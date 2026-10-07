@@ -65,6 +65,13 @@ a dev-dependency only, never a normal or build one, so it is never built into th
 binary (§3). It reads the recorded fixtures in place from `docs/planning/gates/fixtures/`;
 nothing is copied under `tests/`. It is not herdr and does not drive a harness:
 `tests/integration/` stays the opt-in provider-integration leaf.)
+(Dated note, 2026-10-06, #59: the contract suites of F10 live under `tests/protocol/contract/<name>/`,
+inside the `tests/` row of §2, as `docs/planning/v0.1/10-stages.md` places them: the transport
+suite `oac-contract-transport` and the adapter suite `oac-contract-adapter`, Rust workspace
+members that depend on `core/` and, for the adapter suite, the fake Claude endpoint only, and
+on no third-party crate. A product crate may take one as a dev-dependency only, never a normal
+or build one (§3), so neither is built into the `oac` binary. The adapter suite spawns the
+fake Codex app-server by path, as #58 below allows.)
 (Dated note, 2026-10-06, #58: fake harness endpoints live under `tests/fakes/<name>/`,
 inside the `tests/` row of §2. F9's fake Codex app-server is
 `tests/fakes/codex-app-server/`: Node built-ins only, no `package.json`, never a workspace
@@ -148,6 +155,8 @@ core/             -> (nothing in-repo)
 (nothing)         -> cli/
 tests/fakes/* (Rust workspace members) -> core/   (only; #57)
 adapters/*, transports/*, cli/ -> tests/fakes/* (Rust members)   (dev-dependency only; #57)
+tests/protocol/contract/*      -> core/, tests/fakes/*   (only; #59)
+adapters/*, transports/*, cli/ -> tests/protocol/contract/*   (dev-dependency only; #59)
 ```
 
 (Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305

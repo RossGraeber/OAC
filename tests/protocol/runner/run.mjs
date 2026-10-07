@@ -76,17 +76,18 @@ const STAGES = {
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
 // Every fixture file, and the entries of tests/protocol/ the runner does not recognise: an
-// entry other than a fixture directory (`<doc>-<area>/`), this runner's directory and the
-// test-key file, and anything inside a fixture directory that is not a regular file.
+// entry other than a fixture directory (`<doc>-<area>/`), this runner's directory, the
+// contract suites' directory (`contract/`, #59: Rust crates, not fixtures) and the test-key
+// file, and anything inside a fixture directory that is not a regular file.
 function listFixtures() {
   const out = [];
   const stray = [];
   for (const entry of fs.readdirSync(FIXTURES, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const name = entry.name;
     if (entry.isFile() && name === 'sec-test-keys.json') continue;
-    if (entry.isDirectory() && name === 'runner') continue;
+    if (entry.isDirectory() && (name === 'runner' || name === 'contract')) continue;
     if (!entry.isDirectory() || !/^(sc|sec|mcpb|ifc)-[a-z]+$/.test(name)) {
-      stray.push(`tests/protocol/${name}${entry.isDirectory() ? '/' : ''}: not a fixture directory, the runner or the test-key file`);
+      stray.push(`tests/protocol/${name}${entry.isDirectory() ? '/' : ''}: not a fixture directory, the runner, the contract suites or the test-key file`);
       continue;
     }
     for (const f of fs.readdirSync(path.join(FIXTURES, name), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {

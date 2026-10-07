@@ -24,12 +24,13 @@ use std::sync::{Arc, Mutex};
 use oac_contract_adapter::claude::{ClaudeHarness, PipeWriter, json_string, pipe};
 use oac_contract_adapter::codex::{self, CodexFake, TUI_CLIENT};
 use oac_contract_adapter::{
-    AdapterHarness, CoreSide, Gap, HarnessRequest, ObservedResult, Observations, Profile,
-    Report, Step, run,
+    AdapterHarness, CoreSide, Gap, HarnessRequest, Observations, ObservedResult, Profile, Report,
+    Step, run,
 };
 use oac_core::adapter::{
-    AdapterCapabilities, AdapterEvent, AdapterEventHandler, Attachment, Connection, DiscoveryRequest,
-    HandOff, HandOffOutcome, ProviderAdapter, Request, RequestResult, RequestSink, SendRequest,
+    AdapterCapabilities, AdapterEvent, AdapterEventHandler, Attachment, Connection,
+    DiscoveryRequest, HandOff, HandOffOutcome, ProviderAdapter, Request, RequestResult,
+    RequestSink, SendRequest,
 };
 use oac_core::envelope::{ContentPart, TextPart};
 use oac_core::health::{HealthState, HealthStatus};
@@ -167,7 +168,11 @@ impl ChannelStandIn {
     }
 }
 
-fn send_line(w: &Mutex<HashMap<Attachment, Box<dyn Write + Send>>>, a: &Attachment, line: &str) -> bool {
+fn send_line(
+    w: &Mutex<HashMap<Attachment, Box<dyn Write + Send>>>,
+    a: &Attachment,
+    line: &str,
+) -> bool {
     let mut ws = w.lock().unwrap();
     match ws.get_mut(a) {
         Some(w) => w.write_all(format!("{line}\n").as_bytes()).is_ok(),
@@ -197,10 +202,24 @@ impl ChannelStandIn {
         let id = member(v, "id");
         match (member_str(v, "method"), id) {
             (Some("server/discover"), Some(id)) => {
-                send_line(writers, a, &respond(id, "\"error\":{\"code\":-32601,\"message\":\"Method not found\"}"));
+                send_line(
+                    writers,
+                    a,
+                    &respond(
+                        id,
+                        "\"error\":{\"code\":-32601,\"message\":\"Method not found\"}",
+                    ),
+                );
             }
             (Some("initialize"), Some(id)) => {
-                send_line(writers, a, &respond(id, "\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{\"claude/channel\":{}},\"tools\":{}},\"serverInfo\":{\"name\":\"oac-stand-in\",\"version\":\"0\"}}"));
+                send_line(
+                    writers,
+                    a,
+                    &respond(
+                        id,
+                        "\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"experimental\":{\"claude/channel\":{}},\"tools\":{}},\"serverInfo\":{\"name\":\"oac-stand-in\",\"version\":\"0\"}}",
+                    ),
+                );
             }
             (Some("notifications/initialized"), None) => Common::opened(common, a),
             (Some("tools/list"), Some(id)) => {
@@ -210,10 +229,16 @@ impl ChannelStandIn {
                 }
                 let list = tools
                     .iter()
-                    .map(|t| format!("{{\"name\":\"{t}\",\"inputSchema\":{{\"type\":\"object\"}}}}"))
+                    .map(|t| {
+                        format!("{{\"name\":\"{t}\",\"inputSchema\":{{\"type\":\"object\"}}}}")
+                    })
                     .collect::<Vec<_>>()
                     .join(",");
-                send_line(writers, a, &respond(id, &format!("\"result\":{{\"tools\":[{list}]}}")));
+                send_line(
+                    writers,
+                    a,
+                    &respond(id, &format!("\"result\":{{\"tools\":[{list}]}}")),
+                );
             }
             (Some("tools/call"), Some(id)) => {
                 let (down, sink) = {
@@ -221,24 +246,40 @@ impl ChannelStandIn {
                     (c.down, c.sink.clone())
                 };
                 if down || sink.is_none() {
-                    send_line(writers, a, &respond(id, &tool_result(true, "internal-error")));
+                    send_line(
+                        writers,
+                        a,
+                        &respond(id, &tool_result(true, "internal-error")),
+                    );
                     return;
                 }
                 let sink = sink.unwrap();
                 let params = member(v, "params");
-                let name = params.and_then(|p| member_str(p, "name")).unwrap_or_default();
+                let name = params
+                    .and_then(|p| member_str(p, "name"))
+                    .unwrap_or_default();
                 let args = params.and_then(|p| member(p, "arguments"));
                 let label = if breach == ChannelBreach::ForgesAttachment {
-                    Connection::accept(std::io::empty(), std::io::sink()).handle().clone()
+                    Connection::accept(std::io::empty(), std::io::sink())
+                        .handle()
+                        .clone()
                 } else {
                     a.clone()
                 };
                 let request = match name {
                     "send" => {
-                        let to = args.and_then(|x| member_str(x, "to")).and_then(SessionId::parse);
-                        let text = args.and_then(|x| member_str(x, "text")).and_then(TextPart::new);
+                        let to = args
+                            .and_then(|x| member_str(x, "to"))
+                            .and_then(SessionId::parse);
+                        let text = args
+                            .and_then(|x| member_str(x, "text"))
+                            .and_then(TextPart::new);
                         let (Some(to), Some(text)) = (to, text) else {
-                            send_line(writers, a, &respond(id, &tool_result(true, "invalid-request")));
+                            send_line(
+                                writers,
+                                a,
+                                &respond(id, &tool_result(true, "invalid-request")),
+                            );
                             return;
                         };
                         Request::Send(SendRequest {
@@ -252,17 +293,30 @@ impl ChannelStandIn {
                     }
                     "list_sessions" => Request::Discovery(DiscoveryRequest { attachment: label }),
                     _ => {
-                        send_line(writers, a, &respond(id, "\"error\":{\"code\":-32602,\"message\":\"unknown tool\"}"));
+                        send_line(
+                            writers,
+                            a,
+                            &respond(
+                                id,
+                                "\"error\":{\"code\":-32602,\"message\":\"unknown tool\"}",
+                            ),
+                        );
                         return;
                     }
                 };
                 if breach == ChannelBreach::BypassesTheCore && matches!(request, Request::Send(_)) {
-                    send_line(writers, a, &respond(id, &tool_result(false, "m0 accepted-by-adapter")));
+                    send_line(
+                        writers,
+                        a,
+                        &respond(id, &tool_result(false, "m0 accepted-by-adapter")),
+                    );
                     return;
                 }
                 let r = sink(request);
                 let body = match (&r, breach) {
-                    (_, ChannelBreach::AltersResults) => tool_result(false, "m0 accepted-by-adapter"),
+                    (_, ChannelBreach::AltersResults) => {
+                        tool_result(false, "m0 accepted-by-adapter")
+                    }
                     (RequestResult::Sent { id: mid, .. }, _) => {
                         tool_result(false, &format!("{} accepted-by-adapter", mid.as_str()))
                     }
@@ -270,7 +324,9 @@ impl ChannelStandIn {
                     (RequestResult::NotPassed { id: mid, error }, _) => {
                         tool_result(true, &format!("{} {}", error.as_str(), mid.as_str()))
                     }
-                    (RequestResult::Discovered(d), _) => tool_result(false, &format!("{} sessions", d.len())),
+                    (RequestResult::Discovered(d), _) => {
+                        tool_result(false, &format!("{} sessions", d.len()))
+                    }
                 };
                 send_line(writers, a, &respond(id, &body));
             }
@@ -300,7 +356,11 @@ impl ProviderAdapter for ChannelStandIn {
     }
 
     fn set_binding(&self, attachment: &Attachment, session: Option<SessionId>) {
-        self.common.lock().unwrap().bound.insert(attachment.clone(), session);
+        self.common
+            .lock()
+            .unwrap()
+            .bound
+            .insert(attachment.clone(), session);
     }
 
     fn capabilities(&self, _attachment: &Attachment) -> AdapterCapabilities {
@@ -313,8 +373,18 @@ impl ProviderAdapter for ChannelStandIn {
 
     fn deliver(&self, hand_off: HandOff) -> HandOffOutcome {
         let a = hand_off.attachment();
-        let ok = Common::may_hand_off(&self.common, a, self.breach == ChannelBreach::IgnoresBinding)
-            || (self.breach == ChannelBreach::WorksAfterShutdown && self.common.lock().unwrap().bound.get(a).is_some_and(Option::is_some));
+        let ok = Common::may_hand_off(
+            &self.common,
+            a,
+            self.breach == ChannelBreach::IgnoresBinding,
+        ) || (self.breach == ChannelBreach::WorksAfterShutdown
+            && self
+                .common
+                .lock()
+                .unwrap()
+                .bound
+                .get(a)
+                .is_some_and(Option::is_some));
         if !ok {
             return HandOffOutcome::Failed;
         }
@@ -328,12 +398,20 @@ impl ProviderAdapter for ChannelStandIn {
             json_string(&text),
             json_string(&from)
         );
-        let calls = if self.breach == ChannelBreach::DoubleCall { 2 } else { 1 };
+        let calls = if self.breach == ChannelBreach::DoubleCall {
+            2
+        } else {
+            1
+        };
         let mut sent = true;
         for _ in 0..calls {
             sent &= send_line(&self.writers, a, &frame);
         }
-        if sent { HandOffOutcome::Completed } else { HandOffOutcome::Failed }
+        if sent {
+            HandOffOutcome::Completed
+        } else {
+            HandOffOutcome::Failed
+        }
     }
 
     fn accept_requests(&self, sink: RequestSink) {
@@ -345,13 +423,20 @@ impl ProviderAdapter for ChannelStandIn {
     }
 
     fn shutdown(&self) {
-        Common::shutdown(&self.common, self.breach != ChannelBreach::KeepsAttachmentsAtShutdown);
+        Common::shutdown(
+            &self.common,
+            self.breach != ChannelBreach::KeepsAttachmentsAtShutdown,
+        );
     }
 }
 
 fn encode(r: &HarnessRequest) -> (String, String) {
     match r {
-        HarnessRequest::Send { to, text, claimed_from } => (
+        HarnessRequest::Send {
+            to,
+            text,
+            claimed_from,
+        } => (
             "send".into(),
             format!(
                 "{{\"to\":{},\"text\":{}{}}}",
@@ -368,7 +453,12 @@ fn encode(r: &HarnessRequest) -> (String, String) {
 }
 
 fn channel_report(breach: ChannelBreach, release: MidTurnRelease) -> Report {
-    let mut h = ClaudeHarness::new(Arc::new(ChannelStandIn::new(breach)), release, encode, this_file());
+    let mut h = ClaudeHarness::new(
+        Arc::new(ChannelStandIn::new(breach)),
+        release,
+        encode,
+        this_file(),
+    );
     run(&mut h)
 }
 
@@ -392,7 +482,10 @@ fn the_suite_catches_each_planted_channel_breach() {
         (ChannelBreach::OffersInbox, &["IFC-ADP-040"]),
         (ChannelBreach::IgnoresBinding, &["IFC-ADP-030"]),
         (ChannelBreach::DoubleCall, &["IFC-ADP-057"]),
-        (ChannelBreach::ForgesAttachment, &["IFC-ADP-031", "IFC-ADP-013"]),
+        (
+            ChannelBreach::ForgesAttachment,
+            &["IFC-ADP-031", "IFC-ADP-013"],
+        ),
         (ChannelBreach::KeepsAttachmentsAtShutdown, &["IFC-ADP-071"]),
         (ChannelBreach::BypassesTheCore, &["IFC-ADP-003"]),
         (ChannelBreach::AltersResults, &["IFC-ADP-060"]),
@@ -402,7 +495,10 @@ fn the_suite_catches_each_planted_channel_breach() {
     for (breach, ids) in cases {
         let report = channel_report(breach, MidTurnRelease::OnePerBoundary);
         for id in ids {
-            assert!(report.failed(id), "{breach:?} not caught as {id}:\n{report}");
+            assert!(
+                report.failed(id),
+                "{breach:?} not caught as {id}:\n{report}"
+            );
         }
         assert!(report.failed("IFC-ADP-010"), "{report}");
     }
@@ -419,7 +515,10 @@ struct Ws {
 
 impl Ws {
     fn connect(url: &str) -> Ws {
-        let host = url.strip_prefix("ws://").expect("a ws:// url").trim_end_matches('/');
+        let host = url
+            .strip_prefix("ws://")
+            .expect("a ws:// url")
+            .trim_end_matches('/');
         let mut s = TcpStream::connect(host).expect("connect to the fake");
         write!(
             s,
@@ -432,7 +531,11 @@ impl Ws {
             s.read_exact(&mut b).unwrap();
             head.push(b[0]);
         }
-        assert!(head.starts_with(b"HTTP/1.1 101"), "{}", String::from_utf8_lossy(&head));
+        assert!(
+            head.starts_with(b"HTTP/1.1 101"),
+            "{}",
+            String::from_utf8_lossy(&head)
+        );
         Ws { s, next: 1 }
     }
 
@@ -552,11 +655,13 @@ impl ProviderAdapter for QueueStandIn {
         let (common, threads) = (self.common.clone(), self.threads.clone());
         std::thread::spawn(move || {
             let mut lines = BufReader::new(reader).lines().map_while(Result::ok);
-            if let Some(first) = lines.next() {
-                if let Some(t) = json::parse(first.as_bytes()).ok().and_then(|v| member_str(&v, "thread").map(str::to_owned)) {
-                    threads.lock().unwrap().insert(a.clone(), t);
-                    Common::opened(&common, &a);
-                }
+            if let Some(first) = lines.next()
+                && let Some(t) = json::parse(first.as_bytes())
+                    .ok()
+                    .and_then(|v| member_str(&v, "thread").map(str::to_owned))
+            {
+                threads.lock().unwrap().insert(a.clone(), t);
+                Common::opened(&common, &a);
             }
             for _ in lines {}
             Common::closed(&common, &a);
@@ -568,7 +673,11 @@ impl ProviderAdapter for QueueStandIn {
     }
 
     fn set_binding(&self, attachment: &Attachment, session: Option<SessionId>) {
-        self.common.lock().unwrap().bound.insert(attachment.clone(), session);
+        self.common
+            .lock()
+            .unwrap()
+            .bound
+            .insert(attachment.clone(), session);
     }
 
     fn capabilities(&self, _attachment: &Attachment) -> AdapterCapabilities {
@@ -587,16 +696,43 @@ impl ProviderAdapter for QueueStandIn {
         let Some(thread) = self.threads.lock().unwrap().get(a).cloned() else {
             return HandOffOutcome::Failed;
         };
-        let input = format!("[{{\"type\":\"text\",\"text\":{}}}]", json_string(&hand_off_text(&hand_off)));
+        let input = format!(
+            "[{{\"type\":\"text\",\"text\":{}}}]",
+            json_string(&hand_off_text(&hand_off))
+        );
         let n = self.next.fetch_add(1, Ordering::Relaxed);
         let mut ws = self.ws.lock().unwrap();
         if self.breach == QueueBreach::ResubscribesPerMessage {
-            let _ = ws.call("thread/resume", &format!("{{\"threadId\":{},\"excludeTurns\":true}}", json_string(&thread)));
+            let _ = ws.call(
+                "thread/resume",
+                &format!(
+                    "{{\"threadId\":{},\"excludeTurns\":true}}",
+                    json_string(&thread)
+                ),
+            );
         }
         let (method, params) = match self.breach {
-            QueueBreach::StartsTurns => ("turn/start", format!("{{\"threadId\":{},\"input\":{input}}}", json_string(&thread))),
-            QueueBreach::OverridesSettings => (codex::HOLDING_HAND_OFF, format!("{{\"threadId\":{},\"input\":{input},\"clientUserMessageId\":\"oac-{n}\",\"model\":\"other\"}}", json_string(&thread))),
-            _ => (codex::HOLDING_HAND_OFF, format!("{{\"threadId\":{},\"input\":{input},\"clientUserMessageId\":\"oac-{n}\"}}", json_string(&thread))),
+            QueueBreach::StartsTurns => (
+                "turn/start",
+                format!(
+                    "{{\"threadId\":{},\"input\":{input}}}",
+                    json_string(&thread)
+                ),
+            ),
+            QueueBreach::OverridesSettings => (
+                codex::HOLDING_HAND_OFF,
+                format!(
+                    "{{\"threadId\":{},\"input\":{input},\"clientUserMessageId\":\"oac-{n}\",\"model\":\"other\"}}",
+                    json_string(&thread)
+                ),
+            ),
+            _ => (
+                codex::HOLDING_HAND_OFF,
+                format!(
+                    "{{\"threadId\":{},\"input\":{input},\"clientUserMessageId\":\"oac-{n}\"}}",
+                    json_string(&thread)
+                ),
+            ),
         };
         let r = ws.call(method, &params);
         if self.breach == QueueBreach::PollsTurns {
@@ -605,7 +741,13 @@ impl ProviderAdapter for QueueStandIn {
         match r {
             Ok(_) => HandOffOutcome::Completed,
             Err(_) if self.breach == QueueBreach::FallsBackToSteer => {
-                let _ = ws.call("turn/steer", &format!("{{\"threadId\":{},\"input\":{input}}}", json_string(&thread)));
+                let _ = ws.call(
+                    "turn/steer",
+                    &format!(
+                        "{{\"threadId\":{},\"input\":{input}}}",
+                        json_string(&thread)
+                    ),
+                );
                 HandOffOutcome::Failed
             }
             // spec/bindings/mcp.md §8.2.1: none of the known refusals means "not now".
@@ -690,7 +832,8 @@ impl AdapterHarness for QueueHarness {
         ))
     }
     fn observe(&mut self, s: usize) -> Observations {
-        self.fake.observations(STAND_IN_CLIENT, &self.sessions[s].0, &self.own)
+        self.fake
+            .observations(STAND_IN_CLIENT, &self.sessions[s].0, &self.own)
     }
     fn source_files(&self) -> Vec<PathBuf> {
         this_file()
@@ -716,10 +859,23 @@ fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
     report.assert_conformant();
     assert_eq!(
         report.not_applicable(),
-        ["IFC-ADP-003", "IFC-ADP-031", "IFC-ADP-043", "IFC-ADP-053", "IFC-ADP-054", "IFC-ADP-060"],
+        [
+            "IFC-ADP-003",
+            "IFC-ADP-031",
+            "IFC-ADP-043",
+            "IFC-ADP-053",
+            "IFC-ADP-054",
+            "IFC-ADP-060"
+        ],
         "{report}"
     );
-    for id in ["MCPB-CDX-002", "MCPB-CDX-003", "MCPB-CDX-004", "MCPB-CDX-005", "SEC-AUZ-027"] {
+    for id in [
+        "MCPB-CDX-002",
+        "MCPB-CDX-003",
+        "MCPB-CDX-004",
+        "MCPB-CDX-005",
+        "SEC-AUZ-027",
+    ] {
         assert!(report.ids().contains(&id), "no {id} row:\n{report}");
     }
 }
@@ -727,8 +883,14 @@ fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
 #[test]
 fn the_suite_catches_each_planted_queue_breach() {
     let cases: [(QueueBreach, &[&str]); 5] = [
-        (QueueBreach::StartsTurns, &["SEC-AUZ-022", "SEC-AUZ-025", "MCPB-CDX-002", "MCPB-CDX-003"]),
-        (QueueBreach::FallsBackToSteer, &["SEC-AUZ-027", "MCPB-CDX-004"]),
+        (
+            QueueBreach::StartsTurns,
+            &["SEC-AUZ-022", "SEC-AUZ-025", "MCPB-CDX-002", "MCPB-CDX-003"],
+        ),
+        (
+            QueueBreach::FallsBackToSteer,
+            &["SEC-AUZ-027", "MCPB-CDX-004"],
+        ),
         (QueueBreach::OverridesSettings, &["MCPB-CDX-005"]),
         (QueueBreach::PollsTurns, &["IFC-ADP-040"]),
         (QueueBreach::ResubscribesPerMessage, &["IFC-ADP-040"]),
@@ -736,7 +898,10 @@ fn the_suite_catches_each_planted_queue_breach() {
     for (breach, ids) in cases {
         let report = queue_report(breach);
         for id in ids {
-            assert!(report.failed(id), "{breach:?} not caught as {id}:\n{report}");
+            assert!(
+                report.failed(id),
+                "{breach:?} not caught as {id}:\n{report}"
+            );
         }
     }
 }

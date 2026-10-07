@@ -18,7 +18,7 @@
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use oac_core::adapter::{Connection, ProviderAdapter};
@@ -30,7 +30,7 @@ use oac_fake_claude::{
 };
 
 use crate::{
-    AdapterHarness, CoreSide, Gap, HandOffCall, HarnessRequest, ObservedResult, Observations,
+    AdapterHarness, CoreSide, Gap, HandOffCall, HarnessRequest, Observations, ObservedResult,
     Profile, Step, WAIT,
 };
 
@@ -153,11 +153,8 @@ impl ClaudeSession {
 
     /// Move every frame that is ready, both ways.
     fn pump(&mut self) {
-        loop {
-            match self.from_adapter.try_recv() {
-                Ok(c) => self.take_chunk(c),
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
+        while let Ok(c) = self.from_adapter.try_recv() {
+            self.take_chunk(c);
         }
         let out = self.fake.take_outbound();
         if let Some(w) = self.to_adapter.as_mut() {
@@ -278,10 +275,7 @@ impl AdapterHarness for ClaudeHarness {
 
     fn session_ready(&mut self, s: usize) -> Step<()> {
         let sess = self.session(s)?;
-        let ok = sess.pump_until(
-            |f| matches!(f.phase(), Phase::Ready | Phase::Halted),
-            WAIT,
-        );
+        let ok = sess.pump_until(|f| matches!(f.phase(), Phase::Ready | Phase::Halted), WAIT);
         if let Some(h) = halted(&sess.fake) {
             return Err(Gap::Broken(format!("the fake halted while opening: {h}")));
         }

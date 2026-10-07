@@ -90,7 +90,13 @@ impl Connection {
     }
 
     /// The handle and the two halves of the byte stream.
-    pub fn into_parts(self) -> (ConnectionHandle, Box<dyn Read + Send>, Box<dyn Write + Send>) {
+    pub fn into_parts(
+        self,
+    ) -> (
+        ConnectionHandle,
+        Box<dyn Read + Send>,
+        Box<dyn Write + Send>,
+    ) {
         (self.handle, self.reader, self.writer)
     }
 }
