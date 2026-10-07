@@ -313,11 +313,12 @@ impl<K: Ord + Clone, R: Dated> RecordBook<K, R> {
     /// Drops every partition whose records are all past their reply period at `now`: the
     /// first entries of `by_end`, and no others.
     fn sweep(&mut self, now: i128) {
-        while let Some((ends, key)) = self.by_end.first().cloned() {
-            if ends > now {
-                break;
+        while self.by_end.first().is_some_and(|(ends, _)| *ends <= now) {
+            // Taken off first, so each pass removes an entry and the loop ends even if an
+            // entry outlived its partition.
+            if let Some((_, key)) = self.by_end.pop_first() {
+                self.drop_partition(&key);
             }
-            self.drop_partition(&key);
         }
     }
 
