@@ -1862,3 +1862,79 @@ fn a_disconnected_attachment_is_deregistered() {
         .emit(signal(Some(&b), "native-x", StartKind::Fresh, None));
     assert!(n.pipes.binding(&b).is_some());
 }
+
+/// PR #333 re-review B3 ([SC-ID-121], [SC-ID-125]): a hook that sends a fresh signal and
+/// disconnects before the signal's turn still pairs by the key observed when it was
+/// reported, and binds.
+#[test]
+fn a_fresh_signal_pairs_after_its_carrier_disconnects() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let a = observed_attachment(&n, "harness-k", Some("native-n"));
+    let c = carrier(&n, "harness-k");
+    let x = observed_attachment(&n, "harness-x", None);
+    let log = binding_log(&n);
+    let (adapter, pipes) = (n.adapter.clone(), n.pipes.clone());
+    during_next_decision(&n, move || {
+        adapter.emit(signal(Some(&c), "native-n", StartKind::Fresh, None));
+        pipes.disconnect(&c);
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    assert!(n.pipes.binding(&a).is_some(), "{:?}", requirements(&log));
+    assert!(!requirements(&log).contains(&"SC-ID-129"));
+}
+
+/// PR #333 re-review B3 ([SC-ID-140], [SC-ID-150]): a transition from N to N' whose hook
+/// disconnects before its turn still moves the attachment to a new session, so nothing
+/// keeps delivering to the session it left.
+#[test]
+fn a_transition_moves_the_attachment_after_its_carrier_disconnects() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let a = observed_attachment(&n, "harness-k", Some("native-n"));
+    let c = carrier(&n, "harness-k");
+    n.adapter
+        .emit(signal(Some(&c), "native-n", StartKind::Fresh, None));
+    let old = n.pipes.binding(&a).expect("bound");
+    let x = observed_attachment(&n, "harness-x", None);
+    let c2 = carrier(&n, "harness-k");
+    let (adapter, pipes) = (n.adapter.clone(), n.pipes.clone());
+    during_next_decision(&n, move || {
+        adapter.emit(signal(Some(&c2), "native-n2", StartKind::Transition, None));
+        pipes.disconnect(&c2);
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    let new = n.pipes.binding(&a).expect("moved");
+    assert_ne!(new, old);
+    assert_eq!(told(&n, &a), Some(new));
+    n.pipes
+        .with_engine(|e| assert_eq!(e.binding(&old), None, "the old session ended"));
+}
+
+/// PR #333 re-review N9 ([SC-ID-155]): an attachment whose connection ends while a bind
+/// for it is under way registers no session. `disconnect` marks it closed under the lock
+/// first, and the bind's locked re-check refuses a closed attachment, so whichever of the
+/// two takes the lock first, no session outlives the attachment. This test runs the
+/// disconnect inside the bind, between its first check and its locked re-check.
+#[test]
+fn a_disconnect_during_a_bind_leaves_no_session() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let x = observed_attachment(&n, "harness-x", None);
+    let before = n.pipes.with_engine(|e| e.bindings().count());
+    let (pipes, xx) = (n.pipes.clone(), x.clone());
+    during_next_decision(&n, move || pipes.disconnect(&xx));
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    assert_eq!(n.pipes.binding(&x), None);
+    assert_eq!(told(&n, &x), None);
+    assert_eq!(n.pipes.with_engine(|e| e.bindings().count()), before);
+    let failed = log
+        .entries()
+        .iter()
+        .any(|e| e.record.requirement == "SC-ID-009" && e.result == BindingResult::FailedClosed);
+    assert!(failed, "{:?}", requirements(&log));
+}

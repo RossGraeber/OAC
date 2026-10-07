@@ -277,6 +277,14 @@ struct AttachmentEntry {
     withheld: bool,
 }
 
+/// A native signal waiting for its decision, with the pairing key observed for its
+/// connection when it was reported (`None` when there was none).
+struct QueuedSignal {
+    adapter: AdapterId,
+    signal: NativeSignal,
+    key: Option<PairingKey>,
+}
+
 /// A native signal that is not yet pairable, held for the window ([SC-ID-123]).
 struct HeldSignal {
     adapter: AdapterId,
@@ -332,7 +340,7 @@ struct Core {
     /// connections given with an observation have an entry.
     observed: HashMap<Attachment, PeerObservation>,
     /// Native signals waiting for their decision, in arrival order.
-    signals: VecDeque<(AdapterId, NativeSignal)>,
+    signals: VecDeque<QueuedSignal>,
     /// Native signals held as not yet pairable, in arrival order.
     held: VecDeque<HeldSignal>,
 }
@@ -1501,19 +1509,29 @@ impl Inner {
             AdapterEvent::NativeSignal(signal) => {
                 let dropped = {
                     let mut core = self.lock();
+                    // The key is snapshot now, while the connection is known (B3).
+                    let key = Inner::observed_key(&core, adapter, &signal);
                     let full = core.signals.len() + core.held.len()
                         >= self.config.max_pending_signals.max(1);
                     if !full {
-                        core.signals.push_back((adapter, signal));
+                        core.signals.push_back(QueuedSignal {
+                            adapter,
+                            signal,
+                            key,
+                        });
                         None
                     } else if let Some(oldest) = core.held.pop_front() {
                         // Past the bound, the oldest held signal goes ([SC-ID-123]).
-                        core.signals.push_back((adapter, signal));
+                        core.signals.push_back(QueuedSignal {
+                            adapter,
+                            signal,
+                            key,
+                        });
                         let attempt = Inner::pair_by_key(&core, oldest.adapter, &oldest.key);
                         Some((oldest.signal, attempt))
                     } else {
                         // With none held, this one does.
-                        let attempt = Inner::pair(&core, adapter, &signal);
+                        let attempt = Inner::pair(&core, adapter, key.as_ref());
                         Some((signal, attempt))
                     }
                 };
@@ -1544,7 +1562,16 @@ impl Inner {
     /// Forgets the connection `connection`: an attachment's binding ends first
     /// ([SC-ID-155]), then the core's own entries for it go, whatever kind of connection
     /// it was.
+    ///
+    /// The attachment is marked closed under the lock before anything else, so a bind
+    /// already past its own checks on the binding turn finds it closed at its locked
+    /// re-check and registers nothing; without that, a bind could complete between the
+    /// unbind below and the removal, leaving a session with no attachment ([SC-ID-155];
+    /// PR #333 re-review, N9).
     fn end_connection(&self, connection: &ConnectionHandle) {
+        if let Some(e) = self.lock().attachments.get_mut(connection) {
+            e.open = false;
+        }
         self.unbind(connection);
         let mut core = self.lock();
         core.attachments.remove(connection);
@@ -1609,10 +1636,15 @@ impl Inner {
             }
         }
         for _ in 0..queued {
-            let Some((adapter, signal)) = self.lock().signals.pop_front() else {
+            let Some(QueuedSignal {
+                adapter,
+                signal,
+                key,
+            }) = self.lock().signals.pop_front()
+            else {
                 return;
             };
-            let attempt = Inner::pair(&self.lock(), adapter, &signal);
+            let attempt = Inner::pair(&self.lock(), adapter, key.as_ref());
             match attempt {
                 PairAttempt::NotYet(key) => self.lock().held.push_back(HeldSignal {
                     adapter,
@@ -1629,17 +1661,26 @@ impl Inner {
     /// on ([SC-ID-121]). No connection, a connection not given to `adapter`, or one with no
     /// observed key, is unpairable ([SC-ID-125]); nothing the signal carries is a key
     /// ([SC-ID-122]).
-    fn pair(core: &Core, adapter: AdapterId, signal: &NativeSignal) -> PairAttempt {
-        let key = signal
+    ///
+    /// The key is taken once, when the signal is reported ([`Inner::observed_key`]), and
+    /// kept with it, so a connection that ends before the signal's turn (a hook that sends
+    /// and exits) does not change how it pairs (PR #333 re-review, B3).
+    fn pair(core: &Core, adapter: AdapterId, key: Option<&PairingKey>) -> PairAttempt {
+        match key {
+            Some(key) => Inner::pair_by_key(core, adapter, key),
+            None => PairAttempt::Unpairable(Vec::new()),
+        }
+    }
+
+    /// The key observed for the connection `signal` arrived on, when that connection was
+    /// given to `adapter` and observed with one.
+    fn observed_key(core: &Core, adapter: AdapterId, signal: &NativeSignal) -> Option<PairingKey> {
+        signal
             .connection
             .as_ref()
             .filter(|c| core.connections.get(*c) == Some(&adapter))
             .and_then(|c| core.observed.get(c))
-            .and_then(|o| o.pairing_key.clone());
-        match key {
-            Some(key) => Inner::pair_by_key(core, adapter, &key),
-            None => PairAttempt::Unpairable(Vec::new()),
-        }
+            .and_then(|o| o.pairing_key.clone())
     }
 
     /// The candidates for `key`: the open attachments of `adapter` whose observed key is
