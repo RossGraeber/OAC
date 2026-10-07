@@ -33,11 +33,16 @@
 //       an `if:` written without `${{ }}` is an expression too and is read the same way
 //       (#332); `secrets: inherit` fails; no provider or harness credential name; no
 //       `pull_request_target` or `workflow_run` trigger.
-//   W5  no script injection (#332): no expression that reads text an outsider or a caller
-//       chooses (`github.event...`, `github.head_ref`, `inputs.*`) inside a `run:` script or
-//       an actions/github-script `script:` input, where GitHub pastes the text (an issue
-//       title, a branch name, a commit message, an input) into the code before it runs.
-//       Pass the value through `env:` instead.
+//   W5  no script injection (#332): inside a `run:` script or an actions/github-script
+//       `script:` input, where GitHub pastes an expression's text into the code before it
+//       runs, an expression may read only an allowlist (PR #336 re-review R3): `matrix.*`,
+//       `runner.*`, `github.sha`, `github.workspace`, `github.run_id`, `github.run_number`,
+//       `github.run_attempt`, `github.event_name`, `steps.<id>.outcome` and `.conclusion`,
+//       `strategy.job-index` and `.job-total`, literals, and the built-in functions. Every
+//       other expression is refused, `env.*`, `steps.*.outputs.*`, `inputs.*`, `vars.*`,
+//       `needs.*` and `github.event...` included, and so is any index (`x[..]`): a value
+//       reaches a script through `env:` and a shell variable (`"$X"`), never pasted in. Step
+//       outputs are refused rather than tracked for taint.
 // Default-tier workflows (any trigger other than workflow_dispatch: a `schedule` runs
 // unattended, with no opt-in, so it is the default tier too, oac-testing section 2; the
 // herdr opt-in workflow is the exception, with its own stricter rules in
@@ -85,9 +90,36 @@ const EXPRESSION_RULES = [
   { re: /\bgithub\s*\[/i, msg: 'github context indexed (github[...]) in an expression' },
   { re: /\bgithub\b(?!\s*[.[])/i, msg: 'whole github context (it holds the token) in an expression' },
 ];
-// W5: text an outsider or a caller chooses: the event payload (titles, bodies, branch
-// names, commit messages), the head branch name, and inputs. `github.event_name` is not.
-const UNTRUSTED_TEXT = /\bgithub\s*\.\s*(?:event|head_ref)\b|\binputs\s*[.[]/i;
+// W5: the only expressions that may be pasted into code a step runs (PR #336 re-review R3).
+// An allowlist of values no outsider or caller can choose; everything else, `env.*` and
+// `steps.*.outputs.*` included, reaches a script through `env:` and a shell variable.
+const SAFE_IN_SCRIPT = [
+  /^matrix(?:\.[\w-]+)*$/i,
+  /^runner(?:\.[\w-]+)*$/i,
+  /^github\.(?:sha|workspace|run_id|run_number|run_attempt|event_name)$/i,
+  /^steps\.[\w-]+\.(?:outcome|conclusion)$/i,
+  /^strategy\.(?:job-index|job-total)$/i,
+  /^(?:true|false|null)$/i,
+];
+const SAFE_FUNCTIONS = new Set(['contains', 'startswith', 'endswith', 'format', 'join', 'tojson', 'fromjson', 'hashfiles', 'success', 'always', 'cancelled', 'failure']);
+
+// Why `expr` (the text inside `${{ }}`) may not be pasted into a script, or null.
+function unsafeInScript(expr) {
+  // String literals are data: drop them ('' is an escaped quote inside one).
+  const bare = expr.replace(/'(?:[^']|'')*'/g, "''");
+  if (/[[\]]/.test(bare)) return 'an index (`x[..]`)';
+  if (/'/.test(bare.replace(/''/g, ''))) return 'an unterminated string';
+  for (const m of bare.matchAll(/(?<![\w.-])[A-Za-z_][\w-]*(?:\s*\.\s*[\w*-]+)*/g)) {
+    const path = m[0].replace(/\s+/g, '');
+    const after = bare.slice(m.index + m[0].length).trimStart();
+    if (after.startsWith('(')) {
+      if (!SAFE_FUNCTIONS.has(path.toLowerCase())) return `the function ${path}()`;
+      continue;
+    }
+    if (!SAFE_IN_SCRIPT.some((re) => re.test(path))) return `\`${path}\``;
+  }
+  return null;
+}
 const SECRETS_INHERIT = /\bsecrets\s*:\s*['"]?inherit\b/i;
 const PRIVILEGED_TRIGGER = /^(?:pull_request_target|workflow_run)$/;
 const SELF_HOSTED = /\bself-hosted\b/i;
@@ -296,7 +328,9 @@ function splitKey(content, line) {
 }
 
 // Anchors, aliases and merge keys are refused outright (PR #336 review B4).
-function refuseAnchor(text, line) {
+function refuseAnchor(raw, line) {
+  // After any tags (`!!str &t ..`), the first character tells (PR #336 re-review).
+  const text = raw.replace(/^(?:![^\s]*\s+)+/, '');
   if (text[0] === '&' || text[0] === '*') {
     throw new YamlError(line, `a YAML ${text[0] === '&' ? 'anchor' : 'alias'} (${text.split(/\s/)[0]}): refused, an alias would carry text the rules read only where it was anchored`);
   }
@@ -543,10 +577,11 @@ function commonRules(text, defaultTier, hit) {
     // W5 for code a step runs: a `run:` script, and actions/github-script's `script:`.
     const injection = (node, where) => {
       for (const { expr, index } of expressions(node.v)) {
-        if (UNTRUSTED_TEXT.test(expr)) {
+        const why = unsafeInScript(expr);
+        if (why) {
           const offset = node.v.slice(0, index).split('\n').length - 1;
           const line = node.line + (node.v.includes('\n') || offset > 0 ? offset + 1 : 0);
-          hit('W5', line, `\${{${expr}}} inside ${where} is pasted into the code before it runs (script injection); pass it through env:`);
+          hit('W5', line, `\${{${expr}}} inside ${where}: ${why} is not on the allowlist of values that may be pasted into code (script injection); pass it through env: and a shell variable`);
         }
       }
     };
@@ -554,7 +589,7 @@ function commonRules(text, defaultTier, hit) {
       const uses = get(s, 'uses')?.value;
       if (uses?.t !== 'str' || !/^actions\/github-script@/.test(uses.v)) continue;
       const script = get(get(s, 'with')?.value, 'script')?.value;
-      if (script?.t === 'str') injection(script, 'an actions/github-script script:');
+      if (script?.t === 'str') injection(script, 'an actions/github-script script: input');
     }
     for (const p of pairsOf(doc)) {
       // W4: an `if:` without `${{ }}` is an expression all the same (#332).
@@ -567,7 +602,7 @@ function commonRules(text, defaultTier, hit) {
         }
       }
       // W5: untrusted text pasted into a script (#332).
-      if (p.key === 'run' && p.value.t === 'str') injection(p.value, 'run:');
+      if (p.key === 'run' && p.value.t === 'str') injection(p.value, 'a run: script');
     }
   }
 
@@ -843,7 +878,7 @@ const CASES = [
   ["W4 github['token']", 'x.yml', GOOD.replace('key: cargo-', "key: ${{ github['token'] }}-"), ['W4']],
   ['W4 toJSON(github)', 'x.yml', GOOD.replace('key: cargo-', 'key: ${{ toJSON(github) }}-'), ['W4']],
   ['W4 an expression split across lines', 'x.yml', withStep('      - env:\n          T: ${{ github\n            .token }}\n        run: true'), ['W4']],
-  ['W4 a heredoc # line in a run: block', 'x.yml', GOOD.replace('          echo done', '          cat <<EOF\n          #${{ secrets.K }}\n          EOF'), ['W4']],
+  ['W4 a heredoc # line in a run: block', 'x.yml', GOOD.replace('          echo done', '          cat <<EOF\n          #${{ secrets.K }}\n          EOF'), ['W5', 'W4']],
   ['W4 secrets: inherit', 'x.yml', GOOD.replace('    runs-on: ${{ matrix.os }}\n    steps:', '    uses: ./.github/workflows/other.yml\n    secrets: inherit\n    steps:'), ['W4']],
   ['W4 provider key variable', 'x.yml', withStep('      - env:\n          ANTHROPIC_API_KEY: x\n        run: true'), ['W4']],
   ['W4 secrets in an opt-in workflow', 'optin.yml', OPTIN.replace('OAC_TEST_REAL_KEYRING: "1"', 'TOKEN: ${{ secrets.T }}'), ['W4']],
@@ -865,6 +900,18 @@ const CASES = [
   ["W5 inputs['x'] in run: (PR #336 N1)", 'x.yml', withStep("      - run: echo ${{ inputs['scenario'] }}"), ['W5']],
   ['W5 github.event in a github-script script: (PR #336 N1)', 'x.yml', withStep(`      - uses: actions/github-script@${SHA}\n        with:\n          script: |\n            const t = "\${{ github.event.issue.title }}";`), ['W5']],
   ['W5 inputs in a flow-style github-script step (PR #336 N1)', 'x.yml', withStep(`      - { uses: actions/github-script@${SHA}, with: { script: "core.info('\${{ inputs.x }}')" } }`), ['W5']],
+  // PR #336 re-review R3: only an allowlist may be pasted into a script.
+  ["W5 the re-review's env.X after a step env: (R3)", 'x.yml', withStep('      - env:\n          X: ${{ github.event.issue.title }}\n        run: echo "${{ env.X }}"'), ['W5']],
+  ["W5 the re-review's env.X after a job env: (R3)", 'x.yml', withJob('    env:\n      X: ${{ github.event.issue.title }}').replace('      - run: cargo test', '      - run: echo "${{ env.X }}"\n      - run: cargo test'), ['W5']],
+  ['W5 a step output in run: (R3)', 'x.yml', withStep('      - run: echo "${{ steps.s.outputs.t }}"'), ['W5']],
+  ['W5 needs.*.outputs in run:', 'x.yml', withStep('      - run: echo "${{ needs.a.outputs.b }}"'), ['W5']],
+  ['W5 vars.* in run:', 'x.yml', withStep('      - run: echo "${{ vars.NAME }}"'), ['W5']],
+  ['W5 github.ref_name in run:', 'x.yml', withStep('      - run: echo "${{ github.ref_name }}"'), ['W5']],
+  ['W5 an allowlisted root, indexed', 'x.yml', withStep("      - run: echo \"${{ matrix['os'] }}\""), ['W5']],
+  ['W5 an unknown function', 'x.yml', withStep('      - run: echo "${{ fromJSONx(matrix.os) }}"'), ['W5']],
+  ['W5 an allowlisted value next to a refused one', 'x.yml', withStep("      - run: echo \"${{ format('{0}-{1}', matrix.os, env.X) }}\""), ['W5']],
+  ['control: allowlisted expressions in run:', 'x.yml', withStep("      - run: |\n          echo \"${{ matrix.os }} ${{ runner.temp }} ${{ github.sha }} ${{ github.run_id }}\"\n          echo \"${{ steps.s.outcome == 'success' && 'yes' || 'no' }} ${{ format('{0}-x', matrix.os) }}\"\n          echo \"${{ hashFiles('Cargo.lock') }} ${{ 3 }} ${{ true }} ${{ 'it''s env.X, a string' }}\""), []],
+  ['W0 an anchor after a tag', 'x.yml', withStep('      - env:\n          T: !!str &t echo hi\n        run: true'), ['W0']],
   // PR #336 review B4: anchors, aliases and merge keys are refused (W0).
   ["W0 the review's alias evasion of W5", 'x.yml', GOOD.replace('jobs:\n  test:\n', 'env:\n  T: &t echo "${{ github.event.issue.title }}"\njobs:\n  test:\n').replace('      - run: cargo test', '      - run: *t\n      - run: cargo test'), ['W0']],
   ['W0 an anchor on a block mapping', 'x.yml', withJob('    permissions: &p\n      contents: read'), ['W0']],
