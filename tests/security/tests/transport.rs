@@ -7,9 +7,11 @@
 //! off once, and a payload is attributed to the key that signed it, never to the endpoint
 //! that carried it.
 //!
-//! The test is the conduit between the transport's handler and the receive path; composing
-//! those two is the job of the core pipelines (#313), whose own version of these cases is
-//! gated in `routing.rs`.
+//! The test is the conduit between the transport's handler and the receive path, so that each
+//! copy's state and code can be asserted. The composed pipelines (#313) report neither for
+//! a refused copy (no receipt goes back for an unverified one); `routing.rs`'s
+//! `row02_unauthorized_send_through_the_composed_pipeline` runs the same refusals through
+//! them and asserts what they do expose: that the adapter is never called.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

@@ -47,7 +47,6 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
 - **`gated_*` tests** hold the place of mitigations that need a component not built yet:
   - Epic G adapters;
   - the G9 daemon and IPC;
-  - the #313 pipelines;
   - #325;
   - H2 and L10.
 

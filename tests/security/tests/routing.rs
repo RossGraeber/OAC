@@ -155,7 +155,10 @@ fn row02_reply_right_covers_only_the_reply_to_the_one_message() {
         bob.receive(sent.octets()).state,
         DeliveryState::HandedToHarness
     );
-    // The send pipeline records this when the envelope is passed to a transport (#313).
+    // The send pipeline records this when it passes the envelope to a transport (#313). It is
+    // recorded by hand here: the reply needs two devices, and the in-memory transport keeps
+    // presence off between implementations ([IFC-TRN-081]), so a two-device send cannot run
+    // through the pipelines over it.
     alice
         .engine
         .record_sent(SentRecord::of(&sent, bob.key_id()));
@@ -298,13 +301,106 @@ fn s13_unauthorized_refusal_is_the_same_whether_or_not_the_session_exists() {
     );
 }
 
-/// 06 row 2 through the composed pipelines: an unauthorized send, from an adapter's send
-/// request through the core's send pipeline, a transport and the receiver's pipeline, never
-/// reaches the receiving adapter. Gated: the composed pipelines are #313.
+/// 06 row 2 through the composed pipelines ([SEC-AUZ-001], [SC-DLV-075], [SC-DLV-076];
+/// acceptance item 4): `oac_core::pipeline::Pipelines` over the in-memory transport, with a
+/// stub adapter in place of a provider adapter.
+///
+/// - Send side: a session with no grant cannot address another session on its device. The
+///   send request is refused `unknown-destination` exactly as for a session that does not
+///   exist, nothing is published and the other session's adapter is never called. Once the
+///   operator grants it, the same request is sent and handed off.
+/// - Receive side: on a `cross-implementation` network, a paired but ungranted device's
+///   endpoint publishes a validly signed envelope straight to the session; the receive
+///   pipeline refuses it and the adapter is never called, while a granted device's envelope
+///   is handed off.
 #[test]
-#[ignore = "GATED on #313 (core send and receive pipelines): needs the composed send -> transport -> receive path"]
-fn gated_row02_unauthorized_send_through_the_composed_pipeline() {
-    std::panic!(
-        "GATED on #313: no composed send and receive pipeline exists yet; this test must be written against it"
+fn row02_unauthorized_send_through_the_composed_pipeline() {
+    use oac_core::adapter::SendRequestResult;
+    use oac_core::clock::{Clock, SystemClock};
+    use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, Reach, Transport};
+    use oac_security_suite::identity;
+    use oac_security_suite::pipeline::{PipelineDevice, send_request};
+    use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
+
+    // Send side, one device.
+    let network = MemoryNetwork::new();
+    let bob = PipelineDevice::new(&network, identity("bob"));
+    let a1 = bob.session(&sid(1), "/work/b");
+    let _a2 = bob.session(&sid(2), "/work/b");
+    for to in [sid(2), sid(9)] {
+        let r = bob.adapter.send(send_request(&a1, &to, "let me in"));
+        assert!(
+            matches!(
+                r,
+                SendRequestResult::Refused {
+                    error: ErrorCode::UnknownDestination
+                }
+            ),
+            "{to}: {r:?}"
+        );
+    }
+    network.settle();
+    assert_eq!(
+        bob.adapter.deliver_calls(),
+        0,
+        "nothing reached the other session"
+    );
+    bob.grant(Grant::Inbound {
+        writer: PeerSide::session(bob.pipes.device().key_id().clone(), sid(1)),
+        target: LocalSide::Session(sid(2)),
+    });
+    let r = bob.adapter.send(send_request(&a1, &sid(2), "now granted"));
+    assert!(matches!(r, SendRequestResult::Sent { .. }), "{r:?}");
+    network.settle();
+    assert_eq!(bob.adapter.deliver_calls(), 1, "the control is handed off");
+
+    // Receive side, three devices.
+    let network = MemoryNetwork::builder()
+        .reach(Reach::CrossImplementation)
+        .build();
+    let bob = PipelineDevice::new(&network, identity("bob"));
+    let _a2 = bob.session(&sid(2), "/work/b");
+    let (alice, carol) = (identity("alice"), identity("carol"));
+    bob.pair(&alice);
+    bob.pair(&carol);
+    bob.grant(Grant::Inbound {
+        writer: PeerSide::device(alice.key_id().clone()),
+        target: LocalSide::Session(sid(2)),
+    });
+    let publish = |who: &oac_core::keys::DeviceIdentity, id: &str, from: SessionId| {
+        let t = MemoryTransport::new();
+        t.start(who.key_id(), MemoryConfiguration::wrap(&network))
+            .expect("started");
+        let env = who.sign_envelope(oac_security_suite::draft(
+            id,
+            &from,
+            &sid(2),
+            SystemClock.now(),
+            "hello",
+        ));
+        t.publish(
+            &Destination::Session(sid(2)),
+            Payload::new(PayloadKind::Envelope, env.octets().to_vec()),
+            Deadline::at(network.now() + Duration::from_secs(5)),
+        );
+        network.settle();
+        t.shutdown();
+    };
+    publish(&carol, "m1", sid(5));
+    assert_eq!(
+        bob.adapter.deliver_calls(),
+        0,
+        "the ungranted device reached nothing"
+    );
+    publish(&alice, "m2", sid(1));
+    assert_eq!(
+        bob.adapter.deliver_calls(),
+        1,
+        "the granted device is handed off"
+    );
+    let handed = bob.adapter.delivered();
+    assert_eq!(
+        handed[0].message().verified_by().unwrap().key_id(),
+        alice.key_id()
     );
 }

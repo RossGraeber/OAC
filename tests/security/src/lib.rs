@@ -26,9 +26,11 @@
 //! # What is gated
 //!
 //! Some mitigations live in components that do not exist yet: the provider adapters (Epic
-//! G), the daemon and its local IPC (G9, #70), and the composed send and receive pipelines
-//! (#313). A test for such a mitigation is `#[ignore = "GATED on #N ..."]`, and its body
-//! fails if it is run: it is never a pass. [`THREATS`] lists each one with its owning issue.
+//! G), the daemon and its local IPC (G9, #70), the bound on envelope-created bindings
+//! (#325), and the live checks of H2 and L10. A test for such a mitigation is
+//! `#[ignore = "GATED on #N ..."]`, and its body fails if it is run: it is never a pass.
+//! [`THREATS`] lists each one with its owning issue. The composed send and receive pipelines
+//! (#313) have landed; [`pipeline`] runs them with a stub adapter.
 //!
 //! # The stand-in provenance mapping
 //!
@@ -63,6 +65,8 @@ use oac_core::receiver::{
 use oac_core::registration::RegistrationRecord;
 use oac_core::replay::DuplicateStore;
 use oac_fake_claude::{Config, FakeClaude, MidTurnRelease, Phase};
+
+pub mod pipeline;
 
 /// The instant every test starts at.
 pub const T0: &str = "2026-10-07T12:00:00Z";
@@ -597,7 +601,6 @@ const G7: &str = "#68";
 const G8: &str = "#69";
 const G9: &str = "#70";
 const G1_G3: &str = "#62, #64";
-const PIPELINES: &str = "#313";
 const BINDINGS: &str = "#325";
 const L10: &str = "#175";
 const H2: &str = "#74";
@@ -638,15 +641,12 @@ pub const THREATS: &[Threat] = &[
             "row02_unauthorized_peer_cannot_discover_a_session",
             "row02_unauthorized_peer_cannot_address_a_session_through_presence",
             "row02_reply_right_covers_only_the_reply_to_the_one_message",
-            "gated_row02_unauthorized_send_through_the_composed_pipeline",
+            "row02_unauthorized_send_through_the_composed_pipeline",
         ],
         facts: &[],
         core_tests: &[],
         status: Status::Proven,
-        gated: &[Gate {
-            issue: PIPELINES,
-            what: "the same refusal through the composed send and receive pipelines over a transport (gated_row02_unauthorized_send_through_the_composed_pipeline)",
-        }],
+        gated: &[],
     },
     Threat {
         row: "06-3",

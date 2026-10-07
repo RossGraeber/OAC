@@ -21,11 +21,13 @@ graph (07 §5).
   `THREATS` in `tests/security/src/lib.rs`, rendered into `09-test-strategy.md` §12 and
   checked against the sources, §13 and 09 by `tests/threat_map.rs`.
 - **What is gated, not passed.** 06 rows 13, 15, 17 and 24 and the §13 consent-bypass row
-  wholly, and the adapter, daemon or pipeline half of rows 2, 6, 7, 10, 11, 12, 14, 16, 18,
+  wholly, and the adapter, daemon or live-check half of rows 6, 7, 10, 11, 12, 14, 16, 18,
   19, 21, 22 and of exhaustion: G4 (#65), G7 (#68), G8 (#69), G9 (#70), G1/G3 (#62, #64), H2
-  (#74), L10 (#175), the core pipelines (#313) and the envelope-binding bound (#325,
-  RISK-BINDING-TABLE). Each gated test is `#[ignore = "GATED on #N ..."]` with a body that is
-  a single `std::panic!`. Row 23 stays an open risk. These parts remain v0.1 gaps (06 §15).
+  (#74), L10 (#175) and the envelope-binding bound (#325, RISK-BINDING-TABLE). Row 2 is no
+  longer gated: since #313 merged, `row02_unauthorized_send_through_the_composed_pipeline`
+  runs the refusal through `core::pipeline::Pipelines` over the in-memory transport. Each
+  gated test is `#[ignore = "GATED on #N ..."]` with a body that is a single `std::panic!`.
+  Row 23 stays an open risk. These parts remain v0.1 gaps (06 §15).
 - **Runtime cross-check.** `tests/security/check-compiled-tests.mjs`, a new step of
   `rust-workspace.yml` on every OS, compares the map with the tests cargo compiled
   (`--list`, `--list --ignored`) and runs the gated ones. It fails on a mapped proof that is
