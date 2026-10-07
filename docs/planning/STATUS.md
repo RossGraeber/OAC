@@ -4,6 +4,43 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #60 (F11): the security suite against the fakes lands
+at `tests/security/`** (`oac-security-suite`, CI-default). No `spec/` file, `core/` file, gate
+verdict, pin or ADR text changes; the one dependency is `syn`, test-only and already in the
+graph (07 §5).
+
+- **What it covers.** Every `06-security.md` §14 row and every `spec/security.md` §13 row is
+  mapped, plus one row from the PR #317/#321 threat tables (exhaustion). Mapped is not the
+  same as proven: a row is proven where named tests drive the real core (envelope stage,
+  security steps 1 to 5 through `receiver::receive_octets`, authorization, presence and
+  receipt authentication, pairing, key removal), with envelopes over the in-memory transport
+  for the carrying-path rows and the recorded signature-form fixtures for malleability,
+  cross-protocol reuse and canonicalization. Tests that record what the fake Claude Code
+  endpoint renders are listed as harness facts, not proofs. Where the suite cannot reach a
+  part through the public API, the map cites the `oac-core` test that carries it. The map is
+  `THREATS` in `tests/security/src/lib.rs`, rendered into `09-test-strategy.md` §12 and
+  checked against the sources, §13 and 09 by `tests/threat_map.rs`.
+- **What is gated, not passed.** 06 rows 13, 15, 17 and 24 and the §13 consent-bypass row
+  wholly, and the adapter, daemon or live-check half of rows 6, 7, 10, 11, 12, 14, 16, 18,
+  19, 21, 22 and of exhaustion: G4 (#65), G7 (#68), G8 (#69), G9 (#70), G1/G3 (#62, #64), H2
+  (#74), L10 (#175) and the envelope-binding bound (#325, RISK-BINDING-TABLE). Row 2 is no
+  longer gated: since #313 merged, `row02_unauthorized_send_through_the_composed_pipeline`
+  runs the refusal through `core::pipeline::Pipelines` over the in-memory transport. Each
+  gated test is `#[ignore = "GATED on #N ..."]` with a body that is a single `std::panic!`.
+  Row 23 stays an open risk. These parts remain v0.1 gaps (06 §15).
+- **Runtime cross-check.** `tests/security/check-compiled-tests.mjs`, a new step of
+  `rust-workspace.yml` on every OS, compares the map with the tests cargo compiled
+  (`--list`, `--list --ignored`) and runs the gated ones. It fails on a mapped proof that is
+  compiled out or ignored, on an unmapped compiled test, and on a gated placeholder that
+  passes. Its self-test (ubuntu image) plants each evasion the PR #327 reviews found.
+- **Mutation check.** `tests/security/mutation-check.mjs` plants one regression at a time in
+  a copy of `core/`; each is caught by a named suite test, or, for the one mutant the suite
+  cannot reach (a pairing code without the keys), by the cited core test.
+- **Layout.** `scripts/check-crate-deps.mjs` admits `tests/security` (core/, a fake, a
+  transport and, through its dev-dependency, a contract suite; nothing may reach it), with
+  self-test and mutation cases; 07 §1, §3 and §5 carry dated notes. Un-gating a G4, G7 or G8
+  placeholder will need that rule to admit an adapter as a dev-dependency.)
+
 **Last updated:** 2026-10-07 (**Issue #313: the core send and receive pipelines land in
 `core/src/pipeline.rs`**, composing F2 to F7 between provider adapters and one transport,
 against revision 0.1. No `spec/` file, gate verdict, pin, third-party dependency or ADR text

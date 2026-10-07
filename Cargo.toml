@@ -13,6 +13,8 @@
 #   tests/protocol/contract/*
 #                     -> core/ and tests/fakes/* only; the contract suites (#59), reached
 #                        by product crates through dev-dependencies only, like the fakes
+#   tests/security    -> core/, tests/fakes/*, transports/* and the contract suites only;
+#                        the security suite (#60), a leaf: nothing depends on it
 #
 # scripts/check-crate-deps.mjs enforces these edges over `cargo metadata`, and keeps
 # provider and transport crates unreachable from core/. Members are listed one by one: no
@@ -30,6 +32,7 @@ members = [
     "tests/fakes/claude",
     "tests/protocol/contract/transport",
     "tests/protocol/contract/adapter",
+    "tests/security",
 ]
 
 [workspace.package]

@@ -72,6 +72,11 @@ members that depend on `core/` and, for the adapter suite, the fake Claude endpo
 adapter suite's only third-party crates are `syn` and `proc-macro2` (§5, test-only). A product crate may take one as a dev-dependency only, never a normal
 or build one (§3), so neither is built into the `oac` binary. The adapter suite spawns the
 fake Codex app-server by path, as #58 below allows.)
+(Dated note, 2026-10-07, #60: the security suite of F11 lives at `tests/security/`, the
+`tests/` row of §2, as `docs/planning/v0.1/10-stages.md` places it: `oac-security-suite`, a
+Rust workspace member that depends on `core/`, the fake Claude endpoint and the in-memory
+transport only, and on one third-party crate, test-only (`syn`, §5). It is a leaf: no member
+may depend on it, not even as a dev-dependency (§3), so it is never built into the `oac` binary.)
 (Dated note, 2026-10-07, #313: `transports/memory/` also takes the fake Claude endpoint and
 the adapter suite as dev-dependencies, for the end-to-end run of the core pipelines over the
 in-memory transport and both fake harnesses (`transports/memory/tests/pipelines.rs`). The
@@ -161,6 +166,8 @@ tests/fakes/* (Rust workspace members) -> core/   (only; #57)
 adapters/*, transports/*, cli/ -> tests/fakes/* (Rust members)   (dev-dependency only; #57)
 tests/protocol/contract/*      -> core/, tests/fakes/*   (only; #59)
 adapters/*, transports/*, cli/ -> tests/protocol/contract/*   (dev-dependency only; #59)
+tests/security                 -> core/, tests/fakes/*, transports/*, tests/protocol/contract/*   (only; #60)
+(nothing)                      -> tests/security   (#60)
 ```
 
 (Dated note, 2026-10-05, #305: the original rule allowed only `cli/ -> core/`. #305
@@ -210,6 +217,10 @@ these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.
 (Dated note, 2026-10-06, #57: the same script admits `tests/fakes/<name>` members, lets
 them reach `core/` only, and fails any product member (`core/`, `cli/`, an adapter or a
 transport) that reaches one over normal or build edges; `core/` may not reach one at all.)
+(Dated note, 2026-10-07, #60: it admits `tests/security` as the security suite, lets it reach
+`core/`, a fake, a transport and (through a transport's dev-dependency) a contract suite,
+and fails any member that reaches it. A transport it reaches still brings that transport's owned crates under rule 4, so in practice it reaches
+`transports/memory/` only.)
 
 ---
 
@@ -280,6 +291,12 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `curve25519-dalek` | `5.0.0` | BSD-3-Clause | Dev-dependency only: scalar arithmetic that builds malleable and small-order signatures in `signing.rs`'s tests (#315 review N-g). Already `ed25519-dalek`'s curve crate, same version; not a new crate in the build | No | Yes — permissive | #52 | `core/` (tests only) |
 | `syn` | `2.0.119` | MIT OR Apache-2.0 | Test-only: parses adapter sources for the adapter contract suite's static routing checks (#59, PR #323 review B1; features `full`, `parsing`, `visit`). Already in the graph at this version; not a new crate | No | Yes — OAC elects the Apache-2.0 arm | #59 | `tests/protocol/contract/adapter/` (test-only; never in the `oac` binary) |
 | `proc-macro2` | `1.0.107` | MIT OR Apache-2.0 | Test-only: `syn`'s token types; feature `span-locations` gives findings their line numbers (#59). Already in the graph at this version; not a new crate | No | Yes — OAC elects the Apache-2.0 arm | #59 | `tests/protocol/contract/adapter/` (test-only; never in the `oac` binary) |
+
+(Dated note, 2026-10-07, #60.) `syn` `2.0.119` has a second consuming module:
+`tests/security/`, as a dev-dependency only (features `full`, `parsing`, `visit`), to parse
+the security suite's own test sources and `core/`'s for `tests/threat_map.rs`. Same crate,
+same version, same license election; nothing new enters the graph, and the security suite
+is a leaf no product crate reaches.
 
 (Dated note, 2026-10-06, #52 / F3.) **Consuming module of the key-storage crates.** The
 `keyring`, `keyring-core`, `windows-native-keyring-store` and `age` rows above say "daemon
