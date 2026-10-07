@@ -261,6 +261,19 @@ export function selfTest() {
   expect('contract/: a JSON array renamed .rs under tests/ is stray', contractStrays([
     { name: 'adapter', isDir: true, hasCargoToml: true, files: ['tests/cases.rs'], texts: { 'tests/cases.rs': '[1, 2]' } },
   ]).length === 1);
+  // PR #336 review N2: manifests only at the crate root, and only when not JSON.
+  expect('contract/: a README.md below the crate root is stray', contractStrays([
+    { name: 'transport', isDir: true, hasCargoToml: true, files: ['Cargo.toml', 'tests/fixtures/README.md'], texts: { 'Cargo.toml': '[package]\n', 'tests/fixtures/README.md': '{"id": "x"}' } },
+  ]).length === 1);
+  expect('contract/: a nested Cargo.toml is stray', contractStrays([
+    { name: 'transport', isDir: true, hasCargoToml: true, files: ['Cargo.toml', 'src/Cargo.toml'], texts: { 'Cargo.toml': '[package]\n', 'src/Cargo.toml': '[package]\n' } },
+  ]).length === 1);
+  expect('contract/: a JSON document named README.md at the crate root is stray', contractStrays([
+    { name: 'transport', isDir: true, hasCargoToml: true, files: ['Cargo.toml', 'README.md'], texts: { 'Cargo.toml': '[package]\n', 'README.md': '{"id": "IFC-TRN-011.n01"}\n' } },
+  ]).length === 1);
+  expect('contract/: a JSON document named Cargo.toml at the crate root is stray', contractStrays([
+    { name: 'transport', isDir: true, hasCargoToml: true, files: ['Cargo.toml'], texts: { 'Cargo.toml': '[{"id": "x"}]' } },
+  ]).length === 1);
   expect('contract/: Rust sources in src/, tests/, benches/, examples/ and build.rs are skipped', contractStrays([
     { name: 'adapter', isDir: true, hasCargoToml: true, files: ['build.rs', 'src/a/b.rs', 'tests/t.rs', 'benches/b.rs', 'examples/e.rs'], texts: { 'src/a/b.rs': '#[test]\nfn f() {}\n', 'tests/t.rs': '[test] // not JSON\n' } },
   ]).length === 0);

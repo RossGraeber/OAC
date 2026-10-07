@@ -12,11 +12,14 @@
 // (the workspace builds into the repository's own target/, so a crate holds none), and a
 // `.rs` file counts as a Rust source only where cargo looks for one (`src/`, `tests/`,
 // `benches/`, `examples/`, or `build.rs` at the crate root) and only when its text is not
-// JSON, so a fixture renamed to `.rs` is stray too.
+// JSON, so a fixture renamed to `.rs` is stray too. `Cargo.toml` and `README.md` are
+// skipped only at the crate root, and only when their text is not JSON (PR #336 review N2):
+// one anywhere else in a crate is stray like any data file.
 
 import fs from 'node:fs';
 import path from 'node:path';
 
+// The manifests a crate holds at its root (matched on the path, so only there).
 const MANIFEST_FILE = /^(Cargo\.toml|README\.md)$/;
 // Where cargo looks for a crate's Rust sources.
 const RUST_SOURCE_PATH = /^(?:(?:src|tests|benches|examples)\/.+|build)\.rs$/;
@@ -38,7 +41,8 @@ function isJson(text) {
 // entries: [{ name, isDir, hasCargoToml, files, dirs, texts }] for the entries of
 // tests/protocol/contract/; `files` lists each file under a directory entry, by path
 // relative to it, `dirs` each `target/` directory found there (not descended into), and
-// `texts` maps a `.rs` file's path to its text. Returns the stray messages.
+// `texts` maps the path of a `.rs` file, and of a manifest at the crate root, to its text.
+// Returns the stray messages.
 export function contractStrays(entries) {
   const stray = [];
   for (const e of entries) {
@@ -54,7 +58,13 @@ export function contractStrays(entries) {
     for (const f of e.files ?? []) {
       const rel = `${e.name}/${f}`;
       if (DATA_FILES.has(rel)) continue;
-      if (MANIFEST_FILE.test(path.posix.basename(f))) continue;
+      // A manifest only at the crate root, and only when it is not JSON (PR #336 review N2).
+      if (MANIFEST_FILE.test(f)) {
+        if (isJson(e.texts?.[f] ?? '')) {
+          stray.push(`tests/protocol/contract/${rel}: a JSON document named ${f} inside a contract-suite crate (a fixture is never skipped)`);
+        }
+        continue;
+      }
       if (f.endsWith('.rs')) {
         if (!RUST_SOURCE_PATH.test(f)) {
           stray.push(`tests/protocol/contract/${rel}: a .rs file where cargo looks for no Rust source (only src/, tests/, benches/, examples/ and build.rs are skipped)`);
@@ -92,7 +102,7 @@ export function readContractEntries(dir) {
     if (!hasCargoToml) return { name: e.name, isDir, hasCargoToml, files: [], dirs: [], texts: {} };
     const { files, dirs } = walk(crate);
     const texts = {};
-    for (const f of files) if (f.endsWith('.rs')) texts[f] = fs.readFileSync(path.join(crate, f), 'utf8');
+    for (const f of files) if (f.endsWith('.rs') || MANIFEST_FILE.test(f)) texts[f] = fs.readFileSync(path.join(crate, f), 'utf8');
     return { name: e.name, isDir, hasCargoToml, files, dirs, texts };
   });
 }
