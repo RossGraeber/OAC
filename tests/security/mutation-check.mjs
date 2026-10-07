@@ -207,6 +207,44 @@ export const MUTATIONS = [
     to: '&& false',
     coreOnly: 'authorization::tests::envelope_bindings_leave_the_bound_when_referred_to',
   },
+  // PR #334 review: B1, R4, R5, R7 and N3. The sequences need a binding forgotten while a
+  // record from its session is held, which the suite reaches only through the receive path's
+  // timing; the cited core test drives them directly.
+  {
+    name: 'X exhaustion: an entry bound again at hand-off is tracked unpinned (#325, B1)',
+    file: 'core/src/authorization.rs',
+    from: 'self.envelope_bound.track(from, k, pinned);',
+    to: 'self.envelope_bound.track(from, k, false);',
+    coreOnly: 'authorization::tests::entries_whose_records_came_first_are_kept',
+  },
+  {
+    name: 'X exhaustion: an entry bound again at hand-off is not counted (#325, R7)',
+    file: 'core/src/authorization.rs',
+    from: 'self.envelope_bound.track(from, k, pinned);',
+    to: '',
+    coreOnly: 'authorization::tests::entries_whose_records_came_first_are_kept',
+  },
+  {
+    name: 'X exhaustion: an envelope binding whose records came first is unpinned (#325, R5)',
+    file: 'core/src/authorization.rs',
+    from: 'self.envelope_bound.track(from.clone(), key.clone(), pinned);',
+    to: 'self.envelope_bound.track(from.clone(), key.clone(), false);',
+    coreOnly: 'authorization::tests::entries_whose_records_came_first_are_kept',
+  },
+  {
+    name: 'X exhaustion: prune leaves the pins of dropped records in place (#325, R4)',
+    file: 'core/src/authorization.rs',
+    from: '.retain(|r| within_reply_period(&r.created_at, now));\n        self.sync_pins();',
+    to: '.retain(|r| within_reply_period(&r.created_at, now));',
+    coreOnly: 'authorization::tests::entries_whose_records_came_first_are_kept',
+  },
+  {
+    name: 'X exhaustion: the rebind at hand-off ignores the bound (#325, N3)',
+    file: 'core/src/authorization.rs',
+    from: 'if !self.envelope_bound.has_room(&k)',
+    to: 'if false',
+    coreOnly: 'authorization::tests::envelope_bindings_leave_the_bound_when_referred_to',
+  },
   {
     name: 'X exhaustion: a late copy from an ended own session makes its partition again (#328)',
     file: 'core/src/authorization.rs',

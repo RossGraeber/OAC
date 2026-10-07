@@ -26,10 +26,10 @@
 //! # What is gated
 //!
 //! Some mitigations live in components that do not exist yet: the provider adapters (Epic
-//! G), the daemon and its local IPC (G9, #70), and the live checks of H2 and L10. A test for such a mitigation is
-//! `#[ignore = "GATED on #N ..."]`, and its body fails if it is run: it is never a pass.
-//! [`THREATS`] lists each one with its owning issue. The composed send and receive pipelines
-//! (#313) have landed; [`pipeline`] runs them with a stub adapter.
+//! G), the daemon and its local IPC (G9, #70), and the live checks of H2 and L10. A test for
+//! such a mitigation is `#[ignore = "GATED on #N ..."]`, and its body fails if it is run: it
+//! is never a pass. [`THREATS`] lists each one with its owning issue. The composed send and
+//! receive pipelines (#313) have landed; [`pipeline`] runs them with a stub adapter.
 //!
 //! # The stand-in provenance mapping
 //!
@@ -1139,7 +1139,10 @@ pub const THREATS: &[Threat] = &[
             "x_expired_record_partitions_are_reclaimed_in_order",
         ],
         facts: &[],
-        core_tests: &["authorization::tests::envelope_bindings_leave_the_bound_when_referred_to"],
+        core_tests: &[
+            "authorization::tests::envelope_bindings_leave_the_bound_when_referred_to",
+            "authorization::tests::entries_whose_records_came_first_are_kept",
+        ],
         status: Status::Proven,
         gated: &[],
     },

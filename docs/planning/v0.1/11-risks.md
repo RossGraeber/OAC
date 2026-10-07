@@ -593,6 +593,13 @@ list.
   granted device that sends many unique envelopes within the 300-second window fills only
   its own share, and other keys keep their room.
 
+  The quota also caps an honest device. At the default it holds 16384 live entries per
+  hand-off window, about 55 envelopes per second sustained over 300 seconds (65536, about
+  218 per second, before #320). No MUST requires admitting more, and `failed` /
+  `internal-error` is a retransmit class (`spec/session-channels.md` Table 8.3), so a
+  sender above that rate sees retransmits succeed as its own entries age out (PR #334
+  review N5).
+
   **Finding.** The presence registry and the record lists make room by evicting from the
   heaviest holder. The duplicate store cannot do that: every entry is live until its
   deadline, and evicting one could let a duplicate through ([SEC-RPL-023]). So it refuses
@@ -666,11 +673,27 @@ list.
   session, and the next envelope or announcement binds it again. With nothing to evict,
   the envelope is refused with `failed` / `internal-error` and nothing is bound.
 
+  An entry that `record_handoff` binds again, because its binding went between step 4 and
+  the hand-off, gets room as any new entry does. When every entry that could go is in use,
+  it is kept above the bound; such entries number at most the hand-offs in flight when
+  their bindings went (PR #334 review N3).
+
   The residual has three parts:
   - **An evicted id can be claimed.** While an evicted session id is unbound, another
-    granted device could claim it with its own envelope. Only a device the operator
-    granted can do that, and for the evicted device's own oldest ids, or the heaviest
-    device's.
+    granted device can claim it with its own envelope. That is not impersonation:
+    provenance and authorization follow the verifying key, so the claimant's envelopes are
+    authorized under its own grants and rendered with its own principal, and [SEC-PRS-009]
+    accepts that removing an entry reopens other keys' claims. It has two consequences
+    (PR #334 review N1):
+    1. the original device's later envelopes from that id are refused at step 4 with a
+       finding ([SEC-AUZ-003], [SEC-PRS-004]) until an operator acts: a denial of service
+       of that one id;
+    2. a later send from an own session to that id is resolved against the claimant's key,
+       and reaches the claimant if an outbound grant covers it.
+
+    Both need an evicted entry that no live hand-off record uses, so the evicted device
+    is at its own share, or the heaviest in a full table, and was not handed a message
+    from that id within the reply period.
   - **A receipt can be discarded.** A receipt naming an evicted id is discarded
     ([SEC-RCT-003] check 4), so that envelope's state stays `unknown`.
   - **The table can fill.** It can fill with entries in use only when about 16 colluding
@@ -685,7 +708,8 @@ list.
   - `x_envelope_bindings_are_bounded`;
   - `x_binding_table_fair_share_takes_from_the_heaviest`;
   - `authorization::tests::envelope_bindings_are_bounded_and_keep_what_records_use`;
-  - `authorization::tests::envelope_bindings_leave_the_bound_when_referred_to`.
+  - `authorization::tests::envelope_bindings_leave_the_bound_when_referred_to`;
+  - `authorization::tests::entries_whose_records_came_first_are_kept`.
 
 ### RISK-RECORD-PARTITIONS — A writer's own sent and hand-off records end early under a flood
 

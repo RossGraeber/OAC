@@ -1832,12 +1832,19 @@ impl AuthorizationEngine {
     ///   under this device's own key whose `from` is not an own session now came from a
     ///   session that has ended. Its partition went with it
     ///   ([`AuthorizationEngine::end_session`]), and a record could serve nothing, since the
-    ///   session can no longer be addressed, so the partition is not made again.
+    ///   session can no longer be addressed, so the partition is not made again. This is
+    ///   consistent with [SEC-AUZ-016]: the right it grants is the receiving session's, to
+    ///   discover the sender, and a sender that can no longer be addressed has nothing to
+    ///   discover; `end_session` already drops the same partition (PR #326 re-review).
     /// - **An evicted `from` is bound again (#325).** When the envelope-created binding of
-    ///   `from` was evicted between step 4 and this call ([`MAX_ENVELOPE_BINDINGS`]), `from`
-    ///   is bound again to the verifying key, if it is still trusted, so that the record can
-    ///   be looked up ([SEC-AUZ-016], [SC-RCP-053]). [SEC-PRS-005] permits it: the envelope
-    ///   passed step 4 with that `from`. The entry is then kept while the record is.
+    ///   `from` was evicted between step 4 and this call ([`MAX_ENVELOPE_BINDINGS`]), or
+    ///   forgotten with its presence record, `from` is bound again to the verifying key, if
+    ///   it is still trusted, so that the record can be looked up ([SEC-AUZ-016],
+    ///   [SC-RCP-053]). [SEC-PRS-005] permits it: the envelope passed step 4 with that
+    ///   `from`. The entry is kept while a record from `from` is, and room is made for it
+    ///   as for any new entry. When there is none, because every entry that could go is in
+    ///   use, it is kept above the bound. Such entries number at most the hand-offs that
+    ///   were in flight when their bindings went.
     pub fn record_handoff(&mut self, record: HandOffRecord, outcome: DeliveryState) {
         if !matches!(
             outcome,
@@ -1849,18 +1856,31 @@ impl AuthorizationEngine {
         if own && !self.own_sessions.contains_key(&record.from) {
             return;
         }
-        if let (false, Some(k), None) =
-            (own, record.key_id.clone(), self.bindings.get(&record.from))
-            && self.trusted.get(&k).is_some()
-        {
-            self.bindings
-                .insert(record.from.clone(), Binding::Key(k.clone()));
-            self.envelope_bound.track(record.from.clone(), k, false);
-        }
+        let rebind = match (own, record.key_id.clone(), self.bindings.get(&record.from)) {
+            (false, Some(k), None) if self.trusted.get(&k).is_some() => Some(k),
+            _ => None,
+        };
+        let from = record.from.clone();
         let now = self.clock.now();
         let key = self.handoff_partition(record.key_id.as_ref(), &record.from);
-        self.handed_off.push(key, record, &now);
+        self.handed_off.push(key.clone(), record, &now);
         self.sync_pins();
+        if let Some(k) = rebind {
+            // Within the bound when an entry can go; otherwise above it, as the
+            // documentation above says.
+            if !self.envelope_bound.has_room(&k)
+                && let Some(victim) = self.envelope_bound.victim(&k)
+            {
+                self.envelope_bound.untrack(&victim);
+                self.bindings.remove(&victim);
+            }
+            // Pinned by what the partition holds now, this record and any earlier one from
+            // `from`: no change is emitted for a sender that already had a record (PR #334
+            // review B1).
+            let pinned = self.handed_off.holds_sender(&key, &from);
+            self.bindings.insert(from.clone(), Binding::Key(k.clone()));
+            self.envelope_bound.track(from, k, pinned);
+        }
     }
 
     /// Removes a hand-off record, the one [`AuthorizationEngine::record_handoff`] kept for
@@ -3381,6 +3401,71 @@ mod tests {
         assert!(p.bob_engine.binding(&sid(A1)).is_none());
     }
 
+    /// PR #334 review B1, R4, R5, R7: an entry is kept while a hand-off record from its
+    /// session is held, also when the record came before the entry. An announcement binds
+    /// `S`, a record from `S` is kept, the registry forgets `S`; a later hand-off from `S`
+    /// binds it again, and a later envelope binds another such id. Fresh ids then evict
+    /// neither, so discovery ([SEC-AUZ-016]) and correlation ([SC-RCP-053]) still work.
+    /// Once `prune` drops the records, the entries may go at once.
+    #[test]
+    fn entries_whose_records_came_first_are_kept() {
+        let (mut p, _carol) = bounded(16, 3);
+        let ak = p.alice.key_id().clone();
+        let mut fresh = 1000;
+        let mut flood = |p: &mut Pair, n: u32| {
+            for _ in 0..n {
+                fresh += 1;
+                let m = message(&p.alice, &p.bob_engine, sid_n(fresh).as_str(), B1, None);
+                p.bob_engine.authorize_delivery_at(m, &now()).unwrap();
+            }
+        };
+        // B1: the hand-off binds `S` again.
+        let s = sid_n(500);
+        assert_eq!(p.bob_engine.bind(&s, &ak), BindOutcome::Bound);
+        let r1 = handoff("r1", &s, &sid(B1), Some(ak.clone()));
+        p.bob_engine
+            .record_handoff(r1, DeliveryState::HandedToHarness);
+        assert!(p.bob_engine.forget_binding(&s));
+        p.bob_engine.record_handoff(
+            handoff("r2", &s, &sid(B1), Some(ak.clone())),
+            DeliveryState::HandedToHarness,
+        );
+        assert_eq!(p.bob_engine.binding(&s), Some(&Binding::Key(ak.clone())));
+        assert_eq!(p.bob_engine.envelope_bindings(), 1, "the rebind is counted");
+        flood(&mut p, 4);
+        assert_eq!(p.bob_engine.binding(&s), Some(&Binding::Key(ak.clone())));
+        let d = p.bob_engine.decide(&AuthorizationRequest::Discover {
+            requester: Requester::Session(sid(B1)),
+            session: s.clone(),
+        });
+        assert!(matches!(d.basis(), Some(Basis::HandOff(_))));
+        assert!(
+            p.bob_engine
+                .reply_headers(&sid(B1), &s, Some("r1"))
+                .correlated()
+        );
+        // R5: an envelope binds `S2`, whose record came first.
+        let s2 = sid_n(600);
+        assert_eq!(p.bob_engine.bind(&s2, &ak), BindOutcome::Bound);
+        p.bob_engine.record_handoff(
+            handoff("r3", &s2, &sid(B1), Some(ak.clone())),
+            DeliveryState::HandedToHarness,
+        );
+        assert!(p.bob_engine.forget_binding(&s2));
+        let m = message(&p.alice, &p.bob_engine, s2.as_str(), B1, None);
+        p.bob_engine.authorize_delivery_at(m, &now()).unwrap();
+        flood(&mut p, 4);
+        assert_eq!(p.bob_engine.binding(&s2), Some(&Binding::Key(ak.clone())));
+        assert_eq!(p.bob_engine.binding(&s), Some(&Binding::Key(ak.clone())));
+        assert_eq!(held(&p.bob_engine, &ak), 3);
+        // R4: past the reply period `prune` drops the records, and the entries are free at
+        // once: the next fresh id takes the oldest, `S`.
+        p.bob_engine.prune_at(&ts("2026-10-04T13:00:00Z"));
+        flood(&mut p, 1);
+        assert!(p.bob_engine.binding(&s).is_none());
+        assert_eq!(held(&p.bob_engine, &ak), 3);
+    }
+
     /// #325: entries that something else now refers to leave the bound: an announcement
     /// confirms one ([`AuthorizationEngine::bind`]), a registration replaces one, and a
     /// conflict mark replaces one. A share filled only with entries hand-off records use
@@ -3433,13 +3518,17 @@ mod tests {
             p.bob_engine.binding(&sid_n(6)),
             Some(&Binding::Key(carol.key_id().clone()))
         );
+        // Room is made for it as for any new entry: Carol's oldest free entry goes, and
+        // she stays at her share (PR #334 review N3).
+        assert!(p.bob_engine.binding(&sid_n(7)).is_none());
+        assert_eq!(held(&p.bob_engine, carol.key_id()), 2);
         let d = p.bob_engine.decide(&AuthorizationRequest::Discover {
             requester: Requester::Session(sid(B1)),
             session: sid_n(6),
         });
         assert!(matches!(d.basis(), Some(Basis::HandOff(_))));
         // A registration replaces an entry.
-        let own = sid_n(7);
+        let own = sid_n(8);
         let rec = p
             .bob
             .register(
