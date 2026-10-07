@@ -17,10 +17,17 @@
 //!
 //! The pairing key is what the core process observes from the operating system about the
 //! peer of a local connection ([SC-ID-121]; `spec/interfaces.md` §5.2), never a value the
-//! peer sent: a [`PairingKey`] has no constructor from a request, an event or an envelope,
-//! only [`PairingKey::from_observation`], for the code that made the observation. A
-//! cross-check value is never a pairing key ([SC-ID-122], [SC-ID-127]); nothing here pairs on
-//! one.
+//! peer sent. [`PairingKey::from_observation`] is public, because the code that makes the
+//! observation (the G9 daemon) lives outside this crate, so the type alone does not stop a
+//! caller from building a key out of anything. The guarantee is structural instead:
+//!
+//! - a `NativeSignal` carries no key, and no adapter event or request has a member that
+//!   could hold one ([IFC-ADP-031]);
+//! - [`crate::pipeline::Pipelines`] reads a key only from the observation given with a
+//!   connection to `connect_observed`, by the core process's own code, never from anything
+//!   a signal, event or envelope carries;
+//! - a cross-check value is never a pairing key ([SC-ID-122], [SC-ID-127]); nothing here
+//!   pairs on one.
 //!
 //! *UNVERIFIED (`spec/session-channels.md` §6.7.2, dated note of 2026-10-03):* which
 //! operating-system facility yields such a key on each platform is open, owned by G9 (#70).
@@ -51,6 +58,9 @@ impl PairingKey {
     /// facility, of a connection's peer (for example the identity of the harness process
     /// it descends from). Never call it with a value the peer, an adapter or an envelope
     /// supplied ([SC-ID-121]; `spec/interfaces.md` [IFC-ADP-031]).
+    ///
+    /// It is public so that the daemon (G9) can build the key it observed; the type does
+    /// not enforce where the octets come from. See the module documentation for what does.
     pub fn from_observation(observed: impl Into<Box<[u8]>>) -> PairingKey {
         PairingKey(observed.into())
     }
@@ -487,6 +497,29 @@ mod tests {
         );
         assert_eq!(d.result, BindingResult::FailedClosed);
         let list = [att("A", None, Some(("native-x", 1)))];
+        // N differing only in letter case is a different N: not case 1 (PR #333 review, N3).
+        let d = decide(
+            &list,
+            &signal("Native-X", TRANSITION, None),
+            &Pairing::Paired("A"),
+        );
+        assert_eq!(
+            d.result,
+            BindingResult::Bound,
+            "case-folded N is not case 1"
+        );
+        // Nor is it a duplicate of another attachment's N (case 2).
+        let two = [att("A", None, Some(("native-x", 1))), att("B", None, None)];
+        let d = decide(
+            &two,
+            &signal("NATIVE-X", FRESH, None),
+            &Pairing::Paired("B"),
+        );
+        assert_eq!(
+            d.result,
+            BindingResult::Bound,
+            "case-folded N is not case 2"
+        );
         let d = decide(
             &list,
             &signal("native-x ", FRESH, None),

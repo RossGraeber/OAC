@@ -1717,3 +1717,148 @@ fn an_unpairable_signal_withholds_the_attachments_it_is_attributed_to() {
     assert_eq!(told(&n, &a), Some(sa.clone()));
     sent(n.adapter.sink().send(request(&a, &sc, "from a again")));
 }
+
+/// Runs `f` on the adapter's thread at the next `capabilities` call, which comes while a
+/// binding decision holds the binding turn (`Pipelines::bind`'s declaration step).
+fn during_next_decision(n: &Node, f: impl FnOnce() + Send + 'static) {
+    *n.adapter.on_capabilities.lock().unwrap() = Some(Box::new(f));
+}
+
+/// PR #333 review B1 ([SC-ID-123]): an attachment that opens while another decision holds
+/// the binding turn still pairs with the signal held for it; the holder passes again.
+#[test]
+fn a_held_signal_pairs_with_an_attachment_opened_during_another_decision() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let log = binding_log(&n);
+    let c = carrier(&n, "harness-k");
+    n.adapter
+        .emit(signal(Some(&c), "native-k", StartKind::Fresh, None));
+    let x = observed_attachment(&n, "harness-x", None);
+    let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
+    let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
+    during_next_decision(&n, move || {
+        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        *slot.lock().unwrap() = Some(conn.handle().clone());
+        pipes
+            .connect_observed(id, conn, observed("harness-k"))
+            .unwrap();
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    let k = opened
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("opened during the decision");
+    assert!(n.pipes.binding(&x).is_some());
+    assert!(n.pipes.binding(&k).is_some(), "the held signal paired");
+    assert_eq!(n.pipes.next_native_signal_expiry(), None);
+    assert!(!requirements(&log).contains(&"SC-ID-128"), "{log:?}");
+}
+
+/// PR #333 review N3: a signal reported while another decision holds the binding turn is
+/// decided once that pass ends (the post-pass re-check), not left on the queue.
+#[test]
+fn a_signal_reported_during_another_decision_is_decided_after_it() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let x = observed_attachment(&n, "harness-x", None);
+    let z = observed_attachment(&n, "harness-z", None);
+    let (adapter, zz) = (n.adapter.clone(), z.clone());
+    during_next_decision(&n, move || {
+        adapter.emit(signal(Some(&zz), "native-z", StartKind::Fresh, None));
+    });
+    n.adapter
+        .emit(signal(Some(&x), "native-x", StartKind::Fresh, None));
+    assert!(n.pipes.binding(&x).is_some());
+    assert!(n.pipes.binding(&z).is_some(), "decided by the re-check");
+}
+
+/// PR #333 review B2 ([SC-ID-154]): a signal dropped at `max_pending_signals` that its
+/// observed key attributes to a bound attachment withholds delivery to it.
+#[test]
+fn a_signal_dropped_at_the_bound_still_withholds_its_attachment() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let a = observed_attachment(&n, "harness-a", Some("native-a"));
+    n.adapter
+        .emit(signal(Some(&a), "native-a", StartKind::Fresh, None));
+    let sa = n.pipes.binding(&a).expect("bound");
+    let log = binding_log(&n);
+    let y = observed_attachment(&n, "harness-y", None);
+    let c = carrier(&n, "harness-9");
+    let (adapter, aa) = (n.adapter.clone(), a.clone());
+    during_next_decision(&n, move || {
+        // The queue takes the first; the second, `a`'s transition, finds it full.
+        adapter.emit(signal(Some(&c), "native-9", StartKind::Fresh, None));
+        adapter.emit(signal(Some(&aa), "native-a2", StartKind::Transition, None));
+    });
+    n.adapter
+        .emit(signal(Some(&y), "native-y", StartKind::Fresh, None));
+    let ids = requirements(&log);
+    assert!(ids.contains(&"SC-ID-128"), "{ids:?}");
+    assert!(ids.contains(&"SC-ID-154"), "{ids:?}");
+    assert_eq!(told(&n, &a), None, "withheld");
+    assert_eq!(
+        n.pipes.binding(&a),
+        Some(sa),
+        "still registered, not re-bound"
+    );
+}
+
+/// PR #333 review N1: `disconnect` frees the place of any connection, a signal carrier
+/// included, so `max_connections` is not used up by connections that ended.
+#[test]
+fn disconnected_connections_free_their_place() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_connections: 2,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let c1 = carrier(&n, "harness-1");
+    let _c2 = carrier(&n, "harness-2");
+    let third = Connection::accept(std::io::empty(), std::io::sink());
+    assert_eq!(
+        n.pipes.connect(n.adapter_id, third),
+        Err(PipelineError::TooManyConnections)
+    );
+    n.pipes.disconnect(&c1);
+    n.pipes.disconnect(&c1);
+    let again = Connection::accept(std::io::empty(), std::io::sink());
+    assert_eq!(n.pipes.connect(n.adapter_id, again), Ok(()));
+    // A signal on the ended carrier has no observed key any more: it fails closed.
+    let log = binding_log(&n);
+    n.adapter
+        .emit(signal(Some(&c1), "native-1", StartKind::Fresh, None));
+    assert_eq!(requirements(&log), ["SC-ID-129"]);
+}
+
+/// PR #333 review N1 ([SC-ID-155]): an attachment's connection ending ends its binding,
+/// as `attachment-closed` does; the adapter's later `attachment-closed` changes nothing.
+#[test]
+fn a_disconnected_attachment_is_deregistered() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    let sa = n.pipes.binding(&a).expect("bound");
+    n.pipes.disconnect(&a);
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(told(&n, &a), None);
+    n.pipes.with_engine(|e| assert_eq!(e.binding(&sa), None));
+    n.adapter.emit(AdapterEvent::AttachmentClosed {
+        attachment: a.clone(),
+    });
+    // A new attachment may now take the same native id (no stale duplicate).
+    let b = observed_attachment(&n, "harness-2", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&b), "native-x", StartKind::Fresh, None));
+    assert!(n.pipes.binding(&b).is_some());
+}

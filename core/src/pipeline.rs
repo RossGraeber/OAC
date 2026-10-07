@@ -87,13 +87,19 @@
 //! 4. the records, to the [`crate::session_binding::BindingLog`]
 //!    ([`Pipelines::set_binding_log`]).
 //!
-//! An unpairable signal that the observed key attributes to bound attachments withholds
-//! delivery to them and their send requests until a signal pairs with one ([SC-ID-154]).
-//! Signals are decided one at a time, in arrival order, by whichever thread holds the
-//! binding turn; the held and queued signals together are bounded by
+//! An unpairable or dropped signal that the observed key attributes to bound attachments
+//! withholds delivery to them and their send requests until a signal pairs with one
+//! ([SC-ID-154]). Signals are decided one at a time, in arrival order, by whichever thread
+//! holds the binding turn; a signal reported, or an attachment opened, while the turn is
+//! held makes the holder pass again. The held and queued signals together are bounded by
 //! [`PipelineConfig::max_pending_signals`]. A held signal's window is checked on every
 //! adapter event and when the owner's timer calls [`Pipelines::expire_native_signals`];
 //! nothing polls.
+//!
+//! The daemon calls [`Pipelines::disconnect`] when it observes a local connection end, so
+//! that connections which only carry native signals, and never become attachments, free
+//! their place ([`PipelineConfig::max_connections`]); for an attachment it is also the end
+//! of its binding ([SC-ID-155]).
 //!
 //! *UNVERIFIED (§6.7.2, dated note of 2026-10-03):* no operating-system facility for the
 //! pairing key is established yet (G9, #70). A connection given through
@@ -102,20 +108,21 @@
 //!
 //! # What is not here
 //!
-//! Accepting and authenticating local connections, and observing their peers, is the
-//! daemon's (G9); it passes each to [`Pipelines::connect_observed`].
+//! Accepting and authenticating local connections, observing their peers, and observing
+//! them end, is the daemon's (G9); it passes each to [`Pipelines::connect_observed`] and
+//! reports its end to [`Pipelines::disconnect`].
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use crate::adapter::{
-    AdapterEvent, Attachment, Connection, DiscoveryRequest, DiscoveryRequestResult, HandOff,
-    HandOffOutcome, NativeSignal, ProviderAdapter, ReceiptStream, RequestSink, SendRequest,
-    SendRequestResult,
+    AdapterEvent, Attachment, Connection, ConnectionHandle, DiscoveryRequest,
+    DiscoveryRequestResult, HandOff, HandOffOutcome, NativeSignal, ProviderAdapter, ReceiptStream,
+    RequestSink, SendRequest, SendRequestResult,
 };
 use crate::authorization::{
     AuthorizationEngine, AuthorizationRequest, AuthorizedMessage, Binding, HandOffRecord, Kind,
@@ -185,7 +192,9 @@ pub struct PipelineConfig {
     pub native_signal_window: Duration,
     /// The most native signals held or waiting for their decision at once. Past it the
     /// oldest held signal, or a new one when none is held, is dropped with a diagnostic
-    /// ([SC-ID-123], [SC-ID-128]).
+    /// ([SC-ID-123], [SC-ID-128]), withholding any bound attachment its observed key
+    /// attributes it to ([SC-ID-154]). The cap is shared by every key: a per-key share is
+    /// #335.
     pub max_pending_signals: usize,
 }
 
@@ -345,6 +354,9 @@ struct Inner {
     /// decided one at a time against the state the previous one left (§6.7.3). A thread
     /// that finds it taken leaves its signal on the queue for the holder.
     binding_turn: Mutex<()>,
+    /// Set when an attachment opens, so a held signal may now have a candidate. A holder of
+    /// the binding turn clears it at the start of a pass and passes again while it is set.
+    repair_needed: AtomicBool,
     /// Where the findings and diagnostics of §6.7 go.
     binding_log: Mutex<Box<dyn BindingLog>>,
 }
@@ -413,6 +425,7 @@ impl Pipelines {
                 requeued: Arc::default(),
                 waiting: AtomicUsize::new(0),
                 binding_turn: Mutex::new(()),
+                repair_needed: AtomicBool::new(false),
                 binding_log: Mutex::new(Box::new(MemoryBindingLog::new(1024))),
             }),
         }
@@ -587,6 +600,20 @@ impl Pipelines {
     /// expired, so a late attachment never pairs with an expired signal.
     pub fn expire_native_signals(&self) {
         self.inner.drain_binding();
+    }
+
+    /// The local connection `connection` ended: the daemon (G9) calls this when its IPC
+    /// layer observes the peer close, by end of stream or a broken pipe, never on a timeout.
+    ///
+    /// The core created the handle for that OS connection ([IFC-ADP-012]), so the end of
+    /// the OS connection ends the core's own entries for it, for an attachment and for a
+    /// connection that only carries native signals alike, and frees its place in
+    /// [`PipelineConfig::max_connections`]. For an attachment it is also evidence that the
+    /// attachment ended: its binding is deregistered ([SC-ID-155]), as on the adapter's
+    /// `attachment-closed` ([IFC-ADP-022]), and a later `attachment-closed` for it changes
+    /// nothing. An unknown handle changes nothing.
+    pub fn disconnect(&self, connection: &ConnectionHandle) {
+        self.inner.end_connection(connection);
     }
 
     /// The earliest instant a held native signal's window ends; `None` when none is held.
@@ -1221,6 +1248,11 @@ impl Inner {
     /// The delivery stage's view of the addressed session (§8.3.2 steps 1 to 3): bound here
     /// with an open attachment and not withheld ([SC-ID-154]), with its adapter's
     /// capabilities.
+    ///
+    /// The `withheld` test here decides how the refusal is reported. It is not the only
+    /// guard: [`Inner::hand_off`] re-checks `withheld` under the lock just before the call,
+    /// which also covers a withholding that lands between the two, so dropping it here
+    /// would change a report, never let a hand-off through (PR #333 review, N3).
     fn target(&self, to: &SessionId) -> Option<DeliveryTarget> {
         let (adapter, attachment, accepting) = {
             let core = self.lock();
@@ -1448,7 +1480,9 @@ impl Inner {
                             });
                     }
                 }
-                // A held signal may pair with it now (§6.7.2).
+                // A held signal may pair with it now (§6.7.2). Set before the turn is tried,
+                // so a holder that is mid-pass re-runs one (PR #333 review, B1).
+                self.repair_needed.store(true, Ordering::SeqCst);
                 self.drain_binding();
             }
             AdapterEvent::AttachmentClosed { attachment } => {
@@ -1458,11 +1492,7 @@ impl Inner {
                     .get(&attachment)
                     .is_some_and(|e| e.adapter == adapter);
                 if owned {
-                    self.unbind(&attachment);
-                    let mut core = self.lock();
-                    core.attachments.remove(&attachment);
-                    core.connections.remove(&attachment);
-                    core.observed.remove(&attachment);
+                    self.end_connection(&attachment);
                 }
             }
             AdapterEvent::CapabilitiesChanged { attachment } => {
@@ -1479,18 +1509,47 @@ impl Inner {
                     } else if let Some(oldest) = core.held.pop_front() {
                         // Past the bound, the oldest held signal goes ([SC-ID-123]).
                         core.signals.push_back((adapter, signal));
-                        Some(oldest.signal)
+                        let attempt = Inner::pair_by_key(&core, oldest.adapter, &oldest.key);
+                        Some((oldest.signal, attempt))
                     } else {
                         // With none held, this one does.
-                        Some(signal)
+                        let attempt = Inner::pair(&core, adapter, &signal);
+                        Some((signal, attempt))
                     }
                 };
-                if let Some(s) = dropped {
-                    self.log_decision(&decide(&[], &s, &Pairing::WindowExpired), None, None);
+                if let Some((s, attempt)) = dropped {
+                    self.drop_signal(&s, attempt);
                 }
                 self.drain_binding();
             }
         }
+    }
+
+    /// Drops `signal` unbound, with its diagnostic ([SC-ID-124], [SC-ID-128]). When its
+    /// observed key attributes it to bound attachments, delivery to them is withheld
+    /// ([SC-ID-154]; PR #333 review, B2).
+    fn drop_signal(&self, signal: &NativeSignal, attempt: PairAttempt) {
+        let d = decide::<Attachment>(&[], signal, &Pairing::WindowExpired);
+        self.log_decision(&d, None, None);
+        let attributed = match attempt {
+            PairAttempt::Paired(a) => vec![a],
+            PairAttempt::Unpairable(bound) => bound,
+            PairAttempt::NotYet(_) => Vec::new(),
+        };
+        for a in attributed {
+            self.withhold(&a);
+        }
+    }
+
+    /// Forgets the connection `connection`: an attachment's binding ends first
+    /// ([SC-ID-155]), then the core's own entries for it go, whatever kind of connection
+    /// it was.
+    fn end_connection(&self, connection: &ConnectionHandle) {
+        self.unbind(connection);
+        let mut core = self.lock();
+        core.attachments.remove(connection);
+        core.connections.remove(connection);
+        core.observed.remove(connection);
     }
 
     // ---- binding from native signals (§6.7) -------------------------------------------
@@ -1507,31 +1566,39 @@ impl Inner {
                 };
                 self.binding_pass();
             }
-            // A signal queued after the pass looked, but before the turn was released,
-            // found the turn taken: decide it now.
-            if self.lock().signals.is_empty() {
+            // A signal queued, or an attachment opened, while the turn was held found the
+            // turn taken and left its work here: do it now (PR #333 review, B1).
+            if self.lock().signals.is_empty() && !self.repair_needed.load(Ordering::SeqCst) {
                 return;
             }
         }
     }
 
     /// One pass, with the binding turn held: held signals whose window ended are dropped
-    /// ([SC-ID-124]), held signals that now have a candidate are decided, then each queued
-    /// signal is paired and decided, in arrival order.
+    /// ([SC-ID-124]), held signals that now have a candidate are decided, then each signal
+    /// queued when the pass began is paired and decided, in arrival order. Work that
+    /// arrives during the pass is left for [`Inner::drain_binding`]'s next pass.
     fn binding_pass(self: &Arc<Self>) {
+        self.repair_needed.store(false, Ordering::SeqCst);
         let now = (self.monotonic)();
         let window = self.config.native_signal_window;
-        let expired = {
+        let (expired, queued) = {
             let mut core = self.lock();
             let (gone, kept): (VecDeque<HeldSignal>, VecDeque<HeldSignal>) =
                 core.held.drain(..).partition(|h| now >= h.held_at + window);
             core.held = kept;
-            gone
+            let expired: Vec<(HeldSignal, PairAttempt)> = gone
+                .into_iter()
+                .map(|h| {
+                    let attempt = Inner::pair_by_key(&core, h.adapter, &h.key);
+                    (h, attempt)
+                })
+                .collect();
+            (expired, core.signals.len())
         };
-        for h in expired {
-            // [SC-ID-124], [SC-ID-128]: dropped, binding nothing.
-            let d = decide::<Attachment>(&[], &h.signal, &Pairing::WindowExpired);
-            self.log_decision(&d, None, None);
+        for (h, attempt) in expired {
+            // [SC-ID-124], [SC-ID-128]: dropped, binding nothing; [SC-ID-154].
+            self.drop_signal(&h.signal, attempt);
         }
         let held: Vec<HeldSignal> = self.lock().held.drain(..).collect();
         for h in held {
@@ -1541,7 +1608,7 @@ impl Inner {
                 attempt => self.resolve(h.adapter, &h.signal, attempt),
             }
         }
-        loop {
+        for _ in 0..queued {
             let Some((adapter, signal)) = self.lock().signals.pop_front() else {
                 return;
             };
@@ -1700,7 +1767,9 @@ impl Inner {
                     kind: RecordKind::Diagnostic,
                     requirement: "SC-ID-009",
                 },
-                result: BindingResult::Bound,
+                // Nothing was bound, and an earlier binding may have just ended
+                // ([SC-ID-150]): the attachment is left unbound.
+                result: BindingResult::FailedClosed,
                 attachment: Some(attachment.clone()),
                 session: None,
             });

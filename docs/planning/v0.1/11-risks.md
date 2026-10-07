@@ -479,6 +479,23 @@ list.
   shim until it is re-paired, if the mechanism allows. Whether it does is UNVERIFIED.
   The early-warning signal is the same: the adapter cannot attribute a dropped payload
   to a process.)
+  (Dated note, 2026-10-07, #331, PR #333: the core's binding decision now exists in
+  `core/src/session_binding.rs` and `Pipelines`. The pairing key it takes is still the
+  G9 item above. Three points follow for the G9 key design:
+  - **Residual: same-key denial of service.** A process that descends from the victim's
+    harness, such as a tool subprocess, can open a second attachment under the same
+    observed key. From then on, every signal for that harness has two candidates and is
+    unpairable. The victim's attachment is withheld ([SC-ID-154]) and stays withheld
+    until one of the two ends. That is a denial of service, never a hijack: nothing binds
+    to the second attachment. Early-warning signal: findings for SC-ID-129 and SC-ID-154
+    on a harness that never forked a second shim. Response: make the G9 key distinguish
+    the shim from other descendants, if the OS allows it.
+  - **The stale-binding residual is closed where the key allows it.** The core withholds
+    a bound attachment when an unpairable signal, or one dropped at the window or the
+    pending cap, is attributed to it by its observed key.
+  - **The daemon must call `Pipelines::disconnect`** when it observes a local connection
+    end, by end of stream or a broken pipe, never on a timeout. Otherwise connections
+    that carry only native signals never free their place in `max_connections`.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption

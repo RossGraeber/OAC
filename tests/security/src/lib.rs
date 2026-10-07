@@ -554,6 +554,11 @@ pub enum Status {
     /// passing test here that drives the core; `gated` lists the parts that wait for a
     /// component not built yet.
     Proven,
+    /// The core's decision is proven by passing tests here, but the row's headline
+    /// mitigation rests on an input that the gated component supplies and these tests
+    /// stand in for: for 06 row 24, the OS-observed pairing key (G9). Rendered "core
+    /// decision proven; pairing key gated (G9)" (PR #333 review, N6).
+    DecisionProven,
     /// No test here proves the row's mitigation yet; `gated` says why. The row may still
     /// list harness facts, which record a precondition and prove nothing about OAC.
     Gated,
@@ -989,10 +994,10 @@ pub const THREATS: &[Threat] = &[
         ],
         facts: &[],
         core_tests: &["tests/conformance.rs::conformance_fixtures"],
-        status: Status::Proven,
+        status: Status::DecisionProven,
         gated: &[Gate {
             issue: G9,
-            what: "the daemon's IPC and the OS-observed pairing key (peer PID and ancestry, UNVERIFIED per platform) that the core's binding decision takes as given (gated_row24_spoofed_session_variable_binds_nothing)",
+            what: "the daemon's IPC and the OS-observed pairing key (peer PID and ancestry, UNVERIFIED per platform), on which pairing rests and which the tests here supply (gated_row24_spoofed_session_variable_binds_nothing)",
         }],
     },
     Threat {

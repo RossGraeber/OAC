@@ -19,8 +19,14 @@ dependency or ADR text changes.
 - **Conformance.** `core/tests/conformance.rs` runs all 26 `binding` fixtures through the
   core; `binding` leaves the not-run list (`mcp-binding`, `provenance` and `body` stay
   adapter work).
-- **Security suite.** 06 row 24 is proven against the core with its G9 part still gated;
-  row 19 gains a resume test. The F11 table in 09 §12 is updated to match.)
+- **Security suite.** 06 row 24 reads "core decision proven; pairing key gated (G9)";
+  row 19 gains a resume test. The F11 table in 09 §12 is updated to match.
+- **Review fixes (PR #333).** A held signal re-pairs with an attachment opened while
+  another decision runs; a signal dropped at the pending cap still withholds what it is
+  attributed to ([SC-ID-154]); new `Pipelines::disconnect` frees a connection's place when
+  the daemon observes it end, and ends an attachment's binding ([SC-ID-155]); the G9
+  same-key denial-of-service residual is added to `RISK-LOCAL-IPC`; the per-key share of
+  the pending cap is #335.)
 
 **Last updated:** 2026-10-07 (**Issue #61 (F12): the default CI tier.** No `spec/` file,
 `core/` source file, gate verdict, pin, third-party dependency or ADR text changes.

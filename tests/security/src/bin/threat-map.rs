@@ -15,7 +15,7 @@ fn main() {
         .iter()
         .map(|t| {
             let status = match t.status {
-                Status::Proven => "proven",
+                Status::Proven | Status::DecisionProven => "proven",
                 Status::Gated => "gated",
                 Status::OpenRisk => "open-risk",
             };
