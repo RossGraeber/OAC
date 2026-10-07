@@ -4,12 +4,14 @@
 # which returns early before it asserts, which neither the static threat map nor
 # check-compiled-tests.mjs can see.
 #
-# Opt-in tier, NOT the default CI tier (oac-testing section 2): it recompiles core/ and the
-# suite once per mutation, so it runs weekly on a schedule and by manual dispatch, never
-# from a pull request or a push. Like the default tier it needs no live provider, no API
-# key and no network beyond loopback: the one networked step is `cargo fetch`, every cargo
-# step after it runs with CARGO_NET_OFFLINE (the script also passes --offline), and the
-# tests run under scripts/loopback-only.sh where the kernel has network namespaces.
+# Not part of the per-change CI (ci.yml): it recompiles core/ and the suite once per
+# mutation, so it runs weekly on a schedule and by manual dispatch, never from a pull
+# request or a push. A schedule runs unattended, so scripts/check-workflows.mjs holds this
+# workflow to the default tier's rules (D1-D3; PR #336 review B5, oac-testing section 2),
+# and it meets them: no live provider, no API key, no opt-in switch and no network beyond
+# loopback. The one networked step is `cargo fetch`, every cargo step after it runs with
+# CARGO_NET_OFFLINE (the script also passes --offline), and the tests run under
+# scripts/loopback-only.sh where the kernel has network namespaces.
 #
 # No secrets. Permissions contents: read; checkout does not persist the job token; every
 # action is pinned by commit SHA. The work directory (the copied workspace and its target/)

@@ -12,7 +12,9 @@
 // Every workflow, and every local composite action (`uses: ./dir` -> dir/action.yml or
 // dir/action.yaml, plus every .github/actions/**/action.y*ml):
 //   W0  the structural reader can read it (fails closed): block and flow mappings and
-//       sequences, quoted and plain keys and scalars, block scalars.
+//       sequences, quoted and plain keys and scalars, block scalars. Anchors (`&a`),
+//       aliases (`*a`) and merge keys (`<<`) are refused outright (PR #336 review B4): an
+//       alias would carry text a rule read only where it was anchored.
 //   W1  every `uses:` (block or flow style, the key quoted or not) names an action at a full
 //       40-hex commit SHA (no tag, no branch, no docker:// image). A local action (`./dir`)
 //       is read and held to these same rules, and so is every local action it uses in turn,
@@ -31,11 +33,14 @@
 //       an `if:` written without `${{ }}` is an expression too and is read the same way
 //       (#332); `secrets: inherit` fails; no provider or harness credential name; no
 //       `pull_request_target` or `workflow_run` trigger.
-//   W5  no script injection (#332): no `${{ github.event... }}` expression inside a `run:`
-//       script, where GitHub pastes the text of an issue title, a branch name or a commit
-//       message into the shell before it runs. Pass the value through `env:` instead.
-// Default-tier workflows (any trigger other than workflow_dispatch and schedule; the herdr
-// opt-in workflow is the exception, with its own stricter rules in
+//   W5  no script injection (#332): no expression that reads text an outsider or a caller
+//       chooses (`github.event...`, `github.head_ref`, `inputs.*`) inside a `run:` script or
+//       an actions/github-script `script:` input, where GitHub pastes the text (an issue
+//       title, a branch name, a commit message, an input) into the code before it runs.
+//       Pass the value through `env:` instead.
+// Default-tier workflows (any trigger other than workflow_dispatch: a `schedule` runs
+// unattended, with no opt-in, so it is the default tier too, oac-testing section 2; the
+// herdr opt-in workflow is the exception, with its own stricter rules in
 // scripts/check-herdr-containment.mjs check 9), and the local actions they use:
 //   D1  no self-hosted runner: `self-hosted` anywhere outside a comment, so a runner label
 //       routed through a matrix fails too (check 9 also refuses every runner label in any
@@ -44,8 +49,7 @@
 //       opt-in variable, no tools/herdr driver;
 //   D3  no harness CLI install (the Claude Code or Codex npm packages, `codex`/`claude`
 //       installers).
-// Opt-in workflows (workflow_dispatch and/or schedule only: a scheduled job is opt-in tier,
-// it never runs for a pull request or a push) may use D1-D3; W0-W5 still hold.
+// Opt-in workflows (workflow_dispatch only) may use D1-D3; W0-W5 still hold.
 //
 // Two readers, both failing closed. The structural one parses the YAML into mappings,
 // sequences and scalars for W0-W3, the `if:` part of W4 and W5; a workflow whose `on:` or
@@ -55,8 +59,8 @@
 // secrets" is not a hit; the text of a block scalar (a run: script) is never treated as a
 // comment. W4's expression rules read the raw text, so an expression inside a YAML comment
 // fails too (GitHub would not evaluate it there; failing on it is the safe side).
-// Anchors, aliases and tags are read as plain text, so an alias where a permission value
-// belongs is not `read` and fails W2. Node built-ins only.
+// Tags (`!!str`) are read as plain text. The reader is linear in the length of a line.
+// Node built-ins only.
 // Exit codes: 0 = clean; 1 = violation (or failed self-test); 2 = usage or environment error.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -69,8 +73,9 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 // Governed by check 9 (scripts/check-herdr-containment.mjs): push-to-main on PINS.md and
 // dispatch, self-hosted harness runners, no opt-in flag beyond its scenario input.
 const HERDR_OPTIN = 'herdr-provider-optin.yml';
-// The triggers of an opt-in workflow: neither runs for a pull request or a push.
-const OPT_IN_TRIGGERS = new Set(['workflow_dispatch', 'schedule']);
+// The trigger of an opt-in workflow: a person starts it. A `schedule` is not one (PR #336
+// review B5): it runs unattended, so a scheduled workflow is held to the default tier.
+const OPT_IN_TRIGGERS = new Set(['workflow_dispatch']);
 
 const SHA_PIN = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/;
 const CREDENTIAL = /ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|CODEX_API_KEY|OPENAI_ORG|\bGITHUB_TOKEN\b|\bauth\.json\b|\.credentials\.json/i;
@@ -80,9 +85,9 @@ const EXPRESSION_RULES = [
   { re: /\bgithub\s*\[/i, msg: 'github context indexed (github[...]) in an expression' },
   { re: /\bgithub\b(?!\s*[.[])/i, msg: 'whole github context (it holds the token) in an expression' },
 ];
-// W5: the event payload, which an outside contributor writes (titles, bodies, branch
-// names, commit messages). `github.event_name` is not part of it.
-const EVENT_PAYLOAD = /\bgithub\s*\.\s*event\b/i;
+// W5: text an outsider or a caller chooses: the event payload (titles, bodies, branch
+// names, commit messages), the head branch name, and inputs. `github.event_name` is not.
+const UNTRUSTED_TEXT = /\bgithub\s*\.\s*(?:event|head_ref)\b|\binputs\s*[.[]/i;
 const SECRETS_INHERIT = /\bsecrets\s*:\s*['"]?inherit\b/i;
 const PRIVILEGED_TRIGGER = /^(?:pull_request_target|workflow_run)$/;
 const SELF_HOSTED = /\bself-hosted\b/i;
@@ -105,10 +110,11 @@ function stripComment(line) {
     } else if (c === '"' || c === "'") {
       q = c;
     } else if (c === '#' && (i === 0 || /\s/.test(line[i - 1]))) {
-      return line.slice(0, i).replace(/\s+$/, '');
+      // trimEnd, not a /\s+$/ regex: that is quadratic on a long run of inner spaces.
+      return line.slice(0, i).trimEnd();
     }
   }
-  return line.replace(/\s+$/, '');
+  return line.trimEnd();
 }
 
 const indentOf = (l) => l.match(/^ */)[0].length;
@@ -198,9 +204,12 @@ function readFlow(s, i, line) {
           key = q.v;
           i = q.end;
         } else {
-          const m = /^[^:,{}[\]]*/.exec(s.slice(i));
-          key = m[0].trim();
-          i += m[0].length;
+          let j = i;
+          while (j < s.length && !':,{}[]'.includes(s[j])) j++;
+          key = s.slice(i, j).trim();
+          i = j;
+          refuseAnchor(key, line);
+          refuseMergeKey(key, false, line);
         }
         ws();
         let value = str(line, '');
@@ -239,6 +248,7 @@ function readFlow(s, i, line) {
     out += s[j];
     j++;
   }
+  refuseAnchor(out.trim(), line);
   return { node: str(line, out.trim()), end: j };
 }
 
@@ -261,18 +271,39 @@ function flowDepth(s) {
   return d;
 }
 
-// The key of a block mapping line's content, or null: { key, rest }.
+const isSpace = (c) => c === ' ' || c === '\t' || c === '\r' || c === '\n';
+
+// The key of a block mapping line's content, or null: { key, rest, quoted }. A linear
+// scan (PR #336 review N5): the first `:` followed by whitespace or the end, before any `#`.
 function splitKey(content, line) {
   if (content[0] === '"' || content[0] === "'") {
     const q = readQuoted(content, 0, line);
-    const after = content.slice(q.end);
-    const m = /^\s*:(?:\s+|$)/.exec(after);
-    return m ? { key: q.v, rest: after.slice(m[0].length) } : null;
+    let j = q.end;
+    while (j < content.length && isSpace(content[j])) j++;
+    if (content[j] !== ':' || (j + 1 < content.length && !isSpace(content[j + 1]))) return null;
+    return { key: q.v, rest: content.slice(j + 1).trimStart(), quoted: true };
   }
   if (/^[-?:,[\]{}#&*!|>%@`]/.test(content) && !/^-[^\s]/.test(content)) return null;
-  const m = /^([^#]*?)\s*:(?:\s+|$)/.exec(content);
-  if (!m || m[1] === '') return null;
-  return { key: m[1], rest: content.slice(m[0].length) };
+  for (let j = 0; j < content.length; j++) {
+    const c = content[j];
+    if (c === '#') return null;
+    if (c === ':' && (j + 1 === content.length || isSpace(content[j + 1]))) {
+      const key = content.slice(0, j).trimEnd();
+      return key === '' ? null : { key, rest: content.slice(j + 1).trimStart(), quoted: false };
+    }
+  }
+  return null;
+}
+
+// Anchors, aliases and merge keys are refused outright (PR #336 review B4).
+function refuseAnchor(text, line) {
+  if (text[0] === '&' || text[0] === '*') {
+    throw new YamlError(line, `a YAML ${text[0] === '&' ? 'anchor' : 'alias'} (${text.split(/\s/)[0]}): refused, an alias would carry text the rules read only where it was anchored`);
+  }
+}
+
+function refuseMergeKey(key, quoted, line) {
+  if (!quoted && key === '<<') throw new YamlError(line, 'a YAML merge key (<<): refused');
 }
 
 function parseYaml(text) {
@@ -313,6 +344,7 @@ function parseYaml(text) {
   // A value that starts on line i at text `rest` (after `key:` or `- `), for a node at `ind`.
   function inlineValue(rest, ind) {
     const line = i + 1;
+    refuseAnchor(rest, line);
     if (/^[|>][1-9+-]{0,2}$/.test(rest)) return str(line, blockScalar(ind));
     if (rest[0] === '{' || rest[0] === '[') {
       let s = rest;
@@ -364,6 +396,7 @@ function parseYaml(text) {
       if (c.startsWith('- ') || c === '-') break;
       const kv = splitKey(c, i + 1);
       if (!kv) throw new YamlError(i + 1, `not a mapping key: ${c}`);
+      refuseMergeKey(kv.key, kv.quoted, i + 1);
       const keyLine = i + 1;
       let value;
       if (kv.rest === '') {
@@ -507,6 +540,22 @@ function commonRules(text, defaultTier, hit) {
       const pc = get(get(s, 'with')?.value, 'persist-credentials')?.value;
       if (!(pc?.t === 'str' && pc.v === 'false')) hit('W3', uses.line, 'actions/checkout without persist-credentials: false under with:');
     }
+    // W5 for code a step runs: a `run:` script, and actions/github-script's `script:`.
+    const injection = (node, where) => {
+      for (const { expr, index } of expressions(node.v)) {
+        if (UNTRUSTED_TEXT.test(expr)) {
+          const offset = node.v.slice(0, index).split('\n').length - 1;
+          const line = node.line + (node.v.includes('\n') || offset > 0 ? offset + 1 : 0);
+          hit('W5', line, `\${{${expr}}} inside ${where} is pasted into the code before it runs (script injection); pass it through env:`);
+        }
+      }
+    };
+    for (const s of stepsOf(doc)) {
+      const uses = get(s, 'uses')?.value;
+      if (uses?.t !== 'str' || !/^actions\/github-script@/.test(uses.v)) continue;
+      const script = get(get(s, 'with')?.value, 'script')?.value;
+      if (script?.t === 'str') injection(script, 'an actions/github-script script:');
+    }
     for (const p of pairsOf(doc)) {
       // W4: an `if:` without `${{ }}` is an expression all the same (#332).
       if (p.key === 'if' && p.value.t === 'str' && !p.value.v.includes('${{')) {
@@ -517,16 +566,8 @@ function commonRules(text, defaultTier, hit) {
           }
         }
       }
-      // W5: the event payload pasted into a script (#332).
-      if (p.key === 'run' && p.value.t === 'str') {
-        for (const { expr, index } of expressions(p.value.v)) {
-          if (EVENT_PAYLOAD.test(expr)) {
-            const offset = p.value.v.slice(0, index).split('\n').length - 1;
-            const line = p.value.line + (p.value.v.includes('\n') || offset > 0 ? offset + 1 : 0);
-            hit('W5', line, `\${{${expr}}} inside run: is pasted into the script before it runs (script injection); pass it through env:`);
-          }
-        }
-      }
+      // W5: untrusted text pasted into a script (#332).
+      if (p.key === 'run' && p.value.t === 'str') injection(p.value, 'run:');
     }
   }
 
@@ -759,7 +800,8 @@ const SETUP = { './.github/actions/setup': ACTION_GOOD };
 const CASES = [
   ['control: default-tier workflow', 'good.yml', GOOD, []],
   ['control: opt-in workflow may use --ignored and OAC_TEST_*', 'optin.yml', OPTIN, []],
-  ['control: a scheduled workflow is opt-in tier', 'optin.yml', OPTIN.replace('  workflow_dispatch:', "  schedule:\n    - cron: '0 5 * * 1'\n  workflow_dispatch:"), []],
+  ['control: a scheduled workflow with nothing D1-D3 refuses', 'x.yml', GOOD.replace(/on:\n  push:\n    branches: \[main\]\n  pull_request:\n/, "on:\n  schedule:\n    - cron: '0 5 * * 1'\n  workflow_dispatch:\n"), []],
+  ['control: github-script reading the event through env:', 'x.yml', withStep(`      - uses: actions/github-script@${SHA}\n        env:\n          TITLE: \${{ github.event.issue.title }}\n        with:\n          script: console.log(process.env.TITLE)`), []],
   ['control: inline on list', 'x.yml', GOOD.replace(/on:\n  push:\n    branches: \[main\]\n  pull_request:\n/, 'on: [push, pull_request]\n'), []],
   ['control: top-level permissions as a flow mapping', 'x.yml', GOOD.replace('permissions:\n  contents: read', 'permissions: { contents: read }'), []],
   ['control: job-level read and none, block and flow', 'x.yml', withJob('    permissions:\n      contents: read\n      id-token: none').replace('  test:', '  other:\n    permissions: { contents: "read" }\n    runs-on: x\n  test:'), []],
@@ -817,6 +859,20 @@ const CASES = [
   ['W5 toJSON(github.event) in run: (#332)', 'x.yml', withStep('      - run: echo \'${{ toJSON(github.event) }}\''), ['W5']],
   ['W5 a flow-style step with a quoted run: (#332)', 'x.yml', withStep('      - { "run": "echo ${{ github.event.head_commit.message }}" }'), ['W5']],
   ['W5 github.event in a run: inside a local action (#332)', 'x.yml', withStep('      - uses: ./.github/actions/setup'), ['W5'], { './.github/actions/setup': `${ACTION_GOOD}    - shell: bash\n      run: echo "\${{ github.event.issue.body }}"\n` }],
+  // PR #336 review N1: W5 also covers the head branch name, inputs, and github-script.
+  ['W5 github.head_ref in run: (PR #336 N1)', 'x.yml', withStep('      - run: git checkout "${{ github.head_ref }}"'), ['W5']],
+  ['W5 inputs.x in run: (PR #336 N1)', 'x.yml', withStep('      - run: echo ${{ inputs.scenario }}'), ['W5']],
+  ["W5 inputs['x'] in run: (PR #336 N1)", 'x.yml', withStep("      - run: echo ${{ inputs['scenario'] }}"), ['W5']],
+  ['W5 github.event in a github-script script: (PR #336 N1)', 'x.yml', withStep(`      - uses: actions/github-script@${SHA}\n        with:\n          script: |\n            const t = "\${{ github.event.issue.title }}";`), ['W5']],
+  ['W5 inputs in a flow-style github-script step (PR #336 N1)', 'x.yml', withStep(`      - { uses: actions/github-script@${SHA}, with: { script: "core.info('\${{ inputs.x }}')" } }`), ['W5']],
+  // PR #336 review B4: anchors, aliases and merge keys are refused (W0).
+  ["W0 the review's alias evasion of W5", 'x.yml', GOOD.replace('jobs:\n  test:\n', 'env:\n  T: &t echo "${{ github.event.issue.title }}"\njobs:\n  test:\n').replace('      - run: cargo test', '      - run: *t\n      - run: cargo test'), ['W0']],
+  ['W0 an anchor on a block mapping', 'x.yml', withJob('    permissions: &p\n      contents: read'), ['W0']],
+  ['W0 an alias as a sequence item', 'x.yml', withStep('      - *step'), ['W0']],
+  ['W0 an alias in a flow mapping', 'x.yml', withStep(`      - { uses: actions/checkout@${SHA}, with: *w }`), ['W0']],
+  ['W0 an anchored flow collection', 'x.yml', withStep(`      - uses: actions/checkout@${SHA}\n        with: &w { persist-credentials: false }`), ['W0']],
+  ['W0 a merge key', 'x.yml', withJob('    <<: { permissions: write-all }'), ['W0']],
+  ['W0 a merge key in a flow mapping', 'x.yml', withJobs('  test: { <<: { permissions: write-all }, runs-on: x }'), ['W0']],
   ['W0 a workflow the structural reader cannot read', 'x.yml', GOOD.replace('jobs:\n  test:', 'jobs:\n  test: {'), ['W0']],
   ['D1 self-hosted runner', 'x.yml', GOOD.replace('${{ matrix.os }}', '[self-hosted, x]'), ['D1']],
   ['D1 self-hosted routed through a matrix', 'x.yml', GOOD.replace('    runs-on: ${{ matrix.os }}', '    strategy:\n      matrix:\n        r: [self-hosted]\n    runs-on: ${{ matrix.r }}'), ['D1']],
@@ -824,6 +880,9 @@ const CASES = [
   ['D2 --ignored inside a run: block', 'x.yml', GOOD.replace('          echo done', '          cargo test -- --include-ignored'), ['D2']],
   ['D2 OAC_TEST_ flag in the default tier', 'x.yml', withStep('      - env:\n          OAC_TEST_REAL_KEYRING: "1"\n        run: true'), ['D2']],
   ['D2 herdr driver in the default tier', 'x.yml', GOOD.replace('cargo test --workspace', 'node tools/herdr/ci.mjs run'), ['D2']],
+  // PR #336 review B5: a schedule runs unattended, so it is the default tier.
+  ['D2 D3 a schedule-only workflow is the default tier', 'x.yml', `name: s\non: { schedule: [ { cron: '0 * * * *' } ] }\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm install -g @open${'ai'}/codex && cargo test -- --include-ignored && OAC_TEST_REAL=1 node tools/herdr/ci.mjs run\n`, ['D2', 'D3']],
+  ['D2 a schedule with workflow_dispatch is still the default tier', 'optin.yml', OPTIN.replace('  workflow_dispatch:', "  schedule:\n    - cron: '0 5 * * 1'\n  workflow_dispatch:"), ['D2', 'D2']],
   ['D2 a schedule beside a push is still the default tier', 'x.yml', GOOD.replace('  pull_request:', "  pull_request:\n  schedule:\n    - cron: '0 5 * * 1'").replace('cargo test --workspace #', 'cargo test -- --ignored #'), ['D2']],
   ['D3 harness CLI install', 'x.yml', GOOD.replace('cargo test --workspace', 'npm install -g @open' + 'ai/codex'), ['D3']],
 ];
