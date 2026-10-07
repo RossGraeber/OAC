@@ -1906,6 +1906,140 @@ fn held_signals_count_while_a_pass_decides_them() {
     assert!(n.pipes.binding(&am).is_some(), "`m`'s held signal was kept");
 }
 
+/// PR #337 ([SC-ID-154], "until a later signal is paired"): a later transition dropped at
+/// the cap while an earlier signal's decision for the same attachment runs keeps the
+/// attachment withheld; that earlier decision does not release it. A signal reported after
+/// the dropped one does.
+#[test]
+fn an_earlier_decision_does_not_release_a_later_drop() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let a = observed_attachment(&n, "harness-a", Some("native-a"));
+    let g = carrier(&n, "harness-g");
+    let log = binding_log(&n);
+    let (adapter, aa) = (n.adapter.clone(), a.clone());
+    // After the first signal registered `a`, while its decision still runs: a filler takes
+    // the one place, so `a`'s later transition is refused.
+    *n.adapter.on_set_binding.lock().unwrap() = Some(Box::new(move || {
+        adapter.emit(signal(Some(&g), "native-g", StartKind::Fresh, None));
+        adapter.emit(signal(Some(&aa), "native-a2", StartKind::Transition, None));
+    }));
+    n.adapter
+        .emit(signal(Some(&a), "native-a", StartKind::Fresh, None));
+    assert_eq!(requirements(&log), ["SC-ID-128", "SC-ID-154"]);
+    let sa = n.pipes.binding(&a).expect("still registered");
+    assert_eq!(
+        told(&n, &a),
+        None,
+        "still withheld after the earlier decision"
+    );
+    let (_, sc) = session(&n, 51);
+    local_grant(&n, &sa, &sc);
+    let r = n.adapter.sink().send(request(&a, &sc, "from a"));
+    assert_eq!(r.error(), Some(ErrorCode::Unauthorized));
+    // The filler's attachment opens and frees the place; then a transition reported after
+    // the dropped one pairs: `a` moves and is released.
+    observed_attachment(&n, "harness-g", Some("native-g"));
+    n.adapter
+        .emit(signal(Some(&a), "native-a3", StartKind::Transition, None));
+    let now = n.pipes.binding(&a).expect("re-bound");
+    assert_ne!(now, sa);
+    assert_eq!(told(&n, &a), Some(now));
+}
+
+/// PR #337 ([SC-ID-154]): a later transition dropped while an earlier transition's
+/// decision is re-binding the attachment (deregistered, not yet registered again) makes
+/// that new binding start withheld; a signal reported after the dropped one releases it.
+#[test]
+fn a_drop_between_bindings_withholds_the_new_binding() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let a = observed_attachment(&n, "harness-a", Some("native-a"));
+    n.adapter
+        .emit(signal(Some(&a), "native-a", StartKind::Fresh, None));
+    let sa = n.pipes.binding(&a).expect("bound");
+    let g = carrier(&n, "harness-g");
+    let log = binding_log(&n);
+    let (adapter, aa) = (n.adapter.clone(), a.clone());
+    // During the re-binding's declaration step, after the earlier binding ended.
+    during_next_decision(&n, move || {
+        adapter.emit(signal(Some(&g), "native-g", StartKind::Fresh, None));
+        adapter.emit(signal(Some(&aa), "native-a2", StartKind::Transition, None));
+    });
+    n.adapter
+        .emit(signal(Some(&a), "native-a1", StartKind::Transition, None));
+    let s1 = n
+        .pipes
+        .binding(&a)
+        .expect("re-bound to the earlier transition");
+    assert_ne!(s1, sa);
+    let ids = requirements(&log);
+    assert!(ids.contains(&"SC-ID-128"), "{ids:?}");
+    assert!(ids.contains(&"SC-ID-154"), "{ids:?}");
+    assert_eq!(told(&n, &a), None, "the new binding starts withheld");
+    observed_attachment(&n, "harness-g", Some("native-g"));
+    n.adapter
+        .emit(signal(Some(&a), "native-a3", StartKind::Transition, None));
+    let now = n.pipes.binding(&a).expect("re-bound");
+    assert_ne!(now, s1);
+    assert_eq!(told(&n, &a), Some(now));
+}
+
+/// PR #337 ([SC-ID-154]): a binding decided elsewhere (`Pipelines::bind`) is no signal, so
+/// it does not answer a drop attributed to the attachment: it starts withheld until a
+/// signal reported after the drop pairs.
+#[test]
+fn an_external_bind_does_not_answer_a_drop() {
+    let bus = Bus::default();
+    let config = PipelineConfig {
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node(&bus, "device-a", config);
+    let a = observed_attachment(&n, "harness-a", Some("native-x"));
+    let g = carrier(&n, "harness-g");
+    n.adapter
+        .emit(signal(Some(&g), "native-g", StartKind::Fresh, None));
+    let log = binding_log(&n);
+    // The place is taken: `a`'s signal is refused, attributed to `a` (not yet bound).
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    assert_eq!(requirements(&log), ["SC-ID-128"]);
+    let sa = SessionId::from_random_octets([52; 16]);
+    let record = n
+        .pipes
+        .device()
+        .register(
+            sa.clone(),
+            Token::parse("test-harness").unwrap(),
+            "native-x",
+            "/work",
+            SystemClock.now(),
+        )
+        .unwrap();
+    n.pipes.bind(&a, &record, None).unwrap();
+    assert_eq!(n.pipes.binding(&a), Some(sa.clone()));
+    assert_eq!(requirements(&log), ["SC-ID-128", "SC-ID-154"]);
+    assert_eq!(told(&n, &a), None, "starts withheld");
+    observed_attachment(&n, "harness-g", Some("native-g"));
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    assert_eq!(
+        told(&n, &a),
+        n.pipes.binding(&a),
+        "a later signal released it"
+    );
+    assert!(told(&n, &a).is_some());
+}
+
 fn count(ids: &[&str], id: &str) -> usize {
     ids.iter().filter(|r| **r == id).count()
 }

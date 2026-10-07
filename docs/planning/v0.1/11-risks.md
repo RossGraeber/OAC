@@ -505,7 +505,12 @@ list.
   by its key or connection identity, though the timing of its own signals can decide a
   tie. Otherwise the newcomer gives up its own oldest, or is dropped when it has none.
   A dropped signal still records SC-ID-128 and withholds what its key attributes it to
-  (SC-ID-154), whether it was the newcomer or an evicted held or queued signal. A
+  (SC-ID-154), whether it was the newcomer or an evicted held or queued signal. Only a
+  signal reported after the dropped one releases the withholding (PR #337): a decision
+  already running for an earlier signal neither releases it nor re-binds the attachment
+  delivering, and nor does `Pipelines::bind`. Before PR #337, a drop that landed during
+  such a decision was undone by it, so delivery could continue into a conversation the
+  session had left (also on the refused-newcomer path #333 added). A
   flooding key or connection with `n` pending evicts from another holder only while
   that holder has at least `n + 2`, so it can bring another holder down to `n + 1`, never
   lower; once it holds the most, it evicts only its own signals. So a holder with one
@@ -518,8 +523,11 @@ list.
   `held_signals_count_while_a_pass_decides_them`,
   `a_queued_transition_evicted_by_the_fair_share_still_withholds`,
   `a_queued_transition_replaced_by_its_own_holder_after_disconnect_still_withholds`,
-  `an_evicted_held_signal_withholds_its_bound_attachment`, `a_key_is_shared_per_adapter`)
-  and the `pipeline::tests` unit tests for the boundary, the tie-break and the holders.
+  `an_evicted_held_signal_withholds_its_bound_attachment`, `a_key_is_shared_per_adapter`,
+  `an_earlier_decision_does_not_release_a_later_drop`,
+  `a_drop_between_bindings_withholds_the_new_binding`,
+  `an_external_bind_does_not_answer_a_drop`) and the `pipeline::tests` unit tests for the
+  boundary, the tie-break, the holders and "a later signal".
   The residuals are availability only, inside 06 row 13's same-UID boundary:
   - **Residual: many holders.** A process that presents at least the cap's worth of
     distinct holders, each with one pending signal, makes a holder with nothing pending

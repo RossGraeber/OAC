@@ -88,8 +88,9 @@
 //!    ([`Pipelines::set_binding_log`]).
 //!
 //! An unpairable or dropped signal that the observed key attributes to bound attachments
-//! withholds delivery to them and their send requests until a signal pairs with one
-//! ([SC-ID-154]). Signals are decided one at a time, in arrival order, by whichever thread
+//! withholds delivery to them and their send requests until a signal reported after it
+//! pairs with one ([SC-ID-154]): a decision already running for an earlier signal neither
+//! releases the attachment nor binds it delivering, and nor does [`Pipelines::bind`]. Signals are decided one at a time, in arrival order, by whichever thread
 //! holds the binding turn; a signal reported, or an attachment opened, while the turn is
 //! held makes the holder pass again. The held and queued signals together are bounded by
 //! [`PipelineConfig::max_pending_signals`], shared fairly between the observed keys (and
@@ -289,8 +290,15 @@ struct AttachmentEntry {
     /// The cross-check value `attachment-opened` reported. Used only by the binding
     /// decision ([SC-ID-126]).
     cross_check: Option<String>,
-    /// Delivery and send requests withheld under [SC-ID-154] until a signal pairs with it.
+    /// Delivery and send requests withheld under [SC-ID-154] until a later signal pairs
+    /// with it (see `withheld_by`).
     withheld: bool,
+    /// The arrival `seq` of the latest dropped or unpairable native signal attributed to
+    /// it that no later signal has paired with yet. Only a signal that arrived after it
+    /// ends the withholding ([SC-ID-154]: "a later signal"), so a decision already running
+    /// for an earlier signal neither releases it nor binds it delivering, and a drop that
+    /// lands while the attachment is between bindings is still answered (PR #337).
+    withheld_by: Option<u64>,
 }
 
 /// A native signal waiting for its decision, with the pairing key observed for its
@@ -631,7 +639,9 @@ impl Pipelines {
     /// of later native signals (§6.7.3).
     ///
     /// The core binds from native signals itself (see the module documentation); this is
-    /// for a binding decided elsewhere. It is decided in turn with native signals.
+    /// for a binding decided elsewhere. It is decided in turn with native signals. It is no
+    /// signal, so when a dropped or unpairable signal attributed to the attachment is still
+    /// unanswered, the binding starts withheld until a later signal pairs ([SC-ID-154]).
     ///
     /// # Errors
     ///
@@ -648,7 +658,8 @@ impl Pipelines {
                 .binding_turn
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            self.inner.bind_record(attachment, record, display_name)
+            self.inner
+                .bind_record(attachment, record, display_name, None)
         };
         self.inner.drain_binding();
         result
@@ -699,12 +710,18 @@ impl Pipelines {
 }
 
 impl Inner {
-    /// The body of [`Pipelines::bind`], with the binding turn held.
+    /// The body of [`Pipelines::bind`], with the binding turn held; also how a native
+    /// signal binds, `seq` being its arrival order (`None` for [`Pipelines::bind`]).
+    ///
+    /// [SC-ID-154]: when a dropped or unpairable signal attributed to the attachment is
+    /// still unanswered, the new binding starts withheld unless `seq` is a later signal,
+    /// which answers it. A binding decided elsewhere is no signal, so it answers nothing.
     fn bind_record(
         self: &Arc<Self>,
         attachment: &Attachment,
         record: &RegistrationRecord,
         display_name: Option<&str>,
+        seq: Option<u64>,
     ) -> Result<(), PipelineError> {
         let inner = self;
         let sid = record.session_id().clone();
@@ -733,7 +750,7 @@ impl Inner {
                 }),
             )
             .map_err(PipelineError::Transport)?;
-        {
+        let withheld = {
             let mut core = inner.lock();
             let still_open = core
                 .attachments
@@ -752,13 +769,33 @@ impl Inner {
             core.registry.register_own(descriptor);
             core.sessions.insert(sid.clone(), attachment.clone());
             core.subscriptions.insert(sid.clone(), sub);
-            if let Some(e) = core.attachments.get_mut(attachment) {
-                e.session = Some(sid.clone());
-                e.native_id = Some(record.native_id().to_owned());
-                e.withheld = false;
+            match core.attachments.get_mut(attachment) {
+                Some(e) => {
+                    e.session = Some(sid.clone());
+                    e.native_id = Some(record.native_id().to_owned());
+                    if answers(e.withheld_by, seq) {
+                        e.withheld_by = None;
+                    }
+                    e.withheld = e.withheld_by.is_some();
+                    e.withheld
+                }
+                None => false,
             }
+        };
+        if withheld {
+            // Bound, but withheld until a later signal pairs with it ([SC-ID-154]).
+            inner.log(BindingLogEntry {
+                record: BindingRecord {
+                    kind: RecordKind::Finding,
+                    requirement: "SC-ID-154",
+                },
+                result: BindingResult::FailedClosed,
+                attachment: Some(attachment.clone()),
+                session: Some(sid.clone()),
+            });
+        } else {
+            adapter.set_binding(attachment, Some(sid.clone()));
         }
-        adapter.set_binding(attachment, Some(sid.clone()));
         inner.release_presence(&sid);
         Ok(())
     }
@@ -898,6 +935,24 @@ fn fresh_id() -> Token {
     getrandom::fill(&mut octets).expect("the operating system's random number generator");
     Token::parse(&format!("msg-{}", crate::base64url::encode(&octets)))
         .expect("base64url is identifier-token safe")
+}
+
+/// The signal a withholding now waits to be answered after, when the signal `seq` withholds
+/// an attachment already withheld by `withheld_by`: the later of the two, whichever order
+/// the drops were applied in (an expired held signal can be dropped after a newer one).
+fn withheld_until_after(withheld_by: Option<u64>, seq: u64) -> u64 {
+    withheld_by.map_or(seq, |w| w.max(seq))
+}
+
+/// Whether a signal of arrival order `seq` (`None`: no signal) ends a withholding set by
+/// the signal `withheld_by` ([SC-ID-154]: only "a later signal" does); with nothing
+/// withheld, anything does.
+fn answers(withheld_by: Option<u64>, seq: Option<u64>) -> bool {
+    match (withheld_by, seq) {
+        (None, _) => true,
+        (Some(w), Some(s)) => s > w,
+        (Some(_), None) => false,
+    }
 }
 
 /// The rule of [`PipelineConfig::max_pending_signals`] over `pending`, each pending signal's
@@ -1578,6 +1633,7 @@ impl Inner {
                                 native_id: None,
                                 cross_check,
                                 withheld: false,
+                                withheld_by: None,
                             });
                     }
                 }
@@ -1626,11 +1682,11 @@ impl Inner {
                     } else {
                         // This holder has none to give up: this one goes.
                         let attempt = Inner::pair(&core, adapter, queued.key.as_ref());
-                        Some((queued.signal, attempt))
+                        Some((queued.signal, attempt, seq))
                     }
                 };
-                if let Some((s, attempt)) = dropped {
-                    self.drop_signal(&s, attempt);
+                if let Some((s, attempt, seq)) = dropped {
+                    self.drop_signal(&s, attempt, seq);
                 }
                 self.drain_binding();
             }
@@ -1649,23 +1705,24 @@ impl Inner {
         fair_share_victim(pending, holder)
     }
 
-    /// Removes the pending signal `seq`, held or queued, with how it pairs now, to drop.
-    fn take_pending(core: &mut Core, seq: u64) -> Option<(NativeSignal, PairAttempt)> {
+    /// Removes the pending signal `seq`, held or queued, with how it pairs now (by the key
+    /// observed when it was reported) and its `seq`, to drop.
+    fn take_pending(core: &mut Core, seq: u64) -> Option<(NativeSignal, PairAttempt, u64)> {
         if let Some(i) = core.held.iter().position(|h| h.seq == seq) {
             let h = core.held.remove(i)?;
             let attempt = Inner::pair_by_key(core, h.adapter, &h.key);
-            return Some((h.signal, attempt));
+            return Some((h.signal, attempt, seq));
         }
         let i = core.signals.iter().position(|q| q.seq == seq)?;
         let q = core.signals.remove(i)?;
         let attempt = Inner::pair(core, q.adapter, q.key.as_ref());
-        Some((q.signal, attempt))
+        Some((q.signal, attempt, seq))
     }
 
-    /// Drops `signal` unbound, with its diagnostic ([SC-ID-124], [SC-ID-128]). When its
-    /// observed key attributes it to bound attachments, delivery to them is withheld
-    /// ([SC-ID-154]; PR #333 review, B2).
-    fn drop_signal(&self, signal: &NativeSignal, attempt: PairAttempt) {
+    /// Drops `signal`, of arrival order `seq`, unbound, with its diagnostic ([SC-ID-124],
+    /// [SC-ID-128]). The attachments its observed key attributes it to are withheld
+    /// ([SC-ID-154]; PR #333 review, B2) until a signal that arrived after it pairs.
+    fn drop_signal(&self, signal: &NativeSignal, attempt: PairAttempt, seq: u64) {
         let d = decide::<Attachment>(&[], signal, &Pairing::WindowExpired);
         self.log_decision(&d, None, None);
         let attributed = match attempt {
@@ -1674,7 +1731,7 @@ impl Inner {
             PairAttempt::NotYet(_) => Vec::new(),
         };
         for a in attributed {
-            self.withhold(&a);
+            self.withhold(&a, seq);
         }
     }
 
@@ -1747,7 +1804,7 @@ impl Inner {
         };
         for (h, attempt) in expired {
             // [SC-ID-124], [SC-ID-128]: dropped, binding nothing; [SC-ID-154].
-            self.drop_signal(&h.signal, attempt);
+            self.drop_signal(&h.signal, attempt, h.seq);
         }
         // A held signal stays in `held` until it is decided, so it keeps counting against
         // its holder's share and keeps its place in arrival order (#335). One evicted
@@ -1766,7 +1823,7 @@ impl Inner {
                 }
             };
             if let Some((h, attempt)) = decided {
-                self.resolve(h.adapter, &h.signal, attempt);
+                self.resolve(h.adapter, &h.signal, attempt, h.seq);
             }
         }
         for _ in 0..queued {
@@ -1788,7 +1845,7 @@ impl Inner {
                     held_at: now,
                     seq,
                 }),
-                attempt => self.resolve(adapter, &signal, attempt),
+                attempt => self.resolve(adapter, &signal, attempt, seq),
             }
         }
     }
@@ -1866,8 +1923,15 @@ impl Inner {
             .collect()
     }
 
-    /// Decides one signal that was paired or found unpairable, and makes the change.
-    fn resolve(self: &Arc<Self>, adapter: AdapterId, signal: &NativeSignal, attempt: PairAttempt) {
+    /// Decides one signal, of arrival order `seq`, that was paired or found unpairable, and
+    /// makes the change.
+    fn resolve(
+        self: &Arc<Self>,
+        adapter: AdapterId,
+        signal: &NativeSignal,
+        attempt: PairAttempt,
+        seq: u64,
+    ) {
         let (pairing, attributed) = match attempt {
             PairAttempt::Paired(a) => (Pairing::Paired(a), Vec::new()),
             PairAttempt::Unpairable(bound) => (Pairing::Unpairable, bound),
@@ -1891,7 +1955,7 @@ impl Inner {
         // process behind bound attachments withholds delivery to them and their send
         // requests, until a later signal pairs with one.
         for a in attributed {
-            self.withhold(&a);
+            self.withhold(&a, seq);
         }
         match decision.action {
             BindingAction::None => {}
@@ -1907,18 +1971,18 @@ impl Inner {
                     // authorization state ([SC-ID-151]).
                     self.unbind(&attachment);
                 }
-                self.bind_from_signal(&attachment, &native_id);
+                self.bind_from_signal(&attachment, &native_id, seq);
             }
         }
         if let Some(a) = paired {
-            self.release_withheld(&a);
+            self.release_withheld(&a, seq);
         }
     }
 
     /// Binds `attachment` to N under a new session id, with a registration record this
     /// device signs ([SC-ID-009]) over the scope the core process observed for it. Without
     /// that scope no record can be made, so nothing is bound and a diagnostic says why.
-    fn bind_from_signal(self: &Arc<Self>, attachment: &Attachment, native_id: &str) {
+    fn bind_from_signal(self: &Arc<Self>, attachment: &Attachment, native_id: &str, seq: u64) {
         let (scope, sid) = {
             let core = self.lock();
             let scope = core
@@ -1937,7 +2001,8 @@ impl Inner {
             self.identity
                 .register(sid, label, native_id, &wd, self.clock.now())
         });
-        let bound = record.is_some_and(|r| self.bind_record(attachment, &r, None).is_ok());
+        let bound =
+            record.is_some_and(|r| self.bind_record(attachment, &r, None, Some(seq)).is_ok());
         if !bound {
             self.log(BindingLogEntry {
                 record: BindingRecord {
@@ -1953,15 +2018,19 @@ impl Inner {
         }
     }
 
-    /// [SC-ID-154]: no hand-off to `attachment` and no send request from it; the adapter is
-    /// told its binding names no session (`spec/interfaces.md` §5.4).
-    fn withhold(&self, attachment: &Attachment) {
+    /// [SC-ID-154], for the dropped or unpairable signal `seq`: no hand-off to `attachment`
+    /// and no send request from it until a signal that arrived after `seq` pairs with it;
+    /// the adapter is told its binding names no session (`spec/interfaces.md` §5.4). An
+    /// attachment between bindings (a decision for an earlier signal is re-binding it) has
+    /// nothing to stop yet; `seq` is kept, so that re-binding starts withheld.
+    fn withhold(&self, attachment: &Attachment, seq: u64) {
         let (adapter, session) = {
             let mut guard = self.lock();
             let core = &mut *guard;
             let Some(e) = core.attachments.get_mut(attachment) else {
                 return;
             };
+            e.withheld_by = Some(withheld_until_after(e.withheld_by, seq));
             let Some(s) = e.session.clone() else { return };
             e.withheld = true;
             (core.adapters[e.adapter.0].clone(), s)
@@ -1978,15 +2047,21 @@ impl Inner {
         });
     }
 
-    /// A signal paired with `attachment`: delivery to it resumes if it was withheld and it
-    /// is still bound ([SC-ID-154]).
-    fn release_withheld(&self, attachment: &Attachment) {
+    /// The signal `seq` paired with `attachment`: when it arrived after every signal that
+    /// withheld it, delivery resumes if it was withheld and it is still bound
+    /// ([SC-ID-154]). An earlier signal, decided while a later one was dropped, releases
+    /// nothing.
+    fn release_withheld(&self, attachment: &Attachment, seq: u64) {
         let released = {
             let mut guard = self.lock();
             let core = &mut *guard;
             let Some(e) = core.attachments.get_mut(attachment) else {
                 return;
             };
+            if !answers(e.withheld_by, Some(seq)) {
+                return;
+            }
+            e.withheld_by = None;
             if !e.withheld {
                 return;
             }
@@ -2135,7 +2210,24 @@ impl Inner {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdapterId, SignalHolder, fair_share_victim};
+    use super::{AdapterId, SignalHolder, answers, fair_share_victim, withheld_until_after};
+
+    /// PR #337 ([SC-ID-154], "a later signal"): only a signal that arrived after every
+    /// withholding one answers it; a binding decided elsewhere (no signal) answers nothing;
+    /// with nothing withheld, anything does.
+    #[test]
+    fn only_a_later_signal_answers_a_withholding() {
+        assert!(answers(None, None));
+        assert!(answers(None, Some(0)));
+        assert!(answers(Some(4), Some(5)));
+        assert!(!answers(Some(4), Some(4)));
+        assert!(!answers(Some(4), Some(3)));
+        assert!(!answers(Some(4), None));
+        // Applied in either order, two withholdings wait for the later one.
+        assert_eq!(withheld_until_after(None, 7), 7);
+        assert_eq!(withheld_until_after(Some(9), 7), 9);
+        assert_eq!(withheld_until_after(Some(7), 9), 9);
+    }
     use crate::adapter::Connection;
     use crate::session_binding::PairingKey;
 

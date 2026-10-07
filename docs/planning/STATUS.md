@@ -14,6 +14,10 @@ cap.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text ch
   signalled last. Otherwise the newcomer gives up its own oldest, or is dropped. A dropped
   signal still records [SC-ID-128] and withholds per [SC-ID-154]. Held signals stay
   counted while a pass decides them.
+- **[SC-ID-154] ordering (PR #337).** Only a signal reported after the dropped or
+  unpairable one releases a withholding. Before, an earlier signal's decision that was
+  still running could release it, or re-bind the attachment delivering; that is fixed,
+  and `Pipelines::bind` no longer answers a drop either.
 - **Risks.** `11-risks.md` RISK-LOCAL-IPC records the remaining availability-only
   residuals: many distinct keys can deny a holder with nothing pending, and a burst can be
   trimmed to its newest signal.)
