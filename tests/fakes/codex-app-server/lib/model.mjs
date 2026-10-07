@@ -24,8 +24,10 @@ export const FAKE_INTERNAL = -32098;
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 export const CONTROL_PREFIX = 'oacFake/';
 
-// From upstream source (README "Source-only behaviours"); code -32600 is
-// INVALID_REQUEST_ERROR_CODE in app-server/src/error_code.rs.
+// Code -32600 is INVALID_REQUEST_ERROR_CODE in app-server/src/error_code.rs. The refusals
+// below that a fixture records are replayed from it (#343, the S3 capture: README
+// "Recorded behaviours"); MSG holds only the ones no fixture records (README "Source-only
+// behaviours").
 const INVALID_REQUEST = -32600;
 const EXPERIMENTAL_METHODS = new Set(['thread/queue/add']);
 const QUEUE_ADD_MEMBERS = new Set(['threadId', 'input', 'clientUserMessageId']);
@@ -37,11 +39,6 @@ const STEERING_METHODS = new Set(['turn/steer', 'turn/start']);
 
 export const SUBAGENT_KINDS = ['multi-agent-v2', 'thread-spawn'];
 const MSG = {
-  notInitialized: 'Not initialized',
-  experimental: (m) => `${m} requires experimentalApi capability`,
-  ephemeral: (id) => `ephemeral thread does not support queued submissions: ${id}`,
-  notFound: (id) => `thread not found: ${id}`,
-  archived: (id) => `session ${id} is archived. Run \`codex unarchive ${id}\` to unarchive it first.`,
   subagentV2: 'direct app-server input is not allowed for multi-agent v2 sub-agents',
   subagentUnloaded: 'direct app-server input is not allowed for unloaded spawned sub-agents',
   noQueue: 'user message queue is unavailable',
@@ -124,6 +121,11 @@ export class FakeCodexAppServer {
 
   out(conn, obj) {
     if (conn.open) conn.send(obj);
+  }
+  // A recorded error answer, with the recorded thread id replaced by this call's.
+  recordedError(err, recordedThreadId = null, threadId = null) {
+    const message = recordedThreadId === null ? err.message : err.message.split(recordedThreadId).join(String(threadId));
+    return new RpcError(err.code, message);
   }
   notify(conn, template, params) {
     this.out(conn, { method: template.method, params, emittedAtMs: this.now() });
@@ -281,10 +283,11 @@ export class FakeCodexAppServer {
       return undefined;
     }
     if (!isRequest) return undefined; // other client notifications: nothing recorded to react to
-    if (!conn.initialized) throw new RpcError(INVALID_REQUEST, MSG.notInitialized);
+    if (!conn.initialized) throw this.recordedError(this.t.s3.notInitialized);
     if (EXPERIMENTAL_METHODS.has(method) && !conn.experimentalApi) {
       entry.flags.experimentalGateRefused = true;
-      throw new RpcError(INVALID_REQUEST, MSG.experimental(method));
+      // Recorded for thread/queue/add, the only method in EXPERIMENTAL_METHODS.
+      throw this.recordedError(this.t.s3.experimental);
     }
     switch (method) {
       case 'thread/start':
@@ -390,23 +393,30 @@ export class FakeCodexAppServer {
     if (extra.length) throw notModelled('thread/resume', `only threadId and excludeTurns are recorded, got ${extra.join(', ')}`);
     if (params.excludeTurns !== true) throw notModelled('thread/resume', 'only excludeTurns: true is recorded');
     const th = this.threads.get(params.threadId);
-    // Recorded for a thread before its first turn (D6 attempt 1). For an unknown id the
-    // same message is source-only: thread-store read_thread.rs L97-L102 returns it whenever
-    // no rollout resolves for the id, and thread_processor.rs L3194-L3195 maps
-    // ThreadNotFound to it (README "Source-only behaviours").
-    if (!th || !th.materialized) {
-      const e = this.t.resumeFail;
-      throw new RpcError(e.code, e.message.split(this.t.resumeFailThreadId).join(String(params.threadId)));
-    }
+    // An unknown id: recorded in the S3 capture (#343). A known thread before its first
+    // turn: recorded in D6 attempt 1. Both answer -32600 "no rollout found for thread id <id>".
+    if (!th) throw this.recordedError(this.t.s3.resumeUnknown, this.t.s3.resumeUnknownThreadId, params.threadId);
+    if (!th.materialized) throw this.recordedError(this.t.resumeFail, this.t.resumeFailThreadId, params.threadId);
     if (th.ephemeral || th.archived || th.subagent) throw notModelled('thread/resume', 'resuming an ephemeral, archived or subagent thread is not recorded');
+    const wasLoaded = th.loaded;
     th.loaded = true;
     th.subscribers.add(conn);
+    // Loading a thread that was not loaded (S3 capture, `cases-reload`): thread/status/changed
+    // idle before the response; after it, thread/goal/cleared, then the head of the queue, if
+    // any, is dispatched (the queued add waited for the load).
+    if (!wasLoaded) this.broadcast(th, this.t.statusIdle, { threadId: th.id, status: structuredClone(this.t.statusIdle.params.status) });
     const result = structuredClone(this.t.threadResume);
     result.thread = this.threadObject(th, this.t.threadResume);
     for (const k of ['turnsBackwardsCursor', 'itemsBackwardsCursor']) {
       if (typeof result[k] === 'string') result[k] = result[k].split(this.t.threadResume.thread.id).join(th.id);
     }
-    return { result, after: () => this.broadcast(th, this.t.goalCleared, { threadId: th.id }) };
+    return {
+      result,
+      after: () => {
+        this.broadcast(th, this.t.goalCleared, { threadId: th.id });
+        if (!wasLoaded) this.wakeIfLoaded(th);
+      },
+    };
   }
 
   loadedThread(method, threadId) {
@@ -490,18 +500,23 @@ export class FakeCodexAppServer {
     // ensure_direct_input_allowed, then service(), then enqueue).
     if (typeof params.threadId !== 'string' || !UUID_RE.test(params.threadId)) throw notModelled('thread/queue/add', 'the message for a malformed thread id is not recorded');
     const th = this.threads.get(params.threadId);
+    // Recorded (S3 capture, #343): the ephemeral, unknown-thread and archived refusals. An
+    // unknown id is -32603, an internal error from the thread store, not the -32600
+    // "thread not found" that thread_queue_processor.rs maps ThreadNotFound to: the local
+    // store reports a missing rollout as an invalid request instead.
+    const s3 = this.t.s3;
     if (th && th.loaded) {
-      if (th.ephemeral) throw new RpcError(INVALID_REQUEST, MSG.ephemeral(th.id));
+      if (th.ephemeral) throw this.recordedError(s3.addEphemeral, s3.addEphemeralThreadId, th.id);
     } else {
-      if (!th) throw new RpcError(INVALID_REQUEST, MSG.notFound(params.threadId));
-      if (th.archived) throw new RpcError(INVALID_REQUEST, MSG.archived(th.id));
+      if (!th) throw this.recordedError(s3.addUnknown, s3.addUnknownThreadId, params.threadId);
+      if (th.archived) throw this.recordedError(s3.addArchived, s3.addArchivedThreadId, th.id);
     }
     if (th.loaded && th.subagent === 'multi-agent-v2') throw new RpcError(INVALID_REQUEST, MSG.subagentV2);
     if (!th.loaded && th.subagent === 'thread-spawn') throw new RpcError(INVALID_REQUEST, MSG.subagentUnloaded);
     if (!this.queueServiceAvailable) throw new RpcError(INVALID_REQUEST, MSG.noQueue);
     const input = textInput('thread/queue/add', params.input);
     if (typeof params.clientUserMessageId !== 'string') throw notModelled('thread/queue/add', 'the error for a missing clientUserMessageId is not recorded');
-    void extra; // extra members are flagged in the call log; upstream handling is UNVERIFIED (README)
+    void extra; // extra members are flagged in the call log and accepted, as recorded (S3 capture)
     const queued = { id: uuidv7(this.now()), input, clientUserMessageId: params.clientUserMessageId };
     th.queue.push(queued);
     const result = structuredClone(this.t.queueAdd);
@@ -513,25 +528,38 @@ export class FakeCodexAppServer {
       clientUserMessageId: queued.clientUserMessageId,
     };
     // Recorded order: D6 conn1's thread/queue/changed (t=00:00:33.171Z) precedes the
-    // conn3-queue response (t=00:00:33.174Z). A dispatch on an idle thread follows the
-    // response (enqueue emits the change, then wake_if_loaded runs; README).
+    // conn3-queue response (t=00:00:33.174Z). On an idle, loaded thread whose last turn
+    // was not interrupted (S3 capture: the idle add on the TUI's thread, and the
+    // extra-member add), the head is taken off the queue before the response too: a second
+    // thread/queue/changed, then the response, then thread/status/changed active,
+    // turn/started and the userMessage carrying clientId = clientUserMessageId.
     this.broadcast(th, this.t.queueChanged, { threadId: th.id });
-    return { result, after: () => this.wakeIfLoaded(th) };
+    const turn = this.mayDispatch(th) ? this.takeHead(th) : null;
+    return { result, after: () => turn && this.emitTurnStart(th, turn) };
   }
 
-  // service.rs wake_if_loaded / dispatch_if_idle: start the head of the queue if the thread
-  // is loaded, idle, and its last turn did not end interrupted.
+  // service.rs wake_if_loaded / dispatch_if_idle: the head of the queue starts a turn when
+  // the thread is loaded, idle, and its last turn did not end interrupted (all recorded:
+  // S3 capture).
+  mayDispatch(th) {
+    return th.loaded && !th.activeTurn && !th.lastTurnInterrupted && th.queue.length > 0;
+  }
+
   wakeIfLoaded(th) {
-    if (!th.loaded || th.activeTurn || th.lastTurnInterrupted) return;
-    this.dispatchHead(th);
+    if (this.mayDispatch(th)) this.dispatchHead(th);
+  }
+
+  // Take the head off the queue (one item per idle: S3 capture, two adds during a turn) and
+  // begin its turn; the caller emits the turn's frames.
+  takeHead(th) {
+    const head = th.queue.shift();
+    this.broadcast(th, this.t.queueChanged, { threadId: th.id });
+    return this.beginTurn(th, head.input, head.clientUserMessageId);
   }
 
   dispatchHead(th) {
-    const head = th.queue.shift();
-    if (!head) return;
-    this.broadcast(th, this.t.queueChanged, { threadId: th.id });
-    const turn = this.beginTurn(th, head.input, head.clientUserMessageId);
-    this.emitTurnStart(th, turn);
+    if (!th.queue.length) return;
+    this.emitTurnStart(th, this.takeHead(th));
   }
 
   loadedList(params) {
@@ -623,7 +651,7 @@ export class FakeCodexAppServer {
   }
 
   // Finish the running turn. status "completed" (recorded, D6 conn1) or "interrupted"
-  // (source-only: TurnStatus::Interrupted, service.rs on_thread_idle skip).
+  // (recorded, S3 capture: the frames of a turn/interrupt, and nothing dispatched after it).
   completeTurn({ threadId, status = 'completed', agentText = null }) {
     const th = this.threads.get(threadId);
     if (!th) throw new RpcError(-32602, `unknown thread ${threadId}`);
@@ -650,9 +678,12 @@ export class FakeCodexAppServer {
     th.lastTurnInterrupted = status === 'interrupted';
     th.updatedAt = Math.floor(turn.completedMs / 1000);
     this.broadcast(th, this.t.statusIdle, { threadId: th.id, status: structuredClone(this.t.statusIdle.params.status) });
+    // An interrupted turn's turn/completed is recorded (S3 capture): no items, itemsView
+    // "notLoaded", even when agent text had streamed before the interrupt.
+    const tpl = status === 'interrupted' ? this.t.s3.interruptedTurnCompleted.params.turn : this.t.turnCompleted.params.turn;
     this.broadcast(th, this.t.turnCompleted, {
       threadId: th.id,
-      turn: this.turnObject(turn, this.t.turnCompleted.params.turn, this.t.turnCompleted.params.turn.itemsView, structuredClone(summary)),
+      turn: this.turnObject(turn, tpl, tpl.itemsView, status === 'interrupted' ? [] : structuredClone(summary)),
     });
     // service.rs on_thread_idle: an idle caused by an interrupt dispatches nothing.
     if (status === 'completed') this.dispatchHead(th);

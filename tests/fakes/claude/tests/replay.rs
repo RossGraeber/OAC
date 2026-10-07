@@ -5,7 +5,9 @@
 //! paths no fixture shows must stop the fake rather than be guessed.
 
 use oac_core::json::{self, Json};
-use oac_fake_claude::evidence::{self, D6, G1_BOX_C, G4, G5_RENDERED, G5_WIRE, member, member_str};
+use oac_fake_claude::evidence::{
+    self, D6, G1_BOX_C, G1_HERDR_CALLS, G4, G5_RENDERED, G5_WIRE, member, member_str,
+};
 use oac_fake_claude::{
     CallOutcome, ChannelTag, Config, Era, FakeClaude, FakeError, IgnoredReason, MidTurnRelease,
     Phase, RenderGap, SessionEvent,
@@ -399,7 +401,7 @@ fn a_synthetic_tool_use_id_keeps_the_recorded_shape() {
         .and_then(|p| member(p, "_meta"))
         .expect("_meta");
     let tuid = member_str(meta, "claudecode/toolUseId").expect("toolUseId");
-    assert!(tuid.starts_with("toolu_") && tuid.len() == "toolu_".len() + 24);
+    assert!(recorded_tool_use_id_form(tuid), "{tuid}");
     assert_eq!(
         member(meta, "progressToken")
             .and_then(Json::as_number)
@@ -407,6 +409,44 @@ fn a_synthetic_tool_use_id_keeps_the_recorded_shape() {
         Some(id.to_string())
     );
     assert_eq!(FakeClaude::client_version(), "2.1.283");
+}
+
+/// The form of every recorded `claudecode/toolUseId`: `toolu_01` and 22 ASCII letters and
+/// digits.
+fn recorded_tool_use_id_form(id: &str) -> bool {
+    id.strip_prefix("toolu_01")
+        .is_some_and(|rest| rest.len() == 22 && rest.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// #343: the G1 herdr capture of 2026-10-07 holds three tool calls in one session. The fake,
+/// opened as recorded, writes each one byte for byte: ids 2, 3, 4, `progressToken` equal to
+/// the id. Every recorded id has the form the fake's synthetic one keeps.
+#[test]
+fn later_tool_calls_continue_the_recorded_id_sequence() {
+    let mut fake = ready();
+    fake.start_turn().expect("turn");
+    for (n, want) in [(14, 2), (16, 3), (18, 4)] {
+        let (name, args, tuid) = recorded_call(G1_HERDR_CALLS, n);
+        assert!(recorded_tool_use_id_form(&tuid), "line {n}: {tuid}");
+        let id = fake.call_tool(&name, &args, Some(&tuid)).expect("call");
+        assert_eq!(id, want, "line {n}");
+        assert_eq!(
+            parsed(fake.take_outbound()),
+            vec![client(G1_HERDR_CALLS, n)],
+            "line {n}"
+        );
+        fake.receive(&server(G1_HERDR_CALLS, n + 1));
+        assert!(matches!(
+            fake.call_outcome(id),
+            Some(CallOutcome::Result(_))
+        ));
+        fake.tool_boundary().expect("boundary");
+    }
+    for (fixture, n) in [(D6, 13), (G1_BOX_C, 24)] {
+        let (_, _, tuid) = recorded_call(fixture, n);
+        assert!(recorded_tool_use_id_form(&tuid), "{tuid}");
+    }
+    assert!(fake.halted().is_none());
 }
 
 /// A legacy-opened fake, from the D6 capture.

@@ -25,6 +25,8 @@ export const FIXTURE_FILES = {
   d6ResumeFail: 'd6-codex-protocol/transcript-conn2-attempt1-failed-resume-try1-2026-09-27.jsonl',
   g2Lists: 'g2-codex-inject/transcript-2026-10-06-0.160.0-herdr.jsonl',
   g5Steer: 'g5-provenance/transcript-codex-2026-10-02-0.160.0-herdr.jsonl',
+  // #343: the Stage 1 capture for Gate S3 criterion 5 (refusals, interrupt, idle add, unloaded).
+  s3: 's3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl',
 };
 
 export const fixturePath = (key) => `${FIXTURE_DIR}/${FIXTURE_FILES[key]}`;
@@ -67,9 +69,10 @@ class Templates {
     return this.pick(name, key, (f) => f.direction === D2C && f.payload.method === method && pred(f.payload)).payload;
   }
   // The response to the first `method` request (same id, same `mode` when the file has one).
-  response(name, key, method, pred = () => true) {
+  // `mode`, when given, is the connection the request was sent on.
+  response(name, key, method, pred = () => true, mode = null) {
     const frames = this.frames(key);
-    const req = frames.find((f) => f.direction === C2D && f.payload.method === method && pred(f.payload));
+    const req = frames.find((f) => f.direction === C2D && f.payload.method === method && pred(f.payload) && (mode === null || f.mode === mode));
     if (!req) throw new Error(`fixture ${fixturePath(key)} has no ${method} request for template "${name}"`);
     return this.pick(
       name,
@@ -108,7 +111,36 @@ export function loadTemplates(root = REPO_ROOT) {
   if (!steerReq) throw new Error('G5 fixture has no steering turn/start');
   const steerResp = T.pick('turn/start steered', 'g5Steer', (f) => f.line > steerReq.line && f.direction === D2C && f.payload.id === steerReq.payload.id && f.payload.result).payload.result;
 
+  // #343 (S3 capture). Each refusal is the answer to the case's own request, found by its
+  // connection (`mode`) and, for the adds, by the text the case sent.
+  const s3Text = (words) => (p) => JSON.stringify(p.params?.input ?? '').includes(words);
+  const any = () => true;
+  const s3Error = (name, method, pred, mode = null) => {
+    const r = T.response(name, 's3', method, pred, mode);
+    if (!r.error) throw new Error(`fixture ${fixturePath('s3')}: template "${name}" is not an error`);
+    return r.error;
+  };
+  const s3ResumeUnknownReq = T.frames('s3').find((f) => f.direction === C2D && f.mode === 'cases-main' && f.payload.method === 'thread/resume');
+  const s3UnknownAddReq = T.frames('s3').find((f) => f.direction === C2D && f.payload.method === 'thread/queue/add' && s3Text('OAC S3 UNKNOWN')(f.payload));
+  const s3EphemeralReq = T.frames('s3').find((f) => f.direction === C2D && f.payload.method === 'thread/queue/add' && s3Text('OAC S3 EPHEMERAL')(f.payload));
+  const s3ArchivedReq = T.frames('s3').find((f) => f.direction === C2D && f.payload.method === 'thread/queue/add' && s3Text('OAC S3 ARCHIVED')(f.payload));
+  if (!s3ResumeUnknownReq || !s3UnknownAddReq || !s3EphemeralReq || !s3ArchivedReq) throw new Error(`fixture ${fixturePath('s3')} lacks a case request`);
+  const s3 = {
+    notInitialized: s3Error('Not initialized', 'thread/loaded/list', any, 'cases-preinit'),
+    experimental: s3Error('experimentalApi gate', 'thread/queue/add', s3Text('OAC S3 NOEXP'), 'cases-noexp'),
+    resumeUnknown: s3Error('thread/resume unknown thread', 'thread/resume', (p) => p.params?.threadId === s3ResumeUnknownReq.payload.params.threadId),
+    resumeUnknownThreadId: s3ResumeUnknownReq.payload.params.threadId,
+    addUnknown: s3Error('thread/queue/add unknown thread', 'thread/queue/add', s3Text('OAC S3 UNKNOWN')),
+    addUnknownThreadId: s3UnknownAddReq.payload.params.threadId,
+    addEphemeral: s3Error('thread/queue/add ephemeral thread', 'thread/queue/add', s3Text('OAC S3 EPHEMERAL')),
+    addEphemeralThreadId: s3EphemeralReq.payload.params.threadId,
+    addArchived: s3Error('thread/queue/add archived thread', 'thread/queue/add', s3Text('OAC S3 ARCHIVED')),
+    addArchivedThreadId: s3ArchivedReq.payload.params.threadId,
+    interruptedTurnCompleted: T.notification('turn/completed interrupted', 's3', 'turn/completed', (p) => p.params?.turn?.status === 'interrupted'),
+  };
+
   const t = {
+    s3,
     initialize,
     remoteControlStatus: T.notification('remoteControl/status/changed', 'd6Conn1', 'remoteControl/status/changed'),
     accountUpdated: T.notification('account/updated', 'd6Conn1', 'account/updated'),
@@ -157,6 +189,20 @@ function checkShapes(t) {
     need(k in t.turnCompleted.params.turn, `turn/completed turn.${k}`);
   }
   need(t.queueAdd.queuedSubmission && 'clientUserMessageId' in t.queueAdd.queuedSubmission, 'thread/queue/add result queuedSubmission');
+  const s3 = t.s3;
+  for (const [n, e, id] of [
+    ['thread/resume unknown thread', s3.resumeUnknown, s3.resumeUnknownThreadId],
+    ['thread/queue/add unknown thread', s3.addUnknown, s3.addUnknownThreadId],
+    ['thread/queue/add ephemeral thread', s3.addEphemeral, s3.addEphemeralThreadId],
+    ['thread/queue/add archived thread', s3.addArchived, s3.addArchivedThreadId],
+  ]) {
+    need(Number.isInteger(e.code) && typeof e.message === 'string' && e.message.includes(id), `${n} error names the thread id`);
+  }
+  need(Number.isInteger(s3.notInitialized.code) && typeof s3.notInitialized.message === 'string', 'Not initialized error');
+  need(Number.isInteger(s3.experimental.code) && typeof s3.experimental.message === 'string', 'experimentalApi gate error');
+  for (const k of ['id', 'items', 'itemsView', 'status', 'error', 'startedAt', 'completedAt', 'durationMs']) {
+    need(k in s3.interruptedTurnCompleted.params.turn, `interrupted turn/completed turn.${k}`);
+  }
   need(Array.isArray(t.turnsList.data) && t.turnsList.data.length > 0, 'thread/turns/list result data');
   need(Array.isArray(t.loadedList.data) && 'nextCursor' in t.loadedList, 'thread/loaded/list result');
   need(Array.isArray(t.threadList.data) && 'nextCursor' in t.threadList, 'thread/list result');

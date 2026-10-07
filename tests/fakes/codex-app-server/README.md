@@ -7,7 +7,8 @@ with no Codex install, no credential, and no network beyond loopback (`oac-testi
 
 Surface label: the real surface is **experimental** (`thread/queue/add` is gated by
 `capabilities.experimentalApi`; `oac-codex-appserver`). Codex floats (#216): the fake
-replays what the fixtures recorded, on Codex `0.157.1` (D6) and `0.160.0` (G2, G5).
+replays what the fixtures recorded, on Codex `0.157.1` (D6), `0.160.0` (G2, G5) and
+`0.161.0` (the S3 capture, #343).
 
 ## Running it
 
@@ -103,36 +104,62 @@ checks. A frame missing from its fixture stops the fake from starting.
 | `turn/start` on an idle thread: result (`inProgress`, `startedAt: null`), then `thread/status/changed` active, `turn/started`, `item/started` and `item/completed` for the `userMessage` | D6 `transcript-conn3-turn1`, events from `transcript-conn1` |
 | Turn end: `agentMessage` `item/started`, `item/agentMessage/delta`, `item/completed`, then `thread/status/changed` idle, `turn/completed` (`completed`) | D6 `transcript-conn1` |
 | `thread/queue/add` result `{queuedSubmission}`; `thread/queue/changed` to subscribers before the adder's response | D6 `transcript-conn3-queue` and `transcript-conn1` |
+| **An add to an idle, loaded thread whose last turn completed starts a turn at once** (load-bearing: `contract/adapter/no-polling` and the pipelines demonstration reach Codex input this way): `thread/queue/changed` twice (queued, then taken off the queue), then the response, then `thread/status/changed` active, `turn/started`, and the `userMessage` with `clientId` = `clientUserMessageId` | S3 `s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L65-L73, L90 (the TUI's thread, `idleadd`), the same order at L866-L873 (`cases-main`) |
 | Queued until idle: an add during a running turn waits; at `turn/completed` comes `thread/queue/changed`, then a new turn whose `userMessage` carries `clientId` = `clientUserMessageId` | D6 `transcript-conn1`/`conn2`, the "Added while busy" check in `MANIFEST.json`; the same at `0.160.0` in G2 `transcript-2026-10-06-0.160.0-herdr.jsonl` (`busyqueue`) |
 | Only `thread/start` and `thread/resume` subscribe a connection; a connection that only sends `turn/start` or `thread/queue/add` gets its response only | D6 `transcript-conn3-*` (see also the open item `11-risks.md` row 50) |
 | `turn/start` during a running turn returns the running turn's id, and its input joins that turn | G5 `transcript-codex-2026-10-02-0.160.0-herdr.jsonl` L58 (response) and L66 (`thread/turns/list`) |
 | `thread/loaded/list`, `thread/list` (`cursor: null`, `limit`, `sortKey: "created_at"`), `thread/turns/list` (`sortDirection: "desc"`, `itemsView: "full"`) | G2 `transcript-2026-10-06-0.160.0-herdr.jsonl` |
 | `thread/list` leaves out a loaded thread that has had no turn | G2 0.160.0 L17-L20 (the thread is loaded but not listed until its first turn) |
+| One queued item per idle, from the head of the queue: two adds during a turn run as two turns, in the order added | S3 L135-L139, L826-L865 (`11-risks.md` row 62) |
+| After a turn ends `interrupted`, nothing is dispatched; an add to the idle thread whose last turn was interrupted waits too (nothing in 25 s, more than two ticks of the daemon's 10 s queue watcher), until a turn completes uninterrupted | S3 L907-L955 |
+| `turn/completed` with status `interrupted`: `items: []`, `itemsView: "notLoaded"`, even after agent text streamed (after `turn/interrupt`'s response and `thread/status/changed` idle) | S3 L901-L907 |
+| An add to a thread that is not loaded is accepted and waits; loading it with `thread/resume` sends `thread/status/changed` idle before the response, `thread/goal/cleared` after it, then dispatches the queued input | S3 L968-L1019 |
+| An extra member in `thread/queue/add` is accepted and ignored (flagged in the call log) | S3 L866-L873 |
+| A request before `initialize`: `-32600 "Not initialized"` | S3 L92-L93 |
+| Experimental-API gate: a `thread/queue/add` on a connection whose `initialize` did not set `capabilities.experimentalApi: true` gets `-32600 "thread/queue/add requires experimentalApi capability"` | S3 L99-L100 |
+| `thread/resume` of an id no thread has: `-32600 "no rollout found for thread id <id>"` | S3 L106-L108 |
+| `thread/queue/add` refusals: an ephemeral loaded thread `-32600 "ephemeral thread does not support queued submissions: <id>"`; an unknown thread **`-32603 "failed to read thread: invalid thread-store request: no rollout found for thread id <id>"`**; an archived thread `` -32600 "session <id> is archived. Run `codex unarchive <id>` to unarchive it first." `` | S3 L114-L119, L109-L110, L1030-L1032 |
 | WebSocket 101 header `x-codex-websocket-max-unfragmented-message-bytes: 16777216` | line 2 of every D6 file |
 
 The self-test's replay case drives the fake through the D6 attempt-2 sequence and compares
 every frame each connection receives with the recorded transcript: order, kind, and JSON
-shape.
+shape. Its S3 cases compare the idle add's and the reload's frame order with the S3 capture,
+the interrupted `turn/completed` with its recorded shape, and each recorded refusal with the
+recorded answer.
+
+**What the S3 capture changed (#343).** Three behaviours had been modelled differently from
+what live Codex `0.161.0` does; the fake now follows the recording:
+
+- an add to an unknown thread was answered `-32600 "thread not found: <id>"` (source:
+  `thread_queue_processor.rs` `require_thread`); live, the local thread store reports a
+  missing rollout as an invalid store request, which becomes `-32603`;
+- loading an unloaded thread never dispatched its queue, so an add to an unloaded thread
+  waited for ever; live, the load dispatches it;
+- the second `thread/queue/changed` of an idle add came after the response, and an
+  interrupted turn's `turn/completed` reused the completed turn's items and `itemsView`.
 
 ### Source-only behaviours (runtime UNVERIFIED)
 
 No fixture records these. Each is modelled from first-party source, `github.com/openai/codex`
 tag `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`, retrieved
 2026-10-06 (`B` = `https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs`).
-They are listed in `docs/planning/STATUS.md` "Open UNVERIFIED items" and
-`docs/planning/v0.1/11-risks.md` rows 65-67. The owner is G6 (#67) for the
-experimental-API gate and G7 (#68) for the rest.
+The S3 capture (#343) recorded every other row this table held; none of these three can be
+triggered through a documented client request, so they stay source-only:
+
+- a subagent thread (either refusal) is spawned by the model through its multi-agent tools,
+  never created by a client request (`thread/start` makes a top-level thread);
+- "no queue service" is a daemon built without the queue extension; no client request
+  removes it.
+
+They are listed in `docs/planning/STATUS.md` "Open UNVERIFIED items" (the #274 entry) and in
+`docs/planning/v0.1/11-risks.md` row 65. Owner G7 (#68).
+*(Corrected 2026-10-07, #343: this paragraph said every source-only row was in rows 65-67.
+That was wrong: the unknown-thread refusal was in none of them, and the idle add, one item
+per idle and the unloaded add had no row of their own; rows 66 and 68 hold them now.)*
 
 | Behaviour | Source |
 |---|---|
-| Experimental-API gate: a `thread/queue/add` on a connection whose `initialize` did not set `capabilities.experimentalApi: true` gets `-32600 "thread/queue/add requires experimentalApi capability"` | `B/app-server/src/message_processor.rs` L975-L979; `B/app-server-protocol/src/experimental_api.rs` L30-L32; `#[experimental("thread/queue/add")]` at `B/app-server-protocol/src/protocol/common.rs` L623; `-32600` at `B/app-server/src/error_code.rs` |
-| A request before `initialize`: `-32600 "Not initialized"` | `B/app-server/src/message_processor.rs` L971-L972 |
-| `thread/resume` of an id the fake has never seen gets the recorded `-32600 "no rollout found for thread id <id>"` (the recording covers only a known thread before its first turn) | `B/thread-store/src/local/read_thread.rs` L97-L102 returns this message whenever no rollout resolves for the id; `B/app-server/src/request_processors/thread_processor.rs` L3194-L3195 maps `ThreadNotFound` to the same message |
-| `thread/queue/add` refusals, all `-32600`, in handler order: an ephemeral loaded thread, an unknown thread (`thread not found: <id>`), an archived unloaded thread, a loaded multi-agent v2 subagent, an unloaded spawned subagent, no queue service | `B/app-server/src/request_processors/thread_queue_processor.rs` `add()`, `require_thread()`, `ensure_direct_input_allowed()`, `service()`, and L49-L50; `B/app-server/src/request_processors/thread_input.rs` L8-L9 |
-| After a turn ends `interrupted`, nothing is dispatched; an add to an idle thread whose last turn was interrupted also waits, until a turn completes uninterrupted | `B/ext/queue/src/service.rs` `on_thread_idle` (skips `ThreadIdleCause::Interrupted`) and `wake_if_loaded` (skips `AgentStatus::Interrupted`); `spec/bindings/mcp.md` §8.2.1 |
-| One queued item per idle, from the head of the queue | `B/ext/queue/src/service.rs` `dispatch_if_idle` (`list_page(.., 0, 1)`); order among several adds stays open as `11-risks.md` row 62 |
-| `turn/completed` with status `interrupted`: the recorded `turn/completed` shape with `status: "interrupted"` | `TurnStatus::Interrupted` in `B/app-server-protocol/src/protocol/v2/turn.rs` L33-L38; the shape of an interrupted turn's frames is not recorded |
-| An extra member in `thread/queue/add` is accepted and ignored (flagged in the call log) | `spec/bindings/mcp.md` §8.2.1: no `deny_unknown_fields`, "probably ignored; not exercised" |
+| `thread/queue/add` refusals, all `-32600`, after the recorded ones in handler order: a loaded multi-agent v2 subagent (`direct app-server input is not allowed for multi-agent v2 sub-agents`), an unloaded spawned subagent (`direct app-server input is not allowed for unloaded spawned sub-agents`), no queue service (`user message queue is unavailable`) | `B/app-server/src/request_processors/thread_queue_processor.rs` `add()`, `ensure_direct_input_allowed()`, `service()`, and L49-L50; `B/app-server/src/request_processors/thread_input.rs` L8-L9 |
 
 ### Not modelled
 
@@ -141,9 +168,20 @@ implementation-defined range), message `oac fake Codex app-server: <method>: not
 (...)` and `data: {"oacFake":"not-modelled","method":...}`. The fake never invents a Codex
 error message or frame for these:
 
-- `turn/steer` (logged and flagged), `turn/interrupt`, `thread/fork`,
+- `turn/steer` (logged and flagged), `thread/fork`,
   `thread/queue/{list,update,delete,reorder,start}`, and every other method no fixture
   records;
+- `turn/interrupt`, `thread/unsubscribe`, `thread/archive` and `thread/start` with
+  `ephemeral`: recorded in the S3 capture, but no adapter calls them, so the fake answers them
+  `NOT_MODELLED`; a test sets up the states they lead to with `oacFake/turn/complete`
+  (`status: "interrupted"`) and `oacFake/thread/create`;
+- the daemon's queue watcher: an extra `thread/queue/changed` about every 10 s while an item
+  waits or after a queue change (S3 L142, L143, L911). The fake has no timer;
+- thread notifications to connections that are not subscribed to the thread: live Codex sent
+  `thread/status/changed`, `thread/closed`, `thread/goal/cleared` and `thread/archived`
+  for a thread to a connection subscribed only to another thread, and to a connection after
+  its `thread/unsubscribe` (S3 L829, L961, L991; L959-L997). Which connections it chooses is
+  UNVERIFIED; the fake sends them to the thread's subscribers only;
 - server-to-client requests (approvals) and client responses to them;
 - events for a `turn/start` that joins a running turn: the fake adds the input to that turn
   (G5 L66) and returns its id (G5 L58), but sends subscribers no `item/started` or
