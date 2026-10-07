@@ -524,8 +524,10 @@ mod tests {
         assert!(!alive(e.pid), "pid {} is still running", e.pid);
     }
 
-    /// A `node` that never reports a listener is killed and reaped at the timeout, and the
-    /// error carries its stderr so far (#340).
+    /// A `node` that never reports a listener is killed and reaped at the timeout (#340).
+    /// Whether it wrote anything first depends on how fast `node` starts (a cold Windows
+    /// runner took more than 3 s to write a line), so stderr is checked by the test above,
+    /// where `node` exits on its own.
     #[test]
     fn a_silent_node_is_killed_and_reaped_at_the_timeout() {
         let Err(e) = CodexFake::spawn_command(
@@ -536,7 +538,6 @@ mod tests {
         };
         assert!(e.reason.contains("no listener reported"), "{e}");
         assert!(e.exit.is_some(), "not reaped: {e}");
-        assert!(e.stderr.iter().any(|l| l.contains("no listener")), "{e}");
         assert!(!alive(e.pid), "pid {} is still running", e.pid);
     }
 
