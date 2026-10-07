@@ -1,0 +1,47 @@
+# Full-scale bound tests (#328): the oac-core tests that drive a store or record list to
+# its real cap, which take about a minute each in a debug build. Each has a small-cap twin
+# that runs in every `cargo test` (ci.yml); the full-scale ones are #[ignore]d and named
+# `full_scale_*`, and run here in a release build, where each takes about a second.
+#
+# Opt-in, NOT the default CI tier (oac-testing section 2): it starts only by manual
+# dispatch. It needs no provider, no API key and no network beyond fetching the toolchain
+# and the crates in Cargo.lock. Locally:
+#
+#   cargo test -p oac-core --release --locked full_scale -- --ignored
+#
+# No secrets. Permissions contents: read; checkout does not persist the job token.
+name: scale-optin
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  full-scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        shell: bash
+        run: |
+          set -eu
+          rustup toolchain install
+          rustc --version | grep -q '^rustc 1\.98\.1 ' || { echo "toolchain is not the 1.98.1 pin"; exit 1; }
+
+      - name: cargo fetch
+        run: cargo fetch --locked
+
+      - name: Full-scale bound tests (release, ignored by default)
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo test -p oac-core --release --locked full_scale -- --ignored

@@ -164,7 +164,8 @@ impl PresenceAuthOutcome {
 /// share. Sessions the registry forgets to make room ([`PresenceRegistry::take_forgotten`])
 /// have their binding-table entries removed here, so the bindings that presence records
 /// create stay bounded with the registry. Bindings that envelopes create at security step
-/// 4 are not; follow-up #325.
+/// 4 have a bound of their own ([`crate::authorization::MAX_ENVELOPE_BINDINGS`], #325)
+/// until an accepted record confirms them, and the registry's from then on.
 ///
 /// - `engine`: the trusted key set, this device's key id, the binding table and the
 ///   relation test, and the clock freshness is read on.
@@ -254,16 +255,16 @@ pub fn accept_authenticated_record(
     // Sessions the registry forgot to make room lose their binding-table entries too
     // ([SEC-PRS-009]), so the entries this path creates are bounded with the registry; a
     // conflict mark is kept, as `forget_binding` keeps it. Entries that envelopes create
-    // at security step 4 are not bounded here: #325.
+    // at security step 4 are bounded in the engine (#325).
     for s in registry.take_forgotten() {
         engine.forget_binding(&s);
     }
     if !matches!(acceptance, PresenceAcceptance::Accepted { .. }) {
         return PresenceAuthOutcome::discard(D::Registry);
     }
-    if entry.is_none() {
-        engine.bind(&sid, &key);
-    }
+    // Binds an unbound id; for an id an envelope bound to this key, confirms the entry, so
+    // that the registry bounds it from now on, not the envelope bound (#325).
+    engine.bind(&sid, &key);
     PresenceAuthOutcome {
         result: Ok(acceptance),
         finding: false,

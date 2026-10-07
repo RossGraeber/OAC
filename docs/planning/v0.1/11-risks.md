@@ -591,26 +591,53 @@ list.
   decisions on #45 (reply rights, the presence lifetime cap, no implicit same-device grant,
   grant granularity) are recorded in the spec as dated notes.
 
-### RISK-REPLAY-STORE — An authorized peer exhausts the duplicate store
+### RISK-REPLAY-STORE — Authorized peers crowd the duplicate store
 
-- **Risk.** `core::replay::DuplicateStore` (F4, #53) has one cap for the whole device
-  (`DEFAULT_CAPACITY`, 65536 entries). When every entry is still live, it refuses a new copy
-  with `failed` / `internal-error`, and it never evicts an entry before that entry's hand-off
-  deadline, because early eviction would break [SEC-RPL-023]. Entries are added only after
-  security step 4, so only an authorized sender can fill the store. Captured replays share
-  one key, so they add at most one entry per captured envelope. But one trusted, granted
-  device that sends many unique envelopes within the 300-second window can fill the store.
-  Other senders' new envelopes are then refused until entries reach their deadline. The
-  spec sets no per-sender bound; [SEC-RPL-031] is a per-device SHOULD for receipts only
-  (PR #317 review, N3).
-- **What it invalidates.** Nothing in the ADR-001 validation criterion. While the store is
-  full, a misbehaving authorized peer can deny delivery to every other sender on that
-  receiver.
-- **Early-warning signal.** A receiver reports `internal-error` refusals from step 5, or its
-  store length stays near the cap.
-- **Response.** Follow-up #320 gives each `key_id` a bounded share of the cap, so one key
-  exhausts only its own share. Until it lands, an operator can remove the misbehaving
-  device's grants or key ([SEC-KEY-035]); its entries then age out within the window.
+- **Risk.** `core::replay::DuplicateStore` (F4, #53) holds at most `DEFAULT_CAPACITY`
+  (65536) entries. It never evicts an entry before that entry's hand-off deadline, because
+  early eviction would break [SEC-RPL-023]. Entries are added only after security step 4,
+  so only an authorized sender can add one. Captured replays share one key, so they add at
+  most one entry per captured envelope.
+
+  Since #320, entries are counted per `key_id`, and a copy whose key holds `n` entries is
+  admitted only when both of these hold:
+  - **quota:** `n` is below `DuplicateStore::per_key_share`, by default a quarter of the
+    capacity (16384);
+  - **headroom:** `len + n < capacity`. A key never holds more entries than the store has
+    free.
+
+  A key past either limit is refused alone, with `failed` / `internal-error`. One trusted,
+  granted device that sends many unique envelopes within the 300-second window fills only
+  its own share, and other keys keep their room.
+
+  The quota also caps an honest device. At the default it holds 16384 live entries per
+  hand-off window, about 55 envelopes per second sustained over 300 seconds (65536, about
+  218 per second, before #320). No MUST requires admitting more, and `failed` /
+  `internal-error` is a retransmit class (`spec/session-channels.md` Table 8.3), so a
+  sender above that rate sees retransmits succeed as its own entries age out (PR #334
+  review N5).
+
+  **Finding.** The presence registry and the record lists make room by evicting from the
+  heaviest holder. The duplicate store cannot do that: every entry is live until its
+  deadline, and evicting one could let a duplicate through ([SEC-RPL-023]). So it refuses
+  instead of evicting. The residual is that `k` colluding granted devices that keep adding
+  push every key's share toward `capacity / (k + 1)`, about 13107 entries each for four
+  devices. The store fills only when about `capacity` distinct keys each hold an entry, and
+  keys come only from operator pairing. The spec sets no per-sender bound; [SEC-RPL-031] is
+  a per-device SHOULD for receipts only (PR #317 review, N3).
+- **What it invalidates.** Nothing in the ADR-001 validation criterion. A misbehaving
+  authorized device can deny delivery only to itself, past its share. Several colluding
+  ones can shrink every device's share within the window.
+- **Early-warning signal.** A receiver reports `internal-error` refusals from step 5 for a
+  device that is not flooding, or its store length stays near the cap.
+- **Response.** An operator removes the misbehaving devices' grants or keys
+  ([SEC-KEY-035]); their entries then age out within the window.
+  `DuplicateStore::with_limits` sets a smaller share. The tests are:
+  - `x_full_duplicate_store_refuses_without_evicting`;
+  - `x_one_key_cannot_fill_the_duplicate_store`;
+  - `x_duplicate_store_headroom_leaves_room_for_another_key`;
+  - `replay::tests::a_key_at_its_share_is_refused_alone`;
+  - `replay::tests::keys_converge_on_an_equal_split_and_a_new_key_finds_room`.
 
 ### RISK-PRESENCE-SHARE — Related devices crowd the presence registry
 
@@ -625,7 +652,9 @@ list.
   loss comes back with its next announcement. Several colluding related devices (paired,
   granted, each under its quota) can still keep the registry full and push every key's
   share toward an equal split, so a legitimate device with many sessions loses some of
-  them to evictions (PR #321 re-review, N10).
+  them to evictions (PR #321 re-review, N10). *(Dated note, 2026-10-07, #320, #325: the
+  duplicate store and the envelope-created binding entries now follow the same pattern,
+  RISK-REPLAY-STORE and RISK-BINDING-TABLE; this row's residual is unchanged.)*
 - **What it invalidates.** Nothing in the ADR-001 validation criterion. It needs several
   paired and granted devices to misbehave together.
 - **Early-warning signal.** `PresenceDiscard::Full` or `PresenceDiscard::IssuerQuota`
@@ -634,18 +663,70 @@ list.
   ([SEC-KEY-035]); their sessions are then forgotten as they go stale. A lower per-key quota
   (`PresenceRegistry::with_limits`) narrows each device's share.
 
-### RISK-BINDING-TABLE — Envelope-created bindings are unbounded
+### RISK-BINDING-TABLE — Envelope-created bindings crowd each other out
 
-- **Risk.** `AuthorizationEngine::authorize_delivery` (F5, #54) binds every new `from` that
-  passes security step 4 ([SEC-PRS-005]), and nothing forgets those entries. A device
-  holding a device-wide inbound grant can grow the binding table without bound by sending
-  envelopes from fresh session ids. The presence path is bounded: entries for sessions the
-  registry forgets are removed (F6, #55). This path is not (PR #321 re-review, N11).
-- **What it invalidates.** Nothing in the ADR-001 validation criterion; it is a memory
-  exhaustion risk from an authorized peer.
-- **Early-warning signal.** Binding-table size growing with no matching presence records.
-- **Response.** Follow-up #325 bounds the table. Until then, an operator removes the
-  device's grant or key ([SEC-KEY-035]), which removes its bindings in the same step.
+- **Risk.** `AuthorizationEngine::authorize_delivery` (F5, #54) binds every new `from`
+  that passes security step 4 ([SEC-PRS-005]). Before #325 nothing forgot those entries,
+  so a device holding a device-wide inbound grant could grow the binding table without
+  bound by sending from fresh session ids (PR #321 re-review, N11).
+
+  Since #325, an entry an envelope creates is counted until something else refers to it:
+  - an own session's registration replaces it;
+  - an accepted presence record confirms it, after which the presence registry bounds it;
+  - it becomes a conflict mark.
+
+  The counted entries are bounded (`MAX_ENVELOPE_BINDINGS`, 65536 in all;
+  `MAX_ENVELOPE_BINDINGS_PER_KEY`, 8192 per key):
+  - **Share.** A key at its share gives up its own oldest entry.
+  - **Fair share.** In a full table, a key holding `n` takes the oldest entry of a key
+    holding at least `n + 2`, the most of any. Among the keys holding the most, the one
+    whose latest entry is newest pays, so no key can steer the eviction onto another.
+  - **Kept.** An entry that a hand-off record is looked up through is never evicted, so the
+    MUSTs that read it hold: [SEC-AUZ-016] discovery, and [SC-RCP-053] and [SC-RCP-054]
+    correlation. Conflict marks and own sessions' bindings are never counted. An entry
+    evicted between step 4 and its hand-off is bound again by its hand-off record.
+
+  Removing an entry is what [SEC-PRS-009] permits: the registry holds no record of the
+  session, and the next envelope or announcement binds it again. With nothing to evict,
+  the envelope is refused with `failed` / `internal-error` and nothing is bound.
+
+  An entry that `record_handoff` binds again, because its binding went between step 4 and
+  the hand-off, gets room as any new entry does. When every entry that could go is in use,
+  it is kept above the bound; such entries number at most the hand-offs in flight when
+  their bindings went (PR #334 review N3).
+
+  The residual has three parts:
+  - **An evicted id can be claimed.** While an evicted session id is unbound, another
+    granted device can claim it with its own envelope. That is not impersonation:
+    provenance and authorization follow the verifying key, so the claimant's envelopes are
+    authorized under its own grants and rendered with its own principal, and [SEC-PRS-009]
+    accepts that removing an entry reopens other keys' claims. It has two consequences
+    (PR #334 review N1):
+    1. the original device's later envelopes from that id are refused at step 4 with a
+       finding ([SEC-AUZ-003], [SEC-PRS-004]) until an operator acts: a denial of service
+       of that one id;
+    2. a later send from an own session to that id is resolved against the claimant's key,
+       and reaches the claimant if an outbound grant covers it.
+
+    Both need an evicted entry that no live hand-off record uses, so the evicted device
+    is at its own share, or the heaviest in a full table, and was not handed a message
+    from that id within the reply period.
+  - **A receipt can be discarded.** A receipt naming an evicted id is discarded
+    ([SEC-RCT-003] check 4), so that envelope's state stays `unknown`.
+  - **The table can fill.** It can fill with entries in use only when about 16 colluding
+    devices each hold 4096 handed-off session ids within the 24-hour reply period. A new
+    `from` is then refused.
+- **What it invalidates.** Nothing in the ADR-001 validation criterion.
+- **Early-warning signal.** `internal-error` refusals at step 4, or
+  `AuthorizationEngine::envelope_bindings` staying near the cap.
+- **Response.** An operator removes the device's grant or key ([SEC-KEY-035]), which
+  removes its bindings in the same step. `AuthorizationEngine::with_envelope_binding_limits`
+  sets other limits. The tests are:
+  - `x_envelope_bindings_are_bounded`;
+  - `x_binding_table_fair_share_takes_from_the_heaviest`;
+  - `authorization::tests::envelope_bindings_are_bounded_and_keep_what_records_use`;
+  - `authorization::tests::envelope_bindings_leave_the_bound_when_referred_to`;
+  - `authorization::tests::entries_whose_records_came_first_are_kept`.
 
 ### RISK-RECORD-PARTITIONS — A writer's own sent and hand-off records end early under a flood
 
@@ -667,11 +748,13 @@ list.
   Partitions are reclaimed in four ways:
   - a partition goes as soon as it is empty;
   - an own session's partitions go when the session ends (its sent records, and what it
-    sent as an own sender);
+    sent as an own sender). Since #328, a late copy from an ended own session does not make
+    its hand-off partition again;
   - a key's partitions go when the key is removed from trust;
-  - at the partition cap, partitions whose records are all past their reply period are
-    swept before a new one is refused. The sweep runs only once some partition can have
-    expired since the last one.
+  - a partition whose records are all past their reply period goes on the next record
+    added. Since #328, expired partitions are found in order of expiry, at `O(log n)` per
+    partition dropped. Before, a scan over every partition could run once per insert under
+    a staggered-refresh schedule.
 
   Every session end also prunes all expired records (`AuthorizationEngine::prune`). A
   record for a new partition is refused only while 4096 partitions each hold a record still
@@ -691,9 +774,15 @@ list.
   tests are:
   - `one_peer_cannot_evict_another_peers_handoff_records`;
   - `one_local_session_cannot_evict_another_sessions_records`;
-  - `ended_sessions_free_their_partitions` (4096 short-lived own sessions, then a new peer
-    is still recorded);
+  - `ended_sessions_free_their_partitions` (at a cap of 16, in every `cargo test`), and
+    `full_scale_ended_sessions_free_their_partitions` (4096 short-lived own sessions, then
+    a new peer is still recorded; `#[ignore]`d, run by `scale-optin.yml` or
+    `cargo test -p oac-core --release -- --ignored full_scale`);
   - `expired_emptied_and_removed_partitions_are_reclaimed`;
+  - `expired_partitions_go_in_expiry_order` and
+    `x_expired_record_partitions_are_reclaimed_in_order`;
+  - `a_late_copy_from_an_ended_own_session_records_nothing` and
+    `x_late_copy_from_an_ended_session_records_nothing`;
   - `the_total_is_bounded_by_the_largest_partition`.
 - **Early-warning signal.** Correlated replies to a busy peer arriving uncorrelated, or
   `unauthorized` replies from it, within 24 hours of the envelope. Also, more than 4096

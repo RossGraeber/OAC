@@ -35,8 +35,9 @@
 # Opt-in tiers are elsewhere and never start from a pull request: provider integration
 # through herdr (herdr-provider-optin.yml: manual dispatch, or a push to main that changes
 # docs/planning/PINS.md, on operator-owned runners), the OS credential stores
-# (keystore-optin.yml) and the G3 leg on the hosted Mac image (g3-macos-hosted.yml), both
-# manual dispatch only.
+# (keystore-optin.yml), the G3 leg on the hosted Mac image (g3-macos-hosted.yml) and the
+# full-scale bound tests in a release build (scale-optin.yml, #328), all manual dispatch
+# only.
 #
 # Cache. actions/cache restore and save, pinned by commit SHA (v6.1.0). Pull requests only
 # restore; only a push to main saves, and only when no cache under its key exists yet, so
