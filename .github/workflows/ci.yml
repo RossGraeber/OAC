@@ -37,7 +37,8 @@
 # docs/planning/PINS.md, on operator-owned runners), the OS credential stores
 # (keystore-optin.yml), the G3 leg on the hosted Mac image (g3-macos-hosted.yml) and the
 # full-scale bound tests in a release build (scale-optin.yml, #328), all manual dispatch
-# only.
+# only, and the security suite's mutation check (security-mutation-optin.yml, #329), weekly
+# and on manual dispatch.
 #
 # Cache. actions/cache restore and save, pinned by commit SHA (v6.1.0). Pull requests only
 # restore; only a push to main saves, and only when no cache under its key exists yet, so

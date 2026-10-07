@@ -38,6 +38,8 @@
 
 pub mod claude;
 pub mod codex;
+#[doc(hidden)]
+pub mod plant;
 pub mod source;
 
 use std::collections::VecDeque;

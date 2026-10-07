@@ -84,7 +84,11 @@ const ZENOH_RULES = [
   // and the first segment of camelCase / PascalCase (`zidMap`, `ZidMap`). Case-sensitive, so
   // the next character may be an uppercase letter (a new segment) but not a lowercase one
   // (`zidane` is a word, not a segment).
-  { label: '12 zid identifier', re: /(?<![A-Za-z])(?:zid|Zid|ZID)(?![a-z])/ },
+  { label: '12 zid identifier', re: /(?<![A-Za-z])(?:zid|Zid)(?![a-z])/ },
+  // All-caps: SCREAMING_CASE (`PEER_ZID`) and an acronym before a PascalCase segment
+  // (`ZIDMap`), but not an all-caps word that merely starts with the letters (`ZIDANE`,
+  // #332): an uppercase letter after `ZID` must itself start a lowercase segment.
+  { label: '12 zid identifier', re: /(?<![A-Za-z])ZID(?![a-z]|[A-Z](?![a-z]))/ },
   // camelCase / PascalCase segment: `sessionZid`, `peerZidOf`.
   { label: '12 zid identifier', re: /(?<=[a-z0-9])Zid(?![a-z])/ },
   { label: '12 key expression', re: /key[\s_-]*expr/i },
@@ -258,6 +262,8 @@ const BASE = {
   'transports/memory/tests/spawn.rs':
     'let fake = Command::new("node")\n    .arg("../../tests/fakes/codex-app-server/server.mjs");\n',
   'adapters/claude/src/lib.rs': '// a zidane-free file; validation, keyboard, expression, livelihood\nfn f() {}\n',
+  // An all-caps word is not a zid segment (#332).
+  'core/src/words.rs': '// ZIDANE, Zidane and zidane are names, not zids\nconst ZIDANE: u8 = 10;\n',
   'spec/session-channels.md': 'Neutral text. A key, an expression, lively.\n',
   'tests/fakes/claude/src/lib.rs': 'pub struct Fake;\n',
   'tests/security/src/lib.rs': '// may name zenoh: out of check 12 scope\n',
@@ -277,6 +283,9 @@ const CASES = [
   ['12 leading PascalCase Zid', { 'core/src/m.rs': 'struct ZidMap;\n' }, '12 zid identifier'],
   ['12 kebab-case zid', { 'spec/y.md': 'The peer-zid value.\n' }, '12 zid identifier'],
   ['12 SCREAMING zid', { 'adapters/claude/src/k.rs': 'const PEER_ZID: u8 = 1;\n' }, '12 zid identifier'],
+  ['12 leading SCREAMING zid', { 'adapters/claude/src/k.rs': 'const ZID_LEN: u8 = 16;\n' }, '12 zid identifier'],
+  ['12 all-caps ZID acronym before a segment', { 'core/src/m.rs': 'struct ZIDMap;\n' }, '12 zid identifier'],
+  ['12 bare all-caps ZID', { 'spec/z.md': 'The ZID of the peer.\n' }, '12 zid identifier'],
   ['12 key_expr', { 'adapters/claude/src/k.rs': 'let key_expr = "a/b";\n' }, '12 key expression'],
   ['12 KeyExpr', { 'core/src/k.rs': 'struct KeyExpr;\n' }, '12 key expression'],
   ['12 key expression in spec prose', { 'spec/x.md': 'Each key expression names a session.\n' }, '12 key expression'],

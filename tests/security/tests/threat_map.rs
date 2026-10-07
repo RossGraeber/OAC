@@ -11,7 +11,11 @@
 //!   test indented or inside a module is seen. No `#[path]` and no item macro
 //!   (`macro_rules!` or an invocation) may appear, and `src/` holds no test.
 //! - Attributes are matched on the last segment of their path, so `#[core::...::test]` is a
-//!   test too. No test, and no module holding one, may carry `#[cfg(...)]`.
+//!   test too. No test, and no module holding one, may carry `#[cfg(...)]`, directly or
+//!   through `cfg_attr`, and no function may be a test only through `#[cfg_attr(.., test)]`
+//!   (#329): whether it is a test then depends on a cfg this parser cannot evaluate.
+//! - No test escapes both this parser and cargo's listing (#329): the library's doc-tests are
+//!   off (`[lib] doctest = false`) and no target sets `harness`.
 //! - Every named test, fact and core test exists; every `#[test]` here is mapped; a fact is
 //!   never also a proof, in any row; a cited core test is not ignored.
 //! - A gated test is `#[ignore = "GATED on #N ..."]` with an issue of its row, and its body
@@ -48,6 +52,9 @@ struct Fn {
     /// `Some(reason)` for `#[ignore = "reason"]`, `Some("")` for a bare `#[ignore]`.
     ignore: Option<String>,
     cfg_attr_ignore: bool,
+    /// A `#[cfg_attr(.., test)]` (any spelling of the test attribute, nested or not): whether
+    /// it is a test at all depends on a cfg this parser cannot evaluate (#329).
+    cfg_attr_test: bool,
     should_panic: bool,
     /// The function, or a module around it, carries `#[cfg(...)]`.
     cfg: bool,
@@ -74,8 +81,34 @@ fn last(a: &syn::Attribute) -> String {
     a.path()
         .segments
         .last()
-        .map(|s| s.ident.to_string())
+        .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
         .unwrap_or_default()
+}
+
+/// The attributes a `cfg_attr(predicate, attr, ..)` list applies, by the last segment of
+/// each one's path, nested `cfg_attr`s included: `cfg_attr(any(), core::prelude::v1::test)`
+/// gives `["test"]`. A list that does not parse as metas gives `["test"]` too, so it is
+/// refused rather than read as harmless.
+fn cfg_attr_names(list: &syn::MetaList) -> Vec<String> {
+    let parser = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated;
+    let Ok(metas) = list.parse_args_with(parser) else {
+        return vec!["test".to_owned()];
+    };
+    let mut names = Vec::new();
+    // The first meta is the predicate.
+    for meta in metas.iter().skip(1) {
+        let name = meta
+            .path()
+            .segments
+            .last()
+            .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
+            .unwrap_or_default();
+        if let (true, syn::Meta::List(inner)) = (name == "cfg_attr", meta) {
+            names.extend(cfg_attr_names(inner));
+        }
+        names.push(name);
+    }
+    names
 }
 
 fn is_std_panic(mac: &syn::Macro) -> bool {
@@ -83,14 +116,19 @@ fn is_std_panic(mac: &syn::Macro) -> bool {
         .path
         .segments
         .iter()
-        .map(|s| s.ident.to_string())
+        .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
         .collect();
     segs == ["std", "panic"]
 }
 
 impl<'ast> Visit<'ast> for Collect<'_> {
     fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
-        let cfg = m.attrs.iter().any(|a| last(a) == "cfg");
+        // `#[cfg]`, or a `cfg` applied through `cfg_attr`.
+        let cfg = m.attrs.iter().any(|a| {
+            last(a) == "cfg"
+                || matches!(&a.meta, syn::Meta::List(l)
+                    if last(a) == "cfg_attr" && cfg_attr_names(l).iter().any(|n| n == "cfg"))
+        });
         for a in &m.attrs {
             if last(a) == "path" {
                 self.hazards
@@ -109,7 +147,7 @@ impl<'ast> Visit<'ast> for Collect<'_> {
             .path
             .segments
             .last()
-            .map(|s| s.ident.to_string())
+            .map(|s| syn::ext::IdentExt::unraw(&s.ident).to_string())
             .unwrap_or_default();
         self.hazards
             .item_macros
@@ -140,10 +178,18 @@ impl<'ast> Visit<'ast> for Collect<'_> {
                 }
                 "cfg_attr" => {
                     if let syn::Meta::List(l) = &a.meta {
-                        let t = l.tokens.to_string();
-                        out.cfg_attr_ignore |= t.contains("ignore");
-                        out.should_panic |= t.contains("should_panic");
-                        out.is_test |= t.contains("test");
+                        for n in cfg_attr_names(l) {
+                            match n.as_str() {
+                                "ignore" => out.cfg_attr_ignore = true,
+                                "should_panic" => out.should_panic = true,
+                                "cfg" => out.cfg = true,
+                                "test" => {
+                                    out.is_test = true;
+                                    out.cfg_attr_test = true;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
                 "cfg" => out.cfg = true,
@@ -157,7 +203,7 @@ impl<'ast> Visit<'ast> for Collect<'_> {
             _ => false,
         };
         self.fns
-            .entry(f.sig.ident.to_string())
+            .entry(syn::ext::IdentExt::unraw(&f.sig.ident).to_string())
             .or_default()
             .push(out);
         syn::visit::visit_item_fn(self, f);
@@ -246,6 +292,11 @@ fn no_test_is_hidden_from_the_parser() {
                 "{}: {name} or a module around it carries #[cfg]; a proof must compile everywhere",
                 f.file
             );
+            assert!(
+                !f.cfg_attr_test,
+                "{}: {name} is a test only under #[cfg_attr(.., test)]; whether it runs depends on a cfg this check cannot evaluate (#329)",
+                f.file
+            );
         }
     }
     let mut src = Vec::new();
@@ -273,6 +324,36 @@ fn no_test_is_hidden_from_the_parser() {
         }
         assert!(hz.path_attrs.is_empty(), "{:?}", hz.path_attrs);
     }
+}
+
+/// The crate has no test that neither listing sees (#329): its library's doc-tests are off
+/// (`[lib] doctest = false`), and no target sets `harness`, since a `harness = false` target
+/// runs its own `main` and lists nothing.
+#[test]
+fn no_test_target_escapes_the_listing() {
+    let manifest = read(&manifest_dir().join("Cargo.toml"));
+    let mut table = String::new();
+    let mut lib_doctest_off = false;
+    for raw in manifest.lines() {
+        // Cut a comment: `#` outside a string (the manifest has no `#` inside strings).
+        let line = raw.split('#').next().unwrap_or_default().trim();
+        if line.starts_with('[') {
+            table = line.to_owned();
+            continue;
+        }
+        let key = line.split('=').next().unwrap_or_default().trim();
+        assert!(
+            !line.contains("harness"),
+            "Cargo.toml {table}: `{line}`: a harness setting; a harness = false target lists no tests, so none of its tests could count (#329)"
+        );
+        if table == "[lib]" && key == "doctest" {
+            lib_doctest_off = line.split('=').nth(1).map(str::trim) == Some("false");
+        }
+    }
+    assert!(
+        lib_doctest_off,
+        "Cargo.toml must set `[lib]` `doctest = false`: a doc-test is a test no listing check sees (#329)"
+    );
 }
 
 #[test]
@@ -502,6 +583,12 @@ fn every_cited_core_test_exists() {
             assert!(
                 f.ignore.is_none() && !f.cfg_attr_ignore,
                 "{}: {c} is ignored",
+                t.row
+            );
+            // (Core's unit tests sit in `#[cfg(test)]` modules, so `f.cfg` is expected here.)
+            assert!(
+                !f.cfg_attr_test,
+                "{}: {c} is a test only under #[cfg_attr(.., test)]",
                 t.row
             );
         }
