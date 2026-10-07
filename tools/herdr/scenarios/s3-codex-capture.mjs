@@ -687,7 +687,8 @@ export default {
       // "Unchanged through the run" compares with the version the run started on, not with
       // PINS.md: versions float (#216).
       const postDaemonOk = CODEX_DAEMON_VERSION_FIELDS.every((k) => s3.daemon.versionAfter.parsed?.[k] === cli);
-      const wireVersions = [...new Set(facts().connections.map((c) => c.userAgentVersion))];
+      // `cases-preinit` never sends initialize, so it reports no version: it is left out.
+      const wireVersions = [...new Set(facts().connections.filter((c) => c.mode !== 'cases-preinit').map((c) => c.userAgentVersion))];
       s3.postRun = { cliOutput: post.codex, cli: postCli, daemon: s3.daemon.versionAfter.parsed, wireVersionsSeen: wireVersions, matches: !!cli && postCli === cli && postDaemonOk && wireVersions.length === 1 && wireVersions[0] === cli };
       if (!s3.postRun.matches) {
         ctx.finding(`the Codex version changed during the run or differed between connections (CLI ${cliRaw} before, ${post.codex} after; daemon after ${JSON.stringify(s3.daemon.versionAfter.parsed)}; wire versions ${JSON.stringify(wireVersions)}); the daemon can update itself mid-run (PINS.md "Version policy"). The run is not stopped, but the captures lose their fixture names`);
