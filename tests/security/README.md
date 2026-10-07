@@ -47,7 +47,6 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
 - **`gated_*` tests** hold the place of mitigations that need a component not built yet:
   - Epic G adapters;
   - the G9 daemon and IPC;
-  - #325;
   - H2 and L10.
 
   Each is `#[ignore = "GATED on #N ..."]`. Its body is a single `std::panic!`, so it fails

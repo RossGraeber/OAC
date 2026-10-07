@@ -26,8 +26,7 @@
 //! # What is gated
 //!
 //! Some mitigations live in components that do not exist yet: the provider adapters (Epic
-//! G), the daemon and its local IPC (G9, #70), the bound on envelope-created bindings
-//! (#325), and the live checks of H2 and L10. A test for such a mitigation is
+//! G), the daemon and its local IPC (G9, #70), and the live checks of H2 and L10. A test for such a mitigation is
 //! `#[ignore = "GATED on #N ..."]`, and its body fails if it is run: it is never a pass.
 //! [`THREATS`] lists each one with its owning issue. The composed send and receive pipelines
 //! (#313) have landed; [`pipeline`] runs them with a stub adapter.
@@ -601,7 +600,6 @@ const G7: &str = "#68";
 const G8: &str = "#69";
 const G9: &str = "#70";
 const G1_G3: &str = "#62, #64";
-const BINDINGS: &str = "#325";
 const L10: &str = "#175";
 const H2: &str = "#74";
 
@@ -1129,18 +1127,20 @@ pub const THREATS: &[Threat] = &[
         spec13: &[],
         tests: &[
             "x_full_duplicate_store_refuses_without_evicting",
+            "x_one_key_cannot_fill_the_duplicate_store",
+            "x_duplicate_store_headroom_leaves_room_for_another_key",
             "x_one_issuer_cannot_fill_the_presence_registry",
             "x_presence_registry_capacity_is_bounded",
             "x_receipt_allowance_is_per_device_and_bounded",
             "x_oversized_envelope_is_refused_before_parsing",
-            "gated_x_envelope_bindings_are_bounded",
+            "x_envelope_bindings_are_bounded",
+            "x_binding_table_fair_share_takes_from_the_heaviest",
+            "x_late_copy_from_an_ended_session_records_nothing",
+            "x_expired_record_partitions_are_reclaimed_in_order",
         ],
         facts: &[],
-        core_tests: &[],
+        core_tests: &["authorization::tests::envelope_bindings_leave_the_bound_when_referred_to"],
         status: Status::Proven,
-        gated: &[Gate {
-            issue: BINDINGS,
-            what: "binding-table entries that security step 4 creates are not bounded yet (gated_x_envelope_bindings_are_bounded)",
-        }],
+        gated: &[],
     },
 ];

@@ -4,6 +4,37 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issues #320, #325, #328: shares and bounds for the
+duplicate store, the envelope-created binding entries and the record lists.** No `spec/`
+file, gate verdict, pin, third-party dependency or ADR text changes; every bound keeps the
+frozen revision 0.1 MUSTs.
+
+- **Duplicate store (#320).** `core/src/replay.rs` counts entries per `key_id`. A key is
+  admitted only below its quota (`DuplicateStore::per_key_share`, a quarter of the capacity
+  by default) and while it holds fewer entries than the store has free (headroom). A key
+  past either is refused alone with `failed` / `internal-error`. Nothing is evicted early
+  ([SEC-RPL-023]), so where the registry evicts from the heaviest holder this store refuses
+  instead: that finding and the colluding-keys residual are in `11-risks.md`
+  RISK-REPLAY-STORE.
+- **Binding table (#325).** Entries that security step 4 creates are bounded
+  (`MAX_ENVELOPE_BINDINGS`, `MAX_ENVELOPE_BINDINGS_PER_KEY`) until a registration, an
+  accepted presence record or a conflict mark refers to them. At its share a key gives up
+  its own oldest entry. In a full table, a key holding `n` takes the oldest entry of the
+  heaviest key holding at least `n + 2`, and the key that added last pays a tie. An entry
+  that a hand-off record is looked up through is never evicted ([SEC-AUZ-016],
+  [SC-RCP-053], [SC-RCP-054]). With none to evict, the envelope is refused `failed` /
+  `internal-error`. `accept_authenticated_record` now confirms an envelope-created entry
+  through `bind`. The security suite's exhaustion row is no longer gated on #325
+  (RISK-BINDING-TABLE).
+- **Records (#328).** Expired record partitions are found through an index ordered by
+  expiry, not a scan. A hand-off record from an own-key `from` that is not an own session
+  now (a late copy from an ended session) is not kept. The churn test runs at a cap of 16
+  in every `cargo test`; the full-scale one is `#[ignore]`d and runs in the new opt-in
+  `scale-optin.yml` (manual dispatch) or with
+  `cargo test -p oac-core --release -- --ignored full_scale` (RISK-RECORD-PARTITIONS).
+- **Tests.** New security-suite tests on the X-exhaustion row, and twelve new mutations in
+  `tests/security/mutation-check.mjs`, each caught.)
+
 **Last updated:** 2026-10-07 (**Issue #61 (F12): the default CI tier.** No `spec/` file,
 `core/` source file, gate verdict, pin, third-party dependency or ADR text changes.
 

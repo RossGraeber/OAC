@@ -1018,16 +1018,20 @@ mod tests {
         let env = f.raw.envelope();
         let mut e =
             AuthorizationEngine::new(&f.id, f.clock.clone(), Box::new(MemoryDecisionLog::new()));
-        let rec =
-            f.id.register(
-                env.to().clone(),
-                Token::parse("harness-x").unwrap(),
-                "native",
-                "/w",
-                ts("2026-10-03T11:00:00Z"),
-            )
-            .unwrap();
-        assert!(e.register_session(&rec, &f.id));
+        // Both ends are own sessions: a hand-off record from an own-key `from` that is not
+        // bound now is not kept (#328).
+        for s in [env.to(), env.from()] {
+            let rec =
+                f.id.register(
+                    s.clone(),
+                    Token::parse("harness-x").unwrap(),
+                    "native",
+                    "/w",
+                    ts("2026-10-03T11:00:00Z"),
+                )
+                .unwrap();
+            assert!(e.register_session(&rec, &f.id));
+        }
         e.add_grant(
             Grant::Inbound {
                 writer: PeerSide::session(f.id.key_id().clone(), env.from().clone()),

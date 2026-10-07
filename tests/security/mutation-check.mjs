@@ -150,6 +150,81 @@ export const MUTATIONS = [
     from: 't - WINDOW_NANOS < c && c < t + WINDOW_NANOS',
     to: 't - WINDOW_NANOS - 500_000_000 < c && c < t + WINDOW_NANOS + 500_000_000',
   },
+  // The store and record bounds of #320, #325 and #328: each bound and fairness rule.
+  {
+    name: 'X exhaustion: no per-key duplicate-store quota (#320)',
+    file: 'core/src/replay.rs',
+    from: 'n < per_key_share && self.entries.len() + n < capacity',
+    to: 'self.entries.len() + n < capacity',
+  },
+  {
+    name: 'X exhaustion: no duplicate-store headroom rule (#320)',
+    file: 'core/src/replay.rs',
+    from: 'n < per_key_share && self.entries.len() + n < capacity',
+    to: 'n < per_key_share && self.entries.len() < capacity',
+  },
+  {
+    name: 'X exhaustion: a key\'s duplicate-store count is never released (#320)',
+    file: 'core/src/replay.rs',
+    from: 'if let Some(n) = self.per_key.get_mut(key.key_id()) {\n                *n -= 1;',
+    to: 'if let Some(n) = self.per_key.get_mut(key.key_id()) {\n                *n -= 0;',
+  },
+  {
+    name: 'X exhaustion: envelope-created bindings unbounded (#325)',
+    file: 'core/src/authorization.rs',
+    from: 'if !self.envelope_bound.has_room(key) {',
+    to: 'if false {',
+  },
+  {
+    name: 'X exhaustion: an envelope binding a hand-off record uses can be evicted (#325)',
+    file: 'core/src/authorization.rs',
+    from: 'if &e.key != key || e.pinned == pinned {',
+    to: 'if true {',
+  },
+  {
+    name: 'X exhaustion: binding fair share takes from a key only one ahead (#325)',
+    file: 'core/src/authorization.rs',
+    from: 'kb.len() >= n + 2',
+    to: 'kb.len() >= n + 1',
+  },
+  {
+    name: 'X exhaustion: binding fair share tie broken by key-id order (#325)',
+    file: 'core/src/authorization.rs',
+    from: '.max_by_key(|(_, kb)| (kb.len(), kb.latest))',
+    to: '.max_by_key(|(_, kb)| kb.len())',
+  },
+  {
+    name: 'X exhaustion: an announcement does not take an envelope binding out of the bound (#325)',
+    file: 'core/src/authorization.rs',
+    from: 'Some(Binding::Key(k)) if k == key => {\n                self.envelope_bound.untrack(session);',
+    to: 'Some(Binding::Key(k)) if k == key => {',
+    coreOnly: 'authorization::tests::envelope_bindings_leave_the_bound_when_referred_to',
+  },
+  {
+    name: 'X exhaustion: a binding evicted before its hand-off is not bound again (#325)',
+    file: 'core/src/authorization.rs',
+    from: '&& self.trusted.get(&k).is_some()',
+    to: '&& false',
+    coreOnly: 'authorization::tests::envelope_bindings_leave_the_bound_when_referred_to',
+  },
+  {
+    name: 'X exhaustion: a late copy from an ended own session makes its partition again (#328)',
+    file: 'core/src/authorization.rs',
+    from: 'if own && !self.own_sessions.contains_key(&record.from) {\n            return;\n        }',
+    to: '',
+  },
+  {
+    name: 'X exhaustion: expired record partitions are never swept (#328)',
+    file: 'core/src/authorization.rs',
+    from: '        self.sweep(now);\n        if !self.parts.contains_key(&key)',
+    to: '        if !self.parts.contains_key(&key)',
+  },
+  {
+    name: 'X exhaustion: a refreshed record partition keeps its old expiry (#328)',
+    file: 'core/src/authorization.rs',
+    from: 'if after != before {',
+    to: 'if false {',
+  },
   {
     // With random nonces the suite cannot tell a code that binds the keys from one that
     // binds only the nonces; core's deterministic unit test can (cited in THREATS).
