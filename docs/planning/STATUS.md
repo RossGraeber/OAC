@@ -6,8 +6,9 @@ verdict, or when a pin moves.
 
 **Last updated:** 2026-10-06 (**Issue #59 (F10): the adapter and transport contract
 suites land at `tests/protocol/contract/`**, against `spec/interfaces.md` revision 0.1 §5 and
-§6. No `spec/` file, gate verdict, pin or ADR text changes, and no third-party dependency is
-added.
+§6. No `spec/` file, gate verdict, pin or ADR text changes. The only third-party crates added are
+`syn` and `proc-macro2`, test-only, to the adapter suite, both already in the graph at the same
+versions (07 §5).
 
 - **Transport suite** (`tests/protocol/contract/transport/`, crate `oac-contract-transport`):
   one suite over `dyn Transport`, with an implementation-supplied medium giving `now`,
