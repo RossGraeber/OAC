@@ -1430,6 +1430,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oac-contract-adapter"
+version = "0.0.0"
+dependencies = [
+ "oac-core",
+ "oac-fake-claude",
+]
+
+[[package]]
+name = "oac-contract-transport"
+version = "0.0.0"
+dependencies = [
+ "oac-core",
+]
+
+[[package]]
 name = "oac-core"
 version = "0.0.0"
 dependencies = [
@@ -1453,6 +1468,7 @@ dependencies = [
 name = "oac-transport-memory"
 version = "0.0.0"
 dependencies = [
+ "oac-contract-transport",
  "oac-core",
 ]
 

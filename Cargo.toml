@@ -10,6 +10,9 @@
 #   (nothing)         -> cli/
 #   tests/fakes/*     -> core/ only; reached by product crates through dev-dependencies
 #                        only, so never built into the `oac` binary (#57)
+#   tests/protocol/contract/*
+#                     -> core/ and tests/fakes/* only; the contract suites (#59), reached
+#                        by product crates through dev-dependencies only, like the fakes
 #
 # scripts/check-crate-deps.mjs enforces these edges over `cargo metadata`, and keeps
 # provider and transport crates unreachable from core/. Members are listed one by one: no
@@ -25,6 +28,8 @@ members = [
     "adapters/claude",
     "adapters/codex",
     "tests/fakes/claude",
+    "tests/protocol/contract/transport",
+    "tests/protocol/contract/adapter",
 ]
 
 [workspace.package]
