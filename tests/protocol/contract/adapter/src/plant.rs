@@ -22,12 +22,14 @@
 //! - `TurnAsGap`: `start_turn` reports a turn as unsupported.
 //! - `RequestsAsGap`: `request` reports requests as unsupported.
 //! - `NoSourceFiles`: `source_files` gives nothing to scan.
+//! - `NoNativeIds`: `native_ids` gives nothing to look for (PR #355 review R1).
+//! - `TurnNoop`: `start_turn` returns Ok without starting a turn (PR #355 review R2).
 
 use std::path::PathBuf;
 
 use oac_core::adapter::{Attachment, Connection, HandOffOutcome};
 
-use crate::{BINDINGS, Gap, Profile};
+use crate::{BINDINGS, Gap, Profile, Step};
 
 /// A handle the core never issued.
 pub fn forged_attachment() -> Attachment {
@@ -92,4 +94,14 @@ pub fn requests_as_gap() -> Gap {
 /// What `source_files` returns instead of the adapter's sources.
 pub fn no_source_files() -> Vec<PathBuf> {
     Vec::new()
+}
+
+/// What `native_ids` returns instead of the ids the fake knows.
+pub fn no_native_ids() -> Vec<String> {
+    Vec::new()
+}
+
+/// What `start_turn` returns instead of starting a turn: success, with nothing done.
+pub fn turn_noop() -> Step<()> {
+    Ok(())
 }

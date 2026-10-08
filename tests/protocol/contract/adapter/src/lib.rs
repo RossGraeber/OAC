@@ -61,13 +61,28 @@
 //!   | `open_session`, `session_ready`, `end_session`, `drain`, `allow_hand_offs` | the whole run | always | the run fails | the run fails |
 //!
 //!   A [`Gap::Broken`] step always fails.
-//! - **No source files.** Every adapter has source, so an empty
+//! - **A `start_turn` that starts nothing.** Neither message handed off to the busy session
+//!   may become input before [`AdapterHarness::drain`]; one that does fails [SEC-AUZ-025]
+//!   and [SEC-AUZ-026].
+//! - **Omitted inputs.** Every adapter has source, so an empty
 //!   [`AdapterHarness::source_files`] fails [IFC-ADP-001], [IFC-ADP-002], [IFC-ADP-007] and
-//!   [IFC-ADP-013] rather than making the static checks not applicable.
+//!   [IFC-ADP-013] rather than making the static checks not applicable. Every fake harness
+//!   knows native ids once a session is open, so an empty [`AdapterHarness::native_ids`]
+//!   (a required method) fails [IFC-TYP-092].
 //!
-//! What stays out of reach: a harness that fabricates [`Observations`] or `native_ids`. Gate
-//! S4 criterion 1 covers that: a harness edit under `tests/protocol/contract/` shows as a
-//! diff against the suite's baseline.
+//! # Where a harness lives
+//!
+//! **The harness a real adapter runs under lives in this crate**: [`claude::ClaudeHarness`]
+//! in `src/claude.rs`, and the Codex harness (G7) in `src/codex.rs` or
+//! `tests/real_adapters.rs`, never an adapter's own `tests/`. The real-adapter runs are
+//! this crate's tests. `tests/harness_location.rs` checks it: only the packages its
+//! reviewed list names (none an adapter) depend on this crate, and they implement no
+//! harness and never reach [`run`]; no other Rust file names `AdapterHarness`.
+//!
+//! What stays out of reach: a harness that fabricates or filters [`Observations`], or
+//! returns `Ok` from a step it did not do in a way the observations do not show. Because the
+//! harness lives here, Gate S4 criterion 1 covers that: a harness edit under
+//! `tests/protocol/contract/` shows as a diff against the suite's baseline.
 
 pub mod claude;
 pub mod codex;
@@ -304,7 +319,9 @@ pub trait AdapterHarness {
     /// End the session from the harness side.
     fn end_session(&mut self, s: usize) -> Step<()>;
 
-    /// Make the session busy: a turn of the harness's own starts.
+    /// Make the session busy: a turn of the harness's own starts. Hand-offs made next must
+    /// not become input until [`AdapterHarness::drain`]; one that does fails [SEC-AUZ-025]
+    /// and [SEC-AUZ-026].
     fn start_turn(&mut self, s: usize) -> Step<()>;
 
     /// Release everything the harness holds and let every turn end.
@@ -331,10 +348,9 @@ pub trait AdapterHarness {
 
     /// The harness-native ids the fake harness knows for its sessions (thread ids,
     /// session ids): none of them may appear in the adapter's `health` detail
-    /// ([IFC-TYP-092]).
-    fn native_ids(&self) -> Vec<String> {
-        Vec::new()
-    }
+    /// ([IFC-TYP-092]). Every fake harness knows some once a session is open, so none at
+    /// all (or only empty ones) fails that row.
+    fn native_ids(&self) -> Vec<String>;
 }
 
 // ---- the core side ----------------------------------------------------------------------
@@ -1000,10 +1016,30 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         Err(g) => Err(g),
     };
     match &busy {
-        Ok((a, b, _during, o)) => {
+        Ok((a, b, during, o)) => {
             let holding = profile.holding_hand_off;
+            // Neither message may become input while the turn `start_turn` started is
+            // running: a harness whose `start_turn` returns Ok without starting one would
+            // make both rows pass without a busy session (#351, PR #355 review R2).
+            // While the turn runs the harness holds both, so it must report at least two
+            // held inputs and neither among the inputs taken.
+            let mut not_busy: Vec<String> = [a, b]
+                .iter()
+                .filter(|(t, _)| took(during, t))
+                .map(|(t, _)| {
+                    format!(
+                        "{t:?} became input while the turn start_turn started should have been running"
+                    )
+                })
+                .collect();
+            if during.held < 2 {
+                not_busy.push(format!(
+                    "the harness held {} input(s) while its turn should have been running, not both messages",
+                    during.held
+                ));
+            }
             check!(ctx, "SEC-AUZ-025", "holding-hand-off-while-running", {
-                let mut bad = Vec::new();
+                let mut bad = not_busy.clone();
                 for (t, out) in [a, b] {
                     let calls = calls_with(o, t);
                     if calls.iter().any(|c| c.steering) {
@@ -1029,12 +1065,18 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             });
             check!(ctx, "SEC-AUZ-026", "order-kept-through-the-hold", {
                 let pos = |t: &str| o.inputs.iter().position(|i| i.contains(t));
-                match (pos(&a.0), pos(&b.0)) {
-                    (Some(x), Some(y)) if x < y => {
-                        Verdict::Pass("taken in the order handed off".into())
+                if !not_busy.is_empty() {
+                    Verdict::Fail(not_busy.join("; "))
+                } else {
+                    match (pos(&a.0), pos(&b.0)) {
+                        (Some(x), Some(y)) if x < y => {
+                            Verdict::Pass("taken in the order handed off".into())
+                        }
+                        (Some(_), Some(_)) => {
+                            Verdict::Fail("taken out of the order handed off".into())
+                        }
+                        _ => Verdict::Fail(format!("not both taken: inputs {:?}", o.inputs)),
                     }
-                    (Some(_), Some(_)) => Verdict::Fail("taken out of the order handed off".into()),
-                    _ => Verdict::Fail(format!("not both taken: inputs {:?}", o.inputs)),
                 }
             });
         }
@@ -1592,31 +1634,39 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     // ---- health ([IFC-TYP-092]) -------------------------------------------------------------
     check!(ctx, "IFC-TYP-092", "health-holds-no-secret-or-native-id", {
         let h = ctx.adapter.health();
-        match &h.detail {
-            None => Verdict::Pass(format!(
-                "{} with no detail (checked for directories, addresses and {} native id(s))",
-                h.state.as_str(),
-                ctx.h.native_ids().len()
-            )),
-            Some(d) => {
-                let mut forbidden: Vec<String> = Vec::new();
-                if let Ok(c) = std::env::current_dir() {
-                    forbidden.push(c.display().to_string());
-                }
-                for v in ["HOME", "USERPROFILE"] {
-                    if let Ok(x) = std::env::var(v)
-                        && !x.is_empty()
-                    {
-                        forbidden.push(x);
+        // Sessions were opened, so the fake knows native ids for them; with none the check
+        // would pass any detail (#351, PR #355 review R1).
+        if ctx.h.native_ids().iter().all(String::is_empty) {
+            Verdict::Fail(
+                "the harness gave no native ids although sessions were opened, so the detail cannot be checked for them".into(),
+            )
+        } else {
+            match &h.detail {
+                None => Verdict::Pass(format!(
+                    "{} with no detail (checked for directories, addresses and {} native id(s))",
+                    h.state.as_str(),
+                    ctx.h.native_ids().len()
+                )),
+                Some(d) => {
+                    let mut forbidden: Vec<String> = Vec::new();
+                    if let Ok(c) = std::env::current_dir() {
+                        forbidden.push(c.display().to_string());
                     }
-                }
-                forbidden.extend(ctx.h.native_ids().into_iter().filter(|x| !x.is_empty()));
-                match forbidden.iter().find(|f| d.contains(f.as_str())) {
-                    Some(f) => Verdict::Fail(format!("health detail {d:?} contains {f:?}")),
-                    None if d.contains("://") => {
-                        Verdict::Fail(format!("health detail {d:?} holds an address"))
+                    for v in ["HOME", "USERPROFILE"] {
+                        if let Ok(x) = std::env::var(v)
+                            && !x.is_empty()
+                        {
+                            forbidden.push(x);
+                        }
                     }
-                    None => Verdict::Pass(format!("{}: {d:?}", h.state.as_str())),
+                    forbidden.extend(ctx.h.native_ids().into_iter().filter(|x| !x.is_empty()));
+                    match forbidden.iter().find(|f| d.contains(f.as_str())) {
+                        Some(f) => Verdict::Fail(format!("health detail {d:?} contains {f:?}")),
+                        None if d.contains("://") => {
+                            Verdict::Fail(format!("health detail {d:?} holds an address"))
+                        }
+                        None => Verdict::Pass(format!("{}: {d:?}", h.state.as_str())),
+                    }
                 }
             }
         }

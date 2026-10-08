@@ -1024,6 +1024,10 @@ enum HarnessBreach {
     RequestsAsGap,
     /// `source_files` returns nothing.
     NoSourceFiles,
+    /// `native_ids` returns nothing (PR #355 review R1).
+    NoNativeIds,
+    /// `start_turn` returns Ok without starting a turn (PR #355 review R2).
+    TurnNoop,
 }
 
 /// `inner`, with `breach` planted.
@@ -1058,8 +1062,10 @@ impl<H: AdapterHarness> AdapterHarness for Rigged<H> {
         self.inner.end_session(s)
     }
     fn start_turn(&mut self, s: usize) -> Step<()> {
-        if self.breach == HarnessBreach::TurnAsGap {
-            return Err(plant::turn_as_gap());
+        match self.breach {
+            HarnessBreach::TurnAsGap => return Err(plant::turn_as_gap()),
+            HarnessBreach::TurnNoop => return plant::turn_noop(),
+            _ => {}
         }
         self.inner.start_turn(s)
     }
@@ -1091,6 +1097,9 @@ impl<H: AdapterHarness> AdapterHarness for Rigged<H> {
         self.inner.source_files()
     }
     fn native_ids(&self) -> Vec<String> {
+        if self.breach == HarnessBreach::NoNativeIds {
+            return plant::no_native_ids();
+        }
         self.inner.native_ids()
     }
 }
@@ -1136,7 +1145,22 @@ fn the_suite_catches_each_planted_queue_harness_breach() {
     // would hide one, on the adapter breach it would hide. The profile routes would
     // otherwise drop SC-DLV-009 and the MCPB-CDX rows; the gap routes would make the rows
     // they name not applicable.
-    let cases: [(QueueBreach, HarnessBreach, &[&str]); 11] = [
+    let cases: [(QueueBreach, HarnessBreach, &[&str]); 14] = [
+        (
+            QueueBreach::None,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            QueueBreach::HealthNamesThread,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            QueueBreach::None,
+            HarnessBreach::TurnNoop,
+            &["SEC-AUZ-025", "SEC-AUZ-026"],
+        ),
         (QueueBreach::None, HarnessBreach::WeakensProfile, &[]),
         (
             QueueBreach::ReportsNotNow,
@@ -1252,6 +1276,29 @@ fn the_suite_catches_each_planted_channel_harness_breach() {
                 "{what}:\n{report}"
             );
         }
+    }
+    // Omitted native ids, over a well-behaved stand-in and over the breach they would
+    // hide; and a start_turn that starts nothing.
+    let cases: [(ChannelBreach, HarnessBreach, &[&str]); 3] = [
+        (
+            ChannelBreach::None,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            ChannelBreach::HealthNamesToolUse,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            ChannelBreach::None,
+            HarnessBreach::TurnNoop,
+            &["SEC-AUZ-025", "SEC-AUZ-026"],
+        ),
+    ];
+    for (adapter, breach, ids) in cases {
+        let report = rigged_channel_report(adapter, breach);
+        assert_caught(&report, &format!("{breach:?} over {adapter:?}"), ids);
     }
     // Claude has no refusal path: a gap from refuse_hand_offs stays an honest n/a there.
     let report = rigged_channel_report(ChannelBreach::None, HarnessBreach::RefusalAsGap);

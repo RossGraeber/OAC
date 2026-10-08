@@ -2,7 +2,8 @@
 
 The adapter contract suite (#59, F10). It is one suite, written against
 `dyn oac_core::adapter::ProviderAdapter`, that every adapter runs unchanged against the fake
-harnesses. It is test-only: an adapter takes it as a dev-dependency.
+harnesses. It is test-only. The real adapters run it from this crate's own tests, under a
+harness that lives in this crate (see "Where a harness lives").
 
 - `src/lib.rs` holds the suite and its report.
 - `src/claude.rs` and `src/codex.rs` hold the harnesses over the fake Claude Code endpoint
@@ -12,18 +13,45 @@ harnesses. It is test-only: an adapter takes it as a dev-dependency.
   never reaches them: a path into `plant` is a finding of its own row, `TEST-PLANT`.
 - `tests/stand_in.rs` runs the suite against well-behaved stand-in adapters and against
   each planted breach, an adapter's or a harness's.
+- `tests/real_adapters.rs` runs the static scan against `adapters/claude` and
+  `adapters/codex`.
+- `tests/path_modules.rs` runs the scan on scratch crates on disk.
+- `tests/harness_location.rs` checks that every harness lives in this crate.
 
 ## What a harness may not change
 
 A harness is written by the adapter's task, so the suite does not take its word for the
 binding (#351). It identifies the binding from the hand-off calls the fake recorded, and
-runs every check under its own profile for that binding (`BINDINGS`). A harness profile that
-differs fails. So does a `Gap` from a step that the binding's profile makes mandatory, and
-an empty list of source files. The module doc of `src/lib.rs` has the table of which steps
-are mandatory for which binding, and why the rest are honestly not applicable.
-- `tests/real_adapters.rs` runs the static scan against `adapters/claude` and
-  `adapters/codex`.
-- `tests/path_modules.rs` runs the scan on scratch crates on disk.
+runs every check under its own profile for that binding (`BINDINGS`). The following all
+fail:
+
+- a harness profile that differs;
+- a `Gap` from a step that the binding's profile makes mandatory;
+- a `start_turn` after which a busy message becomes input before the drain;
+- an empty list of source files or of native ids.
+
+The module doc of `src/lib.rs` has the table of which steps are mandatory for which
+binding, and why the rest are honestly not applicable.
+
+## Where a harness lives
+
+The harness a real adapter runs under lives in this crate. `claude::ClaudeHarness` is in
+`src/claude.rs`, and the Codex harness (G7) goes in `src/codex.rs` or
+`tests/real_adapters.rs`, never in an adapter's own `tests/`.
+
+The suite cannot see a harness that fabricates or filters what the fake observed. Gate S4
+criterion 1 bounds that risk with a diff of `tests/protocol/contract/` against the suite's
+baseline, and the bound holds only for a harness inside that diff.
+
+`tests/harness_location.rs` checks this mechanically:
+
+- only the packages in its `ALLOWED_DEPENDENTS` list depend on `oac-contract-adapter`. This
+  is read from `cargo metadata`, under any name or dependency kind. Today the list names only
+  `oac-transport-memory`, whose pipeline test drives the fakes. No adapter may be on it. The
+  list lives in this crate, so a new dependent is a diff the baseline shows;
+- those packages implement no `AdapterHarness`, and never rename this crate, glob its
+  items, or reach its `run`;
+- no other Rust file names `AdapterHarness`.
 
 ## What an adapter's sources may not hold
 
