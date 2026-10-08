@@ -15,7 +15,9 @@
 //          symlinks to driver code. Workflows
 //          (K6 #129): no GitHub Actions workflow other than
 //          .github/workflows/herdr-provider-optin.yml references tools/herdr or a label a
-//          self-hosted runner carries; and that opt-in workflow's triggers are exactly
+//          self-hosted runner carries, but for one exact line (#345): a `run:` of
+//          `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the driver's offline
+//          self-test against its test doubles; and that opt-in workflow's triggers are exactly
 //          workflow_dispatch + push (main, docs/planning/PINS.md), its permissions exactly
 //          contents: read, every action is actions/checkout or actions/upload-artifact at
 //          a commit SHA (checkout without persisted credentials), with no secrets or
@@ -310,8 +312,16 @@ const JOB_TOKEN_RE = /\bgithub\s*(?:\.\s*token\b|\[\s*['"]token['"]\s*\])/i;
 // another workflow whose runs-on names any of them could be routed to a harness runner.
 const RUNNER_LABEL_TOKEN = /(?<![\w.-])(?:self-hosted|oac-harness|linux|windows|macos|x64|arm64|arm)(?![\w.-])/i;
 
+// #345: the one tools/herdr reference another workflow may carry, line for line: a `run:` that
+// is exactly the driver's offline self-test (`node tools/herdr/run.mjs --self-test`, its test
+// doubles only: no harness, no scenario, no driver option), optionally behind the
+// loopback-only wrapper. Anything else on that line, any other driver argument or entry
+// point, a comment naming the path, or the command inside a run: block fails as before. Kept
+// in step with D2's exception in scripts/check-workflows.mjs (DRIVER_SELFTEST_LINE there).
+const DRIVER_SELFTEST_LINE = /^\s*(?:-\s+)?run:\s+(?:\$LOOPBACK_ONLY\s+)?node\s+tools\/herdr\/run\.mjs\s+--self-test\s*$/;
+const otherWorkflowHerdrRefs = (text) => text.split(/\r?\n/).flatMap((line, i) => (HERDR_PATH_REF.test(line) && !DRIVER_SELFTEST_LINE.test(line) ? [i + 1] : []));
 const OTHER_WORKFLOW_RULES = [
-  { label: `workflow other than ${OPTIN_WORKFLOW} references tools/herdr`, re: HERDR_PATH_REF },
+  { label: `workflow other than ${OPTIN_WORKFLOW} references tools/herdr (beyond the one offline self-test line, #345)`, scan: otherWorkflowHerdrRefs },
   {
     label: `workflow other than ${OPTIN_WORKFLOW} names a label a self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm, arm64)`,
     re: RUNNER_LABEL_TOKEN,
@@ -1085,7 +1095,18 @@ const SELF_TEST_CASES = [
   violation('9 other workflow runs on bare default labels', '.github/workflows/extra.yml', 'jobs:\n  a:\n    runs-on: [linux, x64]\n'),
   violation('9 other workflow matrix names a bare windows label', '.github/workflows/extra.yml',
     'jobs:\n  a:\n    strategy:\n      matrix:\n        os: [ubuntu-latest, "windows"]\n    runs-on: ${{ matrix.os }}\n'),
+  // #345: only the exact offline self-test line is allowed in another workflow.
+  violation('9 other workflow runs the driver self-test with a scenario too (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/run.mjs --self-test --scenario smoke\n'),
+  violation('9 other workflow chains the self-test to a driver call (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/run.mjs --self-test && node tools/herdr/ci.mjs run\n'),
+  violation('9 other workflow runs the self-test inside a run: block (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: |\n          node tools/herdr/run.mjs --self-test\n'),
+  violation('9 other workflow names the driver path in a comment (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      # see tools/herdr/README.md\n      - run: node tools/herdr/run.mjs --self-test\n'),
+  violation('9 other workflow runs another driver entry point\'s self-test (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/ci.mjs --self-test\n'),
   // Controls: these must NOT fail.
+  {
+    name: 'control: another workflow may run the driver self-test line, wrapped or not (#345)',
+    expect: 'clean',
+    files: { ...CLEAN_BASE, '.github/workflows/ci.yml': 'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n' },
+  },
   { name: 'control: empty tree reports PENDING', expect: 'pending', files: { 'README.md': '# empty\n' } },
   { name: 'control: clean full tree reports CLEAN', expect: 'clean', files: CLEAN_BASE },
   {
