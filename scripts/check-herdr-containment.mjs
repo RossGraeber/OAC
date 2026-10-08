@@ -17,7 +17,8 @@
 //          .github/workflows/herdr-provider-optin.yml references tools/herdr or a label a
 //          self-hosted runner carries, but for one exact line (#345): a `run:` of
 //          `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the driver's offline
-//          self-test against its test doubles; and that opt-in workflow's triggers are exactly
+//          self-test against its test doubles, and only when the whole parsed `run:` value
+//          is exactly that command (no continuation line folds into it, PR #349 B1); and that opt-in workflow's triggers are exactly
 //          workflow_dispatch + push (main, docs/planning/PINS.md), its permissions exactly
 //          contents: read, every action is actions/checkout or actions/upload-artifact at
 //          a commit SHA (checkout without persisted credentials), with no secrets or
@@ -318,8 +319,59 @@ const RUNNER_LABEL_TOKEN = /(?<![\w.-])(?:self-hosted|oac-harness|linux|windows|
 // loopback-only wrapper. Anything else on that line, any other driver argument or entry
 // point, a comment naming the path, or the command inside a run: block fails as before. Kept
 // in step with D2's exception in scripts/check-workflows.mjs (DRIVER_SELFTEST_LINE there).
+//
+// PR #349 review B1: YAML folds a deeper-indented next line into a plain `run:` value, so the
+// physical line alone does not decide. A line is exempt only when ALL of these hold:
+//   - the physical line matches DRIVER_SELFTEST_LINE (an unquoted plain value, no block
+//     indicator, no flow collection, nothing after the command);
+//   - the next non-blank line (comments included) is not indented deeper than the `run` key,
+//     so no continuation line folds into the value;
+//   - the whole workflow parses with parseYamlLite (which refuses a continuation, a multi-line
+//     quoted or flow value, and anything else it cannot read), and the parsed `run` value whose
+//     key is on this line is exactly DRIVER_SELFTEST_COMMAND.
+// A workflow the reader cannot parse gets no exemption: every tools/herdr line in it is a hit.
 const DRIVER_SELFTEST_LINE = /^\s*(?:-\s+)?run:\s+(?:\$LOOPBACK_ONLY\s+)?node\s+tools\/herdr\/run\.mjs\s+--self-test\s*$/;
-const otherWorkflowHerdrRefs = (text) => text.split(/\r?\n/).flatMap((line, i) => (HERDR_PATH_REF.test(line) && !DRIVER_SELFTEST_LINE.test(line) ? [i + 1] : []));
+const DRIVER_SELFTEST_COMMAND = /^(?:\$LOOPBACK_ONLY )?node tools\/herdr\/run\.mjs --self-test$/;
+// line number -> the parsed value of every `run` key whose value is a string; null when the
+// workflow cannot be parsed.
+function runValuesByLine(text) {
+  let root;
+  try {
+    root = parseYamlLite(text);
+  } catch {
+    return null;
+  }
+  const out = new Map();
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v instanceof Map) {
+      for (const [k, e] of v) {
+        if (k === 'run' && typeof e.value === 'string' && e.line !== null) out.set(e.line, e.value);
+        walk(e.value);
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+function continuesBelow(lines, i) {
+  const keyCol = lines[i].indexOf('run:');
+  for (let j = i + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '') continue;
+    return lines[j].length - lines[j].trimStart().length > keyCol;
+  }
+  return false;
+}
+function otherWorkflowHerdrRefs(text) {
+  const lines = text.split(/\r?\n/);
+  let runs;
+  const exempt = (line, i) => {
+    if (!DRIVER_SELFTEST_LINE.test(line) || continuesBelow(lines, i)) return false;
+    runs ??= runValuesByLine(text);
+    return !!runs && DRIVER_SELFTEST_COMMAND.test(runs.get(i + 1) ?? '');
+  };
+  return lines.flatMap((line, i) => (HERDR_PATH_REF.test(line) && !exempt(line, i) ? [i + 1] : []));
+}
 const OTHER_WORKFLOW_RULES = [
   { label: `workflow other than ${OPTIN_WORKFLOW} references tools/herdr (beyond the one offline self-test line, #345)`, scan: otherWorkflowHerdrRefs },
   {
@@ -1100,6 +1152,18 @@ const SELF_TEST_CASES = [
   violation('9 other workflow chains the self-test to a driver call (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/run.mjs --self-test && node tools/herdr/ci.mjs run\n'),
   violation('9 other workflow runs the self-test inside a run: block (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: |\n          node tools/herdr/run.mjs --self-test\n'),
   violation('9 other workflow names the driver path in a comment (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      # see tools/herdr/README.md\n      - run: node tools/herdr/run.mjs --self-test\n'),
+  // PR #349 review B1: text YAML folds into the exempt line's value, or a line inside another
+  // scalar that looks like the exempt line. Each passed the single-line check alone.
+  ...[
+    ['a plain continuation line folds a scenario in', '      - run: node tools/herdr/run.mjs --self-test\n          --scenario g2-codex-inject\n'],
+    ['a continuation after a blank line', '      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n\n          --scenario smoke\n'],
+    ['a continuation under a key-form run:', '      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n          --scenario smoke\n'],
+    ['the line inside a | block scalar', '      - run: |\n          run: node tools/herdr/run.mjs --self-test\n          echo next\n'],
+    ['the line inside a > block scalar', '      - run: >\n          run: node tools/herdr/run.mjs --self-test\n'],
+    ['the line inside a multi-line double-quoted scalar', '      - run: "echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke"\n'],
+    ['the line inside a multi-line single-quoted scalar', "      - run: 'echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke'\n"],
+    ['the line inside a multi-line flow mapping', '      - { name: x,\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke }\n'],
+  ].map(([what, steps]) => violation(`9 other workflow: ${what} (PR #349 B1)`, '.github/workflows/lint.yml', `on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n${steps}`)),
   violation('9 other workflow runs another driver entry point\'s self-test (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/ci.mjs --self-test\n'),
   // Controls: these must NOT fail.
   {

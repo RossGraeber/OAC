@@ -110,7 +110,10 @@ rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|hel
 #    arm64 -- a job routes to any runner holding all its runs-on labels). One exact line is
 #    exempt (#345): a `run:` of `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the
 #    driver's offline self-test against its test doubles (ci.yml `herdr-selftest`); any
-#    other text on the line, a comment naming the path, or a run: block still fails. The opt-in
+#    other text on the line, a comment naming the path, or a run: block still fails, and
+#    the whole parsed `run:` value must be exactly that command: a deeper-indented
+#    continuation line, or the line inside a block, quoted or flow scalar, fails (PR #349
+#    review B1). The opt-in
 #    workflow is read with a small fail-closed YAML reader and must have: `on:` exactly
 #    {workflow_dispatch, push} (an allowlist: issues/watch/fork/discussion/PR events all
 #    fail), push limited to branches [main] and paths [docs/planning/PINS.md],
