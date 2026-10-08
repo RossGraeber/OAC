@@ -44,6 +44,13 @@ pin, dependency, static-scan rule or ADR text changes.
     longer hide a second harness at `tests/<dir>/main.rs`. An adapter's dev-dependencies
     are limited to the suite, `oac-core` and `oac-fake-claude`, so no identifier-pasting
     proc macro. The one-file review covers the adapter `src/` helpers `contract.rs` calls.
+  - Fourth review (N1, N2): what cargo compiles for an adapter is checked as well.
+    - An adapter has no build script.
+    - Each test, example and bench target in `cargo metadata` is `tests/contract.rs` or
+      passes the name rules.
+    - No `.rs` file under `adapters/` is git-ignored.
+    - Cargo's target directory is `target/` or outside the repository.
+    - An adapter's normal and build dependencies are the vetted list.
 - **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
   `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
   makes it a breach. Three cases are not breaches, and the tests show they stay
@@ -51,7 +58,7 @@ pin, dependency, static-scan rule or ADR text changes.
   Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
   before.
 - **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
-  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `19f4f77`.)
+  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `7798455`.)
 
 **Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
 revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
