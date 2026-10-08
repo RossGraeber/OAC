@@ -82,6 +82,8 @@
 //! harness that fabricates or filters [`Observations`], or returns `Ok` from a step it did
 //! not do in a way the observations do not show. That residual is covered by reviewing
 //! the one fixed file. Gate S4 evidence for an adapter must cite it, at the commit run.
+//! The review covers everything `contract.rs` calls outside this suite, including the
+//! adapter's own `src/` helpers.
 //!
 //! `tests/harness_location.rs` keeps the rule mechanical:
 //! - Only an adapter, `adapters/mcp-tools` and its listed packages (`oac-transport-memory`)
@@ -95,6 +97,10 @@
 //!   no glob or renamed import.
 //! - A listed package may drive the fakes' harnesses, but may not implement or rename
 //!   `AdapterHarness`, reach [`run`], or hold those shapes.
+//! - An adapter takes no dev-dependency but this crate, `oac-core` and `oac-fake-claude`.
+//!   This excludes an identifier-pasting proc macro.
+//! - The files read are git's (`git ls-files -co --exclude-standard`), not a directory
+//!   walk's, minus cargo's target directory. Any `CACHEDIR.TAG` among them fails.
 //!
 //! Those are text rules. What really bounds a listed transport is
 //! `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness

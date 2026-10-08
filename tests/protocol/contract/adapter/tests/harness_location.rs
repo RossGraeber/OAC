@@ -32,10 +32,16 @@
 //! transport is `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so
 //! a harness hidden there could only drive a stand-in, never a real adapter.
 //!
-//! The file walk skips `.git`, `target`, `node_modules`, `.claude` and `.agents` only at the
-//! repository root (the agent tooling directories can hold other checkouts of this
-//! repository), and a cargo target directory (one holding `CACHEDIR.TAG`) anywhere. A
-//! symlink anywhere else fails, since cargo would follow it and the walk does not.
+//! - **What an adapter may take as a dev-dependency.** Only [`ADAPTER_DEV_DEPENDENCIES`]:
+//!   the suite, `oac-core` and the one fake that is a crate. Anything else, such as an
+//!   identifier-pasting proc macro (`paste`), could spell the trait and `run` in pieces
+//!   that no text rule sees (PR #355 third review, C2).
+//!
+//! **The files read.** These come from git, not from a directory walk: `git ls-files -co
+//! --exclude-standard`, so every tracked file and every untracked file that is not ignored,
+//! less cargo's own `target_directory` from `cargo metadata`. Any `CACHEDIR.TAG` left in that
+//! set fails. A real target directory is never tracked, and a committed tag would hide a
+//! directory from the tools that honour it (PR #355 third review, C1). A symlink fails too.
 
 use std::path::{Path, PathBuf};
 
@@ -60,16 +66,17 @@ pub const ALLOWED_DEPENDENTS: &[(&str, &str)] = &[(
      harness",
 )];
 
-/// What the walk skips at the repository root only.
-const ROOT_SKIPS: &[&str] = &[".git", "target", "node_modules", ".claude", ".agents"];
+/// The only dev-dependencies an adapter may take: this suite, `oac-core`, and
+/// `oac-fake-claude`, the one fake that is a crate (the fake Codex app-server is a `node`
+/// program the suite spawns).
+pub const ADAPTER_DEV_DEPENDENCIES: &[&str] = &[SUITE, "oac-core", "oac-fake-claude"];
+
+/// This crate's directory, relative to the repository root.
+const SUITE_DIR: &str = "tests/protocol/contract/adapter";
 
 fn repo_root() -> PathBuf {
     std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.."))
         .expect("the repository root")
-}
-
-fn this_crate() -> PathBuf {
-    std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).expect("this crate's directory")
 }
 
 /// `p` relative to `root`, with `/` separators.
@@ -106,11 +113,19 @@ struct Dependent {
     dir: String,
     /// Each edge to the suite: its kind (`None` for normal) and its rename.
     edges: Vec<(Option<String>, Option<String>)>,
+    /// The package names of its dev-dependencies.
+    dev_deps: Vec<String>,
 }
 
-/// Every workspace package: its name, its repository-relative directory, and its edges to
-/// the suite.
+/// Every workspace package: its name, its repository-relative directory, its edges to the
+/// suite and its dev-dependencies.
 fn packages() -> Vec<Dependent> {
+    metadata().0
+}
+
+/// The packages, and cargo's `target_directory` relative to the repository root when it
+/// lies inside it.
+fn metadata() -> (Vec<Dependent>, Option<String>) {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let root = repo_root();
     let out = std::process::Command::new(cargo)
@@ -131,7 +146,11 @@ fn packages() -> Vec<Dependent> {
         String::from_utf8_lossy(&out.stderr)
     );
     let meta = json::parse(&out.stdout).expect("cargo metadata output");
-    get(&meta, "packages")
+    let target = get_str(&meta, "target_directory")
+        .and_then(|t| std::fs::canonicalize(t).ok())
+        .filter(|t| t.starts_with(&root))
+        .map(|t| rel(&root, &t));
+    let packages = get(&meta, "packages")
         .and_then(Json::as_array)
         .expect("a package list")
         .iter()
@@ -152,13 +171,70 @@ fn packages() -> Vec<Dependent> {
                     )
                 })
                 .collect();
+            let dev_deps = get(p, "dependencies")
+                .and_then(Json::as_array)
+                .unwrap_or_default()
+                .iter()
+                .filter(|d| get_str(d, "kind") == Some("dev"))
+                .filter_map(|d| get_str(d, "name").map(str::to_owned))
+                .collect();
             Dependent {
                 name: get_str(p, "name").unwrap_or_default().to_owned(),
                 dir,
                 edges,
+                dev_deps,
             }
         })
+        .collect();
+    (packages, target)
+}
+
+/// What is wrong with the dev-dependencies `dev_deps` of package `name` at `dir`: an
+/// adapter may take only [`ADAPTER_DEV_DEPENDENCIES`].
+fn dev_dependency_findings(name: &str, dir: &str, dev_deps: &[String]) -> Vec<String> {
+    if adapter_of(dir).is_none() {
+        return Vec::new();
+    }
+    dev_deps
+        .iter()
+        .filter(|d| !ADAPTER_DEV_DEPENDENCIES.contains(&d.as_str()))
+        .map(|d| {
+            format!(
+                "{name} ({dir}) takes {d} as a dev-dependency: an adapter takes only {ADAPTER_DEV_DEPENDENCIES:?}"
+            )
+        })
         .collect()
+}
+
+#[test]
+fn adapters_take_only_the_listed_dev_dependencies() {
+    let bad: Vec<String> = packages()
+        .iter()
+        .flat_map(|p| dev_dependency_findings(&p.name, &p.dir, &p.dev_deps))
+        .collect();
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn the_dev_dependency_rule_catches_a_pasting_macro() {
+    let ok: Vec<String> = ADAPTER_DEV_DEPENDENCIES
+        .iter()
+        .map(|d| (*d).to_owned())
+        .collect();
+    assert!(dev_dependency_findings("oac-adapter-codex", "adapters/codex", &ok).is_empty());
+    // The PR #355 third review's C2 plant: `paste` would spell the trait and `run` in
+    // pieces (`[<oac_contract _adapter>]::[<Adapter Harness>]`).
+    for extra in ["paste", "oac-transport-memory", "serde_json"] {
+        let deps = vec![SUITE.to_owned(), extra.to_owned()];
+        assert!(
+            !dev_dependency_findings("oac-adapter-codex", "adapters/codex", &deps).is_empty(),
+            "missed {extra}"
+        );
+    }
+    // Not adapters: the tool crate and the other packages are not held to this list.
+    let paste = vec!["paste".to_owned()];
+    assert!(dev_dependency_findings("oac-mcp-tools", "adapters/mcp-tools", &paste).is_empty());
+    assert!(dev_dependency_findings("oac-cli", "cli", &paste).is_empty());
 }
 
 /// What is wrong with one edge to the suite from package `name` at `dir`.
@@ -259,87 +335,149 @@ fn the_dependency_rule_catches_each_shape() {
     }
 }
 
-// ---- the file walk ----------------------------------------------------------------------
+// ---- the files read ------------------------------------------------------------------------
 
-/// Every `.rs` file under `root` and every symlink, skipping [`ROOT_SKIPS`] at the root
-/// only, a cargo target directory anywhere, and `skip`.
-fn walk(root: &Path, skip: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
-    fn go(
-        root: &Path,
-        dir: &Path,
-        skip: &Path,
-        files: &mut Vec<PathBuf>,
-        links: &mut Vec<PathBuf>,
-    ) {
-        if dir == skip || dir.join("CACHEDIR.TAG").exists() {
-            return;
-        }
-        if dir.parent() == Some(root)
-            && let Some(n) = dir.file_name().and_then(|n| n.to_str())
-            && ROOT_SKIPS.contains(&n)
-        {
-            return;
-        }
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for e in entries.flatten() {
-            let p = e.path();
-            let Ok(m) = std::fs::symlink_metadata(&p) else {
-                continue;
-            };
-            if m.file_type().is_symlink() {
-                links.push(p);
-            } else if m.is_dir() {
-                go(root, &p, skip, files, links);
-            } else if m.is_file() && p.extension().is_some_and(|x| x == "rs") {
-                files.push(p);
-            }
-        }
-    }
-    let (mut files, mut links) = (Vec::new(), Vec::new());
-    go(root, root, skip, &mut files, &mut links);
-    (files, links)
+/// Every file git knows under `root`, tracked or untracked and not ignored
+/// (`git ls-files -co --exclude-standard`), repository-relative, less those under `target`
+/// (cargo's target directory, relative to `root`). Fails closed when git cannot list them.
+fn git_files(root: &Path, target: Option<&str>) -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["ls-files", "-co", "--exclude-standard", "-z"])
+        .output()
+        .expect("run git ls-files: the harness location rule reads the file set from git");
+    assert!(
+        out.status.success(),
+        "git ls-files failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|f| !f.is_empty())
+        .filter(|f| !target.is_some_and(|t| f.starts_with(&format!("{t}/"))))
+        .map(str::to_owned)
+        .collect()
 }
 
-#[test]
-fn the_walk_skips_only_at_the_root_and_cargo_target_directories() {
-    let t = Path::new(env!("CARGO_TARGET_TMPDIR")).join("harness-location-walk");
+/// What the rules find over every file git lists under `root`, with `listed_dirs` the
+/// listed packages' directories. Files of this crate are not read.
+fn tree_findings(root: &Path, target: Option<&str>, listed_dirs: &[String]) -> Vec<String> {
+    let mut bad = Vec::new();
+    for r in git_files(root, target) {
+        if r.starts_with(&format!("{SUITE_DIR}/")) {
+            continue;
+        }
+        let path = root.join(&r);
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+            bad.push(format!("{r}: a symlink"));
+            continue;
+        }
+        if r.rsplit('/').next() == Some("CACHEDIR.TAG") {
+            bad.push(format!(
+                "{r}: a CACHEDIR.TAG outside cargo's target directory, which hides its directory from tools that honour it"
+            ));
+            continue;
+        }
+        if !r.ends_with(".rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        for x in file_findings(scope(&r, listed_dirs), &text) {
+            bad.push(format!("{r}: {x}"));
+        }
+    }
+    bad
+}
+
+/// A scratch git repository under the test target directory.
+fn scratch_repo(name: &str, files: &[(&str, &str)], commit: &[&str]) -> PathBuf {
+    let t = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&t);
-    let put = |p: &str, text: &str| {
+    std::fs::create_dir_all(&t).unwrap();
+    for (p, text) in files {
         let f = t.join(p);
         std::fs::create_dir_all(f.parent().unwrap()).unwrap();
         std::fs::write(f, text).unwrap();
+    }
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&t)
+            .args(["-c", "user.name=oac", "-c", "user.email=oac@invalid"])
+            .args(args)
+            .output()
+            .expect("run git")
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
     };
-    for p in [
-        "target/a.rs",
-        ".claude/a.rs",
-        ".agents/a.rs",
-        "node_modules/a.rs",
-    ] {
-        put(p, "");
+    git(&["init", "-q"]);
+    if !commit.is_empty() {
+        let mut add = vec!["add", "--"];
+        add.extend_from_slice(commit);
+        git(&add);
+        git(&["commit", "-q", "-m", "plant"]);
     }
-    put(
-        "x/cache/CACHEDIR.TAG",
-        "Signature: 8a477f597d28d172789f06886806bc55",
-    );
-    put("x/cache/a.rs", "");
-    let found = [
-        "adapters/codex/tests/target/h.rs",
-        "transports/memory/tests/.claude/h.rs",
-        "x/.agents/h.rs",
-        "x/node_modules/h.rs",
-        "x/src/a.rs",
+    t
+}
+
+#[test]
+fn a_committed_cachedir_tag_hides_no_harness() {
+    // The PR #355 third review's C1 plant: a dev-dependency on the suite, and a second
+    // harness at tests/zz/main.rs (a test target cargo finds with no manifest key) behind a
+    // committed CACHEDIR.TAG; and the same under examples/ and benches/, one of them left
+    // untracked. The real target directory holds a tag too, and is not read.
+    const TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n";
+    const HIDDEN: &str =
+        "use oac_contract_adapter::{AdapterHarness, run};\n#[test]\nfn hidden() {}\n";
+    let files = [
+        (".gitignore", "/target\n"),
+        (
+            "adapters/codex/Cargo.toml",
+            "[package]\nname = \"oac-adapter-codex\"\n\n[dev-dependencies]\noac-contract-adapter = { path = \"../../tests/protocol/contract/adapter\" }\n",
+        ),
+        ("adapters/codex/tests/zz/CACHEDIR.TAG", TAG),
+        ("adapters/codex/tests/zz/main.rs", HIDDEN),
+        ("adapters/codex/examples/zz/CACHEDIR.TAG", TAG),
+        ("adapters/codex/examples/zz/main.rs", HIDDEN),
+        ("adapters/codex/benches/zz/CACHEDIR.TAG", TAG),
+        ("adapters/codex/benches/zz/main.rs", HIDDEN),
+        ("target/CACHEDIR.TAG", TAG),
+        ("target/debug/h.rs", HIDDEN),
+        ("t2/CACHEDIR.TAG", TAG),
+        ("t2/debug/h.rs", HIDDEN),
     ];
-    for p in found {
-        put(p, "");
+    let t = scratch_repo(
+        "harness-location-c1",
+        &files,
+        &[
+            ".gitignore",
+            "adapters/codex/Cargo.toml",
+            "adapters/codex/tests/zz/CACHEDIR.TAG",
+            "adapters/codex/tests/zz/main.rs",
+            "adapters/codex/examples/zz/CACHEDIR.TAG",
+            "adapters/codex/examples/zz/main.rs",
+        ],
+    );
+    // t2/ plays a CARGO_TARGET_DIR inside the checkout that .gitignore does not cover.
+    let bad = tree_findings(&t, Some("t2"), &[]);
+    for d in ["tests", "examples", "benches"] {
+        for want in [
+            format!("adapters/codex/{d}/zz/CACHEDIR.TAG: a CACHEDIR.TAG"),
+            format!("adapters/codex/{d}/zz/main.rs: names AdapterHarness"),
+        ] {
+            assert!(
+                bad.iter().any(|b| b.starts_with(&want)),
+                "missed {want}: {bad:#?}"
+            );
+        }
     }
-    let (files, _) = walk(&t, &t.join("nothing"));
-    let mut got: Vec<String> = files.iter().map(|f| rel(&t, f)).collect();
-    got.sort();
-    let mut want: Vec<String> = found.iter().map(|s| (*s).to_owned()).collect();
-    want.sort();
-    assert_eq!(got, want);
+    assert!(
+        !bad.iter()
+            .any(|b| b.starts_with("target/") || b.starts_with("t2/")),
+        "read cargo's target directory: {bad:#?}"
+    );
     std::fs::remove_dir_all(&t).unwrap();
 }
 
@@ -555,34 +693,19 @@ fn file_findings(scope: Scope, text: &str) -> Vec<String> {
 #[test]
 fn every_file_outside_the_suite_keeps_the_harness_rule() {
     let root = repo_root();
-    let all = packages();
+    let (all, target) = metadata();
     let listed: Vec<String> = all
         .iter()
         .filter(|p| ALLOWED_DEPENDENTS.iter().any(|(a, _)| *a == p.name))
         .map(|p| p.dir.clone())
         .collect();
-    let (files, links) = walk(&root, &this_crate());
+    let files = git_files(&root, target.as_deref());
     assert!(
-        files.iter().any(|f| rel(&root, f) == "core/src/adapter.rs"),
-        "the walk did not reach core/src/adapter.rs: {} file(s)",
+        files.iter().any(|f| f == "core/src/adapter.rs"),
+        "git listed no core/src/adapter.rs: {} file(s)",
         files.len()
     );
-    let mut bad: Vec<String> = links
-        .iter()
-        .map(|l| {
-            format!(
-                "{}: a symlink, which the walk does not follow",
-                rel(&root, l)
-            )
-        })
-        .collect();
-    for f in &files {
-        let r = rel(&root, f);
-        let text = std::fs::read_to_string(f).unwrap_or_default();
-        for x in file_findings(scope(&r, &listed), &text) {
-            bad.push(format!("{r}: {x}"));
-        }
-    }
+    let bad = tree_findings(&root, target.as_deref(), &listed);
     assert!(
         bad.is_empty(),
         "the harness a real adapter runs under lives at adapters/<name>/{HARNESS_FILE} only \

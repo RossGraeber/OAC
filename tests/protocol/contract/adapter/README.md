@@ -44,6 +44,9 @@ crate gives it (`claude::ClaudeHarness`, `codex::CodexFake`).
 The suite's own checks bound what a harness can do. What they cannot see is a harness that
 fabricates or filters what the fake observed. That residual is covered by reviewing the one
 fixed file, and Gate S4 evidence for an adapter must cite it at the commit that ran.
+That review covers everything `contract.rs` calls outside this suite, including the
+adapter's own `src/` helpers. A helper that filters what the fake observed is part of the
+harness.
 
 `tests/harness_location.rs` keeps this mechanical:
 
@@ -62,9 +65,13 @@ fixed file, and Gate S4 evidence for an adapter must cite it at the commit that 
 - **What a listed package may do.** It may name `AdapterHarness` to drive the fakes'
   harnesses. It may not implement or rename it, rename the suite, glob the suite's items,
   reach `run`, or hold those shapes.
-- **What the walk skips.** It skips `target`, `.claude`, `.agents`, `node_modules` and
-  `.git` only at the repository root, and a cargo target directory (one with
-  `CACHEDIR.TAG`) anywhere. A symlink fails.
+- **What an adapter may take as a dev-dependency.** Only the suite, `oac-core` and
+  `oac-fake-claude` (`ADAPTER_DEV_DEPENDENCIES`). An identifier-pasting proc macro such as
+  `paste` could spell the trait and `run` in pieces that no text rule sees.
+- **Which files are read.** The file set comes from git: `git ls-files -co
+  --exclude-standard`, minus cargo's `target_directory` from `cargo metadata`. Any
+  `CACHEDIR.TAG` left in that set fails, since a committed tag would hide its directory. A
+  symlink fails too.
 
 These are text rules. What really bounds a listed transport is
 `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness hidden
