@@ -701,14 +701,17 @@ fn run(release: MidTurnRelease) {
     );
 
     // The Codex harness turns the holding hand-off away: `failed` with `handoff-failed`,
-    // and no steering fallback.
-    fake.set_queue_available(false);
+    // and no steering fallback. The thread is archived, so the add gets Codex's recorded
+    // archived refusal (S3 capture L1030-L1032), which `spec/bindings/mcp.md` §8.2.1
+    // classifies `handoff-failed` ([SC-DLV-009]).
+    fake.drain(&thread);
+    fake.set_archived(&thread, true);
     let r = claude
         .request(
             cs,
             &HarnessRequest::Send {
                 to: codex_sid.clone(),
-                text: "while unavailable".into(),
+                text: "while archived".into(),
                 claimed_from: None,
             },
         )
@@ -719,7 +722,38 @@ fn run(release: MidTurnRelease) {
         code(&receipt),
         (DeliveryState::Failed, Some("handoff-failed".into()))
     );
-    fake.set_queue_available(true);
+    let refused = fake.refused_queue_adds(E2E_CLIENT);
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(refused[0].0, -32600, "{refused:?}");
+    assert!(
+        refused[0].1
+            == format!(
+                "session {thread} is archived. Run `codex unarchive {thread}` to unarchive it first."
+            ),
+        "not the recorded archived refusal: {refused:?}"
+    );
+    // No fallback: the one call for the turned-away message is the refused add, and the
+    // adapter has made no steering call at all. (A fallback `turn/start` would be refused
+    // too on an archived thread, so the input count below cannot show it; the call log can.)
+    let o = fake.observations(E2E_CLIENT, &thread, &[]);
+    let calls: Vec<_> = o
+        .client_hand_off_calls
+        .iter()
+        .filter(|c| c.text.contains("while archived"))
+        .collect();
+    assert!(
+        calls.len() == 1
+            && calls[0].operation == "thread/queue/add"
+            && !calls[0].accepted
+            && !calls[0].steering,
+        "calls for the turned-away message: {calls:?}"
+    );
+    assert!(
+        o.client_hand_off_calls.iter().all(|c| !c.steering),
+        "{:?}",
+        o.client_hand_off_calls
+    );
+    fake.set_archived(&thread, false);
     assert_eq!(codex_inputs(&fake, &thread).len(), 1);
 
     // Claude's session ends: the core unbinds it, and the Codex side's next send to it finds

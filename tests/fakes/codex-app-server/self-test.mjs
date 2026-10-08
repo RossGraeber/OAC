@@ -406,7 +406,7 @@ await test('interrupt: a queued item and a later add both wait until a turn comp
   eq(st.queue.map((q) => q.clientUserMessageId), ['cid-b'], 'head dispatched after an uninterrupted turn');
 });
 
-await test('refusals: ephemeral, archived and missing thread as recorded (S3 capture); subagent and no queue service from source', () => {
+await test('refusals: ephemeral, archived and missing thread as recorded (S3 capture); nothing unrecorded is answered as Codex', () => {
   const fake = new FakeCodexAppServer();
   const c = client(fake, 'adapter');
   const mk = (p) => control(fake, 'oacFake/thread/create', p).threadId;
@@ -420,18 +420,49 @@ await test('refusals: ephemeral, archived and missing thread as recorded (S3 cap
   const cases = [
     [mk({ ephemeral: true }), recordedAnswer('OAC S3 EPHEMERAL')],
     [mk({ archived: true, loaded: false }), recordedAnswer('OAC S3 ARCHIVED')],
-    [mk({ subagent: 'multi-agent-v2' }), () => ({ code: -32600, message: 'direct app-server input is not allowed for multi-agent v2 sub-agents' })],
-    [mk({ subagent: 'thread-spawn', loaded: false }), () => ({ code: -32600, message: 'direct app-server input is not allowed for unloaded spawned sub-agents' })],
     ['01a0e550-1921-7000-93ef-000000000000', recordedAnswer('OAC S3 UNKNOWN')],
   ];
   for (const [id, want] of cases) eq(add(c, id).error, want(id), `refusal for ${id}`);
   // Live Codex answers an unknown thread -32603 from its thread store, not the -32600
   // "thread not found" of thread_queue_processor.rs (S3 capture, #343).
   eq(add(c, '01a0e550-1921-7000-93ef-000000000001').error.code, -32603, 'unknown thread is an internal error');
+  // Gate S3 criterion 5: the subagent refusals and "no queue service" are recorded nowhere,
+  // so the fake gives no Codex answer for either. A subagent thread, loaded or not, is
+  // answered NOT_MODELLED, and so is every list that would show it.
+  for (const p of [{ subagent: 'multi-agent-v2' }, { subagent: 'thread-spawn', loaded: false }, { subagent: 'thread-spawn' }, { subagent: 'multi-agent-v2', loaded: false }]) {
+    const e = add(c, mk(p)).error;
+    eq([e.code, e.data], [NOT_MODELLED, { oacFake: 'not-modelled', method: 'thread/queue/add' }], `subagent ${JSON.stringify(p)}`);
+  }
+  eq(c.request('thread/loaded/list', {}).error.code, NOT_MODELLED, 'thread/loaded/list with a subagent thread');
+  eq(c.request('thread/list', { cursor: null, limit: 5, sortKey: 'created_at' }).error.code, NOT_MODELLED, 'thread/list with a subagent thread');
+  // The queue-unavailable switch is gone: no control can make a host without a queue service.
+  const ctl = client(fake, 'oac-fake-control', { init: false });
+  eq(ctl.request('oacFake/queue/setAvailable', { available: false }).error.code, -32601, 'oacFake/queue/setAvailable is not a control');
+  eq(control(fake, 'oacFake/calls', { clientName: 'adapter' }).calls.filter((x) => !['thread/queue/add', 'thread/loaded/list', 'thread/list'].includes(x.method)).map((x) => x.method), ['initialize', 'initialized'], 'no fallback call was made by the fake');
+});
+
+await test('archive control: a thread put into the recorded archived state gets the recorded refusal, and takes adds again once put back', () => {
+  const fake = new FakeCodexAppServer();
   const { threadId } = idleThread(fake);
-  control(fake, 'oacFake/queue/setAvailable', { available: false });
-  eq(add(c, threadId).error, { code: -32600, message: 'user message queue is unavailable' }, 'no queue service');
-  eq(control(fake, 'oacFake/calls', { clientName: 'adapter' }).calls.filter((x) => x.method !== 'thread/queue/add').map((x) => x.method), ['initialize', 'initialized'], 'no fallback call was made by the fake');
+  const c = client(fake, 'adapter');
+  const s3 = readTranscript('s3');
+  const req = s3.find((f) => f.direction === 'client->daemon' && f.payload.method === 'thread/queue/add' && JSON.stringify(f.payload.params.input).includes('OAC S3 ARCHIVED'));
+  const resp = s3.find((f) => f.line > req.line && f.mode === req.mode && f.payload.id === req.payload.id && f.payload.error);
+  const want = JSON.parse(JSON.stringify(resp.payload.error).split(req.payload.params.threadId).join(threadId));
+  eq(control(fake, 'oacFake/thread/setArchived', { threadId, archived: true }), { threadId, archived: true, loaded: false }, 'archived');
+  const before = c.frames.length;
+  eq(add(c, threadId, 'refused').error, want, 'the recorded archived refusal (S3 L1030-L1032)');
+  eq(c.frames.length, before + 1, 'the refusal is the only frame');
+  let st = control(fake, 'oacFake/thread/state', { threadId });
+  eq([st.loaded, st.activeTurnId, st.queue.length], [false, null, 0], 'nothing queued or started');
+  eq(control(fake, 'oacFake/thread/setArchived', { threadId, archived: false }), { threadId, archived: false, loaded: true }, 'put back');
+  assert(add(c, threadId, 'later').result, 'an add is accepted again');
+  st = control(fake, 'oacFake/thread/state', { threadId });
+  assert(st.activeTurnId, 'the later add started a turn at once (S3 L65-L73)');
+  const ctl = client(fake, 'oac-fake-control', { init: false });
+  eq(ctl.request('oacFake/thread/setArchived', { threadId, archived: true }).error.code, -32602, 'a thread with a running turn is not archived');
+  const eph = control(fake, 'oacFake/thread/create', { ephemeral: true }).threadId;
+  eq(ctl.request('oacFake/thread/setArchived', { threadId: eph, archived: true }).error.code, -32602, 'an ephemeral thread is not archived');
 });
 
 await test('steering: turn/steer is refused NOT_MODELLED and flagged; turn/start is flagged, and steers a running turn', () => {
