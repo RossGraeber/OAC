@@ -514,7 +514,8 @@ export function g2Cases(check) {
     check('g2 human: PASS (exit 0)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
     check('g2 human: plain `codex` launched through agent start --kind codex with nothing after it', JSON.stringify(m.launch.argv) === '["codex"]' && g2.launch.verbatim && r.calls.some((c) => /agent start g2codex --kind codex --pane w1:p1 --timeout \d+$/.test(c.argv.join(' '))));
     const pa = g2.paneArgv[0];
-    check('g2 human: the pane process argv, read from /proc, is `node <base>/bin/codex` with no argument after codex', pa.proof.found && pa.proof.plain && pa.argv.some((a) => a.source.startsWith('/proc/') && a.argv?.length === 2 && basename(a.argv[1]) === 'codex'), JSON.stringify(pa));
+    // Linux reads argv from /proc; elsewhere (macOS, #353) from the ps process table.
+    check('g2 human: the pane process argv, read from /proc (ps off Linux), is `node <base>/bin/codex` with no argument after codex', pa.proof.found && pa.proof.plain && pa.argv.some((a) => (process.platform === 'linux' ? a.source.startsWith('/proc/') : /^ps /.test(a.source)) && a.argv?.length === 2 && basename(a.argv[1]) === 'codex'), JSON.stringify(pa));
     check('g2 human: `codex app-server daemon start` ran first, then daemon version; CLI, daemon and wire all verified', g2.daemon.start.exitCode === 0 && g2.versions.verified && g2.versions.daemon.appServerVersion === PIN && g2.versions.wire === PIN && g2.postRun.matches && daemonStarted(r));
     check('g2 human: client staged from HEAD, sha256 matches the committed blob; ran unmodified in every mode', g2.client.match && g2.client.copySha256 === COMMITTED_CLIENT_SHA256 && g2.client.copy === '<SCRATCH>/g2-client/client.mjs' && /^list(?:,list){2,},turn,busyqueue,turns$/.test(g2.clientRuns.map((x) => x.mode).join()) && g2.clientRuns.every((x) => x.problems.length === 0 && x.exitCode === 0) && g2.divergence.length === 0, JSON.stringify(g2.clientRuns.map((x) => [x.mode, x.exitCode, x.problems])));
     const d = g2.dialogs[0];
@@ -552,7 +553,7 @@ export function g2Cases(check) {
     const exe = (t) => basename(t.file).replace(/\.exe$/i, '');
     const driverExes = [...new Set(driver.filter((t) => t.kind === 'spawn').map(exe))].sort();
     const clientExes = [...new Set(client.filter((t) => t.kind === 'spawn').map(exe))].sort();
-    check('g2 trace: the driver started only node (herdr, the client), git and codex -- no credential-store tool', driverExes.every((e) => [basename(process.execPath), 'git', 'codex'].includes(e)), driverExes.join(','));
+    check('g2 trace: the driver started only node (herdr, the client), git and codex (and ps off Linux, for pane argv, #353) -- no credential-store tool', driverExes.every((e) => [basename(process.execPath), 'git', 'codex', ...(process.platform === 'linux' ? [] : ['ps'])].includes(e)), driverExes.join(','));
     check('g2 trace: the client started only `codex app-server proxy`', clientExes.join() === 'codex' && client.filter((t) => t.kind === 'spawn').every((t) => JSON.stringify(t.args) === '["app-server","proxy"]'), JSON.stringify(client.filter((t) => t.kind === 'spawn')));
 
     // The report CLI: draft, then --write into a temporary root (never the repo).
@@ -615,7 +616,9 @@ export function g2Cases(check) {
     const secretFile = join(r.base, 'planted-secret.txt');
     const secret = existsSync(secretFile) ? read(secretFile) : '';
     check('g2 #232 planted: the secret is unknown-shaped (redaction alone leaves it in place)', /^[a-z]{20}$/.test(secret) && createRedactor().redactValue({ v: secret }).value.v === secret);
-    const planted = (g2.paneArgv ?? []).flatMap((pa) => pa.argv).filter((a) => a.minimized && a.argv?.length === 4 && a.argv[3] === argPlaceholder(secret));
+    // Linux (/proc): the child's argv is exactly 4 entries. Off Linux (#353) ps splits the -e
+    // script on spaces, so only the last entry, the secret's placeholder, is fixed.
+    const planted = (g2.paneArgv ?? []).flatMap((pa) => pa.argv).filter((a) => a.minimized && (process.platform === 'linux' ? a.argv?.length === 4 : a.argv?.length >= 4) && a.argv.at(-1) === argPlaceholder(secret));
     check('g2 #232 planted: the descendant carrying it was recorded, its argv minimized to the executable and length placeholders', planted.length >= 1 && planted.every((a) => !a.argv[0].includes('/') && a.argv.slice(1).every((x) => /^<arg len=\d+>$/.test(x))), JSON.stringify(g2.paneArgv?.map((pa) => pa.argv)));
     const leaked = filesUnder(r.outDir).filter((f) => read(f).includes(secret));
     check('g2 #232 planted: the secret is in neither the run manifest nor any other file the run wrote', secret.length === 20 && !r.manifestText.includes(secret) && leaked.length === 0 && filesUnder(r.outDir).length >= 2, leaked.map((f) => relative(r.outDir, f)).join(','));

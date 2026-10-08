@@ -125,6 +125,12 @@ const sockPath = () => {
   }
 };
 const PIDFILE = join(CTL, 'fake-daemon.pid');
+// #353: a thread's `path` (its rollout file; never read by anyone) is spelled under a fixed
+// short directory, not under $CODEX_HOME. Under macOS's long TMPDIR, $CODEX_HOME/sessions/
+// rollout-<uuid>.jsonl reached the residual scan's long-text threshold (lib/elide.mjs
+// LONG_TEXT_MIN, 120) and the capture was withheld; real paths are redacted to the home
+// placeholder first, the self-test's temp CODEX_HOME is not.
+const ROLLOUT_DIR = '/codex-home/sessions';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const args = process.argv.slice(2);
 
@@ -227,9 +233,9 @@ function daemon() {
   }
   const conns = new Set();
   const nowSec = () => Math.floor(Date.now() / 1000);
-  const saved = { id: '0190aaaa-0000-7000-8000-000000000001', preview: 'PRIVATE unrelated saved session preview', cwd: '/home/someone-else/private-project', path: join(HOME, 'sessions', 'rollout-private.jsonl') };
+  const saved = { id: '0190aaaa-0000-7000-8000-000000000001', preview: 'PRIVATE unrelated saved session preview', cwd: '/home/someone-else/private-project', path: `${ROLLOUT_DIR}/rollout-private.jsonl` };
 
-  const threadObj = (t) => ({ id: t.id, environments: [{ environmentId: 'local', cwd: t.cwd, runtimeWorkspaceRoots: [t.cwd] }], sessionId: t.id, preview: t.preview, cliVersion: WIRE, status: { type: t.status }, path: join(HOME, 'sessions', `rollout-${t.id}.jsonl`) });
+  const threadObj = (t) => ({ id: t.id, environments: [{ environmentId: 'local', cwd: t.cwd, runtimeWorkspaceRoots: [t.cwd] }], sessionId: t.id, preview: t.preview, cliVersion: WIRE, status: { type: t.status }, path: `${ROLLOUT_DIR}/rollout-${t.id}.jsonl` });
   const turnObj = (tn, withItems) => ({ id: tn.id, items: withItems ? tn.items : [], itemsView: withItems ? 'full' : 'notLoaded', status: tn.status, error: null, startedAt: tn.startedAt, completedAt: tn.completedAt, durationMs: null });
   const replyFor = (text, t) => {
     if (/Who sent the most recent message/.test(text)) {
