@@ -102,10 +102,14 @@
 //! - The files read are git's (`git ls-files -co --exclude-standard`), not a directory
 //!   walk's, minus untracked files under `target/`. Any `CACHEDIR.TAG` among them fails.
 //!   Cargo's target directory is `target/` or outside the repository.
-//! - What cargo compiles for an adapter is checked too: no build script, every test,
-//!   example and bench target is the harness file or passes the name rules, and no `.rs`
-//!   file under `adapters/` is git-ignored. Its normal and build dependencies are the
-//!   vetted ones.
+//! - What cargo compiles for an adapter is checked too:
+//!   - no workspace member has a build script;
+//!   - every test, example and bench target is the harness file or passes the name rules;
+//!   - no `.rs` file under `adapters/` is git-ignored;
+//!   - the lib target has `doctest = false`, and its `src/` files are held to the hiding
+//!     shapes;
+//!   - every adapter file, of any extension, is held to the name rule;
+//!   - its normal and build dependencies are the vetted ones.
 //!
 //! Those are text rules. What really bounds a listed transport is
 //! `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness

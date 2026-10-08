@@ -78,7 +78,12 @@ harness.
   out of the file set.
 - **What cargo compiles for an adapter.** Git's file set misses a file that a committed
   `.gitignore` hides, so three further rules cover it:
-  - an adapter has no build script (no custom-build target, no `build.rs` file);
+  - no workspace member has a build script (no custom-build target, no `build.rs` file),
+    since any member's could write into `adapters/`;
+  - an adapter's lib target has `doctest = false`. Its `src/` files are also held to the
+    hiding shapes, read from raw text, so a doctest in a doc comment is covered. Every
+    file of an adapter, whatever its extension, is held to the name rule, since `include!`
+    can load any file;
   - each test, example and bench target `cargo metadata` reports for it is
     `tests/contract.rs`, or a file the name rules pass;
   - no `.rs` file under `adapters/` is ignored by git.

@@ -50,7 +50,12 @@
 //!
 //! **What cargo compiles for an adapter** (fourth review, N1), since git's file set misses
 //! a file a committed `.gitignore` hides:
-//! - an adapter has no build script, neither a custom-build target nor a `build.rs` file;
+//! - no workspace member has a build script, neither a custom-build target nor a `build.rs`
+//!   file (fifth review: any member's could write into `adapters/`);
+//! - an adapter's lib target has `doctest = false`, and its `src/` files are held to the
+//!   hiding shapes too, read from raw text, so a doc comment's doctest is covered; every
+//!   file of an adapter, whatever its extension, is held to the name rule, since
+//!   `include!` can load any file (fifth review, D1);
 //! - every test, example and bench target `cargo metadata` reports for it is its harness
 //!   file, or a file the name rules pass;
 //! - no `.rs` file under `adapters/` is ignored by git
@@ -135,6 +140,8 @@ struct Dependent {
     other_deps: Vec<String>,
     /// Its targets: their kinds and their `src_path`.
     targets: Vec<(Vec<String>, PathBuf)>,
+    /// True when a lib target of it has doctests on (`cargo metadata`'s `doctest`).
+    lib_doctests: bool,
 }
 
 /// Where cargo's `target_directory` is (PR #355 fourth review, N2).
@@ -188,11 +195,17 @@ fn metadata() -> (Vec<Dependent>, TargetDir) {
         String::from_utf8_lossy(&out.stderr)
     );
     let meta = json::parse(&out.stdout).expect("cargo metadata output");
-    let target = get_str(&meta, "target_directory")
-        .map(|t| std::fs::canonicalize(t).unwrap_or_else(|_| PathBuf::from(t)))
-        .map_or(TargetDir::Inside("(none reported)".into()), |t| {
-            target_dir(&root, &t)
-        });
+    let target = get_str(&meta, "target_directory").map_or(
+        TargetDir::Inside("(none reported)".into()),
+        |t| {
+            // Fails closed: a directory that cannot be resolved (one that does not exist
+            // yet, on Windows) is not taken to be outside the repository.
+            std::fs::canonicalize(t).map_or_else(
+                |_| TargetDir::Inside(format!("(cannot resolve {t})")),
+                |t| target_dir(&root, &t),
+            )
+        },
+    );
     let packages = get(&meta, "packages")
         .and_then(Json::as_array)
         .expect("a package list")
@@ -245,6 +258,25 @@ fn metadata() -> (Vec<Dependent>, TargetDir) {
                     (kinds, src)
                 })
                 .collect();
+            let lib_doctests = get(p, "targets")
+                .and_then(Json::as_array)
+                .unwrap_or_default()
+                .iter()
+                .filter(|t| {
+                    get(t, "kind")
+                        .and_then(Json::as_array)
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(Json::as_str)
+                        .any(|k| {
+                            matches!(
+                                k,
+                                "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
+                            )
+                        })
+                })
+                // Fails closed: a lib target that does not report `doctest` counts as on.
+                .any(|t| get(t, "doctest").and_then(Json::as_bool) != Some(false));
             Dependent {
                 name: get_str(p, "name").unwrap_or_default().to_owned(),
                 dir,
@@ -252,6 +284,7 @@ fn metadata() -> (Vec<Dependent>, TargetDir) {
                 dev_deps,
                 other_deps,
                 targets,
+                lib_doctests,
             }
         })
         .collect();
@@ -464,6 +497,15 @@ fn tree_findings(root: &Path, target: Option<&str>, listed_dirs: &[String]) -> V
             continue;
         }
         if !r.ends_with(".rs") {
+            // Any file of an adapter, whatever its extension, is held to the name rule: an
+            // `include!` can load one (PR #355 fifth review, D1).
+            if adapter_of(&r).is_some() {
+                let text =
+                    String::from_utf8_lossy(&std::fs::read(&path).unwrap_or_default()).into_owned();
+                for x in names_either(&text) {
+                    bad.push(format!("{r}: {x}"));
+                }
+            }
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -614,20 +656,18 @@ fn the_target_directory_rule_refuses_one_inside_the_repository() {
 
 // ---- what cargo compiles for an adapter (PR #355 fourth review, N1) --------------------------
 
-/// An adapter has no build script: a custom-build target, or a `build.rs` file at all
-/// (even one a `build = false` key leaves out). Adapters need none, and one could write a
-/// harness the file set never sees.
+/// No workspace member has a build script: a custom-build target, or a `build.rs` file at
+/// all (even one a `build = false` key leaves out). None needs one, and one could write a
+/// harness the file set never sees, into its own directory or an adapter's (PR #355
+/// fourth review N1; fifth review, every member).
 fn build_script_findings(root: &Path, p: &Dependent) -> Vec<String> {
-    if adapter_of(&p.dir).is_none() {
-        return Vec::new();
-    }
     let mut found: Vec<String> = p
         .targets
         .iter()
         .filter(|(kinds, _)| kinds.iter().any(|k| k == "custom-build"))
         .map(|(_, src)| {
             format!(
-                "{} ({}) has a build script, {}: adapters have none",
+                "{} ({}) has a build script, {}: no workspace member has one",
                 p.name,
                 p.dir,
                 rel(root, src)
@@ -635,9 +675,31 @@ fn build_script_findings(root: &Path, p: &Dependent) -> Vec<String> {
         })
         .collect();
     if root.join(&p.dir).join("build.rs").exists() {
-        found.push(format!("{}: a build.rs file: adapters have none", p.dir));
+        found.push(format!(
+            "{}: a build.rs file: no workspace member has one",
+            p.dir
+        ));
     }
     found
+}
+
+/// An adapter's lib target has `doctest = false`: a doctest is compiled with the
+/// dev-dependencies, so one could hold a harness (PR #355 fifth review, D1).
+fn doctest_findings(p: &Dependent) -> Vec<String> {
+    if adapter_of(&p.dir).is_some() && p.lib_doctests {
+        vec![format!(
+            "{} ({}): its lib target has doctests on; set doctest = false under [lib]",
+            p.name, p.dir
+        )]
+    } else {
+        Vec::new()
+    }
+}
+
+#[test]
+fn adapter_libs_have_no_doctests() {
+    let bad: Vec<String> = packages().iter().flat_map(doctest_findings).collect();
+    assert!(bad.is_empty(), "{bad:#?}");
 }
 
 /// Every test, example and bench target of an adapter is its harness file, or a file the
@@ -689,7 +751,7 @@ fn ignored_rust_findings(root: &Path) -> Vec<String> {
 }
 
 #[test]
-fn adapters_have_no_build_script() {
+fn no_workspace_member_has_a_build_script() {
     let root = repo_root();
     let bad: Vec<String> = packages()
         .iter()
@@ -788,6 +850,7 @@ fn a_build_script_and_its_ignored_harness_are_caught() {
                 t.join("adapters/codex/tests/zz/main.rs"),
             ),
         ],
+        lib_doctests: false,
     };
     let build = build_script_findings(&t, &codex);
     assert!(
@@ -819,6 +882,86 @@ fn a_build_script_and_its_ignored_harness_are_caught() {
     };
     std::fs::write(t.join("adapters/codex/tests/contract.rs"), hidden).unwrap();
     assert!(target_findings(&t, &ok, &[]).is_empty());
+    // A build script in any other workspace member is refused too: one could write into
+    // adapters/ (the fifth review's residual).
+    let memory = Dependent {
+        name: "oac-transport-memory".into(),
+        dir: "transports/memory".into(),
+        targets: vec![(
+            vec!["custom-build".into()],
+            t.join("transports/memory/build.rs"),
+        )],
+        ..ok
+    };
+    assert!(
+        build_script_findings(&t, &memory)
+            .iter()
+            .any(|b| b.contains("has a build script")),
+    );
+    std::fs::remove_dir_all(&t).unwrap();
+}
+
+#[test]
+fn a_doctest_that_includes_a_harness_is_caught() {
+    // The fifth review's D1 plant: a doctest in adapter src/ that include!s a non-.rs file
+    // holding the harness. Doctests build with the dev-dependencies, the static scan reads
+    // code tokens (a doc comment is a string), and the name rule read only .rs files.
+    let lib = "/// Notes.\n///\n/// ```\n/// include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/notes.txt\"));\n/// fn main() { hidden(); }\n/// ```\npub fn notes() {}\n";
+    let notes = "struct H;\nfn hidden() {\n    let _run = oac_contract_adapter::run as fn(&mut dyn oac_contract_adapter::AdapterHarness) -> oac_contract_adapter::Report;\n}\n";
+    let t = scratch_repo(
+        "harness-location-d1",
+        &[
+            (
+                "adapters/codex/Cargo.toml",
+                "[package]\nname = \"oac-adapter-codex\"\n\n[dev-dependencies]\noac-contract-adapter = { path = \"../../tests/protocol/contract/adapter\" }\n",
+            ),
+            ("adapters/codex/src/lib.rs", lib),
+            ("adapters/codex/notes.txt", notes),
+        ],
+        &[
+            "adapters/codex/Cargo.toml",
+            "adapters/codex/src/lib.rs",
+            "adapters/codex/notes.txt",
+        ],
+    );
+    let bad = tree_findings(&t, Some("target"), &[]);
+    // Side 1: the hiding shapes, read from the raw text of an adapter src/ file.
+    assert!(
+        bad.iter()
+            .any(|b| b.starts_with("adapters/codex/src/lib.rs: include!")),
+        "{bad:#?}"
+    );
+    // Side 2: the name rule over a file of any extension.
+    for want in [
+        "adapters/codex/notes.txt: names AdapterHarness",
+        "adapters/codex/notes.txt: names oac_contract_adapter",
+    ] {
+        assert!(bad.iter().any(|b| b == want), "missed {want}: {bad:#?}");
+    }
+    // Side 3: an adapter lib target with doctests on.
+    let codex = Dependent {
+        name: "oac-adapter-codex".into(),
+        dir: "adapters/codex".into(),
+        edges: vec![(Some("dev".into()), None)],
+        dev_deps: vec![SUITE.into()],
+        other_deps: vec!["oac-core".into()],
+        targets: vec![(vec!["lib".into()], t.join("adapters/codex/src/lib.rs"))],
+        lib_doctests: true,
+    };
+    assert!(!doctest_findings(&codex).is_empty());
+    let off = Dependent {
+        lib_doctests: false,
+        ..codex
+    };
+    assert!(doctest_findings(&off).is_empty());
+    // A lib target of a package that is not an adapter keeps its doctests.
+    let core = Dependent {
+        name: "oac-core".into(),
+        dir: "core".into(),
+        lib_doctests: true,
+        ..off
+    };
+    assert!(doctest_findings(&core).is_empty());
     std::fs::remove_dir_all(&t).unwrap();
 }
 
@@ -1021,7 +1164,14 @@ fn file_findings(scope: Scope, text: &str) -> Vec<String> {
             f.extend(hiding_shapes(text));
             f
         }
-        Scope::AdapterOther | Scope::Other => names_either(text),
+        // An adapter's other files: the hiding shapes too, read from raw text, so a doc
+        // comment's doctest is covered (PR #355 fifth review, D1).
+        Scope::AdapterOther => {
+            let mut f = names_either(text);
+            f.extend(hiding_shapes(text));
+            f
+        }
+        Scope::Other => names_either(text),
         Scope::Listed => {
             let mut f = hiding_shapes(text);
             f.extend(reaching_shapes(text).into_iter().map(|(_, x)| x));
@@ -1135,6 +1285,15 @@ fn the_file_rules_catch_each_planted_shape() {
         (
             Scope::AdapterOther,
             "use oac_contract_adapter::AdapterHarness;",
+        ),
+        // The fifth review's D1: a doctest in a doc comment.
+        (
+            Scope::AdapterOther,
+            "/// ```\n/// include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/notes.txt\"));\n/// ```\npub fn notes() {}",
+        ),
+        (
+            Scope::AdapterOther,
+            "//! ```\n//! macro_rules! m { () => {} }\n//! ```",
         ),
         (Scope::Other, "struct H; impl AdapterHarness for H {}"),
         (Scope::Other, "fn f() { oac_contract_adapter::run(h) }"),
