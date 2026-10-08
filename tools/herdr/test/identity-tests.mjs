@@ -4,14 +4,18 @@
 // hashed or run, and no harness config directory is read (CLAUDE_CONFIG_DIR and CODEX_HOME
 // point into the temp directory).
 
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd } from '../lib/manifest.mjs';
+import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd, hashHarnessConfig } from '../lib/manifest.mjs';
+import { hashConfig, harnessConfigTargets } from '../lib/l3.mjs';
+import { readProjectSessionFiles } from '../scenarios/l3-beacon.mjs';
 import { herdrVerification, verification, TO_FILL } from '../lib/gate-report-common.mjs';
+import { canonicalForms, canonicallyWithin, isMainModule } from '../lib/canonical-path.mjs';
 import { checkHerdrExecutable, herdrCheckDecision, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -85,6 +89,143 @@ export async function identityUnit(check) {
     const other = plant(join(cfg.claude, 'settings.json'), '{"secret":"x"}');
     const otherId = await executableIdentity(other, { requested: 'claude', env });
     check('#140 identity: any other file under a harness config directory is never read', otherId.sha256 === null && otherId.bytes === null && /never read/.test(otherId.notRead ?? ''), JSON.stringify(otherId));
+
+    // #353: the harness home is canonicalized too. Before #353 only the file was realpath'd, so
+    // a CODEX_HOME spelled through a symlinked directory (macOS: os.tmpdir() is under /var ->
+    // /private/var) compared as "outside" its own files, and they were read and hashed. A
+    // directory link is a symlink on POSIX and a junction on Windows (no privilege needed).
+    const unread = (x) => x.sha256 === null && x.bytes === null && /never read/.test(x.notRead ?? '');
+    const realParent = join(dir, 'real-parent');
+    const realHome = join(realParent, 'codex-home');
+    mkdirSync(join(realHome, 'packages', 'bin'), { recursive: true });
+    const linkParent = join(dir, 'link-parent');
+    symlinkSync(realParent, linkParent, IS_WIN ? 'junction' : 'dir');
+    const homeLink = join(dir, 'home-link');
+    symlinkSync(realHome, homeLink, IS_WIN ? 'junction' : 'dir');
+    const credReal = join(realHome, CRED_NAME);
+    writeFileSync(credReal, '{"synthetic":"never-read"}');
+    if (!IS_WIN) chmodSync(credReal, 0o755);
+    const viaParent = { ...env, CODEX_HOME: join(linkParent, 'codex-home') };
+    const viaHomeLink = { ...env, CODEX_HOME: homeLink };
+    const pid = await executableIdentity(credReal, { requested: 'codex', env: viaParent });
+    check('#353 identity: CODEX_HOME spelled through a symlinked parent directory (the macOS /var shape) -- a file inside it is never read', unread(pid), JSON.stringify(pid));
+    const hid = await executableIdentity(credReal, { requested: 'codex', env: viaHomeLink });
+    check('#353 identity: CODEX_HOME itself a directory link -- a file in its target is never read', unread(hid), JSON.stringify(hid));
+    if (!IS_WIN) {
+      // The exact macOS reproduction (PR #349 review): a PATH `codex` symlink to a credential
+      // file, with CODEX_HOME spelled through the symlinked parent.
+      const link2 = join(dir, 'linkbin2');
+      mkdirSync(link2);
+      symlinkSync(join(linkParent, 'codex-home', CRED_NAME), join(link2, 'codex'));
+      const mid = await executableIdentity(resolveExecutable('codex', { env: { ...viaParent, PATH: link2 } }), { requested: 'codex', env: viaParent });
+      check('#353 identity: a PATH symlink `codex` -> credential file, CODEX_HOME under a symlinked parent -- recorded unread', mid.resolved === true && mid.realBasename === CRED_NAME && unread(mid), JSON.stringify(mid));
+      // Fail closed: a harness home that cannot be canonicalized (a symlink loop: ELOOP) means
+      // nothing is read, not even a file outside it.
+      symlinkSync(join(dir, 'loop-b'), join(dir, 'loop-a'));
+      symlinkSync(join(dir, 'loop-a'), join(dir, 'loop-b'));
+      const lid = await executableIdentity(fake, { requested: 'fakeharness', env: { ...env, CODEX_HOME: join(dir, 'loop-a') } });
+      check('#353 identity: a harness home that cannot be canonicalized fails closed (nothing read)', lid.sha256 === null && lid.bytes === null && /fail closed/.test(lid.notRead ?? ''), JSON.stringify(lid));
+      // The harness-config hashes: a config file that is a symlink to a file of another name
+      // (here the credential file beside it) is not read; a dotfiles-style link to a file of
+      // the same name still is. (File symlinks need privilege on Windows: POSIX only.)
+      const cfgHome = join(dir, 'cfg-link-home');
+      const dots = join(dir, 'dotfiles');
+      mkdirSync(cfgHome);
+      mkdirSync(dots);
+      writeFileSync(join(cfgHome, CRED_NAME), '{"synthetic":"never-read"}');
+      symlinkSync(join(cfgHome, CRED_NAME), join(cfgHome, 'config.toml'));
+      writeFileSync(join(dots, 'hooks.json'), '{}\n');
+      symlinkSync(join(dots, 'hooks.json'), join(cfgHome, 'hooks.json'));
+      const hh = hashHarnessConfig({ ...env, CODEX_HOME: cfgHome });
+      const toml = hh.find((h) => h.file === '$CODEX_HOME/config.toml');
+      const hooks = hh.find((h) => h.file === '$CODEX_HOME/hooks.json');
+      check('#353 config hash: $CODEX_HOME/config.toml linked to the credential file beside it is not read', toml?.present === true && toml.sha256 === null && /another name/.test(toml.error ?? ''), JSON.stringify(toml));
+      check('#353 config hash (control): a hooks.json linked to a same-named dotfiles file is hashed', hooks?.sha256 === sha('{}\n'), JSON.stringify(hooks));
+      const l3h = hashConfig(harnessConfigTargets({ CODEX_HOME: cfgHome }, { home: join(dir, 'no-home') }).targets);
+      const l3toml = l3h.find((h) => h.label === '$CODEX_HOME/config.toml');
+      // L3 readSessionFile (PR #356 review): only plain *.jsonl files in a plain slug directory
+      // under <claude config>/projects are read; a symlink leaving it is skipped, never read.
+      const proj = join(dir, 'claude-home', 'projects');
+      const slug = join(proj, 'p-l3-project');
+      mkdirSync(slug, { recursive: true });
+      const mk = [{ id: 'claude-channel', marker: 'MARK-353', token: 'TOK-353' }];
+      writeFileSync(join(slug, 'a.jsonl'), `${JSON.stringify({ type: 'user', note: 'MARK-353' })}\n`);
+      const outside = join(dir, 'outside-secret.jsonl');
+      writeFileSync(outside, `${JSON.stringify({ type: 'leak', note: 'MARK-353' })}\n`);
+      symlinkSync(outside, join(slug, 'b.jsonl'));
+      symlinkSync(join(dir, 'dotfiles'), join(proj, 'p-linked-l3-project'));
+      writeFileSync(join(dir, 'dotfiles', 'c.jsonl'), `${JSON.stringify({ type: 'leak2', note: 'MARK-353' })}\n`);
+      const rs = readProjectSessionFiles([slug, join(proj, 'p-linked-l3-project')], proj, mk);
+      check('#353 L3 session file: a plain session file is read; a *.jsonl symlink out of the projects dir and a linked slug dir are skipped, not read', rs.files === 1 && rs.skipped === 2 && rs.entries.length === 1 && rs.entries[0].type === 'user', JSON.stringify(rs));
+      check('#353 L3 config hash: $CODEX_HOME/config.toml linked to the credential file beside it is not read', l3toml?.present === true && l3toml.sha256 === null && l3toml.sections === null && /another name/.test(l3toml.error ?? ''), JSON.stringify(l3toml));
+    }
+    // PR #356 review B1: spellings realpath does not map back. Identity (dev, ino) catches them.
+    // Each case runs in a child process: <target> <CODEX_HOME> <CLAUDE_CONFIG_DIR>; exit 77 when
+    // either path cannot be reached (the case is then skipped). On Windows a child keeps the
+    // admin-share session out of this process (in-process, a later rmSync in os.tmpdir() failed
+    // EPERM).
+    const idProbe = join(dir, 'identity-probe.mjs');
+    writeFileSync(idProbe, `import { statSync } from 'node:fs';\nimport { executableIdentity } from ${JSON.stringify(pathToFileURL(join(REPO, 'tools', 'herdr', 'lib', 'manifest.mjs')).href)};\ntry { statSync(process.argv[2]); statSync(process.argv[3]); } catch { process.exit(77); }\nconst r = await executableIdentity(process.argv[2], { requested: 'codex', env: { CODEX_HOME: process.argv[3], CLAUDE_CONFIG_DIR: process.argv[4] } });\nconsole.log(JSON.stringify(r));\n`);
+    const probeResult = (b) => {
+      try {
+        return b.status === 0 ? JSON.parse(b.stdout.trim().split('\n').at(-1)) : null;
+      } catch {
+        return null;
+      }
+    };
+    if (IS_WIN) {
+      // A UNC admin-share spelling (\\localhost\C$\...) of the home, or of the target.
+      const unc = (p) => {
+        const mm = /^([A-Za-z]):\\(.*)$/.exec(p);
+        return mm ? `\\\\localhost\\${mm[1]}$\\${mm[2]}` : null;
+      };
+      const cases = [
+        ['CODEX_HOME spelled as a UNC admin share -- a file inside it, spelled locally, is never read', credReal, unc(realHome)],
+        ['the target spelled as a UNC admin share into a local CODEX_HOME is never read', unc(credReal), realHome],
+      ];
+      for (const [what, target, home] of cases) {
+        const b = target && home ? spawnSync(process.execPath, [idProbe, target, home, cfg.claude], { encoding: 'utf8', timeout: 30000 }) : { status: 77 };
+        if (b.status === 77) console.log(`  skip  #353 identity (Windows) UNC case: \\\\localhost\\<drive>$ is not reachable on this host (${what})`);
+        else {
+          const u = probeResult(b);
+          check(`#353 identity (Windows): ${what}`, !!u && unread(u), `${b.stdout}${b.stderr}`);
+        }
+      }
+    } else if (process.platform === 'linux') {
+      // A bind mount of the home: run in a user + mount namespace (unshare -Urm). Skipped where
+      // unprivileged namespaces are not available.
+      const view = join(dir, 'bind-view');
+      mkdirSync(view);
+      const b = spawnSync('unshare', ['-Urm', 'sh', '-c', 'mount --bind "$1" "$2" || exit 77; exec "$3" "$4" "$5" "$6" "$7"', 'sh', realHome, view, process.execPath, idProbe, join(view, CRED_NAME), realHome, cfg.claude], { encoding: 'utf8', timeout: 30000 });
+      const bid = probeResult(b);
+      if (b.error || (b.status !== 0 && !bid)) console.log(`  skip  #353 identity bind-mount case: no unprivileged user+mount namespace here (${b.error?.code ?? `exit ${b.status}`}: ${String(b.stderr).trim().split('\n')[0]})`);
+      else check('#353 identity (Linux): the target reached through a bind mount of CODEX_HOME is never read', !!bid && unread(bid), b.stdout + b.stderr);
+    }
+    // A child whose name starts with `..` is inside: a bare startsWith('..') test put it outside.
+    mkdirSync(join(cfg.claude, '..x'));
+    const dotId = await executableIdentity(plant(join(cfg.claude, '..x', 'settings.json'), '{"secret":"y"}'), { requested: 'claude', env });
+    check('#353 identity: a file under a `..x` directory inside a harness home is never read', unread(dotId), JSON.stringify(dotId));
+    // run.mjs's scratch-inside-the-repository guard (isInside = canonicallyWithin; run.mjs is
+    // not imported here: it imports this self-test): the same `..x` route.
+    mkdirSync(join(dir, 'fake-repo', '..scratch'), { recursive: true });
+    check('#353 canonicallyWithin (run.mjs isInside): a scratch dir under a `..x` child of the repository is inside', canonicallyWithin(join(dir, 'fake-repo', '..scratch'), join(dir, 'fake-repo')) === true);
+    check('#353 canonicallyWithin (control): a dir reached through a linked ancestor is inside; a sibling is not', canonicallyWithin(join(linkParent, 'codex-home'), realParent) === true && canonicallyWithin(join(dir, 'bin1'), realParent) === false);
+    check('#353 canonicalForms (helper unit): a path that does not exist is canonicalized through its nearest existing ancestor; mustExist refuses it', canonicalForms(join(linkParent, 'no', 'such')).real.some((r) => r === join(canonicalForms(realParent).real[0], 'no', 'such')) && canonicalForms(join(linkParent, 'no', 'such'), { mustExist: true }) === null);
+    // Entry-point checks: a script started through a linked directory is still the main
+    // module (before #353 run.mjs, ci.mjs and the report CLIs compared argv[1] as spelled with
+    // Node's realpath'd module URL, so a throwaway clone under macOS's /var exited 0 silently).
+    const entry = plant(join(realParent, 'entry.mjs'), '// entry\n');
+    check('#353 isMainModule: argv[1] spelled through a linked directory is the main module; another file is not', isMainModule(pathToFileURL(entry).href, join(linkParent, 'entry.mjs')) === true && isMainModule(pathToFileURL(entry).href, fake) === false && isMainModule(pathToFileURL(entry).href, undefined) === false);
+    const HERDR = join(REPO, 'tools', 'herdr');
+    const spelled = ['lib', 'scenarios', 'gate-servers', '.'].flatMap((d) => readdirSync(join(HERDR, d)).filter((f) => f.endsWith('.mjs')).map((f) => join(HERDR, d, f))).filter((f) => {
+      const src = readFileSync(f, 'utf8');
+      return /process\.argv\[1\]/.test(src) && /import\.meta\.url/.test(src) && !/isMainModule\(import\.meta\.url\)|realpathSync\(process\.argv\[1\]\)/.test(src);
+    });
+    check('#353 entry points: no tools/herdr script compares argv[1] with its module URL as spelled', spelled.length === 0, spelled.map((f) => basename(f)).join(','));
+    // Control: the managed binary named for the command is still hashed through a linked home.
+    const ownLinked = plant(join(realHome, 'packages', 'bin', IS_WIN ? 'codex.exe' : 'codex'), 'MZ-managed-linked');
+    const olid = await executableIdentity(join(linkParent, 'codex-home', 'packages', 'bin', basename(ownLinked)), { requested: 'codex', env: viaParent });
+    check('#353 identity (control): the command\'s own managed binary is still hashed when CODEX_HOME is spelled through a link', olid.sha256 === sha('MZ-managed-linked') && !olid.notRead, JSON.stringify(olid));
 
     // herdr: a .mjs --herdr-bin runs under node and is flagged as the test double.
     const fakeHerdr = plant(join(dir, 'fake-herdr.mjs'), '#!/usr/bin/env node\n');

@@ -30,6 +30,7 @@
 //   - herdr agent state never scores anything. Any run outcome other than PASS makes every
 //     criterion `not evaluable`.
 
+import { isMainModule } from './canonical-path.mjs';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
@@ -445,7 +446,7 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (err) {

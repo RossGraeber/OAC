@@ -13,7 +13,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { CAPTURE_NAME, CI_SCENARIOS, REPO_ROOT, ciCleanup, ciStage, defaultWorkdir, redactMessage, resolveScenario, scrubEnv } from '../ci.mjs';
+import { CAPTURE_NAME, CI_SCENARIOS, REPO_ROOT, ciCleanup, ciStage, defaultWorkdir, insideRepo, redactMessage, resolveScenario, scrubEnv } from '../ci.mjs';
 
 const throws = (fn) => {
   try {
@@ -108,6 +108,23 @@ export function ciUnit(check) {
   check('ci: default work dir refuses a non-numeric run id', throws(() => defaultWorkdir({ RUNNER_TEMP: tmpdir(), GITHUB_RUN_ID: '1/../x', GITHUB_RUN_ATTEMPT: '1' })));
   check('ci: stage refuses a work dir inside the repository', throws(() => ciStage({ workdir: join(REPO_ROOT, 'tmp-ci') })));
   check('ci: cleanup refuses a work dir inside the repository', throws(() => ciCleanup({ workdir: REPO_ROOT })));
+  // #353: the containment check canonicalizes a work dir that does not exist yet through its
+  // nearest existing ancestor. A synthetic "checkout" in a temp dir stands in for the repo, so
+  // no link into the real checkout is ever made (POSIX symlink; Windows junction, no privilege).
+  {
+    const t = mkdtempSync(join(tmpdir(), 'oac-ci-insiderepo-'));
+    try {
+      const fakeRoot = join(t, 'checkout');
+      mkdirSync(fakeRoot);
+      const link = join(t, 'link');
+      symlinkSync(fakeRoot, link, process.platform === 'win32' ? 'junction' : 'dir');
+      check('ci #353: a not-yet-created work dir under a link into the checkout is inside', insideRepo(join(link, 'new', 'work'), fakeRoot) === true);
+      check('ci #353: a child named `..x` of the checkout is inside', insideRepo(join(fakeRoot, '..x-work'), fakeRoot) === true);
+      check('ci #353 (control): a sibling of the checkout is outside', insideRepo(join(t, 'elsewhere', 'work'), fakeRoot) === false);
+    } finally {
+      rmSync(t, { recursive: true, force: true });
+    }
+  }
 
   // --- capture-name allowlist ---
   check('ci: capture names the scenarios write are allowlisted', ['pane-smoke.txt', 'pane-2026-09-28-2.1.283-herdr.txt', 'transcript-2026-09-28-2.1.283-herdr.jsonl'].every((n) => CAPTURE_NAME.test(n)));

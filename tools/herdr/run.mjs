@@ -59,6 +59,7 @@ import { redactCaptures } from './lib/elide.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
 import { removeScratch } from './lib/scratch.mjs';
+import { isMainModule, canonicallyWithin } from './lib/canonical-path.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
@@ -125,10 +126,9 @@ export function herdrCommand(bin = 'herdr') {
   return /\.m?js$/i.test(bin) ? [process.execPath, resolve(bin)] : [bin];
 }
 
-export function isInside(dir, root) {
-  const rel = relative(realpathSync(root), realpathSync(dir));
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
+// Canonical on both sides, fail closed (a path that cannot be canonicalized is inside), and a
+// child named `..x` is inside (#353; tested as canonicallyWithin in test/identity-tests.mjs).
+export const isInside = canonicallyWithin;
 
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -620,7 +620,7 @@ async function main(argv) {
   return res.exitCode;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isMainModule(import.meta.url)) {
   const code = await main(process.argv.slice(2));
   // Exit explicitly once the run is recorded: a scenario abandoned at its timebox or on an
   // operator abort may still hold timers or handles that would keep the process alive.

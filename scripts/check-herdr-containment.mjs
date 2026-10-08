@@ -18,7 +18,11 @@
 //          self-hosted runner carries, but for one exact line (#345): a `run:` of
 //          `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the driver's offline
 //          self-test against its test doubles, and only when the whole parsed `run:` value
-//          is exactly that command (no continuation line folds into it, PR #349 B1); and that opt-in workflow's triggers are exactly
+//          is exactly that command (no continuation line folds into it, PR #349 B1), in a
+//          step with no env:, working-directory:, second run: or shell other than bash,
+//          under no job env:/defaults:/container:/services:, workflow defaults: or
+//          non-CARGO_* workflow env:, in a
+//          workflow with no YAML anchor, alias or merge key (#353); and that opt-in workflow's triggers are exactly
 //          workflow_dispatch + push (main, docs/planning/PINS.md), its permissions exactly
 //          contents: read, every action is actions/checkout or actions/upload-artifact at
 //          a commit SHA (checkout without persisted credentials), with no secrets or
@@ -330,10 +334,45 @@ const RUNNER_LABEL_TOKEN = /(?<![\w.-])(?:self-hosted|oac-harness|linux|windows|
 //     quoted or flow value, and anything else it cannot read), and the parsed `run` value whose
 //     key is on this line is exactly DRIVER_SELFTEST_COMMAND.
 // A workflow the reader cannot parse gets no exemption: every tools/herdr line in it is a hit.
+//
+// #353 (PR #349 re-review hardening): the step itself must not change what the line runs. The
+// exempt `run` key must sit directly in a step of a job's `steps:` whose keys are only
+// SELFTEST_STEP_KEYS, each once (so no `env:`, no `working-directory:`, no second `run:`;
+// parseYamlLite already refuses a duplicate key), whose `shell:`, if any, is exactly `bash`;
+// the job carries no `env:` or `defaults:`; the workflow carries no top-level `defaults:` and
+// its top-level `env:` sets only CARGO_* names; and the workflow holds no YAML anchor, alias
+// or merge key anywhere. Kept in step with D2 in scripts/check-workflows.mjs.
 const DRIVER_SELFTEST_LINE = /^\s*(?:-\s+)?run:\s+(?:\$LOOPBACK_ONLY\s+)?node\s+tools\/herdr\/run\.mjs\s+--self-test\s*$/;
 const DRIVER_SELFTEST_COMMAND = /^(?:\$LOOPBACK_ONLY )?node tools\/herdr\/run\.mjs --self-test$/;
-// line number -> the parsed value of every `run` key whose value is a string; null when the
-// workflow cannot be parsed.
+const SELFTEST_STEP_KEYS = new Set(['name', 'id', 'if', 'shell', 'run', 'timeout-minutes']);
+const SELFTEST_WORKFLOW_ENV = /^CARGO_[A-Z0-9_]+$/;
+// A YAML anchor (&x), alias (*x) or merge key (<<) at the start of a node: after `key:`, after
+// `- `, or at a flow item, past any tags. Text inside a plain scalar (`a && b`, `ls *.x`) is not
+// a node start. A block scalar's content lines are scanned too: fail-closed, never fail-open.
+function hasYamlAnchorOrAlias(text) {
+  const node = (s) => /^(?:![^\s]*\s+)*[&*]/.test(s);
+  return text.split(/\r?\n/).some((raw) => {
+    let t = stripYamlComment(raw).trim();
+    while (/^-(?:\s|$)/.test(t)) t = t.slice(1).trim();
+    if (node(t)) return true;
+    const m = /^("[^"]*"|'[^']*'|[^\s:'"][^:]*?)\s*:(?:\s+(.*))?$/.exec(t);
+    if (m && unquote(m[1]) === '<<') return true;
+    const rest = m ? (m[2] ?? '') : t;
+    if (node(rest)) return true;
+    return /^[[{]/.test(rest) && /[[{,]\s*(?:[^:,[\]{}]+:\s+)?(?:![^\s]*\s+)*[&*]|[[{,]\s*<<\s*:/.test(rest);
+  });
+}
+const selftestStepOk = (step, job, root) => {
+  if (!(step instanceof Map) || ![...step.keys()].every((k) => SELFTEST_STEP_KEYS.has(k))) return false;
+  if (step.has('shell') && step.get('shell').value !== 'bash') return false;
+  if (!(job instanceof Map) || ['env', 'defaults', 'container', 'services'].some((k) => job.has(k))) return false;
+  if (root.has('defaults')) return false;
+  const env = root.get('env')?.value;
+  if (env !== undefined && env !== null && !(env instanceof Map && [...env.keys()].every((k) => SELFTEST_WORKFLOW_ENV.test(k)))) return false;
+  return true;
+};
+// line number -> the parsed value of every `run` key that sits in a step passing
+// selftestStepOk; null when the workflow cannot be parsed or holds an anchor, alias or merge key.
 function runValuesByLine(text) {
   let root;
   try {
@@ -341,17 +380,16 @@ function runValuesByLine(text) {
   } catch {
     return null;
   }
+  if (hasYamlAnchorOrAlias(text)) return null;
   const out = new Map();
-  const walk = (v) => {
-    if (Array.isArray(v)) v.forEach(walk);
-    else if (v instanceof Map) {
-      for (const [k, e] of v) {
-        if (k === 'run' && typeof e.value === 'string' && e.line !== null) out.set(e.line, e.value);
-        walk(e.value);
-      }
+  const jobs = root.get('jobs')?.value;
+  for (const { value: job } of jobs instanceof Map ? jobs.values() : []) {
+    const steps = job instanceof Map ? job.get('steps')?.value : null;
+    for (const step of Array.isArray(steps) ? steps : []) {
+      const e = step instanceof Map ? step.get('run') : null;
+      if (e && typeof e.value === 'string' && e.line !== null && selftestStepOk(step, job, root)) out.set(e.line, e.value);
     }
-  };
-  walk(root);
+  }
   return out;
 }
 function continuesBelow(lines, i) {
@@ -908,6 +946,34 @@ const OPTIN_CLEAN = [
 ].join('\n');
 const optin = (insert, after = '  push:') => OPTIN_CLEAN.replace(`${after}\n`, `${after}\n${insert}\n`);
 
+// #353: the exempt self-test step in a workflow other than the opt-in one, with something
+// in the step, its job or the workflow that changes what the line runs. Each must fail check 9
+// (D2 in scripts/check-workflows.mjs plants the same set).
+const selftestWf = ({ shell = '        shell: bash\n', before = '', after = '', job = '', top = '', tail = '' } = {}) =>
+  `on: [push]\n${top}jobs:\n  a:\n    runs-on: ubuntu-latest\n${job}    steps:\n      - name: herdr self-test\n${shell}${before}        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n${after}${tail}`;
+const SELFTEST_STEP_BYPASSES = [
+  ['step env: overrides LOOPBACK_ONLY', selftestWf({ before: "        env:\n          LOOPBACK_ONLY: sh -c 'echo x' --\n" })],
+  ['step env: sets NODE_OPTIONS', selftestWf({ before: '        env:\n          NODE_OPTIONS: --require ./x.js\n' })],
+  ['step working-directory:', selftestWf({ before: '        working-directory: vendor/other\n' })],
+  ['shell: node {0}', selftestWf({ shell: '        shell: node {0}\n' })],
+  ['shell: sh', selftestWf({ shell: '        shell: sh\n' })],
+  ['shell: bash with its own arguments', selftestWf({ shell: '        shell: bash --rcfile ./x.sh {0}\n' })],
+  ['a second run: key after the exempt one', selftestWf({ after: '        run: echo replaced\n' })],
+  ['a second run: key before the exempt one', selftestWf({ before: '        run: echo first\n' })],
+  ['a uses: on the exempt step', selftestWf({ before: '        uses: ./x\n' })],
+  ['job env:', selftestWf({ job: '    env:\n      NODE_OPTIONS: --require ./x.js\n' })],
+  ['job defaults: run: working-directory', selftestWf({ job: '    defaults:\n      run:\n        working-directory: vendor\n' })],
+  ['job container: (another node and bash)', selftestWf({ job: '    container: node:20\n' })],
+  ['job services:', selftestWf({ job: '    services:\n      x:\n        image: alpine\n' })],
+  ['workflow defaults: run: shell', selftestWf({ top: 'defaults:\n  run:\n    shell: sh\n' })],
+  ['workflow env: BASH_ENV', selftestWf({ top: 'env:\n  BASH_ENV: ./x.sh\n' })],
+  ['a YAML anchor elsewhere in the workflow', selftestWf({ top: 'env:\n  CARGO_X: &x echo hi\n' })],
+  ['a YAML alias step after the exempt one', selftestWf({ top: 'env:\n  CARGO_X: &x echo hi\n', tail: '      - run: *x\n' })],
+  ['a YAML alias as a sequence item', selftestWf({ tail: '      - *s\n' })],
+  ['a YAML merge key in the job', selftestWf({ job: '    <<: { env: { NODE_OPTIONS: x } }\n' })],
+];
+const SELFTEST_CONTROL = 'on: [push]\nenv:\n  CARGO_TERM_COLOR: always\njobs:\n  a:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - name: build\n        run: cargo build && ls target/*.d\n      - name: herdr driver self-test\n        shell: bash\n        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n';
+
 const CLEAN_BASE = {
   'adapters/claude/src/lib.rs': '// adapter\n',
   'core/src/lib.rs': '// core\n',
@@ -1164,12 +1230,19 @@ const SELF_TEST_CASES = [
     ['the line inside a multi-line single-quoted scalar', "      - run: 'echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke'\n"],
     ['the line inside a multi-line flow mapping', '      - { name: x,\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke }\n'],
   ].map(([what, steps]) => violation(`9 other workflow: ${what} (PR #349 B1)`, '.github/workflows/lint.yml', `on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n${steps}`)),
+  // #353 (PR #349 re-review): the exempt step, job or workflow changes what the line runs.
+  ...SELFTEST_STEP_BYPASSES.map(([what, text]) => violation(`9 other workflow: ${what} (#353)`, '.github/workflows/lint.yml', text)),
   violation('9 other workflow runs another driver entry point\'s self-test (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/ci.mjs --self-test\n'),
   // Controls: these must NOT fail.
   {
     name: 'control: another workflow may run the driver self-test line, wrapped or not (#345)',
     expect: 'clean',
     files: { ...CLEAN_BASE, '.github/workflows/ci.yml': 'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n' },
+  },
+  {
+    name: 'control: the ci.yml shape (#353) -- name, shell: bash, CARGO_* workflow env, `&&` and a glob elsewhere -- keeps its exemption',
+    expect: 'clean',
+    files: { ...CLEAN_BASE, '.github/workflows/ci.yml': SELFTEST_CONTROL },
   },
   { name: 'control: empty tree reports PENDING', expect: 'pending', files: { 'README.md': '# empty\n' } },
   { name: 'control: clean full tree reports CLEAN', expect: 'clean', files: CLEAN_BASE },

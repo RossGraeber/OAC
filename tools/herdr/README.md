@@ -584,13 +584,37 @@ compares working-tree files with HEAD in git's normalized form, as `git status` 
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
 shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
 self-test needs POSIX `sh` and is skipped on Windows. CI runs the whole self-test in the
-default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu and
-windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only. It
-does not yet run cleanly on the macos image (identity-gate units and the fake-Codex-daemon
-lifecycle cases fail there), so that image is left out. To loop one lifecycle case (#239), set
+default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu, macos and
+windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only.
+(macos since #353: its temp directory sits under the symlinked `/var`, which every driver path
+guard now canonicalizes, and the fake Codex daemon's socket lives in a short `/tmp`
+directory.) To loop one lifecycle case (#239), set
 `OAC_HERDR_SELFTEST_ONLY` to part of its name, e.g.
 `OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
 the matching lifecycle cases run, and a filter that matches none fails.
+
+**What the driver reads in a harness home (#353).** The driver reads, under
+`CLAUDE_CONFIG_DIR`/`~/.claude` and `CODEX_HOME`/`~/.codex`, only:
+
+- the harness-config files it hashes (`settings.json`, `config.toml` and `hooks.json`; L3
+  also reads `.claude.json`). A file that is a symlink to a file of another name, such as a
+  credential file, is not read;
+- a harness's managed binary under its home, named for the command after every symlink
+  (Codex's standalone install), which is hashed;
+- with L3 `--param readSessionFile=true` (operator decision 2026-09-30), the scratch probe
+  project's own `projects/<slug>/*.jsonl`. It records entry types and flags only, and reads
+  only plain files in a plain slug directory that stay under `projects/`.
+
+Every other path is refused by `lib/canonical-path.mjs`. A path is refused when it resolves
+inside a home by spelling (as written, by realpath, or by the OS realpath, which covers
+symlinks, junctions, `..`, 8.3 names and case) or by file identity. File identity is the
+`(dev, ino)` of the home entry against the target and each of its ancestors; it catches a
+UNC admin-share spelling or a bind mount. The check fails closed on any error.
+
+Residuals the guard cannot close:
+- a **hard link** to a credential file, which has no path relation to the home;
+- a **check-then-open race (TOCTOU)**: a directory on the path swapped for a link between the
+  check and the open. That needs an active attacker on the operator's own machine.
 
 **4. Claude Code permission rules, when an agent runs the live steps.** Claude Code's
 permission prompts and its auto-mode classifier may refuse a command that launches a real

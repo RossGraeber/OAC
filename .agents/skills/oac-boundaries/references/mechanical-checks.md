@@ -113,7 +113,11 @@ rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|hel
 #    other text on the line, a comment naming the path, or a run: block still fails, and
 #    the whole parsed `run:` value must be exactly that command: a deeper-indented
 #    continuation line, or the line inside a block, quoted or flow scalar, fails (PR #349
-#    review B1). The opt-in
+#    review B1). Its step may hold only name/id/if/shell/run/timeout-minutes, each once,
+#    shell only `bash`; no job env:/defaults:/container:/services:, no workflow defaults:,
+#    workflow env: CARGO_* only, and no YAML anchor, alias or merge key (#353; D2 holds the
+#    same). Not statically checkable: a sibling step writing to `$GITHUB_ENV` (ci.yml sets
+#    LOOPBACK_ONLY that way); that rests on review of the job. The opt-in
 #    workflow is read with a small fail-closed YAML reader and must have: `on:` exactly
 #    {workflow_dispatch, push} (an allowlist: issues/watch/fork/discussion/PR events all
 #    fail), push limited to branches [main] and paths [docs/planning/PINS.md],

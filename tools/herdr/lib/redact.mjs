@@ -57,9 +57,9 @@
 // (including right after an ANSI colour code), `@host` -- so that clean data such as the
 // MCP capability key "roots" is not rewritten when the OS user is `root`.
 
+import { isMainModule } from './canonical-path.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir, hostname as osHostname, userInfo } from 'node:os';
-import { pathToFileURL } from 'node:url';
 
 import { elideToolOutputs, unelidedToolOutputs, unrecognisedLongText } from './elide.mjs';
 
@@ -631,6 +631,6 @@ function main(argv) {
   return clean ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMainModule(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }
