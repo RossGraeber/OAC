@@ -31,9 +31,12 @@
 //       experimentalApi; thread/resume and thread/queue/add of thread ids no thread has; an add
 //       to an ephemeral thread; two adds during a running turn; an add with an extra member;
 //       turn/interrupt and an add to the thread it left interrupted; an add to a thread the
-//       daemon unloaded, then loaded again; an add to an archived thread. Every wait in the
+//       daemon unloaded, then loaded again; an add to an archived thread; and (#343 review)
+//       two adds during a running turn that is then interrupted. Every wait in the
 //       client is bounded; its only fixed waits are observation windows for "nothing
-//       happens". An error answer is an observation here, never a divergence.
+//       happens" (--param quietMs, default 25000). An error answer is an observation here,
+//       never a divergence. --param cases=queued-interrupt runs only the last case, skips 6a,
+//       and names its captures `*-<version>-queued-interrupt-herdr.*`.
 //   6c. The client's `turns` on the TUI's thread.
 //   7.  Post-run versions, as G2.
 //   Captures: `transcript-<date>-<version>-herdr.jsonl` (the client's own wire transcript,
@@ -64,8 +67,48 @@ const REPO = resolve(HERE, '..', '..', '..');
 const AGENT = 's3codex';
 // The quarantined capture client, and the sha256 of the blob this scenario was written for.
 export const COMMITTED_CLIENT = 'docs/planning/gates/fixtures/s3-codex-capture/client.mjs.throwaway-quarantined';
-export const COMMITTED_CLIENT_SHA256 = 'defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82';
+export const COMMITTED_CLIENT_SHA256 = 'b110a9d3f4b4c328f964dead0c6e6cd5374be2eb58cc5e6a06a6c6e33fff07e5';
 export const IDLE_ADD_TEXT = 'OAC S3 capture idle add: reply with exactly the words OAC S3 IDLE ADD RECEIVED. Do not use any tools.';
+// The label this scenario's version findings carry (lib/pins.mjs defaults it to G2), and what
+// the run manifest says about the run's standing. Added after run 20261007T221317Z-1a3890,
+// whose manifest carries G2's text (a copy-paste defect; S3-codex-2026-10-07.md says so).
+export const S3_GATE = 'S3 capture';
+export const S3_NON_VERDICT = '#343: a Stage 1 fixture capture for Gate S3 criterion 5; compared against no other run, not a gate run, never changes a gate verdict';
+// The client's case sets: `all`, or only `queued-interrupt` (items already queued when a turn
+// is interrupted; #343 review, finding 1). A set other than `all` skips the idle add.
+export const CASE_SETS = Object.freeze(['all', 'queued-interrupt']);
+
+// Each delivery happens once, whatever happens next: nothing is ever re-sent. `log` gets one
+// entry per send.
+export function onceGuard(log) {
+  const sent = new Set();
+  return (what) => {
+    if (sent.has(what)) throw new DriverError(`refusing to send ${what} a second time; nothing is re-sent`);
+    sent.add(what);
+    log.push({ what, at: new Date().toISOString() });
+  };
+}
+
+// The idle add's precondition, from the daemon's own turn record (a `turnsLists` entry of
+// lib/g2.mjs g2Facts): the thread's last turn completed. -> null, or why the add must not run.
+export function idleAddRefusal(priorTurns) {
+  const last = priorTurns?.turns?.[0] ?? null;
+  if (last && last.status === 'completed') return null;
+  return `the TUI thread's last turn is ${last ? `\`${last.status}\`` : 'not on record'} (thread/turns/list line ${priorTurns?.line ?? '?'}), not \`completed\`; the idle-add case needs a thread whose last turn completed; nothing sent`;
+}
+
+// The Codex versions the wire reported, one per connection that sent initialize. The
+// `cases-preinit` connection never does (it is the "Not initialized" case), so it reports
+// none and is left out (c1de8f4: counting it kept every capture `unverified-*`).
+export function wireVersionsOf(connections) {
+  return [...new Set(connections.filter((c) => c.mode !== 'cases-preinit').map((c) => c.userAgentVersion))];
+}
+
+// Capture names: G2's for the full case set, with the set's name before `-herdr` otherwise,
+// so a run of one set never takes the name of a full run of the same day and version.
+const withSet = (names, set) => (set === 'all' ? names : Object.fromEntries(Object.entries(names).map(([k, v]) => [k, v.replace(/-herdr\.(\w+)$/, `-${set}-herdr.$1`)])));
+export const s3FixtureNames = (date, version, set = 'all') => withSet(fixtureNames(date, version), set);
+export const s3UnverifiedNames = (date, set = 'all') => withSet(unverifiedNames(date), set);
 const INPUT_ROLES = new Set(['operator-input', 'dialog-accept']);
 const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 const cap = (s, n) => (String(s ?? '').length > n ? `${String(s).slice(0, n)}… (${String(s).length} chars)` : String(s ?? ''));
@@ -81,6 +124,8 @@ export default {
       accept: 'driver', // #196: the driver accepts recognized dialogs by default; accept=human remains
       operatorPrompt: DEFAULT_OPERATOR_PROMPT,
       idleAddText: IDLE_ADD_TEXT,
+      cases: 'all', // CASE_SETS
+      quietMs: '25000', // the client's "nothing happens" window
       casesTimeoutMs: '1500000',
       startupTimeoutMs: '120000',
       humanAcceptTimeoutMs: '300000',
@@ -110,6 +155,8 @@ export default {
     if (!['human', 'driver'].includes(accept)) throw new DriverError('--param accept must be human or driver');
     const busyIndicator = params.busyIndicator;
     const pollMs = num('pollMs');
+    const caseSet = params.cases || 'all';
+    if (!CASE_SETS.includes(caseSet)) throw new DriverError(`--param cases must be one of ${CASE_SETS.join(', ')}`);
     const operatorPrompt = params.operatorPrompt || DEFAULT_OPERATOR_PROMPT;
     try {
       assertNotInjected('operatorPrompt', operatorPrompt);
@@ -118,7 +165,7 @@ export default {
     }
 
     const s3 = {
-      nonVerdictBearing: 'K7: compared against the human-run G2 0.157.1 re-run; never changes the G2 verdict',
+      nonVerdictBearing: S3_NON_VERDICT,
       acceptPolicy: accept,
       params: { ...params },
       launch: { expected: [...G2_LAUNCH], actual: launch, verbatim: null },
@@ -260,12 +307,7 @@ export default {
     };
 
     // Each delivery happens once, whatever happens next: nothing is ever re-sent.
-    const sent = new Set();
-    const once = (what) => {
-      if (sent.has(what)) throw new DriverError(`refusing to send ${what} a second time; nothing is re-sent`);
-      sent.add(what);
-      s3.injectionsSent.push({ what, at: new Date().toISOString() });
-    };
+    const once = onceGuard(s3.injectionsSent);
 
     // --- dialogs: text on record before any keystroke ------------------------------------
     const handleDialog = async (r, context) => {
@@ -451,10 +493,10 @@ export default {
         ctx.finding(w);
       };
       if (!pinsFile.workingTreeMatchesHead) ctx.finding(`${PINS_PATH} has uncommitted changes; the version check read the committed PINS.md (HEAD ${pinsFile.headCommit})`);
-      warn(pinsReadWarning(pin, 'G2'));
+      warn(pinsReadWarning(pin, S3_GATE));
       if (!cli && /^N\/A/.test(cliRaw ?? 'N/A')) stop(`codex --version could not be run (${cliRaw ?? 'not recorded'}); nothing launched`);
-      warn(codexVersionWarning({ observed: cli, lastTested: pin.lastTested, minimum: pin.minimum, source: '`codex --version`' }));
-      s3.captureNames = unverifiedNames(s3.date);
+      warn(codexVersionWarning({ observed: cli, lastTested: pin.lastTested, minimum: pin.minimum, source: '`codex --version`', gate: S3_GATE }));
+      s3.captureNames = s3UnverifiedNames(s3.date, caseSet);
 
       clientDir = ctx.dir('s3-client');
       const staged = stageClientCopy(REPO, COMMITTED_CLIENT, clientDir);
@@ -488,7 +530,7 @@ export default {
       s3.daemon.versionBefore = { ...dv.rec, parsed: daemonV };
       s3.versions.daemon = daemonV;
       for (const k of CODEX_DAEMON_VERSION_FIELDS) {
-        warn(codexVersionWarning({ observed: daemonV?.[k] ?? null, lastTested: pin.lastTested, minimum: pin.minimum, source: `\`codex app-server daemon version\` ${k}` }));
+        warn(codexVersionWarning({ observed: daemonV?.[k] ?? null, lastTested: pin.lastTested, minimum: pin.minimum, source: `\`codex app-server daemon version\` ${k}`, gate: S3_GATE }));
       }
 
       // --- 2. pre-launch list; the wire version --------------------------------------------
@@ -500,12 +542,12 @@ export default {
       if (s3.preLaunch.loaded === null) stop('the pre-launch `thread/loaded/list` could not be read, so the ready wait (#204) could not tell a thread new since the launch; nothing launched');
       s3.versions.wireUserAgent = preConn.userAgent;
       s3.versions.wire = preConn.userAgentVersion;
-      warn(codexVersionWarning({ observed: preConn.userAgentVersion, lastTested: pin.lastTested, minimum: pin.minimum, source: 'the wire initialize userAgent' }));
+      warn(codexVersionWarning({ observed: preConn.userAgentVersion, lastTested: pin.lastTested, minimum: pin.minimum, source: 'the wire initialize userAgent', gate: S3_GATE }));
       const sameVersion = !!cli && preConn.userAgentVersion === cli && CODEX_DAEMON_VERSION_FIELDS.every((k) => daemonV?.[k] === cli);
       if (sameVersion) {
         s3.versions.verified = true; // CLI, daemon and wire report one and the same version
         s3.versions.matchesLastTested = cli === pin.lastTested;
-        s3.fixtures = fixtureNames(s3.date, cli);
+        s3.fixtures = s3FixtureNames(s3.date, cli, caseSet);
         s3.captureNames = s3.fixtures;
       } else {
         ctx.finding(`the Codex CLI (${cliRaw}), daemon (${JSON.stringify(daemonV)}) and wire (${preConn.userAgentVersion ?? 'none'}) do not report one and the same version; the run continues, but its captures stay unverified-* because they cannot name one Codex version`);
@@ -622,45 +664,48 @@ export default {
       // The daemon's own turn record first: the thread's last turn must have completed, not
       // been interrupted (an interrupted last turn holds a queued message back; that case is
       // the client's `cases`).
-      const before = await runClient('turns', [threadId]);
-      const priorTurns = facts().turnsLists.find((x) => x.mode === 'turns' && x.line > before.linesBefore) ?? null;
-      const lastTurn = priorTurns?.turns?.[0] ?? null;
-      if (!lastTurn || lastTurn.status !== 'completed') {
-        stop(`the TUI thread's last turn is ${lastTurn ? `\`${lastTurn.status}\`` : 'not on record'} (thread/turns/list line ${priorTurns?.line ?? '?'}), not \`completed\`; the idle-add case needs a thread whose last turn completed; nothing sent`);
+      if (caseSet === 'all') {
+        const before = await runClient('turns', [threadId]);
+        const priorTurns = facts().turnsLists.find((x) => x.mode === 'turns' && x.line > before.linesBefore) ?? null;
+        const lastTurn = priorTurns?.turns?.[0] ?? null;
+        const refusal = idleAddRefusal(priorTurns);
+        if (refusal) stop(refusal);
+        once('thread/queue/add to the idle thread (client `idleadd`)');
+        const ia = await runClient('idleadd', [threadId, idleAddText]);
+        const add = facts().queueAdds.find((x) => x.mode === 'idleadd' && x.line > ia.linesBefore);
+        if (!add?.queuedId) diverge(`\`idleadd\`: thread/queue/add answered ${JSON.stringify(add?.error ?? 'no queuedSubmission id')}`);
+        const queuedItem = await waitWire('the queued message starting a turn on the idle thread', (f) => onWatch(f, f.events.userItems).find((x) => x.method === 'item/started' && x.clientId === add.clientUserMessageId && x.turnId) ?? null, num('turnTimeoutMs'), { label: 'idle-add-wait', bail: watchExited });
+        if (queuedItem.bailed) diverge(`\`watch\`: ${queuedItem.bailed}`);
+        const queuedStarted = facts().events.turnStarted.find((x) => x.mode === 'watch' && x.turnId === queuedItem.turnId) ?? null;
+        const queuedDone = await waitWire('turn/completed for the idle-add turn', (f) => onWatch(f, f.events.turnCompleted).find((x) => x.turnId === queuedItem.turnId) ?? null, num('turnTimeoutMs'), { label: 'idle-add-turn', bail: watchExited });
+        if (queuedDone.bailed) diverge(`\`watch\`: ${queuedDone.bailed}`);
+        const idleRead = await settledRead('after-idle-add', { source: 'recent-unwrapped', lines: num('readLines') }, 'idle-add-turn', `turn/completed for the idle-add turn ${queuedItem.turnId} on the watch stream (transcript line ${queuedDone.line})`); // #246
+        s3.idleAdd = {
+          text: idleAddText,
+          priorTurnsLine: priorTurns.line,
+          priorLastTurn: { id: lastTurn.id, status: lastTurn.status },
+          run: s3.clientRuns.length - 1,
+          requestLine: add.reqLine,
+          responseLine: add.line,
+          clientUserMessageId: add.clientUserMessageId,
+          queuedSubmissionId: add.queuedId,
+          turnStartedLine: queuedStarted?.line ?? null,
+          turnId: queuedItem.turnId,
+          userItemLine: queuedItem.line,
+          completedLine: queuedDone.line,
+          completedStatus: queuedDone.status,
+          agentMessages: queuedDone.agentMessages,
+          noTurnStartSent: facts().turnStarts.every((x) => x.threadId !== threadId),
+          afterReadSeq: idleRead.seq,
+        };
+      } else {
+        s3.idleAdd = { skipped: `case set ${caseSet}: the idle add runs only in the full set` };
       }
-      once('thread/queue/add to the idle thread (client `idleadd`)');
-      const ia = await runClient('idleadd', [threadId, idleAddText]);
-      const add = facts().queueAdds.find((x) => x.mode === 'idleadd' && x.line > ia.linesBefore);
-      if (!add?.queuedId) diverge(`\`idleadd\`: thread/queue/add answered ${JSON.stringify(add?.error ?? 'no queuedSubmission id')}`);
-      const queuedItem = await waitWire('the queued message starting a turn on the idle thread', (f) => onWatch(f, f.events.userItems).find((x) => x.method === 'item/started' && x.clientId === add.clientUserMessageId && x.turnId) ?? null, num('turnTimeoutMs'), { label: 'idle-add-wait', bail: watchExited });
-      if (queuedItem.bailed) diverge(`\`watch\`: ${queuedItem.bailed}`);
-      const queuedStarted = facts().events.turnStarted.find((x) => x.mode === 'watch' && x.turnId === queuedItem.turnId) ?? null;
-      const queuedDone = await waitWire('turn/completed for the idle-add turn', (f) => onWatch(f, f.events.turnCompleted).find((x) => x.turnId === queuedItem.turnId) ?? null, num('turnTimeoutMs'), { label: 'idle-add-turn', bail: watchExited });
-      if (queuedDone.bailed) diverge(`\`watch\`: ${queuedDone.bailed}`);
-      const idleRead = await settledRead('after-idle-add', { source: 'recent-unwrapped', lines: num('readLines') }, 'idle-add-turn', `turn/completed for the idle-add turn ${queuedItem.turnId} on the watch stream (transcript line ${queuedDone.line})`); // #246
-      s3.idleAdd = {
-        text: idleAddText,
-        priorTurnsLine: priorTurns.line,
-        priorLastTurn: { id: lastTurn.id, status: lastTurn.status },
-        run: s3.clientRuns.length - 1,
-        requestLine: add.reqLine,
-        responseLine: add.line,
-        clientUserMessageId: add.clientUserMessageId,
-        queuedSubmissionId: add.queuedId,
-        turnStartedLine: queuedStarted?.line ?? null,
-        turnId: queuedItem.turnId,
-        userItemLine: queuedItem.line,
-        completedLine: queuedDone.line,
-        completedStatus: queuedDone.status,
-        agentMessages: queuedDone.agentMessages,
-        noTurnStartSent: facts().turnStarts.every((x) => x.threadId !== threadId),
-        afterReadSeq: idleRead.seq,
-      };
 
       // --- 6b. the cases, on threads the client starts itself -----------------------------------
       once('the cases (client `cases`)');
       const casesDir = ctx.dir('s3-cases-project');
-      const cr = await runClient('cases', [casesDir], { deadlineMs: num('casesTimeoutMs') });
+      const cr = await runClient('cases', [casesDir, caseSet, String(num('quietMs'))], { deadlineMs: num('casesTimeoutMs') });
       const observations = [];
       for (const l of cr.stdoutStatus) {
         const m = /^\[case\] (.*)$/.exec(l);
@@ -688,14 +733,14 @@ export default {
       // PINS.md: versions float (#216).
       const postDaemonOk = CODEX_DAEMON_VERSION_FIELDS.every((k) => s3.daemon.versionAfter.parsed?.[k] === cli);
       // `cases-preinit` never sends initialize, so it reports no version: it is left out.
-      const wireVersions = [...new Set(facts().connections.filter((c) => c.mode !== 'cases-preinit').map((c) => c.userAgentVersion))];
+      const wireVersions = wireVersionsOf(facts().connections);
       s3.postRun = { cliOutput: post.codex, cli: postCli, daemon: s3.daemon.versionAfter.parsed, wireVersionsSeen: wireVersions, matches: !!cli && postCli === cli && postDaemonOk && wireVersions.length === 1 && wireVersions[0] === cli };
       if (!s3.postRun.matches) {
         ctx.finding(`the Codex version changed during the run or differed between connections (CLI ${cliRaw} before, ${post.codex} after; daemon after ${JSON.stringify(s3.daemon.versionAfter.parsed)}; wire versions ${JSON.stringify(wireVersions)}); the daemon can update itself mid-run (PINS.md "Version policy"). The run is not stopped, but the captures lose their fixture names`);
         // Evidence spanning two Codex versions is not a fixture of either: back to unverified-*.
         s3.versions.verified = false;
         s3.fixtures = null;
-        s3.captureNames = unverifiedNames(s3.date);
+        s3.captureNames = s3UnverifiedNames(s3.date, caseSet);
       }
       s3.paneArgv.push(await recordPaneArgv(ws.paneId, 'end of run'));
     } finally {

@@ -7,7 +7,10 @@
 // `watch` and `turns` modes) with the exchanges the fake Codex app-server
 // (tests/fakes/codex-app-server/) modelled from source only:
 //   idleadd <threadId> <text>   thread/queue/add to an idle, loaded thread
-//   cases <cwd>                 the refusal, interrupt, ordering and unloaded-thread cases
+//   cases <cwd> [set] [quietMs] the refusal, interrupt, ordering and unloaded-thread cases;
+//                               set `all` (default) or `queued-interrupt` (#343 review: only
+//                               items already queued when a turn is interrupted); quietMs is
+//                               the "nothing happens" window (default 25000)
 //
 // Transport: spawns `codex app-server proxy` (a raw stdio<->UDS byte relay to the daemon's
 // control socket) once per connection, does the HTTP/1.1 Upgrade and the RFC 6455 framing
@@ -176,7 +179,9 @@ const outcome = (r) => {
 const BUSY = 'OAC S3 capture busy turn: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any tools.';
 const reply = (words) => `OAC S3 capture: reply with exactly the words ${words}. Do not use any tools.`;
 const TURN_MS = 300000;
-const QUIET_MS = 25000; // longer than two ticks of the daemon's 10 s queue watcher (ext/queue service.rs)
+// The "nothing happens" window: longer than two ticks of the daemon's 10 s queue watcher
+// (ext/queue service.rs). The scenario passes it; a test may pass a shorter one.
+let QUIET_MS = 25000;
 const UNLOAD_MS = 150000; // the daemon unloads an unsubscribed idle thread after 60 s by default
 
 // A queued message's turn: the userMessage item carrying clientId = clientUserMessageId, then
@@ -189,12 +194,67 @@ async function queuedTurn(c, threadId, clientId, from, ms = TURN_MS) {
   return { turnId, completed: done?.params?.turn?.status ?? null };
 }
 
-async function runCases(cwd) {
+// Items already queued when a turn is interrupted (#343 review, row e's first half): two adds
+// during a running turn, then turn/interrupt, then the quiet window; then an uninterrupted
+// turn, after which the queued items run, one per idle. On a thread of its own.
+async function queuedAtInterrupt(main, cwd, record) {
+  const s = await main.request('thread/start', { cwd });
+  const B = s.result?.thread?.id;
+  record('queued-interrupt-thread-start', outcome(s));
+  if (!B) throw new Error('thread/start returned no thread id');
+  const from = main.events.length;
+  const t = await main.request('turn/start', { threadId: B, input: text(BUSY) });
+  const tid = t.result?.turn?.id;
+  record('queued-interrupt-turn-start', outcome(t));
+  const started = tid && (await main.waitFor(turnStarted(B, tid), 30000, from));
+  if (!started) throw new Error('the turn to interrupt did not start');
+  await main.waitFor((m) => m.method === 'item/agentMessage/delta' && isFor(B)(m) && m.params?.turnId === tid, 60000, from);
+  const q1 = await queueAdd(main, B, reply('OAC S3 QUEUED AT INTERRUPT 1'));
+  const q2 = await queueAdd(main, B, reply('OAC S3 QUEUED AT INTERRUPT 2'));
+  record('queued-interrupt-add-1', outcome(q1.r));
+  record('queued-interrupt-add-2', outcome(q2.r));
+  const i = await main.request('turn/interrupt', { threadId: B, turnId: tid });
+  record('queued-interrupt-turn-interrupt', outcome(i));
+  const done = await main.waitFor(turnCompleted(B, tid), 60000, from);
+  record('queued-interrupt-turn-completed', done ? done.params.turn.status : 'not within the wait');
+  const qFrom = main.events.length;
+  const early = await main.waitFor(turnStarted(B), QUIET_MS, qFrom);
+  record('queued-interrupt-dispatch-within-quiet-window', early ? `turn/started ${early.params.turn.id}` : `none in ${QUIET_MS} ms`);
+  if (early) {
+    await main.waitFor(turnCompleted(B, early.params.turn.id), TURN_MS, qFrom);
+  } else {
+    const t2 = await main.request('turn/start', { threadId: B, input: text(reply('OAC S3 AFTER QUEUED INTERRUPT TURN')) });
+    const t2id = t2.result?.turn?.id;
+    record('queued-interrupt-next-turn-start', outcome(t2));
+    const d2 = t2id && (await main.waitFor(turnCompleted(B, t2id), TURN_MS, qFrom));
+    record('queued-interrupt-next-turn-completed', d2 ? d2.params.turn.status : 'not within the wait');
+  }
+  const first = await queuedTurn(main, B, q1.clientUserMessageId, qFrom);
+  record('queued-interrupt-first-queued-turn', first ?? 'no turn within the wait');
+  const second = await queuedTurn(main, B, q2.clientUserMessageId, qFrom);
+  record('queued-interrupt-second-queued-turn', second ?? 'no turn within the wait');
+  if (first && second) record('queued-interrupt-queued-turns-distinct', first.turnId !== second.turnId);
+  const a = await main.request('thread/archive', { threadId: B });
+  record('queued-interrupt-archive', outcome(a));
+}
+
+async function runCases(cwd, set = 'all') {
   const results = [];
   const record = (name, observed) => {
     results.push({ name, observed });
     status(`[case] ${JSON.stringify({ name, observed })}`);
   };
+  if (set === 'queued-interrupt') {
+    const main = await open('cases-main');
+    try {
+      await queuedAtInterrupt(main, cwd, record);
+    } finally {
+      await main.close();
+    }
+    status(`[done] cases: ${results.length} observations`);
+    return;
+  }
+  if (set !== 'all') throw new Error(`unknown case set ${set}`);
 
   // 1. A request before initialize.
   {
@@ -341,6 +401,9 @@ async function runCases(cwd) {
         await reload.close();
       }
     }
+
+    // 11. Items already queued when a turn is interrupted.
+    await queuedAtInterrupt(main, cwd, record);
   } finally {
     await main.close();
   }
@@ -350,8 +413,13 @@ async function runCases(cwd) {
 (async () => {
   if (mode === 'cases') {
     if (!arg1) { console.error('cwd required'); process.exit(2); }
+    const quiet = process.argv[5];
+    if (quiet !== undefined) {
+      if (!/^\d+$/.test(quiet)) { console.error('quietMs must be a whole number of ms'); process.exit(2); }
+      QUIET_MS = Number(quiet);
+    }
     try {
-      await runCases(arg1);
+      await runCases(arg1, arg2 ?? 'all');
     } catch (err) {
       console.log(`[error] ${err.message}`);
       process.exit(1);
