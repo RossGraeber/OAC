@@ -409,8 +409,9 @@ impl CodexFake {
     /// 8.2.1 names among the add's refusals and classifies `handoff-failed` ([SC-DLV-009]).
     /// Put back, it is loaded and idle again. The thread must be idle with an empty queue.
     /// The restore leaves a recorded state (loaded and idle, S3 L981-L1018) by a transition
-    /// that was not recorded (no `thread/unarchive` capture); no current check depends on
-    /// that transition being real.
+    /// that was not recorded (no `thread/unarchive` capture). Only IFC-ADP-056's detection
+    /// of a re-sent refused add uses it; SEC-AUZ-027 and IFC-ADP-057 catch that case
+    /// without it.
     pub fn set_archived(&self, thread: &str, archived: bool) {
         self.control(
             "oacFake/thread/setArchived",

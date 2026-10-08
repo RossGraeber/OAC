@@ -485,6 +485,24 @@ await test('thread/create makes only recorded states: unrecorded combinations ar
   eq(c.request('thread/loaded/list', {}).error.code, NOT_MODELLED, 'thread/loaded/list with a loaded ephemeral thread');
 });
 
+await test('thread/turns/list: an empty list, and a list on a thread with unmodelled earlier turns, answer NOT_MODELLED', () => {
+  const fake = new FakeCodexAppServer();
+  const c = client(fake, 'adapter');
+  const list = (threadId) => c.request('thread/turns/list', { threadId, limit: 5, sortDirection: 'desc', itemsView: 'full' });
+  // Every recorded thread/turns/list result has at least one turn.
+  const fresh = c.ok('thread/start', {}).thread.id;
+  eq(list(fresh).error?.code, NOT_MODELLED, 'thread/start, then thread/turns/list before any turn');
+  // oacFake/thread/create {} makes a materialized thread: one that has run turns the fake
+  // never saw. Listing its turns would leave them out, before and after a new turn.
+  const made = control(fake, 'oacFake/thread/create', {}).threadId;
+  eq(list(made).error?.code, NOT_MODELLED, 'oacFake/thread/create {}, then thread/turns/list');
+  assert(add(c, made, 'later').result, 'an add to it is accepted and starts a turn');
+  eq(list(made).error?.code, NOT_MODELLED, 'still not listed after a new turn');
+  // A thread whose every turn the fake ran lists them (G2).
+  const { threadId } = idleThread(fake);
+  eq(list(threadId).result?.data?.length, 1, 'thread/start and one turn: one turn listed');
+});
+
 await test('archive control: a thread put into the recorded archived state gets the recorded refusal, and takes adds again once put back', () => {
   const fake = new FakeCodexAppServer();
   const { threadId } = idleThread(fake);

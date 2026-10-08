@@ -14,7 +14,9 @@ verdict, pin, third-party dependency or ADR text changes.
   removed. `oacFake/thread/create` makes only recorded thread states (PR #346 review
   finding 1): it refuses an archived thread that is loaded, an ephemeral thread that is not
   loaded, and the other unrecorded combinations. `NOT_MODELLED` answers an add before a
-  thread's first turn, and a list taken while an ephemeral or archived thread exists.
+  thread's first turn, a list taken while an ephemeral or archived thread exists, and a
+  `thread/turns/list` that would be empty or that covers a thread made materialized by
+  `oacFake/thread/create`, whose earlier turns the fake does not model.
   `tests/fakes/codex-app-server/README.md` "Source-only behaviours" is now empty.
 - **Checks re-pointed.** The contract suite's turned-away hand-off ([SEC-AUZ-027]
   `turned-away-makes-no-other-call`, [IFC-ADP-051] `completed-only-on-success`, and the
