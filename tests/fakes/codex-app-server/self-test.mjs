@@ -12,6 +12,7 @@
 //      each connection receives with the recorded D6 transcript: same order, same kind
 //      (response / notification method), same JSON shape (members and value types).
 //   2. Behaviours: the experimental-API gate, queued-until-idle, the queue refusals, the
+//      idle add, the unloaded add and the interrupted turn against the S3 capture (#343), the
 //      interrupt wait, steering detection, override flags, list methods (README table).
 //   3. Transports: the real server.mjs process over stdio and a loopback WebSocket.
 // Exit 0 when every case passes, 1 otherwise.
@@ -269,14 +270,94 @@ await test('queue: an add during a running turn waits for turn/completed and run
   eq([started.turnId, started.item.clientId], [done.dispatched, 'cid-oac'], 'input arrives under the new turn');
 });
 
-await test('queue: an add to an idle thread dispatches after the response', () => {
+// The frames one subscribed connection receives from a request on to the queued input's
+// userMessage, as kinds: the recorded run's notifications the fake omits by design, and
+// model-paced items (reasoning, agent text, hooks), are left out.
+const QUEUE_KINDS = new Set(['thread/status/changed', 'thread/goal/cleared', 'thread/queue/changed', 'turn/started', 'item/started', 'item/completed']);
+const queueKinds = (frames) =>
+  frames
+    .filter((p) => p.method === undefined || (QUEUE_KINDS.has(p.method) && (!p.params?.item || p.params.item.type === 'userMessage')))
+    .map((p) => (p.method === undefined ? kind(p) : `${p.method}${p.params?.status?.type ? ` ${p.params.status.type}` : ''}`));
+// From the S3 capture: the frames `mode` received from its request carrying `words` (or
+// `method`) up to the userMessage item/completed of the queued input `clientId` names.
+function recordedQueueKinds(mode, pick) {
+  const fr = readTranscript('s3');
+  const req = fr.find((f) => f.direction === 'client->daemon' && f.mode === mode && pick(f.payload));
+  assert(req, `S3 capture: no ${mode} request`);
+  const out = [];
+  for (const f of fr.filter((x) => x.line > req.line && x.mode === mode && x.direction === 'daemon->client')) {
+    out.push(f.payload);
+    if (f.payload.method === 'item/completed' && f.payload.params?.item?.type === 'userMessage') break;
+  }
+  return { req, kinds: queueKinds(out) };
+}
+
+await test('queue: an add to an idle, loaded thread starts a turn at once, frames in the recorded order (S3 capture)', () => {
   const fake = new FakeCodexAppServer();
   const { tui, threadId } = idleThread(fake);
+  const before = tui.frames.length;
+  const r = add(tui, threadId, 'idle'); // the subscribed connection adds, as the S3 `cases-main` did
+  assert(r.result, 'accepted');
+  const st = control(fake, 'oacFake/thread/state', { threadId });
+  assert(st.activeTurnId && st.queue.length === 0, 'the add started a turn and left nothing queued');
+  const rec = recordedQueueKinds('cases-main', (p) => p.method === 'thread/queue/add' && JSON.stringify(p.params.input).includes('OAC S3 EXTRA MEMBER'));
+  eq(queueKinds(tui.frames.slice(before)), rec.kinds, `frame order against ${fixturePath('s3')}:${rec.req.line}`);
+  const item = tui.notifications('item/started').at(-1).params;
+  eq([item.turnId, item.item.clientId], [st.activeTurnId, 'cid-idle'], 'the turn carries clientId = clientUserMessageId');
   const adapter = client(fake, 'adapter');
+  control(fake, 'oacFake/turn/complete', { threadId });
   add(adapter, threadId);
-  assert(control(fake, 'oacFake/thread/state', { threadId }).activeTurnId, 'turn started');
-  eq(adapter.frames.filter((f) => f.method === 'turn/started').length, 0, 'the adding connection is not subscribed');
-  assert(tui.notifications('turn/started').length === 2, 'subscriber saw the turn');
+  eq(adapter.frames.filter((f) => f.method === 'turn/started').length, 0, 'an adding connection that is not subscribed gets its response only');
+});
+
+await test('queue: an add to an unloaded thread waits, and dispatches once the thread is loaded (S3 capture)', () => {
+  const fake = new FakeCodexAppServer();
+  const threadId = control(fake, 'oacFake/thread/create', { loaded: false }).threadId;
+  const adapter = client(fake, 'adapter');
+  assert(add(adapter, threadId, 'unloaded').result, 'accepted');
+  let st = control(fake, 'oacFake/thread/state', { threadId });
+  eq([st.loaded, st.activeTurnId, st.queue.length], [false, null, 1], 'queued, not loaded, no turn');
+  const reload = client(fake, 'reload');
+  const before = reload.frames.length;
+  reload.ok('thread/resume', { threadId, excludeTurns: true });
+  st = control(fake, 'oacFake/thread/state', { threadId });
+  assert(st.loaded && st.activeTurnId && st.queue.length === 0, 'loading the thread dispatched the queued input');
+  const rec = recordedQueueKinds('cases-reload', (p) => p.method === 'thread/resume');
+  eq(queueKinds(reload.frames.slice(before)), rec.kinds, `frame order against ${fixturePath('s3')}:${rec.req.line}`);
+  eq(reload.notifications('item/started').at(-1).params.item.clientId, 'cid-unloaded', 'clientId = clientUserMessageId');
+});
+
+await test('interrupt: turn/completed of an interrupted turn has the recorded shape (S3 capture)', () => {
+  const fake = new FakeCodexAppServer();
+  const { tui, threadId } = idleThread(fake);
+  tui.ok('turn/start', { threadId, input: [{ type: 'text', text: 'busy' }] });
+  control(fake, 'oacFake/turn/complete', { threadId, status: 'interrupted', agentText: 'partial' });
+  const got = tui.notifications('turn/completed').at(-1);
+  const want = readTranscript('s3').find((f) => f.payload.method === 'turn/completed' && f.payload.params.turn.status === 'interrupted');
+  eq(shape(got), shape(want.payload), `shape against ${fixturePath('s3')}:${want.line}`);
+  eq([got.params.turn.items, got.params.turn.itemsView], [[], 'notLoaded'], 'no items, as recorded');
+});
+
+// #343 review finding 2: the interrupted turn's frames, from its agent item/started to its
+// turn/completed (S3 L899-L907), as kinds. Live Codex never completes the interrupted agent
+// message: an item/completed there must fail this case.
+await test('interrupt: the interrupted turn sends the recorded frames in order, and no item/completed for its agent message (S3 capture)', () => {
+  const fake = new FakeCodexAppServer();
+  const { tui, threadId } = idleThread(fake);
+  tui.ok('turn/start', { threadId, input: [{ type: 'text', text: 'busy' }] });
+  const before = tui.frames.length;
+  control(fake, 'oacFake/turn/complete', { threadId, status: 'interrupted', agentText: 'partial' });
+  const kinds = (frames) =>
+    frames
+      .filter((p) => p.method && !OMITTED.has(p.method) && !(p.params?.item && p.params.item.type !== 'agentMessage'))
+      .map((p) => `${p.method}${p.params?.item ? ` ${p.params.item.type}` : ''}${p.params?.status?.type ? ` ${p.params.status.type}` : ''}`);
+  const rec = readTranscript('s3').filter((f) => f.mode === 'cases-main' && f.direction === 'daemon->client');
+  const start = rec.findIndex((f) => f.line === 899);
+  const end = rec.findIndex((f) => f.line === 907);
+  assert(start >= 0 && end > start && rec[start].payload.params?.item?.type === 'agentMessage' && rec[end].payload.params?.turn?.status === 'interrupted', 'S3 L899-L907 is the interrupted turn');
+  const want = kinds(rec.slice(start, end + 1).map((f) => f.payload));
+  eq(kinds(tui.frames.slice(before)), want, `frame kinds against ${fixturePath('s3')}:899-907`);
+  assert(!tui.frames.slice(before).some((p) => p.method === 'item/completed'), 'no item/completed for the interrupted agent message');
 });
 
 await test('queue: several adds dispatch one per idle, in order', () => {
@@ -292,7 +373,22 @@ await test('queue: several adds dispatch one per idle, in order', () => {
   eq(control(fake, 'oacFake/thread/state', { threadId }).queue, [], 'second dispatched');
 });
 
-await test('interrupt: a queued item and a later add both wait until a turn completes uninterrupted', () => {
+// Both halves are recorded: items already queued when the turn is interrupted (S3
+// queued-interrupt capture, 2026-10-08) and an add made after it (S3 capture, 2026-10-07).
+// The recordings are checked first, so the case cannot pass on a fixture that shows otherwise.
+await test('interrupt: a queued item and a later add both wait until a turn completes uninterrupted (both halves recorded, S3 captures)', () => {
+  const quietAfterInterrupt = (key) => {
+    const fr = readTranscript(key).filter((f) => f.mode === 'cases-main');
+    const done = fr.findIndex((f) => f.payload.method === 'turn/completed' && f.payload.params.turn.status === 'interrupted');
+    const nextStart = fr.findIndex((f, i) => i > done && f.direction === 'client->daemon' && f.payload.method === 'turn/start');
+    assert(done >= 0 && nextStart > done, `${fixturePath(key)}: an interrupted turn followed by a client turn/start`);
+    const between = fr.slice(done + 1, nextStart);
+    return { quiet: !between.some((f) => f.payload.method === 'turn/started'), adds: between.filter((f) => f.payload.method === 'thread/queue/add').length };
+  };
+  const qi = quietAfterInterrupt('s3QueuedInterrupt');
+  const later = quietAfterInterrupt('s3');
+  assert(qi.quiet && qi.adds === 0, 'recorded: the items queued before the interrupt did not start a turn before the next turn/start');
+  assert(later.quiet && later.adds === 1, 'recorded: the add after the interrupt did not start a turn before the next turn/start');
   const fake = new FakeCodexAppServer();
   const { tui, threadId } = idleThread(fake);
   tui.ok('turn/start', { threadId, input: [{ type: 'text', text: 'busy' }] });
@@ -310,18 +406,28 @@ await test('interrupt: a queued item and a later add both wait until a turn comp
   eq(st.queue.map((q) => q.clientUserMessageId), ['cid-b'], 'head dispatched after an uninterrupted turn');
 });
 
-await test('refusals: ephemeral, archived, subagent, missing thread and no queue service (-32600, source messages)', () => {
+await test('refusals: ephemeral, archived and missing thread as recorded (S3 capture); subagent and no queue service from source', () => {
   const fake = new FakeCodexAppServer();
   const c = client(fake, 'adapter');
   const mk = (p) => control(fake, 'oacFake/thread/create', p).threadId;
+  // The recorded answers, with the recorded thread id replaced by this call's.
+  const s3 = readTranscript('s3');
+  const recordedAnswer = (words) => {
+    const req = s3.find((f) => f.direction === 'client->daemon' && f.payload.method === 'thread/queue/add' && JSON.stringify(f.payload.params.input).includes(words));
+    const resp = s3.find((f) => f.line > req.line && f.mode === req.mode && f.payload.id === req.payload.id && f.payload.error);
+    return (id) => JSON.parse(JSON.stringify(resp.payload.error).split(req.payload.params.threadId).join(id));
+  };
   const cases = [
-    [mk({ ephemeral: true }), (id) => `ephemeral thread does not support queued submissions: ${id}`],
-    [mk({ archived: true, loaded: false }), (id) => `session ${id} is archived. Run \`codex unarchive ${id}\` to unarchive it first.`],
-    [mk({ subagent: 'multi-agent-v2' }), () => 'direct app-server input is not allowed for multi-agent v2 sub-agents'],
-    [mk({ subagent: 'thread-spawn', loaded: false }), () => 'direct app-server input is not allowed for unloaded spawned sub-agents'],
-    ['01a0e550-1921-7000-93ef-000000000000', (id) => `thread not found: ${id}`],
+    [mk({ ephemeral: true }), recordedAnswer('OAC S3 EPHEMERAL')],
+    [mk({ archived: true, loaded: false }), recordedAnswer('OAC S3 ARCHIVED')],
+    [mk({ subagent: 'multi-agent-v2' }), () => ({ code: -32600, message: 'direct app-server input is not allowed for multi-agent v2 sub-agents' })],
+    [mk({ subagent: 'thread-spawn', loaded: false }), () => ({ code: -32600, message: 'direct app-server input is not allowed for unloaded spawned sub-agents' })],
+    ['01a0e550-1921-7000-93ef-000000000000', recordedAnswer('OAC S3 UNKNOWN')],
   ];
-  for (const [id, msg] of cases) eq(add(c, id).error, { code: -32600, message: msg(id) }, `refusal for ${msg(id)}`);
+  for (const [id, want] of cases) eq(add(c, id).error, want(id), `refusal for ${id}`);
+  // Live Codex answers an unknown thread -32603 from its thread store, not the -32600
+  // "thread not found" of thread_queue_processor.rs (S3 capture, #343).
+  eq(add(c, '01a0e550-1921-7000-93ef-000000000001').error.code, -32603, 'unknown thread is an internal error');
   const { threadId } = idleThread(fake);
   control(fake, 'oacFake/queue/setAvailable', { available: false });
   eq(add(c, threadId).error, { code: -32600, message: 'user message queue is unavailable' }, 'no queue service');

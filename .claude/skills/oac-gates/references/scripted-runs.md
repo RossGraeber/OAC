@@ -365,7 +365,7 @@ accepted the dialog under `accept=human`.
   project directory when it is inside a git repository, otherwise the directory itself
   (`codex-rs/tui/src/onboarding/onboarding_screen.rs` L194-200). For a scratch project it is
   `<tmpdir>/oac-herdr-scratch-XXXXXX/<name>`, where `<name>` is `g2-project`,
-  `g4-codex-project`, `g5-codex-project` or `l3-codex-project` (`tools/herdr/scenarios/`). On
+  `g4-codex-project`, `g5-codex-project`, `l3-codex-project` or `s3-project` (`tools/herdr/scenarios/`). On
   Windows Codex writes the key canonicalized and lowercased (`project_trust_key`,
   `codex-rs/config/src/loader/mod.rs` L1367-1399), so compare it with the temp directory
   case-insensitively. All four files are identical at tags `rust-v0.159.2` and

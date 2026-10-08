@@ -1,0 +1,126 @@
+### oac-herdr-pane-section {"seq":12,"label":"startup-settled?","source":"visible","startedAt":"2026-10-08T03:00:41.356Z","endedAt":"2026-10-08T03:00:41.420Z"}
+
+  >_ OpenAI Codex (v0.161.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-fdMmmj\s3-project
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+• You have 3 usage limit resets available. Run /usage to use one.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-fdMmmj\s3-project
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":12}
+### oac-herdr-pane-section {"seq":21,"label":"after-operator-turn","source":"visible","startedAt":"2026-10-08T03:00:45.511Z","endedAt":"2026-10-08T03:00:45.584Z"}
+
+  >_ OpenAI Codex (v0.161.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-fdMmmj\s3-project
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+• You have 3 usage limit resets available. Run /usage to use one.
+
+
+› Greet me in a single word.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-fdMmmj\s3-project
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":21}
+### oac-herdr-pane-section {"seq":22,"label":"attach-wait","source":"visible","startedAt":"2026-10-08T03:00:48.949Z","endedAt":"2026-10-08T03:00:49.005Z"}
+
+  >_ OpenAI Codex (v0.161.0)
+     ~\AppData\Local\Temp\oac-herdr-scratch-fdMmmj\s3-project
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+• You have 3 usage limit resets available. Run /usage to use one.
+
+
+› Greet me in a single word.
+
+
+• Hook failed
+  └ <ELIDED tool-output-line bytes=23 sha256=ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251>
+
+• Hello
+
+  Worked for 2s • 10:00 PM
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna high · ~\AppData\Local\Temp\oac-herdr-scratch-fdMmmj\s3-project · Greet user
+  ← for agents · ? for shortcuts
+### oac-herdr-pane-section-end {"seq":22}

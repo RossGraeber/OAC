@@ -4,6 +4,66 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-07 (**Issue #343: the Stage 1 fixture capture for Gate S3
+criterion 5.** No `spec/` file, gate verdict, pin or ADR text changes, and no dependency is
+added. Codex's last tested version moves to `0.161.0` in PINS.md (#216: routine, not a pin
+move).
+
+- **Codex.** New herdr scenario `tools/herdr/scenarios/s3-codex-capture.mjs` (the G2 launch
+  and readiness steps, with its own quarantined client) recorded, on Codex `0.161.0`, the
+  behaviours the fake Codex app-server had modelled from source: the idle add on the TUI's
+  thread (load-bearing for `contract/adapter/no-polling` and the pipelines demonstration),
+  two adds during a turn, an extra member, `turn/interrupt` and the add after it, an add to
+  an unloaded thread, and the refusals. Record:
+  `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`; fixture `docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`.
+- **Claude Code.** A `g1-claude-wake` run with a three-call `replyPrompt` recorded
+  `tools/call` ids 2, 3 and 4 with `progressToken` equal to the id, and three real
+  `toolu_` ids (`docs/planning/gates/herdr-runs/G1-2026-10-07.md`).
+- **Findings, fakes aligned with the recordings.** Codex answers an add to an unknown thread
+  `-32603 "failed to read thread: invalid thread-store request: …"`, not `-32600 "thread
+  not found"`; loading an unloaded thread dispatches its queue (the fake never did); an idle
+  add's second `thread/queue/changed` precedes the response; an interrupted turn's
+  `turn/completed` has no items and `itemsView: "notLoaded"`. The fake Claude's synthetic
+  `toolu_` id now has the recorded form (`toolu_01` + 22 letters and digits).
+- **PR #344 review (2026-10-08).** A second run of the scenario (`--param cases=queued-interrupt`,
+  `docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md`, fixture `docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl`) recorded the half of
+  the interrupt behaviour the first run had not: two items already queued when a turn is
+  interrupted wait, then run one per idle after the next uninterrupted turn. An interrupted
+  turn's agent message never gets an `item/completed` (S3 L899-L907); the fake no longer sends
+  one. The scenario has its own gate label (`S3 capture`) and `nonVerdictBearing` text, and
+  unit checks in `tools/herdr/test/s3-tests.mjs`.
+- **Amendments needed for the #308 batch** (frozen text the recordings contradict or settle;
+  no `spec/` file is edited here, and no normative MUST changes: [MCPB-CDX-002] to
+  [MCPB-CDX-005] are unaffected). In `spec/bindings/mcp.md` §8.2.1, at revision 0.1:
+  - L964-L965, "The G2 `busyqueue` step showed the busy case live …; the interrupted case is
+    from source only": the idle-add dispatch (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L65-L73, L866-L873) and both interrupted
+    cases (S3 L908-L955; `docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl` L79-L170) are now recorded.
+  - L998-L1001, what the app-server does with an extra member "is UNVERIFIED (… probably
+    ignored; not exercised)": exercised; the add was accepted and the extra member ignored
+    (S3 L866-L873).
+  - L1016-L1029, "Reporting a turned-away add", "At least four of the add's refusals are known
+    from source": a fifth is recorded, and it is not a `-32600`. An unknown thread is answered
+    `-32603 "failed to read thread: invalid thread-store request: no rollout found for thread
+    id <id>"` (S3 L109-L110). Source at `rust-v0.161.0`: `require_thread` maps
+    `ThreadNotFound` to `invalid_request` and every other store error to
+    `internal_error("failed to read thread: …")` (`thread_queue_processor.rs` L275-L278); the
+    local store reports a missing rollout as an invalid store request. The amendment should
+    also say how the binding classifies it; as none of the five means "not now", presumably
+    `handoff-failed` ([SC-DLV-009]). The ephemeral and archived refusals are recorded too (S3
+    L114-L119, L1030-L1032).
+  - L1051-L1067, "Three consequences follow from source (C5) and are runtime-UNVERIFIED":
+    the first (after an interrupt nothing dispatches, for an item already queued and for an
+    add made later) and the third (an add to an unloaded thread) are recorded; the third also
+    **dispatches when the thread is loaded again** (S3 L981-L1019), which the text does not say.
+    The second (other clients editing the queue) stays UNVERIFIED.
+  - The §10 row "Runtime behaviour of the queue caveats of §8.2.1 …", "UNVERIFIED (#274;
+    source only)": all but the queue edits by other daemon clients are recorded.
+- **Ledger.** `11-risks.md` rows 62 and 67 closed, rows 68-69 added (PR #342's F-1 text) and
+  closed, rows 65-66 narrowed. Below, the E3 (row 62) and #58 entries are removed. Still
+  source-only: the two subagent refusals and "no queue service" (no documented client request
+  triggers them) and row 66(b). The Stage 3 exit record (PR #342) is to be re-run against
+  these fixtures.)
+
 **Last updated:** 2026-10-07 (**Issue #338: an older native signal never re-binds over a
 newer one.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text
 changes.
@@ -2216,14 +2276,12 @@ without an UNVERIFIED label.
   mode has no transport-layer authorization, so v0.1 presence and discovery are
   same-install only (operator decision on #43). Owner: the transport binding, F6/F10, E5.
   `11-risks.md` row 61.
-- **New, from E3 (#43, 2026-10-03):** that Codex's `thread/queue/add` keeps the order of
-  several inputs queued while a turn is running. The G2 `busyqueue` step queued exactly one
-  input, which ran after the running turn; order among several was not exercised, and no
-  first-party statement of order is cited in this repository. (Claude Code's channels
-  reference states in-order processing, `REVERIFICATION-B2.md` §3.1 re-check row 5, and G1
-  Box C saw two mid-turn notifications land in order at separate tool-call boundaries inside
-  the running turn.) `spec/session-channels.md` §7.4 makes hand-off order a SHOULD only
-  (SC-DLV-080). `11-risks.md` row 62.
+*(Removed 2026-10-08, #343 / PR #344 review nit 6: the E3 (#43) entry on whether Codex's
+`thread/queue/add` keeps the order of several inputs queued during a running turn. Two adds
+during one running turn on Codex `0.161.0` ran as two turns, one per idle, in the order added
+(`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+L135-L139, L826-L865), and `11-risks.md` row 62 is closed. One observation, not a
+first-party guarantee.)*
 
 - **New, from the C4 revision (#236, 2026-10-02):** the hook-to-shim pairing mechanism
   that `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement" needs is
@@ -2283,24 +2341,20 @@ without an UNVERIFIED label.
     (`wake_if_loaded`, `service.rs` L477); other daemon clients can reorder, update or
     delete a queued item; an add to an unloaded thread waits; an extra member in a
     `thread/queue/add` request is probably ignored.
+  - *Narrowed 2026-10-07 and 2026-10-08 (#343), by run on Codex `0.161.0`* (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`;
+    `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`): the ephemeral and archived
+    refusals are recorded, and an unknown thread is `-32603`, not a `-32600` refusal; the
+    wait after an interrupt (for items queued at the interrupt and for a later add; the
+    first half in `docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md`), the unloaded add
+    (which runs once the thread is loaded) and the ignored extra member are confirmed. Still open: whether any refusal means "not now", the
+    subagent and no-queue-service refusals (no documented client request triggers them), and
+    other clients reordering, updating or deleting a queued item.
 
-- **New, from #58 (F9, 2026-10-06):** four app-server behaviours that the fake Codex
-  app-server models from source at `rust-v0.160.0` (commit
-  `a956835d020762cb2b570053af06f643a11c0ecc`, retrieved 2026-10-06) because no fixture
-  records them (`tests/fakes/codex-app-server/README.md` "Source-only behaviours"):
-  - a `thread/queue/add` on a connection whose `initialize` did not set
-    `capabilities.experimentalApi` is refused `-32600 "thread/queue/add requires
-    experimentalApi capability"` (`app-server/src/message_processor.rs` L975-L979,
-    `app-server-protocol/src/experimental_api.rs` L30-L32);
-  - a request before `initialize` is refused `-32600 "Not initialized"`
-    (`message_processor.rs` L971-L972);
-  - the frames of a turn that ends `interrupted`: only the `TurnStatus` value is in source;
-  - `thread/resume` of an unknown thread id gets the `-32600 "no rollout found for thread
-    id <id>"` that D6 recorded only for a known thread before its first turn
-    (`thread-store/src/local/read_thread.rs` L97-L102; `thread_processor.rs` L3194-L3195).
-
-  Owner G6 (#67) for the first, G7 (#68) for the others. `11-risks.md` row 67,
-  RISK-CODEX-EXPERIMENTAL.
+*(Removed 2026-10-07, #343: the #58 (F9) entry for four app-server behaviours the fake
+Codex app-server modelled from source only, the experimental-API refusal, "Not initialized",
+the frames of an interrupted turn and the resume error for an unknown thread. All four are
+recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L92-L93, L99-L100, L106-L108, L901-L907), and
+`11-risks.md` row 67 is closed.)*
 
 - **New, from verifying the G5 E1 findings (#220, 2026-10-03):**
   - The old C6 §5 frame's X2 failure was not reproduced across runs. The K8 run

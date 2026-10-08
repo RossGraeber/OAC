@@ -1,0 +1,458 @@
+#!/usr/bin/env node
+// S3 fixture capture (#343): throwaway client of the local Codex app-server daemon.
+// Quarantined (oac-gates "Throwaway rule"); never imported, never part of the product.
+//
+// It extends the G2 client (docs/planning/gates/fixtures/g2-codex-inject/
+// client.mjs.throwaway-quarantined: same transport, same transcript format, same `list`,
+// `watch` and `turns` modes) with the exchanges the fake Codex app-server
+// (tests/fakes/codex-app-server/) modelled from source only:
+//   idleadd <threadId> <text>   thread/queue/add to an idle, loaded thread
+//   cases <cwd> [set] [quietMs] the refusal, interrupt, ordering and unloaded-thread cases;
+//                               set `all` (default) or `queued-interrupt` (#343 review: only
+//                               items already queued when a turn is interrupted); quietMs is
+//                               the "nothing happens" window (default 25000)
+//
+// Transport: spawns `codex app-server proxy` (a raw stdio<->UDS byte relay to the daemon's
+// control socket) once per connection, does the HTTP/1.1 Upgrade and the RFC 6455 framing
+// itself, one JSON-RPC message per text frame. Shapes: `codex app-server
+// generate-json-schema --experimental` at the observed Codex version.
+//
+// This client never reads CODEX_HOME/auth.json or any credential; the daemon serves every
+// model turn from its own saved sign-in. It never answers a server->client request (an
+// approval): it logs it and leaves it. Every frame, both directions, is appended to
+// transcript.jsonl beside this script as {t, mode, direction, payload}; `mode` names the
+// connection (`cases-main`, `cases-noexp`, ...). Every wait is bounded and event-gated: the
+// only fixed waits are the observation windows of the cases that check that nothing happens.
+
+import { spawn } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { randomUUID, randomBytes } from 'node:crypto';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TRANSCRIPT = join(HERE, 'transcript.jsonl');
+const [, , mode, arg1, arg2] = process.argv;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const log = (label, direction, payload) =>
+  appendFileSync(TRANSCRIPT, JSON.stringify({ t: new Date().toISOString(), mode: label, direction, payload }) + '\n');
+const status = (line) => console.log(line);
+
+// A UUIDv7 string no thread on this machine has: for the unknown-thread cases.
+function uuidv7() {
+  const b = randomBytes(16);
+  b.writeUIntBE(Date.now(), 0, 6);
+  b[6] = (b[6] & 0x0f) | 0x70;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = b.toString('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// One daemon connection: its own proxy process, its own request ids, its own event list.
+function connect(label) {
+  const proc = spawn('codex', ['app-server', 'proxy'], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+  proc.stderr.on('data', (d) => log(label, 'proxy-stderr', d.toString()));
+  const conn = { label, proc, events: [], pending: new Map(), nextId: 0, waiters: new Set(), closed: false };
+
+  const frame = (opcode, payload) => {
+    const mask = randomBytes(4);
+    let header;
+    if (payload.length < 126) header = Buffer.from([0x80 | opcode, 0x80 | payload.length]);
+    else if (payload.length < 65536) { header = Buffer.alloc(4); header[0] = 0x80 | opcode; header[1] = 0x80 | 126; header.writeUInt16BE(payload.length, 2); }
+    else { header = Buffer.alloc(10); header[0] = 0x80 | opcode; header[1] = 0x80 | 127; header.writeBigUInt64BE(BigInt(payload.length), 2); }
+    const masked = Buffer.alloc(payload.length);
+    for (let i = 0; i < payload.length; i++) masked[i] = payload[i] ^ mask[i % 4];
+    if (!conn.closed) proc.stdin.write(Buffer.concat([header, mask, masked]));
+  };
+  const sendJson = (msg) => {
+    log(label, 'client->daemon', msg);
+    frame(0x1, Buffer.from(JSON.stringify(msg), 'utf8'));
+  };
+
+  conn.request = (method, params) => {
+    const id = conn.nextId++;
+    sendJson({ jsonrpc: '2.0', id, method, params });
+    return new Promise((resolve) => conn.pending.set(id, resolve));
+  };
+  conn.notify = (method, params) => sendJson({ jsonrpc: '2.0', method, params });
+  // Resolve with the first event (from index `from` on) that matches, or null at the deadline.
+  conn.waitFor = (pred, ms, from = 0) =>
+    new Promise((resolve) => {
+      const hit = conn.events.slice(from).find(pred);
+      if (hit) return resolve(hit);
+      const w = { pred, resolve: (v) => { clearTimeout(w.timer); conn.waiters.delete(w); resolve(v); } };
+      w.timer = setTimeout(() => w.resolve(null), ms);
+      conn.waiters.add(w);
+    });
+  conn.close = async () => {
+    if (conn.closed) return;
+    try { frame(0x8, Buffer.alloc(0)); } catch {}
+    conn.closed = true;
+    try { proc.stdin.end(); } catch {}
+    await Promise.race([new Promise((r) => proc.once('exit', r)), sleep(3000)]);
+    try { proc.kill(); } catch {}
+  };
+
+  let onUpgraded;
+  conn.upgraded = new Promise((r) => (onUpgraded = r));
+  proc.stdin.write(
+    'GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+      `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
+  );
+  let raw = Buffer.alloc(0);
+  let upgraded = false;
+  let fragments = [];
+  proc.stdout.on('data', (chunk) => {
+    raw = Buffer.concat([raw, chunk]);
+    if (!upgraded) {
+      const end = raw.indexOf('\r\n\r\n');
+      if (end === -1) return;
+      const head = raw.subarray(0, end).toString('utf8');
+      log(label, 'handshake', head);
+      raw = raw.subarray(end + 4);
+      if (!/^HTTP\/1\.1 101/.test(head)) { console.error(`[upgrade failed] ${label}\n${head}`); process.exit(3); }
+      upgraded = true;
+      onUpgraded();
+    }
+    while (raw.length >= 2) {
+      const fin = (raw[0] & 0x80) !== 0;
+      const opcode = raw[0] & 0x0f;
+      let len = raw[1] & 0x7f;
+      let off = 2;
+      if (len === 126) { if (raw.length < 4) return; len = raw.readUInt16BE(2); off = 4; }
+      else if (len === 127) { if (raw.length < 10) return; len = Number(raw.readBigUInt64BE(2)); off = 10; }
+      if (raw.length < off + len) return;
+      const data = raw.subarray(off, off + len);
+      raw = raw.subarray(off + len);
+      if (opcode === 0x9) { frame(0xA, data); continue; } // ping -> pong
+      if (opcode === 0x8) { log(label, 'ws-close', data.toString('utf8')); continue; }
+      if (opcode === 0xA) continue;
+      fragments.push(data);
+      if (!fin) continue;
+      const line = Buffer.concat(fragments).toString('utf8');
+      fragments = [];
+      let msg;
+      try { msg = JSON.parse(line); } catch { log(label, 'unparsed', line); continue; }
+      log(label, 'daemon->client', msg);
+      if (msg.id !== undefined && !msg.method && conn.pending.has(msg.id)) {
+        conn.pending.get(msg.id)(msg);
+        conn.pending.delete(msg.id);
+      } else if (msg.method) {
+        conn.events.push(msg);
+        for (const w of [...conn.waiters]) if (w.pred(msg)) w.resolve(msg);
+        if (msg.id !== undefined) status(`[server-request ignored; never answered by this client] ${label} ${msg.method}`);
+      }
+    }
+  });
+  return conn;
+}
+
+async function open(label, { experimentalApi = true } = {}) {
+  const c = connect(label);
+  await c.upgraded;
+  const capabilities = experimentalApi ? { experimentalApi: true } : {};
+  const init = await c.request('initialize', { clientInfo: { name: 'oac_s3_capture', title: 'OAC S3 fixture capture (throwaway)', version: '0.0.1' }, capabilities });
+  if (init.error) throw new Error(`${label}: initialize failed ${JSON.stringify(init.error)}`);
+  c.notify('initialized', {});
+  return c;
+}
+
+const text = (t) => [{ type: 'text', text: t }];
+const queueAdd = (c, threadId, t, extra = {}) => {
+  const clientUserMessageId = randomUUID();
+  return c.request('thread/queue/add', { threadId, clientUserMessageId, input: text(t), ...extra }).then((r) => ({ r, clientUserMessageId }));
+};
+const isFor = (threadId) => (m) => m.params?.threadId === threadId;
+const turnStarted = (threadId, turnId = null) => (m) => m.method === 'turn/started' && isFor(threadId)(m) && (!turnId || m.params?.turn?.id === turnId);
+const turnCompleted = (threadId, turnId) => (m) => m.method === 'turn/completed' && isFor(threadId)(m) && m.params?.turn?.id === turnId;
+const userItemWithClientId = (threadId, clientId) => (m) => m.method === 'item/started' && isFor(threadId)(m) && m.params?.item?.type === 'userMessage' && m.params.item.clientId === clientId;
+// A thread result is summarized by its id and status: it also carries the working directory,
+// which the status line (kept in the run manifest) does not need.
+const outcome = (r) => {
+  if (r.error) return `error ${JSON.stringify(r.error)}`;
+  const th = r.result?.thread;
+  if (th) return `result thread ${th.id} status ${JSON.stringify(th.status)} ephemeral ${th.ephemeral}`;
+  return `result ${JSON.stringify(r.result).slice(0, 300)}`;
+};
+
+const BUSY = 'OAC S3 capture busy turn: write a numbered list of 40 distinct one-sentence facts about lighthouses. Do not use any tools.';
+const reply = (words) => `OAC S3 capture: reply with exactly the words ${words}. Do not use any tools.`;
+const TURN_MS = 300000;
+// The "nothing happens" window: longer than two ticks of the daemon's 10 s queue watcher
+// (ext/queue service.rs). The scenario passes it; a test may pass a shorter one.
+let QUIET_MS = 25000;
+const UNLOAD_MS = 150000; // the daemon unloads an unsubscribed idle thread after 60 s by default
+
+// A queued message's turn: the userMessage item carrying clientId = clientUserMessageId, then
+// that turn's turn/completed. -> { turnId, completed } or null on the first missing step.
+async function queuedTurn(c, threadId, clientId, from, ms = TURN_MS) {
+  const item = await c.waitFor(userItemWithClientId(threadId, clientId), ms, from);
+  if (!item) return null;
+  const turnId = item.params.turnId;
+  const done = await c.waitFor(turnCompleted(threadId, turnId), ms, from);
+  return { turnId, completed: done?.params?.turn?.status ?? null };
+}
+
+// Items already queued when a turn is interrupted (#343 review, row e's first half): two adds
+// during a running turn, then turn/interrupt, then the quiet window; then an uninterrupted
+// turn, after which the queued items run, one per idle. On a thread of its own.
+async function queuedAtInterrupt(main, cwd, record) {
+  const s = await main.request('thread/start', { cwd });
+  const B = s.result?.thread?.id;
+  record('queued-interrupt-thread-start', outcome(s));
+  if (!B) throw new Error('thread/start returned no thread id');
+  const from = main.events.length;
+  const t = await main.request('turn/start', { threadId: B, input: text(BUSY) });
+  const tid = t.result?.turn?.id;
+  record('queued-interrupt-turn-start', outcome(t));
+  const started = tid && (await main.waitFor(turnStarted(B, tid), 30000, from));
+  if (!started) throw new Error('the turn to interrupt did not start');
+  await main.waitFor((m) => m.method === 'item/agentMessage/delta' && isFor(B)(m) && m.params?.turnId === tid, 60000, from);
+  const q1 = await queueAdd(main, B, reply('OAC S3 QUEUED AT INTERRUPT 1'));
+  const q2 = await queueAdd(main, B, reply('OAC S3 QUEUED AT INTERRUPT 2'));
+  record('queued-interrupt-add-1', outcome(q1.r));
+  record('queued-interrupt-add-2', outcome(q2.r));
+  const i = await main.request('turn/interrupt', { threadId: B, turnId: tid });
+  record('queued-interrupt-turn-interrupt', outcome(i));
+  const done = await main.waitFor(turnCompleted(B, tid), 60000, from);
+  record('queued-interrupt-turn-completed', done ? done.params.turn.status : 'not within the wait');
+  const qFrom = main.events.length;
+  const early = await main.waitFor(turnStarted(B), QUIET_MS, qFrom);
+  record('queued-interrupt-dispatch-within-quiet-window', early ? `turn/started ${early.params.turn.id}` : `none in ${QUIET_MS} ms`);
+  if (early) {
+    await main.waitFor(turnCompleted(B, early.params.turn.id), TURN_MS, qFrom);
+  } else {
+    const t2 = await main.request('turn/start', { threadId: B, input: text(reply('OAC S3 AFTER QUEUED INTERRUPT TURN')) });
+    const t2id = t2.result?.turn?.id;
+    record('queued-interrupt-next-turn-start', outcome(t2));
+    const d2 = t2id && (await main.waitFor(turnCompleted(B, t2id), TURN_MS, qFrom));
+    record('queued-interrupt-next-turn-completed', d2 ? d2.params.turn.status : 'not within the wait');
+  }
+  const first = await queuedTurn(main, B, q1.clientUserMessageId, qFrom);
+  record('queued-interrupt-first-queued-turn', first ?? 'no turn within the wait');
+  const second = await queuedTurn(main, B, q2.clientUserMessageId, qFrom);
+  record('queued-interrupt-second-queued-turn', second ?? 'no turn within the wait');
+  if (first && second) record('queued-interrupt-queued-turns-distinct', first.turnId !== second.turnId);
+  const a = await main.request('thread/archive', { threadId: B });
+  record('queued-interrupt-archive', outcome(a));
+}
+
+async function runCases(cwd, set = 'all') {
+  const results = [];
+  const record = (name, observed) => {
+    results.push({ name, observed });
+    status(`[case] ${JSON.stringify({ name, observed })}`);
+  };
+  if (set === 'queued-interrupt') {
+    const main = await open('cases-main');
+    try {
+      await queuedAtInterrupt(main, cwd, record);
+    } finally {
+      await main.close();
+    }
+    status(`[done] cases: ${results.length} observations`);
+    return;
+  }
+  if (set !== 'all') throw new Error(`unknown case set ${set}`);
+
+  // 1. A request before initialize.
+  {
+    const c = connect('cases-preinit');
+    await c.upgraded;
+    const r = await c.request('thread/loaded/list', {});
+    record('request-before-initialize', outcome(r));
+    await c.close();
+  }
+
+  // 2. thread/queue/add on a connection that did not declare experimentalApi.
+  {
+    const c = await open('cases-noexp', { experimentalApi: false });
+    const { r } = await queueAdd(c, uuidv7(), reply('OAC S3 NOEXP'));
+    record('queue-add-without-experimentalApi', outcome(r));
+    await c.close();
+  }
+
+  const main = await open('cases-main');
+  try {
+    // 3. thread/resume of a thread id no thread has.
+    {
+      const r = await main.request('thread/resume', { threadId: uuidv7(), excludeTurns: true });
+      record('resume-unknown-thread', outcome(r));
+    }
+    // 4. thread/queue/add to a thread id no thread has.
+    {
+      const { r } = await queueAdd(main, uuidv7(), reply('OAC S3 UNKNOWN'));
+      record('queue-add-unknown-thread', outcome(r));
+    }
+    // 5. thread/queue/add to an ephemeral, loaded thread.
+    {
+      const s = await main.request('thread/start', { cwd, ephemeral: true });
+      const eph = s.result?.thread?.id;
+      record('thread-start-ephemeral', outcome(s));
+      if (eph) {
+        const { r } = await queueAdd(main, eph, reply('OAC S3 EPHEMERAL'));
+        record('queue-add-ephemeral-thread', outcome(r));
+        const u = await main.request('thread/unsubscribe', { threadId: eph });
+        record('unsubscribe-ephemeral-thread', outcome(u));
+      }
+    }
+
+    // The thread every remaining case uses.
+    const s = await main.request('thread/start', { cwd });
+    const A = s.result?.thread?.id;
+    record('thread-start', outcome(s));
+    if (!A) throw new Error('thread/start returned no thread id');
+
+    // 6. Two adds while a turn runs: at the turn's end, one dispatch per idle, head first.
+    {
+      const from = main.events.length;
+      const t = await main.request('turn/start', { threadId: A, input: text(BUSY) });
+      const busy = t.result?.turn?.id;
+      record('busy-turn-start', outcome(t));
+      const started = busy && (await main.waitFor(turnStarted(A, busy), 30000, from));
+      if (!started) throw new Error('the busy turn did not start');
+      const q1 = await queueAdd(main, A, reply('OAC S3 Q1'));
+      const q2 = await queueAdd(main, A, reply('OAC S3 Q2'));
+      record('queue-add-while-busy-1', outcome(q1.r));
+      record('queue-add-while-busy-2', outcome(q2.r));
+      const busyDone = await main.waitFor(turnCompleted(A, busy), TURN_MS, from);
+      record('busy-turn-completed', busyDone ? busyDone.params.turn.status : 'not within the wait');
+      const first = await queuedTurn(main, A, q1.clientUserMessageId, from);
+      record('first-queued-turn', first ?? 'no turn for the first add');
+      const second = await queuedTurn(main, A, q2.clientUserMessageId, from);
+      record('second-queued-turn', second ?? 'no turn for the second add');
+      if (first && second) record('queued-turns-distinct', first.turnId !== second.turnId);
+    }
+
+    // 7. An add to the idle thread (its last turn completed), carrying a member beyond
+    //    threadId, clientUserMessageId and input.
+    {
+      const from = main.events.length;
+      const q = await queueAdd(main, A, reply('OAC S3 EXTRA MEMBER'), { oacS3ExtraMember: 'an extra member' });
+      record('queue-add-idle-extra-member', outcome(q.r));
+      if (!q.r.error) record('queue-add-idle-extra-member-turn', (await queuedTurn(main, A, q.clientUserMessageId, from)) ?? 'no turn within the wait');
+    }
+
+    // 8. turn/interrupt, then an add to the thread whose last turn was interrupted.
+    {
+      const from = main.events.length;
+      const t = await main.request('turn/start', { threadId: A, input: text(BUSY) });
+      const tid = t.result?.turn?.id;
+      record('interrupt-turn-start', outcome(t));
+      const started = tid && (await main.waitFor(turnStarted(A, tid), 30000, from));
+      if (!started) throw new Error('the turn to interrupt did not start');
+      await main.waitFor((m) => m.method === 'item/agentMessage/delta' && isFor(A)(m) && m.params?.turnId === tid, 60000, from);
+      const i = await main.request('turn/interrupt', { threadId: A, turnId: tid });
+      record('turn-interrupt', outcome(i));
+      const done = await main.waitFor(turnCompleted(A, tid), 60000, from);
+      record('interrupted-turn-completed', done ? done.params.turn.status : 'not within the wait');
+
+      const qFrom = main.events.length;
+      const q = await queueAdd(main, A, reply('OAC S3 AFTER INTERRUPT'));
+      record('queue-add-after-interrupt', outcome(q.r));
+      const early = await main.waitFor(turnStarted(A), QUIET_MS, qFrom);
+      record('after-interrupt-dispatch-within-quiet-window', early ? `turn/started ${early.params.turn.id}` : `none in ${QUIET_MS} ms`);
+      if (early) {
+        await main.waitFor(turnCompleted(A, early.params.turn.id), TURN_MS, qFrom);
+      } else {
+        const t2 = await main.request('turn/start', { threadId: A, input: text(reply('OAC S3 AFTER INTERRUPT TURN')) });
+        const t2id = t2.result?.turn?.id;
+        record('after-interrupt-turn-start', outcome(t2));
+        const d2 = t2id && (await main.waitFor(turnCompleted(A, t2id), TURN_MS, qFrom));
+        record('after-interrupt-turn-completed', d2 ? d2.params.turn.status : 'not within the wait');
+      }
+      record('after-interrupt-queued-turn', (await queuedTurn(main, A, q.clientUserMessageId, qFrom)) ?? 'no turn within the wait');
+    }
+
+    // 9. An add to a thread that is not loaded: unsubscribe, wait for the daemon to unload
+    //    it, add, check it stays queued, then load it from a second connection.
+    {
+      const u = await main.request('thread/unsubscribe', { threadId: A });
+      record('unsubscribe', outcome(u));
+      const closed = await main.waitFor((m) => m.method === 'thread/closed' && isFor(A)(m), UNLOAD_MS, 0);
+      record('thread-closed', closed ? 'thread/closed received' : `none in ${UNLOAD_MS} ms`);
+      const l1 = await main.request('thread/loaded/list', {});
+      record('loaded-before-add', Array.isArray(l1.result?.data) ? l1.result.data.includes(A) : outcome(l1));
+      const from = main.events.length;
+      const q = await queueAdd(main, A, reply('OAC S3 UNLOADED'));
+      record('queue-add-unloaded', outcome(q.r));
+      // This connection unsubscribed, so a turn would show here only through notifications
+      // the daemon sends every connection; thread/loaded/list below is the check that counts.
+      const early = await main.waitFor((m) => isFor(A)(m) && m.method !== 'thread/queue/changed', QUIET_MS, from);
+      record('unloaded-events-within-quiet-window', early ? early.method : `none in ${QUIET_MS} ms`);
+      const l2 = await main.request('thread/loaded/list', {});
+      record('loaded-after-add', Array.isArray(l2.result?.data) ? l2.result.data.includes(A) : outcome(l2));
+
+      const reload = await open('cases-reload');
+      try {
+        const r = await reload.request('thread/resume', { threadId: A, excludeTurns: true });
+        record('resume-after-add', outcome(r));
+        record('unloaded-queued-turn', (await queuedTurn(reload, A, q.clientUserMessageId, 0, 120000)) ?? 'no turn within the wait');
+        const tl = await reload.request('thread/turns/list', { threadId: A, limit: 20, sortDirection: 'desc', itemsView: 'full' });
+        record('turns-list', tl.error ? outcome(tl) : `${tl.result?.data?.length ?? 0} turns`);
+
+        // 10. An add to an archived thread.
+        const a = await reload.request('thread/archive', { threadId: A });
+        record('archive', outcome(a));
+        const qa = await queueAdd(reload, A, reply('OAC S3 ARCHIVED'));
+        record('queue-add-archived', outcome(qa.r));
+      } finally {
+        await reload.close();
+      }
+    }
+
+    // 11. Items already queued when a turn is interrupted.
+    await queuedAtInterrupt(main, cwd, record);
+  } finally {
+    await main.close();
+  }
+  status(`[done] cases: ${results.length} observations`);
+}
+
+(async () => {
+  if (mode === 'cases') {
+    if (!arg1) { console.error('cwd required'); process.exit(2); }
+    const quiet = process.argv[5];
+    if (quiet !== undefined) {
+      if (!/^\d+$/.test(quiet)) { console.error('quietMs must be a whole number of ms'); process.exit(2); }
+      QUIET_MS = Number(quiet);
+    }
+    try {
+      await runCases(arg1, arg2 ?? 'all');
+    } catch (err) {
+      console.log(`[error] ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  const c = await open(mode);
+  const done = async (code = 0) => { await c.close(); process.exit(code); };
+  if (mode === 'list') {
+    const loaded = await c.request('thread/loaded/list', {});
+    console.log('[thread/loaded/list]', JSON.stringify(loaded.result ?? loaded.error).slice(0, 2000));
+    const all = await c.request('thread/list', { cursor: null, limit: 5, sortKey: 'created_at' });
+    console.log('[thread/list]', JSON.stringify(all.result?.data?.map((t) => t.id) ?? all.error));
+    return done();
+  }
+  if (!arg1) { console.error('threadId required'); return done(2); }
+  if (mode === 'watch') {
+    const r = await c.request('thread/resume', { threadId: arg1, excludeTurns: true });
+    console.log('[thread/resume]', JSON.stringify(r.result?.thread?.status ?? r.error));
+    return; // stays subscribed until killed; events are logged as they arrive
+  }
+  if (mode === 'idleadd') {
+    const { r } = await queueAdd(c, arg1, arg2 ?? reply('OAC S3 IDLE ADD'));
+    console.log('[thread/queue/add]', JSON.stringify(r.result ?? r.error));
+    return done(r.error ? 1 : 0);
+  }
+  if (mode === 'turns') {
+    const r = await c.request('thread/turns/list', { threadId: arg1, limit: 5, sortDirection: 'desc', itemsView: 'full' });
+    for (const turn of r.result?.data ?? []) console.log(`--- turn ${turn.id} status=${turn.status}`);
+    if (r.error) console.log('[error]', JSON.stringify(r.error));
+    return done();
+  }
+  console.error(`unknown mode ${mode}`);
+  return done(2);
+})();

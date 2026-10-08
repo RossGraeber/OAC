@@ -14,7 +14,8 @@
 //! # Behaviour, and the fixture behind each part
 //!
 //! The fixtures are compiled in from `docs/planning/gates/fixtures/` ([`evidence`]).
-//! Claude Code version on every fixture used: `2.1.283`.
+//! Claude Code version on every fixture used: `2.1.283`, except the 2026-10-07 G1 herdr
+//! capture (`2.1.285`), which backs only the later tool-call ids and the `toolu_` form.
 //!
 //! | Behaviour | Fixture |
 //! |---|---|
@@ -26,7 +27,9 @@
 //! | Mid-turn notifications queue and are released at tool-call boundaries, in order, never dropped, never inside a tool call | D6 lines 16, 18; G1 Box C lines 22-23 (G1-result criterion 3) |
 //! | Rendering: the `<channel>` tag, `source`, kept and dropped `meta` keys, escapes | G5 wire lines 21-36 against G5 rendered lines 1-11 (idle); G1 Box C line 21 ([`render`]) |
 //! | Mid-turn wrapper around the tag | G5 wire line 39 against G5 rendered line 13 |
-//! | Tool replies: `tools/call` with `_meta` `claudecode/toolUseId` and `progressToken` equal to the request id | D6 lines 13-14; G1 Box C lines 24-25 (both id 2; see below for later ids) |
+//! | Tool replies: `tools/call` with `_meta` `claudecode/toolUseId` and `progressToken` equal to the request id | D6 lines 13-14; G1 Box C lines 24-25 (both id 2) |
+//! | Later tool calls in one session go on at ids 3, 4, ..., `progressToken` still equal to the id | G1 herdr capture `transcript-2026-10-07-2.1.285-herdr.jsonl` lines 14-19 (ids 2, 3, 4) |
+//! | The synthetic `claudecode/toolUseId` has the recorded form, `toolu_01` and 22 ASCII letters and digits | the same lines 14, 16, 18, and every other `toolUseId` in the Claude fixtures |
 //!
 //! # What the fake does not invent
 //!
@@ -66,10 +69,15 @@
 //!   possible; neither setting models that, and a test must not depend on the grouping at
 //!   all, only on order.
 //! - The `claudecode/toolUseId` value is the model's; the fake writes a synthetic one in
-//!   the recorded `toolu_` form unless the driver supplies one.
-//! - **Inferred, not recorded:** both recorded calls are the session's first, with id 2 and
-//!   `progressToken` 2 (D6 line 13, G1 Box C line 24). That calls continue at 3, 4, ... and
-//!   that `progressToken` keeps equal to the id is the fake's inference from those two.
+//!   the recorded form, `toolu_01OacFake<15 digits>`, unless the driver supplies one. All
+//!   17 recorded ids are `toolu_01` and 22 ASCII letters and digits (30 characters); the
+//!   fake's has that form, so an adapter cannot tell it from a real one by shape. Its
+//!   letters are not random, so a log still shows it is the fake's (#343; before, it was
+//!   `toolu_fake<20 digits>`, which an adapter checking the recorded form could refuse).
+//! - Tool call ids after the first: recorded since #343. The 2026-10-07 G1 herdr capture
+//!   (Claude Code `2.1.285`) holds three `reply` calls in one session, ids 2, 3 and 4, each
+//!   with `progressToken` equal to its id (lines 14, 16, 18). The fake's 3, 4, ... sequence
+//!   is no longer an inference. Its id 1 is the opening `tools/list`, as recorded.
 //! - Not modelled at all: `--resume`, multiple channels per server, permission relay, the
 //!   development-channels consent dialog, the original `2.1.282` opening (no probe), and
 //!   the HTTP transport.
@@ -590,7 +598,11 @@ impl FakeClaude {
         let tool_use_id = match tool_use_id {
             Some(t) => t,
             None => {
-                synthetic = format!("toolu_fake{id:020}");
+                // The recorded form: `toolu_01` and 22 ASCII letters and digits (every
+                // `claudecode/toolUseId` in the Claude fixtures, 2.1.282 to 2.1.285; the
+                // 2026-10-07 G1 herdr capture, lines 14, 16, 18). `OacFake` keeps it
+                // recognisable in a log without leaving that form.
+                synthetic = format!("toolu_01OacFake{id:015}");
                 &synthetic
             }
         };
