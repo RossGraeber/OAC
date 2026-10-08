@@ -37,11 +37,27 @@
 //!   identifier-pasting proc macro (`paste`), could spell the trait and `run` in pieces
 //!   that no text rule sees (PR #355 third review, C2).
 //!
-//! **The files read.** These come from git, not from a directory walk: `git ls-files -co
-//! --exclude-standard`, so every tracked file and every untracked file that is not ignored,
-//! less cargo's own `target_directory` from `cargo metadata`. Any `CACHEDIR.TAG` left in that
-//! set fails. A real target directory is never tracked, and a committed tag would hide a
-//! directory from the tools that honour it (PR #355 third review, C1). A symlink fails too.
+//! **The files read.** These come from git, not from a directory walk: every tracked file,
+//! and every untracked file that is not ignored (`git ls-files -co --exclude-standard`),
+//! less untracked files under `target/`. Any `CACHEDIR.TAG` in that set fails, since a
+//! committed tag would hide a directory from the tools that honour it (PR #355 third
+//! review, C1). So do a symlink, and a tracked file under `target/`.
+//!
+//! **Cargo's target directory** (fourth review, N2) is `<root>/target` or lies outside the
+//! repository. Anywhere else inside it, set by a committed `.cargo/config.toml`
+//! `target-dir` or by `CARGO_TARGET_DIR`, fails, since it would take a directory out of the
+//! file set.
+//!
+//! **What cargo compiles for an adapter** (fourth review, N1), since git's file set misses
+//! a file a committed `.gitignore` hides:
+//! - an adapter has no build script, neither a custom-build target nor a `build.rs` file;
+//! - every test, example and bench target `cargo metadata` reports for it is its harness
+//!   file, or a file the name rules pass;
+//! - no `.rs` file under `adapters/` is ignored by git
+//!   (`git ls-files -oi --exclude-standard -- adapters/`).
+//!
+//! An adapter's normal and build dependencies are the static scan's vetted list
+//! (`source::VETTED_DEPENDENCIES`), by `cargo metadata`, for every adapter directory.
 
 use std::path::{Path, PathBuf};
 
@@ -115,17 +131,43 @@ struct Dependent {
     edges: Vec<(Option<String>, Option<String>)>,
     /// The package names of its dev-dependencies.
     dev_deps: Vec<String>,
+    /// The package names of its normal and build dependencies.
+    other_deps: Vec<String>,
+    /// Its targets: their kinds and their `src_path`.
+    targets: Vec<(Vec<String>, PathBuf)>,
+}
+
+/// Where cargo's `target_directory` is (PR #355 fourth review, N2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TargetDir {
+    /// `<root>/target`, which `.gitignore` ignores.
+    RootTarget,
+    /// Outside the repository.
+    Outside,
+    /// Anywhere else inside the repository, relative to its root: refused, since it would
+    /// take its files out of the file set.
+    Inside(String),
+}
+
+/// Where `target` (canonical) is, for the repository at `root` (canonical).
+fn target_dir(root: &Path, target: &Path) -> TargetDir {
+    if target == root.join("target") {
+        TargetDir::RootTarget
+    } else if target.starts_with(root) {
+        TargetDir::Inside(rel(root, target))
+    } else {
+        TargetDir::Outside
+    }
 }
 
 /// Every workspace package: its name, its repository-relative directory, its edges to the
-/// suite and its dev-dependencies.
+/// suite and its dependencies and targets.
 fn packages() -> Vec<Dependent> {
     metadata().0
 }
 
-/// The packages, and cargo's `target_directory` relative to the repository root when it
-/// lies inside it.
-fn metadata() -> (Vec<Dependent>, Option<String>) {
+/// The packages, and where cargo's `target_directory` is.
+fn metadata() -> (Vec<Dependent>, TargetDir) {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let root = repo_root();
     let out = std::process::Command::new(cargo)
@@ -147,9 +189,10 @@ fn metadata() -> (Vec<Dependent>, Option<String>) {
     );
     let meta = json::parse(&out.stdout).expect("cargo metadata output");
     let target = get_str(&meta, "target_directory")
-        .and_then(|t| std::fs::canonicalize(t).ok())
-        .filter(|t| t.starts_with(&root))
-        .map(|t| rel(&root, &t));
+        .map(|t| std::fs::canonicalize(t).unwrap_or_else(|_| PathBuf::from(t)))
+        .map_or(TargetDir::Inside("(none reported)".into()), |t| {
+            target_dir(&root, &t)
+        });
     let packages = get(&meta, "packages")
         .and_then(Json::as_array)
         .expect("a package list")
@@ -178,11 +221,37 @@ fn metadata() -> (Vec<Dependent>, Option<String>) {
                 .filter(|d| get_str(d, "kind") == Some("dev"))
                 .filter_map(|d| get_str(d, "name").map(str::to_owned))
                 .collect();
+            let other_deps = get(p, "dependencies")
+                .and_then(Json::as_array)
+                .unwrap_or_default()
+                .iter()
+                .filter(|d| get_str(d, "kind") != Some("dev"))
+                .filter_map(|d| get_str(d, "name").map(str::to_owned))
+                .collect();
+            let targets = get(p, "targets")
+                .and_then(Json::as_array)
+                .unwrap_or_default()
+                .iter()
+                .map(|t| {
+                    let kinds = get(t, "kind")
+                        .and_then(Json::as_array)
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|k| k.as_str().map(str::to_owned))
+                        .collect();
+                    let src = get_str(t, "src_path")
+                        .map(PathBuf::from)
+                        .unwrap_or_default();
+                    (kinds, src)
+                })
+                .collect();
             Dependent {
                 name: get_str(p, "name").unwrap_or_default().to_owned(),
                 dir,
                 edges,
                 dev_deps,
+                other_deps,
+                targets,
             }
         })
         .collect();
@@ -341,10 +410,22 @@ fn the_dependency_rule_catches_each_shape() {
 /// (`git ls-files -co --exclude-standard`), repository-relative, less those under `target`
 /// (cargo's target directory, relative to `root`). Fails closed when git cannot list them.
 fn git_files(root: &Path, target: Option<&str>) -> Vec<String> {
+    let mut files = git_list(root, &["-z"]);
+    files.extend(
+        git_list(root, &["-o", "--exclude-standard", "-z"])
+            .into_iter()
+            .filter(|f| !target.is_some_and(|t| f.starts_with(&format!("{t}/")))),
+    );
+    files
+}
+
+/// `git ls-files` under `root` with `args`, as repository-relative paths. Fails closed.
+fn git_list(root: &Path, args: &[&str]) -> Vec<String> {
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(["ls-files", "-co", "--exclude-standard", "-z"])
+        .arg("ls-files")
+        .args(args)
         .output()
         .expect("run git ls-files: the harness location rule reads the file set from git");
     assert!(
@@ -355,7 +436,6 @@ fn git_files(root: &Path, target: Option<&str>) -> Vec<String> {
     String::from_utf8_lossy(&out.stdout)
         .split('\0')
         .filter(|f| !f.is_empty())
-        .filter(|f| !target.is_some_and(|t| f.starts_with(&format!("{t}/"))))
         .map(str::to_owned)
         .collect()
 }
@@ -369,6 +449,10 @@ fn tree_findings(root: &Path, target: Option<&str>, listed_dirs: &[String]) -> V
             continue;
         }
         let path = root.join(&r);
+        if target.is_some_and(|t| r.starts_with(&format!("{t}/"))) {
+            bad.push(format!("{r}: tracked inside cargo's target directory"));
+            continue;
+        }
         if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
             bad.push(format!("{r}: a symlink"));
             continue;
@@ -445,8 +529,6 @@ fn a_committed_cachedir_tag_hides_no_harness() {
         ("adapters/codex/benches/zz/main.rs", HIDDEN),
         ("target/CACHEDIR.TAG", TAG),
         ("target/debug/h.rs", HIDDEN),
-        ("t2/CACHEDIR.TAG", TAG),
-        ("t2/debug/h.rs", HIDDEN),
     ];
     let t = scratch_repo(
         "harness-location-c1",
@@ -460,8 +542,7 @@ fn a_committed_cachedir_tag_hides_no_harness() {
             "adapters/codex/examples/zz/main.rs",
         ],
     );
-    // t2/ plays a CARGO_TARGET_DIR inside the checkout that .gitignore does not cover.
-    let bad = tree_findings(&t, Some("t2"), &[]);
+    let bad = tree_findings(&t, Some("target"), &[]);
     for d in ["tests", "examples", "benches"] {
         for want in [
             format!("adapters/codex/{d}/zz/CACHEDIR.TAG: a CACHEDIR.TAG"),
@@ -474,10 +555,270 @@ fn a_committed_cachedir_tag_hides_no_harness() {
         }
     }
     assert!(
-        !bad.iter()
-            .any(|b| b.starts_with("target/") || b.starts_with("t2/")),
-        "read cargo's target directory: {bad:#?}"
+        !bad.iter().any(|b| b.starts_with("target/")),
+        "read cargo's ignored target directory: {bad:#?}"
     );
+    std::fs::remove_dir_all(&t).unwrap();
+}
+
+#[test]
+fn a_tracked_file_in_the_target_directory_is_read_and_refused() {
+    let t = scratch_repo(
+        "harness-location-tracked-target",
+        &[("target/debug/h.rs", "impl AdapterHarness for H {}\n")],
+        &["target/debug/h.rs"],
+    );
+    let bad = tree_findings(&t, Some("target"), &[]);
+    assert!(
+        bad.iter()
+            .any(|b| b.starts_with("target/debug/h.rs: tracked inside cargo's target directory")),
+        "{bad:#?}"
+    );
+    std::fs::remove_dir_all(&t).unwrap();
+}
+
+// ---- cargo's target directory (PR #355 fourth review, N2) -------------------------------------
+
+#[test]
+fn cargos_target_directory_is_target_or_outside_the_repository() {
+    let (_, target) = metadata();
+    assert!(
+        !matches!(target, TargetDir::Inside(_)),
+        "cargo's target directory is {target:?}: inside the repository it may only be target/ \
+         (a committed .cargo/config.toml target-dir, or CARGO_TARGET_DIR, would take a \
+         directory out of the file set)"
+    );
+}
+
+#[test]
+fn the_target_directory_rule_refuses_one_inside_the_repository() {
+    let root = Path::new("/r");
+    assert_eq!(
+        target_dir(root, &root.join("target")),
+        TargetDir::RootTarget
+    );
+    assert_eq!(
+        target_dir(root, Path::new("/elsewhere/t")),
+        TargetDir::Outside
+    );
+    // The fourth review's N2 plant: `[build] target-dir = "adapters/codex/tests/zz"`.
+    assert_eq!(
+        target_dir(root, &root.join("adapters/codex/tests/zz")),
+        TargetDir::Inside("adapters/codex/tests/zz".into())
+    );
+    assert_eq!(
+        target_dir(root, &root.join("t")),
+        TargetDir::Inside("t".into())
+    );
+}
+
+// ---- what cargo compiles for an adapter (PR #355 fourth review, N1) --------------------------
+
+/// An adapter has no build script: a custom-build target, or a `build.rs` file at all
+/// (even one a `build = false` key leaves out). Adapters need none, and one could write a
+/// harness the file set never sees.
+fn build_script_findings(root: &Path, p: &Dependent) -> Vec<String> {
+    if adapter_of(&p.dir).is_none() {
+        return Vec::new();
+    }
+    let mut found: Vec<String> = p
+        .targets
+        .iter()
+        .filter(|(kinds, _)| kinds.iter().any(|k| k == "custom-build"))
+        .map(|(_, src)| {
+            format!(
+                "{} ({}) has a build script, {}: adapters have none",
+                p.name,
+                p.dir,
+                rel(root, src)
+            )
+        })
+        .collect();
+    if root.join(&p.dir).join("build.rs").exists() {
+        found.push(format!("{}: a build.rs file: adapters have none", p.dir));
+    }
+    found
+}
+
+/// Every test, example and bench target of an adapter is its harness file, or a file the
+/// name rules pass.
+fn target_findings(root: &Path, p: &Dependent, listed: &[String]) -> Vec<String> {
+    if adapter_of(&p.dir).is_none() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    for (kinds, src) in &p.targets {
+        if !kinds
+            .iter()
+            .any(|k| matches!(k.as_str(), "test" | "example" | "bench"))
+        {
+            continue;
+        }
+        let src = std::fs::canonicalize(src).unwrap_or_else(|_| src.clone());
+        if !src.starts_with(root) {
+            found.push(format!(
+                "{}: target {} lies outside the repository",
+                p.name,
+                src.display()
+            ));
+            continue;
+        }
+        let r = rel(root, &src);
+        if r == format!("{}/{HARNESS_FILE}", p.dir) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&src).unwrap_or_default();
+        for x in file_findings(scope(&r, listed), &text) {
+            found.push(format!("{} target {r}: {x}", p.name));
+        }
+    }
+    found
+}
+
+/// Every `.rs` file git ignores under `adapters/` in `root`. Cargo compiles what it finds
+/// on disk, ignored or not.
+fn ignored_rust_findings(root: &Path) -> Vec<String> {
+    git_list(
+        root,
+        &["-o", "-i", "--exclude-standard", "-z", "--", "adapters/"],
+    )
+    .into_iter()
+    .filter(|f| f.ends_with(".rs"))
+    .map(|f| format!("{f}: a Rust file git ignores under adapters/"))
+    .collect()
+}
+
+#[test]
+fn adapters_have_no_build_script() {
+    let root = repo_root();
+    let bad: Vec<String> = packages()
+        .iter()
+        .flat_map(|p| build_script_findings(&root, p))
+        .collect();
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn every_adapter_test_example_and_bench_target_keeps_the_rule() {
+    let root = repo_root();
+    let all = packages();
+    let listed: Vec<String> = all
+        .iter()
+        .filter(|p| ALLOWED_DEPENDENTS.iter().any(|(a, _)| *a == p.name))
+        .map(|p| p.dir.clone())
+        .collect();
+    let bad: Vec<String> = all
+        .iter()
+        .flat_map(|p| target_findings(&root, p, &listed))
+        .collect();
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn no_git_ignored_rust_file_under_adapters() {
+    let bad = ignored_rust_findings(&repo_root());
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// An adapter's normal and build dependencies are the vetted ones, by `cargo metadata`
+/// (`source::VETTED_DEPENDENCIES`, the list the static scan vets them by identity against).
+#[test]
+fn adapters_take_only_vetted_normal_and_build_dependencies() {
+    use oac_contract_adapter::source::VETTED_DEPENDENCIES;
+    let bad: Vec<String> = packages()
+        .iter()
+        .filter(|p| adapter_of(&p.dir).is_some())
+        .flat_map(|p| {
+            p.other_deps
+                .iter()
+                .filter(|d| !VETTED_DEPENDENCIES.contains(&d.as_str()))
+                .map(|d| format!("{} ({}) depends on {d}, which is not vetted", p.name, p.dir))
+        })
+        .collect();
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn a_build_script_and_its_ignored_harness_are_caught() {
+    // The fourth review's N1 plant: a build script that writes tests/zz/main.rs, which a
+    // committed tests/.gitignore hides from the file set; here as it stands after a build
+    // ran it.
+    let hidden = "use oac_contract_adapter::{AdapterHarness, run};\n#[test]\nfn hidden() {}\n";
+    let t = scratch_repo(
+        "harness-location-n1",
+        &[
+            (
+                "adapters/codex/Cargo.toml",
+                "[package]\nname = \"oac-adapter-codex\"\n\n[dev-dependencies]\noac-contract-adapter = { path = \"../../tests/protocol/contract/adapter\" }\n",
+            ),
+            (
+                "adapters/codex/build.rs",
+                "fn main() { let _ = std::fs::write(\"tests/zz/main.rs\", [\"use oac_contract\", \"_adapter\"].concat()); }\n",
+            ),
+            ("adapters/codex/tests/.gitignore", "zz/\n"),
+            ("adapters/codex/tests/zz/main.rs", hidden),
+        ],
+        &[
+            "adapters/codex/Cargo.toml",
+            "adapters/codex/build.rs",
+            "adapters/codex/tests/.gitignore",
+        ],
+    );
+    let t = std::fs::canonicalize(&t).unwrap();
+    // The file set alone does not see it: that is the regression.
+    assert!(
+        !tree_findings(&t, Some("target"), &[])
+            .iter()
+            .any(|b| b.contains("zz/main.rs")),
+    );
+    // Each of the three sides does.
+    let codex = Dependent {
+        name: "oac-adapter-codex".into(),
+        dir: "adapters/codex".into(),
+        edges: vec![(Some("dev".into()), None)],
+        dev_deps: vec![SUITE.into()],
+        other_deps: vec!["oac-core".into()],
+        targets: vec![
+            (
+                vec!["custom-build".into()],
+                t.join("adapters/codex/build.rs"),
+            ),
+            (
+                vec!["test".into()],
+                t.join("adapters/codex/tests/zz/main.rs"),
+            ),
+        ],
+    };
+    let build = build_script_findings(&t, &codex);
+    assert!(
+        build.iter().any(|b| b.contains("has a build script"))
+            && build.iter().any(|b| b.contains("a build.rs file")),
+        "{build:#?}"
+    );
+    let targets = target_findings(&t, &codex, &[]);
+    assert!(
+        targets
+            .iter()
+            .any(|b| b.contains("adapters/codex/tests/zz/main.rs: names AdapterHarness")),
+        "{targets:#?}"
+    );
+    let ignored = ignored_rust_findings(&t);
+    assert!(
+        ignored
+            .iter()
+            .any(|b| b.starts_with("adapters/codex/tests/zz/main.rs: a Rust file git ignores")),
+        "{ignored:#?}"
+    );
+    // A harness file in its place is a target the rule passes.
+    let ok = Dependent {
+        targets: vec![(
+            vec!["test".into()],
+            t.join("adapters/codex/tests/contract.rs"),
+        )],
+        ..codex
+    };
+    std::fs::write(t.join("adapters/codex/tests/contract.rs"), hidden).unwrap();
+    assert!(target_findings(&t, &ok, &[]).is_empty());
     std::fs::remove_dir_all(&t).unwrap();
 }
 
@@ -699,13 +1040,16 @@ fn every_file_outside_the_suite_keeps_the_harness_rule() {
         .filter(|p| ALLOWED_DEPENDENTS.iter().any(|(a, _)| *a == p.name))
         .map(|p| p.dir.clone())
         .collect();
-    let files = git_files(&root, target.as_deref());
+    // Untracked files are dropped from target/ only; any other target directory inside
+    // the repository fails cargos_target_directory_is_target_or_outside_the_repository.
+    let target = (target == TargetDir::RootTarget).then_some("target");
+    let files = git_files(&root, target);
     assert!(
         files.iter().any(|f| f == "core/src/adapter.rs"),
         "git listed no core/src/adapter.rs: {} file(s)",
         files.len()
     );
-    let bad = tree_findings(&root, target.as_deref(), &listed);
+    let bad = tree_findings(&root, target, &listed);
     assert!(
         bad.is_empty(),
         "the harness a real adapter runs under lives at adapters/<name>/{HARNESS_FILE} only \

@@ -68,10 +68,23 @@ harness.
 - **What an adapter may take as a dev-dependency.** Only the suite, `oac-core` and
   `oac-fake-claude` (`ADAPTER_DEV_DEPENDENCIES`). An identifier-pasting proc macro such as
   `paste` could spell the trait and `run` in pieces that no text rule sees.
-- **Which files are read.** The file set comes from git: `git ls-files -co
-  --exclude-standard`, minus cargo's `target_directory` from `cargo metadata`. Any
-  `CACHEDIR.TAG` left in that set fails, since a committed tag would hide its directory. A
-  symlink fails too.
+- **Which files are read.** The file set comes from git: every tracked file, and every
+  untracked file that is not ignored (`git ls-files -co --exclude-standard`), minus
+  untracked files under `target/`. These fail: any `CACHEDIR.TAG` in that set (a committed
+  tag would hide its directory), a symlink, and a tracked file under `target/`.
+- **Where cargo's target directory may be.** It must be `<root>/target` or outside the
+  repository. A committed `.cargo/config.toml` `target-dir`, or `CARGO_TARGET_DIR`,
+  pointing anywhere else inside the repository fails, since it would take that directory
+  out of the file set.
+- **What cargo compiles for an adapter.** Git's file set misses a file that a committed
+  `.gitignore` hides, so three further rules cover it:
+  - an adapter has no build script (no custom-build target, no `build.rs` file);
+  - each test, example and bench target `cargo metadata` reports for it is
+    `tests/contract.rs`, or a file the name rules pass;
+  - no `.rs` file under `adapters/` is ignored by git.
+- **What an adapter may depend on.** Its normal and build dependencies are the static
+  scan's vetted list (`source::VETTED_DEPENDENCIES`), checked by `cargo metadata` for every
+  adapter directory, not only the two `tests/real_adapters.rs` names.
 
 These are text rules. What really bounds a listed transport is
 `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness hidden

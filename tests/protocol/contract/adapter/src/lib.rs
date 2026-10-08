@@ -100,7 +100,12 @@
 //! - An adapter takes no dev-dependency but this crate, `oac-core` and `oac-fake-claude`.
 //!   This excludes an identifier-pasting proc macro.
 //! - The files read are git's (`git ls-files -co --exclude-standard`), not a directory
-//!   walk's, minus cargo's target directory. Any `CACHEDIR.TAG` among them fails.
+//!   walk's, minus untracked files under `target/`. Any `CACHEDIR.TAG` among them fails.
+//!   Cargo's target directory is `target/` or outside the repository.
+//! - What cargo compiles for an adapter is checked too: no build script, every test,
+//!   example and bench target is the harness file or passes the name rules, and no `.rs`
+//!   file under `adapters/` is git-ignored. Its normal and build dependencies are the
+//!   vetted ones.
 //!
 //! Those are text rules. What really bounds a listed transport is
 //! `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness
