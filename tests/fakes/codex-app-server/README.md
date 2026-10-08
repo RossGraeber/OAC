@@ -47,8 +47,8 @@ are logged in a separate control log (`control` in the `oacFake/calls` result, w
 | Method | Params | Result |
 |---|---|---|
 | `oacFake/turn/complete` | `threadId`; `status` `"completed"` (default) or `"interrupted"`; `agentText` (optional) | `{threadId, turnId, status, dispatched}`: ends the running turn. With `agentText` it first emits the agent message item. On `"completed"` the queue head is dispatched (`dispatched` is the new turn id, or `null`) |
-| `oacFake/thread/create` | `cwd`, `ephemeral`, `archived`, `subagent` (`"multi-agent-v2"` or `"thread-spawn"`), `loaded` (default `true`), `materialized` (default `true`) | `{threadId}`: a thread in a state the fixtures could not create, for the queue refusals |
-| `oacFake/queue/setAvailable` | `available` | `{available}`: `false` models a host with no queue service |
+| `oacFake/thread/create` | `cwd`, `ephemeral`, `archived`, `subagent` (`"multi-agent-v2"` or `"thread-spawn"`), `loaded` (default `true`), `materialized` (default `true`) | `{threadId}`: a thread in a state the fixtures could not create, for the queue refusals. Every Codex method on a subagent thread answers `NOT_MODELLED` ("Not modelled") |
+| `oacFake/thread/setArchived` | `threadId`, `archived` (`true` or `false`) | `{threadId, archived, loaded}`: `true` puts an idle, materialized top-level thread with an empty queue into the state the S3 capture recorded after `thread/archive` (archived and not loaded, `cases-reload` L1023-L1030), so an add gets the recorded archived refusal (L1030-L1032); `false` puts it back, loaded and not archived. Test set-up only: it sends no frame, and models neither `thread/archive`'s notifications nor `thread/unarchive` |
 | `oacFake/calls` | `clientName` (optional filter) | `{calls, steering, overrideMembers, handOffs, malformed, control}`: the call log (below); `steering` to `malformed` are `seq` lists; `control` is the control log |
 | `oacFake/thread/state` | `threadId` | `{loaded, materialized, activeTurnId, lastTurnInterrupted, queue, turns, subscribers}` |
 | `oacFake/templates` | none | which fixture file and line each replayed template came from |
@@ -141,28 +141,22 @@ what live Codex `0.161.0` does; the fake now follows the recording:
   (`oacFake/turn/complete` with `status: "interrupted"` and `agentText`); live, it never
   completes (PR #344 review finding 2).
 
-### Source-only behaviours (runtime UNVERIFIED)
+### Source-only behaviours
 
-No fixture records these. Each is modelled from first-party source, `github.com/openai/codex`
-tag `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`, retrieved
-2026-10-06 (`B` = `https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs`).
-The S3 capture (#343) recorded every other row this table held; none of these three can be
-triggered through a documented client request, so they stay source-only:
+None. Every behaviour the fake models traces to a recorded fixture (Gate S3 criterion 5).
 
-- a subagent thread (either refusal) is spawned by the model through its multi-agent tools,
-  never created by a client request (`thread/start` makes a top-level thread);
-- "no queue service" is a daemon built without the queue extension; no client request
-  removes it.
-
-They are listed in `docs/planning/STATUS.md` "Open UNVERIFIED items" (the #274 entry) and in
-`docs/planning/v0.1/11-risks.md` row 65. Owner G7 (#68).
-*(Corrected 2026-10-07, #343: this paragraph said every source-only row was in rows 65-67.
-That was wrong: the unknown-thread refusal was in none of them, and the idle add, one item
-per idle and the unloaded add had no row of their own; rows 66 and 68 hold them now.)*
-
-| Behaviour | Source |
-|---|---|
-| `thread/queue/add` refusals, all `-32600`, after the recorded ones in handler order: a loaded multi-agent v2 subagent (`direct app-server input is not allowed for multi-agent v2 sub-agents`), an unloaded spawned subagent (`direct app-server input is not allowed for unloaded spawned sub-agents`), no queue service (`user message queue is unavailable`) | `B/app-server/src/request_processors/thread_queue_processor.rs` `add()`, `ensure_direct_input_allowed()`, `service()`, and L49-L50; `B/app-server/src/request_processors/thread_input.rs` L8-L9 |
+*(Dated note, 2026-10-08: until this date three `thread/queue/add` refusals were modelled
+from source at `rust-v0.160.0` only: a loaded multi-agent v2 subagent, an unloaded spawned
+subagent, and a host with no queue service (`oacFake/queue/setAvailable`). No documented
+client request triggers any of them, so the S3 capture (#343) could not record them. The
+lead decided that the fake stops modelling them: an add to a subagent thread now answers
+`NOT_MODELLED`, and the queue-unavailable control is removed ("Not modelled"). The checks
+that used the queue-unavailable control, the contract suite's turned-away hand-off
+([SEC-AUZ-027], [IFC-ADP-051], the planted `FallsBackToSteer`) and the pipelines
+demonstration, now archive the session's own thread with `oacFake/thread/setArchived` and
+get the recorded archived refusal. What Codex itself does in those three cases is still
+UNVERIFIED: `docs/planning/v0.1/11-risks.md` row 65 and the #274 entry of
+`docs/planning/STATUS.md` "Open UNVERIFIED items", owner G7 (#68).)*
 
 ### Not modelled
 
@@ -174,6 +168,12 @@ error message or frame for these:
 - `turn/steer` (logged and flagged), `thread/fork`,
   `thread/queue/{list,update,delete,reorder,start}`, and every other method no fixture
   records;
+- every Codex method on a subagent thread (one made with `oacFake/thread/create`
+  `subagent`): `thread/queue/add` to it, loaded or not, and `thread/list` or
+  `thread/loaded/list` while one would be listed. No fixture records a subagent thread, so
+  the fake gives neither of upstream's subagent refusals nor an acceptance;
+- a host with no queue service (upstream's `user message queue is unavailable`): no fixture
+  records one, and the fake has no control that makes one;
 - `turn/interrupt`, `thread/unsubscribe`, `thread/archive` and `thread/start` with
   `ephemeral`: recorded in the S3 capture, but no adapter calls them, so the fake answers them
   `NOT_MODELLED`; a test sets up the states they lead to with `oacFake/turn/complete`
