@@ -708,7 +708,9 @@ export function g4Cases(check) {
     check('g4 trace: nothing traced wrote, moved or deleted anything under either harness home', trace.filter((t) => t.kind === 'write' && t.path && underHome(t)).length === 0, JSON.stringify(trace.filter((t) => t.kind === 'write' && t.path && underHome(t)).map((t) => t.path)));
     check('g4 trace: no process wrote a Codex config file anywhere (no global edit, no project .codex/config.toml); positive control: the driver\'s own herdr-config.toml write IS traced', trace.filter((t) => t.kind === 'write' && t.path && basename(t.path) === 'config.toml').length === 0 && trace.some((t) => t.kind === 'write' && basename(t.path ?? '') === 'herdr-config.toml'));
     check('g4 trace: nothing copied or listed the Codex home (never copied)', trace.filter((t) => ['copyFileSync', 'copyFile', 'cpSync', 'cp', 'readdirSync', 'readdir', 'opendirSync', 'opendir'].includes(t.op) && t.path && underHome(t)).length === 0);
-    check('g4 trace: the driver read nothing under either home beyond the three harness-config hashes', driver.filter((t) => t.kind === 'fs' && t.path && underHome(t)).every((t) => hashed.has(t.path)), JSON.stringify([...new Set(driver.filter((t) => t.kind === 'fs' && t.path && underHome(t) && !hashed.has(t.path)).map((t) => t.path))]));
+    // #353: realpath of a home's own directory entry (executableIdentity canonicalizes it) reads nothing inside it.
+    const homeEntry = (t) => /^realpath(?:Sync)?$/.test(t.op) && homes.some((h) => resolve(h) === resolve(t.path));
+    check('g4 trace: the driver read nothing under either home beyond the three harness-config hashes', driver.filter((t) => t.kind === 'fs' && t.path && underHome(t)).every((t) => hashed.has(t.path) || homeEntry(t)), JSON.stringify([...new Set(driver.filter((t) => t.kind === 'fs' && t.path && underHome(t) && !hashed.has(t.path) && !homeEntry(t)).map((t) => `${t.op} ${t.path}`))]));
     check('g4 trace: the server opened nothing under either home and started no process', server.filter((t) => t.path && underHome(t)).length === 0 && server.filter((t) => t.kind === 'spawn').length === 0);
 
     // The report CLI.

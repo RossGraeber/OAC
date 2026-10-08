@@ -1016,7 +1016,9 @@ export async function l3Cases(check, h) {
       const underHome = (t) => t.path && homes.some((x) => within(t.path, x));
       const hashed = new Set(harnessConfigTargets(w.b.env, { home: w.home }).targets.map((t) => t.path));
       const sessionDir = join(w.b.env.CLAUDE_CONFIG_DIR, 'projects');
-      const allowedRead = (t) => hashed.has(t.path) || (within(t.path, sessionDir) && /[\\/]projects[\\/][^\\/]*l3-project(?:[\\/][^\\/]+\.jsonl)?$/.test(t.path));
+      // #353: realpath of a home's own directory entry (executableIdentity canonicalizes it) reads nothing inside it.
+      const homeEntry = (t) => /^realpath(?:Sync)?$/.test(t.op) && homes.some((x) => x && resolve(x) === resolve(t.path));
+      const allowedRead = (t) => hashed.has(t.path) || homeEntry(t) || (within(t.path, sessionDir) && /[\\/]projects[\\/][^\\/]*l3-project(?:[\\/][^\\/]+\.jsonl)?$/.test(t.path));
       check('l3 trace: the tracer saw the driver in all three phases', new Set(driver.map((t) => t.pid)).size >= 3 && driver.length > 100, String(driver.length));
       check('l3 trace: the driver wrote nothing under either harness home', driver.filter(underHome).every((t) => t.kind !== 'write'), JSON.stringify([...new Set(driver.filter(underHome).filter((t) => t.kind === 'write').map((t) => `${t.op} ${relative(w.b.base, t.path)}`))]));
       check('l3 trace: the driver read nothing under the harness homes but the hashed config files and the probe project\'s session file', driver.filter(underHome).every((t) => t.kind === 'fs' && allowedRead(t)), JSON.stringify([...new Set(driver.filter(underHome).filter((t) => !allowedRead(t)).map((t) => `${t.op} ${relative(w.b.base, t.path)}`))]));
