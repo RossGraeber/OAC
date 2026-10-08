@@ -65,6 +65,15 @@
 //      member, and no root `[workspace] exclude` that reaches adapters/ (PR #352 third review
 //      finding 2): an excluded crate depended on by path builds into the product while rules
 //      1-5 and the adapter suite, which read members only, never see it.
+//   9. The adapters and adapters/mcp-tools declare no `[features]` of their own (PR #352
+//      fourth review finding 1): with features, a non-monotonic cfg such as
+//      `cfg(all(feature = "a", not(feature = "b")))` compiles only under a feature set no
+//      --adapters-alone run builds, while cli/ turning on `a` builds it into the product.
+//  10. The root manifest has no `[patch]` and no `[replace]` (fourth review finding 2): a
+//      patch of a crate the vetted crates pull in (tokio-macros, say) to a path or git
+//      source swaps code the vetting reads. The adapter suite also requires every
+//      non-member package in an adapter's resolved closure to come from crates.io and sit
+//      under $CARGO_HOME/registry/src.
 //
 //   What these checks trust: CI's cargo command lines and environment. A `--config` flag, a
 //   redirected CARGO_HOME, or a CARGO_SOURCE_* / CARGO_PATCH* variable in a workflow could
@@ -232,6 +241,16 @@ export function checkMetadata(meta) {
     }
     members.set(id, mod);
   }
+  // 9. No adapter-side member declares features of its own (fourth review finding 1).
+  for (const [id, mod] of members) {
+    if (mod.kind !== 'adapter' && mod.kind !== 'tools') continue;
+    const p = pkgById.get(id);
+    const names = Object.keys(p.features ?? {});
+    if (names.length) {
+      violations.push(`${p.name} (${mod.path}): declares [features] (${names.join(', ')}); adapters and adapters/mcp-tools ` +
+        'may declare none (rule 9: a non-monotonic feature cfg escapes every --adapters-alone run)');
+    }
+  }
   // 8. No path package inside the workspace root that is not a member (PR #352 third review
   // finding 2): one excluded from the workspace and depended on by path builds into the
   // product while rules 1-5 and the adapter suite, which read members only, never see it.
@@ -374,6 +393,29 @@ export function checkCargoConfig(dir, opts) {
   return cargoConfigFiles(dir, opts).flatMap((f) => cargoConfigFindings(f, readFileSync(join(dir, f), 'utf8')));
 }
 
+// Rule 10 (fourth review finding 2): the root manifest has no `[patch]` and no `[replace]`,
+// under any spelling: a `[patch.<source>]` or `[replace]` header (quoted, spaced, any case),
+// or a top-level `patch.<..>` / `replace` dotted or inline-table key.
+export function rootPatchFindings(text) {
+  const out = [];
+  let table = '';
+  const norm = (s) => s.replace(/["'\s]/g, '').toLowerCase();
+  const hits = (name) => name === 'patch' || name.startsWith('patch.') || name === 'replace' || name.startsWith('replace.');
+  String(text).replace(/\r\n/g, '\n').split('\n').forEach((raw, i) => {
+    const line = raw.replace(/\s+#.*$/, '').trim();
+    if (line.startsWith('#') || line === '') return;
+    if (line.startsWith('[')) {
+      table = norm(line.replace(/^\[+|\]+$/g, ''));
+      if (hits(table)) out.push(`Cargo.toml:${i + 1}: \`${line}\` (rule 10: the root manifest may hold no [patch] or [replace])`);
+      return;
+    }
+    if (table === '' && line.includes('=') && hits(norm(line.split('=')[0]))) {
+      out.push(`Cargo.toml:${i + 1}: \`${line}\` (rule 10: the root manifest may hold no [patch] or [replace])`);
+    }
+  });
+  return out;
+}
+
 // Rule 8, the manifest side (third review finding 2): the root manifest's workspace `exclude`
 // may name nothing that holds or sits under adapters/ (cargo matches an exclude as a path
 // prefix, so `.`, `adapters` and `adapters/acp` all count). Read from the TOML text: the
@@ -437,13 +479,13 @@ function report(violations, label) {
 // ---------------------------------------------------------------------------------------
 // --self-test: synthetic metadata documents.
 
-function synth({ members, externals = [], edges, paths = {} }) {
+function synth({ members, externals = [], edges, paths = {}, features = {} }) {
   // members: { name: relDir }; externals: [name]; edges: [[from, to, kind?]];
   // paths: { name: relDir }, non-member path packages (source null) at relDir from the root.
   const root = resolve('/ws');
   const id = (n) => `id:${n}`;
   const packages = [
-    ...Object.entries(members).map(([n, d]) => ({ id: id(n), name: n, manifest_path: join(root, d, 'Cargo.toml') })),
+    ...Object.entries(members).map(([n, d]) => ({ id: id(n), name: n, manifest_path: join(root, d, 'Cargo.toml'), features: features[n] ?? {} })),
     ...externals.map((n) => ({ id: id(n), name: n, manifest_path: join(root, '..', 'registry', n, 'Cargo.toml') })),
     ...Object.entries(paths).map(([n, d]) => ({ id: id(n), name: n, source: null, manifest_path: join(root, d, 'Cargo.toml') })),
   ];
@@ -729,11 +771,31 @@ const SELF_TEST_CASES = [
     meta: synth({ members: BASE_MEMBERS, paths: { 'oac-adapter-acp': 'adapters/acp' }, edges: [...BASE_EDGES, ['oac-cli', 'oac-adapter-acp'], ['oac-adapter-acp', 'oac-core']] }),
   },
   { name: 'rule 8: a non-member path package anywhere inside the root (vendor/x)', meta: synth({ members: BASE_MEMBERS, paths: { x: 'vendor/x' }, edges: [...BASE_EDGES, ['oac-core', 'x']] }) },
+  // Rule 9 (fourth review finding 1): adapter-side members declare no features.
+  { name: 'rule 9: adapters/codex declares features a and b', meta: synth({ members: BASE_MEMBERS, edges: BASE_EDGES, features: { 'oac-adapter-codex': { a: [], b: [] } } }) },
+  { name: 'rule 9: adapters/mcp-tools declares one feature', meta: synth({ members: TOOLS_MEMBERS, edges: TOOLS_EDGES, features: { 'oac-mcp-tools': { x: [] } } }) },
+  {
+    name: 'rule 9 control: core/, cli/ and a transport may declare features',
+    expectClean: true,
+    meta: synth({ members: BASE_MEMBERS, edges: BASE_EDGES, features: { 'oac-core': { a: [] }, 'oac-cli': { b: [] }, 'oac-transport-zenoh': { c: [] } } }),
+  },
   {
     name: 'rule 8 control: a path package outside the workspace root',
     expectClean: true,
     meta: synth({ members: BASE_MEMBERS, paths: { outside: '../elsewhere/outside' }, edges: [...BASE_EDGES, ['oac-adapter-claude', 'outside', 'dev']] }),
   },
+];
+
+// Rule 10: the root manifest's [patch] and [replace].
+const PATCH_CASES = [
+  { name: 'rule 10: [patch.crates-io] tokio-macros to a path', text: '[workspace]\nmembers = ["core"]\n\n[patch.crates-io]\ntokio-macros = { path = "../x" }\n' },
+  { name: 'rule 10: [patch.crates-io.tokio-macros] to git', text: '[patch.crates-io.tokio-macros]\ngit = "https://example.invalid/tokio"\n' },
+  { name: 'rule 10: quoted, spaced [ patch."https://github.com/rust-lang/crates.io-index" ]', text: '[ patch."https://github.com/rust-lang/crates.io-index" ]\nserde = { path = "x" }\n' },
+  { name: 'rule 10: [replace]', text: '[replace]\n"tokio-macros:2.7.2" = { path = "x" }\n' },
+  { name: 'rule 10: top-level dotted patch key', text: 'patch.crates-io.tokio-macros.path = "x"\n[workspace]\n' },
+  { name: 'rule 10: top-level inline replace', text: 'replace = { "serde:1.0.0" = { path = "x" } }\n' },
+  { name: 'rule 10: upper case [PATCH.crates-io], CRLF', text: '[workspace]\r\n[PATCH.crates-io]\r\nx = { path = "y" }\r\n' },
+  { name: 'rule 10 control: workspace tables and a key named patch-level inside one', expectClean: true, text: '[workspace]\nmembers = ["core"]\n[workspace.metadata]\npatch-level = 1\npatch = "not a table at the top"\n' },
 ];
 
 // Rule 8, the manifest side: the root `[workspace]` exclude.
@@ -779,8 +841,9 @@ function selfTest() {
       for (const x of v) console.log(`        ${x}`);
     }
   }
-  for (const c of EXCLUDE_CASES) {
-    const v = workspaceExcludeFindings(c.text);
+  for (const c of [...EXCLUDE_CASES.map((x) => ({ ...x, fn: workspaceExcludeFindings })),
+    ...PATCH_CASES.map((x) => ({ ...x, fn: rootPatchFindings }))]) {
+    const v = c.fn(c.text);
     const ok = c.expectClean ? v.length === 0 : v.length > 0;
     console.log(`${ok ? 'pass' : 'FAIL'}  ${c.name}`);
     if (!ok) {
@@ -798,7 +861,7 @@ function selfTest() {
   const allFeatures = METADATA_ARGS.includes('--all-features');
   console.log(`${allFeatures ? 'pass' : 'FAIL'}  cargo metadata runs with --all-features (optional dependencies are in the graph)`);
   if (!allFeatures) failed++;
-  const total = SELF_TEST_CASES.length + CARGO_CONFIG_CASES.length + EXCLUDE_CASES.length + 6 + 1;
+  const total = SELF_TEST_CASES.length + CARGO_CONFIG_CASES.length + EXCLUDE_CASES.length + PATCH_CASES.length + 6 + 1;
   console.log(`self-test: ${total - failed}/${total} cases pass`);
   return failed ? 1 : 0;
 }
@@ -960,6 +1023,35 @@ const MUTATIONS = [
       { file: 'cli/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-acp = { path = "../adapters/acp" }') },
     ],
   },
+  // Fourth review finding 2: a root [patch] of a crate the vetted crates pull in, to a path
+  // and to git (rule 10).
+  {
+    name: 'root [patch.crates-io] tokio-macros to a path outside the root (rule 10)',
+    file: 'Cargo.toml',
+    edit: (t) => `${t}\n[patch.crates-io]\ntokio-macros = { path = "../../edited/tokio-macros-2.7.2" }\n`,
+  },
+  {
+    name: 'root [patch.crates-io] tokio-macros to git (rule 10)',
+    file: 'Cargo.toml',
+    edit: (t) => `${t}\n[patch.crates-io.tokio-macros]\ngit = "https://example.invalid/tokio"\n`,
+  },
+  { name: 'root [replace] of tokio-macros (rule 10)', file: 'Cargo.toml', edit: (t) => `${t}\n[replace]\n"tokio-macros:2.7.2" = { path = "../x" }\n` },
+  // Fourth review finding 1: the review's non-monotonic feature cfg (rule 9).
+  {
+    name: 'adapters/codex features a and b, cfg(all(feature = "a", not(feature = "b"))) code, cli/ turns on a (rule 9)',
+    edits: [
+      {
+        file: 'adapters/codex/Cargo.toml',
+        edit: (t) => addLine('features', 'a = []\nb = []', addLine('dependencies', 'featured-stub = { path = "../../../stubs/featured-stub" }', t)),
+      },
+      { file: 'adapters/codex/src/lib.rs', edit: (t) => `${t}\n#[cfg(all(feature = "a", not(feature = "b")))]\npub type Probe = featured_stub::net::Probe;\n` },
+      {
+        file: 'cli/Cargo.toml',
+        edit: (t) => addDep('dependencies', 'featured-stub = { path = "../../stubs/featured-stub", features = ["net"] }')(
+          t.replace('oac-adapter-codex = { path = "../adapters/codex" }', 'oac-adapter-codex = { path = "../adapters/codex", features = ["a"] }')),
+      },
+    ],
+  },
   {
     name: 'exclude = ["vendor"], cli/ depends on vendor/x by path (rule 8, graph side)',
     edits: [
@@ -1068,6 +1160,9 @@ function mutationTest() {
     // Rule 7 first: a planted source replacement may leave cargo unable to resolve at all.
     const cfg = checkCargoConfig(dir, { tracked: false, memberDirs });
     if (cfg.length) return { failed: true, by: `checker: ${cfg[0]}${cfg.length > 1 ? ` (+${cfg.length - 1} more)` : ''}` };
+    // Rule 10 before cargo too: a git patch would need a fetch the offline copy cannot make.
+    const patches = rootPatchFindings(readFileSync(join(dir, 'Cargo.toml'), 'utf8'));
+    if (patches.length) return { failed: true, by: `checker: ${patches[0]}` };
     // Rule 8's manifest side, reported with whatever the graph side finds too.
     const excl = workspaceExcludeFindings(readFileSync(join(dir, 'Cargo.toml'), 'utf8'));
     const m = cargoMetadata(dir);
@@ -1189,7 +1284,8 @@ function main(argv) {
   const meta = JSON.parse(r.stdout);
   const configs = cargoConfigFiles(repoRoot, { tracked: true });
   return report([...checkCargoConfig(repoRoot, { tracked: true }),
-    ...workspaceExcludeFindings(readFileSync(join(repoRoot, 'Cargo.toml'), 'utf8')), ...checkMetadata(meta)],
+    ...workspaceExcludeFindings(readFileSync(join(repoRoot, 'Cargo.toml'), 'utf8')),
+    ...rootPatchFindings(readFileSync(join(repoRoot, 'Cargo.toml'), 'utf8')), ...checkMetadata(meta)],
     `${meta.workspace_members.length} workspace members, ${meta.packages.length} packages, ` +
       `${configs.length} tracked cargo configuration file(s)`);
 }

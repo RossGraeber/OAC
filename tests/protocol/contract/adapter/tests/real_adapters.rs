@@ -125,6 +125,51 @@ fn a_new_adapter_member_is_found_and_vetted() {
     }
 }
 
+/// The planted cases for PR #352 fourth review findings 1 and 2, on a scratch workspace that
+/// resolves offline (no registry crate in it): an adapter declaring features `a` and `b`
+/// with `cfg(all(feature = "a", not(feature = "b")))` code, a root `[patch.crates-io]` of
+/// `tokio-macros` to a path outside the workspace, and a `tokio-macros` path package in the
+/// adapter's closure. Each is its own finding.
+#[test]
+fn features_root_patches_and_path_packages_in_the_closure_are_refused() {
+    let tmp = std::env::temp_dir().join(format!("oac-fourth-review-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let write = |rel: &str, text: &str| {
+        let p = tmp.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    let edited = "[package]\nname = \"tokio-macros\"\nversion = \"2.7.2\"\nedition = \"2024\"\n";
+    write("outside/tokio-macros/Cargo.toml", edited);
+    write("outside/tokio-macros/src/lib.rs", "");
+    write(
+        "ws/Cargo.toml",
+        "[workspace]\nresolver = \"3\"\nmembers = [\"adapters/acp\"]\n\n\
+         [patch.crates-io]\ntokio-macros = { path = \"../outside/tokio-macros\" }\n",
+    );
+    write(
+        "ws/adapters/acp/Cargo.toml",
+        "[package]\nname = \"oac-adapter-acp\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n\
+         [dependencies]\ntokio-macros = { path = \"../../../outside/tokio-macros\" }\n\n\
+         [features]\na = []\nb = []\n",
+    );
+    write(
+        "ws/adapters/acp/src/lib.rs",
+        "#[cfg(all(feature = \"a\", not(feature = \"b\")))]\npub struct Probe;\n",
+    );
+    let dirs = adapter_members(&tmp.join("ws")).expect("the scratch workspace's adapter members");
+    assert_eq!(dirs.len(), 1, "{dirs:?}");
+    let all = listed(&static_findings(&dirs[0]));
+    let _ = std::fs::remove_dir_all(&tmp);
+    for want in [
+        "declares [features] (a, b)",
+        "the root manifest may hold no [patch] or [replace]",
+        "resolved package `tokio-macros 2.7.2` in the closure comes from a path, not crates.io",
+    ] {
+        assert!(all.contains(want), "no `{want}` finding in: {all}");
+    }
+}
+
 /// An adapter's own tests never reach the suite's planted breaches either (the TEST-PLANT
 /// row, PR #336 review N6): its test, bench and example targets, and everything under
 /// `tests/`. Only that row is checked there: an adapter's tests may do what its code may

@@ -1302,6 +1302,9 @@ pub fn package_sources(crate_dir: &Path) -> PackageSources {
                 .collect()
         })
         .unwrap_or_default();
+    for why in own_features_findings(&features) {
+        fail(&mut s, why);
+    }
     for why in feature_table_findings(&features, &vetted_dependencies()) {
         fail(&mut s, why);
     }
@@ -1695,56 +1698,101 @@ pub fn vet_registry_location(r: &Resolved, registry_src: Option<&Path>) -> Optio
     ))
 }
 
-/// Why a workspace root manifest's `[patch]` or `[replace]` tables are refused: any entry for
-/// a [`Vetted::Registry`] crate or a forbidden crate (review finding 3). Reads the TOML text by
-/// table header and key, as [`manifest_findings`] does: `[patch.crates-io]` with a `tokio =`
-/// key, `[patch.crates-io.tokio]`, `[patch."https://.."]` with `x = { package = "tokio" .. }`,
-/// and `[replace]` with `"tokio:1.53.2" = ..` each count.
-pub fn patch_findings(text: &str, vetted: &[(&str, Vetted)]) -> Vec<String> {
-    let watched = |name: &str| {
-        let n = name.trim().trim_matches('"').trim_matches('\'');
-        let n = n.split(':').next().unwrap_or(n);
-        is_forbidden_crate(n) || registry_vetting(n, vetted).is_some()
+/// Why a workspace root manifest's `[patch]` or `[replace]` tables are refused: any at all (PR
+/// #352 fourth review finding 2; round 1 refused only entries for a vetted or forbidden crate,
+/// so a patch of a crate a vetted crate pulls in, `tokio-macros`, got through). Reads the TOML
+/// text: a `[patch..]` or `[replace..]` header, quoted, spaced or in any case, or a top-level
+/// `patch..` / `replace` dotted or inline-table key. `scripts/check-crate-deps.mjs` rule 10
+/// refuses the same.
+pub fn patch_findings(text: &str) -> Vec<String> {
+    let norm = |s: &str| {
+        s.chars()
+            .filter(|c| !matches!(c, '"' | '\'') && !c.is_whitespace())
+            .collect::<String>()
+            .to_ascii_lowercase()
+    };
+    let refused = |name: &str| {
+        name == "patch"
+            || name.starts_with("patch.")
+            || name == "replace"
+            || name.starts_with("replace.")
     };
     let mut out = Vec::new();
-    let mut table = String::new();
-    let mut patching = false;
+    let mut top = true;
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split(" #").next().unwrap_or_default().trim();
         if line.starts_with('#') || line.is_empty() {
             continue;
         }
         if line.starts_with('[') {
-            table = line.trim_matches(|c| c == '[' || c == ']').to_owned();
-            patching = table.starts_with("patch") || table.starts_with("replace");
-            if patching
-                && let Some(last) = table.rsplit('.').next()
-                && table.matches('.').count() >= 2
-                && watched(last)
-            {
+            top = false;
+            let table = norm(line.trim_matches(|c| c == '[' || c == ']'));
+            if refused(&table) {
                 out.push(format!(
-                    "line {}: `[{table}]` patches a vetted or forbidden crate",
+                    "line {}: `{line}`: the root manifest may hold no [patch] or [replace]",
                     i + 1
                 ));
             }
             continue;
         }
-        if !patching {
-            continue;
-        }
-        let key = line.split('=').next().unwrap_or_default();
-        let renamed = line
-            .split_once("package")
-            .and_then(|(_, r)| r.split('"').nth(1))
-            .unwrap_or_default();
-        if watched(key) || (!renamed.is_empty() && watched(renamed)) {
+        if top
+            && let Some((key, _)) = line.split_once('=')
+            && refused(&norm(key))
+        {
             out.push(format!(
-                "line {}: `[{table}]` entry `{line}` patches a vetted or forbidden crate",
+                "line {}: `{line}`: the root manifest may hold no [patch] or [replace]",
                 i + 1
             ));
         }
     }
     out
+}
+
+/// Why a package's own `[features]` table is refused at all (PR #352 fourth review finding 1):
+/// an adapter or `adapters/mcp-tools` may declare no feature, because a non-monotonic cfg
+/// (`cfg(all(feature = "a", not(feature = "b")))`) compiles only under a feature set no
+/// `--adapters-alone` run builds, while another member turning on `a` builds it into the
+/// product. `scripts/check-crate-deps.mjs` rule 9 refuses the same. `features` is the table as
+/// `cargo metadata` lists it (implicit features of optional dependencies included).
+pub fn own_features_findings(features: &[(String, Vec<String>)]) -> Vec<String> {
+    if features.is_empty() {
+        return Vec::new();
+    }
+    let names: Vec<&str> = features.iter().map(|(k, _)| k.as_str()).collect();
+    vec![format!(
+        "declares [features] ({}); an adapter may declare none (a non-monotonic feature cfg \
+         escapes every --adapters-alone run)",
+        names.join(", ")
+    )]
+}
+
+/// Why a non-member package in what an adapter builds (its closure over normal and build
+/// edges) is refused (PR #352 fourth review finding 2): each must come from crates.io and sit
+/// under cargo's registry sources ([`vet_registry_location`]). A path or git package (a root
+/// `[patch]` to one, say) is refused whatever its name; the one exception is a
+/// [`Vetted::Path`] crate at its own directory (`oac-core` when the adapter is outside this
+/// workspace, as a scratch crate is), checked by [`vet_resolved`].
+pub fn vet_closure_package(
+    r: &Resolved,
+    vetted: &[(&str, Vetted)],
+    registry_src: Option<&Path>,
+) -> Option<String> {
+    let own = vetted
+        .iter()
+        .any(|(n, v)| *n == r.name && matches!(v, Vetted::Path(_)));
+    if own && vet_resolved(r, vetted).is_none() {
+        return None;
+    }
+    if r.source.as_deref() != Some(CRATES_IO) {
+        return Some(format!(
+            "resolved package `{} {}` in the closure comes from {}, not crates.io (a [patch] or \
+             [replace]?); every non-member package must be a crates.io registry package",
+            r.name,
+            r.version,
+            r.source.as_deref().unwrap_or("a path")
+        ));
+    }
+    vet_registry_location(r, registry_src)
 }
 
 /// The resolved-graph checks for one package (review finding 3): each normal or build
@@ -1790,9 +1838,16 @@ fn resolved_findings(manifest: &Path) -> Vec<String> {
         .and_then(|r| r.as_str())
         .unwrap_or_default();
     match std::fs::read_to_string(Path::new(root).join("Cargo.toml")) {
-        Ok(t) => why.extend(patch_findings(&t, &vetted)),
+        Ok(t) => why.extend(patch_findings(&t)),
         Err(e) => why.push(format!("workspace root manifest cannot be read: {e}")),
     }
+    let members: HashSet<String> = top
+        .get("workspace_members")
+        .and_then(|m| m.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|m| m.as_str().map(str::to_owned))
+        .collect();
     let mut packages = HashMap::new();
     let mut this = None;
     let want = std::fs::canonicalize(manifest).ok();
@@ -1876,20 +1931,35 @@ fn resolved_findings(manifest: &Path) -> Vec<String> {
     }
     let registry_src = cargo_registry_src();
     let mut seen = HashSet::new();
-    let mut queue = VecDeque::from([this]);
+    let mut queue = VecDeque::from([this.clone()]);
     while let Some(id) = queue.pop_front() {
         for (pkg, _) in edges.get(&id).cloned().unwrap_or_default() {
             if seen.insert(pkg.clone()) {
-                if let Some(r) = packages.get(&pkg) {
-                    if is_forbidden_crate(&r.name) {
-                        why.push(format!(
-                            "resolved graph holds forbidden `{}` (G-7 section 2)",
-                            r.name
-                        ));
-                    }
-                    // Every registry package in the closure, not only the vetted ones: the
-                    // review's repro edited `tokio-macros`, which tokio reaches.
-                    why.extend(vet_registry_location(r, registry_src.as_deref()));
+                if let Some(r) = packages.get(&pkg)
+                    && is_forbidden_crate(&r.name)
+                {
+                    why.push(format!(
+                        "resolved graph holds forbidden `{}` (G-7 section 2)",
+                        r.name
+                    ));
+                }
+                queue.push_back(pkg);
+            }
+        }
+    }
+    // Every non-member package the adapter builds (normal and build edges), not only the
+    // vetted ones: the reviews' repros edited `tokio-macros`, which tokio reaches, through a
+    // vendored directory (second review) and a root [patch] (fourth review). Dev-only
+    // dependencies are the adapter's own tests' business.
+    let mut built = HashSet::new();
+    let mut queue = VecDeque::from([this]);
+    while let Some(id) = queue.pop_front() {
+        for (pkg, is_built) in edges.get(&id).cloned().unwrap_or_default() {
+            if is_built && built.insert(pkg.clone()) {
+                if let Some(r) = packages.get(&pkg)
+                    && !members.contains(&pkg)
+                {
+                    why.extend(vet_closure_package(r, &vetted, registry_src.as_deref()));
                 }
                 queue.push_back(pkg);
             }
@@ -2940,14 +3010,107 @@ mod tests {
             "[patch.\"https://github.com/x/y\"]\nt = { package = \"tokio\", path = \"x\" }\n",
             "[replace]\n\"tokio:1.53.2\" = { path = \"x\" }\n",
             "[patch.crates-io]\ncodex-core = { path = \"x\" }\n",
+            // PR #352 fourth review finding 2: any patch at all, a crate the vetted crates pull
+            // in included, to a path or to git.
+            "[patch.crates-io]\nserde = { path = \"x\" }\n",
+            "[patch.crates-io]\ntokio-macros = { path = \"../outside/tokio-macros-2.7.2\" }\n",
+            "[patch.crates-io.tokio-macros]\ngit = \"https://example.invalid/tokio\"\n",
+            "[ patch . \"https://github.com/rust-lang/crates.io-index\" ]\nx = { path = \"y\" }\n",
+            "[PATCH.crates-io]\r\nx = { path = \"y\" }\r\n",
+            "patch.crates-io.tokio-macros.path = \"x\"\n[workspace]\n",
+            "replace = { \"tokio-macros:2.7.2\" = { path = \"x\" } }\n",
         ] {
-            assert!(!patch_findings(bad, &vetted).is_empty(), "{bad}");
+            assert!(!patch_findings(bad).is_empty(), "{bad}");
         }
         for ok in [
             "[workspace]\nmembers = [\"core\"]\n[workspace.dependencies]\ntokio = \"=1.53.2\"\n",
-            "[patch.crates-io]\nserde = { path = \"x\" }\n",
+            "[workspace.metadata]\npatch = \"not the top level\"\npatch-level = 1\n",
         ] {
-            assert_eq!(patch_findings(ok, &vetted), Vec::<String>::new(), "{ok}");
+            assert_eq!(patch_findings(ok), Vec::<String>::new(), "{ok}");
+        }
+    }
+
+    /// PR #352 fourth review finding 2: every non-member package in an adapter's closure comes
+    /// from crates.io, under cargo's registry sources. A root `[patch]` of `tokio-macros` to a
+    /// path or to git is refused whatever directory it lands in.
+    #[test]
+    fn closure_packages_are_crates_io_registry_packages() {
+        let tmp = std::env::temp_dir().join(format!("oac-closure-{}", std::process::id()));
+        let src = registry_src_from(None, Some(tmp.join("home"))).unwrap();
+        let inside = src.join("index.crates.io-1949cf8c6b5b557f/tokio-macros-2.7.2");
+        let outside = tmp.join("outside/tokio-macros-2.7.2");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let at = |source: Option<&str>, dir: &Path| Resolved {
+            name: "tokio-macros".into(),
+            version: "2.7.2".into(),
+            source: source.map(str::to_owned),
+            dir: dir.to_path_buf(),
+        };
+        let vetted = vetted_dependencies();
+        assert_eq!(
+            vet_closure_package(&at(Some(CRATES_IO), &inside), &vetted, Some(&src)),
+            None
+        );
+        // The repository's own core/ at its own directory is the one path package allowed.
+        let Vetted::Path(core) = vetted[0].1.clone() else {
+            panic!()
+        };
+        let own = Resolved {
+            name: "oac-core".into(),
+            version: "0.0.0".into(),
+            source: None,
+            dir: core,
+        };
+        assert_eq!(vet_closure_package(&own, &vetted, Some(&src)), None);
+        assert!(
+            vet_closure_package(
+                &Resolved {
+                    dir: outside.clone(),
+                    ..own
+                },
+                &vetted,
+                Some(&src)
+            )
+            .is_some(),
+            "a path crate named oac-core elsewhere"
+        );
+        for (case, r) in [
+            ("path patch outside the root", at(None, &outside)),
+            ("path patch inside the registry sources", at(None, &inside)),
+            (
+                "git patch",
+                at(
+                    Some("git+https://example.invalid/tokio?branch=x#0123abc"),
+                    &outside,
+                ),
+            ),
+            (
+                "another registry",
+                at(Some("registry+https://example.invalid/index"), &inside),
+            ),
+            ("crates.io, vendored", at(Some(CRATES_IO), &outside)),
+        ] {
+            assert!(
+                vet_closure_package(&r, &vetted, Some(&src)).is_some(),
+                "{case}"
+            );
+        }
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// PR #352 fourth review finding 1: an adapter may declare no feature.
+    #[test]
+    fn adapters_declare_no_features() {
+        let table = |names: &[&str]| -> Vec<(String, Vec<String>)> {
+            names
+                .iter()
+                .map(|n| ((*n).to_owned(), Vec::new()))
+                .collect()
+        };
+        assert_eq!(own_features_findings(&table(&[])), Vec::<String>::new());
+        for t in [table(&["a", "b"]), table(&["default"]), table(&["x"])] {
+            assert_eq!(own_features_findings(&t).len(), 1, "{t:?}");
         }
     }
 
