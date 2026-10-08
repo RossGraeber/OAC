@@ -1083,6 +1083,19 @@ pub const THREATS: &[Threat] = &[
         }],
     },
     Threat {
+        row: "S13-misattributed-send",
+        attack: "Misattributed send request between conversations of one harness process",
+        spec13: &["Misattributed send request"],
+        tests: &["gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation"],
+        facts: &[],
+        core_tests: &[],
+        status: Status::Gated,
+        gated: &[Gate {
+            issue: G8,
+            what: "the Codex adapter's issued-value pairing and per-call confirmation, spec/bindings/mcp.md §4.5 (gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation)",
+        }],
+    },
+    Threat {
         row: "S13-presence-forgery",
         attack: "Presence forgery, tampering, forwarding or replay",
         spec13: &[

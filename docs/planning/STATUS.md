@@ -25,7 +25,10 @@ the lead approves and merges the pull request (`docs/planning/decisions/E7-inter
   hold under `spec/session-channels.md` §6.7: no Codex native signal could be paired. With
   the pairing, a Codex session is bound, and can receive, from its first OAC tool call.
 - **Runner.** `tests/protocol/runner/run.mjs` accepts `spec_revision` `0.2` for the MCP
-  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006.
+  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006. The security suite maps the new
+  §13 row as `S13-misattributed-send`, gated on G8 (#69) with the placeholder
+  `gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation`; the 09 §12 F11
+  table gains its rendered row.
 - **Ledger.** The per-request-signal item is closed (none exists); the multi-thread-connection
   item is reworded (source says no); three new items (rows 71 to 73 of `11-risks.md`); the
   C4 pairing-facility item now also covers Codex.)
