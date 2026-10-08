@@ -4,7 +4,8 @@
 // hashed or run, and no harness config directory is read (CLAUDE_CONFIG_DIR and CODEX_HOME
 // point into the temp directory).
 
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -12,6 +13,7 @@ import { createHash } from 'node:crypto';
 
 import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd, hashHarnessConfig } from '../lib/manifest.mjs';
 import { hashConfig, harnessConfigTargets } from '../lib/l3.mjs';
+import { readProjectSessionFiles } from '../scenarios/l3-beacon.mjs';
 import { herdrVerification, verification, TO_FILL } from '../lib/gate-report-common.mjs';
 import { canonicalForms, canonicallyWithin, isMainModule } from '../lib/canonical-path.mjs';
 import { checkHerdrExecutable, herdrCheckDecision, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
@@ -141,7 +143,63 @@ export async function identityUnit(check) {
       check('#353 config hash (control): a hooks.json linked to a same-named dotfiles file is hashed', hooks?.sha256 === sha('{}\n'), JSON.stringify(hooks));
       const l3h = hashConfig(harnessConfigTargets({ CODEX_HOME: cfgHome }, { home: join(dir, 'no-home') }).targets);
       const l3toml = l3h.find((h) => h.label === '$CODEX_HOME/config.toml');
+      // L3 readSessionFile (PR #356 review): only plain *.jsonl files in a plain slug directory
+      // under <claude config>/projects are read; a symlink leaving it is skipped, never read.
+      const proj = join(dir, 'claude-home', 'projects');
+      const slug = join(proj, 'p-l3-project');
+      mkdirSync(slug, { recursive: true });
+      const mk = [{ id: 'claude-channel', marker: 'MARK-353', token: 'TOK-353' }];
+      writeFileSync(join(slug, 'a.jsonl'), `${JSON.stringify({ type: 'user', note: 'MARK-353' })}\n`);
+      const outside = join(dir, 'outside-secret.jsonl');
+      writeFileSync(outside, `${JSON.stringify({ type: 'leak', note: 'MARK-353' })}\n`);
+      symlinkSync(outside, join(slug, 'b.jsonl'));
+      symlinkSync(join(dir, 'dotfiles'), join(proj, 'p-linked-l3-project'));
+      writeFileSync(join(dir, 'dotfiles', 'c.jsonl'), `${JSON.stringify({ type: 'leak2', note: 'MARK-353' })}\n`);
+      const rs = readProjectSessionFiles([slug, join(proj, 'p-linked-l3-project')], proj, mk);
+      check('#353 L3 session file: a plain session file is read; a *.jsonl symlink out of the projects dir and a linked slug dir are skipped, not read', rs.files === 1 && rs.skipped === 2 && rs.entries.length === 1 && rs.entries[0].type === 'user', JSON.stringify(rs));
       check('#353 L3 config hash: $CODEX_HOME/config.toml linked to the credential file beside it is not read', l3toml?.present === true && l3toml.sha256 === null && l3toml.sections === null && /another name/.test(l3toml.error ?? ''), JSON.stringify(l3toml));
+    }
+    // PR #356 review B1: spellings realpath does not map back. Identity (dev, ino) catches them.
+    // Each case runs in a child process: <target> <CODEX_HOME> <CLAUDE_CONFIG_DIR>; exit 77 when
+    // either path cannot be reached (the case is then skipped). On Windows a child keeps the
+    // admin-share session out of this process (in-process, a later rmSync in os.tmpdir() failed
+    // EPERM).
+    const idProbe = join(dir, 'identity-probe.mjs');
+    writeFileSync(idProbe, `import { statSync } from 'node:fs';\nimport { executableIdentity } from ${JSON.stringify(pathToFileURL(join(REPO, 'tools', 'herdr', 'lib', 'manifest.mjs')).href)};\ntry { statSync(process.argv[2]); statSync(process.argv[3]); } catch { process.exit(77); }\nconst r = await executableIdentity(process.argv[2], { requested: 'codex', env: { CODEX_HOME: process.argv[3], CLAUDE_CONFIG_DIR: process.argv[4] } });\nconsole.log(JSON.stringify(r));\n`);
+    const probeResult = (b) => {
+      try {
+        return b.status === 0 ? JSON.parse(b.stdout.trim().split('\n').at(-1)) : null;
+      } catch {
+        return null;
+      }
+    };
+    if (IS_WIN) {
+      // A UNC admin-share spelling (\\localhost\C$\...) of the home, or of the target.
+      const unc = (p) => {
+        const mm = /^([A-Za-z]):\\(.*)$/.exec(p);
+        return mm ? `\\\\localhost\\${mm[1]}$\\${mm[2]}` : null;
+      };
+      const cases = [
+        ['CODEX_HOME spelled as a UNC admin share -- a file inside it, spelled locally, is never read', credReal, unc(realHome)],
+        ['the target spelled as a UNC admin share into a local CODEX_HOME is never read', unc(credReal), realHome],
+      ];
+      for (const [what, target, home] of cases) {
+        const b = target && home ? spawnSync(process.execPath, [idProbe, target, home, cfg.claude], { encoding: 'utf8', timeout: 30000 }) : { status: 77 };
+        if (b.status === 77) console.log(`  skip  #353 identity (Windows) UNC case: \\\\localhost\\<drive>$ is not reachable on this host (${what})`);
+        else {
+          const u = probeResult(b);
+          check(`#353 identity (Windows): ${what}`, !!u && unread(u), `${b.stdout}${b.stderr}`);
+        }
+      }
+    } else if (process.platform === 'linux') {
+      // A bind mount of the home: run in a user + mount namespace (unshare -Urm). Skipped where
+      // unprivileged namespaces are not available.
+      const view = join(dir, 'bind-view');
+      mkdirSync(view);
+      const b = spawnSync('unshare', ['-Urm', 'sh', '-c', 'mount --bind "$1" "$2" || exit 77; exec "$3" "$4" "$5" "$6" "$7"', 'sh', realHome, view, process.execPath, idProbe, join(view, CRED_NAME), realHome, cfg.claude], { encoding: 'utf8', timeout: 30000 });
+      const bid = probeResult(b);
+      if (b.error || (b.status !== 0 && !bid)) console.log(`  skip  #353 identity bind-mount case: no unprivileged user+mount namespace here (${b.error?.code ?? `exit ${b.status}`}: ${String(b.stderr).trim().split('\n')[0]})`);
+      else check('#353 identity (Linux): the target reached through a bind mount of CODEX_HOME is never read', !!bid && unread(bid), b.stdout + b.stderr);
     }
     // A child whose name starts with `..` is inside: a bare startsWith('..') test put it outside.
     mkdirSync(join(cfg.claude, '..x'));

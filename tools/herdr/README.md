@@ -593,6 +593,29 @@ directory.) To loop one lifecycle case (#239), set
 `OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
 the matching lifecycle cases run, and a filter that matches none fails.
 
+**What the driver reads in a harness home (#353).** The driver reads, under
+`CLAUDE_CONFIG_DIR`/`~/.claude` and `CODEX_HOME`/`~/.codex`, only:
+
+- the harness-config files it hashes (`settings.json`, `config.toml` and `hooks.json`; L3
+  also reads `.claude.json`). A file that is a symlink to a file of another name, such as a
+  credential file, is not read;
+- a harness's managed binary under its home, named for the command after every symlink
+  (Codex's standalone install), which is hashed;
+- with L3 `--param readSessionFile=true` (operator decision 2026-09-30), the scratch probe
+  project's own `projects/<slug>/*.jsonl`. It records entry types and flags only, and reads
+  only plain files in a plain slug directory that stay under `projects/`.
+
+Every other path is refused by `lib/canonical-path.mjs`. A path is refused when it resolves
+inside a home by spelling (as written, by realpath, or by the OS realpath, which covers
+symlinks, junctions, `..`, 8.3 names and case) or by file identity. File identity is the
+`(dev, ino)` of the home entry against the target and each of its ancestors; it catches a
+UNC admin-share spelling or a bind mount. The check fails closed on any error.
+
+Residuals the guard cannot close:
+- a **hard link** to a credential file, which has no path relation to the home;
+- a **check-then-open race (TOCTOU)**: a directory on the path swapped for a link between the
+  check and the open. That needs an active attacker on the operator's own machine.
+
 **4. Claude Code permission rules, when an agent runs the live steps.** Claude Code's
 permission prompts and its auto-mode classifier may refuse a command that launches a real
 logged-in harness. To let an agent run the herdr commands, add allow rules to

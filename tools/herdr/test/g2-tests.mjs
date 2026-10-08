@@ -546,7 +546,7 @@ export function g2Cases(check) {
     check('g2 trace: positive control -- the driver\'s own harness-config hash reads under the Codex home ARE traced', driverHome.some((t) => t.path.endsWith('config.toml')) && driverHome.some((t) => t.path.endsWith('hooks.json')));
     // #353: executableIdentity() canonicalizes the home itself (realpath of the directory
     // entry; nothing inside it is listed, opened or read). Allowed on the home path only.
-    const homeEntry = (t) => /^realpath(?:Sync)?$/.test(t.op) && [home, r.env.CODEX_HOME].some((h) => resolve(h) === resolve(t.path));
+    const homeEntry = (t) => /^(?:realpath|stat)(?:Sync)?$/.test(t.op) && [home, r.env.CODEX_HOME].some((h) => resolve(h) === resolve(t.path));
     check('g2 trace: #353 positive control -- the driver canonicalized the Codex home (realpath of the directory entry only)', driverHome.some(homeEntry));
     check('g2 trace: the driver opened nothing else under the Codex home (no credential file, no sessions, no socket)', driverHome.every((t) => hashed.has(t.path) || homeEntry(t)), JSON.stringify([...new Set(driverHome.filter((t) => !hashed.has(t.path) && !homeEntry(t)).map((t) => `${t.op} ${t.path}`))]));
     check('g2 trace: the staged client opened nothing under the Codex home at all', underHome(client).length === 0, JSON.stringify(underHome(client).map((t) => t.path)));
