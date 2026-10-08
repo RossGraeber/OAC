@@ -2,8 +2,16 @@
 // score vocabulary, check rows, CLI argument parsing, the never-overwrite writer, the
 // verification block (#252), and the reconstruction callout every G4/G5 comparison carries.
 
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// #303 (PR #302 review): a fixture entry's `redaction.script_sha256` is the sha256 of
+// lib/redact.mjs with CRLF normalised to LF, i.e. of the LF text git stores, so the value is
+// the same on every platform (a core.autocrlf=true checkout holds the file as CRLF).
+export const lfSha256 = (bytes) => createHash('sha256').update(Buffer.from(Buffer.from(bytes).toString('utf8').replace(/\r\n/g, '\n'), 'utf8')).digest('hex');
+export const redactScriptSha256 = () => lfSha256(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'redact.mjs')));
 
 export const SCORES = Object.freeze({ EQ: 'equivalent', NEQ: 'not equivalent', NE: 'not evaluable' });
 export class ReportError extends Error {}
@@ -112,7 +120,10 @@ export function describeDialog(d) {
   const tool = t
     ? `; Codex MCP tool approval: prompt ${JSON.stringify(t.question)}, server ${JSON.stringify(t.server)}, tool ${JSON.stringify(t.tool)}; the scenario registered server ${JSON.stringify(t.expected?.server ?? null)}, tools ${JSON.stringify(t.expected?.tools ?? null)}; answer ${t.answer ? `"${t.answer}" (this call only)${d.confirmReadSeq ? `, confirmed by read #${d.confirmReadSeq} before Enter` : ''}` : 'none'}`
     : '';
-  return `${who}${d.kind} (read #${d.readSeq ?? '?'}${variant}${tool}; ${how})`;
+  // #303: Codex's start-up update prompt: the versions it named and the answer ("2. Skip" only).
+  const u = d.updatePrompt;
+  const update = u ? `; Codex update prompt ${u.current ?? '?'} → ${u.latest ?? '?'}: answer ${u.answer ? `"${u.answer}" (this launch only; no update run, no updater state written)` : 'none'}` : '';
+  return `${who}${d.kind} (read #${d.readSeq ?? '?'}${variant}${tool}${update}; ${how})`;
 }
 
 // harnessConfig: the run manifest's, so that a driver "Allow" on a tool-approval prompt (#271)

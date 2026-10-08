@@ -49,7 +49,44 @@ are added (`tokio`, `rcgen`, `windows-sys`, `libc`; gates affected: none); no pi
 - **D3 / D8** (recommendations, for G9 #70 and G6 #67 to confirm): `tokio`'s named pipes and
   Unix sockets with peer PID from `peer_cred()` and `GetNamedPipeClientProcessId`; `cli/`
   opens the Codex control-socket stream and the adapter does the upgrade and the
-  hand-written RFC 6455 framing. Decision 4 (the G8 reply pairing) is PR #350.)
+  hand-written RFC 6455 framing. Decision 4 (the G8 reply pairing) is PR #350 (merged).)
+
+**Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
+revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
+decided on 2026-10-08 to design a pairing so that Codex can send. Nothing is in force until
+the lead approves and merges the pull request (`docs/planning/decisions/E7-interface-freeze.md`
+§7). No gate verdict, pin, ADR text or third-party dependency changes.
+
+- **Specs.** `spec/bindings/mcp.md` 0.2 §4.5: the Codex issued-value pairing. An unbound
+  Codex stdio connection's first OAC call is refused with `unauthorized` and a fresh
+  `oac-pair-` value; Codex's own `item/completed` report of that refusal, received on the
+  adapter's app-server connection, names the thread (its `threadId`), and binds the
+  connection to it. Each later call is served only on Codex's own `item/started` report of
+  it. No value the call or its `_meta` carries is used. MCPB-ATT-003 to MCPB-ATT-026 and
+  MCPB-CDX-006; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026,
+  the rest `TODO(fixture)` for G8 against the F9 fake. `spec/interfaces.md` 0.2: `revealed`, `pairing_value`, the
+  `attachment-unconfirmed` event, IFC-ADP-090 to IFC-ADP-093. `spec/security.md` 0.2: one
+  §13 row. `spec/session-channels.md` is unchanged: the pairing meets [SC-ID-121] as frozen
+  (an operating-system key, narrowed by an issued value), which the lead is asked to confirm.
+- **Correction.** The #46 decision's "Codex sessions can still receive OAC messages" did not
+  hold under `spec/session-channels.md` §6.7: no Codex native signal could be paired. With
+  the pairing, a Codex session is bound, and can receive, from its first OAC tool call.
+- **Runner.** `tests/protocol/runner/run.mjs` accepts `spec_revision` `0.2` for the MCP
+  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026. The security suite maps the new
+  §13 row as `S13-misattributed-send`, gated on G8 (#69) with the placeholder
+  `gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation`; the 09 §12 F11
+  table gains its rendered row.
+- **Ledger.** The per-request-signal item is closed (none exists); the multi-thread-connection
+  item is reworded (source says no); new items are rows 71 to 75 of `11-risks.md` (74: the F9
+  fake needs `mcpToolCall` items, owners G8 #69 and F9 #58); the C4 pairing-facility item now
+  also covers Codex.
+- **Review round (PR #350, CHANGES REQUESTED):** reveals and confirmations only from
+  subscribed threads; bounded pairing window (60 s), confirmation wait (10 s) and
+  confirmation life (600 s, or the item's or turn's end); one pairing value per connection and
+  window, so MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 hold as written with no carve-out;
+  no pairing value where pairing cannot complete, and at most three windows per connection;
+  matching rule for calls without arguments; residuals for read-only disclosure, `config`
+  overrides and process ancestry.)
 
 **Last updated:** 2026-10-08 (**Issue #347: the adapter contract suite tells `handoff-failed`
 from not-now** (mutation M6 of the PR #346 review; Refs #59). No `spec/` file, fake, gate
@@ -2428,6 +2465,9 @@ first-party guarantee.)*
     run under an intermediate shell, an MCP server under a launcher);
   - which call yields the peer PID on macOS (`getpeereid()` reports only UID/GID);
   - which call yields a parent PID from a peer PID on each OS.
+  - *(Added 2026-10-08, #69:)* the Codex issued-value pairing (`spec/bindings/mcp.md` §4.5.3)
+    needs the same facility, to see that a Codex connection's process descends from the
+    Codex process at the other end of the adapter's app-server connection.
 
   Until it is established, the daemon does not bind a hook payload it cannot pair, so
   this costs availability, not authority. One residual depends on the same mechanism: a
@@ -2650,18 +2690,40 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
   item 12).
-- **New, from E6 (#46, 2026-10-03):** whether a documented per-request session signal
-  exists that OAC can bind to a paired session (UNVERIFIED — Codex sends
-  `_meta["x-codex-turn-metadata"]` with `session_id`, `thread_id` and `turn_id` on both
-  eras, G4 fixtures `transcript-2026-09-26.jsonl` lines 48/50 and
-  `transcript-row41-2026-09-27.jsonl` line 17, but it is in no first-party doc we cite and
-  is client-asserted, so it cannot pair alone). Until resolved, tool calls on any
-  connection not bound by a documented pairing are refused, interim
-  (`spec/bindings/mcp.md` §4.4).
-- **New, from E6 (#46, 2026-10-03):** whether one Codex legacy-era MCP connection carries
-  calls from several threads (UNVERIFIED — a thread id is sent per call; C4 §4 defines no
-  outbound attribution). Owner: #69. Until a Codex pairing exists, Codex outbound calls
-  are refused on both eras (`spec/bindings/mcp.md` §4.4, §8.2).
+*(Removed 2026-10-08, #69: the E6 (#46) entry on whether a documented per-request session
+signal exists that OAC can bind to a paired session. Closed by first-party evidence
+(`oac-evidence` §5): none exists. The app-server documentation
+(https://learn.chatgpt.com/docs/app-server, unversioned, retrieved 2026-10-08) names no
+`_meta` member Codex sends to an MCP server, and the source at `rust-v0.161.0` (commit
+`979011409de0a60b52f179721948e65531d26144`, `codex-rs/core/src/mcp_tool_call.rs`
+L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
+`x-codex-turn-metadata`, all undocumented and client-asserted. `spec/bindings/mcp.md` 0.2
+§4.4 records it, and §4.5 pairs Codex without them.)*
+- **New, from E6 (#46, 2026-10-03), reworded 2026-10-08 (#69):** whether one Codex
+  legacy-era MCP connection carries calls from several threads (UNVERIFIED at runtime — a
+  thread id is sent per call; the source at `rust-v0.161.0` says no, each thread owns its MCP
+  runtime, `codex-rs/core/src/session/session.rs` L1606-L1608). Owner: #69. The pairing of
+  `spec/bindings/mcp.md` §4.5 does not depend on it for attribution: a connection that
+  carried another thread's calls would see them refused for want of a confirmation.
+- **New, from #69 (2026-10-08):** the order the Codex pairing relies on for availability:
+  a call's `item/started` before the MCP call, its `item/completed` with the returned result
+  before the model sees it (UNVERIFIED — source only at `rust-v0.161.0`,
+  `codex-rs/core/src/mcp_tool_call.rs` L259-L265, L466, L623-L632;
+  `spec/bindings/mcp.md` §4.5.1 fact C5). Owner G8 (#69). `11-risks.md` row 71.
+- **New, from #69 (2026-10-08):** whether a carrier subscribed to a TUI-hosted thread with
+  `thread/resume` receives its `mcpToolCall` items (UNVERIFIED — other item types, with
+  `threadId`, recorded at `0.154.0`, G2 `transcript.jsonl` L51, L63;
+  `spec/bindings/mcp.md` §4.5.1 fact C6). Owner G8 (#69). `11-risks.md` row 72.
+- **New, from #69 (2026-10-08):** whether the app-server applies `thread/resume` setting
+  overrides to a thread that is already loaded (UNVERIFIED; `spec/bindings/mcp.md`
+  [MCPB-CDX-006] forbids sending them either way). Owner G7 (#68). `11-risks.md` row 73.
+- **New, from #69 (2026-10-08, PR #350 review):** that a Codex call with no arguments is
+  reported as `arguments: null` and sent without an `arguments` member, so the two match
+  (UNVERIFIED — source only at `rust-v0.161.0`; `spec/bindings/mcp.md` §4.5.1 fact C9).
+  Availability only. Owner G8 (#69). `11-risks.md` row 75.
+- **Prerequisite, from #69 (2026-10-08, PR #350 review):** the F9 fake app-server emits no
+  `mcpToolCall` items, so the `TODO(fixture)` items of `spec/bindings/mcp.md` §4.5 wait for
+  them. Owners G8 (#69) and F9 (#58). `11-risks.md` row 74.
 - **New, from E6 (#46, 2026-10-03):** whether legacy clients other than Codex `0.157.1`,
   Claude Code's channel path included, accept an `extensions` member in an `initialize`
   result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).

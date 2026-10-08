@@ -25,12 +25,12 @@ import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
   splitCommandLine, splitWindowsCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
-  processArgv, minimizeArgv, paneArgv, argPlaceholder, arg0Placeholder, EXPECTED_EXECUTABLE,
+  processArgv, minimizeArgv, paneArgv, argPlaceholder, arg0Placeholder, EXPECTED_EXECUTABLE, CODEX_DIALOG_KINDS, codexUpdateVersions, CODEX_RELEASE_NOTES_URL,
 } from '../lib/g2.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
-import { sha256, parseSections } from '../lib/g1.mjs';
+import { sha256, parseSections, selectionCheck } from '../lib/g1.mjs';
 import { SCORES, ReportError, credentialShapedFields, evaluateG2, parseOperatorScores, schemaBlockFor, versionsVerified, versionMatchesLastTested, writeRefusal, fixtureWithheld, renderReport, draftManifestEntries } from '../lib/g2-report.mjs';
-import { lineSpan } from '../lib/gate-report-common.mjs';
+import { lineSpan, describeDialog } from '../lib/gate-report-common.mjs';
 import { cloneWithPins } from './g1-tests.mjs';
 import { SYNTH } from './elide-tests.mjs';
 import { parseWin32ProcessJson, parsePsTable } from '../lib/proc.mjs';
@@ -218,6 +218,58 @@ export function g2Unit(check) {
   check('g2 pane #204: the startup hook review is recognized ("1. Review hooks" selected) and refused, no key, with the operator\'s action in the reason', rv.dialog === 'hooks-review' && rv.selected?.number === 1 && refused(REVIEW) && refused(REVIEW.replace('› 1.', '  1.').replace('  3. Continue', '› 3. Continue')) && /startup hook review/.test(plan(REVIEW).why) && /\/hooks/.test(plan(REVIEW).why), JSON.stringify(plan(REVIEW)));
   const hb = classifyCodexScreen('  Hooks\n  Lifecycle hooks from config and enabled plugins.\n\n  SessionStart   1   0   1   When a session starts\n\n  t trust all · enter review · esc close');
   check('g2 pane #204: the hooks browser is recognized and refused, no key', hb.dialog === 'hooks-browser' && !driverMayAcceptCodex(hb).ok && driverMayAcceptCodex(hb).keys.length === 0);
+  // #303: Codex 0.160.0's start-up update prompt, verbatim from the G4 herdr run
+  // 20261006T001351Z-5b2e11 (Codex pane read seq 54; lib/g2.mjs CODEX_DIALOG_KINDS
+  // 'update-prompt'). The driver answers "2. Skip" only: one `down` (verified), then Enter.
+  const UPDATE = [
+    '',
+    '  Update available · 0.160.0 → 0.160.1',
+    `  Release notes: ${CODEX_RELEASE_NOTES_URL}`,
+    '',
+    "› 1. Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/",
+    "     codex/install.ps1 | iex'`)",
+    '  2. Skip',
+    '  3. Skip until next version',
+    '',
+    '  enter continue · esc skip',
+  ].join('\n');
+  const onSkip = UPDATE.replace('› 1. Update', '  1. Update').replace('  2. Skip\n', '› 2. Skip\n');
+  const onDontRemind = UPDATE.replace('› 1. Update', '  1. Update').replace('  3. Skip until', '› 3. Skip until');
+  const up = classifyCodexScreen(UPDATE);
+  const upPlan = plan(UPDATE);
+  check('g2 pane #303: the recorded update prompt is recognized ("1. Update now" selected with `›`, versions read); the driver plans one `down` to "Skip", then Enter', up.dialog === 'update-prompt' && up.selected?.number === 1 && JSON.stringify(up.options.map((o) => o.text)) === JSON.stringify(['Update now', 'Skip', 'Skip until next version']) && up.options.marked === 1 && up.updatePrompt.current === '0.160.0' && up.updatePrompt.latest === '0.160.1' && upPlan.ok && JSON.stringify(upPlan.keys) === '["down","enter"]' && JSON.stringify(upPlan.moves) === '[{"key":"down","expect":"Skip"}]' && upPlan.answer === '2. Skip' && upPlan.updatePrompt.latest === '0.160.1', JSON.stringify(upPlan));
+  check('g2 pane #303: the wrapped install command is joined onto option 1 and read as its detail, not as an option', up.options[0].detail === "(runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/ codex/install.ps1 | iex'`)" && up.options.unknown.length === 0, JSON.stringify(up.options));
+  check('g2 pane #303: the kind is on record with its citation (run 20261006T001351Z-5b2e11, read seq 54, Codex source)', /20261006T001351Z-5b2e11/.test(CODEX_DIALOG_KINDS['update-prompt'].verified) && /read seq 54/.test(CODEX_DIALOG_KINDS['update-prompt'].verified) && /update_prompt\.rs@rust-v0\.160\.0/.test(CODEX_DIALOG_KINDS['update-prompt'].verified));
+  check('g2 pane #303: "Skip" already highlighted plans Enter alone; a read after the `down` showing "Skip" verifies the move', JSON.stringify(plan(onSkip).keys) === '["enter"]' && selectionCheck(classifyCodexScreen(onSkip), 'update-prompt', 'Skip', 'Update now', CODEX_DIALOG_KINDS).state === 'ok');
+  // No key path sends "1. Update now" or "3. Skip until next version": Enter is planned only
+  // with "Skip" as the verified selection, a highlight on option 3 is refused before any key,
+  // and a `down` that lands anywhere but "Skip" stops the run before Enter.
+  const noBadEnter = [UPDATE, onSkip, onDontRemind].every((t) => {
+    const p = plan(t);
+    if (!p.ok) return p.keys.length === 0;
+    const last = p.moves.at(-1)?.expect ?? classifyCodexScreen(t).options.find((o) => o.selected)?.text;
+    return p.keys.at(-1) === 'enter' && last === 'Skip' && p.keys.every((k) => ['down', 'enter'].includes(k));
+  });
+  check('g2 pane #303: no plan ends in Enter on "Update now" or "Skip until next version"; "3. Skip until next version" highlighted is refused, no key', noBadEnter && refused(onDontRemind) && /nor the preselection on record/.test(plan(onDontRemind).why));
+  check('g2 pane #303: a `down` that lands on "Skip until next version", or a read back on "Update now" after a move, stops the run (no Enter)', selectionCheck(classifyCodexScreen(onDontRemind), 'update-prompt', 'Skip', 'Update now', CODEX_DIALOG_KINDS).state === 'stop' && selectionCheck(classifyCodexScreen(UPDATE), 'update-prompt', 'Skip', 'Skip until next version', CODEX_DIALOG_KINDS).state === 'stop');
+  const offRecord = [
+    ['an extra option', UPDATE.replace('  3. Skip until next version', '  3. Skip until next version\n  4. Remind me tomorrow')],
+    ['a changed option text', UPDATE.replace('  2. Skip', '  2. Not now')],
+    ['an option 1 without its "(runs `…`)" detail shape', UPDATE.replace("     codex/install.ps1 | iex'`)", "     codex/install.ps1 | iex'")],
+    ['another footer', UPDATE.replace('esc skip', 'esc quit')],
+    ['another body line', UPDATE.replace(`  Release notes: ${CODEX_RELEASE_NOTES_URL}`, '  Release notes: https://example.invalid/notes')],
+    ['a second marker', UPDATE.replace('  2. Skip', '› 2. Skip')],
+    ['another marker', UPDATE.replace('› 1. Update', '❯ 1. Update')],
+  ];
+  for (const [what, t] of offRecord) {
+    const p = plan(t);
+    check(`g2 pane #303: an update prompt with ${what} is refused at once, no key, with the NOT RUN reason (versions, answer it in Codex's own TUI, re-run)`, refused(t) && /^Codex update prompt shown at start-up \(Codex 0\.160\.0 → 0\.160\.1\), not in the form on record \(/.test(p.why) && /answer it in Codex's own TUI .*then re-run/.test(p.why), JSON.stringify(p));
+  }
+  const footOnly = classifyCodexScreen('  Something to update\n› 1. Update\n  2. Skip\n\n  enter continue · esc skip');
+  check('g2 pane #303: the update footer without the recorded title is an unknown dialog: refused at once, never waited on', footOnly.dialog === 'unknown' && !driverMayAcceptCodex(footOnly).ok && driverMayAcceptCodex(footOnly).keys.length === 0);
+  const BANNER = ['╭──────────────────────────────────────────────╮', '│ ✨ Update available! 0.160.0 -> 0.160.1        │', '╰──────────────────────────────────────────────╯', '', '› Ask Codex to do anything'].join('\n');
+  check('g2 pane #303: the non-modal "✨ Update available!" box is screen chrome, not a dialog', classifyCodexScreen(BANNER).dialog === null && codexUpdateVersions(BANNER).latest === null);
+  check('g2 pane #303: a driver Skip renders with the versions and the answer; a refused prompt says no answer', /update-prompt \(read #7; Codex update prompt 0\.160\.0 → 0\.160\.1: answer "2\. Skip" \(this launch only; no update run, no updater state written\); accepted by the DRIVER \(herdr dialog-accept: down #8, enter #10\)\)/.test(describeDialog({ agent: 'codex', kind: 'update-prompt', readSeq: 7, acceptOrigin: 'driver', acceptKeys: [{ key: 'down', seq: 8 }, { key: 'enter', seq: 10 }], updatePrompt: { current: '0.160.0', latest: '0.160.1', answer: '2. Skip' } })) && /answer none; not accepted/.test(describeDialog({ kind: 'update-prompt', readSeq: 7, acceptOrigin: 'none (driver refused)', updatePrompt: { current: '0.160.0', latest: '0.160.1', answer: null } })));
   // #204: readiness = a new loaded thread on the wire AND the idle composer on the pane.
   const COMPOSER = '  >_ Codex (v0.159.2)\n\n› Ask Codex to do anything\n\n  ? for shortcuts';
   const rd = (text, loaded, preLoaded = ['old']) => codexReadiness({ text, screen: classifyCodexScreen(text), loaded, preLoaded });
@@ -567,6 +619,30 @@ export function g2Cases(check) {
       const m = r.manifest;
       const g2 = m.scenarioData.g2;
       check(`g2 #199 Codex ${variant}: NOT RUN; no dialog-accept command; the dialog is on record as refused`, r.status === 3 && why.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept') && g2.dialogs[0]?.kind === 'workspace-trust' && g2.dialogs[0]?.acceptOrigin === 'none (driver refused)' && g2.injectionsSent.length === 0, `${r.status} ${m.outcomeReason}`);
+    });
+  }
+
+  // #303: Codex's start-up update prompt (fake-codex FAKE_CODEX_UPDATE_PROMPT, the text seen live
+  // on 0.160.0). The driver answers "2. Skip" (one verified `down`, then Enter), recorded as its
+  // own; an off-record form ends the run NOT RUN on its first read, no key sent, never a wait.
+  const updateDialog = (g2) => g2.dialogs.find((d) => d.kind === 'update-prompt');
+  const updaterStateWritten = (r) => existsSync(join(r.env.CODEX_HOME, 'version.json'));
+  const updateAnswers = (r) => (existsSync(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) ? read(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) : '');
+  const codexReadsAfter = (m, seq) => m.commands.filter((x) => x.seq > seq && x.role === 'read' && x.argv.includes('read') && x.argv.includes('g2codex')).length;
+  run('g2 #303 update prompt: the driver answers "2. Skip"', { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: 'recorded' } }, (r) => {
+    const m = r.manifest;
+    const g2 = m.scenarioData.g2;
+    const d = updateDialog(g2);
+    check('g2 #303 Skip: PASS; the update prompt answered by the DRIVER with `down` (verified on "Skip") then `enter`, answer "2. Skip", versions recorded, nothing in between', r.status === 0 && m.outcome === 'PASS' && d?.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["down","enter"]' && d.acceptKeys[0].expect === 'Skip' && Number.isInteger(d.acceptKeys[0].verifiedSeq) && d.updatePrompt?.answer === '2. Skip' && d.updatePrompt.latest === '9.9.9' && /20261006T001351Z-5b2e11/.test(d.patternVerified ?? '') && d.inputBetweenReadAndAccept === 0 && d.resolvedSeq > d.acceptSeq, `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+    check('g2 #303 Skip: the fake Codex saw exactly one answer, "2. Skip" (never option 1 or 3), and no updater state was written', updateAnswers(r) === '2. Skip\n' && !updaterStateWritten(r), updateAnswers(r));
+    check('g2 #303 Skip: the prompt read is kept verbatim in the pane capture', parseSections(r.capture(names().pane)).some((s) => s.seq === d?.readSeq && /Update available · /.test(s.text) && /› 1\. Update now \(runs `/.test(s.text)));
+  });
+  for (const [variant, why] of [['off-record', /not the ones on record/], ['dont-remind-preselected', /nor the preselection on record/]]) {
+    run(`g2 #303 update prompt ${variant}: NOT RUN at once, no key`, { args: FAST, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: variant } }, (r) => {
+      const m = r.manifest;
+      const g2 = m.scenarioData.g2;
+      const d = updateDialog(g2);
+      check(`g2 #303 ${variant}: NOT RUN with the update-prompt reason (versions, answer it in Codex's own TUI), never a timeout; no dialog-accept, no Codex read after the prompt's first read, no updater state`, r.status === 3 && /Codex update prompt shown at start-up \(Codex \S+ → 9\.9\.9\)/.test(m.outcomeReason) && why.test(m.outcomeReason) && !/timed out|not ready within/.test(m.outcomeReason) && !m.commands.some((x) => x.role === 'dialog-accept') && d?.acceptOrigin === 'none (driver refused)' && codexReadsAfter(m, d.readSeq) === 0 && g2.injectionsSent.length === 0 && updateAnswers(r) === '' && !updaterStateWritten(r), `${r.status} ${m.outcomeReason} ${JSON.stringify(d)}`);
     });
   }
 

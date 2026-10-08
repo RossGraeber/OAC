@@ -20,6 +20,8 @@
 #                        turns on (#7, G-7 section 5).
 #   licenses (<os>)    scripts/check-licenses.mjs: SPDX headers and the dependency license
 #                        inventory; an unapproved license fails the job (07 section 5).
+#   herdr-selftest (<os>)  the herdr driver's offline self-test against its test doubles
+#                        (#345): no live harness, loopback only; see the job's comment.
 # Each check also runs its self-test and, where it has one, its mutation test.
 #
 # Network. The only network use is fetching the toolchain (rust-toolchain.toml, 1.98.1,
@@ -173,6 +175,43 @@ jobs:
             ~/.cargo/git/db
             target
           key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+
+  # The herdr driver's own self-test (#345): unit checks on both images, plus the lifecycle
+  # cases wherever the fake herdr can run its pane commands with POSIX sh (the self-test
+  # itself skips them where it cannot). Not on the macos-latest image: there it does not run
+  # cleanly today (the #252 identity-gate and #140 identity unit cases, and every lifecycle
+  # case using the fake Codex daemon, fail on that image, independent of #345; PR #349's CI
+  # log). Test doubles only: a fake herdr,
+  # fake Claude Code and fake Codex, no live harness, no harness login, no network beyond
+  # loopback (on the ubuntu image it runs inside the loopback-only namespace). It is not a
+  # scripted gate run and drives no harness, so it is default tier; the narrow exception that
+  # lets this one line name the driver is check 9 in scripts/check-herdr-containment.mjs and
+  # D2 in scripts/check-workflows.mjs. No cargo step: the self-test needs node and git only.
+  herdr-selftest:
+    name: herdr-selftest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select the loopback-only sandbox (by kernel, not by image name)
+        shell: bash
+        run: bash scripts/loopback-only.sh --select >> "$GITHUB_ENV"
+
+      - name: Loopback-only sandbox probe (loopback connects, nothing else is reachable)
+        if: env.LOOPBACK_ONLY != ''
+        run: bash scripts/loopback-only.sh --probe
+
+      - name: herdr driver self-test (test doubles only; lifecycle cases where sh runs them)
+        shell: bash
+        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test
 
   crate-deps:
     name: crate-deps (${{ matrix.os }})

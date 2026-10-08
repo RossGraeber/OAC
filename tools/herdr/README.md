@@ -153,6 +153,17 @@ Per Codex source at `rust-v0.160.0`, "Allow" persists nothing. Rules:
 `scripted-runs.md` "Operator-consent dialogs" (#271); decision record
 `docs/planning/decisions/K-196-driver-accepts-dialogs.md` §7.
 
+**Codex's start-up update prompt: "2. Skip" only (#303).** When a newer Codex is out, Codex
+0.160.0 opens with "Update available · <current> → <latest>" and the options "1. Update now
+(runs `<command>`)", "2. Skip", "3. Skip until next version" (recorded live in G4 run
+20261006T001351Z-5b2e11, which waited 90 s for an MCP handshake behind it). In every scenario
+the driver now answers the recorded form "2. Skip", this launch only: one `down`, verified by a
+fresh read showing "Skip" selected, then `enter` (`lib/g2.mjs` `planCodexUpdateSkip`). Any other
+form, or the selection on option 3, ends the run `NOT RUN` on its first read, no key sent,
+naming the versions and asking you to answer it in Codex's own TUI and re-run. The driver never
+runs an update and never writes Codex's updater state. The dialog record holds `updatePrompt`
+(current, latest, answer). Decision record: K-196 §8.
+
 **Codex startup: verified-ready before the first message (#204).** Codex 0.159.2 shows its
 composer ("› Ask Codex to do anything") *before* its session exists: the startup draft. Text
 typed there is held ("Waiting for startup · esc cancel") until the app-server bootstrap, any
@@ -298,9 +309,13 @@ report generator scores every pass criterion against the human run's committed f
 writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of them is
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
 `scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G2, G4 and
-G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2's is
-`G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`, Codex 0.160.0, run outcome PASS, driver
-commit `efb775f`, PR #300). Two earlier G2 runs that day were not recorded:
+G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. The current
+G2 and G4 equivalence records are `G2-2026-10-06.md` (run `20261006T000900Z-51a348`) and
+`G4-2026-10-06.md` (run `20261006T022052Z-00cdd3`), both Codex 0.160.0, run outcome PASS,
+driver commit `c4def66`. The #303 change (Codex's update prompt) is under `tools/herdr/`
+outside `test/`, so neither backs a run at a later driver commit: G2 and G4 need a re-record
+at the new commit. The earlier G2 record, `G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`,
+driver `efb775f`, PR #300), is kept as history. Two earlier G2 runs on 2026-10-05 were not recorded:
 `20261005T020547Z-84b913`, whose transcript held third-party tool output (#130), and
 `20261005T041011Z-bb584c`, whose transcript held harness-authored text in a daemon response
 that the elision did not then cover. A record holds for its own driver commit: a later
@@ -568,7 +583,11 @@ compares working-tree files with HEAD in git's normalized form, as `git status` 
 **3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
 shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
-self-test needs POSIX `sh` and is skipped on Windows. To loop one lifecycle case (#239), set
+self-test needs POSIX `sh` and is skipped on Windows. CI runs the whole self-test in the
+default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu and
+windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only. It
+does not yet run cleanly on the macos image (identity-gate units and the fake-Codex-daemon
+lifecycle cases fail there), so that image is left out. To loop one lifecycle case (#239), set
 `OAC_HERDR_SELFTEST_ONLY` to part of its name, e.g.
 `OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
 the matching lifecycle cases run, and a filter that matches none fails.
