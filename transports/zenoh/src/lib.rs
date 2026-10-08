@@ -75,8 +75,14 @@
 //! **Deadlines ([IFC-TRN-034]).** A `Deadline` is an instant on the sender's monotonic
 //! clock. The sender refuses a payload whose deadline has passed, and carries the time left
 //! as a wall-clock expiry in the frame; the receiver drops a frame at or after its expiry.
-//! On one host both read the same wall clock. Between hosts the bound is as good as the
-//! hosts' clock agreement; LAN mode is G3's.
+//! On one host both read the same wall clock, so the check is exact up to a step of that
+//! clock (an operator or time-sync step backwards lets a frame in flight live longer by
+//! the step). Between hosts it is not safe as it stands: a receiver whose clock runs `d`
+//! behind the sender's can hand a frame over up to `d` after its deadline, which breaks
+//! [IFC-TRN-034]; a receiver `d` ahead drops frames early, which is safe. LAN mode (G3,
+//! #64) must bound this before it carries a frame between hosts: for example, carry the
+//! time left instead and subtract a stated transit allowance, or subtract a declared skew
+//! bound at the sender and refuse payloads with less time left than that bound.
 //!
 //! **What is held ([IFC-TRN-033], [IFC-TRN-035], [IFC-TRN-036]).** Nothing is stored. A
 //! frame exists only in Zenoh's send and receive queues while it is in flight; a frame for

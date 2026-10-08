@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use oac_core::health::HealthState;
 use oac_core::ids::{KeyId, SessionId};
 use oac_core::transport::{
-    Deadline, Destination, Inbound, Payload, PayloadKind, PublishResult, Transport,
+    Deadline, Destination, Inbound, Payload, PayloadKind, PresenceEvent, PublishResult, Transport,
     TransportConfiguration, TransportError,
 };
 use oac_transport_zenoh::{
@@ -180,4 +180,98 @@ fn the_local_default_is_multicast_in_the_default_partition() {
     assert!(c.discovers_by_multicast());
     assert_eq!(c.partition(), DEFAULT_PARTITION);
     assert!(!PeerConfiguration::rendezvous(1).discovers_by_multicast());
+}
+
+type Got = Arc<Mutex<Vec<(PayloadKind, Vec<u8>)>>>;
+
+fn sink(g: &Got) -> Arc<dyn Fn(Inbound) + Send + Sync> {
+    let g = g.clone();
+    Arc::new(move |i| {
+        g.lock()
+            .unwrap()
+            .push((i.payload.kind(), i.payload.octets().to_vec()))
+    })
+}
+
+/// Every frame reaches every peer of the partition (one native subscriber per transport,
+/// for [IFC-TRN-043]), so the local filter is what keeps content from the wrong consumer:
+/// an envelope reaches only that session's subscriptions, a receipt only the named
+/// device's subscription, a presence record only the named device's watchers, and nothing
+/// reaches another device's transport.
+#[test]
+fn frames_reach_only_their_own_local_consumer() {
+    let c = conf();
+    let (a, b, other) = (
+        PeerTransport::new(),
+        PeerTransport::new(),
+        PeerTransport::new(),
+    );
+    a.start(&key('a'), c.clone().wrap()).unwrap();
+    b.start(&key('b'), c.clone().wrap()).unwrap();
+    other.start(&key('c'), c.wrap()).unwrap();
+    let [s1, s2, s3, bdev, cdev, bprs, cprs]: [Got; 7] = Default::default();
+    let _subs = [
+        b.subscribe(&session(1), sink(&s1)).unwrap(),
+        b.subscribe(&session(2), sink(&s2)).unwrap(),
+        other.subscribe(&session(3), sink(&s3)).unwrap(),
+        b.subscribe(&Destination::Device(key('b')), sink(&bdev))
+            .unwrap(),
+        other
+            .subscribe(&Destination::Device(key('c')), sink(&cdev))
+            .unwrap(),
+    ];
+    for (t, g) in [(&b, &bprs), (&other, &cprs)] {
+        let g = g.clone();
+        t.watch_presence(Arc::new(move |e| {
+            if let PresenceEvent::Record { payload, .. } = e {
+                g.lock()
+                    .unwrap()
+                    .push((payload.kind(), payload.octets().to_vec()));
+            }
+        }))
+        .unwrap();
+    }
+    let dev_b = Destination::Device(key('b'));
+    let start = Instant::now();
+    while s1.lock().unwrap().is_empty()
+        || bdev.lock().unwrap().is_empty()
+        || bprs.lock().unwrap().is_empty()
+    {
+        assert!(start.elapsed() < Duration::from_secs(15), "nothing arrived");
+        a.publish(
+            &session(1),
+            Payload::new(PayloadKind::Envelope, b"e".to_vec()),
+            later(),
+        );
+        a.publish(
+            &dev_b,
+            Payload::new(PayloadKind::Receipt, b"r".to_vec()),
+            later(),
+        );
+        a.send_presence(
+            &dev_b,
+            Payload::new(PayloadKind::Presence, b"p".to_vec()),
+            later(),
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    thread::sleep(Duration::from_millis(500));
+    let only = |g: &Got, k: PayloadKind, o: &[u8]| {
+        g.lock().unwrap().iter().all(|(gk, go)| *gk == k && go == o)
+    };
+    assert!(only(&s1, PayloadKind::Envelope, b"e"));
+    assert!(only(&bdev, PayloadKind::Receipt, b"r"));
+    assert!(only(&bprs, PayloadKind::Presence, b"p"));
+    for (name, g) in [
+        ("session 2", &s2),
+        ("session 3", &s3),
+        ("device c", &cdev),
+        ("device c presence", &cprs),
+    ] {
+        let got = g.lock().unwrap().clone();
+        assert!(got.is_empty(), "{name} received {got:?}");
+    }
+    for t in [a, b, other] {
+        t.shutdown();
+    }
 }
