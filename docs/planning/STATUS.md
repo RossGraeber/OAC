@@ -4,6 +4,28 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-08 (**Issue #347: the adapter contract suite tells `handoff-failed`
+from not-now** (mutation M6 of the PR #346 review; Refs #59). No `spec/` file, fake, gate
+verdict, pin, dependency, static-scan rule or ADR text changes.
+
+- **Check.** New row [SC-DLV-009] `refusal-reported-as-binding-says` in
+  `tests/protocol/contract/adapter/src/lib.rs`. A harness profile now names the code its
+  binding gives the refusal `refuse_hand_offs` produces (`Profile::turned_away_code`); the
+  adapter's outcome for the turned-away hand-off must map to that code through Table 5.3 of
+  `spec/interfaces.md`. The Codex profile names `handoff-failed`: the recorded archived
+  refusal (S3 capture L1030-L1032, reached through `CodexFake::set_archived`) is
+  `handoff-failed` under `spec/bindings/mcp.md` §8.2.1 ([SC-DLV-009], not [SC-DLV-008]). The
+  Claude profile names none: a channel notification gets no answer, so the fake Claude has no
+  refusal path and the row is not applicable there.
+- **Planted breach.** `ReportsNotNow` (outcome from `src/plant.rs`) is caught as
+  [SC-DLV-009] and by no other row; before this change it passed every row. The seven other
+  planted queue breaches and the eleven channel breaches are still caught.
+- **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it
+  (`tests/real_adapters.rs` runs only the static scan today), so this is not an edit to make
+  a real module pass. Baseline candidate for `tests/protocol/contract/`: commit `ba9cf83`.
+- **Threat map.** No change: the security threat map (`tests/security/`) maps the security
+  suite's tests only, and no row there is proven by the contract suite.)
+
 **Last updated:** 2026-10-08 (**Issue #6: Gate S3 is met. Stage 3 exits and Stage 4 (Epic G,
 #7, milestone M5) opens.** The exit decision is `docs/planning/decisions/F-6-stage3-exit.md`,
 in force from the lead's merge of PR #342 (record §5, as E-5 §2). No `spec/` file, gate
