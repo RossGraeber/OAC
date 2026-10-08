@@ -7070,14 +7070,14 @@
         "thread/start (cases thread)": "122-124",
         "two thread/queue/add during a running turn; one dispatched per idle, head first": "turn/start 125-130, adds 135-136 and 138-139, busy turn/completed 826, first queued turn 827-831, its turn/completed 846, second queued turn 847-851, its turn/completed 865",
         "thread/queue/add with an extra member, idle thread: accepted, starts a turn at once": "866-873, turn/completed 889",
-        "turn/interrupt: response, then thread/status/changed idle and turn/completed status interrupted (items [], itemsView notLoaded)": "890-907",
         "thread/queue/add after the interrupt: no dispatch within the 25 s window; dispatched after the next turn completed": "add 908-909, turn/start 912-913, its turn/completed 935, queued turn 936-940, turn/completed 955",
         "thread/unsubscribe; thread/closed after the 60 s idle unload; thread/loaded/list without the thread": "956-957, 968, 970-971",
         "thread/queue/add to the unloaded thread: accepted; still not loaded 25 s later": "972-973, 974-975",
         "thread/resume of the unloaded thread from a new connection: loads it; the queued input is dispatched": "981-1004 (status idle 989, response 990, goal cleared 994, thread/queue/changed 995, turn/started 999, userMessage 1004), turn/completed 1019",
         "thread/turns/list of the cases thread": "1020-1022",
         "thread/archive; thread/queue/add to the archived thread (-32600 \"session <id> is archived\")": "1023-1032",
-        "thread/turns/list of the TUI thread": "1038-1040"
+        "thread/turns/list of the TUI thread": "1038-1040",
+        "turn/interrupt: response, then thread/status/changed idle and turn/completed status interrupted (items [], itemsView notLoaded); the agent message started at 899 never gets an item/completed": "890-907"
       },
       "schema": {
         "commit": "979011409de0a60b52f179721948e65531d26144",
@@ -7143,7 +7143,7 @@
       "redaction": {
         "script": null,
         "script_sha256": null,
-        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\", quarantined with the .throwaway-quarantined suffix. The s3-codex-capture scenario stages it from its blob at HEAD and checks its sha256 (defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82, the blob this run used)."
+        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\", quarantined with the .throwaway-quarantined suffix. The s3-codex-capture scenario stages it from its blob at HEAD and checks its sha256: run 20261007T221317Z-1a3890 ran blob defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82 (driver commit c1de8f4); run 20261008T030026Z-9d1790 ran the current blob b110a9d3f4b4c328f964dead0c6e6cd5374be2eb58cc5e6a06a6c6e33fff07e5 (driver commit 74263be), which adds case 11 and the [set] [quietMs] arguments."
       },
       "coverage": null,
       "coverage_notes": "Not applicable — client source code, not a captured exchange.",
@@ -7153,6 +7153,94 @@
       "schema": {
         "applicable": false,
         "reason": "spike client source code, not protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.161.0 (codex --version `codex-cli 0.161.0`)",
+        "codex_daemon": "0.161.0/0.161.0/0.161.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "979011409de0a60b52f179721948e65531d26144",
+        "node": null,
+        "client_visible_user_agent": "oac_s3_capture/0.161.0 (Windows 10.0.26300; x86_64) unknown (oac_s3_capture; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD 74263bea9622c31b0e68ab79e71ac9d0d739bbac when the run started (working tree matched HEAD: true); last tested 0.161.0, no VERSION WARNING",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-08",
+      "capture_utc_range": "2026-10-08T03:00:31.269Z-2026-10-08T03:01:23.998Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "74263bea9622c31b0e68ab79e71ac9d0d739bbac",
+        "run_manifest": "docs/planning/gates/herdr-runs/S3-codex-2026-10-08.run-manifest.json"
+      },
+      "notes": [
+        "Captured for the #343 review (finding 1): s3-codex-capture with --param cases=queued-interrupt, which runs only case 11 and skips the idle add. NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (19 unrelated thread/list entries removed; host, installation id, plan and credit fields replaced): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0; elided: the harness instruction text in the watch connection's thread/resume result (line 48) and the operator's own SessionStart hook output (line 72). Third-party-text sweep by the recording agent (#130): the only thread items are userMessage, reasoning and agentMessage; no tool, file or command item."
+      },
+      "coverage": {
+        "thread/start (case thread)": "55-60",
+        "turn/start of a long turn; turn/started; agent text streaming": "59-78",
+        "two thread/queue/add while that turn runs: each accepted with thread/queue/changed": "79-84",
+        "turn/interrupt: response, thread/status/changed idle, turn/completed status interrupted; no item/completed for the agent message started at 77": "85-90",
+        "quiet window: no turn starts for 25 s (one queue-watcher thread/queue/changed at 91)": "90-92",
+        "the next turn/start; it completes uninterrupted": "92-118",
+        "then the first queued item runs (userMessage clientId = the first add), then the second": "119-145, 146-170",
+        "thread/archive": "171-178"
+      },
+      "schema": {
+        "commit": "979011409de0a60b52f179721948e65531d26144",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
+        "sha256": null,
+        "note": "Schema not regenerated and recorded at Codex 0.161.0. The client's request shapes were taken from `codex app-server generate-json-schema --experimental` at 0.160.0 (ThreadQueueAddParams, ThreadUnsubscribeParams, ThreadArchiveParams, TurnInterruptParams, ThreadStartParams.ephemeral); regenerate and compare it (D6 procedure) before relying on this capture's message shapes.",
+        "validated_against": "not validated against a regenerated schema at this version"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/s3-codex-capture/pane-2026-10-08-0.161.0-queued-interrupt-herdr.txt",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.161.0 (codex --version `codex-cli 0.161.0`)",
+        "codex_daemon": "0.161.0/0.161.0/0.161.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "979011409de0a60b52f179721948e65531d26144",
+        "node": null,
+        "client_visible_user_agent": "oac_s3_capture/0.161.0 (Windows 10.0.26300; x86_64) unknown (oac_s3_capture; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD 74263bea9622c31b0e68ab79e71ac9d0d739bbac when the run started (working tree matched HEAD: true); last tested 0.161.0, no VERSION WARNING",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-08",
+      "capture_utc_range": "2026-10-08T03:00:31.269Z-2026-10-08T03:01:23.998Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "74263bea9622c31b0e68ab79e71ac9d0d739bbac",
+        "run_manifest": "docs/planning/gates/herdr-runs/S3-codex-2026-10-08.run-manifest.json"
+      },
+      "notes": [
+        "Pane capture of the same run (the TUI, which this case set does not deliver to). NOT verdict-bearing."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "ccf5ddd7d95b3aa113fb201e30e447d7a21a49699ee5e55f409531e0393e558b",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (19 unrelated thread/list entries removed; host, installation id, plan and credit fields replaced): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0; elided: one pane line of the operator's hook output."
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads of the Codex TUI screen, one section per kept read, each with its herdr command seq and timestamps"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
       }
     }
   ]
