@@ -183,7 +183,15 @@ elects MIT; GPL-3.0-only, GPL-3.0-or-later, GPL-2.0-only, GPL-2.0-or-later, AGPL
 AGPL-3.0-or-later, SSPL-1.0, OSL-3.0 and the deprecated `GPL-3.0` fail; `MIT OR GPL-3.0`
 passes on MIT; `MIT AND GPL-3.0` and `MPL-2.0 AND GPL-2.0-or-later` fail; BSD-1-Clause,
 `ISC AND OpenSSL` and the deprecated `LGPL-2.1+` fail; an MPL-2.0 inventory row passes and
-reports its weak copyleft.
+reports its weak copyleft; `MIT OR Apache-2.0 OR LGPL-2.1-or-later` (`r-efi` 5.3.0, 6.0.0)
+passes, electing Apache-2.0.
+
+The `--mutation-test` control "transports/zenoh depends on an EPL-2.0 OR Apache-2.0 crate"
+now adds a uniquely named stub (`epl-dual-stub`) rather than a `zenoh` key, which would be a
+duplicate key once G1 (#62) adds the real `zenoh` dependency there. It proves the same
+thing. Checked with the real `zenoh` dependency added to `transports/zenoh/Cargo.toml`
+(not committed): the licence mutation test passes 4/4 over 470 packages, and the crate-deps
+mutation test 28/28.
 
 ### 3.3 The resolved graph
 

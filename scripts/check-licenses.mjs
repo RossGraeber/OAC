@@ -267,6 +267,8 @@ function selfTest() {
   }
   expect('control: MIT AND LGPL-2.1-only passes', ok('MIT AND LGPL-2.1-only'));
   expect('election: MPL-2.0 OR MIT elects MIT (permissive arm first)', licenseVerdict('MPL-2.0 OR MIT').elected === 'MIT');
+  expect('election: MIT OR Apache-2.0 OR LGPL-2.1-or-later (r-efi) elects Apache-2.0',
+    licenseVerdict('MIT OR Apache-2.0 OR LGPL-2.1-or-later').elected === 'Apache-2.0');
   expect('election: EPL-2.0 OR Apache-2.0 elects Apache-2.0 (zenoh)', licenseVerdict('EPL-2.0 OR Apache-2.0').elected === 'Apache-2.0');
   for (const l of ['GPL-3.0-only', 'GPL-3.0-or-later', 'GPL-2.0-only', 'GPL-2.0-or-later', 'AGPL-3.0-only', 'AGPL-3.0-or-later', 'SSPL-1.0', 'OSL-3.0', 'GPL-3.0']) {
     expect(`${l} fails (strong copyleft)`, !ok(l));
@@ -336,10 +338,13 @@ const LICENSE_MUTATIONS = [
     edit: addOptionalDep('stub = { package = "gpl-stub", path = "../../../stubs/gpl-stub", optional = true }'),
   },
   {
+    // A uniquely named stub (#7): adding a `zenoh` key would collide with the real zenoh
+    // dependency transports/zenoh takes in G1 (#62). Same proof: a dual with an EPL-2.0 arm
+    // passes, electing Apache-2.0.
     name: 'control: transports/zenoh depends on an EPL-2.0 OR Apache-2.0 crate (elects Apache-2.0)',
     control: true,
     file: 'transports/zenoh/Cargo.toml',
-    edit: addDep('dependencies', 'zenoh = { path = "../../../stubs/zenoh" }'),
+    edit: addDep('dependencies', 'epl-dual-stub = { path = "../../../stubs/epl-dual-stub" }'),
   },
 ];
 

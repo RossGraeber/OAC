@@ -620,6 +620,9 @@ export const STUBS = {
   'zenoh-backend-traits': { name: 'zenoh_backend_traits', license: 'EPL-2.0 OR Apache-2.0' },
   'codex-app-server-protocol': { name: 'codex_app_server_protocol', license: 'Apache-2.0' },
   'gpl-stub': { name: 'gpl-stub', license: 'GPL-3.0-only' },
+  // A uniquely named EPL/Apache dual, so a license control never collides with a real
+  // `zenoh` key once transports/zenoh depends on zenoh (G1, #62).
+  'epl-dual-stub': { name: 'epl-dual-stub', license: 'EPL-2.0 OR Apache-2.0' },
   keyring: { name: 'keyring', license: 'MIT OR Apache-2.0' },
   age: { name: 'age', license: 'MIT OR Apache-2.0' },
 };
