@@ -755,8 +755,10 @@ semver, and are recorded verbatim — never reformatted.
   https://crates.io/api/v1/crates/tokio/1.53.2, retrieved 2026-10-08.
 - Features: per consumer. In `adapters/*` and `adapters/mcp-tools/` only those `rmcp` 3.4.0
   enables on it (`sync`, `macros`, `rt`, `time`, and `io-util` through
-  `transport-async-rw`; `rmcp-3.4.0/Cargo.toml` L840-L847), enforced by the adapter contract
-  suite's `VETTED_DEPENDENCIES` (G-7 §5). `cli/` and `transports/zenoh/` record theirs in
+  `transport-async-rw`; `rmcp-3.4.0/Cargo.toml` L840-L847). Held by the adapter contract
+  suite's `VETTED_DEPENDENCIES` on the dependency line, in the adapter's own `[features]` and
+  in the resolved package, and against workspace feature unification by
+  `scripts/check-crate-deps.mjs --adapters-alone` in CI (G-7 §5). `cli/` and `transports/zenoh/` record theirs in
   their tasks.
 - Decision: lead, in chat 2026-10-08 (G-7 §1, §5).
 - **Gates affected: none directly** — implementation dependency.

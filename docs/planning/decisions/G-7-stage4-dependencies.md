@@ -17,7 +17,7 @@
   edits dated 2026-10-08; the `docs/planning/PINS.md` rows and records it adds or changes;
   the license policy in `scripts/check-licenses.mjs`; rules 1, 3, 4 and 6 of
   `scripts/check-crate-deps.mjs` as changed here; check 12's scope in
-  `scripts/check-containment.mjs`; `VETTED_DEPENDENCIES` and `FORBIDDEN_CRATES` in
+  `scripts/check-containment.mjs`; `VETTED_DEPENDENCIES`, `FORBIDDEN_FAMILIES` and `FORBIDDEN_NAMES` in
   `tests/protocol/contract/adapter/src/source.rs`; the `adapters/mcp-tools/` skeleton; the
   vendored schema under `docs/planning/vendor/codex-app-server-protocol/`; the STATUS top entry.
   It changes no file under `spec/` (frozen, E7 §7), no gate verdict and no ADR text.
@@ -77,7 +77,7 @@ resolve, give these chains (all retrieved 2026-10-08):
 
 | Crate | Reaches | Why that is forbidden |
 |---|---|---|
-| `codex-app-server-protocol` | `codex-rollout` → `codex-otel` → `codex-api` → `codex-client` | `codex-api` is a model API client: `codex-api/src/provider.rs` L55 `"https://api.openai.com/v1"`, `endpoint/responses.rs` L67 `api.path = "/responses"`. `codex-rollout` handles the rollout files ([ADR-001 Boundary]; PLANNING-PROMPT.md §10) |
+| `codex-app-server-protocol` | `codex-rollout` → `codex-otel` → `codex-api` → `codex-client` | `codex-api` is a model API client: `codex-api/src/endpoint/responses.rs` L139 (`"/responses"` in `stream_encoded`, non-test code; corrected per PR #352 review finding 8, which found the earlier `provider.rs` L55 citation inside `#[cfg(test)]`). `codex-rollout` handles the rollout files ([ADR-001 Boundary]; PLANNING-PROMPT.md §10) |
 | `codex-app-server-protocol` | `codex-secrets` → `codex-keyring-store` | `codex-keyring-store/Cargo.toml` L11-L26: `keyring` with the Windows, Apple and Secret Service native stores |
 | `codex-app-server-protocol` | `codex-state`, `codex-network-proxy`, `codex-http-client` | through `codex-rollout` and `codex-protocol` |
 | `codex-app-server-transport` | `codex-core`, `codex-login`, `codex-api`, `codex-model-provider` (direct, `app-server-transport/Cargo.toml` `[dependencies]`) | the harness core, its login and its model client |
@@ -89,38 +89,40 @@ resolution of 2026-10-08: "every codex-app-server crate at rust-v0.161.0 reaches
 client, a keyring store, or rollouts; ADR-001 is inviolable. So: no Codex crate is allowed."
 The Codex adapter is hand-written on `oac-core` against the vendored schema (D5, §8.2).
 
-### 2.3 Enforcement: refused by name and by transitive presence
+### 2.3 Enforcement: the whole Codex family, by name and by transitive presence
 
-The forbidden list is the crates named in §2.2: `codex-app-server`,
-`codex-app-server-client`, `codex-app-server-protocol`, `codex-app-server-transport`,
-`codex-core`, `codex-api`, `codex-client`, `codex-login`, `codex-keyring-store`,
-`codex-secrets`, `codex-rollout`, `codex-state`, `codex-model-provider`, `codex-otel`,
-`codex-http-client`, `codex-network-proxy`, `codex-protocol`. Names match lowercased with
-`_` folded to `-`.
+No Codex crate is allowed, so the refusal is the **`codex-` family**, matched on the package
+name lowercased with `_` folded to `-` (PR #352 review finding 4: a list of the crates named
+in §2.2 let others through, among them `codex-responses-api-proxy`, a model-API proxy, and
+the two `codex-*-macros` proc-macro crates, and it dropped the old rule-4 family's refusal of
+`codex-app-server-*` in `core/` and `cli/`). `rmcp-macros` is refused by name the same way
+(§5).
 
-- **By transitive presence:** `scripts/check-crate-deps.mjs` rule 6 (`FORBIDDEN_EXTERNAL`)
-  fails any workspace member, `cli/` included, whose closure over normal, build and dev
-  edges, every platform and `--all-features` holds a forbidden name. A crate under an
-  innocent name that reaches one fails through it. The old rule-4 family "Codex app-server
-  crates, owned by `adapters/codex`" is removed: nothing owns them, because nothing may have
-  them.
-- **By name, in the adapter static scan:** `FORBIDDEN_CRATES` in
+- **By transitive presence:** `scripts/check-crate-deps.mjs` rule 6 (`FORBIDDEN_FAMILIES`,
+  `FORBIDDEN_NAMES`) fails any workspace member, `core/` and `cli/` included, whose closure
+  over normal, build and dev edges, every platform and `--all-features` holds a forbidden
+  name. A crate under an innocent name that reaches one fails through it.
+- **In the adapter static scan:** the same two lists in
   `tests/protocol/contract/adapter/src/source.rs`. `vet_dependency` refuses a forbidden crate
-  under every dependency kind, dev included (a dev-dependency is otherwise the adapter's own
-  tests' business). `tests/real_adapters.rs` `the_forbidden_lists_agree` checks that the two
-  lists name the same crates.
-- **Planted breaches.** `check-crate-deps.mjs --self-test`: one must-fail case per forbidden
-  crate as a direct dependency of `adapters/codex`; `cli/` reaching `codex-core` through a
-  third-party crate; the recorded chain `codex-app-server-protocol` → `codex-rollout` →
-  `codex-otel` → `codex-api`; an unlisted crate that only reaches `codex-keyring-store`; a
-  dev edge, a build edge, and a mixed-case underscore spelling; and a control that an
-  unlisted `codex-utils-*` crate is not refused by name. The former control "adapters/codex
-  may depend on codex_app_server_protocol" is now a must-fail case.
-  `check-crate-deps.mjs --mutation-test` plants the same in a copy of the real workspace
-  with real cargo: `adapters/codex` depending on `codex_app_server_protocol`, `cli/`
-  depending on a stub that reaches `codex-api`, and a dev-dependency on `codex-api`.
-  `source.rs` `forbidden_crates_are_refused_under_every_kind` plants each forbidden name
-  under every kind and spelling.
+  under every dependency kind, dev included; the adapter's own `[features]` table may not
+  name one; and its resolved graph may not hold one (§5). `tests/real_adapters.rs`
+  `the_forbidden_lists_agree` checks the lists agree.
+- **Planted breaches.** `check-crate-deps.mjs --self-test`: each recorded Codex crate
+  (the §2.2 chains, `codex-responses-api-proxy`, `codex-websocket-auth`, both macro crates,
+  `codex-utils-string`) as a direct dependency of `adapters/codex`, of `core/` and of
+  `cli/`; a new name (`codex-anything-new`) by family; a folded spelling reached through a
+  helper; `cli/` reaching `codex-core` through a third-party crate; the recorded chain
+  `codex-app-server-protocol` → `codex-rollout` → `codex-otel` → `codex-api`; dev and build
+  edges; and a control that names merely containing "codex" (`mycodex`, `codexx`) pass.
+  `--mutation-test`, with real cargo on a copy of the workspace: `adapters/codex` and `cli/`
+  depending on `codex_app_server_protocol`, `core/` on `codex-responses-api-proxy`, `cli/` on
+  a stub that reaches `codex-api`, and a dev-dependency on `codex-api`. `source.rs`
+  `forbidden_crates_are_refused_under_every_kind` plants each under every kind and spelling.
+
+**Limit.** A vendored copy whose `[package] name` is edited is outside any check by name. The
+adapters are still held by `VETTED_DEPENDENCIES` (an unvetted name fails, §5); `cli/`,
+transports and `core/` are not, and rest on review and on 07 §5's inventory rule (no
+dependency without an inventory entry).
 
 ---
 
@@ -147,9 +149,18 @@ it under `Pin rows relied on` (`G1-result.md` L189-L190, `G4-result.md` L298-L30
 move would revert both verdicts to `NOT RUN` in the same commit, although neither run
 exercised `rmcp` (`G4-result.md` L18-L24). That is a gate decision this record does not
 make. `3.4.0` has the same feature structure as `3.5.1` (`server` → `transport-async-rw`,
-`schemars`; `macros` → `rmcp-macros`), the same three exported `macro_rules!`, the same
-`tokio` features, and the same licence result in §3.3. Moving to `3.5.1` is a pin move the
-lead can make later, with the checklist.
+`schemars`; `macros` → `rmcp-macros`), the same `tokio` features, and the same licence
+result in §3.3. Their exported `macro_rules!` differ slightly (§5): 3.4.0 gates `object!`
+behind `macros` (`src/model.rs` L60), which 3.5.1 un-gated (rust-sdk #1318). Moving to
+`3.5.1` is a pin move the lead can make later, with the checklist.
+
+**For the lead (PR #352 review finding 11).** `rmcp` 3.5.0 and 3.5.1 carry correctness fixes
+in the 2026-07-28 stateless era that G4 concerns: default cache hints for 2026-07-28 peers
+(#1308), a bootstrap-neutral discover lifecycle (#1248), invalid-params errors in-band
+(#1322), and float decoding (#1300). None is a security fix for `server` +
+`transport-async-rw`, so holding `3.4.0` is sound now. The open G4 item ("`rmcp`-based
+server registering as a legacy-era channel", risks row 16) should run on the version G4
+actually adopts.
 
 ### 3.2 Licence policy (lead clarification, 2026-10-08)
 
@@ -270,29 +281,70 @@ is now `["oac-core", "oac-mcp-tools", "rmcp", "tokio"]`, each vetted by identity
 - `tokio`: from crates.io at exactly `=1.53.2`, features only those `rmcp` 3.4.0 enables on
   it (`sync`, `macros`, `rt`, `time`, and `io-util` through `transport-async-rw`;
   `rmcp-3.4.0/Cargo.toml` L840-L847). `tokio` is allowed in adapters because it is `rmcp`'s
-  runtime (lead, 2026-10-08). `net` and `process` are refused in adapters (§8.3).
+  runtime (lead, 2026-10-08).
 
 Anything else stays refused, renames included.
 
+**What holds the limits, layer by layer** (PR #352 review findings 1-3 found the first
+version held only the first layer):
+
+1. **The dependency line** (`vet_dependency`): name, source, exact requirement, default
+   features and listed features, as above.
+2. **The package's own `[features]` table** (`feature_table_findings`, finding 1): no entry
+   may turn on an unvetted feature of a vetted crate (`tokio/net`, `tokio?/process`,
+   `rmcp/macros`) or name a forbidden crate.
+3. **The resolved package** (`vet_resolved`, `patch_findings`, finding 3): each normal or build
+   dependency must resolve, in `cargo metadata`'s resolve, to crates.io at its pin (or the
+   repository's own directory), so a `[patch]` or `[replace]` cannot swap in another copy;
+   and the workspace root manifest may not patch or replace a vetted or forbidden crate.
+   The package's resolved closure may hold no forbidden crate.
+4. **Feature unification** (finding 2). A workspace build unifies features across members,
+   so `cli/` turning on `tokio/net` would hand it to the adapters in every `--workspace`
+   build and in the `oac` binary. `node scripts/check-crate-deps.mjs --adapters-alone` runs
+   `cargo check --locked --lib` on the adapters and `adapters/mcp-tools` alone, so an adapter
+   that uses a feature it does not turn on itself fails; CI runs it in job `crate-deps`. And
+   `rmcp-macros` is refused anywhere in the graph (rule 6), so no member can unify `macros`
+   in.
+
+So in an adapter, `tokio`'s `net`, `process` and `fs` and `rmcp`'s `macros` are refused at
+every layer, and the code that compiles under `--adapters-alone` can use none of them (§8.3).
+Planted breaches: `source.rs` `feature_tables_cannot_widen_vetted_crates`,
+`resolved_identity_and_patches_are_vetted` and `registry_dependencies_are_vetted_by_pin_and_features`;
+`check-crate-deps.mjs` self-test (`rmcp-macros` through `rmcp` in `cli/`) and mutation test
+(`cli/` depending on `rmcp-macros`; an adapter using a feature only another member turns on,
+which builds with that member and fails `--adapters-alone`). Checked by hand on a scratch
+change (not committed): an adapter with `[features] default = ["tokio/net"]`, and a root
+`[patch.crates-io] tokio = { path = .. }`, each fail `tests/real_adapters.rs`.
+
 **Macro vetting.** The old rule was "each vetted crate exports no macro". It still holds for
 the two repository crates. The two crates.io crates export `macro_rules!`, so for them the
-rule is that no exported macro can load a file. Read at the pinned versions on 2026-10-08:
+rule is that no exported macro can load a file. Read at the pinned versions on 2026-10-08,
+with the vetted features:
 
-- `rmcp` 3.4.0 exports `object!`, `const_string!` and (feature `elicitation`, not enabled)
-  `elicit_safe!`. With `macros` off it re-exports no proc-macro of its own. Through
-  `server` → `schemars` it re-exports the `schemars` crate, whose `JsonSchema` derive
+- `rmcp` 3.4.0 exports `const_string!`, and `elicit_safe!` under `elicitation` (not enabled).
+  `object!` is behind `macros` (`src/model.rs` L60; finding 7). With `macros` off it
+  re-exports no proc-macro of its own, and `serde` is re-exported only under `macros`.
+  Through `server` → `schemars` it re-exports the `schemars` crate, whose `JsonSchema` derive
   (`schemars_derive` 1.2.2) reads the annotated item, not files (its only `include_str!` is
   its own documentation, `src/lib.rs` L30).
 - `tokio` 1.53.2 exports `join!`, `try_join!`, `pin!`, `select!` and `task_local!`.
-  `select!` expands to an inline `mod __tokio_select_util { .. }`, which loads no file.
+  `select!` expands to an inline `mod __tokio_select_util { .. }`, which loads no file, and to
+  `$crate::select_priv_declare_output_enum!`, a proc-macro of `tokio-macros`.
+- **Proc-macros reached through the vetted features, vetted by reading** (finding 6):
+  `tokio-macros` 2.7.2 (`#[tokio::main]`, `#[tokio::test]`, the `select!` helper),
+  `schemars_derive` 1.2.2, and `serde_derive` 1.0.229. None reads a file at expansion (no
+  `std::fs`, `include*!` or `read_to_string` in their `src/`, read 2026-10-08).
 
-`macros_that_load_files` in `source.rs` makes this mechanical: it finds `include!`,
-`include_str!`, `include_bytes!`, `#[path ..]` and `mod name;` in any `macro_rules!` body,
-with planted cases. Run over the `rmcp` 3.4.0 and 3.5.1 and `tokio` 1.53.2 sources it finds
-nothing. `tests/real_adapters.rs`
-`the_vetted_registry_dependencies_export_no_file_loading_macro` re-runs it, and checks for a
-proc-macro target and the pinned version, once either crate is in the workspace graph;
-until then it says it is not in the graph rather than passing on a crate it never read.
+`macros_that_load_files` in `source.rs` makes the `macro_rules!` half mechanical: it finds
+`include!`, `include_str!`, `include_bytes!`, `#[path ..]` (also `path` anywhere inside a
+`#[cfg_attr(..)]`) and `mod name;` (also `mod $name;`) in any `macro_rules!` body, with a
+planted case for each form (finding 5). Run over the `rmcp` 3.4.0 and 3.5.1 and `tokio`
+1.53.2 sources it finds nothing. `tests/real_adapters.rs`
+`the_vetted_registry_dependencies_export_no_file_loading_macro` re-runs it over the
+`--all-features` graph, and checks the pinned version and that neither crate is itself a
+proc-macro, once either crate is in the workspace graph; until then it says it is not in the
+graph rather than passing on a crate it never read. It does not vet the proc-macros above; it
+lists every proc-macro in the graph, and the next adopter re-reads them.
 
 ---
 
@@ -305,14 +357,19 @@ change. The changes here to `tests/protocol/contract/adapter/` (`src/source.rs`,
 before any adapter code exists, not an edit to make a real module pass.
 
 - **Baseline candidate:** the head commit of the PR that adds this record, for
-  `tests/protocol/contract/`.
+  `tests/protocol/contract/`, qualified below: whichever pre-adapter suite change merges
+  last sets the baseline.
 - **Parallel pre-adapter change:** #347 (PR #348, branch
   `test/347-handoff-failed-assertion`; its own baseline candidate `ba9cf83`) edits
   `tests/protocol/contract/adapter/src/lib.rs`, `src/plant.rs`, `src/claude.rs`,
   `src/codex.rs` and `tests/stand_in.rs`. This PR edits none of those files. PR #348 merged
   first (`d28237a`) and this branch merged `main` after it, so the head of this PR holds both
-  changes, and its merge commit is the Gate S4 baseline for `tests/protocol/contract/`; the
-  Stage 4 exit record cites that merge commit.
+  changes.
+- **Another one is open:** #351 (PR #355) also changes the suite before any adapter
+  (`src/lib.rs`, `src/plant.rs`, `src/claude.rs`, `src/codex.rs`, `tests/stand_in.rs`, and
+  `README.md`, which this PR edits too). If it merges after this PR, its merge commit is the
+  baseline; if before, this PR's merge commit is. The Stage 4 exit record cites the merge
+  commit of whichever pre-adapter suite change lands last (PR #352 review finding 9).
 
 ---
 
@@ -407,7 +464,8 @@ PR #350 (`spec/69-codex-reply-pairing`, "Codex issued-value pairing for outbound
 | `docs/planning/PINS.md` | New rows and records: `tokio`, `rcgen`, `windows-sys`, `libc`; dated notes on `rmcp` (pin unchanged; consumers), Zenoh (features, licences of its graph), `interprocess` (not chosen for use, D3) |
 | `docs/planning/v0.1/11-risks.md` | Traceability row 16: the `rmcp`-based server is now the adapters' MCP server side |
 | `scripts/check-licenses.mjs` | Licence policy (§3.2) and self-test |
-| `scripts/check-crate-deps.mjs` | `tools` module kind; rule 6 forbidden crates; Codex app-server owner family removed; self-test and mutation cases |
+| `scripts/check-crate-deps.mjs` | `tools` module kind; rule 6 (the `codex-` family and `rmcp-macros`); Codex app-server owner family folded into rule 6; `--adapters-alone`; self-test and mutation cases |
+| `.github/workflows/ci.yml` | Job `crate-deps` runs `--adapters-alone` (§5 layer 4) |
 | `scripts/check-containment.mjs` | Check 12 scope without `Cargo.lock`; self-test (§7) |
 | `tests/protocol/contract/adapter/src/source.rs`, `tests/real_adapters.rs`, `README.md` | §2.3, §5 |
 | `adapters/mcp-tools/`, `Cargo.toml`, `Cargo.lock` | The skeleton crate (§4) |
@@ -420,23 +478,48 @@ PR #350 (`spec/69-codex-reply-pairing`, "Codex issued-value pairing for outbound
 
 ## 11. Checks run
 
-On this branch (Windows 11, Rust 1.98.1, short target dir):
+On this branch (Windows 11, Rust 1.98.1, short target dir), re-run after the PR #352 review
+fixes (`cargo test --workspace`: 47 suites, 453 tests, 0 failed):
 
 - `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings`;
   `cargo test --workspace`.
 - `node scripts/check-licenses.mjs` (and `--self-test`, `--mutation-test`);
-  `node scripts/check-crate-deps.mjs` (and `--self-test`, `--mutation-test`);
+  `node scripts/check-crate-deps.mjs` (and `--self-test`, `--mutation-test`,
+  `--adapters-alone`);
   `node scripts/check-containment.mjs` (and `--self-test`); `check-fixture-manifest.mjs`,
   `check-herdr-containment.mjs`, `check-skills.mjs`, `check-workflows.mjs`, each with its
   self-test; `node scripts/sync-agents-skills.mjs --check`.
 
 All pass: `cargo test --workspace` green; `check-licenses` CLEAN (self-test 60/60,
-mutation 4/4); `check-crate-deps` CLEAN, 11 members (self-test 98/98, mutation 28/28);
+mutation 4/4); `check-crate-deps` CLEAN, 11 members (self-test 151/151, mutation 32/32), and
+`--adapters-alone` CLEAN;
 `check-containment` CLEAN (self-test 33/33); `check-fixture-manifest` (self-test 73/73);
 `check-herdr-containment` CLEAN (self-test 102/103, one case skipped on this platform);
 `check-skills` within budget; `check-workflows` CLEAN (self-test 101/101);
 `sync-agents-skills --check` in sync (self-test 28/28). The `boundary-lint.yml` ripgrep
 checks 3 and 8, run locally, are clean. CI on the PR is the record for the three OSes.
+
+---
+
+## 12. PR #352 review (2026-10-08, changes requested)
+
+https://github.com/RossGraeber/OAC/pull/352#issuecomment-6064461553. Each finding and where it
+is answered:
+
+| # | Finding | Answer |
+|---|---|---|
+| 1 | An adapter's own `[features]` table could turn on refused `tokio`/`rmcp` features | §5 layer 2; planted in `source.rs` |
+| 2 | Workspace feature unification bypassed the per-crate limits | §5 layer 4: `--adapters-alone` in CI, `rmcp-macros` refused anywhere; planted in `check-crate-deps.mjs` |
+| 3 | `[patch]` bypassed the crates.io identity check | §5 layer 3: the resolved package is vetted, patches of vetted crates refused; planted in `source.rs` |
+| 4 | Rule 6 was a name list; the rule-4 family's `core/`/`cli/` refusal was lost | §2.3: the `codex-` family; planted per crate in `core/`, `cli/` and `adapters/codex` |
+| 5 | `macros_that_load_files` missed `mod $name;` and `cfg_attr(.., path = ..)` | §5; a planted case for each |
+| 6 | The proc-macro claim was wider than the test | §5 names the proc-macros read by hand; the test lists them; README says what it covers |
+| 7 | `rmcp` macro facts | §3.1, §5 corrected |
+| 8 | A citation inside `#[cfg(test)]` | §2.2 cites `endpoint/responses.rs` L139 |
+| 9 | Baseline with #355 | §6 qualified |
+| 10 | Licence list exactness; metadata flags | 07 §5 says the lists are exact; the registry test reads `--all-features` |
+| 11 | `rmcp` 3.5.x fixes in the G4 era | §3.1 note for the lead |
+| 12 | "Enforced" wording | Re-worded in PINS.md, 07 §5, the suite README and §5 |
 
 ---
 

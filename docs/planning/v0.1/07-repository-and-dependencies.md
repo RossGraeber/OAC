@@ -301,9 +301,9 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 
 | Crate | Version | License | Why needed | Copyleft? | Apache-2.0 compatible? | Source decision | Consuming module |
 |---|---|---|---|---|---|---|---|
-| `rmcp` | `3.4.0` (`=3.4.0`; `default-features = false`, features `server` and `transport-async-rw` only; `macros` refused) | Apache-2.0 | Rust MCP SDK — the MCP server side of both adapters (G-7 §2, §5) | No | Yes — same license | C1 §3, §10; G-7 §3.1 | `adapters/mcp-tools/`, `adapters/claude/`, `adapters/codex/` (dated note below) |
+| `rmcp` | `3.4.0` (`=3.4.0`; `default-features = false`, features `server` and `transport-async-rw` only; `macros` refused on the dependency line, in the adapter's own `[features]`, and as `rmcp-macros` anywhere in the graph, G-7 §5) | Apache-2.0 | Rust MCP SDK — the MCP server side of both adapters (G-7 §2, §5) | No | Yes — same license | C1 §3, §10; G-7 §3.1 | `adapters/mcp-tools/`, `adapters/claude/`, `adapters/codex/` (dated note below) |
 | `zenoh` | `1.10.1` (`=1.10.1`; `default-features = false`, features `transport_tcp` and `transport_tls` only; no `unstable`, no `shared-memory`) | EPL-2.0 / Apache-2.0 (dual) | Reference peer-to-peer transport plugin | **Yes — EPL-2.0 is the other arm of the dual license; flagged** (§6) | Yes — OAC elects the Apache-2.0 arm | C1 §7, §10; G-7 §3.1 | `transports/zenoh/` only |
-| `tokio` (added 2026-10-08, #7) | `1.53.2` (`=1.53.2`; features per consumer; in adapters only those `rmcp` enables: `sync`, `macros`, `rt`, `time`, `io-util`) | MIT | Async runtime: `rmcp`'s runtime, the daemon's runtime and local IPC (G-7 §8.1) | No | Yes — permissive | G-7 §3.1 | `cli/`, `adapters/*`, `adapters/mcp-tools/`, `transports/zenoh/` |
+| `tokio` (added 2026-10-08, #7) | `1.53.2` (`=1.53.2`; features per consumer; in adapters only those `rmcp` enables: `sync`, `macros`, `rt`, `time`, `io-util`, held on the dependency line, in the adapter's own `[features]`, in the resolved package, and against workspace unification by `check-crate-deps.mjs --adapters-alone` in CI, G-7 §5) | MIT | Async runtime: `rmcp`'s runtime, the daemon's runtime and local IPC (G-7 §8.1) | No | Yes — permissive | G-7 §3.1 | `cli/`, `adapters/*`, `adapters/mcp-tools/`, `transports/zenoh/` |
 | `rcgen` (added 2026-10-08, #7) | `0.14.10` (`=0.14.10`; `default-features = false`, features `pem`, `ring`) | MIT OR Apache-2.0 | The automatically generated local-mode TLS certificate (C7 §5) | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1 | `transports/zenoh/` or the daemon's state code in `cli/`, as G3 (#64) decides |
 | `windows-sys` (added 2026-10-08, #7) | `0.61.2` (`=0.61.2`; `Win32_Foundation`, `Win32_System_Pipes`) | MIT OR Apache-2.0 | Peer PID of a named-pipe client (`GetNamedPipeClientProcessId`) for local IPC peer auth; already in the graph at this version | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1, §8.1 | `cli/` (Windows) |
 | `libc` (added 2026-10-08, #7) | `0.2.190` (`=0.2.190`) | MIT OR Apache-2.0 | Peer credentials on Unix sockets (`SO_PEERCRED`; macOS `LOCAL_PEEREPID`) where `tokio` does not cover them; already a Unix dependency of `cli/` (dated note below) | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1, §8.1 | `cli/` (Unix) |
@@ -330,8 +330,8 @@ rows.** The three Codex app-server rows that stood here (`codex-app-server-clien
 client) and `codex-secrets` → `codex-keyring-store`; `codex-app-server-transport` depends on
 `codex-core`, `codex-login`, `codex-api` and `codex-model-provider`; `codex-app-server-client`
 on `codex-app-server` and `codex-core` (G-7 §2.2). ADR-001 refuses all of them, and
-`scripts/check-crate-deps.mjs` rule 6 and the adapter scan's `FORBIDDEN_CRATES` refuse them by
-name and by transitive presence (G-7 §2.3). The lead's "adapters may use upstream libraries"
+`scripts/check-crate-deps.mjs` rule 6 and the adapter scan refuse the whole `codex-`
+family by name and by transitive presence (G-7 §2.3). The lead's "adapters may use upstream libraries"
 decision therefore applies to `rmcp` only. The `rmcp` row's consumer moves from `cli/`
 (`mcp-shim`) to the adapters' MCP server side, through `adapters/mcp-tools/`; `mcp-shim`
 stays a byte relay to the daemon (C2). Its pin stays `3.4.0`: moving it is a pin move that
@@ -410,7 +410,7 @@ records as acceptable, plus `Unicode-3.0` (dated note below the list):
 
 | SPDX identifier | Recorded in the table above by |
 |---|---|
-| `Apache-2.0` | `rmcp`, the three Codex app-server crates, and the elected arm of every dual |
+| `Apache-2.0` | `rmcp`, and the elected arm of every dual (the three Codex app-server crates were also listed here until 2026-10-08; none is a dependency now, G-7 §2) |
 | `MIT` | the MIT arm of `keyring`, `keyring-core`, `windows-native-keyring-store`, `age`; `memchr` (Unlicense OR MIT, MIT elected) and `zmij` (MIT), transitive packages of `serde_jcs` (dated note above) |
 | `0BSD` | the 0BSD arm of `interprocess` |
 | `Unicode-3.0` | `unicode-ident` `1.0.26`, whose expression is (MIT OR Apache-2.0) AND Unicode-3.0; operator decision https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (dated note below) |
@@ -428,6 +428,12 @@ records as acceptable, plus `Unicode-3.0` (dated note below the list):
 | `MPL-2.0` | `option-ext` `0.2.0`, reached unconditionally by `zenoh` (`zenoh-util` → `shellexpand` → `dirs` → `dirs-sys` → `option-ext`) |
 | `LGPL-2.1-only`, `LGPL-2.1-or-later`, `LGPL-3.0-only`, `LGPL-3.0-or-later` | no package elects one today (`r-efi`'s LGPL arm is not elected) |
 | `EPL-2.0` | no package elects it today (`zenoh` and its crates elect Apache-2.0) |
+
+(Dated note, 2026-10-08, #7; PR #352 review finding 10.) **The lists are exact.** An
+identifier passes only as written in the two tables, case-sensitively (SPDX says matching is
+case-insensitive; `scripts/check-licenses.mjs` fails closed instead). Weak-copyleft forms not
+listed (`LGPL-2.0-only`, `LGPL-2.0-or-later`, the deprecated `LGPL-2.1`, `EPL-1.0`, `MPL-1.1`)
+fail and need a recorded decision, as an unknown permissive identifier does.
 
 (Dated note, 2026-10-08, #7; lead clarification in chat the same day; G-7 §3.2.) **The
 policy.** The no-copyleft rule exists to stop OAC (Apache-2.0) from being forced to

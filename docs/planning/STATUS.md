@@ -25,17 +25,23 @@ are added (`tokio`, `rcgen`, `windows-sys`, `libc`; gates affected: none); no pi
 - **No Codex crate.** At `rust-v0.161.0` every `codex-app-server-*` crate reaches a model
   API client (`codex-api`), a keyring store (`codex-keyring-store`) or the rollouts
   (`codex-rollout`), so ADR-001 refuses them, and "adapters may use upstream libraries"
-  applies to `rmcp` only. `scripts/check-crate-deps.mjs` rule 6 refuses 17 named Codex
-  crates anywhere in the graph, transitively; the adapter scan's `FORBIDDEN_CRATES` refuses
-  them under every dependency kind; planted breaches in both. D5 is live: the app-server
+  applies to `rmcp` only. `scripts/check-crate-deps.mjs` rule 6 refuses the whole `codex-`
+  family, and `rmcp-macros`, anywhere in the graph, transitively, `core/` and `cli/`
+  included; the adapter scan refuses them under every dependency kind, in its own
+  `[features]` and in its resolved graph; planted breaches in both (PR #352 review finding
+  4). D5 is live: the app-server
   JSON schema at `rust-v0.161.0` is vendored at `docs/planning/vendor/codex-app-server-protocol/`
   (Apache-2.0, upstream tree hash matched).
 - **Contract suite, pre-adapter** (record §5, §6). `VETTED_DEPENDENCIES` is now `oac-core`,
-  `oac-mcp-tools`, `rmcp` and `tokio`, each vetted by identity, pin and features. **The head
-  of this PR is the Gate S4 criterion 1 baseline candidate for `tests/protocol/contract/`;**
-  it contains #347's parallel pre-adapter change to other files of the same suite (PR #348,
-  merged as `d28237a`, candidate `ba9cf83` in the entry below), so this PR's merge commit is
-  the baseline with both.
+  `oac-mcp-tools`, `rmcp` and `tokio`, each vetted by identity, pin and features, on the
+  dependency line, in the adapter's own `[features]` table and in the resolved package (a
+  `[patch]` of a vetted crate is refused); CI's `crate-deps` job runs
+  `check-crate-deps.mjs --adapters-alone`, so no feature another member turns on reaches an
+  adapter's build (PR #352 review findings 1-3). **The head of this PR is a Gate S4
+  criterion 1 baseline candidate for `tests/protocol/contract/`:** it contains #347's
+  parallel pre-adapter change (PR #348, merged as `d28237a`, candidate `ba9cf83` in the entry
+  below). #351 (PR #355) is another open pre-adapter suite change; whichever of the two
+  merges last sets the baseline (record §6, review finding 9).
 - **Shared crate.** `adapters/mcp-tools/` (`oac-mcp-tools`), the tool surface both adapters
   share ([MCPB-TOOL-003]); its own module kind; skeleton only.
 - **Containment check 12** no longer scans `Cargo.lock` (lead decision); rule 4 of

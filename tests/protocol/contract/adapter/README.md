@@ -48,16 +48,30 @@ is a finding under every row:
     `macros` feature is refused) and `tokio` `=1.53.2` (only the features `rmcp` enables on
     it: `sync`, `macros`, `rt`, `time`, `io-util`), from crates.io at exactly those
     requirements. Once either is in the workspace graph, `tests/real_adapters.rs` checks it
-    has no proc-macro target and that none of its `macro_rules!` bodies can load a file;
-- **a forbidden crate under any dependency kind, dev included**: `FORBIDDEN_CRATES`, the
-  Codex crates that are, or reach, a model API client, a credential or keyring store or the
-  rollouts ([ADR-001 Boundary]; G-7 §2). `scripts/check-crate-deps.mjs` rule 6 refuses the
-  same names anywhere in the workspace graph, transitively, and a test checks the two lists
-  agree;
+    is at its pin and is not itself a proc-macro, and that none of its own `macro_rules!`
+    bodies can load a file. It does not vet the proc-macros reached through their features
+    (`tokio-macros`, `schemars_derive`, `serde_derive`); G-7 §5 records those as read by
+    hand, and the test lists them;
+- **an entry of the package's own `[features]` table** that turns on an unvetted feature of a
+  vetted crate (`tokio/net`, `rmcp/macros`) or names a forbidden crate;
+- **a resolved dependency that is not the vetted identity**: the package `cargo metadata`
+  resolves for each normal or build dependency must be from crates.io at its pin (or the
+  repository's own directory), so a `[patch]` or `[replace]` cannot swap it; and the
+  workspace root manifest may not patch or replace a vetted or forbidden crate;
+- **a forbidden crate under any dependency kind, dev included, or anywhere in the resolved
+  graph**: the whole `codex-` family (`FORBIDDEN_FAMILIES`) and `rmcp-macros`
+  (`FORBIDDEN_NAMES`) ([ADR-001 Boundary]; G-7 §2). `scripts/check-crate-deps.mjs` rule 6
+  refuses the same anywhere in the workspace graph, transitively, and a test checks the two
+  lists agree;
 - **a symlink** on the way to a module file, or among the files scanned;
 - a file that cannot be read or does not parse.
 
 Identifiers are compared without a raw `r#` prefix everywhere.
+
+What these per-package checks cannot see is feature unification: another workspace member
+turning on a feature (`tokio/net`) that an adapter then uses. `scripts/check-crate-deps.mjs
+--adapters-alone`, run in CI, builds the adapters and `adapters/mcp-tools` alone, so that
+fails there (G-7 §5).
 
 **The cost of the word rule.** A binding named `path` may be handed to a macro
 (`format!("{}", path)`). A binding named `include`, `include_str` or `include_bytes` may

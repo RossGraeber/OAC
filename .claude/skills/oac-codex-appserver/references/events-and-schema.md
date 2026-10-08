@@ -79,7 +79,7 @@ surface (do not read or write it).
 - **OAC uses none of them.** At `rust-v0.161.0` each reaches a model API client
   (`codex-api`), a keyring store (`codex-keyring-store`) or the rollouts
   (`codex-rollout`), so ADR-001 refuses them; `scripts/check-crate-deps.mjs`
-  rule 6 and the adapter scan's `FORBIDDEN_CRATES` fail on them
+  rule 6 and the adapter scan refuse the whole `codex-` family
   (`docs/planning/decisions/G-7-stage4-dependencies.md` §2). The JSON schema is
   vendored at `docs/planning/vendor/codex-app-server-protocol/rust-v0.161.0/` instead.
 
