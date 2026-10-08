@@ -9,9 +9,9 @@
 // Rules for this file (README "Provenance" holds the per-behaviour table):
 //   - Wire shapes come from lib/fixtures.mjs templates, which are recorded frames. Code here
 //     only substitutes ids, text and times into them.
-//   - A behaviour with no recorded fixture is either cited to upstream source in README
-//     ("source-only", runtime UNVERIFIED) or answered with the fake's own NOT_MODELLED error.
-//     The fake never invents a Codex error message or a Codex frame shape.
+//   - A behaviour with no recorded fixture is answered with the fake's own NOT_MODELLED
+//     error (Gate S3 criterion 5: every fake behaviour traces to a recorded fixture). The
+//     fake never invents a Codex error message or a Codex frame shape.
 //   - Turns never progress on a timer. A turn runs until a test calls
 //     `oacFake/turn/complete` (no sleeps, no polling, deterministic order).
 
@@ -24,11 +24,10 @@ export const FAKE_INTERNAL = -32098;
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 export const CONTROL_PREFIX = 'oacFake/';
 
-// Code -32600 is INVALID_REQUEST_ERROR_CODE in app-server/src/error_code.rs. The refusals
-// below that a fixture records are replayed from it (#343, the S3 capture: README
-// "Recorded behaviours"); MSG holds only the ones no fixture records (README "Source-only
-// behaviours").
-const INVALID_REQUEST = -32600;
+// Every thread/queue/add refusal the fake gives is replayed from a recorded frame (#343, the
+// S3 capture: README "Recorded behaviours"). The subagent refusals and "no queue service"
+// are recorded nowhere, so a subagent thread is answered NOT_MODELLED and the fake has no
+// queue-less host (README "Not modelled").
 const EXPERIMENTAL_METHODS = new Set(['thread/queue/add']);
 const QUEUE_ADD_MEMBERS = new Set(['threadId', 'input', 'clientUserMessageId']);
 const TURN_START_MEMBERS = new Set(['threadId', 'input']);
@@ -38,11 +37,9 @@ const HANDOFF_METHODS = new Set(['thread/queue/add', 'turn/start', 'turn/steer']
 const STEERING_METHODS = new Set(['turn/steer', 'turn/start']);
 
 export const SUBAGENT_KINDS = ['multi-agent-v2', 'thread-spawn'];
-const MSG = {
-  subagentV2: 'direct app-server input is not allowed for multi-agent v2 sub-agents',
-  subagentUnloaded: 'direct app-server input is not allowed for unloaded spawned sub-agents',
-  noQueue: 'user message queue is unavailable',
-};
+// The preview of a thread oacFake/thread/create makes materialized: the fake's own text, in
+// the form of its NOT_MODELLED messages, in place of a first user message it never saw.
+export const PRIOR_TURNS_PREVIEW = 'oac fake Codex app-server: earlier turns not modelled';
 
 export function uuidv7(nowMs = Date.now()) {
   const b = randomBytes(16);
@@ -83,7 +80,6 @@ export class FakeCodexAppServer {
     this.now = now;
     this.connections = new Set();
     this.threads = new Map();
-    this.queueServiceAvailable = true;
     this.calls = [];
     this.controlCalls = [];
     this.nextConnId = 1;
@@ -504,16 +500,17 @@ export class FakeCodexAppServer {
     // unknown id is -32603, an internal error from the thread store, not the -32600
     // "thread not found" that thread_queue_processor.rs maps ThreadNotFound to: the local
     // store reports a missing rollout as an invalid request instead.
+    // oacFake/thread/create only makes the recorded combinations: an archived thread is
+    // materialized and not loaded, an ephemeral one loaded with no turn (createThread).
     const s3 = this.t.s3;
-    if (th && th.loaded) {
-      if (th.ephemeral) throw this.recordedError(s3.addEphemeral, s3.addEphemeralThreadId, th.id);
-    } else {
-      if (!th) throw this.recordedError(s3.addUnknown, s3.addUnknownThreadId, params.threadId);
-      if (th.archived) throw this.recordedError(s3.addArchived, s3.addArchivedThreadId, th.id);
-    }
-    if (th.loaded && th.subagent === 'multi-agent-v2') throw new RpcError(INVALID_REQUEST, MSG.subagentV2);
-    if (!th.loaded && th.subagent === 'thread-spawn') throw new RpcError(INVALID_REQUEST, MSG.subagentUnloaded);
-    if (!this.queueServiceAvailable) throw new RpcError(INVALID_REQUEST, MSG.noQueue);
+    if (!th) throw this.recordedError(s3.addUnknown, s3.addUnknownThreadId, params.threadId);
+    if (th.archived) throw this.recordedError(s3.addArchived, s3.addArchivedThreadId, th.id);
+    if (th.ephemeral) throw this.recordedError(s3.addEphemeral, s3.addEphemeralThreadId, th.id);
+    // Upstream refuses some subagent threads (ensure_direct_input_allowed) and accepts
+    // others; no fixture records either answer.
+    if (th.subagent) throw notModelled('thread/queue/add', 'no fixture records an add to a subagent thread');
+    // Every recorded accepted add went to a thread that had already run a turn.
+    if (!th.materialized) throw notModelled('thread/queue/add', 'no fixture records an add to a thread before its first turn');
     const input = textInput('thread/queue/add', params.input);
     if (typeof params.clientUserMessageId !== 'string') throw notModelled('thread/queue/add', 'the error for a missing clientUserMessageId is not recorded');
     void extra; // extra members are flagged in the call log and accepted, as recorded (S3 capture)
@@ -564,8 +561,10 @@ export class FakeCodexAppServer {
 
   loadedList(params) {
     if (Object.keys(params).length) throw notModelled('thread/loaded/list', 'only empty params are recorded');
+    const loaded = [...this.threads.values()].filter((t) => t.loaded);
+    if (loaded.some((t) => t.subagent || t.ephemeral)) throw notModelled('thread/loaded/list', 'no fixture records a loaded subagent or ephemeral thread in the list');
     const r = structuredClone(this.t.loadedList);
-    r.data = [...this.threads.values()].filter((t) => t.loaded).map((t) => t.id);
+    r.data = loaded.map((t) => t.id);
     r.nextCursor = null;
     return { result: r };
   }
@@ -576,9 +575,10 @@ export class FakeCodexAppServer {
     const extra = Object.keys(params).filter((k) => !['cursor', 'limit', 'sortKey'].includes(k));
     if (extra.length) throw notModelled('thread/list', `only cursor, limit and sortKey are recorded, got ${extra.join(', ')}`);
     const limit = Number.isInteger(params.limit) && params.limit > 0 ? params.limit : Infinity;
+    if ([...this.threads.values()].some((t) => t.subagent || t.ephemeral || t.archived)) throw notModelled('thread/list', 'no fixture records whether a subagent, ephemeral or archived thread is listed');
     // G2 0.160.0 L17-L20: a loaded thread is not listed before its first turn.
     const rows = [...this.threads.values()]
-      .filter((t) => t.materialized && !t.ephemeral && !t.archived && !t.subagent)
+      .filter((t) => t.materialized)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
     const r = structuredClone(this.t.threadList);
@@ -594,8 +594,13 @@ export class FakeCodexAppServer {
     if (params.sortDirection !== 'desc' || params.itemsView !== 'full') throw notModelled('thread/turns/list', 'only sortDirection desc with itemsView full is recorded');
     const extra = Object.keys(params).filter((k) => !['threadId', 'limit', 'sortDirection', 'itemsView'].includes(k));
     if (extra.length) throw notModelled('thread/turns/list', `unrecorded members ${extra.join(', ')}`);
+    // A thread made materialized by oacFake/thread/create stands for one that has run turns
+    // the fake never saw, so its list would leave them out. Every recorded list has at least
+    // one turn, so an empty one is not recorded either.
+    if (th.priorTurnsUnmodelled) throw notModelled('thread/turns/list', 'the thread was made by oacFake/thread/create with earlier turns the fake does not model');
     const limit = Number.isInteger(params.limit) && params.limit > 0 ? params.limit : Infinity;
     const all = [...th.turns, ...(th.activeTurn ? [th.activeTurn] : [])].reverse().slice(0, limit);
+    if (all.length === 0) throw notModelled('thread/turns/list', 'no fixture records a thread with no turn');
     const r = structuredClone(this.t.turnsList);
     r.data = all.map((turn) => this.turnObject(turn, this.t.turnsList.data[0], 'full', structuredClone(turn.items)));
     r.nextCursor = null;
@@ -609,22 +614,10 @@ export class FakeCodexAppServer {
     switch (method) {
       case 'oacFake/turn/complete':
         return { result: this.completeTurn(p) };
-      case 'oacFake/thread/create': {
-        const subagent = p.subagent ?? null;
-        if (subagent !== null && !SUBAGENT_KINDS.includes(subagent)) throw new RpcError(-32602, `subagent must be one of ${SUBAGENT_KINDS.join(', ')}`);
-        const th = this.newThread({
-          cwd: p.cwd,
-          ephemeral: p.ephemeral === true,
-          archived: p.archived === true,
-          subagent,
-          loaded: p.loaded !== false,
-          materialized: p.materialized !== false,
-        });
-        return { result: { threadId: th.id } };
-      }
-      case 'oacFake/queue/setAvailable':
-        this.queueServiceAvailable = p.available !== false;
-        return { result: { available: this.queueServiceAvailable } };
+      case 'oacFake/thread/create':
+        return { result: { threadId: this.createThread(p).id } };
+      case 'oacFake/thread/setArchived':
+        return { result: this.setArchived(p) };
       case 'oacFake/calls':
         return { result: this.callReport(p) };
       case 'oacFake/thread/state': {
@@ -648,6 +641,61 @@ export class FakeCodexAppServer {
       default:
         throw new RpcError(-32601, `unknown fake control method ${method}`);
     }
+  }
+
+  // oacFake/thread/create. Only states a fixture records, or (subagent) states every Codex
+  // method answers NOT_MODELLED for; any other combination is refused:
+  //   - archived: materialized and not loaded, as after `thread/archive` (S3 L1023-L1030);
+  //   - ephemeral: loaded, before any turn (`materialized` defaults to false), as made by
+  //     `thread/start` with `ephemeral` (S3 L111-L114); an unloaded or turned one is not
+  //     recorded;
+  //   - not loaded: only after a turn (S3 L956-L1019); a thread never turned and not loaded
+  //     is not recorded;
+  //   - subagent: neither archived nor ephemeral;
+  //   - materialized (the default): a thread that has already run turns; their content is
+  //     not modelled, so `thread/turns/list` on it answers NOT_MODELLED.
+  createThread(p) {
+    const subagent = p.subagent ?? null;
+    if (subagent !== null && !SUBAGENT_KINDS.includes(subagent)) throw new RpcError(-32602, `subagent must be one of ${SUBAGENT_KINDS.join(', ')}`);
+    const ephemeral = p.ephemeral === true;
+    const archived = p.archived === true;
+    const loaded = p.loaded !== false;
+    const materialized = p.materialized === undefined ? !ephemeral : p.materialized !== false;
+    const refuse = (why) => new RpcError(-32602, `oacFake/thread/create: ${why}`);
+    if (subagent !== null && (ephemeral || archived)) throw refuse('no fixture records an ephemeral or archived subagent thread');
+    if (archived && (loaded || !materialized || ephemeral)) throw refuse('an archived thread is recorded only materialized and not loaded (S3 L1023-L1030): pass loaded: false');
+    if (ephemeral && (!loaded || materialized)) throw refuse('an ephemeral thread is recorded only loaded and before any turn (S3 L111-L119)');
+    if (!loaded && !materialized) throw refuse('a thread that is not loaded is recorded only after a turn (S3 L956-L1019)');
+    const th = this.newThread({ cwd: p.cwd, ephemeral, archived, subagent, loaded, materialized });
+    // Materialized means it has run a turn (G2 L17-L20); the fake has no record of that turn.
+    th.priorTurnsUnmodelled = materialized;
+    // Every recorded thread/list row and thread/resume result has a non-empty preview, the
+    // thread's first user message (S3 L42, L50); only a thread/start result, before the
+    // first turn, has "" (S3 L113, L124). The fake's own text stands in for the unseen
+    // first message, and a later turn keeps it (beginTurn sets the preview only when empty).
+    if (materialized) th.preview = PRIOR_TURNS_PREVIEW;
+    return th;
+  }
+
+  // Test set-up, not a Codex behaviour: put an idle top-level thread into the state the S3
+  // capture recorded after `thread/archive` (archived and not loaded, `cases-reload`
+  // L1023-L1030), where an add gets the recorded archived refusal (L1030-L1032); or put it
+  // back as it was (loaded, not archived). It sends no frame: neither `thread/archive`'s
+  // notifications nor anything for `thread/unarchive` (not recorded) are modelled. The
+  // restore leaves a recorded state (loaded and idle, S3 L981-L1018) by a transition no
+  // fixture records (no `thread/unarchive` capture). Only IFC-ADP-056's detection of a
+  // re-sent refused add uses it; SEC-AUZ-027 and IFC-ADP-057 catch that case without it.
+  setArchived({ threadId, archived }) {
+    const th = this.threads.get(threadId);
+    if (!th) throw new RpcError(-32602, `unknown thread ${threadId}`);
+    if (typeof archived !== 'boolean') throw new RpcError(-32602, 'archived must be true or false');
+    if (th.ephemeral || th.subagent || !th.materialized) throw new RpcError(-32602, 'only a materialized top-level thread is archived in the S3 capture');
+    if (th.activeTurn || th.queue.length) throw new RpcError(-32602, 'archiving a thread with a running turn or a queue is not recorded');
+    if (archived === th.archived) throw new RpcError(-32602, `thread ${threadId} is already ${archived ? 'archived' : 'not archived'}`);
+    if (archived && !th.loaded) throw new RpcError(-32602, 'the S3 capture archived a loaded thread');
+    th.archived = archived;
+    th.loaded = !archived;
+    return { threadId: th.id, archived: th.archived, loaded: th.loaded };
   }
 
   // Finish the running turn. status "completed" (recorded, D6 conn1) or "interrupted"

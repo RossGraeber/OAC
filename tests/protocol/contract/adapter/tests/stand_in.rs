@@ -871,12 +871,17 @@ impl AdapterHarness for QueueHarness {
         self.fake.drain(&self.sessions[s].0);
         Ok(())
     }
-    fn refuse_hand_offs(&mut self, _s: usize) -> Step<()> {
-        self.fake.set_queue_available(false);
+    // The turned-away hand-off goes to the session's own thread, archived: Codex's recorded
+    // archived refusal (S3 capture L1030-L1032), which spec/bindings/mcp.md section 8.2.1
+    // classifies `handoff-failed` ([SC-DLV-009]). No fixture records a host without the
+    // queue service, so the fake has none (Gate S3 criterion 5).
+    fn refuse_hand_offs(&mut self, s: usize) -> Step<()> {
+        self.fake.drain(&self.sessions[s].0);
+        self.fake.set_archived(&self.sessions[s].0, true);
         Ok(())
     }
-    fn allow_hand_offs(&mut self, _s: usize) -> Step<()> {
-        self.fake.set_queue_available(true);
+    fn allow_hand_offs(&mut self, s: usize) -> Step<()> {
+        self.fake.set_archived(&self.sessions[s].0, false);
         Ok(())
     }
     fn request(&mut self, _s: usize, _r: &HarnessRequest) -> Step<ObservedResult> {
@@ -896,23 +901,37 @@ impl AdapterHarness for QueueHarness {
     }
 }
 
-fn queue_report(breach: QueueBreach) -> Report {
+fn queue_run(breach: QueueBreach) -> (Report, Arc<CodexFake>) {
     let fake = Arc::new(CodexFake::spawn().expect("spawn the fake Codex app-server with node"));
     let adapter = Arc::new(QueueStandIn::new(fake.url(), breach));
     let mut h = QueueHarness {
-        fake,
+        fake: fake.clone(),
         adapter,
         sessions: Vec::new(),
         own: Vec::new(),
     };
-    run(&mut h)
+    (run(&mut h), fake)
+}
+
+fn queue_report(breach: QueueBreach) -> Report {
+    queue_run(breach).0
 }
 
 #[test]
 fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
-    let report = queue_report(QueueBreach::None);
+    let (report, fake) = queue_run(QueueBreach::None);
     println!("{report}");
     report.assert_conformant();
+    // The turned-away hand-off rests on a refusal a fixture records: Codex's archived
+    // refusal, -32600 (S3 capture L1030-L1032), never the fake's own NOT_MODELLED.
+    let refused = fake.refused_queue_adds(STAND_IN_CLIENT);
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    let (code, message) = &refused[0];
+    assert_eq!(*code, -32600, "{refused:?}");
+    assert!(
+        message.starts_with("session ") && message.contains(" is archived. Run `codex unarchive "),
+        "{refused:?}"
+    );
     assert_eq!(
         report.not_applicable(),
         [

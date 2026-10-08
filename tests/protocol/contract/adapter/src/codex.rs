@@ -401,12 +401,50 @@ impl CodexFake {
         }
     }
 
-    /// Whether `thread/queue/add` is served (`oacFake/queue/setAvailable`).
-    pub fn set_queue_available(&self, available: bool) {
+    /// Archive `thread`, or put it back (`oacFake/thread/setArchived`). Archived, the thread
+    /// is in the state the S3 capture recorded after `thread/archive` (archived, not loaded,
+    /// `docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+    /// L1023-L1030), and every `thread/queue/add` to it gets the recorded refusal, `-32600
+    /// "session <id> is archived. ..."` (L1030-L1032), which `spec/bindings/mcp.md` section
+    /// 8.2.1 names among the add's refusals and classifies `handoff-failed` ([SC-DLV-009]).
+    /// Put back, it is loaded and idle again. The thread must be idle with an empty queue.
+    /// The restore leaves a recorded state (loaded and idle, S3 L981-L1018) by a transition
+    /// that was not recorded (no `thread/unarchive` capture). Only IFC-ADP-056's detection
+    /// of a re-sent refused add uses it; SEC-AUZ-027 and IFC-ADP-057 catch that case
+    /// without it.
+    pub fn set_archived(&self, thread: &str, archived: bool) {
         self.control(
-            "oacFake/queue/setAvailable",
-            &format!("{{\"available\":{available}}}"),
+            "oacFake/thread/setArchived",
+            &format!(
+                "{{\"threadId\":{},\"archived\":{archived}}}",
+                json_string(thread)
+            ),
         );
+    }
+
+    /// The errors the fake answered to the `thread/queue/add` calls of the client named
+    /// `client`, in call order, as `(code, message)`.
+    pub fn refused_queue_adds(&self, client: &str) -> Vec<(i64, String)> {
+        let report = self.control(
+            "oacFake/calls",
+            &format!("{{\"clientName\":{}}}", json_string(client)),
+        );
+        member(&report, "calls")
+            .and_then(Json::as_array)
+            .unwrap_or(&[])
+            .iter()
+            .filter(|c| member_str(c, "method") == Some("thread/queue/add"))
+            .filter_map(|c| member(c, "error"))
+            .map(|e| {
+                (
+                    member(e, "code")
+                        .and_then(Json::as_number)
+                        .and_then(|n| n.raw().parse().ok())
+                        .unwrap_or_default(),
+                    member_str(e, "message").unwrap_or_default().to_owned(),
+                )
+            })
+            .collect()
     }
 
     /// What the fake observed of `thread` from the client named `client`. Inputs the TUI
