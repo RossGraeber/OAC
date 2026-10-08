@@ -66,6 +66,9 @@ pub const PROFILE: Profile = Profile {
     holding_hand_off: None,
     steering_operations: &[],
     rules: &[],
+    // Claude Code gives no answer to a channel notification, so it has no refusal to
+    // classify.
+    turned_away_code: None,
 };
 
 /// Turns a request into a `tools/call`: the tool name and the arguments as JSON object
