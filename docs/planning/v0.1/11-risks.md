@@ -168,6 +168,18 @@ list.
   (c) whether legacy clients other than Codex `0.157.1`, Claude Code's channel path
   included, accept an `extensions` member in an `initialize` result (MCPB-ERA-008, tested in
   #65).
+- **Dated status, 2026-10-08 (#69, binding revision 0.2, pending the lead's approval).**
+  `spec/bindings/mcp.md` §4.5 adds the Codex issued-value pairing: a Codex stdio connection
+  is bound on a reveal, Codex's own `item/completed` report of a refused call carrying a
+  value the implementation issued on that connection, and each later call is served only on
+  Codex's own `item/started` report of it. Item (a) is **closed**: no documented per-request
+  signal exists (the app-server documentation names no `_meta` member Codex sends; the source
+  at `rust-v0.161.0` adds `callId`, `threadId`, `sessionId` and `x-codex-turn-metadata`, all
+  undocumented), so the refusal of an unbound connection is permanent rather than interim.
+  Item (b) is answered by source, no (the MCP runtime is per thread at `rust-v0.161.0`), and
+  stays UNVERIFIED at runtime; the pairing does not depend on it for attribution. New rows
+  71 and 72 below. HTTP registrations stay refused on both eras, so row 41 keeps its
+  meaning for them; a stdio connection pairs on either era.
 
 ### RISK-G3 — Zenoh loopback discovery fails
 
@@ -657,6 +669,11 @@ list.
   check before the library call for any rule the library does not enforce. The operator
   decisions on #45 (reply rights, the presence lifetime cap, no implicit same-device grant,
   grant granularity) are recorded in the spec as dated notes.
+- **Dated status, 2026-10-08 (#69).** `spec/security.md` 0.2 adds the misattributed-send-request
+  row to §13, and `spec/bindings/mcp.md` §4.5.5 has the Codex pairing's threat table. Only
+  the value form and non-disclosure rules (MCPB-ATT-004 to MCPB-ATT-006) have fixtures; the
+  reveal, window, single-use and confirmation rules are `TODO(fixture)` for G8 (#69) against
+  the F9 fake, so those rows are open risks under this id.
 
 ### RISK-REPLAY-STORE — Authorized peers crowd the duplicate store
 
@@ -1189,7 +1206,9 @@ closed by that capture; rows 65 and 66 are narrowed. Records: `docs/planning/gat
 Stage 3 exit record `docs/planning/decisions/F-6-stage3-exit.md` closes row 64 by run, and
 its STATUS.md bullet is removed.) (Dated note, 2026-10-08, #6: the record's re-run against
 the #343 capture adds row 70: which connections Codex sends a thread's notifications to,
-recorded in the S3 capture but UNVERIFIED as a rule and not modelled by the fake.)
+recorded in the S3 capture but UNVERIFIED as a rule and not modelled by the fake.) (Dated
+note, 2026-10-08, #69: rows 71-73 come from the Codex issued-value pairing,
+`spec/bindings/mcp.md` 0.2 §4.5.)
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -1263,6 +1282,9 @@ recorded in the S3 capture but UNVERIFIED as a rule and not modelled by the fake
 | 68 | Fake Codex app-server behaviours (F9, #58) modelled from source at `rust-v0.160.0` that had no row of their own (Gate S3 finding F-1, PR #342 `docs/planning/decisions/F-6-stage3-exit.md` §3). (a) A `thread/queue/add` to a loaded, idle thread whose last turn was not interrupted starts a turn at once (`tests/fakes/codex-app-server/lib/model.mjs` `wakeIfLoaded` and `dispatchHead`). Every recorded `thread/queue/add` was sent during a running turn, and `spec/bindings/mcp.md` §8.2.1 (L959-L965) says only the busy case was shown live. The `contract/adapter/no-polling` check and the pipelines demonstration reach Codex input this way. (b) One queued item per idle, from the head of the queue. (c) The `thread not found: <id>` refusal, which row 65 does not classify. (#6, 2026-10-07.) Owner #343 (Stage 1 fixture capture), then G7 (#68) | **CLOSED** — by run (#343, 2026-10-07, Codex `0.161.0`, `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`): (a) CONFIRMED on the TUI's own idle thread, its last turn `completed`: the add was answered and a turn started at once, its `userMessage` carrying `clientId` = `clientUserMessageId`, with no `turn/start` sent (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L57-L73, L90), and again on a client thread (L866-L873); the fake now sends the second `thread/queue/changed` before the response, as recorded. (b) CONFIRMED (L826-L865; row 62). (c) REFUTED: an unknown thread is `-32603 "failed to read thread: invalid thread-store request: no rollout found for thread id <id>"` (L109-L110); the fake now answers that. Row 65 still classifies none of the refusals as "not now" |
 | 69 | Fake Claude Code endpoint (F8, #57) inferences beyond the recordings (Gate S3 finding F-1). (a) `tools/call` ids after the session's first go on 3, 4, ... with `progressToken` equal to the id; both recorded calls are id 2 (D6 line 13, G1 Box C line 24; `tests/fakes/claude/src/lib.rs`). (b) The synthetic `claudecode/toolUseId` `toolu_fake<20 digits>`: its `toolu_` prefix is recorded (D6 line 13), its suffix is not the recorded form. (#6, 2026-10-07.) Owner #343 (Stage 1 fixture capture) | **CLOSED** — by run (#343, 2026-10-07, Claude Code `2.1.285`, `docs/planning/gates/herdr-runs/G1-2026-10-07.md`): (a) CONFIRMED: three `reply` calls in one session are ids 2, 3 and 4, each with `progressToken` equal to its id (`docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-10-07-2.1.285-herdr.jsonl` L14, L16, L18); `tests/fakes/claude/tests/replay.rs` `later_tool_calls_continue_the_recorded_id_sequence` replays them. (b) Recorded form: every one of the 17 `toolUseId` values in the Claude fixtures, 2.1.282 to 2.1.285 (the three of this capture among them), is `toolu_01` plus 22 ASCII letters and digits. An adapter checking that form could refuse the old `toolu_fake…`, so the fake now writes `toolu_01OacFake<15 digits>`, which has it |
 | 70 | Which connections live Codex sends a thread's notifications to. In the S3 capture (Codex `0.161.0`), `thread/status/changed`, `thread/closed`, `thread/goal/cleared` and `thread/archived` for a thread reached a connection subscribed only to another thread, and a connection after its `thread/unsubscribe`. A connection that subscribed to nothing received none (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L63-L69, L829, L959-L997). The fake Codex app-server sends them to the thread's subscribers only (`tests/fakes/codex-app-server/README.md` "Not modelled"), so a fake-backed test sees fewer notifications than a live one (#6, 2026-10-08, Stage 3 exit re-run). Owner G6 (#67) | RISK-CODEX-EXPERIMENTAL |
+| 71 | Codex emits a call's `item/started` before the MCP call and its `item/completed`, with the result the server returned, before the result reaches the model (`spec/bindings/mcp.md` §4.5.1 fact C5; source only at `rust-v0.161.0`, `codex-rs/core/src/mcp_tool_call.rs` L259-L265, L466, L623-L632). Owner G8 (#69) | RISK-G4 |
+| 72 | A carrier subscribed to a TUI-hosted thread with `thread/resume` receives that thread's `mcpToolCall` items with the thread's `threadId` (`spec/bindings/mcp.md` §4.5.1 fact C6; other item types recorded at `0.154.0`, G2 `transcript.jsonl` L51, L63). Owner G8 (#69) | RISK-G4 |
+| 73 | Whether the app-server applies `thread/resume` setting overrides to a thread that is already loaded (`spec/bindings/mcp.md` [MCPB-CDX-006], which forbids sending them either way). Owner G7 (#68) | RISK-CODEX-EXPERIMENTAL |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 
