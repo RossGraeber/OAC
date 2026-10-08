@@ -51,6 +51,13 @@ pin, dependency, static-scan rule or ADR text changes.
     - No `.rs` file under `adapters/` is git-ignored.
     - Cargo's target directory is `target/` or outside the repository.
     - An adapter's normal and build dependencies are the vetted list.
+  - Fifth review (D1): a doctest that `include!`s a harness from a non-`.rs` file is
+    caught three ways:
+    - adapter `src/` files are held to the hiding shapes, read from raw text;
+    - every adapter file, of any extension, is held to the name rule;
+    - adapter lib targets set `doctest = false`, now set in `adapters/claude` and
+      `adapters/codex`.
+    No workspace member may have a build script. The target-directory check fails closed.
 - **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
   `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
   makes it a breach. Three cases are not breaches, and the tests show they stay
@@ -58,7 +65,7 @@ pin, dependency, static-scan rule or ADR text changes.
   Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
   before.
 - **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
-  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `7798455`.)
+  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `f98c047`.)
 
 **Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
 revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
