@@ -650,22 +650,25 @@ fake, never to grant a default-tier waiver. A failing criterion 5 sends the work
 Stage 1 for a fixture capture, because a fake built from the spec proves only that the
 spec agrees with itself.
 
-**Current verdict (2026-10-07, #6): Gate S3 is pending #343. Criterion 5 is not met, so
-under the rule above the work is back in Stage 1 for a fixture capture.** The exit record,
-with evidence per criterion, is `docs/planning/decisions/F-6-stage3-exit.md`. It is
-re-run once #343 merges, and a sign-off commit then records the verdict. Stage 4 stays
-blocked until then.
+**Current verdict (2026-10-08, #6): Gate S3 is not met. Criterion 5 does not hold as
+worded, and the lead's decision is pending.** The exit record, with evidence per criterion,
+is `docs/planning/decisions/F-6-stage3-exit.md`. It was re-run against the Stage 1 fixture
+capture this rule called for (#343, PR #344). The lead either holds Gate S3, or departs from
+this section on purpose in a dated note below (record §5). A sign-off commit records the
+verdict. Stage 4 stays blocked until then.
 
-- **Criteria 1-3 hold**, re-checked on `main` at `5877b39` (the PR #339 merge):
+- **Criteria 1-3 hold**, re-checked on `main` at `4642b4f` (the PR #344 merge):
   - the default tier is green on ubuntu, windows and macos with no live provider, no API
     key and no network beyond loopback (`ci.yml`; loopback-only namespace on ubuntu);
   - a plain `cargo test --workspace` runs no provider test;
   - `scripts/check-crate-deps.mjs` is clean.
-- **Criterion 4 holds** through both fakes, in the call-class shape. Its fake Codex half
-  rests on a source-only fake behaviour: an add to an idle thread starts a turn at once.
-- **Criterion 5 is not met (finding F-1).** Ten fake Codex behaviours are modelled from
-  Codex source at `rust-v0.160.0`, and two fake Claude behaviours are inferred, with no
-  recorded fixture. The capture is #343.
+- **Criterion 4 holds** through both fakes, in the call-class shape. Its fake Codex half,
+  an add to an idle thread starting a turn at once, is now recorded (#343).
+- **Criterion 5: three residuals.** #343 recorded every fake behaviour of finding F-1 that
+  a documented client request can reach: eleven of its twelve rows, and the ephemeral,
+  archived and unknown-thread refusals of the twelfth. Three fake Codex refusals stay
+  source-only: the two subagent refusals and "no queue service". No documented client
+  request triggers them, and only the fake's own self-test reaches them.
 - **Every exit artifact exists.** #59 (F10) stays open until Epic G: its real-adapter and
   Zenoh halves are Stage 4's demonstration 1.
 
