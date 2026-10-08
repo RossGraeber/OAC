@@ -4,6 +4,28 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-08 (**Issue #62 (G1): the Zenoh reference transport.** No gate
+verdict, pin or ADR text changes. Zenoh `=1.10.1` (Apache-2.0 arm, default features off,
+`transport_tcp` only) and `sha2` are added to `transports/zenoh/` only; the licence and
+containment-lint decisions are the separate Stage 4 dependency-decisions PR.
+
+- **Transport.** `transports/zenoh/` implements the frozen `Transport` contract on the stable
+  `Wait` path and passes the transport contract suite unchanged, over loopback, with
+  multicast scouting and with a fixed rendezvous port (`transports/zenoh/tests/contract.rs`).
+  Its binding document ([IFC-TRN-090], publish and subscribe half) is
+  `transports/zenoh/src/lib.rs`.
+- **Finding, C7 §3 against [IFC-TRN-043].** Per-session native subscriptions would reveal
+  a subscription to any peer holding the session id. The transport declares one subscriber
+  per started transport, on its partition, and filters locally; publishing still targets
+  one destination's key expression. Recorded as a dated note in C7 §3.
+- **Spec index.** [IFC-TRN-013], [IFC-TRN-043] and [IFC-TRN-044] name their tests instead of
+  `TODO(fixture)` (index rows only, no version bump).
+- **Ledger.** Closed: the crates.io cross-check (11-risks.md row 10, crates.io API retrieved
+  2026-10-08) and the `rustls` TLS stack (row 15, from Zenoh's own `1.10.1` manifests); their
+  bullets below are removed. Narrowed: binary size (row 6, first measurement, Windows only),
+  the Rust crate under G3 (row 36, Windows; Linux and macOS from the PR's CI) and presence
+  carriage (row 61, records carried; carrier loss stays G2).)
+
 **Last updated:** 2026-10-08 (**Issue #6: Gate S3 is met. Stage 3 exits and Stage 4 (Epic G,
 #7, milestone M5) opens.** The exit decision is `docs/planning/decisions/F-6-stage3-exit.md`,
 in force from the lead's merge of PR #342 (record §5, as E-5 §2). No `spec/` file, gate
@@ -2500,7 +2522,9 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
 - G3 criteria via the Rust `zenoh` crate built with toolchain `1.98.1`, using OAC's feature
   set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
-  `docs/planning/gates/G3-result.md`).
+  `docs/planning/gates/G3-result.md`. Narrowed 2026-10-08, #62: on Windows 11 the Rust
+  crate passes the transport contract suite over loopback on both the multicast and the
+  rendezvous path; Linux and macOS are the G1 PR's CI matrix; 11-risks.md row 36).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.157.1` (UNVERIFIED — G2
   has exercised Windows only, on both `0.154.0` and the `0.157.1` re-run; see
   `docs/planning/gates/G2-result.md`).
@@ -2525,7 +2549,9 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
 - The 5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate; see
   REVERIFICATION-B2.md §3.4 box 7. Earlier text said the first G3 build artifact from task
   D3 would resolve it. D3 ran the Python wheel and built no Rust artifact, so the owner is
-  now task I3, which records the actual release binary size).
+  now task I3, which records the actual release binary size. Narrowed 2026-10-08, #62:
+  10,401,792 octets on Windows x86_64 MSVC for a release binary that runs the transport,
+  `transports/zenoh/examples/loopback.rs`; Linux and macOS not measured; 11-risks.md row 6).
 - The named compatibility shim boundary for the Claude Code Channels preview surface
   (UNVERIFIED — DESIGN.md names no such module; out of scope for B2, needs a C-series
   decision or a DESIGN.md update; see REVERIFICATION-B2.md "Carried to 11-risks.md").
@@ -2543,9 +2569,6 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   drift: the v2 JSON schemas are published as `v2.0.0-alphaX` prereleases, latest
   `schema-v2.0.0-alpha.7` (2026-09-30), and the v2 protocol docs are separately in Draft
   (record §1.3 A8; `PINS.md` "ACP").)*
-- Zenoh crate version/date read from GitHub releases rather than crates.io directly,
-  because the crates.io page did not return content in B1 and was not re-attempted in B2
-  (UNVERIFIED — re-confirm on crates.io when reachable; see PINS.md).
 - `codex mcp-server` deprecation date (2026-08-20) and deletion date (2026-09-05)
   (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
   re-confirmed against the CLI reference in B1 or B2; see REVERIFICATION-B2.md §3.2
@@ -2590,9 +2613,6 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   Claude Code's channel path included, accept an `extensions` member in an `initialize`
   result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).
 
-- Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
-  from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own
-  `Cargo.toml`/feature docs; see `docs/planning/decisions/C1-language-runtime.md` §9).
 - Whether an `rmcp`-based OAC server, run end-to-end against a live Claude Code
   instance with `MCP_PROTOCOL_NEGOTIATION=legacy`, actually registers as a channel
   (UNVERIFIED — SDK capability verified, runtime behaviour is gate G4's job, verdict

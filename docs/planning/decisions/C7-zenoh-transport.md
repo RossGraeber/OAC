@@ -198,6 +198,21 @@ delivery to a specific opaque session id (the only addressing mode C4 defines) t
 thing this layout can express — there is no key pattern in this design a v0.1 broadcast
 feature could piggyback on without a new decision.
 
+*Dated note, 2026-10-08 (#62, G1): conflict recorded (`oac-evidence` §6). This section
+predates the frozen `spec/interfaces.md` §6.4, whose [IFC-TRN-043] forbids making a
+subscription observable to another implementation "through a declaration of interest" or
+"through routing state". One native subscriber per session key expression, as "subscribe-
+to-that-exact-key" above implies, is a declaration any peer holding the session id can
+detect. So the transport as built declares one subscriber per started transport, on
+`oac/1/<partition>/*`, at `start`, and filters by destination locally; `subscribe` changes
+only a local table. Publishing is unchanged: a payload goes to exactly one destination's key
+expression, and there is still no group, room or broadcast feature. The cost is that every
+peer of a partition receives every frame and drops those it has no subscription for, which
+is why the transport declares `destination_restricted` absent. The frozen spec wins over this
+pre-freeze text; no ADR-001 text is affected. The as-built mapping, the key-expression form
+(`oac/1/<partition>/<digest>`, SHA-256 truncated to 128 bits) and the capability evidence are
+the transport binding document in `transports/zenoh/src/lib.rs` ([IFC-TRN-090]).*
+
 ## 4. Presence mapping
 
 **Neutral states, from DESIGN.** Quoted, DESIGN.md line 105: "Start with `online`,
