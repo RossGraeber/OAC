@@ -650,6 +650,31 @@ fake, never to grant a default-tier waiver. A failing criterion 5 sends the work
 Stage 1 for a fixture capture, because a fake built from the spec proves only that the
 spec agrees with itself.
 
+**Current verdict (2026-10-08, #6): Gate S3 is met. Go: Stage 3 exits and Stage 4
+opens.** The exit decision, with evidence per criterion, is
+`docs/planning/decisions/F-6-stage3-exit.md`. It is in force from the lead's merge of its
+PR, which is the approval (record §5, as E-5 §2).
+
+- **Criteria 1-5 all hold**, re-checked on `main` at `090d2a7` (the PR #346 merge):
+  - the default tier is green on ubuntu, windows and macos with no live provider, no API
+    key and no network beyond loopback (`ci.yml`; loopback-only namespace on ubuntu);
+  - a plain `cargo test --workspace` runs no provider test;
+  - `scripts/check-crate-deps.mjs` is clean;
+  - `contract/adapter/no-polling` passes, in the call-class shape, through both fakes, and
+    its fake Codex half (an add to an idle thread starts a turn) is recorded;
+  - every fake behaviour traces to a recorded Stage 1 fixture.
+- **Criterion 5 history.** The first run found twelve fake behaviours with no fixture
+  (finding F-1). Under the rule above the work went back to Stage 1. The #343 capture
+  (PR #344) recorded every one a documented client request can reach. The lead then
+  decided that the fake stops modelling the rest. PR #346 removed the two subagent
+  refusals and "no queue service", and moved the turned-away checks onto the recorded
+  archived refusal. No departure from this section is recorded, and none is needed.
+- **Every exit artifact exists.** #59 (F10) stays open until Epic G: its real-adapter and
+  Zenoh halves are §8's demonstration 1. #347, a contract-suite gap (`handoff-failed`
+  against not-now), affects no criterion here.
+- **§8's entry conditions are met:** Gate S3, G1 and G2 `PASS`, and G3 `PASS` on the
+  primary multicast path.
+
 ---
 
 ## 8. Stage 4 — Adapters and Zenoh transport
