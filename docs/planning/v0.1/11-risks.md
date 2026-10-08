@@ -1208,7 +1208,7 @@ recorded in the S3 capture but UNVERIFIED as a rule and not modelled by the fake
 | 13 | "Research preview on Claude Code v2.1.232+" floor | **CLOSED as drift** (2026-10-02, #122). The first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, so `2.1.232` is not a channels version. It is instead where `mcp.md` L324 starts the v2 MCP client runtime, the runtime the channel-negotiation constraint applies to, for sessions that fetch feature flags. The operative floor is the minimum `v2.1.282` (#216). See `docs/planning/REVERIFICATION-B2.md` Drift register D6; RISK-FLOOR keeps its history |
 | 14 | MCP `experimental` capabilities at current era `2026-07-28` | RISK-MCP-EXPERIMENTAL |
 | 15 | Zenoh default TLS stack `rustls` | RISK-ZENOH-AUTH |
-| 16 | `rmcp`-based server registering as a legacy-era live channel | RISK-G4 |
+| 16 | `rmcp`-based server registering as a legacy-era live channel. Dated note, 2026-10-08 (#7, `docs/planning/decisions/G-7-stage4-dependencies.md` §2, §5): `rmcp` `3.4.0` (`server`, `transport-async-rw`; no `macros`) is now the MCP server side of both adapters, through `adapters/mcp-tools/`, not of `cli/` (`mcp-shim`, a byte relay). The item is unchanged and is answered by the Claude adapter's opt-in integration test (G4 #65), on the pinned `rmcp` | RISK-G4 |
 | 17 | Codex reproducing `oac_message_id` in `in_reply_to` | RISK-CODEX-EXPERIMENTAL |
 | 18 | Windows `windows-native-keyring-store` runtime | RISK-KEYRING |
 | 19 | `oac mcp-shim` environment inheritance for the IPC path | RISK-LOCAL-IPC |

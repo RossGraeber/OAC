@@ -87,6 +87,17 @@ inside the `tests/` row of §2. F9's fake Codex app-server is
 member or a dependency of any manifest, and not shipped. It is outside `tests/integration/`,
 the opt-in leaf that no product path may reference, so a CI-default test in a product
 crate may spawn it by path.)
+(Dated note, 2026-10-08, #7: `adapters/mcp-tools/` joins as the crate `oac-mcp-tools`, the
+OAC MCP tool surface (`send`, `reply`, `list_sessions`, `whoami`) both adapters share so that
+every harness sees the same tools ([MCPB-TOOL-003]). It is not an adapter: it has its own
+module kind in `scripts/check-crate-deps.mjs`, depends on `core/` only, and only the adapters
+and `cli/` may depend on it (§2, §3). Skeleton only; G5 and G8 fill it.
+`docs/planning/decisions/G-7-stage4-dependencies.md` §4. The same change vendors the Codex
+app-server protocol JSON schema at `rust-v0.161.0` under
+`docs/planning/vendor/codex-app-server-protocol/`, test data the Codex adapter is written
+against (G-7 §8.2). Like the recorded fixtures under `docs/planning/gates/fixtures/` (#57 note
+above), provider-derived data lives under `docs/planning/` and is read in place; it is never
+shipped and no product path may vendor it into code.)
 
 **Dev/test tooling in the tree, outside the product layout.** `tools/herdr/` is the herdr
 test driver (Epic K #123, K3 #126), run as `node tools/herdr/run.mjs --scenario <name>`.
@@ -137,8 +148,9 @@ its own prose.
 |---|---|---|---|---|
 | `core/` | Neutral types and policy/authorization | `SessionIdentity`, `SessionDescriptor`, `SessionCapabilities`, `ChannelMessage`, `DeliveryReceipt`, `PresenceRecord`, `SecurityPrincipal` (04-architecture.md §2) | Provider-native vocabulary; transport-native vocabulary (04-architecture.md §2) | Nothing in-repo (§3 below) |
 | `spec/` | The neutral OAC Session Channels specification text | Normative spec prose (04-architecture.md §2) | Implementation code; provider-specific or transport-specific vocabulary (04-architecture.md §2) | Nothing in-repo |
-| `adapters/claude/` | Translating neutral envelopes to/from Claude Code's provider-native wake and reply operations | Claude-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions — routes through core policy/security instead (04-architecture.md §2, quoting `docs/planning/DESIGN.md`) | `core/` only (§3) |
-| `adapters/codex/` | Translating neutral envelopes to/from the Codex app-server's provider-native turn/thread operations | Codex-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions; OpenAI model-API credentials (04-architecture.md §2) | `core/` only (§3) |
+| `adapters/claude/` | Translating neutral envelopes to/from Claude Code's provider-native wake and reply operations | Claude-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions — routes through core policy/security instead (04-architecture.md §2, quoting `docs/planning/DESIGN.md`) | `core/` and `adapters/mcp-tools/` only (§3; the second added 2026-10-08, #7) |
+| `adapters/codex/` | Translating neutral envelopes to/from the Codex app-server's provider-native turn/thread operations | Codex-specific rendering/translation logic (04-architecture.md §2) | The transport peer; key material; policy decisions; OpenAI model-API credentials (04-architecture.md §2); any Codex crate (G-7 §2, added 2026-10-08) | `core/` and `adapters/mcp-tools/` only (§3; the second added 2026-10-08, #7) |
+| `adapters/mcp-tools/` (added 2026-10-08, #7) | The OAC MCP tool surface both adapters share: `send`, `reply`, `list_sessions`, `whoami` (`spec/bindings/mcp.md` §5, [MCPB-TOOL-003]) | The tool names, `inputSchema` and result shapes, defined once (G-7 §4) | Provider-specific types; the transport peer; key material; policy decisions | `core/` only (§3) |
 | `transports/zenoh/` | Every Zenoh-specific type, identifier, and concept, behind the `Transport` contract | The `Transport` contract's operations over neutral types only (`spec/interfaces.md` Table 6.4) | Policy/authorization decisions; signature verification; anything visible outside the operations of `spec/interfaces.md` Table 6.4 | `core/` only (§3) |
 | `transports/memory/` (added 2026-10-06, #56) | The in-memory transport: a loopback implementation of the `Transport` contract, with fault injection, for CI-default tests (`spec/interfaces.md` §6.1 note, [IFC-TRN-002]) | The `Transport` contract's operations over neutral types only (`spec/interfaces.md` Table 6.4); its transport binding document, as crate documentation ([IFC-TRN-090]) | Policy/authorization decisions; signature verification; any network; a third-party dependency of its own | `core/` only (§3) |
 | `cli/` (including `mcp-shim`) | User-facing commands, the thin stdio shim a harness spawns, and the `oac` binary's entry point | `oac start`, `status`, `sessions`, `doctor`, `mcp-shim` — the `mcp-shim` subcommand carries nothing beyond a thin stdio connection to the daemon over local IPC (04-architecture.md §2); the daemon's start-up glue (§1, §3) | Long-lived process state; the transport peer; policy decisions; key material (04-architecture.md §2). Hosting the start-up glue is not owning: `cli/` constructs the adapters and the transport and hands them to `core/`, while the state and the peer stay in `core/` and the transport module (§3) | `core/`, `adapters/*`, `transports/*` (§3) |
@@ -157,7 +169,8 @@ Allowed edges, as a text diagram:
 
 ```text
 cli/              -> core/, adapters/*, transports/*
-adapters/*        -> core/           (only)
+adapters/*        -> core/, adapters/mcp-tools/   (only; the second #7)
+adapters/mcp-tools/ -> core/         (only; #7, its own kind, not an adapter)
 transports/zenoh/ -> core/           (only)
 transports/memory/ -> core/          (only; #56)
 core/             -> (nothing in-repo)
@@ -200,7 +213,12 @@ the core, and its §1.1 makes the core the only route from an adapter to a trans
 
 - `core/` MUST NOT depend on `adapters/*` or `transports/*`.
 - `core/`, `adapters/*` and `transports/*` MUST NOT depend on `cli/`.
-- An adapter MUST NOT depend on another adapter.
+- An adapter MUST NOT depend on another adapter. `adapters/mcp-tools/` is not an adapter
+  (dated note, 2026-10-08, #7): it MUST NOT depend on an adapter, a transport or `cli/`, and
+  no module but the adapters and `cli/` may depend on it.
+- No module MAY reach a forbidden crate (G-7 §2: the Codex crates that are, or reach, a
+  model API client, a credential or keyring store, or the rollouts), directly or
+  transitively, over any edge kind (dated note, 2026-10-08, #7).
 - An adapter MUST NOT depend on `transports/zenoh/`, or on any other transport. Adapters
   route through core policy (`docs/planning/DESIGN.md`: "Adapters should route through
   core policy/security rather than directly through transports"). The frozen normative
@@ -220,6 +238,9 @@ Dated note, 2026-10-07, #61: that workflow is now `.github/workflows/ci.yml`, jo
 (Dated note, 2026-10-06, #57: the same script admits `tests/fakes/<name>` members, lets
 them reach `core/` only, and fails any product member (`core/`, `cli/`, an adapter or a
 transport) that reaches one over normal or build edges; `core/` may not reach one at all.)
+(Dated note, 2026-10-08, #7: the same script admits `adapters/mcp-tools` as its own module
+kind (`tools`), with the edges above, and its new rule 6 fails any member, `cli/` included,
+whose closure holds a crate on `FORBIDDEN_EXTERNAL`, G-7 §2.3.)
 (Dated note, 2026-10-07, #60: it admits `tests/security` as the security suite, lets it reach
 `core/`, a fake, a transport and (through a transport's dev-dependency) a contract suite,
 and fails any member that reaches it. A transport it reaches still brings that transport's owned crates under rule 4, so in practice it reaches
@@ -256,8 +277,13 @@ Per `oac-evidence` §4/§5:
 - `adapters/codex/` isolates the Codex app-server (UNVERIFIED — same ledger entry C11;
   not yet fixed in `DESIGN.md`), labelled **experimental, per-method gating**, CLI /
   app-server version **floating** per `docs/planning/PINS.md` (Codex CLI / app-server
-  row, "Floating-version policy"); the `codex-app-server-*` git dependencies in §5 stay at
-  `0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`. (Note, 2026-10-01, issue
+  row, "Floating-version policy"). (Dated note, 2026-10-08, #7: this sentence went on "the
+  `codex-app-server-*` git dependencies in §5 stay at `0.154.0` @ commit `6b9826e3…`". No
+  Codex crate is a dependency any more: at `rust-v0.161.0` each reaches a model API client,
+  a keyring store or the rollouts, so ADR-001 refuses them
+  (`docs/planning/decisions/G-7-stage4-dependencies.md` §2). The adapter is written on
+  `oac-core` against the app-server-protocol JSON schema vendored at `rust-v0.161.0`,
+  `docs/planning/vendor/codex-app-server-protocol/` (G-7 §8.2).) (Note, 2026-10-01, issue
   #186: previously "pinned `0.154.0` @ commit `6b98…`" for the surface itself; that row
   went floating 2026-09-26. Dated note, 2026-10-01, #216: the row now records minimum `0.154.0` and last tested `0.159.3`
   ("Version policy"); a version change warns, never gates.)
@@ -275,15 +301,16 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 
 | Crate | Version | License | Why needed | Copyleft? | Apache-2.0 compatible? | Source decision | Consuming module |
 |---|---|---|---|---|---|---|---|
-| `rmcp` | `3.4.0` | Apache-2.0 | Rust MCP SDK — server/client protocol implementation for the OAC Session Channels MCP packaging layer | No | Yes — same license | C1 §3, §10 | `cli/` (`mcp-shim`) |
-| `codex-app-server-client` | `0.154.0` @ commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` (git dep — not on crates.io at any version) | Apache-2.0 | Codex app-server JSON-RPC client — Codex adapter transport | No | Yes — same license | C1 §6, §10 | `adapters/codex/` |
-| `codex-app-server-protocol` | `0.154.0` @ same commit (git dep — crates.io has this crate but only at stale `0.63.0`) | Apache-2.0 | Codex app-server request/response/schema types | No | Yes — same license | C1 §6, §10 | `adapters/codex/` |
-| `codex-app-server-transport` | `0.154.0` @ same commit (git dep — not on crates.io at any version) | Apache-2.0 | Codex app-server transport framing | No | Yes — same license | C1 §6, §10 | `adapters/codex/` |
-| `zenoh` | `1.10.1` | EPL-2.0 / Apache-2.0 (dual) | Reference peer-to-peer transport plugin | **Yes — EPL-2.0 is the other arm of the dual license; flagged** (§6) | Yes — OAC elects the Apache-2.0 arm | C1 §7, §10 | `transports/zenoh/` only |
+| `rmcp` | `3.4.0` (`=3.4.0`; `default-features = false`, features `server` and `transport-async-rw` only; `macros` refused) | Apache-2.0 | Rust MCP SDK — the MCP server side of both adapters (G-7 §2, §5) | No | Yes — same license | C1 §3, §10; G-7 §3.1 | `adapters/mcp-tools/`, `adapters/claude/`, `adapters/codex/` (dated note below) |
+| `zenoh` | `1.10.1` (`=1.10.1`; `default-features = false`, features `transport_tcp` and `transport_tls` only; no `unstable`, no `shared-memory`) | EPL-2.0 / Apache-2.0 (dual) | Reference peer-to-peer transport plugin | **Yes — EPL-2.0 is the other arm of the dual license; flagged** (§6) | Yes — OAC elects the Apache-2.0 arm | C1 §7, §10; G-7 §3.1 | `transports/zenoh/` only |
+| `tokio` (added 2026-10-08, #7) | `1.53.2` (`=1.53.2`; features per consumer; in adapters only those `rmcp` enables: `sync`, `macros`, `rt`, `time`, `io-util`) | MIT | Async runtime: `rmcp`'s runtime, the daemon's runtime and local IPC (G-7 §8.1) | No | Yes — permissive | G-7 §3.1 | `cli/`, `adapters/*`, `adapters/mcp-tools/`, `transports/zenoh/` |
+| `rcgen` (added 2026-10-08, #7) | `0.14.10` (`=0.14.10`; `default-features = false`, features `pem`, `ring`) | MIT OR Apache-2.0 | The automatically generated local-mode TLS certificate (C7 §5) | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1 | `transports/zenoh/` or the daemon's state code in `cli/`, as G3 (#64) decides |
+| `windows-sys` (added 2026-10-08, #7) | `0.61.2` (`=0.61.2`; `Win32_Foundation`, `Win32_System_Pipes`) | MIT OR Apache-2.0 | Peer PID of a named-pipe client (`GetNamedPipeClientProcessId`) for local IPC peer auth; already in the graph at this version | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1, §8.1 | `cli/` (Windows) |
+| `libc` (added 2026-10-08, #7) | `0.2.190` (`=0.2.190`) | MIT OR Apache-2.0 | Peer credentials on Unix sockets (`SO_PEERCRED`; macOS `LOCAL_PEEREPID`) where `tokio` does not cover them; already a Unix dependency of `cli/` (dated note below) | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1, §8.1 | `cli/` (Unix) |
 | `keyring` | `4.2.0` | MIT OR Apache-2.0 | OS-native credential store facade for OAC's own device keys (Windows Credential Manager / macOS Keychain / Linux Secret Service or keyutils) | No | Yes — OAC elects the Apache-2.0 arm | C1 §8, §10 | Daemon binary's own identity code (not `core/`, per §1's daemon note) |
 | `keyring-core` | `1.0.0` | MIT OR Apache-2.0 | `keyring`'s only unconditional dependency — the trait/error surface the backend crates implement | No | Yes | C1 §10 | Daemon binary's own identity code (not `core/`) |
 | `windows-native-keyring-store` | `1.1.0` | MIT OR Apache-2.0 | The Windows Credential Manager backend `keyring`'s `v1`/default feature pulls in | No | Yes | C1 §10 | Daemon binary's own identity code (not `core/`) |
-| `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, C2 §4) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` | No | Yes — OAC elects the Apache-2.0 arm | C2 §4 | `cli/` (`mcp-shim`) + daemon binary |
+| `interprocess` | `2.4.4` (candidate — final IPC crate a Stage 3 detail, C2 §4; dated note, 2026-10-08: not recommended for use, G-7 §8.1 recommends `tokio`'s IPC; G9 confirms) | 0BSD OR Apache-2.0 | Local IPC transport (Windows named pipe / Unix `AF_UNIX` socket) between the daemon and `oac mcp-shim` | No | Yes — OAC elects the Apache-2.0 arm | C2 §4 | `cli/` (`mcp-shim`) + daemon binary |
 | `age` | `0.12.1` | MIT OR Apache-2.0 | Encrypted-file key fallback for the device key when no OS credential store is reachable | No | Yes — OAC elects the Apache-2.0 arm | C4 §11 | Daemon binary's own identity code (not `core/`) |
 | `serde_jcs` | `0.2.0` | MIT OR Apache-2.0 | RFC 8785 (JCS) canonical form of the signing input, `spec/security.md` §6.2 | No | Yes — OAC elects the Apache-2.0 arm | C5 §3; `PINS.md` "`serde_jcs`" | `core/` (`canonical`) |
 | `ed25519-dalek` | `3.0.0` | BSD-3-Clause | Ed25519 device key, signing and strict verification (`verify_strict`), `spec/security.md` §5.1, §6.3 | No | Yes — permissive, a single license with no arm to elect (C5 §2) | C5 §2; `PINS.md` "`ed25519-dalek`" | `core/` (`keys`, `signing`) |
@@ -294,6 +321,25 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `curve25519-dalek` | `5.0.0` | BSD-3-Clause | Dev-dependency only: scalar arithmetic that builds malleable and small-order signatures in `signing.rs`'s tests (#315 review N-g). Already `ed25519-dalek`'s curve crate, same version; not a new crate in the build | No | Yes — permissive | #52 | `core/` (tests only) |
 | `syn` | `2.0.119` | MIT OR Apache-2.0 | Test-only: parses adapter sources for the adapter contract suite's static routing checks (#59, PR #323 review B1; features `full`, `parsing`, `visit`). Already in the graph at this version; not a new crate | No | Yes — OAC elects the Apache-2.0 arm | #59 | `tests/protocol/contract/adapter/` (test-only; never in the `oac` binary) |
 | `proc-macro2` | `1.0.107` | MIT OR Apache-2.0 | Test-only: `syn`'s token types; feature `span-locations` gives findings their line numbers (#59). Already in the graph at this version; not a new crate | No | Yes — OAC elects the Apache-2.0 arm | #59 | `tests/protocol/contract/adapter/` (test-only; never in the `oac` binary) |
+
+(Dated note, 2026-10-08, #7; `docs/planning/decisions/G-7-stage4-dependencies.md`.) **Stage 4
+rows.** The three Codex app-server rows that stood here (`codex-app-server-client`,
+`codex-app-server-protocol`, `codex-app-server-transport`, git dependencies at `0.154.0` @
+`6b9826e3…`, C1 §6) are removed: no Codex crate is a dependency. At `rust-v0.161.0`
+`codex-app-server-protocol` reaches `codex-rollout` → `codex-otel` → `codex-api` (a model API
+client) and `codex-secrets` → `codex-keyring-store`; `codex-app-server-transport` depends on
+`codex-core`, `codex-login`, `codex-api` and `codex-model-provider`; `codex-app-server-client`
+on `codex-app-server` and `codex-core` (G-7 §2.2). ADR-001 refuses all of them, and
+`scripts/check-crate-deps.mjs` rule 6 and the adapter scan's `FORBIDDEN_CRATES` refuse them by
+name and by transitive presence (G-7 §2.3). The lead's "adapters may use upstream libraries"
+decision therefore applies to `rmcp` only. The `rmcp` row's consumer moves from `cli/`
+(`mcp-shim`) to the adapters' MCP server side, through `adapters/mcp-tools/`; `mcp-shim`
+stays a byte relay to the daemon (C2). Its pin stays `3.4.0`: moving it is a pin move that
+would revert G1 and G4 under PINS.md's checklist (G-7 §3.1). The `zenoh`, `tokio`, `rcgen`,
+`windows-sys` and `libc` rows record pins and licences only: no manifest takes them yet; the
+implementing tasks (G1 #62 onward) add them. The resolved graph of all these pins together is
+311 third-party packages, every one accepted under the policy below (G-7 §3.3 and its
+appendix).
 
 (Dated note, 2026-10-07, #60.) `syn` `2.0.119` has a second consuming module:
 `tests/security/`, as a dev-dependency only (features `full`, `parsing`, `visit`), to parse
@@ -369,6 +415,34 @@ records as acceptable, plus `Unicode-3.0` (dated note below the list):
 | `0BSD` | the 0BSD arm of `interprocess` |
 | `Unicode-3.0` | `unicode-ident` `1.0.26`, whose expression is (MIT OR Apache-2.0) AND Unicode-3.0; operator decision https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (dated note below) |
 | `BSD-3-Clause` | `ed25519-dalek` `3.0.0` (C5 §2), and `curve25519-dalek`, `x25519-dalek` and `subtle` beneath it and `age`; same operator decision (dated note below) |
+| `Zlib` | `const_format`, `konst`, `foldhash`, `nanorand` and `zlib-rs` under `zenoh` (G-7 §3.3); lead decision 2026-10-08 under the same permissive policy (dated note below) |
+| `ISC` | `json5`, `libloading` under `zenoh`; `rustls-webpki`, `untrusted` under its TLS link and `rcgen`; and `ring` (`Apache-2.0 AND ISC`); same decision |
+| `BSD-2-Clause` | `git-version`, `git-version-macro` under `zenoh`; same decision |
+| `CDLA-Permissive-2.0` | `webpki-roots` under `zenoh`'s TLS link; same decision |
+
+**Weak, file-level copyleft, accepted for an unmodified dependency** (lead clarification,
+2026-10-08, G-7 §3.2):
+
+| SPDX identifier | Recorded by |
+|---|---|
+| `MPL-2.0` | `option-ext` `0.2.0`, reached unconditionally by `zenoh` (`zenoh-util` → `shellexpand` → `dirs` → `dirs-sys` → `option-ext`) |
+| `LGPL-2.1-only`, `LGPL-2.1-or-later`, `LGPL-3.0-only`, `LGPL-3.0-or-later` | no package elects one today (`r-efi`'s LGPL arm is not elected) |
+| `EPL-2.0` | no package elects it today (`zenoh` and its crates elect Apache-2.0) |
+
+(Dated note, 2026-10-08, #7; lead clarification in chat the same day; G-7 §3.2.) **The
+policy.** The no-copyleft rule exists to stop OAC (Apache-2.0) from being forced to
+relicense. Permissive licences are accepted. Weak, file-level copyleft (the second table) is
+accepted for a dependency OAC uses unmodified: it binds changes to the dependency's own
+files, not OAC's licence. In the lead's words, LGPL sub-dependencies "are not as much of a
+concern". **A statically linked LGPL crate may carry relink obligations (the right to relink
+against a modified library); they are listed in the Stage 6 licence inventory (I3, #79), not
+blocked on now.** Strong copyleft that would force a relicense is refused: the GPL family
+(`-only` and `-or-later`), AGPL, SSPL, OSL and the like. An expression passes when one of its
+OR-arms is made only of accepted licences; `scripts/check-licenses.mjs` elects Apache-2.0
+whenever offered, otherwise a permissive arm, otherwise a weak-copyleft arm, and its listing
+reports a weak copyleft it elects. An unknown or missing expression still fails. This
+replaces the earlier instruction of the same day, a single named MPL-2.0 exception for
+`option-ext`, which was never landed.
 
 (Dated note, 2026-10-06, #51 / F2. Approved by the operator:
 https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192, "Unicode-3.0 is
@@ -394,8 +468,9 @@ It asks that its copyright notice and disclaimer travel with binary redistributi
 I2's NOTICE work covers. Only this one license is added; `BSD-2-Clause` and `BSD-1-Clause`
 appear only as non-elected arms and stay off the list.
 
-`EPL-2.0` is not on the list. `zenoh` passes because its expression offers `Apache-2.0`,
-the arm OAC elects (§6). When an expression offers `Apache-2.0`, the script records that
+(Dated note, 2026-10-08, #7: the next sentence said "`EPL-2.0` is not on the list" before
+G-7 §3.2; EPL-2.0 is now accepted as weak copyleft, and `zenoh` still elects Apache-2.0.)
+`zenoh` passes because its expression offers `Apache-2.0`, the arm OAC elects (§6). When an expression offers `Apache-2.0`, the script records that
 arm as elected (§6; C1 §10). Adding a license to the list is a license-policy change: add
 it here in the same PR that adds it to the script's list.
 
@@ -443,6 +518,12 @@ applies to the MIT-or-Apache duals (`keyring`, `keyring-core`,
 these are permissive either way, and OAC elects Apache-2.0 for uniformity across the
 whole inventory, not because either arm of those duals is copyleft.
 
+(Dated note, 2026-10-08, #7; G-7 §3.2.) Weak, file-level copyleft is now accepted for an
+unmodified dependency, and strong copyleft is refused (§5 "Accepted licenses"). Among the
+transitive packages of the Stage 4 rows, `option-ext` `0.2.0` is MPL-2.0 with no other arm,
+so it is elected and flagged as weak copyleft; `r-efi` offers an LGPL-2.1-or-later arm OAC
+does not elect. No direct row elects a copyleft licence.
+
 **Acceptance box 3 ticked here** — "Anything copyleft is flagged explicitly": `zenoh`
 is the only flagged row (§5's table, this section).
 
@@ -474,6 +555,9 @@ license, including optional dependencies (`--all-features`), and fails one with 
 on §5's "Accepted licenses" list. It is not the Stage 6 sweep: it reads each
 crate's declared license field only, and NOTICE stays with I2.)
 
+(Dated note, 2026-10-08, #7: the paragraph below no longer applies. No Codex crate is a
+dependency (§5 dated note; G-7 §2). It is kept as history.)
+
 **Packaging consequence, carried from C1 §6.** The three Codex git-dep crates
 (`codex-app-server-client`, `codex-app-server-protocol`, `codex-app-server-transport`)
 must be swept from the vendored git tree directly, not from a crates.io-only sweep: a
@@ -493,7 +577,8 @@ Per `oac-evidence` §4/§5, one label per surface this file names:
 | Surface | Label | Note |
 |---|---|---|
 | `rmcp` | supported | Official SDK, `modelcontextprotocol` org (C1 §13) |
-| Codex app-server client/protocol/transport crates | experimental (per-method gating) | Inherits the Codex app-server surface label recorded in `docs/planning/PINS.md` (C1 §13) |
+| Codex app-server client/protocol/transport crates | experimental (per-method gating) | Inherits the Codex app-server surface label recorded in `docs/planning/PINS.md` (C1 §13). Dated note, 2026-10-08: refused, not used (G-7 §2); the adapter uses the vendored schema at `rust-v0.161.0` instead |
+| `tokio`, `rcgen`, `windows-sys`, `libc` (added 2026-10-08) | supported | General-purpose, actively maintained crates; not provider surfaces (G-7 §3.1) |
 | `zenoh` | supported | Already labelled in `docs/planning/PINS.md` (C1 §13) |
 | `keyring` | supported | General-purpose, actively maintained OS-credential crate (C1 §13, C2 §10) |
 | `interprocess` | supported | General-purpose, actively maintained; not a preview/experimental provider surface (C2 §10) |

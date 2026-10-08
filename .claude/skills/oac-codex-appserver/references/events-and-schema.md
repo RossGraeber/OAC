@@ -72,10 +72,16 @@ surface (do not read or write it).
   any skill's prose — schemas can be regenerated and drift from a
   hand-maintained description.
 - Repo license: Apache-2.0.
-- Reusable Rust crates, all Apache-2.0 via the repo license:
+- Rust crates, all Apache-2.0 via the repo license:
   - `app-server-client`
   - `app-server-protocol`
   - `app-server-transport`
+- **OAC uses none of them.** At `rust-v0.161.0` each reaches a model API client
+  (`codex-api`), a keyring store (`codex-keyring-store`) or the rollouts
+  (`codex-rollout`), so ADR-001 refuses them; `scripts/check-crate-deps.mjs`
+  rule 6 and the adapter scan's `FORBIDDEN_CRATES` fail on them
+  (`docs/planning/decisions/G-7-stage4-dependencies.md` §2). The JSON schema is
+  vendored at `docs/planning/vendor/codex-app-server-protocol/rust-v0.161.0/` instead.
 
 ## Removed and non-originating surfaces (for completeness)
 
