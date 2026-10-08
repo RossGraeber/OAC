@@ -486,7 +486,7 @@ schema), recorded (a committed fixture), or source only.
   at `0.161.0` some thread notifications (`thread/status/changed`, `thread/closed`,
   `thread/goal/cleared`, `thread/archived`) reached a connection subscribed only to another
   thread, and a connection after its `thread/unsubscribe`
-  (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+  (the S3 Codex capture of 2026-10-07 in `docs/planning/gates/fixtures/s3-codex-capture/`,
   L63-L69, L829, L959-L997; `docs/planning/v0.1/11-risks.md` row 70). So which threads'
   notifications arrive on the carrier is not a guarantee; [MCPB-ATT-018] makes the
   subscription a rule of the server instead. No run has recorded an `mcpToolCall` item on a
@@ -510,7 +510,7 @@ schema), recorded (a committed fixture), or source only.
 - **C10 — turns end with `turn/completed`.** `D`: it carries `{ turn }`, emitted "with final
   status when the model finishes or after a `turn/interrupt` cancellation". Recorded at
   `0.161.0` with `threadId` and `turn.id`
-  (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+  (the S3 Codex capture of 2026-10-07 in `docs/planning/gates/fixtures/s3-codex-capture/`,
   L90). An `item/started` carries the same turn's id as `turnId` (C4).
 
 #### 4.5.2 Terms
