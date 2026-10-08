@@ -292,15 +292,24 @@ version held only the first layer):
 
 1. **The dependency line** (`vet_dependency`): name, source, exact requirement, default
    features and listed features, as above.
-2. **The package's own `[features]` table** (`feature_table_findings`, finding 1): no entry
-   may turn on an unvetted feature of a vetted crate (`tokio/net`, `tokio?/process`,
-   `rmcp/macros`) or name a forbidden crate.
-3. **The resolved package** (`vet_resolved`, `patch_findings`, finding 3): each normal or build
-   dependency must resolve, in `cargo metadata`'s resolve, to crates.io at its pin (or the
-   repository's own directory), so a `[patch]` or `[replace]` cannot swap in another copy;
-   and the workspace root manifest may not patch or replace a vetted or forbidden crate.
-   The package's resolved closure may hold no forbidden crate, and every registry package in
-   it must sit under `$CARGO_HOME/registry/src` (`~/.cargo` when `CARGO_HOME` is unset;
+2. **The package's own `[features]` table** (`own_features_findings`,
+   `feature_table_findings`): an adapter or `adapters/mcp-tools` may declare no feature at
+   all (fourth review finding 1: with features `a` and `b`, code under
+   `cfg(all(feature = "a", not(feature = "b")))` compiles under no `--adapters-alone` run,
+   while `cli/` turning on `a` builds it into the product); `check-crate-deps.mjs` rule 9
+   refuses the same. None declares one today. The older entry checks (finding 1: no unvetted
+   feature of a vetted crate, no forbidden crate) stay as a second line.
+3. **The resolved package** (`vet_resolved`, `patch_findings`, `vet_closure_package`, finding
+   3): each normal or build dependency must resolve, in `cargo metadata`'s resolve, to
+   crates.io at its pin (or the repository's own directory). The workspace root manifest may
+   hold no `[patch]` and no `[replace]` at all (fourth review finding 2: a patch of
+   `tokio-macros`, which `tokio` pulls in, to a path or git source got past the older
+   vetted-names-only rule); `check-crate-deps.mjs` rule 10 refuses the same. Every
+   non-member package the adapter builds (its closure over normal and build edges) must be a
+   crates.io registry package: no path or git source anywhere in it, the repository's own
+   `oac-core` at its own directory excepted. The package's resolved closure may hold no
+   forbidden crate, and every registry package in it must sit under
+   `$CARGO_HOME/registry/src` (`~/.cargo` when `CARGO_HOME` is unset;
    `vet_registry_location`, second review finding 2), because a `[source]` replacement keeps
    the reported source crates.io while cargo builds a vendored copy. And
    `scripts/check-crate-deps.mjs` rule 7 refuses any tracked `.cargo/config` or
@@ -315,10 +324,12 @@ version held only the first layer):
    1), each in the dev profile and in `--release`, so code under `cfg(not(debug_assertions))`
    (the shipped binary's profile) is too (third review finding 1). An adapter that uses a
    dependency feature it does not turn on itself fails in every run that compiles that code;
-   CI runs it in job `crate-deps` on ubuntu, windows and macos. The adapters' own features
-   are held to the vetted list (layer 2), so "all features, alone" is the widest build they
-   may get. And `rmcp-macros` is refused anywhere in the graph (rule 6), so no member can
-   unify `macros` in.
+   CI runs it in job `crate-deps` on ubuntu, windows and macos. The adapters declare no
+   features (layer 2), so the default and all-features runs build the same code; the
+   all-features runs stay as a guard. And `rmcp-macros` is refused anywhere in the graph
+   (rule 6), so no member can unify `macros` in. A future shipping profile (a
+   `[profile.dist]` the release build uses, I1) must be added to `ADAPTERS_ALONE_RUNS`
+   when it is introduced.
 5. **Which packages are checked** (second review finding 3). `tests/real_adapters.rs` takes
    the set it scans from `cargo metadata`: every workspace member under `adapters/`, not a
    fixed list, so a new adapter (`adapters/acp`) is held to layers 1-3 when it joins. And
@@ -337,6 +348,9 @@ cargo `--config` flag, a `CARGO_HOME` CI points somewhere else, and targets othe
 three CI operating systems (code under another `cfg(target_os)` is never compiled alone).
 `scripts/check-workflows.mjs` W6 refuses `--config`, `CARGO_HOME` and `CARGO_SOURCE_*` /
 `CARGO_PATCH*` in any workflow, so the first two cannot arrive as an unreviewed edit either.
+W6 is a tripwire for the literal forms, not a proof: a name built up in a script, or
+`RUSTFLAGS` / `RUSTC_WRAPPER` on some steps, gets past it, and only review of the workflow
+change stops that.
 Planted breaches: `source.rs` `feature_tables_cannot_widen_vetted_crates`,
 `resolved_identity_and_patches_are_vetted` and `registry_dependencies_are_vetted_by_pin_and_features`;
 `check-crate-deps.mjs` self-test (`rmcp-macros` through `rmcp` in `cli/`) and mutation test
@@ -354,7 +368,14 @@ member `.cargo/config.toml` with `[source]` or `[patch]`, and a `.cargo/config` 
 needs a borrowed feature (both dev runs alone pass, both release runs fail), and the review's
 `exclude = ["adapters/acp"]` with `cli/` depending on it by path, and an excluded `vendor/x`
 (rule 8); the self-test plants rule 8 on synthetic graphs and exclude texts, and
-`check-workflows.mjs --self-test` plants W6. Checked by hand on a scratch
+`check-workflows.mjs --self-test` plants W6. Fourth review: the mutation test plants the
+review's features `a`/`b` with a `cfg(all(feature = "a", not(feature = "b")))` item and
+`cli/` turning on `a` (rule 9), and root `[patch]`es of `tokio-macros` to a path and to git
+and a `[replace]` (rule 10); the self-test plants both rules; `source.rs`
+`closure_packages_are_crates_io_registry_packages` (path and git `tokio-macros`, another
+registry, a vendored copy) and `adapters_declare_no_features`; and `tests/real_adapters.rs`
+`features_root_patches_and_path_packages_in_the_closure_are_refused` runs all three on a
+scratch workspace. Checked by hand on a scratch
 change (not committed): an adapter with `[features] default = ["tokio/net"]`, and a root
 `[patch.crates-io] tokio = { path = .. }`, each fail `tests/real_adapters.rs`.
 
@@ -506,7 +527,7 @@ PR #350 (`spec/69-codex-reply-pairing`, "Codex issued-value pairing for outbound
 | `docs/planning/PINS.md` | New rows and records: `tokio`, `rcgen`, `windows-sys`, `libc`; dated notes on `rmcp` (pin unchanged; consumers), Zenoh (features, licences of its graph), `interprocess` (not chosen for use, D3) |
 | `docs/planning/v0.1/11-risks.md` | Traceability row 16: the `rmcp`-based server is now the adapters' MCP server side |
 | `scripts/check-licenses.mjs` | Licence policy (§3.2) and self-test |
-| `scripts/check-crate-deps.mjs` | `tools` module kind; rule 6 (the `codex-` family, `codex` and `rmcp-macros`); Codex app-server owner family folded into rule 6; rule 7 (no tracked `.cargo/config*` naming `source`, `patch` or `paths`); rule 8 (no non-member path package inside the root, no `exclude` reaching `adapters/`); `--adapters-alone` with default features and `--all-features`, each in dev and release; self-test and mutation cases |
+| `scripts/check-crate-deps.mjs` | `tools` module kind; rule 6 (the `codex-` family, `codex` and `rmcp-macros`); Codex app-server owner family folded into rule 6; rule 7 (no tracked `.cargo/config*` naming `source`, `patch` or `paths`); rule 8 (no non-member path package inside the root, no `exclude` reaching `adapters/`); rule 9 (adapters declare no `[features]`); rule 10 (no root `[patch]`/`[replace]`); `--adapters-alone` with default features and `--all-features`, each in dev and release; self-test and mutation cases |
 | `scripts/check-workflows.mjs` | W6: no cargo `--config`, `CARGO_HOME` or `CARGO_SOURCE_*` / `CARGO_PATCH*` in a workflow (§5 "What the checks trust"); self-test cases |
 | `.github/workflows/ci.yml` | Job `crate-deps` runs `--adapters-alone` (§5 layer 4) |
 | `scripts/check-containment.mjs` | Check 12 scope without `Cargo.lock`; self-test (§7) |
@@ -522,7 +543,7 @@ PR #350 (`spec/69-codex-reply-pairing`, "Codex issued-value pairing for outbound
 ## 11. Checks run
 
 On this branch (Windows 11, Rust 1.98.1, short target dir), re-run after the PR #352
-third-review fixes (`cargo test --workspace`: 47 suites, 456 tests, 0 failed):
+fourth-review fixes (`cargo test --workspace`: 47 suites, 459 tests, 0 failed):
 
 - `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings`;
   `cargo test --workspace`.
@@ -535,7 +556,7 @@ third-review fixes (`cargo test --workspace`: 47 suites, 456 tests, 0 failed):
 
 All pass: `cargo test --workspace` green; `check-licenses` CLEAN (self-test 61/61,
 mutation 4/4); `check-crate-deps` CLEAN, 11 members, no tracked cargo configuration file
-(self-test 176/176, mutation 39/39), and `--adapters-alone` CLEAN in all four runs;
+(self-test 187/187, mutation 43/43), and `--adapters-alone` CLEAN in all four runs;
 `check-containment` CLEAN (self-test 33/33); `check-fixture-manifest` (self-test 73/73);
 `check-herdr-containment` CLEAN (self-test 116/117, one case skipped on this platform);
 `check-skills` within budget; `check-workflows` CLEAN (self-test 124/124);
@@ -581,6 +602,14 @@ Third round, https://github.com/RossGraeber/OAC/pull/352#issuecomment-6069542587
 | 1 | Release-only code (`cfg(not(debug_assertions))`) escaped `--adapters-alone` | §5 layer 4: release runs, default and all features; planted in `check-crate-deps.mjs --mutation-test` |
 | 2 | An adapter crate excluded from the workspace and used by `cli/` was not checked | §5 layer 5: rule 8 (non-member path packages inside the root; `exclude` reaching `adapters/`); planted in the self-test and the mutation test |
 | 3 | What the checks trust | §5 "What the checks trust" and the suite README name `--config`, a redirected `CARGO_HOME` and other targets; `check-workflows.mjs` W6 refuses the first two (and `CARGO_SOURCE_*` / `CARGO_PATCH*`) in workflows |
+
+Fourth round, https://github.com/RossGraeber/OAC/pull/352#issuecomment-6070282449:
+
+| # | Finding | Answer |
+|---|---|---|
+| 1 | A non-monotonic feature cfg escaped every `--adapters-alone` run | §5 layer 2: adapters and `adapters/mcp-tools` declare no `[features]` (rule 9; `own_features_findings`); planted in both |
+| 2 | A root `[patch]` of `tokio-macros` to a path or git source | §5 layer 3: no root `[patch]`/`[replace]` at all (rule 10; `patch_findings`); every non-member package an adapter builds is a crates.io registry package (`vet_closure_package`); planted in both |
+| — | A future shipping profile | §5 layer 4: it joins `ADAPTERS_ALONE_RUNS`; W6 named a tripwire, not a proof |
 
 ---
 

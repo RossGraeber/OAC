@@ -54,12 +54,17 @@ is a finding under every row:
     bodies can load a file. It does not vet the proc-macros reached through their features
     (`tokio-macros`, `schemars_derive`, `serde_derive`); G-7 §5 records those as read by
     hand, and the test lists them;
-- **an entry of the package's own `[features]` table** that turns on an unvetted feature of a
-  vetted crate (`tokio/net`, `rmcp/macros`) or names a forbidden crate;
+- **a `[features]` table at all**: an adapter may declare no feature, since a non-monotonic
+  cfg (`cfg(all(feature = "a", not(feature = "b")))`) compiles under no adapters-alone run
+  while another member turning on `a` builds it in; and, as a second line, no entry may turn
+  on an unvetted feature of a vetted crate (`tokio/net`, `rmcp/macros`) or name a forbidden
+  crate;
 - **a resolved dependency that is not the vetted identity**: the package `cargo metadata`
   resolves for each normal or build dependency must be from crates.io at its pin (or the
   repository's own directory), so a `[patch]` or `[replace]` cannot swap it; the
-  workspace root manifest may not patch or replace a vetted or forbidden crate; and every
+  workspace root manifest may hold no `[patch]` and no `[replace]` at all; every non-member
+  package the adapter builds must be a crates.io registry package, with no path or git
+  source anywhere in its closure (the repository's own `oac-core` excepted); and every
   registry package in the resolved closure must sit under `$CARGO_HOME/registry/src`
   (`~/.cargo` when `CARGO_HOME` is unset), so a `[source]` replacement in a cargo
   configuration file cannot swap in a vendored, edited copy that still reports crates.io;
