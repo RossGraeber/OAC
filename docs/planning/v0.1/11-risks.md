@@ -1187,9 +1187,9 @@ PR #342 (the Stage 3 exit record, finding F-1) proposed for them. Rows 62, 67, 6
 closed by that capture; rows 65 and 66 are narrowed. Records: `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md` and
 `docs/planning/gates/herdr-runs/G1-2026-10-07.md`.) (Dated note, 2026-10-07, #6: the
 Stage 3 exit record `docs/planning/decisions/F-6-stage3-exit.md` closes row 64 by run, and
-its STATUS.md bullet is removed. Its re-run against the #343 capture adds row 70: which
-connections Codex sends a thread's notifications to, recorded in the S3 capture but
-UNVERIFIED as a rule and not modelled by the fake.)
+its STATUS.md bullet is removed.) (Dated note, 2026-10-08, #6: the record's re-run against
+the #343 capture adds row 70: which connections Codex sends a thread's notifications to,
+recorded in the S3 capture but UNVERIFIED as a rule and not modelled by the fake.)
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
