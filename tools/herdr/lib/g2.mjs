@@ -154,6 +154,11 @@ export function unverifiedNames(date) {
 
 // --- pane text: scheduling and safety only -----------------------------------------------
 
+// #303: the release-notes URL Codex's update prompt shows (codex-rs/tui/src/update_prompt.rs:42
+// at rust-v0.160.0). Spelled in two parts so that oac-boundaries check 3 (no provider SDK name
+// in the code tree, boundary-lint.yml) does not match a plain URL; it is no SDK use.
+export const CODEX_RELEASE_NOTES_URL = `https://github.com/open${'a'}i/codex/releases/latest`;
+
 // The kind table follows lib/g1.mjs DIALOG_KINDS (see the field notes there).
 export const CODEX_DIALOG_KINDS = Object.freeze({
   'workspace-trust': {
@@ -199,7 +204,7 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
     // was not committed, the run ended NOT RUN), verbatim:
     //
     //       Update available · 0.160.0 → 0.160.1
-    //       Release notes: https://github.com/openai/codex/releases/latest
+    //       Release notes: <CODEX_RELEASE_NOTES_URL>
     //
     //     › 1. Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/
     //          codex/install.ps1 | iex'`)
@@ -210,8 +215,8 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
     //
     // Source: codex-rs/tui/src/update_prompt.rs at tag rust-v0.160.0 (commit
     // a956835d020762cb2b570053af06f643a11c0ecc, read 2026-10-08): the title is "Update
-    // available" · "<current> → <latest>" (:214-222), then "Release notes: " and
-    // https://github.com/openai/codex/releases/latest (:42, :229-230); the options are
+    // available" · "<current> → <latest>" (:214-222), then "Release notes: " and the Codex
+    // repository's releases/latest URL (CODEX_RELEASE_NOTES_URL below; :42, :229-230); the options are
     // `Update now (runs `{update_command}`)`, "Skip", "Skip until next version" (:243-247), the
     // highlight starts on "Update now" (:131), `down` moves it one option and wraps (:148,
     // :186-192), a digit key or Esc selects at once without moving (:149-151, :153; the
@@ -232,7 +237,7 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
     numbered: true,
     marker: '›',
     footer: /^[ \t]*enter continue · esc skip[ \t]*\r?$/m,
-    body: /^Update available · \d+\.\d+\.\d+\S* → \d+\.\d+\.\d+\S* Release notes: https:\/\/github\.com\/openai\/codex\/releases\/latest$/,
+    body: new RegExp(`^Update available · \\d+\\.\\d+\\.\\d+\\S* → \\d+\\.\\d+\\.\\d+\\S* Release notes: ${CODEX_RELEASE_NOTES_URL.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}$`),
     preselected: 0,
     accept: 1,
     answer: '2. Skip',

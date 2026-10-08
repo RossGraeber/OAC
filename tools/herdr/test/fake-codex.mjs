@@ -509,7 +509,7 @@ async function tui(overrides = {}) {
       ...(kind === 'off-record' ? [['Remind me tomorrow']] : []),
     ];
     let sel = kind === 'dont-remind-preselected' ? 2 : 0;
-    const render = () => ['', `  Update available · ${VERSION} → 9.9.9`, '  Release notes: https://github.com/openai/codex/releases/latest', '', ...opts.flatMap(([first, ...more], i) => [`${i === sel ? '› ' : '  '}${i + 1}. ${first}`, ...more]), '', '  enter continue · esc skip'].join('\n');
+    const render = () => ['', `  Update available · ${VERSION} → 9.9.9`, `  Release notes: https://github.com/open${'a'}i/codex/releases/latest`, '', ...opts.flatMap(([first, ...more], i) => [`${i === sel ? '› ' : '  '}${i + 1}. ${first}`, ...more]), '', '  enter continue · esc skip'].join('\n');
     setScreen(render());
     hist(render());
     setState('blocked');

@@ -25,7 +25,7 @@ import {
   BASELINE_TRANSCRIPT, COMMITTED_CLIENT, COMMITTED_CLIENT_SHA256, FIXTURE_DIR, G2_LAUNCH, MANIFEST_PATH, DEFAULT_OPERATOR_PROMPT, assertNotInjected, classifyCodexScreen,
   codexLaunchProof, compareByMode, driverMayAcceptCodex, fixtureNames, g2Facts, identifyTuiThread, parseG2Criteria, parseG2Transcript, readG2Criteria, sanitizeTranscript,
   splitCommandLine, splitWindowsCommandLine, stageClientCopy, unverifiedNames, defaultInjectText, G2_CRITERIA_SHA256, CriteriaDriftError, codexReadiness, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding,
-  processArgv, minimizeArgv, paneArgv, argPlaceholder, arg0Placeholder, EXPECTED_EXECUTABLE, CODEX_DIALOG_KINDS, codexUpdateVersions,
+  processArgv, minimizeArgv, paneArgv, argPlaceholder, arg0Placeholder, EXPECTED_EXECUTABLE, CODEX_DIALOG_KINDS, codexUpdateVersions, CODEX_RELEASE_NOTES_URL,
 } from '../lib/g2.mjs';
 import { createRedactor, reportIsClean } from '../lib/redact.mjs';
 import { sha256, parseSections, selectionCheck } from '../lib/g1.mjs';
@@ -224,7 +224,7 @@ export function g2Unit(check) {
   const UPDATE = [
     '',
     '  Update available · 0.160.0 → 0.160.1',
-    '  Release notes: https://github.com/openai/codex/releases/latest',
+    `  Release notes: ${CODEX_RELEASE_NOTES_URL}`,
     '',
     "› 1. Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/",
     "     codex/install.ps1 | iex'`)",
@@ -257,7 +257,7 @@ export function g2Unit(check) {
     ['a changed option text', UPDATE.replace('  2. Skip', '  2. Not now')],
     ['an option 1 without its "(runs `…`)" detail shape', UPDATE.replace("     codex/install.ps1 | iex'`)", "     codex/install.ps1 | iex'")],
     ['another footer', UPDATE.replace('esc skip', 'esc quit')],
-    ['another body line', UPDATE.replace('  Release notes: https://github.com/openai/codex/releases/latest', '  Release notes: https://example.invalid/notes')],
+    ['another body line', UPDATE.replace(`  Release notes: ${CODEX_RELEASE_NOTES_URL}`, '  Release notes: https://example.invalid/notes')],
     ['a second marker', UPDATE.replace('  2. Skip', '› 2. Skip')],
     ['another marker', UPDATE.replace('› 1. Update', '❯ 1. Update')],
   ];
