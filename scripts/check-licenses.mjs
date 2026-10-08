@@ -18,16 +18,20 @@
 // 3. Inventory. Every package in the resolved graph (`cargo metadata --all-features`, all
 //    targets and platforms, so optional dependencies are included) is listed with name,
 //    version, source and license. A third-party package passes when its SPDX expression
-//    has at least one OR-arm made only of the accepted licenses (07 section 5). The
-//    listing records the elected arm: Apache-2.0 whenever the expression offers it (07
-//    section 6, C1 sections 7 and 10), otherwise the first accepted arm. A copyleft
-//    identifier in a non-elected arm is flagged in the listing, never passed silently.
-//    No license expression (only license-file), or no accepted arm, fails: that
-//    dependency needs a recorded decision before it lands.
+//    has at least one OR-arm made only of accepted licenses (07 section 5): the permissive
+//    list, and the weak, file-level copyleft licenses OAC takes as unmodified dependencies
+//    (lead clarification 2026-10-08, docs/planning/decisions/G-7-stage4-dependencies.md
+//    section 3). The listing records the elected arm: Apache-2.0 whenever the expression
+//    offers it (07 section 6, C1 sections 7 and 10), otherwise a permissive arm, otherwise
+//    an arm with a weak-copyleft term, which the listing flags. A copyleft identifier in a
+//    non-elected arm is flagged too, never passed silently. Strong copyleft (the GPL family,
+//    AGPL, SSPL, OSL and the like) is never accepted. No license expression (only
+//    license-file), an unknown identifier, or no accepted arm, fails: that dependency
+//    needs a recorded decision before it lands.
 //
 // Limits, stated plainly: the inventory reads the license field each crate declares; it
-// does not read license files or scan source. Git dependencies (the Codex app-server
-// crates, 07 section 8) are listed from their own manifests. The full transitive audit and
+// does not read license files or scan source. A git dependency would be listed from its own
+// manifest (the Codex crates that once were candidates are refused, G-7 section 2). The full transitive audit and
 // NOTICE remain I2 (Stage 6). Node built-ins only; no cargo plugin; `cargo metadata` runs
 // with --offline (the shared METADATA_ARGS of scripts/check-crate-deps.mjs).
 // Exit codes: 0 = clean; 1 = violation; 2 = usage or environment error.
@@ -45,14 +49,42 @@ const WORKSPACE_LICENSE = 'Apache-2.0';
 const HEADER = /SPDX-License-Identifier:\s*Apache-2\.0\b/;
 const HEADER_LINES = 5;
 
-// The accepted licenses: exactly the list recorded in
+// The accepted licenses: exactly the lists recorded in
 // docs/planning/v0.1/07-repository-and-dependencies.md section 5, "Accepted licenses".
 // Adding one is a license-policy change: record it there first, in the same PR.
 // Unicode-3.0: unicode-ident, #51; BSD-3-Clause: ed25519-dalek and its curve25519-dalek,
 // x25519-dalek and subtle, #52 (C5 section 2). Both under the operator decision
 // https://github.com/RossGraeber/OAC/issues/51#issuecomment-6009697192 (07 section 5).
-const PERMISSIVE = new Set(['Apache-2.0', 'MIT', '0BSD', 'Unicode-3.0', 'BSD-3-Clause']);
-// Copyleft families, flagged wherever they appear (oac-release section 2 item 3).
+// Zlib, ISC, BSD-2-Clause and CDLA-Permissive-2.0: the zenoh, rustls, ring and rcgen graph
+// (#7, G-7 section 3), lead decision in chat 2026-10-08 under the same permissive policy.
+// With ISC here, ring's "Apache-2.0 AND ISC" is an accepted arm as written.
+const PERMISSIVE = new Set([
+  'Apache-2.0',
+  'MIT',
+  '0BSD',
+  'Unicode-3.0',
+  'BSD-3-Clause',
+  'Zlib',
+  'ISC',
+  'BSD-2-Clause',
+  'CDLA-Permissive-2.0',
+]);
+// Weak, file-level copyleft, accepted for an unmodified dependency: it cannot make OAC
+// (Apache-2.0) relicense, which is what the no-copyleft rule guards against (lead
+// clarification in chat 2026-10-08, G-7 section 3). Elected only when no permissive arm is
+// offered, and flagged in the listing. A statically linked LGPL crate may carry relink
+// obligations; I3 (#79) lists them in the Stage 6 inventory.
+const WEAK_COPYLEFT = new Set([
+  'MPL-2.0',
+  'LGPL-2.1-only',
+  'LGPL-2.1-or-later',
+  'LGPL-3.0-only',
+  'LGPL-3.0-or-later',
+  'EPL-2.0',
+]);
+const ACCEPTED = new Set([...PERMISSIVE, ...WEAK_COPYLEFT]);
+// Copyleft families, flagged wherever they appear (oac-release section 2 item 3). The strong
+// ones (GPL, AGPL, SSPL, OSL, ...) are on neither list above, so an arm holding one fails.
 const COPYLEFT = /^(?:A?GPL|LGPL|MPL|EPL|EUPL|CDDL|OSL|CPL|CECILL|CC-BY-SA|SSPL)\b/i;
 
 // Split an SPDX expression into OR-arms, each a list of AND-ed license terms. A recursive
@@ -104,21 +136,25 @@ export function spdxArms(expr) {
   }
 }
 
-// Verdict for one third-party package: { ok, elected, flags, reason }.
+// Verdict for one third-party package: { ok, elected, flags, weak, reason }. `weak` lists
+// the weak-copyleft terms of the elected arm (empty when a permissive arm is elected).
 export function licenseVerdict(license) {
   const arms = spdxArms(license);
-  if (!arms) return { ok: false, flags: [], reason: license ? `unparseable license expression` : 'no license expression (license-file only or none)' };
+  if (!arms) return { ok: false, flags: [], weak: [], reason: license ? `unparseable license expression` : 'no license expression (license-file only or none)' };
   const flags = [...new Set(arms.flat().filter((t) => COPYLEFT.test(t)))];
   // OAC elects Apache-2.0 whenever a dual offers it (07 section 6, C1 section 10);
-  // otherwise an accepted arm that includes Apache-2.0 (as in (MIT OR Apache-2.0) AND
-  // Unicode-3.0); otherwise the first arm made only of accepted licenses.
-  const accepted = (arm) => arm.every((t) => PERMISSIVE.has(t));
+  // otherwise a permissive arm that includes Apache-2.0 (as in (MIT OR Apache-2.0) AND
+  // Unicode-3.0); otherwise the first permissive arm; otherwise the first arm whose
+  // copyleft terms are all weak (07 section 5, G-7 section 3).
+  const permissive = (arm) => arm.every((t) => PERMISSIVE.has(t));
+  const accepted = (arm) => arm.every((t) => ACCEPTED.has(t));
   const elected =
     arms.find((arm) => arm.length === 1 && arm[0] === 'Apache-2.0') ??
-    arms.find((arm) => accepted(arm) && arm.includes('Apache-2.0')) ??
+    arms.find((arm) => permissive(arm) && arm.includes('Apache-2.0')) ??
+    arms.find(permissive) ??
     arms.find(accepted);
-  if (!elected) return { ok: false, flags, reason: 'no OR-arm made only of accepted licenses (07 section 5)' };
-  return { ok: true, elected: elected.join(' AND '), flags };
+  if (!elected) return { ok: false, flags, weak: [], reason: 'no OR-arm made only of accepted licenses (07 section 5)' };
+  return { ok: true, elected: elected.join(' AND '), flags, weak: elected.filter((t) => WEAK_COPYLEFT.has(t)) };
 }
 
 export function checkHeaders(files, read) {
@@ -146,7 +182,8 @@ export function checkInventory(meta) {
     } else {
       const r = licenseVerdict(p.license);
       verdict = r.ok ? `ok (elects ${r.elected})` : 'FAIL';
-      if (r.flags.length) verdict += `; copyleft arm flagged: ${r.flags.join(', ')}`;
+      if (r.ok && r.weak.length) verdict += `; weak copyleft elected, unmodified dependency: ${r.weak.join(', ')}`;
+      else if (r.flags.length) verdict += `; copyleft arm flagged: ${r.flags.join(', ')}`;
       if (!r.ok) violations.push(`${p.name} ${p.version}: ${r.reason} (license: ${JSON.stringify(p.license ?? null)})`);
     }
     rows.push({ name: p.name, version: p.version, source, license: p.license ?? '(none)', verdict });
@@ -211,7 +248,33 @@ function selfTest() {
   // #52: BSD-3-Clause is on the 07 section 5 list (ed25519-dalek, C5 section 2); a single
   // license with no OR-arm, so it is elected as is. BSD-2-Clause is not on the list.
   expect('control: BSD-3-Clause passes, electing BSD-3-Clause', licenseVerdict('BSD-3-Clause').elected === 'BSD-3-Clause');
-  expect('BSD-2-Clause fails (not in 07 section 5)', !ok('BSD-2-Clause'));
+  // #7 (G-7 section 3): Zlib, ISC, BSD-2-Clause and CDLA-Permissive-2.0 are permissive and
+  // on the list; ring's "Apache-2.0 AND ISC" passes as written.
+  expect('control: BSD-2-Clause passes', licenseVerdict('BSD-2-Clause').elected === 'BSD-2-Clause');
+  expect('control: Zlib passes', licenseVerdict('Zlib').elected === 'Zlib');
+  expect('control: ISC passes', licenseVerdict('ISC').elected === 'ISC');
+  expect('control: CDLA-Permissive-2.0 passes', licenseVerdict('CDLA-Permissive-2.0').elected === 'CDLA-Permissive-2.0');
+  expect('control: Apache-2.0 AND ISC (ring) passes, electing Apache-2.0 AND ISC',
+    licenseVerdict('Apache-2.0 AND ISC').elected === 'Apache-2.0 AND ISC');
+  expect('BSD-1-Clause fails (not in 07 section 5)', !ok('BSD-1-Clause'));
+  expect('ISC AND OpenSSL fails (OpenSSL not in 07 section 5)', !ok('ISC AND OpenSSL'));
+  // Lead clarification 2026-10-08 (G-7 section 3): weak, file-level copyleft passes as an
+  // unmodified dependency and is reported; strong copyleft fails.
+  const mpl = licenseVerdict('MPL-2.0');
+  expect('control: MPL-2.0 passes, weak copyleft reported', mpl.ok && mpl.weak.includes('MPL-2.0'));
+  for (const l of ['LGPL-2.1-only', 'LGPL-2.1-or-later', 'LGPL-3.0-only', 'LGPL-3.0-or-later', 'EPL-2.0']) {
+    expect(`control: ${l} passes`, ok(l));
+  }
+  expect('control: MIT AND LGPL-2.1-only passes', ok('MIT AND LGPL-2.1-only'));
+  expect('election: MPL-2.0 OR MIT elects MIT (permissive arm first)', licenseVerdict('MPL-2.0 OR MIT').elected === 'MIT');
+  expect('election: EPL-2.0 OR Apache-2.0 elects Apache-2.0 (zenoh)', licenseVerdict('EPL-2.0 OR Apache-2.0').elected === 'Apache-2.0');
+  for (const l of ['GPL-3.0-only', 'GPL-3.0-or-later', 'GPL-2.0-only', 'GPL-2.0-or-later', 'AGPL-3.0-only', 'AGPL-3.0-or-later', 'SSPL-1.0', 'OSL-3.0', 'GPL-3.0']) {
+    expect(`${l} fails (strong copyleft)`, !ok(l));
+  }
+  expect('control: MIT OR GPL-3.0 passes on its permissive arm', licenseVerdict('MIT OR GPL-3.0').elected === 'MIT');
+  expect('MIT AND GPL-3.0 fails', !ok('MIT AND GPL-3.0'));
+  expect('MPL-2.0 AND GPL-2.0-or-later fails', !ok('MPL-2.0 AND GPL-2.0-or-later'));
+  expect('LGPL-2.1+ (deprecated spelling) fails as an unknown identifier', !ok('LGPL-2.1+'));
   expect('BSD-3-Clause AND GPL-2.0-only fails', !ok('BSD-3-Clause AND GPL-2.0-only'));
   expect('Apache-2.0 WITH LLVM-exception fails (not in 07 section 5)', !ok('Apache-2.0 WITH LLVM-exception'));
   // B1: optional dependencies are in the graph the inventory reads.
@@ -220,8 +283,6 @@ function selfTest() {
   expect('control: EPL-2.0 OR Apache-2.0 passes, electing Apache-2.0, copyleft flagged',
     z.ok && z.elected === 'Apache-2.0' && z.flags.includes('EPL-2.0'));
   expect('GPL-3.0-only fails', !ok('GPL-3.0-only'));
-  expect('MPL-2.0 fails (no accepted arm)', !ok('MPL-2.0'));
-  expect('MIT AND LGPL-2.1-only fails', !ok('MIT AND LGPL-2.1-only'));
   expect('missing license (license-file only) fails', !ok(null));
   expect('empty license fails', !ok(''));
   expect('unknown identifier fails', !ok('Proprietary'));
@@ -242,6 +303,9 @@ function selfTest() {
   expect('control: inventory of the scaffold passes', checkInventory(meta([ws])).violations.length === 0);
   expect('workspace crate under MIT fails', checkInventory(meta([{ ...ws, license: 'MIT' }])).violations.length === 1);
   expect('workspace crate with no license fails', checkInventory(meta([{ ...ws, license: null }])).violations.length === 1);
+  const mplRow = checkInventory(meta([ws, { id: 'oe', name: 'option-ext', version: '0.2.0', license: 'MPL-2.0', source: 'registry+x' }]));
+  expect('control: an MPL-2.0 crate (option-ext) passes and its listing reports the weak copyleft',
+    mplRow.violations.length === 0 && mplRow.rows.some((r) => /weak copyleft elected, unmodified dependency: MPL-2\.0/.test(r.verdict)));
   expect('third-party GPL crate fails', checkInventory(meta([ws, { id: 'g', name: 'g', version: '1.0.0', license: 'GPL-3.0-only', source: 'registry+https://github.com/rust-lang/crates.io-index' }])).violations.length === 1);
   const zrow = checkInventory(meta([ws, { id: 'z', name: 'zenoh', version: '1.10.1', license: 'EPL-2.0 OR Apache-2.0', source: 'registry+x' }]));
   expect('control: dual EPL/Apache crate passes and is flagged in the listing',

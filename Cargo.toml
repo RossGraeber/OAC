@@ -4,7 +4,9 @@
 # docs/planning/v0.1/07-repository-and-dependencies.md sections 1-3.
 #
 #   cli/              -> core/, adapters/*, transports/*  (construction only)
-#   adapters/*        -> core/ only
+#   adapters/*        -> core/ and adapters/mcp-tools only
+#   adapters/mcp-tools -> core/ only; the MCP tool surface both adapters share (#7), its own
+#                        module kind, not an adapter
 #   transports/*      -> core/ only
 #   core/             -> nothing in-repo
 #   (nothing)         -> cli/
@@ -29,6 +31,7 @@ members = [
     "transports/memory",
     "adapters/claude",
     "adapters/codex",
+    "adapters/mcp-tools",
     "tests/fakes/claude",
     "tests/protocol/contract/transport",
     "tests/protocol/contract/adapter",
@@ -45,3 +48,4 @@ publish = false
 
 [workspace.dependencies]
 oac-core = { path = "core" }
+oac-mcp-tools = { path = "adapters/mcp-tools" }

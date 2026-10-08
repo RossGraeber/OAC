@@ -37,12 +37,23 @@ is a finding under every row:
 - **a manifest key that moves a target or switches discovery**: `path` or `build` outside a
   dependency table, and `autolib`, `autobins`, `autoexamples`, `autotests` or
   `autobenches`;
-- **a normal or build dependency that is not vetted**: `VETTED_DEPENDENCIES` lists them,
-  `oac-core` only today, and each one is checked to export no macro and to be no
-  proc-macro. A dependency is vetted by identity, not by name, since any crate can call
-  itself `oac-core`. It must be a path dependency with no `source` (no registry, no git),
-  must be depended on under its own name (no `package = ..` rename), and its directory
-  must canonicalize to the repository's own `core/`;
+- **a normal or build dependency that is not vetted**: `VETTED_DEPENDENCIES` lists them
+  (#7, `docs/planning/decisions/G-7-stage4-dependencies.md` §5). A dependency is vetted by
+  identity, not by name, since any crate can call itself `oac-core`, and is depended on
+  under its own name (no `package = ..` rename):
+  - `oac-core` and `oac-mcp-tools`, the repository's own crates: path dependencies with no
+    `source` (no registry, no git), whose directories canonicalize to `core/` and
+    `adapters/mcp-tools/`. Each is checked to export no macro and to be no proc-macro.
+  - `rmcp` `=3.4.0` (default features off; `server` and `transport-async-rw` only, so its
+    `macros` feature is refused) and `tokio` `=1.53.2` (only the features `rmcp` enables on
+    it: `sync`, `macros`, `rt`, `time`, `io-util`), from crates.io at exactly those
+    requirements. Once either is in the workspace graph, `tests/real_adapters.rs` checks it
+    has no proc-macro target and that none of its `macro_rules!` bodies can load a file;
+- **a forbidden crate under any dependency kind, dev included**: `FORBIDDEN_CRATES`, the
+  Codex crates that are, or reach, a model API client, a credential or keyring store or the
+  rollouts ([ADR-001 Boundary]; G-7 §2). `scripts/check-crate-deps.mjs` rule 6 refuses the
+  same names anywhere in the workspace graph, transitively, and a test checks the two lists
+  agree;
 - **a symlink** on the way to a module file, or among the files scanned;
 - a file that cannot be read or does not parse.
 
@@ -56,7 +67,8 @@ literal.
 **What stays out of reach.** A macro from another crate, or a derive or attribute
 proc-macro, can load a file from a bare literal (`dep::load!("../x.rs")`). No static scan
 sees that. This is why the dependency list is vetted: a new dependency is reviewed for the
-macros it exports before it is added.
+macros it exports before it is added. `adapters/mcp-tools`, which the adapters may depend
+on, is scanned under the same rules as an adapter.
 
 No adapter needs any of the refused shapes today. If an adapter needs a macro, a module or
 target outside cargo's default layout, or another dependency, that is a deliberate change

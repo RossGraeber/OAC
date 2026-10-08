@@ -6,7 +6,10 @@
 // (cli/ edges widened by #305), restated in oac-implementation section 2:
 //
 //   cli/          -> core/, adapters/*, transports/*   (construction only)
-//   adapters/*    -> core/ only        (never another adapter, a transport, or cli/)
+//   adapters/*    -> core/ and adapters/mcp-tools only (never another adapter, a transport,
+//                                      or cli/)
+//   adapters/mcp-tools -> core/ only   (#7: the MCP tool surface both adapters share; its own
+//                                      module kind, not an adapter, G-7 section 4)
 //   transports/*  -> core/ only        (never another transport, an adapter, or cli/)
 //   core/         -> nothing in-repo
 //   (nothing)     -> cli/
@@ -20,14 +23,14 @@
 // and dev: cargo itself allows a dev-dependency cycle, so a core/ dev-dependency on an
 // adapter would otherwise go unnoticed), every target platform, and every feature
 // (`--all-features`, so an optional dependency behind a non-default feature is seen):
-//   1. The member sits in the module layout: core, cli, adapters/<name> or
-//      transports/<name>, or is a test double at tests/fakes/<name> (#57) or a contract
+//   1. The member sits in the module layout: core, cli, adapters/<name>, the shared tool
+//      crate adapters/mcp-tools (#7), or transports/<name>, or is a test double at tests/fakes/<name> (#57) or a contract
 //      suite at tests/protocol/contract/<name> (#59), or is the security suite at
 //      tests/security (#60). Anything else fails.
 //   2. Reachability, not just direct edges: the member's transitive closure contains no
 //      workspace crate the rule above forbids, whatever path (including through a
 //      third-party crate) leads there.
-//   3. Every adapter and transport has a normal dependency on core/.
+//   3. Every adapter, transport and the shared tool crate has a normal dependency on core/.
 //   5. Test doubles and contract suites stay out of every product build (#57, #59): no
 //      product member (core, cli, an adapter or a transport) reaches a tests/fakes/<name>
 //      or tests/protocol/contract/<name> crate over normal and build edges alone, so none
@@ -35,12 +38,16 @@
 //      dev-dependency (rule 2 allows the reach); core/ may not, because core/ reaches
 //      nothing in-repo. The security suite (#60) is a test crate itself, so it may build a
 //      fake and a transport in; no member at all may reach it (rule 2).
-//   4. Provider and transport crates stay with their owner: the zenoh crates may be a
-//      direct dependency of transports/zenoh only, the Codex app-server crates of
-//      adapters/codex only (07 section 5, "Consuming module"); and neither may be reachable
-//      from any member other than its owner and cli/. So none is reachable from core/.
-//      The device-key storage crates (keyring and its backends, age) are owned by cli/
-//      the same way (#52, #315 review N-b).
+//   4. Transport crates stay with their owner: the zenoh crates may be a direct dependency
+//      of transports/zenoh only (07 section 5, "Consuming module"), and may not be
+//      reachable from any member other than their owner and cli/. So none is reachable from
+//      core/. The device-key storage crates (keyring and its backends, age) are owned by
+//      cli/ the same way (#52, #315 review N-b).
+//   6. Forbidden crates are reachable from no member at all, cli/ included, over any edge
+//      kind (#7; ADR-001 Boundary; docs/planning/decisions/G-7-stage4-dependencies.md
+//      section 2): the Codex crates that are, or reach, a model API client, a credential or
+//      keyring store, or the Codex rollouts. A name in FORBIDDEN_EXTERNAL fails wherever it
+//      appears in a member's closure, so a crate that only reaches one fails too.
 //      Names match case-insensitively, with `_` folded to `-`.
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
@@ -77,7 +84,6 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 // and stay unrestricted.
 const OWNED_EXTERNAL = [
   { family: 'zenoh', re: /^zenoh(?:-|$)/, owner: 'transports/zenoh' },
-  { family: 'Codex app-server', re: /^codex-app-server(?:-|$)/, owner: 'adapters/codex' },
   {
     family: 'OS credential store',
     re: /^(?:keyring(?:-core)?|[a-z0-9-]+-keyring-store|secret-service|security-framework(?:-sys)?)$/,
@@ -85,7 +91,40 @@ const OWNED_EXTERNAL = [
   },
   { family: 'encrypted-file key store', re: /^age(?:-core)?$/, owner: 'cli' },
 ];
-export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(String(name).toLowerCase().replace(/_/g, '-')));
+const fold = (name) => String(name).toLowerCase().replace(/_/g, '-');
+export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(fold(name)));
+
+// Rule 6 (#7; G-7 section 2): crates no member may reach. At the Codex repository's tag
+// rust-v0.161.0 each is, or reaches, a model API client (codex-api calls the provider's
+// /responses endpoint),
+// a keyring store (codex-keyring-store), or the rollout files (codex-rollout):
+// codex-app-server-protocol -> codex-rollout -> codex-otel -> codex-api -> codex-client;
+// codex-app-server-protocol -> codex-secrets -> codex-keyring-store;
+// codex-app-server-transport -> codex-core, codex-login, codex-api, codex-model-provider;
+// codex-app-server-client -> codex-app-server, codex-core;
+// codex-protocol -> codex-network-proxy, codex-http-client.
+// The same list is FORBIDDEN_CRATES in tests/protocol/contract/adapter/src/source.rs; a
+// test there checks the two agree.
+export const FORBIDDEN_EXTERNAL = [
+  'codex-app-server',
+  'codex-app-server-client',
+  'codex-app-server-protocol',
+  'codex-app-server-transport',
+  'codex-core',
+  'codex-api',
+  'codex-client',
+  'codex-login',
+  'codex-keyring-store',
+  'codex-secrets',
+  'codex-rollout',
+  'codex-state',
+  'codex-model-provider',
+  'codex-otel',
+  'codex-http-client',
+  'codex-network-proxy',
+  'codex-protocol',
+];
+export const isForbidden = (name) => FORBIDDEN_EXTERNAL.includes(fold(name));
 
 // Every cargo metadata call resolves with --all-features: an optional dependency behind a
 // non-default feature is still a dependency the build can compile in, so it must be in
@@ -97,6 +136,9 @@ export function moduleOf(relDir) {
   const d = relDir.split(sep).join('/');
   if (d === 'core') return { kind: 'core', path: d };
   if (d === 'cli') return { kind: 'cli', path: d };
+  // The MCP tool surface both adapters share (#7, G-7 section 4): its own kind, matched
+  // before the adapter pattern, so it is never an adapter itself.
+  if (d === 'adapters/mcp-tools') return { kind: 'tools', path: d };
   let m = /^adapters\/([a-z0-9][a-z0-9_-]*)$/.exec(d);
   if (m) return { kind: 'adapter', path: d };
   m = /^transports\/([a-z0-9][a-z0-9_-]*)$/.exec(d);
@@ -117,10 +159,14 @@ function allowedReach(from, to) {
   if (from.kind === 'cli') return true;
   if (from.kind === 'core') return false;
   if (from.kind === 'fake') return to.kind === 'core'; // test doubles: core/ only
+  // The shared tool crate (#7): core/, and a fake or a suite as a dev-dependency (rule 5).
+  if (from.kind === 'tools') return to.kind === 'core' || to.kind === 'fake' || to.kind === 'suite';
   if (from.kind === 'suite') return to.kind === 'core' || to.kind === 'fake'; // contract suites
   // The security suite (#60): core/, a fake, a transport to carry envelopes over, and a
   // contract suite, which a transport reaches as a dev-dependency (#59).
   if (from.kind === 'security') return ['core', 'fake', 'transport', 'suite'].includes(to.kind);
+  // adapters: also the shared tool crate (#7)
+  if (from.kind === 'adapter' && to.kind === 'tools') return true;
   // adapters and transports: core/, and a fake or a suite as a dev-dependency (rule 5)
   return to.kind === 'core' || to.kind === 'fake' || to.kind === 'suite';
 }
@@ -143,7 +189,7 @@ export function checkMetadata(meta) {
     if (!mod) {
       violations.push(
         `${p.name} (${rel.split(sep).join('/') || '.'}): workspace member outside the module layout ` +
-          '(core, cli, adapters/<name>, transports/<name>, tests/fakes/<name>, tests/protocol/contract/<name>, tests/security)',
+          '(core, cli, adapters/<name>, adapters/mcp-tools, transports/<name>, tests/fakes/<name>, tests/protocol/contract/<name>, tests/security)',
       );
       continue;
     }
@@ -162,12 +208,12 @@ export function checkMetadata(meta) {
 
   for (const [id, mod] of members) {
     const name = nameOf(id);
-    // 3. adapters and transports depend on core/ (normal edge).
-    if (mod.kind === 'adapter' || mod.kind === 'transport') {
+    // 3. adapters, transports and the shared tool crate depend on core/ (normal edge).
+    if (mod.kind === 'adapter' || mod.kind === 'transport' || mod.kind === 'tools') {
       const hasCore = depsOf(id).some(
         (d) => members.get(d.id)?.kind === 'core' && d.kinds.some((k) => k.kind === null || k.kind === 'normal'),
       );
-      if (!hasCore) violations.push(`${name}: no normal dependency on core/ (adapters and transports depend on core)`);
+      if (!hasCore) violations.push(`${name}: no normal dependency on core/ (adapters, transports and adapters/mcp-tools depend on core)`);
     }
     // 4a. owned external crates as direct dependencies.
     for (const d of depsOf(id)) {
@@ -202,6 +248,11 @@ export function checkMetadata(meta) {
         continue;
       }
       const pname = pkgById.get(reached)?.name ?? '';
+      // 6. forbidden crates (#7): no member may reach one, cli/ included.
+      if (isForbidden(pname)) {
+        violations.push(`${name} reaches ${pname} (forbidden: ADR-001, G-7 section 2): ${pathTo(reached)}`);
+        continue;
+      }
       const o = ownedFamily(pname);
       if (o && mod.path !== o.owner && mod.kind !== 'cli') {
         violations.push(`${name} reaches ${pname} (${o.family}, owned by ${o.owner}): ${pathTo(reached)}`);
@@ -281,6 +332,7 @@ const BASE_MEMBERS = {
   'oac-adapter-codex': 'adapters/codex',
   'oac-transport-zenoh': 'transports/zenoh',
 };
+const TOOLS_MEMBERS = { ...BASE_MEMBERS, 'oac-mcp-tools': 'adapters/mcp-tools' };
 const BASE_EDGES = [
   ['oac-adapter-claude', 'oac-core'],
   ['oac-adapter-codex', 'oac-core'],
@@ -314,6 +366,19 @@ const SECURITY_EDGES = [
   ['oac-transport-memory', 'oac-contract-transport', 'dev'],
 ];
 const without = (edges, f, t) => edges.filter(([a, b]) => !(a === f && b === t));
+const TOOLS_EDGES = [
+  ...BASE_EDGES,
+  ['oac-mcp-tools', 'oac-core'],
+  ['oac-adapter-claude', 'oac-mcp-tools'],
+  ['oac-adapter-codex', 'oac-mcp-tools'],
+  ['oac-cli', 'oac-mcp-tools'],
+];
+
+// #7 rule 6: one must-fail case per forbidden crate, as a direct dependency of adapters/codex.
+const FORBIDDEN_DIRECT_CASES = FORBIDDEN_EXTERNAL.map((n) => ({
+  name: `adapters/codex depends on ${n} (forbidden)`,
+  meta: synth({ members: BASE_MEMBERS, externals: [n], edges: [...BASE_EDGES, ['oac-adapter-codex', n]] }),
+}));
 
 const SELF_TEST_CASES = [
   { name: 'control: the scaffold graph is clean', expectClean: true, meta: synth({ members: BASE_MEMBERS, edges: BASE_EDGES }) },
@@ -322,9 +387,8 @@ const SELF_TEST_CASES = [
     expectClean: true,
     meta: synth({
       members: BASE_MEMBERS,
-      externals: ['zenoh', 'zenoh-protocol', 'codex-app-server-client', 'serde'],
-      edges: [...BASE_EDGES, ['oac-transport-zenoh', 'zenoh'], ['zenoh', 'zenoh-protocol'],
-        ['oac-adapter-codex', 'codex-app-server-client'], ['oac-core', 'serde']],
+      externals: ['zenoh', 'zenoh-protocol', 'serde'],
+      edges: [...BASE_EDGES, ['oac-transport-zenoh', 'zenoh'], ['zenoh', 'zenoh-protocol'], ['oac-core', 'serde']],
     }),
   },
   { name: 'core -> transport (normal)', meta: synth({ members: BASE_MEMBERS, edges: [...BASE_EDGES, ['oac-core', 'oac-transport-zenoh']] }) },
@@ -367,11 +431,8 @@ const SELF_TEST_CASES = [
   { name: 'adapter depends on codex_app_server_protocol outside adapters/codex', meta: synth({ members: BASE_MEMBERS, externals: ['codex_app_server_protocol'], edges: [...BASE_EDGES, ['oac-adapter-claude', 'codex_app_server_protocol']] }) },
   // N8: owner rules are case-insensitive.
   { name: 'core depends on a crate named Zenoh (mixed case)', meta: synth({ members: BASE_MEMBERS, externals: ['Zenoh'], edges: [...BASE_EDGES, ['oac-core', 'Zenoh']] }) },
-  {
-    name: 'control: adapters/codex may depend on codex_app_server_protocol',
-    expectClean: true,
-    meta: synth({ members: BASE_MEMBERS, externals: ['codex_app_server_protocol'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex_app_server_protocol']] }),
-  },
+  // #7 (G-7 section 2): no Codex crate is allowed, not even in adapters/codex.
+  { name: 'adapters/codex depends on codex_app_server_protocol (forbidden)', meta: synth({ members: BASE_MEMBERS, externals: ['codex_app_server_protocol'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex_app_server_protocol']] }) },
   // B1: an optional dependency behind a non-default feature. With --all-features (see the
   // METADATA_ARGS case below) cargo puts that edge in the resolve graph, as here.
   { name: 'optional feature-gated edge: adapters/claude -> adapters/codex', meta: synth({ members: BASE_MEMBERS, edges: [...BASE_EDGES, ['oac-adapter-claude', 'oac-adapter-codex']] }) },
@@ -470,6 +531,53 @@ const SELF_TEST_CASES = [
     name: 'security suite outside tests/security (tests/security/inner)',
     meta: synth({ members: { ...SECURITY_MEMBERS, 'oac-security-suite': 'tests/security/inner' }, edges: SECURITY_EDGES }),
   },
+  // #7 rule 6: forbidden Codex crates, by name and by transitive presence (G-7 section 2).
+  ...FORBIDDEN_DIRECT_CASES,
+  {
+    name: 'cli/ reaches codex-core through a third-party crate (forbidden even for cli/)',
+    meta: synth({ members: BASE_MEMBERS, externals: ['helper', 'codex-core'], edges: [...BASE_EDGES, ['oac-cli', 'helper'], ['helper', 'codex-core']] }),
+  },
+  {
+    name: 'adapters/codex reaches codex-api through codex-rollout and codex-otel (the recorded chain)',
+    meta: synth({
+      members: BASE_MEMBERS,
+      externals: ['codex-app-server-protocol', 'codex-rollout', 'codex-otel', 'codex-api'],
+      edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex-app-server-protocol'], ['codex-app-server-protocol', 'codex-rollout'],
+        ['codex-rollout', 'codex-otel'], ['codex-otel', 'codex-api']],
+    }),
+  },
+  {
+    name: 'an unlisted crate that only reaches codex-keyring-store fails transitively',
+    meta: synth({ members: BASE_MEMBERS, externals: ['innocent-types', 'codex-keyring-store'], edges: [...BASE_EDGES, ['oac-adapter-claude', 'innocent-types'], ['innocent-types', 'codex-keyring-store']] }),
+  },
+  { name: 'adapters/codex dev-depends on codex-rollout (forbidden on dev edges too)', meta: synth({ members: BASE_MEMBERS, externals: ['codex-rollout'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex-rollout', 'dev']] }) },
+  { name: 'transports/zenoh build-depends on codex-login', meta: synth({ members: BASE_MEMBERS, externals: ['codex-login'], edges: [...BASE_EDGES, ['oac-transport-zenoh', 'codex-login', 'build']] }) },
+  { name: 'core depends on Codex_Core (mixed case, underscore)', meta: synth({ members: BASE_MEMBERS, externals: ['Codex_Core'], edges: [...BASE_EDGES, ['oac-core', 'Codex_Core']] }) },
+  {
+    name: 'control: an unforbidden codex-utils-* crate is not refused by name',
+    expectClean: true,
+    meta: synth({ members: BASE_MEMBERS, externals: ['codex-utils-string'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex-utils-string']] }),
+  },
+  // #7: the shared MCP tool crate at adapters/mcp-tools (G-7 section 4).
+  { name: 'control: both adapters and cli/ depend on adapters/mcp-tools, which depends on core/', expectClean: true, meta: synth({ members: TOOLS_MEMBERS, edges: TOOLS_EDGES }) },
+  {
+    name: 'control: adapters/mcp-tools may take a fake as a dev-dependency',
+    expectClean: true,
+    meta: synth({ members: { ...TOOLS_MEMBERS, 'oac-fake-claude': 'tests/fakes/claude' }, edges: [...TOOLS_EDGES, ['oac-fake-claude', 'oac-core'], ['oac-mcp-tools', 'oac-fake-claude', 'dev']] }),
+  },
+  { name: 'adapters/mcp-tools -> adapter', meta: synth({ members: TOOLS_MEMBERS, edges: [...TOOLS_EDGES, ['oac-mcp-tools', 'oac-adapter-claude']] }) },
+  { name: 'adapters/mcp-tools -> transport', meta: synth({ members: TOOLS_MEMBERS, edges: [...TOOLS_EDGES, ['oac-mcp-tools', 'oac-transport-zenoh']] }) },
+  { name: 'adapters/mcp-tools -> cli (dev-dependency)', meta: synth({ members: TOOLS_MEMBERS, edges: [...TOOLS_EDGES, ['oac-mcp-tools', 'oac-cli', 'dev']] }) },
+  { name: 'adapters/mcp-tools without a core/ dependency', meta: synth({ members: TOOLS_MEMBERS, edges: without(TOOLS_EDGES, 'oac-mcp-tools', 'oac-core') }) },
+  { name: 'core -> adapters/mcp-tools', meta: synth({ members: TOOLS_MEMBERS, edges: [...TOOLS_EDGES, ['oac-core', 'oac-mcp-tools']] }) },
+  { name: 'transport -> adapters/mcp-tools', meta: synth({ members: TOOLS_MEMBERS, edges: [...TOOLS_EDGES, ['oac-transport-zenoh', 'oac-mcp-tools']] }) },
+  {
+    name: 'a fake -> adapters/mcp-tools',
+    meta: synth({ members: { ...TOOLS_MEMBERS, 'oac-fake-claude': 'tests/fakes/claude' }, edges: [...TOOLS_EDGES, ['oac-fake-claude', 'oac-core'], ['oac-fake-claude', 'oac-mcp-tools']] }),
+  },
+  { name: 'adapters/mcp-tools depends on zenoh', meta: synth({ members: TOOLS_MEMBERS, externals: ['zenoh'], edges: [...TOOLS_EDGES, ['oac-mcp-tools', 'zenoh']] }) },
+  { name: 'adapters/mcp-tools depends on codex-app-server-protocol', meta: synth({ members: TOOLS_MEMBERS, externals: ['codex-app-server-protocol'], edges: [...TOOLS_EDGES, ['oac-mcp-tools', 'codex-app-server-protocol']] }) },
+  { name: 'nested tool crate path (adapters/mcp-tools/inner)', meta: synth({ members: { ...TOOLS_MEMBERS, 'oac-inner': 'adapters/mcp-tools/inner' }, edges: [...TOOLS_EDGES, ['oac-inner', 'oac-core']] }) },
 ];
 
 function selfTest() {
@@ -506,6 +614,9 @@ export const addOptionalDep = (line) => (text) => addLine('features', 'leak = ["
 // from mutated manifests as `<ws>/../stubs/<dir>`.
 export const STUBS = {
   zenoh: { name: 'zenoh', license: 'EPL-2.0 OR Apache-2.0' },
+  'codex-api': { name: 'codex-api', license: 'Apache-2.0' },
+  // A crate under an innocent name that reaches a forbidden one (#7 rule 6).
+  'types-helper': { name: 'types-helper', license: 'Apache-2.0', deps: ['codex-api = { path = "../codex-api" }'] },
   'zenoh-backend-traits': { name: 'zenoh_backend_traits', license: 'EPL-2.0 OR Apache-2.0' },
   'codex-app-server-protocol': { name: 'codex_app_server_protocol', license: 'Apache-2.0' },
   'gpl-stub': { name: 'gpl-stub', license: 'GPL-3.0-only' },
@@ -536,7 +647,8 @@ export function withWorkspaceCopy(edit, fn) {
     for (const [dir, s] of Object.entries(STUBS)) {
       mkdirSync(join(tmp, 'stubs', dir, 'src'), { recursive: true });
       writeFileSync(join(tmp, 'stubs', dir, 'Cargo.toml'),
-        `[package]\nname = "${s.name}"\nversion = "0.0.1"\nedition = "2024"\nlicense = "${s.license}"\n`);
+        `[package]\nname = "${s.name}"\nversion = "0.0.1"\nedition = "2024"\nlicense = "${s.license}"\n` +
+          (s.deps ? `\n[dependencies]\n${s.deps.join('\n')}\n` : ''));
       writeFileSync(join(tmp, 'stubs', dir, 'src', 'lib.rs'), '');
     }
     if (edit) {
@@ -589,6 +701,13 @@ const MUTATIONS = [
   { name: 'cli/ dev-depends on the security suite', file: 'cli/Cargo.toml', edit: addDep('dev-dependencies', 'oac-security-suite = { path = "../tests/security" }') },
   { name: 'transports/memory dev-depends on the security suite', file: 'transports/memory/Cargo.toml', edit: addDep('dev-dependencies', 'oac-security-suite = { path = "../../tests/security" }') },
   { name: 'the security suite depends on adapters/claude', file: 'tests/security/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../../adapters/claude" }') },
+  // #7 rule 6: forbidden Codex crates, directly and through an innocent-looking crate.
+  { name: 'adapters/codex depends on codex_app_server_protocol (forbidden)', file: 'adapters/codex/Cargo.toml', edit: addDep('dependencies', 'codex_app_server_protocol = { path = "../../../stubs/codex-app-server-protocol" }') },
+  { name: 'cli/ depends on a crate that reaches codex-api (forbidden transitively)', file: 'cli/Cargo.toml', edit: addDep('dependencies', 'types-helper = { path = "../../stubs/types-helper" }') },
+  { name: 'adapters/codex dev-depends on codex-api (forbidden on dev edges)', file: 'adapters/codex/Cargo.toml', edit: addDep('dev-dependencies', 'codex-api = { path = "../../../stubs/codex-api" }') },
+  // #7: the shared MCP tool crate.
+  { name: 'adapters/mcp-tools depends on adapters/claude', file: 'adapters/mcp-tools/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../claude" }') },
+  { name: 'transports/memory depends on adapters/mcp-tools', file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'oac-mcp-tools = { path = "../../adapters/mcp-tools" }') },
 ];
 
 // Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error

@@ -62,8 +62,11 @@
 //! ([`package_sources`]): every target's `src_path`, the build script included. A manifest
 //! that moves a target (`path`, `build`) or switches discovery (`autobins` and the like)
 //! fails closed, and so does a normal or build dependency that is not a vetted crate by
-//! identity: in [`VETTED_DEPENDENCIES`], with no `source`, under its own name, and at the
-//! repository's own directory for it ([`vet_dependency`]).
+//! identity ([`vet_dependency`]): in [`VETTED_DEPENDENCIES`], under its own name, and
+//! either the repository's own crate at its own directory (no `source`), or a crates.io
+//! crate at its one pinned version with only its vetted features ([`Vetted`]). A crate in
+//! [`FORBIDDEN_CRATES`] fails under any dependency kind, dev included (ADR-001; #7,
+//! `docs/planning/decisions/G-7-stage4-dependencies.md` §2).
 //!
 //! # Which files are read
 //!
@@ -92,7 +95,9 @@
 //! - A macro from another crate, or a derive or attribute proc-macro, that loads a file from
 //!   a bare literal: `dep::load!("../zz/h.rs")` expands to `mod`, `#[path]` or `include!`
 //!   the scan never sees. This is why an adapter's dependencies are limited to
-//!   [`VETTED_DEPENDENCIES`], each checked to export no macro.
+//!   [`VETTED_DEPENDENCIES`]: the repository's own crates, each checked to export no macro,
+//!   and two crates.io crates whose exported macros were read at their pinned versions and
+//!   expand to no `mod` declaration, `#[path]` or `include*!` (G-7 §5).
 //! - Code the scan is not given: `build.rs` output, and other crates (a helper crate the
 //!   adapter depends on is scanned only if its files are passed in; `check-crate-deps.mjs`
 //!   stops that crate from being a transport).
@@ -1029,13 +1034,68 @@ pub fn crate_files(crate_dir: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// The dependencies an adapter may take (normal and build), each vetted to export no macro
-/// and to be no proc-macro: a macro from another crate can expand to `mod`, `#[path]` or
-/// `include!` from a bare literal, which no static scan sees (PR #336 third review N-b).
-/// Vetted by identity, not by name ([`vet_dependency`]): the repository's own crate, at
-/// its own path, under its own name. Adding one is a deliberate change to this list and to
-/// [`vetted_dependency_dirs`].
-pub const VETTED_DEPENDENCIES: &[&str] = &["oac-core"];
+/// The dependencies an adapter may take (normal and build). A macro from another crate can
+/// expand to `mod`, `#[path]` or `include!` from a bare literal, which no static scan sees
+/// (PR #336 third review N-b), so each is vetted by identity, not by name
+/// ([`vet_dependency`], [`vetted_dependencies`]):
+///
+/// - `oac-core` and `oac-mcp-tools`: the repository's own crates, at their own paths,
+///   checked to export no macro and to be no proc-macro (`tests/real_adapters.rs`).
+/// - `rmcp` `=3.4.0` and `tokio` `=1.53.2` from crates.io, the lead's decision 2 of
+///   2026-10-08 (`docs/planning/decisions/G-7-stage4-dependencies.md` §2, §5): `rmcp` with
+///   default features off and only `server` and `transport-async-rw`, so its `macros`
+///   feature (the `rmcp-macros` attribute proc-macros) is refused; `tokio` with only the
+///   features `rmcp` itself enables on it. Their exported `macro_rules!` were read at these
+///   versions (G-7 §5): none expands to a `mod` declaration, `#[path]` or `include*!`.
+///
+/// No Codex crate is here, and none may be (G-7 §2, [`FORBIDDEN_CRATES`]). This list was
+/// changed before any adapter code existed, as a recorded pre-adapter contract change (G-7
+/// §6); changing it again is a contract change under Gate S4 criterion 1.
+pub const VETTED_DEPENDENCIES: &[&str] = &["oac-core", "oac-mcp-tools", "rmcp", "tokio"];
+
+/// The crates.io source string `cargo metadata` reports.
+pub const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
+
+/// Crates no adapter may depend on under any kind, dev included: each is, or reaches, a
+/// model API client, a provider credential or keyring store, or the Codex rollout files
+/// ([ADR-001 Boundary]; G-7 §2, which records the chains at `rust-v0.161.0`). Matched on
+/// the package name lowercased with `_` folded to `-`. `scripts/check-crate-deps.mjs`
+/// refuses the same names anywhere in the workspace graph, directly or transitively.
+pub const FORBIDDEN_CRATES: &[&str] = &[
+    "codex-app-server",
+    "codex-app-server-client",
+    "codex-app-server-protocol",
+    "codex-app-server-transport",
+    "codex-core",
+    "codex-api",
+    "codex-client",
+    "codex-login",
+    "codex-keyring-store",
+    "codex-secrets",
+    "codex-rollout",
+    "codex-state",
+    "codex-model-provider",
+    "codex-otel",
+    "codex-http-client",
+    "codex-network-proxy",
+    "codex-protocol",
+];
+
+/// How a vetted dependency is identified ([`vetted_dependencies`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Vetted {
+    /// The repository's own crate: a path dependency at this directory.
+    Path(PathBuf),
+    /// A crates.io crate at one exact version requirement.
+    Registry {
+        /// The version requirement, exactly as the manifest must write it (`=x.y.z`).
+        req: &'static str,
+        /// Whether the dependency may keep the crate's default features on.
+        default_features: bool,
+        /// The features the dependency may turn on; any other is a finding.
+        features: &'static [&'static str],
+    },
+}
 
 /// Target kinds whose code builds into the adapter. Test, bench and example targets are the
 /// adapter's own checks, held to the [`PLANT`] row only.
@@ -1203,13 +1263,25 @@ pub fn package_sources(crate_dir: &Path) -> PackageSources {
     {
         let text = |k: &str| d.get(k).and_then(|v| v.as_str()).map(str::to_owned);
         let dep = Dependency {
+            req: text("req"),
+            features: d
+                .get("features")
+                .and_then(|f| f.as_array())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|f| f.as_str().map(str::to_owned))
+                .collect(),
+            uses_default_features: d
+                .get("uses_default_features")
+                .and_then(|b| b.as_bool())
+                .unwrap_or(true),
             name: text("name").unwrap_or_default(),
             kind: text("kind"),
             rename: text("rename"),
             source: text("source"),
             path: text("path").map(PathBuf::from),
         };
-        if let Some(why) = vet_dependency(&dep, &vetted_dependency_dirs()) {
+        if let Some(why) = vet_dependency(&dep, &vetted_dependencies()) {
             fail(&mut s, why);
         }
     }
@@ -1220,6 +1292,12 @@ pub fn package_sources(crate_dir: &Path) -> PackageSources {
 /// One dependency of a package, as `cargo metadata` lists it.
 #[derive(Clone, Debug, Default)]
 pub struct Dependency {
+    /// The version requirement as written (`"*"` for a path dependency with none).
+    pub req: Option<String>,
+    /// The features it turns on.
+    pub features: Vec<String>,
+    /// Whether it keeps the crate's default features on.
+    pub uses_default_features: bool,
     /// The package name (not the key it is depended on under).
     pub name: String,
     /// `None` for a normal dependency, `"build"` or `"dev"` otherwise.
@@ -1233,28 +1311,120 @@ pub struct Dependency {
     pub path: Option<PathBuf>,
 }
 
-/// Each vetted dependency by identity: its package name and the directory it must be
-/// (the repository's own `core/`). [`VETTED_DEPENDENCIES`] names them.
-pub fn vetted_dependency_dirs() -> Vec<(&'static str, PathBuf)> {
+/// Each vetted dependency by identity ([`Vetted`]). [`VETTED_DEPENDENCIES`] names them;
+/// `oac-core` comes first.
+pub fn vetted_dependencies() -> Vec<(&'static str, Vetted)> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
     VETTED_DEPENDENCIES
         .iter()
-        .map(|name| match *name {
-            "oac-core" => (*name, repo.join("core")),
-            other => (other, PathBuf::new()),
+        .map(|name| {
+            let v = match *name {
+                "oac-core" => Vetted::Path(repo.join("core")),
+                "oac-mcp-tools" => Vetted::Path(repo.join("adapters/mcp-tools")),
+                "rmcp" => Vetted::Registry {
+                    req: "=3.4.0",
+                    default_features: false,
+                    features: &["server", "transport-async-rw"],
+                },
+                "tokio" => Vetted::Registry {
+                    req: "=1.53.2",
+                    default_features: true,
+                    features: &["sync", "macros", "rt", "time", "io-util"],
+                },
+                _ => Vetted::Path(PathBuf::new()),
+            };
+            (*name, v)
         })
         .collect()
 }
 
-/// Why a normal or build dependency is not the vetted crate it claims to be, or `None`
-/// (PR #336 fourth review V1). A name is not an identity: any crate can call itself
-/// `oac-core`. So each one must be a path dependency (no `source`: no registry, no git),
-/// under its own name (no `package = ..` rename), whose directory canonicalizes to the
-/// vetted one. A dev-dependency is the adapter's own tests' business.
-pub fn vet_dependency(d: &Dependency, vetted: &[(&str, PathBuf)]) -> Option<String> {
-    if d.kind.as_deref() == Some("dev") {
-        return None;
+/// Every `macro_rules!` body in `text` that can load another file: an `include!`,
+/// `include_str!` or `include_bytes!`, a `#[path ..]` attribute, or a `mod name;`
+/// declaration (an inline `mod name { .. }` loads nothing). One line per hit, naming the
+/// macro. A file that does not parse is one hit. This is how a [`Vetted::Registry`] crate's
+/// exported macros are re-vetted once it is in the graph (`tests/real_adapters.rs`; G-7 §5).
+pub fn macros_that_load_files(text: &str) -> Vec<String> {
+    struct V(Vec<String>);
+    fn walk(name: &str, ts: TokenStream, out: &mut Vec<String>) {
+        let toks: Vec<TokenTree> = ts.into_iter().collect();
+        for (i, t) in toks.iter().enumerate() {
+            match t {
+                TokenTree::Ident(id) => {
+                    let w = id.to_string();
+                    let w = w.trim_start_matches("r#");
+                    let bang =
+                        matches!(toks.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '!');
+                    if bang && ["include", "include_str", "include_bytes"].contains(&w) {
+                        out.push(format!("macro `{name}`: `{w}!`"));
+                    }
+                    if w == "mod"
+                        && matches!(toks.get(i + 1), Some(TokenTree::Ident(_)))
+                        && matches!(toks.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == ';')
+                    {
+                        out.push(format!("macro `{name}`: `mod ..;`"));
+                    }
+                }
+                TokenTree::Punct(p) if p.as_char() == '#' => {
+                    let g = match (toks.get(i + 1), toks.get(i + 2)) {
+                        (Some(TokenTree::Punct(b)), Some(TokenTree::Group(g)))
+                            if b.as_char() == '!' =>
+                        {
+                            Some(g)
+                        }
+                        (Some(TokenTree::Group(g)), _) => Some(g),
+                        _ => None,
+                    };
+                    if let Some(g) = g.filter(|g| g.delimiter() == proc_macro2::Delimiter::Bracket)
+                    {
+                        let first = g.stream().into_iter().next();
+                        if matches!(first, Some(TokenTree::Ident(id)) if id.to_string().trim_start_matches("r#") == "path")
+                        {
+                            out.push(format!("macro `{name}`: `#[path ..]`"));
+                        }
+                    }
+                }
+                TokenTree::Group(g) => walk(name, g.stream(), out),
+                _ => {}
+            }
+        }
     }
+    impl<'ast> Visit<'ast> for V {
+        fn visit_item_macro(&mut self, m: &'ast syn::ItemMacro) {
+            if m.mac.path.is_ident("macro_rules") {
+                let name = m
+                    .ident
+                    .as_ref()
+                    .map_or_else(|| "?".to_owned(), ToString::to_string);
+                walk(&name, m.mac.tokens.clone(), &mut self.0);
+            }
+            visit::visit_item_macro(self, m);
+        }
+    }
+    match syn::parse_file(text) {
+        Ok(f) => {
+            let mut v = V(Vec::new());
+            v.visit_file(&f);
+            v.0
+        }
+        Err(e) => vec![format!("does not parse: {e}")],
+    }
+}
+
+/// Whether a package name is in [`FORBIDDEN_CRATES`] (lowercased, `_` folded to `-`).
+pub fn is_forbidden_crate(name: &str) -> bool {
+    let n = name.to_ascii_lowercase().replace('_', "-");
+    FORBIDDEN_CRATES.contains(&n.as_str())
+}
+
+/// Why a dependency is refused, or `None` (PR #336 fourth review V1; #7). A crate in
+/// [`FORBIDDEN_CRATES`] is refused under every kind, dev included. Otherwise a
+/// dev-dependency is the adapter's own tests' business. A normal or build dependency must be
+/// vetted by identity, since a name is not one: any crate can call itself `oac-core`. So it
+/// must be under its own name (no `package = ..` rename) and, for a [`Vetted::Path`] crate,
+/// a path dependency (no `source`) whose directory canonicalizes to the vetted one; for a
+/// [`Vetted::Registry`] crate, from crates.io at exactly the pinned requirement, with
+/// default features only if allowed and no feature outside its list.
+pub fn vet_dependency(d: &Dependency, vetted: &[(&str, Vetted)]) -> Option<String> {
     let what = |why: &str| {
         Some(format!(
             "dependency `{}`{}: {why}; a macro from another crate can load a file the scan never \
@@ -1265,27 +1435,68 @@ pub fn vet_dependency(d: &Dependency, vetted: &[(&str, PathBuf)]) -> Option<Stri
                 .map_or(String::new(), |r| format!(" (as `{r}`)"))
         ))
     };
-    let Some((_, dir)) = vetted.iter().find(|(n, _)| *n == d.name) else {
+    if is_forbidden_crate(&d.name) {
+        return Some(format!(
+            "dependency `{}`: forbidden (FORBIDDEN_CRATES): it is, or reaches, a model API \
+             client, a credential or keyring store, or the Codex rollouts ([ADR-001 Boundary]; \
+             docs/planning/decisions/G-7-stage4-dependencies.md section 2)",
+            d.name
+        ));
+    }
+    if d.kind.as_deref() == Some("dev") {
+        return None;
+    }
+    let Some((_, v)) = vetted.iter().find(|(n, _)| *n == d.name) else {
         return what("not vetted");
     };
     if d.rename.is_some() {
         return what("renamed (a `package = ..` alias)");
     }
-    if let Some(source) = &d.source {
-        return what(&format!("from {source}, not the repository's own crate"));
-    }
-    let same = match (&d.path, std::fs::canonicalize(dir)) {
-        (Some(p), Ok(want)) => std::fs::canonicalize(p).is_ok_and(|got| got == want),
-        _ => false,
-    };
-    if !same {
-        return what(&format!(
-            "at {}, not the repository's own {}",
-            d.path
-                .as_deref()
-                .map_or_else(|| "no path".to_owned(), |p| p.display().to_string()),
-            dir.display()
-        ));
+    match v {
+        Vetted::Path(dir) => {
+            if let Some(source) = &d.source {
+                return what(&format!("from {source}, not the repository's own crate"));
+            }
+            let same = match (&d.path, std::fs::canonicalize(dir)) {
+                (Some(p), Ok(want)) => std::fs::canonicalize(p).is_ok_and(|got| got == want),
+                _ => false,
+            };
+            if !same {
+                return what(&format!(
+                    "at {}, not the repository's own {}",
+                    d.path
+                        .as_deref()
+                        .map_or_else(|| "no path".to_owned(), |p| p.display().to_string()),
+                    dir.display()
+                ));
+            }
+        }
+        Vetted::Registry {
+            req,
+            default_features,
+            features,
+        } => {
+            if d.source.as_deref() != Some(CRATES_IO) {
+                return what(&format!(
+                    "from {}, not crates.io",
+                    d.source.as_deref().unwrap_or("a path")
+                ));
+            }
+            if d.req.as_deref() != Some(*req) {
+                return what(&format!(
+                    "version requirement {}, not the pinned `{req}`",
+                    d.req.as_deref().unwrap_or("(none)")
+                ));
+            }
+            if d.uses_default_features && !default_features {
+                return what("default features on; the vetted form turns them off");
+            }
+            if let Some(f) = d.features.iter().find(|f| !features.contains(&f.as_str())) {
+                return what(&format!(
+                    "feature `{f}` is not vetted (vetted: {features:?})"
+                ));
+            }
+        }
     }
     None
 }
@@ -1803,8 +2014,10 @@ mod tests {
     /// V1 of the PR #336 fourth review: a dependency is vetted by identity, not by name.
     #[test]
     fn dependencies_are_vetted_by_identity() {
-        let vetted = vetted_dependency_dirs();
-        let core = vetted[0].1.clone();
+        let vetted = vetted_dependencies();
+        let Vetted::Path(core) = vetted[0].1.clone() else {
+            panic!("oac-core comes first, as a path")
+        };
         let ok = Dependency {
             name: "oac-core".into(),
             path: Some(core.clone()),
@@ -1816,6 +2029,12 @@ mod tests {
             ..ok.clone()
         };
         assert_eq!(vet_dependency(&build, &vetted), None);
+        let tools = Dependency {
+            name: "oac-mcp-tools".into(),
+            path: Some(core.join("../adapters/mcp-tools")),
+            ..Dependency::default()
+        };
+        assert_eq!(vet_dependency(&tools, &vetted), None);
         for (case, bad) in [
             (
                 "a git source",
@@ -1828,7 +2047,7 @@ mod tests {
             (
                 "a registry source",
                 Dependency {
-                    source: Some("registry+https://github.com/rust-lang/crates.io-index".into()),
+                    source: Some(CRATES_IO.into()),
                     path: None,
                     ..ok.clone()
                 },
@@ -1868,6 +2087,13 @@ mod tests {
                     ..build.clone()
                 },
             ),
+            (
+                "oac-mcp-tools at core's directory",
+                Dependency {
+                    path: Some(core.clone()),
+                    ..tools.clone()
+                },
+            ),
         ] {
             assert!(vet_dependency(&bad, &vetted).is_some(), "{case}: {bad:?}");
         }
@@ -1879,6 +2105,202 @@ mod tests {
             ..Dependency::default()
         };
         assert_eq!(vet_dependency(&dev, &vetted), None);
+    }
+
+    /// #7 (G-7 §2, §5): rmcp and tokio are vetted from crates.io at their pins, with their
+    /// vetted features only; rmcp's `macros` feature is refused.
+    #[test]
+    fn registry_dependencies_are_vetted_by_pin_and_features() {
+        let vetted = vetted_dependencies();
+        let rmcp = Dependency {
+            name: "rmcp".into(),
+            req: Some("=3.4.0".into()),
+            source: Some(CRATES_IO.into()),
+            features: vec!["server".into(), "transport-async-rw".into()],
+            uses_default_features: false,
+            ..Dependency::default()
+        };
+        assert_eq!(vet_dependency(&rmcp, &vetted), None);
+        let tokio = Dependency {
+            name: "tokio".into(),
+            req: Some("=1.53.2".into()),
+            source: Some(CRATES_IO.into()),
+            features: vec!["rt".into(), "sync".into(), "io-util".into()],
+            uses_default_features: true,
+            ..Dependency::default()
+        };
+        assert_eq!(vet_dependency(&tokio, &vetted), None);
+        for (case, bad) in [
+            (
+                "rmcp with the macros feature",
+                Dependency {
+                    features: vec!["server".into(), "macros".into()],
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "rmcp with default features (which include macros)",
+                Dependency {
+                    uses_default_features: true,
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "rmcp at a caret requirement",
+                Dependency {
+                    req: Some("^3.4.0".into()),
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "rmcp at another version",
+                Dependency {
+                    req: Some("=3.5.1".into()),
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "rmcp from git",
+                Dependency {
+                    source: Some(
+                        "git+https://github.com/modelcontextprotocol/rust-sdk?rev=3e636ca#3e636ca"
+                            .into(),
+                    ),
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "rmcp as a path dependency",
+                Dependency {
+                    source: None,
+                    path: Some(PathBuf::from("../rmcp")),
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "rmcp renamed",
+                Dependency {
+                    rename: Some("mcp".into()),
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "rmcp with an HTTP client feature",
+                Dependency {
+                    features: vec!["server".into(), "reqwest".into()],
+                    ..rmcp.clone()
+                },
+            ),
+            (
+                "tokio with net",
+                Dependency {
+                    features: vec!["net".into()],
+                    ..tokio.clone()
+                },
+            ),
+            (
+                "tokio with process",
+                Dependency {
+                    features: vec!["process".into()],
+                    ..tokio.clone()
+                },
+            ),
+            (
+                "tokio unpinned",
+                Dependency {
+                    req: Some("1".into()),
+                    ..tokio.clone()
+                },
+            ),
+        ] {
+            assert!(vet_dependency(&bad, &vetted).is_some(), "{case}: {bad:?}");
+        }
+    }
+
+    /// #7 (G-7 §5): planted macros that load a file are found; tokio-style and rmcp-style
+    /// macros that do not are clean.
+    #[test]
+    fn macros_that_load_files_are_found() {
+        for (case, text) in [
+            (
+                "include!",
+                "#[macro_export] macro_rules! m { () => { include!(\"x.rs\"); } }",
+            ),
+            (
+                "include_str!",
+                "macro_rules! m { ($p:literal) => { const S: &str = include_str!($p); } }",
+            ),
+            (
+                "include_bytes!",
+                "macro_rules! m { () => { const B: &[u8] = ::core::include_bytes!(\"b\"); } }",
+            ),
+            (
+                "#[path]",
+                "macro_rules! m { ($p:literal) => { #[path = $p] mod h; } }",
+            ),
+            (
+                "mod ..;",
+                "macro_rules! m { ($n:ident) => { mod $n; }; () => { mod hidden; } }",
+            ),
+            (
+                "nested",
+                "mod a { macro_rules! m { () => { { { include!(\"y\"); } } } } }",
+            ),
+            (
+                "raw ident",
+                "macro_rules! m { () => { r#include!(\"x\"); } }",
+            ),
+            (
+                "inner #![path]",
+                "macro_rules! m { () => { mod q { #![path = \"z\"] } } }",
+            ),
+        ] {
+            assert!(!macros_that_load_files(text).is_empty(), "{case}");
+        }
+        for (case, text) in [
+            (
+                "select!-style inline module",
+                "macro_rules! select { () => { mod __util { pub(super) enum Out { A } } } }",
+            ),
+            (
+                "object!-style",
+                "macro_rules! object { ({$($tt:tt)*}) => { $crate::model::object(serde_json::json! { {$($tt)*} }) }; }",
+            ),
+            (
+                "a fn named include",
+                "fn include() {} macro_rules! m { () => { include() } }",
+            ),
+            ("not a macro", "#[path = \"x.rs\"] mod y;"),
+        ] {
+            assert_eq!(macros_that_load_files(text), Vec::<String>::new(), "{case}");
+        }
+        assert!(!macros_that_load_files("macro_rules! {").is_empty());
+    }
+
+    /// #7 (G-7 §2): every forbidden crate is refused by name, under every kind and spelling.
+    #[test]
+    fn forbidden_crates_are_refused_under_every_kind() {
+        let vetted = vetted_dependencies();
+        for name in FORBIDDEN_CRATES {
+            for kind in [None, Some("build"), Some("dev")] {
+                let d = Dependency {
+                    name: (*name).into(),
+                    kind: kind.map(str::to_owned),
+                    source: Some(CRATES_IO.into()),
+                    ..Dependency::default()
+                };
+                let why = vet_dependency(&d, &vetted).unwrap_or_default();
+                assert!(why.contains("forbidden"), "{name} {kind:?}: {why:?}");
+            }
+            let snake = Dependency {
+                name: name.replace('-', "_").to_uppercase(),
+                kind: Some("dev".into()),
+                ..Dependency::default()
+            };
+            assert!(vet_dependency(&snake, &vetted).is_some(), "{snake:?}");
+        }
+        assert!(!is_forbidden_crate("codex-utils-string-not-listed"));
+        assert!(is_forbidden_crate("Codex_App_Server_Protocol"));
     }
 
     #[test]
