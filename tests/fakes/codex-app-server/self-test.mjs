@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { FIXTURE_FILES, REPO_ROOT, fixturePath, readTranscript } from './lib/fixtures.mjs';
-import { FakeCodexAppServer, NOT_MODELLED } from './lib/model.mjs';
+import { FakeCodexAppServer, NOT_MODELLED, PRIOR_TURNS_PREVIEW } from './lib/model.mjs';
 import { connectWs } from './lib/ws.mjs';
 
 const SERVER = join(REPO_ROOT, 'tests', 'fakes', 'codex-app-server', 'server.mjs');
@@ -501,6 +501,24 @@ await test('thread/turns/list: an empty list, and a list on a thread with unmode
   // A thread whose every turn the fake ran lists them (G2).
   const { threadId } = idleThread(fake);
   eq(list(threadId).result?.data?.length, 1, 'thread/start and one turn: one turn listed');
+});
+
+await test('preview: a thread made materialized by thread/create lists and resumes with a non-empty preview, kept after a later turn', () => {
+  const fake = new FakeCodexAppServer();
+  const c = client(fake, 'adapter');
+  // Every recorded thread/list row and thread/resume result has a non-empty preview, the
+  // thread's first user message (S3 L42, L50); "" is recorded only from thread/start.
+  const threadId = control(fake, 'oacFake/thread/create', {}).threadId;
+  const listed = () => c.ok('thread/list', { cursor: null, limit: 5, sortKey: 'created_at' }).data.find((t) => t.id === threadId);
+  const before = listed()?.preview;
+  assert(typeof before === 'string' && before.length > 0, `thread/list preview is non-empty: ${JSON.stringify(before)}`);
+  eq(before, PRIOR_TURNS_PREVIEW, 'the fake stand-in text');
+  const resumed = c.ok('thread/resume', { threadId, excludeTurns: true }).thread.preview;
+  eq(resumed, before, 'thread/resume preview');
+  assert(add(c, threadId, 'a later turn').result, 'an add starts a later turn');
+  control(fake, 'oacFake/turn/complete', { threadId });
+  eq(listed().preview, before, 'a later turn leaves the preview as it was');
+  eq(c.ok('thread/resume', { threadId, excludeTurns: true }).thread.preview, before, 'resumed after the later turn');
 });
 
 await test('archive control: a thread put into the recorded archived state gets the recorded refusal, and takes adds again once put back', () => {

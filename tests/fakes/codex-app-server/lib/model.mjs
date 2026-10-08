@@ -37,6 +37,9 @@ const HANDOFF_METHODS = new Set(['thread/queue/add', 'turn/start', 'turn/steer']
 const STEERING_METHODS = new Set(['turn/steer', 'turn/start']);
 
 export const SUBAGENT_KINDS = ['multi-agent-v2', 'thread-spawn'];
+// The preview of a thread oacFake/thread/create makes materialized: the fake's own text, in
+// the form of its NOT_MODELLED messages, in place of a first user message it never saw.
+export const PRIOR_TURNS_PREVIEW = 'oac fake Codex app-server: earlier turns not modelled';
 
 export function uuidv7(nowMs = Date.now()) {
   const b = randomBytes(16);
@@ -666,6 +669,11 @@ export class FakeCodexAppServer {
     const th = this.newThread({ cwd: p.cwd, ephemeral, archived, subagent, loaded, materialized });
     // Materialized means it has run a turn (G2 L17-L20); the fake has no record of that turn.
     th.priorTurnsUnmodelled = materialized;
+    // Every recorded thread/list row and thread/resume result has a non-empty preview, the
+    // thread's first user message (S3 L42, L50); only a thread/start result, before the
+    // first turn, has "" (S3 L113, L124). The fake's own text stands in for the unseen
+    // first message, and a later turn keeps it (beginTurn sets the preview only when empty).
+    if (materialized) th.preview = PRIOR_TURNS_PREVIEW;
     return th;
   }
 
