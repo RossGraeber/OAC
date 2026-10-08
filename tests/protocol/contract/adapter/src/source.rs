@@ -64,9 +64,18 @@
 //! fails closed, and so does a normal or build dependency that is not a vetted crate by
 //! identity ([`vet_dependency`]): in [`VETTED_DEPENDENCIES`], under its own name, and
 //! either the repository's own crate at its own directory (no `source`), or a crates.io
-//! crate at its one pinned version with only its vetted features ([`Vetted`]). A crate in
-//! [`FORBIDDEN_CRATES`] fails under any dependency kind, dev included (ADR-001; #7,
-//! `docs/planning/decisions/G-7-stage4-dependencies.md` §2).
+//! crate at its one pinned version with only its vetted features ([`Vetted`]). The package's
+//! own `[features]` table may not turn on an unvetted feature of a vetted crate
+//! ([`feature_table_findings`]); the package cargo actually resolves for each dependency must
+//! be that identity too, so a `[patch]` or `[replace]` cannot swap it
+//! ([`resolved_findings`], [`patch_findings`]). A forbidden crate ([`is_forbidden_crate`]:
+//! the `codex-` family and `rmcp-macros`) fails under any dependency kind, dev included, and
+//! anywhere in the package's resolved graph (ADR-001; #7,
+//! `docs/planning/decisions/G-7-stage4-dependencies.md` §2, §5).
+//!
+//! These hold for the adapter's own manifest and graph. Feature unification across the
+//! workspace (another member turning on a feature an adapter does not) is outside a
+//! per-package scan; `scripts/check-crate-deps.mjs --adapters-alone` covers it in CI.
 //!
 //! # Which files are read
 //!
@@ -1048,7 +1057,7 @@ pub fn crate_files(crate_dir: &Path) -> Vec<PathBuf> {
 ///   features `rmcp` itself enables on it. Their exported `macro_rules!` were read at these
 ///   versions (G-7 §5): none expands to a `mod` declaration, `#[path]` or `include*!`.
 ///
-/// No Codex crate is here, and none may be (G-7 §2, [`FORBIDDEN_CRATES`]). This list was
+/// No Codex crate is here, and none may be (G-7 §2, [`is_forbidden_crate`]). This list was
 /// changed before any adapter code existed, as a recorded pre-adapter contract change (G-7
 /// §6); changing it again is a contract change under Gate S4 criterion 1.
 pub const VETTED_DEPENDENCIES: &[&str] = &["oac-core", "oac-mcp-tools", "rmcp", "tokio"];
@@ -1056,30 +1065,19 @@ pub const VETTED_DEPENDENCIES: &[&str] = &["oac-core", "oac-mcp-tools", "rmcp", 
 /// The crates.io source string `cargo metadata` reports.
 pub const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
-/// Crates no adapter may depend on under any kind, dev included: each is, or reaches, a
-/// model API client, a provider credential or keyring store, or the Codex rollout files
-/// ([ADR-001 Boundary]; G-7 §2, which records the chains at `rust-v0.161.0`). Matched on
-/// the package name lowercased with `_` folded to `-`. `scripts/check-crate-deps.mjs`
-/// refuses the same names anywhere in the workspace graph, directly or transitively.
-pub const FORBIDDEN_CRATES: &[&str] = &[
-    "codex-app-server",
-    "codex-app-server-client",
-    "codex-app-server-protocol",
-    "codex-app-server-transport",
-    "codex-core",
-    "codex-api",
-    "codex-client",
-    "codex-login",
-    "codex-keyring-store",
-    "codex-secrets",
-    "codex-rollout",
-    "codex-state",
-    "codex-model-provider",
-    "codex-otel",
-    "codex-http-client",
-    "codex-network-proxy",
-    "codex-protocol",
-];
+/// Crate families no adapter may depend on under any kind, dev included, matched as a
+/// prefix of the package name lowercased with `_` folded to `-`. No Codex crate is allowed:
+/// at `rust-v0.161.0` the app-server crates reach a model API client, a keyring store or the
+/// rollout files ([ADR-001 Boundary]; G-7 §2, which records the chains), and the family match
+/// also refuses the ones that reach none of those (PR #352 review finding 4).
+/// `scripts/check-crate-deps.mjs` rule 6 refuses the same families anywhere in the
+/// workspace graph; `tests/real_adapters.rs` checks the two lists agree.
+pub const FORBIDDEN_FAMILIES: &[&str] = &["codex-"];
+
+/// Crates refused by exact name, as [`FORBIDDEN_FAMILIES`] are by prefix. `rmcp-macros`: the
+/// vetted `rmcp` form refuses its `macros` feature, and if anything in the graph turned it on,
+/// feature unification would hand its proc-macros to the adapters (review finding 2).
+pub const FORBIDDEN_NAMES: &[&str] = &["rmcp-macros"];
 
 /// How a vetted dependency is identified ([`vetted_dependencies`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1285,6 +1283,29 @@ pub fn package_sources(crate_dir: &Path) -> PackageSources {
             fail(&mut s, why);
         }
     }
+    let features: Vec<(String, Vec<String>)> = package
+        .get("features")
+        .and_then(|f| f.as_object())
+        .map(|f| {
+            f.iter()
+                .map(|(k, v)| {
+                    let vals = v
+                        .as_array()
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|x| x.as_str().map(str::to_owned))
+                        .collect();
+                    (k.to_owned(), vals)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    for why in feature_table_findings(&features, &vetted_dependencies()) {
+        fail(&mut s, why);
+    }
+    for why in resolved_findings(&manifest) {
+        fail(&mut s, why);
+    }
     s.built.extend(crate_files(crate_dir));
     s
 }
@@ -1357,9 +1378,14 @@ pub fn macros_that_load_files(text: &str) -> Vec<String> {
                     if bang && ["include", "include_str", "include_bytes"].contains(&w) {
                         out.push(format!("macro `{name}`: `{w}!`"));
                     }
+                    // `mod name;` and `mod $name;` (PR #352 review finding 5).
+                    let after = match toks.get(i + 1) {
+                        Some(TokenTree::Punct(p)) if p.as_char() == '$' => i + 2,
+                        _ => i + 1,
+                    };
                     if w == "mod"
-                        && matches!(toks.get(i + 1), Some(TokenTree::Ident(_)))
-                        && matches!(toks.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == ';')
+                        && matches!(toks.get(after), Some(TokenTree::Ident(_)))
+                        && matches!(toks.get(after + 1), Some(TokenTree::Punct(p)) if p.as_char() == ';')
                     {
                         out.push(format!("macro `{name}`: `mod ..;`"));
                     }
@@ -1377,8 +1403,23 @@ pub fn macros_that_load_files(text: &str) -> Vec<String> {
                     if let Some(g) = g.filter(|g| g.delimiter() == proc_macro2::Delimiter::Bracket)
                     {
                         let first = g.stream().into_iter().next();
-                        if matches!(first, Some(TokenTree::Ident(id)) if id.to_string().trim_start_matches("r#") == "path")
-                        {
+                        let first = match first {
+                            Some(TokenTree::Ident(id)) => id.to_string(),
+                            _ => String::new(),
+                        };
+                        let first = first.trim_start_matches("r#");
+                        // `#[path ..]`, and `path` anywhere inside a `#[cfg_attr(..)]` (review
+                        // finding 5).
+                        fn has_path(ts: TokenStream) -> bool {
+                            ts.into_iter().any(|t| match t {
+                                TokenTree::Ident(id) => {
+                                    id.to_string().trim_start_matches("r#") == "path"
+                                }
+                                TokenTree::Group(g) => has_path(g.stream()),
+                                _ => false,
+                            })
+                        }
+                        if first == "path" || (first == "cfg_attr" && has_path(g.stream())) {
                             out.push(format!("macro `{name}`: `#[path ..]`"));
                         }
                     }
@@ -1410,10 +1451,312 @@ pub fn macros_that_load_files(text: &str) -> Vec<String> {
     }
 }
 
-/// Whether a package name is in [`FORBIDDEN_CRATES`] (lowercased, `_` folded to `-`).
+/// Whether a package name is forbidden: in a [`FORBIDDEN_FAMILIES`] family or in
+/// [`FORBIDDEN_NAMES`] (lowercased, `_` folded to `-`). Limit: a vendored copy whose
+/// `[package] name` is edited is outside any check by name; an adapter is still held to
+/// [`VETTED_DEPENDENCIES`] (G-7 §2.3).
 pub fn is_forbidden_crate(name: &str) -> bool {
     let n = name.to_ascii_lowercase().replace('_', "-");
-    FORBIDDEN_CRATES.contains(&n.as_str())
+    FORBIDDEN_FAMILIES.iter().any(|f| n.starts_with(f)) || FORBIDDEN_NAMES.contains(&n.as_str())
+}
+
+/// The registry form of a vetted crate, when it has one.
+fn registry_vetting<'a>(
+    name: &str,
+    vetted: &'a [(&str, Vetted)],
+) -> Option<(&'a str, &'a [&'a str])> {
+    vetted.iter().find_map(|(n, v)| match v {
+        Vetted::Registry { req, features, .. } if *n == name => Some((*req, *features)),
+        _ => None,
+    })
+}
+
+/// Why entries of a package's own `[features]` table are refused (PR #352 review finding 1).
+/// Each value is a feature of the package itself, `dep:name`, `name/feature` or
+/// `name?/feature`. Refused: any that names a forbidden crate, and any `name/feature` or
+/// `name?/feature` that turns on a feature of a [`Vetted::Registry`] crate outside its vetted
+/// list (`tokio/net`, `rmcp/macros`). `features` is the table as `cargo metadata` lists it.
+pub fn feature_table_findings(
+    features: &[(String, Vec<String>)],
+    vetted: &[(&str, Vetted)],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for (feature, values) in features {
+        for v in values {
+            let (dep, dep_feature) = if let Some(d) = v.strip_prefix("dep:") {
+                (d, None)
+            } else if let Some((d, f)) = v.split_once('/') {
+                (d.trim_end_matches('?'), Some(f))
+            } else {
+                continue;
+            };
+            if is_forbidden_crate(dep) {
+                out.push(format!(
+                    "feature `{feature}` = `{v}`: a forbidden crate (G-7 section 2)"
+                ));
+                continue;
+            }
+            if let (Some((_, allowed)), Some(f)) = (registry_vetting(dep, vetted), dep_feature)
+                && !allowed.contains(&f)
+            {
+                out.push(format!(
+                    "feature `{feature}` = `{v}`: `{f}` is not a vetted feature of `{dep}` \
+                     (vetted: {allowed:?}; VETTED_DEPENDENCIES)"
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// One package cargo resolved, as `cargo metadata` lists it.
+#[derive(Clone, Debug, Default)]
+pub struct Resolved {
+    /// Its name.
+    pub name: String,
+    /// Its version.
+    pub version: String,
+    /// Its source: `None` for a path package (a `[patch]` to a path included).
+    pub source: Option<String>,
+    /// Its directory.
+    pub dir: PathBuf,
+}
+
+/// Why a resolved normal or build dependency is not the vetted identity (PR #352 review
+/// finding 3): the declared dependency line can say crates.io at the pin while a `[patch]` or
+/// `[replace]` makes cargo build something else. A [`Vetted::Registry`] crate must resolve
+/// from crates.io at its pinned version; a [`Vetted::Path`] crate to its own directory.
+pub fn vet_resolved(r: &Resolved, vetted: &[(&str, Vetted)]) -> Option<String> {
+    let (_, v) = vetted.iter().find(|(n, _)| *n == r.name)?;
+    let why = match v {
+        Vetted::Registry { req, .. } => {
+            let want = req.trim_start_matches('=');
+            if r.source.as_deref() != Some(CRATES_IO) {
+                format!(
+                    "resolves from {}, not crates.io (a [patch] or [replace]?)",
+                    r.source.as_deref().unwrap_or("a path")
+                )
+            } else if r.version != want {
+                format!("resolves to {}, not the pinned {want}", r.version)
+            } else {
+                return None;
+            }
+        }
+        Vetted::Path(dir) => {
+            let same = matches!(
+                (std::fs::canonicalize(&r.dir), std::fs::canonicalize(dir)),
+                (Ok(a), Ok(b)) if a == b
+            );
+            if r.source.is_none() && same {
+                return None;
+            }
+            format!(
+                "resolves to {}, not the repository's own crate",
+                r.dir.display()
+            )
+        }
+    };
+    Some(format!(
+        "resolved package `{}`: {why} (VETTED_DEPENDENCIES)",
+        r.name
+    ))
+}
+
+/// Why a workspace root manifest's `[patch]` or `[replace]` tables are refused: any entry for
+/// a [`Vetted::Registry`] crate or a forbidden crate (review finding 3). Reads the TOML text by
+/// table header and key, as [`manifest_findings`] does: `[patch.crates-io]` with a `tokio =`
+/// key, `[patch.crates-io.tokio]`, `[patch."https://.."]` with `x = { package = "tokio" .. }`,
+/// and `[replace]` with `"tokio:1.53.2" = ..` each count.
+pub fn patch_findings(text: &str, vetted: &[(&str, Vetted)]) -> Vec<String> {
+    let watched = |name: &str| {
+        let n = name.trim().trim_matches('"').trim_matches('\'');
+        let n = n.split(':').next().unwrap_or(n);
+        is_forbidden_crate(n) || registry_vetting(n, vetted).is_some()
+    };
+    let mut out = Vec::new();
+    let mut table = String::new();
+    let mut patching = false;
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.split(" #").next().unwrap_or_default().trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') {
+            table = line.trim_matches(|c| c == '[' || c == ']').to_owned();
+            patching = table.starts_with("patch") || table.starts_with("replace");
+            if patching
+                && let Some(last) = table.rsplit('.').next()
+                && table.matches('.').count() >= 2
+                && watched(last)
+            {
+                out.push(format!(
+                    "line {}: `[{table}]` patches a vetted or forbidden crate",
+                    i + 1
+                ));
+            }
+            continue;
+        }
+        if !patching {
+            continue;
+        }
+        let key = line.split('=').next().unwrap_or_default();
+        let renamed = line
+            .split_once("package")
+            .and_then(|(_, r)| r.split('"').nth(1))
+            .unwrap_or_default();
+        if watched(key) || (!renamed.is_empty() && watched(renamed)) {
+            out.push(format!(
+                "line {}: `[{table}]` entry `{line}` patches a vetted or forbidden crate",
+                i + 1
+            ));
+        }
+    }
+    out
+}
+
+/// The resolved-graph checks for one package (review finding 3): each normal or build
+/// dependency must resolve to its vetted identity ([`vet_resolved`]), no forbidden crate may be
+/// anywhere in the package's resolved closure (any kind), and the workspace root manifest may
+/// not patch a vetted or forbidden crate ([`patch_findings`]). From
+/// `cargo metadata --all-features --offline` (the full resolve).
+fn resolved_findings(manifest: &Path) -> Vec<String> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let out = std::process::Command::new(cargo)
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--offline",
+            "--all-features",
+            "--manifest-path",
+        ])
+        .arg(manifest)
+        .output();
+    let json = match out {
+        Ok(o) if o.status.success() => match oac_core::json::parse(&o.stdout) {
+            Ok(j) => j,
+            Err(e) => return vec![format!("cargo metadata is not JSON: {e:?}")],
+        },
+        Ok(o) => {
+            return vec![format!(
+                "cargo metadata failed: {}",
+                String::from_utf8_lossy(&o.stderr)
+            )];
+        }
+        Err(e) => return vec![format!("cargo metadata failed: {e}")],
+    };
+    let Some(top) = json.as_object() else {
+        return vec!["cargo metadata: not an object".into()];
+    };
+    let vetted = vetted_dependencies();
+    let mut why = Vec::new();
+    let root = top
+        .get("workspace_root")
+        .and_then(|r| r.as_str())
+        .unwrap_or_default();
+    match std::fs::read_to_string(Path::new(root).join("Cargo.toml")) {
+        Ok(t) => why.extend(patch_findings(&t, &vetted)),
+        Err(e) => why.push(format!("workspace root manifest cannot be read: {e}")),
+    }
+    let mut packages = HashMap::new();
+    let mut this = None;
+    let want = std::fs::canonicalize(manifest).ok();
+    for p in top
+        .get("packages")
+        .and_then(|p| p.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| p.as_object())
+    {
+        let text = |k: &str| p.get(k).and_then(|v| v.as_str()).map(str::to_owned);
+        let id = text("id").unwrap_or_default();
+        let mpath = text("manifest_path").unwrap_or_default();
+        if std::fs::canonicalize(&mpath).ok() == want {
+            this = Some(id.clone());
+        }
+        packages.insert(
+            id,
+            Resolved {
+                name: text("name").unwrap_or_default(),
+                version: text("version").unwrap_or_default(),
+                source: text("source"),
+                dir: Path::new(&mpath)
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_default(),
+            },
+        );
+    }
+    let Some(this) = this else {
+        why.push("cargo metadata does not list this package".into());
+        return why;
+    };
+    let mut edges: HashMap<String, Vec<(String, bool)>> = HashMap::new();
+    for n in top
+        .get("resolve")
+        .and_then(|r| r.as_object())
+        .and_then(|r| r.get("nodes"))
+        .and_then(|n| n.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|n| n.as_object())
+    {
+        let id = n
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned();
+        let deps = n
+            .get("deps")
+            .and_then(|d| d.as_array())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|d| d.as_object())
+            .map(|d| {
+                let pkg = d
+                    .get("pkg")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                let built = d
+                    .get("dep_kinds")
+                    .and_then(|k| k.as_array())
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|k| k.as_object())
+                    .any(|k| k.get("kind").and_then(|v| v.as_str()) != Some("dev"));
+                (pkg, built)
+            })
+            .collect();
+        edges.insert(id, deps);
+    }
+    if !edges.contains_key(&this) {
+        why.push("cargo metadata has no resolve node for this package".into());
+        return why;
+    }
+    for (pkg, built) in edges.get(&this).cloned().unwrap_or_default() {
+        if let (true, Some(r)) = (built, packages.get(&pkg)) {
+            why.extend(vet_resolved(r, &vetted));
+        }
+    }
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::from([this]);
+    while let Some(id) = queue.pop_front() {
+        for (pkg, _) in edges.get(&id).cloned().unwrap_or_default() {
+            if seen.insert(pkg.clone()) {
+                if let Some(r) = packages.get(&pkg)
+                    && is_forbidden_crate(&r.name)
+                {
+                    why.push(format!(
+                        "resolved graph holds forbidden `{}` (G-7 section 2)",
+                        r.name
+                    ));
+                }
+                queue.push_back(pkg);
+            }
+        }
+    }
+    why
 }
 
 /// Why a dependency is refused, or `None` (PR #336 fourth review V1; #7). A crate in
@@ -2238,9 +2581,15 @@ mod tests {
                 "#[path]",
                 "macro_rules! m { ($p:literal) => { #[path = $p] mod h; } }",
             ),
+            ("mod ..;", "macro_rules! m { () => { mod hidden; } }"),
+            ("mod $name;", "macro_rules! m { ($n:ident) => { mod $n; } }"),
             (
-                "mod ..;",
-                "macro_rules! m { ($n:ident) => { mod $n; }; () => { mod hidden; } }",
+                "#[cfg_attr(.., path = ..)]",
+                "macro_rules! m { ($p:literal, $n:ident) => { #[cfg_attr(all(), path = $p)] mod $n { } } }",
+            ),
+            (
+                "nested cfg_attr path",
+                "macro_rules! m { ($p:literal) => { #[cfg_attr(any(unix, windows), cfg_attr(all(), path = $p))] mod q { } } }",
             ),
             (
                 "nested",
@@ -2277,14 +2626,28 @@ mod tests {
         assert!(!macros_that_load_files("macro_rules! {").is_empty());
     }
 
-    /// #7 (G-7 §2): every forbidden crate is refused by name, under every kind and spelling.
+    /// #7 (G-7 §2; PR #352 review finding 4): every Codex crate is refused by family, and
+    /// `rmcp-macros` by name, under every kind and spelling.
     #[test]
     fn forbidden_crates_are_refused_under_every_kind() {
         let vetted = vetted_dependencies();
-        for name in FORBIDDEN_CRATES {
+        for name in [
+            "codex-app-server-protocol",
+            "codex-core",
+            "codex-api",
+            "codex-keyring-store",
+            "codex-rollout",
+            "codex-responses-api-proxy",
+            "codex-websocket-auth",
+            "codex-app-server-protocol-noop-macros",
+            "codex-experimental-api-macros",
+            "codex-utils-string",
+            "codex-anything-new",
+            "rmcp-macros",
+        ] {
             for kind in [None, Some("build"), Some("dev")] {
                 let d = Dependency {
-                    name: (*name).into(),
+                    name: name.into(),
                     kind: kind.map(str::to_owned),
                     source: Some(CRATES_IO.into()),
                     ..Dependency::default()
@@ -2299,8 +2662,151 @@ mod tests {
             };
             assert!(vet_dependency(&snake, &vetted).is_some(), "{snake:?}");
         }
-        assert!(!is_forbidden_crate("codex-utils-string-not-listed"));
+        for ok in [
+            "mycodex",
+            "codexx",
+            "rmcp",
+            "rmcp-macros-not",
+            "tokio-macros",
+        ] {
+            assert!(!is_forbidden_crate(ok), "{ok}");
+        }
         assert!(is_forbidden_crate("Codex_App_Server_Protocol"));
+    }
+
+    /// PR #352 review finding 1: an adapter's own `[features]` table cannot turn on an
+    /// unvetted feature of a vetted crate, or a forbidden crate.
+    #[test]
+    fn feature_tables_cannot_widen_vetted_crates() {
+        let vetted = vetted_dependencies();
+        let table = |v: &[&str]| {
+            vec![(
+                "default".to_owned(),
+                v.iter().map(|s| (*s).to_owned()).collect(),
+            )]
+        };
+        for bad in [
+            &["tokio/net"][..],
+            &["tokio?/process"],
+            &["tokio/fs", "tokio/rt"],
+            &["rmcp/macros"],
+            &["rmcp?/reqwest"],
+            &["dep:codex-core"],
+            &["codex_api/default"],
+            &["rmcp-macros/default"],
+        ] {
+            assert!(
+                !feature_table_findings(&table(bad), &vetted).is_empty(),
+                "{bad:?}"
+            );
+        }
+        for ok in [
+            &["tokio/rt", "tokio?/sync", "rmcp/server"][..],
+            &["dep:rmcp", "other-feature"],
+            &["serde/derive"],
+        ] {
+            assert_eq!(
+                feature_table_findings(&table(ok), &vetted),
+                Vec::<String>::new(),
+                "{ok:?}"
+            );
+        }
+    }
+
+    /// PR #352 review finding 3: the resolved package, not the declared line, is vetted; and
+    /// the root manifest may not patch a vetted or forbidden crate.
+    #[test]
+    fn resolved_identity_and_patches_are_vetted() {
+        let vetted = vetted_dependencies();
+        let tokio = Resolved {
+            name: "tokio".into(),
+            version: "1.53.2".into(),
+            source: Some(CRATES_IO.into()),
+            dir: PathBuf::from("/registry/tokio-1.53.2"),
+        };
+        assert_eq!(vet_resolved(&tokio, &vetted), None);
+        for (case, bad) in [
+            (
+                "patched to a path",
+                Resolved {
+                    source: None,
+                    ..tokio.clone()
+                },
+            ),
+            (
+                "patched to git",
+                Resolved {
+                    source: Some("git+https://example.invalid/tokio#0".into()),
+                    ..tokio.clone()
+                },
+            ),
+            (
+                "another version",
+                Resolved {
+                    version: "1.53.3".into(),
+                    ..tokio.clone()
+                },
+            ),
+        ] {
+            assert!(vet_resolved(&bad, &vetted).is_some(), "{case}");
+        }
+        let Vetted::Path(core) = vetted[0].1.clone() else {
+            panic!()
+        };
+        let core_ok = Resolved {
+            name: "oac-core".into(),
+            version: "0.0.0".into(),
+            source: None,
+            dir: core.clone(),
+        };
+        assert_eq!(vet_resolved(&core_ok, &vetted), None);
+        assert!(
+            vet_resolved(
+                &Resolved {
+                    dir: core.join("../cli"),
+                    ..core_ok.clone()
+                },
+                &vetted
+            )
+            .is_some()
+        );
+        assert!(
+            vet_resolved(
+                &Resolved {
+                    source: Some(CRATES_IO.into()),
+                    ..core_ok
+                },
+                &vetted
+            )
+            .is_some()
+        );
+        // Unvetted names are the dependency-line check's business.
+        assert_eq!(
+            vet_resolved(
+                &Resolved {
+                    name: "serde".into(),
+                    ..tokio
+                },
+                &vetted
+            ),
+            None
+        );
+
+        for bad in [
+            "[patch.crates-io]\ntokio = { path = \"vendored-tokio\" }\n",
+            "[patch.crates-io.rmcp]\npath = \"x\"\n",
+            "[patch.\"https://github.com/x/y\"]\nt = { package = \"tokio\", path = \"x\" }\n",
+            "[replace]\n\"tokio:1.53.2\" = { path = \"x\" }\n",
+            "[patch.crates-io]\ncodex-core = { path = \"x\" }\n",
+        ] {
+            assert!(!patch_findings(bad, &vetted).is_empty(), "{bad}");
+        }
+        for ok in [
+            "[workspace]\nmembers = [\"core\"]\n[workspace.dependencies]\ntokio = \"=1.53.2\"\n",
+            "[patch.crates-io]\nserde = { path = \"x\" }\n",
+        ] {
+            assert_eq!(patch_findings(ok, &vetted), Vec::<String>::new(), "{ok}");
+        }
     }
 
     #[test]

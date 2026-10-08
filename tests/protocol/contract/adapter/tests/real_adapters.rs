@@ -20,8 +20,8 @@
 use std::path::{Path, PathBuf};
 
 use oac_contract_adapter::source::{
-    FORBIDDEN_CRATES, PLANT, Vetted, implements_provider_adapter, macros_that_load_files,
-    package_sources, rust_files, scan, vetted_dependencies,
+    FORBIDDEN_FAMILIES, FORBIDDEN_NAMES, PLANT, Vetted, implements_provider_adapter,
+    macros_that_load_files, package_sources, rust_files, scan, vetted_dependencies,
 };
 
 /// The crates under `adapters/` the static checks read: both adapters, and the tool crate
@@ -107,16 +107,27 @@ fn the_vetted_dependency_exports_no_macro() {
 }
 
 /// The crates.io vetted dependencies (`rmcp`, `tokio`; G-7 §5), once they are in the
-/// workspace graph at their pins: none has a proc-macro target, and none of their
-/// `macro_rules!` bodies can load a file (`macros_that_load_files`). Until an adapter
-/// takes them (G4, G6) they are not in the graph, and this checks that it says so rather
-/// than passing on a crate it never read.
+/// workspace graph at their pins: neither crate itself has a proc-macro target, and none of
+/// their own `macro_rules!` bodies can load a file (`macros_that_load_files`). Until an
+/// adapter takes them (G4, G6) they are not in the graph, and this says so rather than
+/// passing on a crate it never read. Not covered: proc-macro crates reached through their
+/// vetted features (`tokio-macros`, `schemars_derive`, `serde_derive`); G-7 §5 records those
+/// as vetted by reading at their versions, and this test lists them when present.
 #[test]
 fn the_vetted_registry_dependencies_export_no_file_loading_macro() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let out = std::process::Command::new(cargo)
-        .args(["metadata", "--format-version", "1", "--offline", "--locked"])
+        // As scripts/check-crate-deps.mjs METADATA_ARGS: a crate reached only behind a
+        // feature is still in the graph (PR #352 review finding 10).
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--offline",
+            "--all-features",
+            "--locked",
+        ])
         .current_dir(&root)
         .output()
         .expect("cargo metadata runs");
@@ -161,6 +172,30 @@ fn the_vetted_registry_dependencies_export_no_file_loading_macro() {
                     "{name} has a proc-macro target; re-vet it for adapters"
                 );
             }
+            for q in packages.iter().filter_map(|q| q.as_object()) {
+                let proc_macro = q
+                    .get("targets")
+                    .and_then(|t| t.as_array())
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|t| t.as_object())
+                    .any(|t| {
+                        t.get("kind")
+                            .and_then(|k| k.as_array())
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|k| k.as_str() == Some("proc-macro"))
+                    });
+                if proc_macro {
+                    eprintln!(
+                        "proc-macro in the graph (vetted by reading, G-7 section 5): {} {}",
+                        q.get("name").and_then(|n| n.as_str()).unwrap_or_default(),
+                        q.get("version")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or_default()
+                    );
+                }
+            }
             let manifest = p.get("manifest_path").and_then(|m| m.as_str()).unwrap();
             let src = Path::new(manifest).parent().unwrap().join("src");
             for f in rust_files(&src) {
@@ -178,28 +213,36 @@ fn the_vetted_registry_dependencies_export_no_file_loading_macro() {
     }
 }
 
-/// The forbidden list here and `scripts/check-crate-deps.mjs` rule 6 name the same crates
-/// (#7, G-7 §2): the static scan refuses one by name, the graph check by transitive presence.
+/// The forbidden lists here and `scripts/check-crate-deps.mjs` rule 6 are the same (#7,
+/// G-7 §2): the families (`codex-`) and the names (`rmcp-macros`). The static scan refuses
+/// them in an adapter's own dependencies and resolved graph, the graph check in every member.
 #[test]
 fn the_forbidden_lists_agree() {
     let script = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../scripts/check-crate-deps.mjs"),
     )
     .unwrap();
-    let start = script
-        .find("export const FORBIDDEN_EXTERNAL = [")
-        .expect("FORBIDDEN_EXTERNAL in check-crate-deps.mjs");
-    let end = start + script[start..].find("];").unwrap();
-    let mut js: Vec<&str> = script[start..end]
-        .lines()
-        .skip(1)
-        .map(|l| l.trim().trim_end_matches(',').trim_matches('\''))
-        .filter(|l| !l.is_empty())
-        .collect();
-    let mut rs: Vec<&str> = FORBIDDEN_CRATES.to_vec();
-    js.sort_unstable();
-    rs.sort_unstable();
-    assert_eq!(js, rs);
+    let js = |name: &str| {
+        let start = script
+            .find(&format!("export const {name} = ["))
+            .unwrap_or_else(|| panic!("{name} in check-crate-deps.mjs"));
+        let end = start + script[start..].find("];").unwrap();
+        let mut v: Vec<String> = script[start..end]
+            .lines()
+            .skip(1)
+            .map(|l| l.trim().trim_end_matches(',').trim_matches('\'').to_owned())
+            .filter(|l| !l.is_empty())
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    let rs = |v: &[&str]| {
+        let mut v: Vec<String> = v.iter().map(|s| (*s).to_owned()).collect();
+        v.sort_unstable();
+        v
+    };
+    assert_eq!(js("FORBIDDEN_FAMILIES"), rs(FORBIDDEN_FAMILIES));
+    assert_eq!(js("FORBIDDEN_NAMES"), rs(FORBIDDEN_NAMES));
 }
 
 #[test]

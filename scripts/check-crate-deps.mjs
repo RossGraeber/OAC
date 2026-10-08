@@ -45,15 +45,24 @@
 //      cli/ the same way (#52, #315 review N-b).
 //   6. Forbidden crates are reachable from no member at all, cli/ included, over any edge
 //      kind (#7; ADR-001 Boundary; docs/planning/decisions/G-7-stage4-dependencies.md
-//      section 2): the Codex crates that are, or reach, a model API client, a credential or
-//      keyring store, or the Codex rollouts. A name in FORBIDDEN_EXTERNAL fails wherever it
+//      section 2): every `codex-*` crate (FORBIDDEN_FAMILIES; no Codex crate is allowed),
+//      and `rmcp-macros` (FORBIDDEN_NAMES; the vetted rmcp form refuses its `macros`
+//      feature, and a crate elsewhere in the graph that turned it on would unify it into
+//      the adapters' build, PR #352 review finding 2). A forbidden name fails wherever it
 //      appears in a member's closure, so a crate that only reaches one fails too.
-//      Names match case-insensitively, with `_` folded to `-`.
+//      Names match case-insensitively, with `_` folded to `-`. Limit: a vendored copy whose
+//      [package] name is edited is outside any check by name (G-7 section 2.3).
+//
+//   --adapters-alone runs `cargo check --locked --lib` on the adapters and adapters/mcp-tools
+//   only, so their dependencies' features unify among themselves and not with cli/'s (PR
+//   #352 review finding 2): a feature only another member turns on (tokio's `net`, say) is
+//   then absent, and an adapter that uses it fails to build. CI runs it in job crate-deps.
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
 //   node scripts/check-crate-deps.mjs --metadata <file>  # check a saved metadata JSON
 //   node scripts/check-crate-deps.mjs --self-test        # synthetic graphs, each planted
 //                                                        # violation must fail
+//   node scripts/check-crate-deps.mjs --adapters-alone   # cargo check the adapters alone
 //   node scripts/check-crate-deps.mjs --mutation-test    # copy the real workspace to a
 //                                                        # temp dir, plant violations in its
 //                                                        # Cargo.toml files, run real cargo;
@@ -94,37 +103,39 @@ const OWNED_EXTERNAL = [
 const fold = (name) => String(name).toLowerCase().replace(/_/g, '-');
 export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(fold(name)));
 
-// Rule 6 (#7; G-7 section 2): crates no member may reach. At the Codex repository's tag
-// rust-v0.161.0 each is, or reaches, a model API client (codex-api calls the provider's
-// /responses endpoint),
-// a keyring store (codex-keyring-store), or the rollout files (codex-rollout):
+// Rule 6 (#7; G-7 section 2): crates no member may reach. The lead's decision is that no
+// Codex crate is allowed, so the whole `codex-` family is refused (PR #352 review finding
+// 4), not a list. `rmcp-macros` is refused by name (finding 2). The same two lists are
+// FORBIDDEN_FAMILIES and FORBIDDEN_NAMES in tests/protocol/contract/adapter/src/source.rs;
+// a test there checks they agree.
+export const FORBIDDEN_FAMILIES = [
+  'codex-',
+];
+export const FORBIDDEN_NAMES = [
+  'rmcp-macros',
+];
+export const isForbidden = (name) => {
+  const f = fold(name);
+  return FORBIDDEN_FAMILIES.some((x) => f.startsWith(x)) || FORBIDDEN_NAMES.includes(f);
+};
+// The chains recorded at the Codex repository's tag rust-v0.161.0 (G-7 section 2.2), kept as
+// self-test evidence: each is, or reaches, a model API client (codex-api calls the
+// provider's /responses endpoint), a keyring store (codex-keyring-store) or the rollout
+// files (codex-rollout):
 // codex-app-server-protocol -> codex-rollout -> codex-otel -> codex-api -> codex-client;
 // codex-app-server-protocol -> codex-secrets -> codex-keyring-store;
 // codex-app-server-transport -> codex-core, codex-login, codex-api, codex-model-provider;
 // codex-app-server-client -> codex-app-server, codex-core;
 // codex-protocol -> codex-network-proxy, codex-http-client.
-// The same list is FORBIDDEN_CRATES in tests/protocol/contract/adapter/src/source.rs; a
-// test there checks the two agree.
-export const FORBIDDEN_EXTERNAL = [
-  'codex-app-server',
-  'codex-app-server-client',
-  'codex-app-server-protocol',
-  'codex-app-server-transport',
-  'codex-core',
-  'codex-api',
-  'codex-client',
-  'codex-login',
-  'codex-keyring-store',
-  'codex-secrets',
-  'codex-rollout',
-  'codex-state',
-  'codex-model-provider',
-  'codex-otel',
-  'codex-http-client',
-  'codex-network-proxy',
-  'codex-protocol',
+// Plus crates that reach none of those (review finding 4): codex-responses-api-proxy (a
+// model-API proxy), codex-websocket-auth, and the two proc-macro crates.
+const RECORDED_CODEX_CRATES = [
+  'codex-app-server', 'codex-app-server-client', 'codex-app-server-protocol', 'codex-app-server-transport',
+  'codex-core', 'codex-api', 'codex-client', 'codex-login', 'codex-keyring-store', 'codex-secrets',
+  'codex-rollout', 'codex-state', 'codex-model-provider', 'codex-otel', 'codex-http-client',
+  'codex-network-proxy', 'codex-protocol', 'codex-responses-api-proxy', 'codex-websocket-auth',
+  'codex-app-server-protocol-noop-macros', 'codex-experimental-api-macros', 'codex-utils-string',
 ];
-export const isForbidden = (name) => FORBIDDEN_EXTERNAL.includes(fold(name));
 
 // Every cargo metadata call resolves with --all-features: an optional dependency behind a
 // non-default feature is still a dependency the build can compile in, so it must be in
@@ -250,7 +261,7 @@ export function checkMetadata(meta) {
       const pname = pkgById.get(reached)?.name ?? '';
       // 6. forbidden crates (#7): no member may reach one, cli/ included.
       if (isForbidden(pname)) {
-        violations.push(`${name} reaches ${pname} (forbidden: ADR-001, G-7 section 2): ${pathTo(reached)}`);
+        violations.push(`${name} reaches ${pname} (forbidden, rule 6: G-7 section 2): ${pathTo(reached)}`);
         continue;
       }
       const o = ownedFamily(pname);
@@ -374,11 +385,15 @@ const TOOLS_EDGES = [
   ['oac-cli', 'oac-mcp-tools'],
 ];
 
-// #7 rule 6: one must-fail case per forbidden crate, as a direct dependency of adapters/codex.
-const FORBIDDEN_DIRECT_CASES = FORBIDDEN_EXTERNAL.map((n) => ({
-  name: `adapters/codex depends on ${n} (forbidden)`,
-  meta: synth({ members: BASE_MEMBERS, externals: [n], edges: [...BASE_EDGES, ['oac-adapter-codex', n]] }),
-}));
+// #7 rule 6: every recorded Codex crate is refused as a direct dependency of adapters/codex,
+// of core/ and of cli/ (the old rule-4 family refused codex-app-server-* in core/ and cli/;
+// review finding 4).
+const FORBIDDEN_DIRECT_CASES = RECORDED_CODEX_CRATES.flatMap((n) =>
+  [['oac-adapter-codex', 'adapters/codex'], ['oac-core', 'core'], ['oac-cli', 'cli']].map(([m, d]) => ({
+    name: `${d} depends on ${n} (forbidden)`,
+    meta: synth({ members: BASE_MEMBERS, externals: [n], edges: [...BASE_EDGES, [m, n]] }),
+  })),
+);
 
 const SELF_TEST_CASES = [
   { name: 'control: the scaffold graph is clean', expectClean: true, meta: synth({ members: BASE_MEMBERS, edges: BASE_EDGES }) },
@@ -553,11 +568,17 @@ const SELF_TEST_CASES = [
   { name: 'adapters/codex dev-depends on codex-rollout (forbidden on dev edges too)', meta: synth({ members: BASE_MEMBERS, externals: ['codex-rollout'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex-rollout', 'dev']] }) },
   { name: 'transports/zenoh build-depends on codex-login', meta: synth({ members: BASE_MEMBERS, externals: ['codex-login'], edges: [...BASE_EDGES, ['oac-transport-zenoh', 'codex-login', 'build']] }) },
   { name: 'core depends on Codex_Core (mixed case, underscore)', meta: synth({ members: BASE_MEMBERS, externals: ['Codex_Core'], edges: [...BASE_EDGES, ['oac-core', 'Codex_Core']] }) },
+  // Review finding 4: a codex-* crate outside every recorded chain fails by family.
+  { name: 'adapters/claude depends on codex-anything-new (family match)', meta: synth({ members: BASE_MEMBERS, externals: ['codex-anything-new'], edges: [...BASE_EDGES, ['oac-adapter-claude', 'codex-anything-new']] }) },
+  { name: 'transports/zenoh reaches CODEX_utils_cache through a helper (family, folded)', meta: synth({ members: BASE_MEMBERS, externals: ['helper', 'CODEX_utils_cache'], edges: [...BASE_EDGES, ['oac-transport-zenoh', 'helper'], ['helper', 'CODEX_utils_cache']] }) },
   {
-    name: 'control: an unforbidden codex-utils-* crate is not refused by name',
+    name: 'control: names that only contain "codex" are not the family',
     expectClean: true,
-    meta: synth({ members: BASE_MEMBERS, externals: ['codex-utils-string'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex-utils-string']] }),
+    meta: synth({ members: BASE_MEMBERS, externals: ['mycodex', 'codexx', 'rmcp'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'mycodex'], ['oac-adapter-codex', 'codexx'], ['oac-adapter-codex', 'rmcp']] }),
   },
+  // Review finding 2: rmcp-macros anywhere in the graph, cli/ included.
+  { name: 'cli/ reaches rmcp-macros through rmcp (forbidden anywhere)', meta: synth({ members: BASE_MEMBERS, externals: ['rmcp', 'rmcp-macros'], edges: [...BASE_EDGES, ['oac-cli', 'rmcp'], ['rmcp', 'rmcp-macros']] }) },
+  { name: 'adapters/claude depends on rmcp_macros (underscore)', meta: synth({ members: BASE_MEMBERS, externals: ['rmcp_macros'], edges: [...BASE_EDGES, ['oac-adapter-claude', 'rmcp_macros']] }) },
   // #7: the shared MCP tool crate at adapters/mcp-tools (G-7 section 4).
   { name: 'control: both adapters and cli/ depend on adapters/mcp-tools, which depends on core/', expectClean: true, meta: synth({ members: TOOLS_MEMBERS, edges: TOOLS_EDGES }) },
   {
@@ -615,6 +636,17 @@ export const addOptionalDep = (line) => (text) => addLine('features', 'leak = ["
 export const STUBS = {
   zenoh: { name: 'zenoh', license: 'EPL-2.0 OR Apache-2.0' },
   'codex-api': { name: 'codex-api', license: 'Apache-2.0' },
+  'codex-responses-api-proxy': { name: 'codex-responses-api-proxy', license: 'Apache-2.0' },
+  'rmcp-macros': { name: 'rmcp-macros', license: 'Apache-2.0' },
+  // A crate whose `net` module exists only under its `net` feature (review finding 2): an
+  // adapter that uses it builds in a workspace build when cli/ turns `net` on, and fails
+  // under --adapters-alone.
+  'featured-stub': {
+    name: 'featured-stub',
+    license: 'MIT',
+    features: '[features]\nnet = []\n',
+    lib: '#[cfg(feature = "net")]\npub mod net {\n    pub struct Probe;\n}\n',
+  },
   // A crate under an innocent name that reaches a forbidden one (#7 rule 6).
   'types-helper': { name: 'types-helper', license: 'Apache-2.0', deps: ['codex-api = { path = "../codex-api" }'] },
   'zenoh-backend-traits': { name: 'zenoh_backend_traits', license: 'EPL-2.0 OR Apache-2.0' },
@@ -651,14 +683,14 @@ export function withWorkspaceCopy(edit, fn) {
       mkdirSync(join(tmp, 'stubs', dir, 'src'), { recursive: true });
       writeFileSync(join(tmp, 'stubs', dir, 'Cargo.toml'),
         `[package]\nname = "${s.name}"\nversion = "0.0.1"\nedition = "2024"\nlicense = "${s.license}"\n` +
-          (s.deps ? `\n[dependencies]\n${s.deps.join('\n')}\n` : ''));
-      writeFileSync(join(tmp, 'stubs', dir, 'src', 'lib.rs'), '');
+          (s.deps ? `\n[dependencies]\n${s.deps.join('\n')}\n` : '') + (s.features ? `\n${s.features}` : ''));
+      writeFileSync(join(tmp, 'stubs', dir, 'src', 'lib.rs'), s.lib ?? '');
     }
-    if (edit) {
-      const p = join(ws, edit.file);
+    for (const e of edit ? (edit.edits ?? [edit]) : []) {
+      const p = join(ws, e.file);
       const before = readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
-      const after = edit.edit(before);
-      if (after === before) throw new Error(`mutation "${edit.name}" did not change ${edit.file}`);
+      const after = e.edit(before);
+      if (after === before) throw new Error(`mutation "${edit.name}" did not change ${e.file}`);
       writeFileSync(p, after);
     }
     return fn(ws);
@@ -708,10 +740,53 @@ const MUTATIONS = [
   { name: 'adapters/codex depends on codex_app_server_protocol (forbidden)', file: 'adapters/codex/Cargo.toml', edit: addDep('dependencies', 'codex_app_server_protocol = { path = "../../../stubs/codex-app-server-protocol" }') },
   { name: 'cli/ depends on a crate that reaches codex-api (forbidden transitively)', file: 'cli/Cargo.toml', edit: addDep('dependencies', 'types-helper = { path = "../../stubs/types-helper" }') },
   { name: 'adapters/codex dev-depends on codex-api (forbidden on dev edges)', file: 'adapters/codex/Cargo.toml', edit: addDep('dev-dependencies', 'codex-api = { path = "../../../stubs/codex-api" }') },
+  // Review finding 4: family match, and the old rule-4 family's core/ and cli/ refusals.
+  { name: 'core/ depends on codex-responses-api-proxy (family match)', file: 'core/Cargo.toml', edit: addDep('dependencies', 'codex-responses-api-proxy = { path = "../../stubs/codex-responses-api-proxy" }') },
+  { name: 'cli/ depends on codex_app_server_protocol (was rule 4, now rule 6)', file: 'cli/Cargo.toml', edit: addDep('dependencies', 'codex_app_server_protocol = { path = "../../stubs/codex-app-server-protocol" }') },
+  // Review finding 2: rmcp-macros anywhere.
+  { name: 'cli/ depends on rmcp-macros (forbidden anywhere)', file: 'cli/Cargo.toml', edit: addDep('dependencies', 'rmcp-macros = { path = "../../stubs/rmcp-macros" }') },
   // #7: the shared MCP tool crate.
   { name: 'adapters/mcp-tools depends on adapters/claude', file: 'adapters/mcp-tools/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../claude" }') },
   { name: 'transports/memory depends on adapters/mcp-tools', file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'oac-mcp-tools = { path = "../../adapters/mcp-tools" }') },
 ];
+
+// Review finding 2 (feature unification): another member turns a feature on that an
+// adapter's own dependency line leaves off, and the adapter uses it. Building the two
+// together (as every workspace build, and the `oac` binary through cli/, does) compiles;
+// the adapters-alone check must not.
+const UNIFICATION_MUTATION = {
+  name: 'adapters/codex uses a feature only another member turns on (caught by --adapters-alone, not by a build with that member)',
+  edits: [
+    { file: 'adapters/codex/Cargo.toml', edit: addDep('dependencies', 'featured-stub = { path = "../../../stubs/featured-stub" }') },
+    { file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'featured-stub = { path = "../../../stubs/featured-stub", features = ["net"] }') },
+    { file: 'adapters/codex/src/lib.rs', edit: (t) => `${t}\npub type Probe = featured_stub::net::Probe;\n` },
+  ],
+};
+
+// The adapter-side members: adapters/<name> and adapters/mcp-tools.
+export function adapterPackages(meta) {
+  const root = meta.workspace_root;
+  return meta.packages
+    .filter((p) => meta.workspace_members.includes(p.id))
+    .filter((p) => ['adapter', 'tools'].includes(moduleOf(relative(root, dirname(p.manifest_path)))?.kind))
+    .map((p) => p.name)
+    .sort();
+}
+
+// `cargo check --lib` on the adapter-side members alone (review finding 2).
+export function adaptersAlone(dir) {
+  const m = cargoMetadata(dir, ['--no-deps']);
+  if (m.status !== 0) return { status: 2, out: m.stderr };
+  const names = adapterPackages(JSON.parse(m.stdout));
+  if (names.length === 0) return { status: 2, out: 'no adapter packages found' };
+  const r = spawnSync('cargo', ['check', '--locked', '--offline', '--lib', ...names.flatMap((n) => ['-p', n])], {
+    cwd: dir,
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (r.error) throw r.error;
+  return { status: r.status, out: `${r.stdout}${r.stderr}`, names };
+}
 
 // Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error
 // means the mutation itself is malformed, and the case fails (#311 review N4).
@@ -736,7 +811,26 @@ function mutationTest() {
     if (!ok) bad++;
     console.log(`${ok ? 'pass' : 'FAIL'}  ${c.name}${r.by ? ` -- ${r.by}` : ''}`);
   }
-  console.log(`mutation test: ${cases.length - bad}/${cases.length} cases pass`);
+  // Review finding 2: the unification case. Not --locked in the copy (the stub is new), so
+  // each run uses its own lockfile resolution, offline.
+  {
+    const r = withWorkspaceCopy(UNIFICATION_MUTATION, (ws) => {
+      const unlock = (args) => spawnSync('cargo', args, { cwd: ws, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+      const gen = unlock(['generate-lockfile', '--offline']);
+      if (gen.status !== 0) return { malformed: `generate-lockfile: ${gen.stderr.trim().split('\n').pop()}` };
+      // Another member and the adapter together: the unification every workspace build, and
+      // the `oac` binary through cli/, gets. transports/memory stands in for cli/ because it
+      // builds in seconds (it depends on core/ only).
+      const whole = unlock(['check', '--offline', '--lib', '-p', 'oac-transport-memory', '-p', 'oac-adapter-codex']);
+      const alone = adaptersAlone(ws);
+      return { whole: whole.status, alone: alone.status, aloneOut: alone.out };
+    });
+    const ok = !r.malformed && r.whole === 0 && r.alone !== 0 && /E0433|E0412|E0425|could not find `net`|cannot find/.test(r.aloneOut ?? '');
+    if (!ok) bad++;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${UNIFICATION_MUTATION.name} -- ${r.malformed ?? `member+adapter build exit ${r.whole}, adapters-alone exit ${r.alone}`}`);
+  }
+  const total = cases.length + 1;
+  console.log(`mutation test: ${total - bad}/${total} cases pass`);
   return bad ? 1 : 0;
 }
 
@@ -745,6 +839,16 @@ function mutationTest() {
 function main(argv) {
   if (argv[0] === '--self-test') return selfTest();
   if (argv[0] === '--mutation-test') return mutationTest();
+  if (argv[0] === '--adapters-alone') {
+    const r = adaptersAlone(repoRoot);
+    if (r.status === 0) {
+      console.log(`adapters alone: CLEAN (cargo check --lib -p ${r.names.join(' -p ')})`);
+      return 0;
+    }
+    console.log(r.out);
+    console.log('adapters alone: FAIL -- an adapter needs a dependency feature it does not turn on itself (G-7 section 5)');
+    return r.status === 2 ? 2 : 1;
+  }
   if (argv[0] === '--metadata') {
     if (!argv[1]) {
       console.error('usage: --metadata <file>');
@@ -753,7 +857,7 @@ function main(argv) {
     return report(checkMetadata(JSON.parse(readFileSync(argv[1], 'utf8'))), argv[1]);
   }
   if (argv.length) {
-    console.error('usage: check-crate-deps.mjs [--self-test | --mutation-test | --metadata <file>]');
+    console.error('usage: check-crate-deps.mjs [--self-test | --mutation-test | --adapters-alone | --metadata <file>]');
     return 2;
   }
   const r = cargoMetadata(repoRoot, ['--locked']);
