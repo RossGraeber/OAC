@@ -11,11 +11,12 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd, hashHarnessConfig } from '../lib/manifest.mjs';
+import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, herdrIdentity, probeHarnesses, sha256Text, windowsCmd, hashHarnessConfig, homeRefusal, identityFindings } from '../lib/manifest.mjs';
 import { hashConfig, harnessConfigTargets } from '../lib/l3.mjs';
-import { readProjectSessionFiles } from '../scenarios/l3-beacon.mjs';
+import { readProjectSessionFiles, sessionEntrySkip, sessionFileFindings } from '../scenarios/l3-beacon.mjs';
 import { herdrVerification, verification, TO_FILL } from '../lib/gate-report-common.mjs';
-import { canonicalForms, canonicallyInside, canonicallyWithin, guardHolds, harnessHomeGuard, identityWithin, isMainModule, rootGuard } from '../lib/canonical-path.mjs';
+import { canonicalForms, canonicallyInside, canonicallyWithin, guardHolds, guardMatch, harnessHomeGuard, identityWithin, isMainModule, rootGuard, rootGuardProblem } from '../lib/canonical-path.mjs';
+import { operatorProjectDir } from '../scenarios/g1-claude-wake.mjs';
 import { checkHerdrExecutable, herdrCheckDecision, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -212,6 +213,46 @@ export async function identityUnit(check) {
       const bid = probeResult(b);
       if (b.error || (b.status !== 0 && !bid)) skip(`#353 identity bind-mount case: no unprivileged user+mount namespace here (${b.error?.code ?? `exit ${b.status}`}: ${String(b.stderr).trim().split('\n')[0]})`);
       else check('#353 identity (Linux): the target reached through a bind mount of CODEX_HOME is never read', !!bid && unread(bid), b.stdout + b.stderr);
+      // #357 (PR #358 review B1): a real overlay, merged vs lowerdir, in the same kind of
+      // namespace. A directory that exists in lowerdir reports the lowerdir inode in the merged
+      // view, on the overlay's own device: the harness-home guard's ino-only rule refuses it,
+      // with a finding. (merged vs upperdir is a documented residual, not asserted here.)
+      const ov = join(dir, 'ov357');
+      const [lower, upper, work, merged] = ['lower', 'upper', 'work', 'merged'].map((x) => join(ov, x));
+      for (const d of [join(lower, 'codexhome'), upper, work, merged]) mkdirSync(d, { recursive: true });
+      writeFileSync(join(lower, 'codexhome', CRED_NAME), '{"synthetic":"never-read"}');
+      const ovCases = [
+        ['CODEX_HOME is the merged view, the target its lowerdir file', join(lower, 'codexhome', CRED_NAME), join(merged, 'codexhome')],
+        ['CODEX_HOME is the lowerdir, the target its merged-view file', join(merged, 'codexhome', CRED_NAME), join(lower, 'codexhome')],
+      ];
+      for (const [what, target, home] of ovCases) {
+        const o = spawnSync('unshare', ['-Urm', 'sh', '-c', 'mount -t overlay overlay -o "lowerdir=$1,upperdir=$2,workdir=$3" "$4" || exit 77; exec "$5" "$6" "$7" "$8" "$9"', 'sh', lower, upper, work, merged, process.execPath, idProbe, target, home, cfg.claude], { encoding: 'utf8', timeout: 30000 });
+        const oid = probeResult(o);
+        if (o.error || (o.status !== 0 && !oid)) skip(`#357 identity overlayfs case: no unprivileged user+mount namespace or overlay mount here (${o.error?.code ?? `exit ${o.status}`}: ${String(o.stderr).trim().split('\n')[0]}) (${what})`);
+        else check(`#357 identity (Linux overlayfs, merged vs lowerdir): ${what} -- never read, with a finding`, !!oid && unread(oid) && /overlayfs merged-vs-lowerdir/.test(oid.finding ?? ''), o.stdout + o.stderr);
+      }
+      // The overlay leaves workdir/work mode 000 (owned by this uid through the namespace's
+      // root mapping): reopen it so the temp dir can be removed.
+      try {
+        chmodSync(join(work, 'work'), 0o700);
+      } catch {
+        /* not created: the overlay cases were skipped */
+      }
+      // #357 (PR #358 review): an L3 *.jsonl bind-mounted in from another filesystem (a tmpfs)
+      // has another st_dev than its slug directory: skipped and counted, the plain file read.
+      const l3Probe = join(dir, 'l3-probe.mjs');
+      writeFileSync(l3Probe, `import { readProjectSessionFiles } from ${JSON.stringify(pathToFileURL(join(REPO, 'tools', 'herdr', 'scenarios', 'l3-beacon.mjs')).href)};\nconsole.log(JSON.stringify(readProjectSessionFiles([process.argv[2]], process.argv[3], [{ id: 'claude-channel', marker: 'MARK-357', token: 'TOK-357' }])));\n`);
+      const bproj = join(dir, 'claude-bind-357', 'projects');
+      const bslug = join(bproj, 'p-l3-project');
+      const tmpfsAt = join(dir, 'tmpfs357');
+      mkdirSync(bslug, { recursive: true });
+      mkdirSync(tmpfsAt);
+      writeFileSync(join(bslug, 'a.jsonl'), `${JSON.stringify({ type: 'user', note: 'MARK-357' })}\n`);
+      writeFileSync(join(bslug, 'bound.jsonl'), '');
+      const t = spawnSync('unshare', ['-Urm', 'sh', '-c', 'mount -t tmpfs tmpfs "$1" || exit 77; printf "%s\\n" "$2" > "$1/x.jsonl"; mount --bind "$1/x.jsonl" "$3" || exit 77; exec "$4" "$5" "$6" "$7"', 'sh', tmpfsAt, JSON.stringify({ type: 'boundleak', note: 'MARK-357' }), join(bslug, 'bound.jsonl'), process.execPath, l3Probe, bslug, bproj], { encoding: 'utf8', timeout: 30000 });
+      const tr = probeResult(t);
+      if (t.error || (t.status !== 0 && !tr)) skip(`#357 L3 file bind-mounted from a tmpfs: no unprivileged user+mount namespace here (${t.error?.code ?? `exit ${t.status}`}: ${String(t.stderr).trim().split('\n')[0]})`);
+      else check('#357 L3 session file (Linux): a *.jsonl bind-mounted in from another filesystem is skipped (other device), never read; the plain file is read', !!tr && tr.files === 1 && tr.otherDevice === 1 && tr.skipped === 1 && tr.entries.length === 1 && tr.entries[0].type === 'user', t.stdout + t.stderr);
     }
     // A child whose name starts with `..` is inside: a bare startsWith('..') test put it outside.
     mkdirSync(join(cfg.claude, '..x'));
@@ -255,8 +296,15 @@ export async function identityUnit(check) {
     linkSync(cred357, join(slug357, 'h.jsonl'));
     const rsHard = readProjectSessionFiles([slug357], proj357, mk357);
     check('#357 L3 session file: a *.jsonl hard link (nlink > 1) to a file elsewhere in the Claude config dir is skipped and counted, never read; the plain file is read', rsHard.files === 1 && rsHard.skipped === 1 && rsHard.hardLinked === 1 && rsHard.entries.length === 1 && rsHard.entries[0].type === 'user' && !(rsHard.sessionIds ?? []).includes('h'), JSON.stringify(rsHard));
-    const l3Src = readFileSync(join(REPO, 'tools', 'herdr', 'scenarios', 'l3-beacon.mjs'), 'utf8');
-    check('#357 L3 scenario: a hard-linked session file is recorded as a finding', /if \(sf\.hardLinked\) finding\(/.test(l3Src));
+    const fHard = sessionFileFindings(rsHard);
+    check('#357 L3 findings: the hard-linked file is a finding of its own, beside the skipped count; a clean read has none', fHard.length === 2 && fHard.some((f) => /1 \*\.jsonl file with more than one hard link skipped/.test(f)) && sessionFileFindings({ dirsFound: 1, skipped: 0, hardLinked: 0, otherDevice: 0 }).length === 0, JSON.stringify(fHard));
+    check('#357 L3 findings: a file on another device is a finding; no slug directory is a finding', sessionFileFindings({ dirsFound: 1, skipped: 2, hardLinked: 0, otherDevice: 2 }).some((f) => /2 \*\.jsonl files on another device/.test(f)) && sessionFileFindings({ dirsFound: 0, skipped: 0 }).some((f) => /no Claude project directory/.test(f)));
+    // 2b. A *.jsonl on another device than its slug directory (a file mounted in from another
+    // filesystem) is skipped (PR #358 review). The rule, on lstat-shaped values (a mount cannot
+    // be made outside a namespace; the real case is the Linux namespace case below).
+    const fst = (x) => ({ isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false, nlink: 1, dev: 7n, ...x });
+    const dst = { dev: 7n };
+    check('#357 sessionEntrySkip: another st_dev than the slug directory is other-device; same dev and nlink 1 is read; nlink 2 is hard-linked; a symlink is a symlink', sessionEntrySkip(fst({ dev: 8n }), 'file', dst) === 'other-device' && sessionEntrySkip(fst({}), 'file', dst) === null && sessionEntrySkip(fst({ nlink: 2 }), 'file', dst) === 'hard-linked' && sessionEntrySkip(fst({ isSymbolicLink: () => true }), 'file', dst) === 'symlink' && sessionEntrySkip(fst({ isFile: () => false }), 'file', dst) === 'not-plain');
     // 3. A filesystem that reports ino 0 has no identity: fail closed (before #357 the root's
     // ids were empty and only the spellings were compared). An ino-0 filesystem cannot be made
     // in a temp dir, so stat is replaced for these calls.
@@ -267,13 +315,29 @@ export async function identityUnit(check) {
     const homeId = rootGuard(realHome).ids;
     const targetZero = (p, o) => (p === resolve(join(dir, 'bin1')) ? { dev: statSync(p, o).dev, ino: 0n } : statSync(p, o));
     check('#357 identityWithin: an ino-0 entry on the target\'s chain is an error: inside for a refusing guard, not inside for an allowing one', identityWithin(canonicalForms(join(dir, 'bin1')), homeId, { stat: targetZero }) === true && identityWithin(canonicalForms(join(dir, 'bin1')), homeId, { stat: targetZero, onError: false }) === false && identityWithin(canonicalForms(join(dir, 'bin1')), homeId) === false);
-    // 4. overlayfs: the merged view reports another st_dev with the same st_ino. A harness-home
-    // guard refuses an ino-only match on another device; the repository guard does not.
+    // A repository checkout on such a filesystem is refused naming the cause (PR #358 review),
+    // not as a path "inside the repository".
+    check('#357 rootGuardProblem: a root reporting ino 0 names the missing file identity; a normal root has no problem; an uncanonicalizable root says so', /no file identity \(ino 0/.test(rootGuardProblem(realParent, { stat: zeroIno }) ?? '') && rootGuardProblem(realParent) === null && /cannot be canonicalized/.test(rootGuardProblem(badRoot) ?? ''));
+    const g1Msg = (() => { try { operatorProjectDir(join(dir, 'bin1'), { repo: realParent, stat: zeroIno }); return ''; } catch (e) { return e.message; } })();
+    check('#357 G1 projectDir: with the checkout reporting ino 0 the refusal names the missing file identity, not "inside this repository"; control: accepted', /no file identity/.test(g1Msg) && !/inside this repository/.test(g1Msg) && operatorProjectDir(join(dir, 'bin1'), { repo: realParent }) === resolve(join(dir, 'bin1')), g1Msg);
+    // 4. overlayfs merged vs lowerdir: a directory that exists in lowerdir reports, in the
+    // merged view, the lowerdir inode on the overlay's own device. Unit check of the rule only:
+    // a home identity with the same ino on another device (built by hand: an overlay cannot be
+    // mounted outside a namespace; the real overlay case is the Linux namespace case below).
     const credForms = canonicalForms(credReal);
     const shifted = { forms: canonicalForms(join(dir, 'bin1')), ids: homeId.map((i) => ({ dev: i.dev + 1n, ino: i.ino })) };
-    check('#357 harnessHomeGuard: the same ino on another device (overlayfs merged vs lowerdir/upperdir) is inside a harness home; rootGuard keeps the (dev, ino) match', guardHolds(credForms, { ...harnessHomeGuard(realHome), ...shifted }) === true && guardHolds(credForms, { ...rootGuard(realHome), ...shifted }) === false);
+    check('#357 harnessHomeGuard (unit): an identity with the same ino on another device is an inode-other-device match for a harness-home guard; rootGuard requires the same dev', guardMatch(credForms, { ...harnessHomeGuard(realHome), ...shifted }) === 'inode-other-device' && guardHolds(credForms, { ...rootGuard(realHome), ...shifted }) === false && guardMatch(credForms, harnessHomeGuard(realHome)) === 'spelling');
+    // The executable decision: an ino-only match leaves it unhashed and records a finding (a home
+    // that is a filesystem or subvolume root makes the rule a false positive, PR #358 review);
+    // a spelling or (dev, ino) match is unread with no finding; the command's own binary is hashed.
+    const hrOnly = homeRefusal(credForms, [{ ...harnessHomeGuard(realHome), ...shifted }], 'codex');
+    const hrExact = homeRefusal(credForms, [harnessHomeGuard(realHome)], 'codex');
+    check('#357 homeRefusal: an ino-only match on another device is unread with a finding naming the false-positive case; an exact match is unread with no finding; outside is hashed', /never read/.test(hrOnly?.notRead ?? '') && /filesystem or subvolume root/.test(hrOnly?.finding ?? '') && /never read/.test(hrExact?.notRead ?? '') && !hrExact.finding && homeRefusal(canonicalForms(fake), [harnessHomeGuard(realHome)], 'fakeharness') === null, JSON.stringify({ hrOnly, hrExact }));
     const manSrc = readFileSync(join(REPO, 'tools', 'herdr', 'lib', 'manifest.mjs'), 'utf8');
-    check('#357 manifest: executableIdentity guards the harness homes with harnessHomeGuard', /harnessConfigDirs\(env\)\.map\(\(d\) => harnessHomeGuard\(d\)\)/.test(manSrc) && !/rootGuard/.test(manSrc));
+    check('#357 manifest: executableIdentity guards the harness homes with harnessHomeGuard (stop-gap source check where the real-overlay case below is skipped)', /harnessConfigDirs\(env\)\.map\(\(d\) => harnessHomeGuard\(d\)\)/.test(manSrc) && !/rootGuard/.test(manSrc));
+    check('#357 identityFindings: the run collects each executable identity\'s finding', JSON.stringify(identityFindings([{ finding: 'a' }, { sha256: 'x' }, null, { finding: 'b' }])) === '["a","b"]');
+    const runSrc = readFileSync(join(REPO, 'tools', 'herdr', 'run.mjs'), 'utf8');
+    check('#357 run.mjs: herdr\'s and the harnesses\' identity findings reach the manifest (stop-gap source check: run.mjs imports this self-test, so it is not called here)', /manifest\.findings\.push\(\.\.\.identityFindings\(\[manifest\.herdr\.executable\]\)\)/.test(runSrc) && /manifest\.findings\.push\(\.\.\.identityFindings\(Object\.values\(probe\.executables\)\)\)/.test(runSrc));
     // 5. A skipped case is a visible CI warning under GitHub Actions, escaped for the runner.
     const sn = skipNotice('bind 100%\nx', { GITHUB_ACTIONS: 'true' });
     check('#357 skipNotice: under GitHub Actions a skip is also a ::warning:: annotation (escaped); elsewhere only the skip line', sn.length === 2 && sn[0] === '  skip  bind 100%\nx' && sn[1] === '::warning title=herdr self-test case skipped::bind 100%25%0Ax' && skipNotice('y', {}).length === 1);

@@ -16,7 +16,9 @@
 //
 // Residuals (documented in tools/herdr/README.md): a hard link to a file inside a home has no
 // path relation to it (the L3 session-file read skips any file with more than one link, #357);
-// and the check and the later open are separate calls, so a directory on the path swapped for
+// an overlayfs upperdir/workdir spelling of a merged home (see the identity section); a
+// same-filesystem bind mount of a single file into the L3 slug directory (a bind from another
+// filesystem is skipped by its st_dev, #357); and the check and the later open are separate calls, so a directory on the path swapped for
 // a link in between (TOCTOU) would redirect the open.
 
 import { realpathSync, statSync } from 'node:fs';
@@ -115,11 +117,17 @@ export function isMainModule(metaUrl, argv1 = process.argv[1]) {
 // a root without identity cannot be guarded (rootGuard() is null: the caller fails closed), and
 // an ino-0 entry on a target's chain is an error (fail closed).
 //
-// overlayfs (#357): the merged view of a file and its lowerdir/upperdir copy report different
-// st_dev with the same st_ino, so a (dev, ino) match misses it. A harness-home guard
-// (harnessHomeGuard()) therefore also refuses an ino-only match on another device. A false
-// positive there only leaves a file unhashed; the repository guard keeps the (dev, ino) match,
-// where a false positive would refuse a run.
+// overlayfs (#357, PR #358 review B1): a directory that exists in lowerdir reports, in the
+// merged view, the lowerdir directory's st_ino on the overlay's own st_dev, so a (dev, ino)
+// match misses merged vs lowerdir. A harness-home guard (harnessHomeGuard()) therefore also
+// refuses an ino-only match on another device. That covers merged vs lowerdir only: the
+// upperdir copy of a directory has an inode of its own, which no merged entry reports, so
+// merged vs upperdir (and workdir) is a residual, like the hard link; making that view needs
+// mount privilege. A false positive of the ino-only rule (a home that is a filesystem or
+// subvolume root: ext4 ino 2, btrfs ino 256, matching another such root on an executable's
+// path) only leaves a file unhashed, and guardMatch() names it 'inode-other-device' so the
+// caller records a finding. The repository guard keeps the (dev, ino) match, where a false
+// positive would refuse a run.
 //
 // `stat` is injectable for the self-test only (an ino-0 filesystem cannot be made in a temp dir).
 
@@ -141,14 +149,15 @@ export function entryIdentity(p, { stat = statSync } = {}) {
 }
 
 /**
- * Whether any form of `file` (a canonicalForms() result), or any ancestor of one, has one of
- * the identities `ids` (`anyDevice`: or the same ino on any device). Each chain is walked from
- * the filesystem root down; an entry that does not exist (yet) is skipped; any other stat
- * error, or an entry reporting ino 0, answers `onError` (true for a refusing guard, false for
- * an allowing one: both fail closed).
+ * How any form of `file` (a canonicalForms() result), or any ancestor of one, matches one of
+ * the identities `ids`: 'identity' (same dev and ino), 'inode-other-device' (`anyDevice` only:
+ * the same ino on another device, and no exact match), 'error' (a stat error other than "does
+ * not exist", or an entry reporting ino 0), or null (no match). Each chain is walked from the
+ * filesystem root down; an entry that does not exist (yet) is skipped.
  */
-export function identityWithin(file, ids, { onError = true, anyDevice = false, stat = statSync } = {}) {
-  if (!ids.length) return false;
+export function identityMatch(file, ids, { anyDevice = false, stat = statSync } = {}) {
+  if (!ids.length) return null;
+  let loose = null;
   for (const start of all(file)) {
     const chain = [];
     for (let p = start; ; ) {
@@ -163,13 +172,23 @@ export function identityWithin(file, ids, { onError = true, anyDevice = false, s
         s = stat(p, { bigint: true });
       } catch (err) {
         if (MISSING.has(err?.code)) continue;
-        return onError;
+        return 'error';
       }
-      if (s.ino === 0n) return onError;
-      if (ids.some((i) => i.ino === s.ino && (anyDevice || i.dev === s.dev))) return true;
+      if (s.ino === 0n) return 'error';
+      if (ids.some((i) => i.ino === s.ino && i.dev === s.dev)) return 'identity';
+      if (anyDevice && ids.some((i) => i.ino === s.ino)) loose = 'inode-other-device';
     }
   }
-  return false;
+  return loose;
+}
+
+/**
+ * Whether `file` matches `ids` by identityMatch(); an error answers `onError` (true for a
+ * refusing guard, false for an allowing one: both fail closed).
+ */
+export function identityWithin(file, ids, { onError = true, anyDevice = false, stat = statSync } = {}) {
+  const m = identityMatch(file, ids, { anyDevice, stat });
+  return m === 'error' ? onError : m !== null;
 }
 
 /**
@@ -188,12 +207,39 @@ export function rootGuard(root, { anyDevice = false, stat = statSync } = {}) {
   }
 }
 
-/** A harness home's guard: rootGuard() that also refuses an ino-only match on another device (overlayfs, #357). */
+/**
+ * Why a root cannot be guarded, or null when rootGuard() would succeed: for an error message
+ * that names the cause (#357: a repository on a filesystem without file identity is refused
+ * with that reason, not as a path "inside the repository").
+ */
+export function rootGuardProblem(root, { stat = statSync } = {}) {
+  const forms = canonicalForms(root);
+  if (!forms) return 'cannot be canonicalized (realpath failed)';
+  try {
+    entryIdentity(forms.real[0] ?? forms.spelled, { stat });
+    return null;
+  } catch (err) {
+    if (err?.code === 'ENOINO') return 'is on a filesystem that reports no file identity (ino 0, e.g. FAT/exFAT or some network shares), so the containment check cannot compare identities (#357)';
+    return `cannot be stat'ed (${err?.code ?? 'error'})`;
+  }
+}
+
+/** A harness home's guard: rootGuard() that also refuses an ino-only match on another device (overlayfs merged vs lowerdir, #357). */
 export const harnessHomeGuard = (home, opts = {}) => rootGuard(home, { ...opts, anyDevice: true });
+
+/**
+ * How `file` (a canonicalForms() result) is inside `guard` (a rootGuard() result): 'spelling',
+ * 'identity', 'inode-other-device' (a harness-home guard's ino-only match), 'error' (counts as
+ * inside: a refusing guard), or null (outside).
+ */
+export function guardMatch(file, guard) {
+  if (formsWithin(file, guard.forms)) return 'spelling';
+  return identityMatch(file, guard.ids, { anyDevice: guard.anyDevice, stat: guard.stat });
+}
 
 /** `file` (a canonicalForms() result) is inside `guard` (a rootGuard() result), by spelling or identity; errors answer inside. */
 export function guardHolds(file, guard) {
-  return formsWithin(file, guard.forms) || identityWithin(file, guard.ids, { anyDevice: guard.anyDevice, stat: guard.stat });
+  return guardMatch(file, guard) !== null;
 }
 
 /**

@@ -52,14 +52,14 @@ import { readCommittedHerdrPin, versionMatches, checkHerdrExecutable, herdrCheck
 import { HerdrSession, NotRunError, DriverError, makeSessionName } from './lib/herdr.mjs';
 import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
-  probeHarnesses, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV, resolveHerdr, herdrIdentity, sha256Text,
+  probeHarnesses, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV, resolveHerdr, herdrIdentity, sha256Text, identityFindings,
 } from './lib/manifest.mjs';
 import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './lib/redact.mjs';
 import { redactCaptures } from './lib/elide.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
 import { removeScratch } from './lib/scratch.mjs';
-import { isMainModule, canonicallyWithin } from './lib/canonical-path.mjs';
+import { isMainModule, canonicallyWithin, rootGuardProblem } from './lib/canonical-path.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
@@ -179,6 +179,8 @@ async function runScenarioInner(opts, state) {
   const timebox = { remainingMs: () => timeboxStart + timeboxMs - Date.now() };
   const sessionName = makeSessionName(scenario.name);
   try {
+    const repoProblem = rootGuardProblem(REPO_ROOT);
+    if (repoProblem) throw new DriverError(`the repository checkout ${repoProblem}; refusing to run (fail closed)`);
     if (isInside(scratch, REPO_ROOT)) throw new DriverError('scratch directory resolved inside the repository; refusing to run');
     mkdirSync(join(scratch, 'captures'));
     outDir = resolve(opts.out ?? join(tmpdir(), 'oac-herdr-runs', runId));
@@ -365,6 +367,7 @@ async function runScenarioInner(opts, state) {
   const body = async () => {
     // Which herdr executable runs (#140): recorded first, whatever the run's outcome.
     manifest.herdr.executable = await herdrIdentity(herdrResolved, { env: herdrEnv });
+    manifest.findings.push(...identityFindings([manifest.herdr.executable]));
     if (!herdrResolved.path) throw new NotRunError('herdr executable not resolved (on PATH, absolute entries only, or --herdr-bin); nothing spawned');
     // The pin comes from PINS.md as committed at HEAD, never the working tree. An uncommitted
     // edit to the herdr row refuses the run; any other uncommitted PINS.md edit is a finding
@@ -408,6 +411,7 @@ async function runScenarioInner(opts, state) {
       const probe = await probeHarnesses(harnesses);
       manifest.harnessVersions = probe.versions;
       manifest.harnessExecutables = probe.executables;
+      manifest.findings.push(...identityFindings(Object.values(probe.executables)));
     } else {
       manifest.harnessVersions = { note: 'N/A: this scenario launches no harness' };
       manifest.harnessExecutables = { note: 'N/A: this scenario launches no harness' };
