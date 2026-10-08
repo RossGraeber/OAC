@@ -1,0 +1,46 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-ATT-025",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.2",
+  "kind": "positive",
+  "description": "A second call on a Codex connection during an open pairing window gets a pairing refusal carrying that window's value.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": false,
+    "codex_pairing": true,
+    "open_pairing_value": "oac-pair-3f9c2a7e10b84d6c95e1a0f27b4c8d35"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
+          "name": "list_sessions",
+          "arguments": {}
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unauthorized: this connection is not yet paired with a session; pairing value oac-pair-3f9c2a7e10b84d6c95e1a0f27b4c8d35. You can call the tool once more."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

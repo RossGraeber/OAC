@@ -37,14 +37,13 @@
 //   - Any run outcome other than PASS makes every criterion `not evaluable`.
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { compareTranscripts, formatDiff, parseTranscript, selectSegment, transcriptFacts, isLegacyRevision } from './compare-transcripts.mjs';
 import { BOX_C_TRANSCRIPT, BOX_C_WAKE_ATTRIBUTES, FIXTURE_DIR, G1_CRITERIA, HERDR_RUNS_DIR, dialogMatchesBoxC, midTurnWindow, parseSections } from './g1.mjs';
-import { TO_FILL, describeDialog, describeDialogs, harnessVerification, lineSpan, verification } from './gate-report-common.mjs';
+import { TO_FILL, describeDialog, describeDialogs, harnessVerification, lineSpan, redactScriptSha256, verification } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -444,7 +443,7 @@ function main(argv) {
       runManifestPath: `${HERDR_RUNS_DIR}/${runManifestName}`,
       transcriptText,
       pinsCommit: git.status === 0 ? git.stdout.trim() : null,
-      redactSha256: createHash('sha256').update(readFileSync(join(HERE, 'redact.mjs'))).digest('hex'),
+      redactSha256: redactScriptSha256(),
     });
     writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
   }

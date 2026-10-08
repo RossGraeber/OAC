@@ -321,3 +321,68 @@ config requirement), `tools/herdr/run.mjs` (`requireHarnessConfigUnchanged`),
 (`FAKE_CODEX_TOOL_APPROVAL` and its shape variables), the G4 unit and lifecycle tests and one G5
 lifecycle test. Also `scripted-runs.md` (dated amendment) and `tools/herdr/README.md`
 "Dialogs". Live acceptance is UNVERIFIED until a live G4 run shows it.
+
+## 8. Amendment 2026-10-08 (#303): Codex's start-up update prompt, "2. Skip" only
+
+**Decision.** Lead, on #303: the driver may answer Codex's start-up update prompt with
+"2. Skip", recorded as `driver`, or stop at once `NOT RUN`; never wait out a later handshake or
+attach timeout behind it, never choose "1. Update now" (it runs an installer) or "3. Skip until
+next version" (it writes Codex's updater state). Both behaviours land: the recorded form is
+answered "2. Skip", and an off-record form ends the run `NOT RUN` on its first read with no key
+sent. This holds in every scenario that launches Codex (G2, G4, G5, L3, S3).
+
+**Captured live.** G4 herdr run 20261006T001351Z-5b2e11 (driver `c4def66`), Codex CLI 0.160.0,
+Windows, Codex pane read seq 54 (`codex:codex-startup-settled?`; the run ended `NOT RUN` after a
+90 s wait for Codex's MCP initialize; the capture was not committed):
+
+```
+  Update available · 0.160.0 → 0.160.1
+  Release notes: https://github.com/openai/codex/releases/latest
+
+› 1. Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/
+     codex/install.ps1 | iex'`)
+  2. Skip
+  3. Skip until next version
+
+  enter continue · esc skip
+```
+
+**Conditions** (`tools/herdr/lib/g2.mjs` `CODEX_DIALOG_KINDS['update-prompt']`,
+`planCodexUpdateSkip`; `tools/herdr/lib/g1.mjs` `dialogOptions`, `planDriverAccept`,
+`selectionCheck`):
+
+1. The title, the release-notes line, the three option labels (numbered 1-3), the `›` marker and
+   the footer match the record. Option 1's install command depends on how Codex was installed,
+   so only its shape `(runs `…`)` is on record; a wrapped command is joined back onto option 1.
+2. The selection is on "1. Update now" (the preselection on record) or already on "2. Skip".
+   The driver sends one `down`, and a fresh read must show exactly one `›`, on "Skip", before
+   Enter. A read showing the selection anywhere else stops the run before Enter.
+3. Anything else (another option, text, footer, marker or selection, including "3. Skip until
+   next version" highlighted) ends the run `NOT RUN` at once, no key sent, with the reason
+   "Codex update prompt shown at start-up (Codex <current> → <latest>) … answer it in Codex's own
+   TUI … then re-run". The update footer without the recorded title is an unrecognized dialog,
+   refused the same way.
+4. Each answer is recorded on the dialog (`updatePrompt`: current, latest, answer;
+   `acceptKeys`; `acceptOrigin: driver`) and rendered in the Verification section's Dialogs line.
+5. Under `accept=human` the driver waits for the operator as for any dialog.
+
+**Why "Skip" changes nothing (source).** openai/codex tag `rust-v0.160.0` (commit
+`a956835d020762cb2b570053af06f643a11c0ecc`), `codex-rs/tui/src/update_prompt.rs`, read
+2026-10-08: the highlight starts on "Update now" (:131); `down` moves it to the next option and
+wraps (:148, :186-192); Enter selects the highlight (:152). `UpdateSelection::NotNow` ("Skip")
+continues the launch and persists nothing (:94); `DontRemind` ("Skip until next version") calls
+`updates::dismiss_version` (:95-99); `UpdateNow` returns `RunUpdate` (:90-93). The run's
+harness-config hashes (`config.toml`, `hooks.json`) are recorded as for every run; Codex's
+`version.json` is not among them, so a stray write there would not be seen by them (residual).
+
+**Verdict eligibility.** No G2, G4 or G5 criterion names this prompt. A driver "Skip" costs a
+gate nothing when the dialog matched the record and the answer is recorded as the driver's
+(`scripted-runs.md` "Verdict eligibility"). The change is under `tools/herdr/` outside
+`tools/herdr/test/`, so the G2 and G4 equivalence records at `c4def66` no longer back a later
+run: both gates need a re-record at the new driver commit.
+
+**Where it lands.** `tools/herdr/lib/g2.mjs`, `tools/herdr/lib/g1.mjs`,
+`tools/herdr/lib/gate-common.mjs`, `tools/herdr/lib/gate-report-common.mjs`,
+`tools/herdr/test/fake-codex.mjs` (`FAKE_CODEX_UPDATE_PROMPT`), the G2 unit tests and the G2
+and G4 lifecycle tests. Also `scripted-runs.md` (dated amendment) and `tools/herdr/README.md`.
+Live acceptance is UNVERIFIED until a live run shows the prompt answered.

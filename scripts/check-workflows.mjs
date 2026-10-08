@@ -53,7 +53,11 @@
 //       routed through a matrix fails too (check 9 also refuses every runner label in any
 //       workflow but the herdr one);
 //   D2  no opt-in switch: no `--ignored` / `--include-ignored` test run, no OAC_TEST_*
-//       opt-in variable, no tools/herdr driver;
+//       opt-in variable, no tools/herdr driver. One exception (#345): a `run:` line that is
+//       exactly `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the driver's
+//       offline self-test against its test doubles (no harness; check 9 holds the same line),
+//       and only when the structural reader's whole `run:` value is exactly that command
+//       (a folded continuation, or a block, quoted or flow form, fails: PR #349 B1);
 //   D3  no harness CLI install (the Claude Code or Codex npm packages, `codex`/`claude`
 //       installers).
 // Opt-in workflows (workflow_dispatch only) may use D1-D3; W0-W5 still hold.
@@ -128,6 +132,42 @@ const SECRETS_INHERIT = /\bsecrets\s*:\s*['"]?inherit\b/i;
 const PRIVILEGED_TRIGGER = /^(?:pull_request_target|workflow_run)$/;
 const SELF_HOSTED = /\bself-hosted\b/i;
 const OPT_IN_SWITCH = /--(?:include-)?ignored\b|\bOAC_TEST_[A-Z0-9_]+|tools[\\/]+herdr/;
+// #345: the one tools/herdr line the default tier may hold: a `run:` that is exactly the
+// driver's offline self-test (its test doubles only; it drives no harness), optionally behind
+// the loopback-only wrapper. Nothing else on the line, no other driver argument or entry
+// point, and not inside a run: block scalar. Kept in step with check 9's exception in
+// scripts/check-herdr-containment.mjs (DRIVER_SELFTEST_LINE there).
+const DRIVER_SELFTEST_LINE = /^\s*(?:-\s+)?run:\s+(?:\$LOOPBACK_ONLY\s+)?node\s+tools\/herdr\/run\.mjs\s+--self-test\s*$/;
+// PR #349 review B1: YAML folds a deeper-indented next line into a plain `run:` value, so the
+// physical line alone does not decide. A line is exempt only when ALL of these hold: it
+// matches DRIVER_SELFTEST_LINE (an unquoted plain value: no block indicator, quote or flow
+// collection); the next non-blank line (comments included) is not indented deeper than the
+// `run` key; and the structural reader's `run` pair whose key is on this line has a value
+// starting on this line that is exactly DRIVER_SELFTEST_COMMAND (the reader joins plain,
+// quoted and flow continuations, so any folded-in text breaks the match). A document the
+// reader cannot read (W0) gets no exemption.
+const DRIVER_SELFTEST_COMMAND = /^(?:\$LOOPBACK_ONLY )?node tools\/herdr\/run\.mjs --self-test$/;
+function continuesBelow(lines, i) {
+  const keyCol = lines[i].indexOf('run:');
+  for (let j = i + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '') continue;
+    return indentOf(lines[j]) > keyCol;
+  }
+  return false;
+}
+// The 1-based lines whose `run:` is exactly the driver self-test, as above.
+function driverSelftestLines(text, doc) {
+  const out = new Set();
+  if (!doc) return out;
+  const lines = text.split(/\r?\n/);
+  for (const p of pairsOf(doc)) {
+    if (p.key !== 'run' || p.value.t !== 'str' || p.value.line !== p.line || !DRIVER_SELFTEST_COMMAND.test(p.value.v)) continue;
+    const i = p.line - 1;
+    if (DRIVER_SELFTEST_LINE.test(lines[i] ?? '') && !continuesBelow(lines, i)) out.add(p.line);
+  }
+  return out;
+}
+const optInSwitch = (line, n, exempt) => OPT_IN_SWITCH.test(line) && !(DRIVER_SELFTEST_LINE.test(line) && exempt.has(n));
 // The package names are spelled with a one-letter class so that oac-boundaries check 3
 // (no provider SDK name in the code tree) does not match this lint's own source.
 const HARNESS_INSTALL = /@anthropi[c]-ai\/claude-code|@open[a]i\/codex|\bclaude\.ai\/install|\b(?:npm|npx|pnpm|yarn|bun)\b[^\n]*\b(?:claude-code|codex)\b|\bbrew\s+install\b[^\n]*\b(?:codex|claude)\b/i;
@@ -628,9 +668,10 @@ function commonRules(text, defaultTier, hit) {
   });
 
   if (defaultTier) {
+    const selftestExempt = driverSelftestLines(text, doc);
     scan.forEach((l, i) => {
       if (SELF_HOSTED.test(l)) hit('D1', i + 1, 'self-hosted runner in the default tier');
-      if (OPT_IN_SWITCH.test(l)) hit('D2', i + 1, 'opt-in switch in the default tier');
+      if (optInSwitch(l, i + 1, selftestExempt)) hit('D2', i + 1, 'opt-in switch in the default tier');
       if (HARNESS_INSTALL.test(l)) hit('D3', i + 1, 'harness CLI install in the default tier');
     });
   }
@@ -707,9 +748,10 @@ function checkWorkflow(name, text, readLocal = () => null) {
   // D1-D3 need the tier, known only now: run them over the workflow's own text again.
   if (defaultTier) {
     const { scan } = readLines(text);
+    const selftestExempt = driverSelftestLines(text, doc);
     scan.forEach((l, i) => {
       if (SELF_HOSTED.test(l)) hit('D1', i + 1, 'self-hosted runner in the default tier');
-      if (OPT_IN_SWITCH.test(l)) hit('D2', i + 1, 'opt-in switch in the default tier');
+      if (optInSwitch(l, i + 1, selftestExempt)) hit('D2', i + 1, 'opt-in switch in the default tier');
       if (HARNESS_INSTALL.test(l)) hit('D3', i + 1, 'harness CLI install in the default tier');
     });
   }
@@ -941,6 +983,24 @@ const CASES = [
   ['D2 --ignored inside a run: block', 'x.yml', GOOD.replace('          echo done', '          cargo test -- --include-ignored'), ['D2']],
   ['D2 OAC_TEST_ flag in the default tier', 'x.yml', withStep('      - env:\n          OAC_TEST_REAL_KEYRING: "1"\n        run: true'), ['D2']],
   ['D2 herdr driver in the default tier', 'x.yml', GOOD.replace('cargo test --workspace', 'node tools/herdr/ci.mjs run'), ['D2']],
+  // #345: only the exact offline self-test line is allowed.
+  ['control: the herdr driver self-test line (#345)', 'x.yml', withStep('      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test'), []],
+  ['control: the herdr driver self-test line, no wrapper (#345)', 'x.yml', withStep('      - shell: bash\n        run: node tools/herdr/run.mjs --self-test'), []],
+  ['D2 the driver with a scenario beside --self-test (#345)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --self-test --scenario smoke'), ['D2']],
+  ['D2 the driver run with a scenario (#345)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --scenario g2-codex-inject'), ['D2']],
+  ['D2 the self-test chained to another driver call (#345)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --self-test && node tools/herdr/ci.mjs run'), ['D2']],
+  ['D2 the self-test line inside a run: block (#345)', 'x.yml', GOOD.replace('          echo done', '          node tools/herdr/run.mjs --self-test'), ['D2']],
+  ['D2 the self-test of another driver entry point (#345)', 'x.yml', withStep('      - run: node tools/herdr/ci.mjs --self-test'), ['D2']],
+  // PR #349 review B1: text YAML folds into the exempt line's value, or a line inside another
+  // scalar that looks like the exempt line. Each passed the single-line check alone.
+  ['D2 a plain continuation line folds a scenario into the self-test (PR #349 B1)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --self-test\n          --scenario g2-codex-inject'), ['D2']],
+  ['D2 a continuation after a blank line (PR #349 B1)', 'x.yml', withStep('      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n\n          --scenario smoke'), ['W0', 'D2']],
+  ['D2 a continuation under a key-form run: (PR #349 B1)', 'x.yml', withStep('      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n          --scenario smoke'), ['D2']],
+  ['D2 the line inside a | block scalar (PR #349 B1)', 'x.yml', withStep('      - run: |\n          run: node tools/herdr/run.mjs --self-test\n          echo next'), ['D2']],
+  ['D2 the line inside a > block scalar (PR #349 B1)', 'x.yml', withStep('      - run: >\n          run: node tools/herdr/run.mjs --self-test'), ['D2']],
+  ['D2 the line inside a multi-line double-quoted scalar (PR #349 B1)', 'x.yml', withStep('      - run: "echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke"'), ['D2']],
+  ["D2 the line inside a multi-line single-quoted scalar (PR #349 B1)", 'x.yml', withStep("      - run: 'echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke'"), ['D2']],
+  ['D2 the line inside a multi-line flow mapping (PR #349 B1)', 'x.yml', withStep('      - { name: x,\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke }'), ['D2']],
   // PR #336 review B5: a schedule runs unattended, so it is the default tier.
   ['D2 D3 a schedule-only workflow is the default tier', 'x.yml', `name: s\non: { schedule: [ { cron: '0 * * * *' } ] }\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm install -g @open${'ai'}/codex && cargo test -- --include-ignored && OAC_TEST_REAL=1 node tools/herdr/ci.mjs run\n`, ['D2', 'D3']],
   ['D2 a schedule with workflow_dispatch is still the default tier', 'optin.yml', OPTIN.replace('  workflow_dispatch:', "  schedule:\n    - cron: '0 5 * * 1'\n  workflow_dispatch:"), ['D2', 'D2']],
