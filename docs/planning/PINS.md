@@ -757,8 +757,11 @@ semver, and are recorded verbatim — never reformatted.
   enables on it (`sync`, `macros`, `rt`, `time`, and `io-util` through
   `transport-async-rw`; `rmcp-3.4.0/Cargo.toml` L840-L847). Held by the adapter contract
   suite's `VETTED_DEPENDENCIES` on the dependency line, in the adapter's own `[features]` and
-  in the resolved package, and against workspace feature unification by
-  `scripts/check-crate-deps.mjs --adapters-alone` in CI (G-7 §5). `cli/` and `transports/zenoh/` record theirs in
+  in the resolved package (a registry copy under `$CARGO_HOME/registry/src`), for every
+  workspace member under `adapters/`. `scripts/check-crate-deps.mjs` refuses a tracked
+  `.cargo/config*` naming `source`, `patch` or `paths` (rule 7), and its `--adapters-alone`
+  run in CI builds the adapters alone with default features and with `--all-features`, so
+  an adapter using a `tokio` feature that only another member turns on fails (G-7 §5). `cli/` and `transports/zenoh/` record theirs in
   their tasks.
 - Decision: lead, in chat 2026-10-08 (G-7 §1, §5).
 - **Gates affected: none directly** — implementation dependency.

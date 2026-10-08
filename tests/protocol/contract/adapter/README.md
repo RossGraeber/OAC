@@ -12,8 +12,10 @@ harnesses. It is test-only: an adapter takes it as a dev-dependency.
   never reaches them: a path into `plant` is a finding of its own row, `TEST-PLANT`.
 - `tests/stand_in.rs` runs the suite against well-behaved stand-in adapters and against
   each planted breach.
-- `tests/real_adapters.rs` runs the static scan against `adapters/claude` and
-  `adapters/codex`.
+- `tests/real_adapters.rs` runs the static scan against every workspace member under
+  `adapters/`, found through `cargo metadata` rather than a fixed list (today
+  `adapters/claude`, `adapters/codex` and `adapters/mcp-tools`). A planted case shows a new
+  `adapters/acp` member is found and refused.
 - `tests/path_modules.rs` runs the scan on scratch crates on disk.
 
 ## What an adapter's sources may not hold
@@ -56,11 +58,14 @@ is a finding under every row:
   vetted crate (`tokio/net`, `rmcp/macros`) or names a forbidden crate;
 - **a resolved dependency that is not the vetted identity**: the package `cargo metadata`
   resolves for each normal or build dependency must be from crates.io at its pin (or the
-  repository's own directory), so a `[patch]` or `[replace]` cannot swap it; and the
-  workspace root manifest may not patch or replace a vetted or forbidden crate;
+  repository's own directory), so a `[patch]` or `[replace]` cannot swap it; the
+  workspace root manifest may not patch or replace a vetted or forbidden crate; and every
+  registry package in the resolved closure must sit under `$CARGO_HOME/registry/src`
+  (`~/.cargo` when `CARGO_HOME` is unset), so a `[source]` replacement in a cargo
+  configuration file cannot swap in a vendored, edited copy that still reports crates.io;
 - **a forbidden crate under any dependency kind, dev included, or anywhere in the resolved
-  graph**: the whole `codex-` family (`FORBIDDEN_FAMILIES`) and `rmcp-macros`
-  (`FORBIDDEN_NAMES`) ([ADR-001 Boundary]; G-7 §2). `scripts/check-crate-deps.mjs` rule 6
+  graph**: the whole `codex-` family (`FORBIDDEN_FAMILIES`), a crate named exactly `codex`,
+  and `rmcp-macros` (`FORBIDDEN_NAMES`) ([ADR-001 Boundary]; G-7 §2). `scripts/check-crate-deps.mjs` rule 6
   refuses the same anywhere in the workspace graph, transitively, and a test checks the two
   lists agree;
 - **a symlink** on the way to a module file, or among the files scanned;
@@ -69,9 +74,12 @@ is a finding under every row:
 Identifiers are compared without a raw `r#` prefix everywhere.
 
 What these per-package checks cannot see is feature unification: another workspace member
-turning on a feature (`tokio/net`) that an adapter then uses. `scripts/check-crate-deps.mjs
---adapters-alone`, run in CI, builds the adapters and `adapters/mcp-tools` alone, so that
-fails there (G-7 §5).
+turning on a feature (`tokio/net`) that an adapter then uses, directly or behind an adapter
+feature that is off by default and that the other member turns on. `scripts/check-crate-deps.mjs
+--adapters-alone`, run in CI, builds the adapters and `adapters/mcp-tools` alone twice, once
+with default features and once with `--all-features`, so both fail there (G-7 §5). The same
+script's rule 7 refuses a tracked `.cargo/config` or `.cargo/config.toml` that names
+`source`, `patch` or `paths`.
 
 **The cost of the word rule.** A binding named `path` may be handed to a macro
 (`format!("{}", path)`). A binding named `include`, `include_str` or `include_bytes` may
