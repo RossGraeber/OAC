@@ -111,8 +111,8 @@ checks. A frame missing from its fixture stops the fake from starting.
 | `thread/loaded/list`, `thread/list` (`cursor: null`, `limit`, `sortKey: "created_at"`), `thread/turns/list` (`sortDirection: "desc"`, `itemsView: "full"`) | G2 `transcript-2026-10-06-0.160.0-herdr.jsonl` |
 | `thread/list` leaves out a loaded thread that has had no turn | G2 0.160.0 L17-L20 (the thread is loaded but not listed until its first turn) |
 | One queued item per idle, from the head of the queue: two adds during a turn run as two turns, in the order added | S3 L135-L139, L826-L865 (`11-risks.md` row 62) |
-| After a turn ends `interrupted`, nothing is dispatched; an add to the idle thread whose last turn was interrupted waits too (nothing in 25 s, more than two ticks of the daemon's 10 s queue watcher), until a turn completes uninterrupted | S3 L907-L955 |
-| `turn/completed` with status `interrupted`: `items: []`, `itemsView: "notLoaded"`, even after agent text streamed (after `turn/interrupt`'s response and `thread/status/changed` idle) | S3 L901-L907 |
+| After a turn ends `interrupted`, nothing is dispatched: items already queued when the turn was interrupted wait (nothing in 25 s), and so does an add made later to the idle thread whose last turn was interrupted, until a turn completes uninterrupted; then the queued items run one per idle, in order | items queued at the interrupt: S3 queued-interrupt `s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl` L79-L170; the later add: S3 L907-L955 |
+| An interrupted turn's frames: the agent message's `item/started` and deltas, then (after `turn/interrupt`'s response) `thread/status/changed` idle and `turn/completed` with status `interrupted`, `items: []`, `itemsView: "notLoaded"`. The agent message never gets an `item/completed` | S3 L899-L907; S3 queued-interrupt L77-L90 |
 | An add to a thread that is not loaded is accepted and waits; loading it with `thread/resume` sends `thread/status/changed` idle before the response, `thread/goal/cleared` after it, then dispatches the queued input | S3 L968-L1019 |
 | An extra member in `thread/queue/add` is accepted and ignored (flagged in the call log) | S3 L866-L873 |
 | A request before `initialize`: `-32600 "Not initialized"` | S3 L92-L93 |
@@ -127,7 +127,7 @@ shape. Its S3 cases compare the idle add's and the reload's frame order with the
 the interrupted `turn/completed` with its recorded shape, and each recorded refusal with the
 recorded answer.
 
-**What the S3 capture changed (#343).** Three behaviours had been modelled differently from
+**What the S3 capture changed (#343).** Four behaviours had been modelled differently from
 what live Codex `0.161.0` does; the fake now follows the recording:
 
 - an add to an unknown thread was answered `-32600 "thread not found: <id>"` (source:
@@ -136,7 +136,10 @@ what live Codex `0.161.0` does; the fake now follows the recording:
 - loading an unloaded thread never dispatched its queue, so an add to an unloaded thread
   waited for ever; live, the load dispatches it;
 - the second `thread/queue/changed` of an idle add came after the response, and an
-  interrupted turn's `turn/completed` reused the completed turn's items and `itemsView`.
+  interrupted turn's `turn/completed` reused the completed turn's items and `itemsView`;
+- an interrupted turn's agent message got an `item/completed` with its full text
+  (`oacFake/turn/complete` with `status: "interrupted"` and `agentText`); live, it never
+  completes (PR #344 review finding 2).
 
 ### Source-only behaviours (runtime UNVERIFIED)
 

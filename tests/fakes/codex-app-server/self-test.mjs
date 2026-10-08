@@ -338,6 +338,28 @@ await test('interrupt: turn/completed of an interrupted turn has the recorded sh
   eq([got.params.turn.items, got.params.turn.itemsView], [[], 'notLoaded'], 'no items, as recorded');
 });
 
+// #343 review finding 2: the interrupted turn's frames, from its agent item/started to its
+// turn/completed (S3 L899-L907), as kinds. Live Codex never completes the interrupted agent
+// message: an item/completed there must fail this case.
+await test('interrupt: the interrupted turn sends the recorded frames in order, and no item/completed for its agent message (S3 capture)', () => {
+  const fake = new FakeCodexAppServer();
+  const { tui, threadId } = idleThread(fake);
+  tui.ok('turn/start', { threadId, input: [{ type: 'text', text: 'busy' }] });
+  const before = tui.frames.length;
+  control(fake, 'oacFake/turn/complete', { threadId, status: 'interrupted', agentText: 'partial' });
+  const kinds = (frames) =>
+    frames
+      .filter((p) => p.method && !OMITTED.has(p.method) && !(p.params?.item && p.params.item.type !== 'agentMessage'))
+      .map((p) => `${p.method}${p.params?.item ? ` ${p.params.item.type}` : ''}${p.params?.status?.type ? ` ${p.params.status.type}` : ''}`);
+  const rec = readTranscript('s3').filter((f) => f.mode === 'cases-main' && f.direction === 'daemon->client');
+  const start = rec.findIndex((f) => f.line === 899);
+  const end = rec.findIndex((f) => f.line === 907);
+  assert(start >= 0 && end > start && rec[start].payload.params?.item?.type === 'agentMessage' && rec[end].payload.params?.turn?.status === 'interrupted', 'S3 L899-L907 is the interrupted turn');
+  const want = kinds(rec.slice(start, end + 1).map((f) => f.payload));
+  eq(kinds(tui.frames.slice(before)), want, `frame kinds against ${fixturePath('s3')}:899-907`);
+  assert(!tui.frames.slice(before).some((p) => p.method === 'item/completed'), 'no item/completed for the interrupted agent message');
+});
+
 await test('queue: several adds dispatch one per idle, in order', () => {
   const fake = new FakeCodexAppServer();
   const { tui, threadId } = idleThread(fake);
@@ -351,7 +373,22 @@ await test('queue: several adds dispatch one per idle, in order', () => {
   eq(control(fake, 'oacFake/thread/state', { threadId }).queue, [], 'second dispatched');
 });
 
-await test('interrupt: a queued item and a later add both wait until a turn completes uninterrupted', () => {
+// Both halves are recorded: items already queued when the turn is interrupted (S3
+// queued-interrupt capture, 2026-10-08) and an add made after it (S3 capture, 2026-10-07).
+// The recordings are checked first, so the case cannot pass on a fixture that shows otherwise.
+await test('interrupt: a queued item and a later add both wait until a turn completes uninterrupted (both halves recorded, S3 captures)', () => {
+  const quietAfterInterrupt = (key) => {
+    const fr = readTranscript(key).filter((f) => f.mode === 'cases-main');
+    const done = fr.findIndex((f) => f.payload.method === 'turn/completed' && f.payload.params.turn.status === 'interrupted');
+    const nextStart = fr.findIndex((f, i) => i > done && f.direction === 'client->daemon' && f.payload.method === 'turn/start');
+    assert(done >= 0 && nextStart > done, `${fixturePath(key)}: an interrupted turn followed by a client turn/start`);
+    const between = fr.slice(done + 1, nextStart);
+    return { quiet: !between.some((f) => f.payload.method === 'turn/started'), adds: between.filter((f) => f.payload.method === 'thread/queue/add').length };
+  };
+  const qi = quietAfterInterrupt('s3QueuedInterrupt');
+  const later = quietAfterInterrupt('s3');
+  assert(qi.quiet && qi.adds === 0, 'recorded: the items queued before the interrupt did not start a turn before the next turn/start');
+  assert(later.quiet && later.adds === 1, 'recorded: the add after the interrupt did not start a turn before the next turn/start');
   const fake = new FakeCodexAppServer();
   const { tui, threadId } = idleThread(fake);
   tui.ok('turn/start', { threadId, input: [{ type: 'text', text: 'busy' }] });

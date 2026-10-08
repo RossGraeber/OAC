@@ -667,9 +667,13 @@ export class FakeCodexAppServer {
       this.broadcast(th, this.t.agentItemStarted, { ...structuredClone(this.t.agentItemStarted.params), item: structuredClone(item), threadId: th.id, turnId: turn.id, startedAtMs: s });
       this.broadcast(th, this.t.agentDelta, { threadId: th.id, turnId: turn.id, itemId: item.id, delta: String(agentText) });
       item.text = String(agentText);
-      this.broadcast(th, this.t.agentItemCompleted, { ...structuredClone(this.t.agentItemCompleted.params), item: structuredClone(item), threadId: th.id, turnId: turn.id, completedAtMs: this.now() });
-      turn.items.push(item);
-      summary.push(item);
+      // An interrupted turn's agent message never completes (S3 capture L899-L907: its
+      // item/started and delta, then idle and turn/completed, and no item/completed for it).
+      if (status !== 'interrupted') {
+        this.broadcast(th, this.t.agentItemCompleted, { ...structuredClone(this.t.agentItemCompleted.params), item: structuredClone(item), threadId: th.id, turnId: turn.id, completedAtMs: this.now() });
+        turn.items.push(item);
+        summary.push(item);
+      }
     }
     turn.status = status;
     turn.completedMs = this.now();

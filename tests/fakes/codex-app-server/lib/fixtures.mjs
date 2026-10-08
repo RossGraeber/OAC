@@ -27,6 +27,8 @@ export const FIXTURE_FILES = {
   g5Steer: 'g5-provenance/transcript-codex-2026-10-02-0.160.0-herdr.jsonl',
   // #343: the Stage 1 capture for Gate S3 criterion 5 (refusals, interrupt, idle add, unloaded).
   s3: 's3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl',
+  // #343 review: items already queued when a turn is interrupted (row e's first half).
+  s3QueuedInterrupt: 's3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl',
 };
 
 export const fixturePath = (key) => `${FIXTURE_DIR}/${FIXTURE_FILES[key]}`;
