@@ -32,6 +32,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use oac_core::delivery::ErrorCode;
 use oac_core::json::{self, Json};
 use oac_fake_claude::evidence::{member, member_str};
 
@@ -52,6 +53,10 @@ pub const PROFILE: Profile = Profile {
         ("MCPB-CDX-004", Rule::Never("turn/steer")),
         ("MCPB-CDX-005", Rule::NoOverrides),
     ],
+    // A Codex harness turns a hand-off away with the recorded archived refusal
+    // ([`CodexFake::set_archived`]), which section 8.2.1 classifies `handoff-failed`
+    // ([SC-DLV-009]), not "cannot take input now" ([SC-DLV-008]).
+    turned_away_code: Some(ErrorCode::HandoffFailed),
 };
 
 /// The client name of the suite's own "TUI user" connection.

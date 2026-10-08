@@ -506,7 +506,13 @@ fn the_channel_stand_in_passes_under_both_mid_turn_release_settings() {
         report.assert_conformant();
         assert_eq!(
             report.not_applicable(),
-            ["IFC-ADP-043", "IFC-ADP-053", "IFC-ADP-054", "SEC-AUZ-027"],
+            [
+                "IFC-ADP-043",
+                "IFC-ADP-053",
+                "IFC-ADP-054",
+                "SC-DLV-009",
+                "SEC-AUZ-027"
+            ],
             "{report}"
         );
     }
@@ -660,6 +666,10 @@ enum QueueBreach {
     SteersElsewhere,
     /// Names a thread id in its health detail ([IFC-TYP-092]).
     HealthNamesThread,
+    /// Reports the recorded archived refusal as `not-now` ([SC-DLV-008]) instead of
+    /// `handoff-failed` ([SC-DLV-009]; `spec/bindings/mcp.md` section 8.2.1). The outcome
+    /// comes from `plant` (#347).
+    ReportsNotNow,
 }
 
 struct QueueStandIn {
@@ -796,6 +806,7 @@ impl ProviderAdapter for QueueStandIn {
                 );
                 HandOffOutcome::Failed
             }
+            Err(_) if self.breach == QueueBreach::ReportsNotNow => plant::turned_away_outcome(),
             // spec/bindings/mcp.md §8.2.1: none of the known refusals means "not now".
             Err(_) => HandOffOutcome::Failed,
         }
@@ -950,6 +961,7 @@ fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
         "MCPB-CDX-004",
         "MCPB-CDX-005",
         "SEC-AUZ-027",
+        "SC-DLV-009",
     ] {
         assert!(report.ids().contains(&id), "no {id} row:\n{report}");
     }
@@ -957,7 +969,7 @@ fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
 
 #[test]
 fn the_suite_catches_each_planted_queue_breach() {
-    let cases: [(QueueBreach, &[&str]); 7] = [
+    let cases: [(QueueBreach, &[&str]); 8] = [
         (
             QueueBreach::SteersElsewhere,
             &["SEC-AUZ-022", "MCPB-CDX-004"],
@@ -974,6 +986,7 @@ fn the_suite_catches_each_planted_queue_breach() {
         (QueueBreach::OverridesSettings, &["MCPB-CDX-005"]),
         (QueueBreach::PollsTurns, &["IFC-ADP-040"]),
         (QueueBreach::ResubscribesPerMessage, &["IFC-ADP-040"]),
+        (QueueBreach::ReportsNotNow, &["SC-DLV-009"]),
     ];
     for (breach, ids) in cases {
         let report = queue_report(breach);
