@@ -27,6 +27,33 @@ stays blocked until the lead decides.
   amendments the capture found. #345: the herdr driver self-test runs in no CI workflow.
   #224 and the required-checks decision (candidates in PR #330) are open.)
 
+**Last updated:** 2026-10-08 (**Gate S3 criterion 5: the fake Codex app-server models no
+unrecorded refusal** (PR #342 review finding 1; Refs #343, #6). No `spec/` file, gate
+verdict, pin, third-party dependency or ADR text changes.
+
+- **Fake.** The two subagent refusals and "no queue service" were the last fake behaviours
+  modelled from source only. An add to a subagent thread now answers the fake's own
+  `NOT_MODELLED` error, and the queue-unavailable control (`oacFake/queue/setAvailable`) is
+  removed. `oacFake/thread/create` makes only recorded thread states (PR #346 review
+  finding 1): it refuses an archived thread that is loaded, an ephemeral thread that is not
+  loaded, and the other unrecorded combinations. `NOT_MODELLED` answers an add before a
+  thread's first turn, a list taken while an ephemeral or archived thread exists, and a
+  `thread/turns/list` that would be empty or that covers a thread made materialized by
+  `oacFake/thread/create`, whose earlier turns the fake does not model.
+  `tests/fakes/codex-app-server/README.md` "Source-only behaviours" is now empty.
+- **Checks re-pointed.** The contract suite's turned-away hand-off ([SEC-AUZ-027]
+  `turned-away-makes-no-other-call`, [IFC-ADP-051] `completed-only-on-success`, and the
+  planted `FallsBackToSteer` breach) and the pipelines demonstration (`failed` /
+  `handoff-failed`, no steering fallback) used "no queue service". They now archive the
+  session's own thread (new test control `oacFake/thread/setArchived`) and get the
+  recorded archived refusal (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+  L1030-L1032). `spec/bindings/mcp.md` §8.2.1 names that refusal and classifies it
+  `handoff-failed` ([SC-DLV-009]), as it does "no queue service", so no expected outcome
+  changes. Both tests also check that the refusal is the recorded one, and the
+  demonstration now checks its call log for any steering call.
+- **Ledger.** `11-risks.md` row 65 gains a dated note; what Codex does in the three cases
+  stays open there and in the #274 entry below.)
+
 **Last updated:** 2026-10-07 (**Issue #343: the Stage 1 fixture capture for Gate S3
 criterion 5.** No `spec/` file, gate verdict, pin or ADR text changes, and no dependency is
 added. Codex's last tested version moves to `0.161.0` in PINS.md (#216: routine, not a pin
@@ -2387,6 +2414,9 @@ first-party guarantee.)*
     (which runs once the thread is loaded) and the ignored extra member are confirmed. Still open: whether any refusal means "not now", the
     subagent and no-queue-service refusals (no documented client request triggers them), and
     other clients reordering, updating or deleting a queued item.
+  - *Dated note, 2026-10-08 (Gate S3 criterion 5):* the fake Codex app-server no longer
+    models the subagent and no-queue-service refusals (it answers `NOT_MODELLED`), and no
+    test rests on them; they stay open here as Codex behaviour only.
 - **New, from the Stage 3 exit re-run (#6, 2026-10-08):** which connections live Codex
   sends a thread's notifications to. The S3 capture on Codex `0.161.0` saw
   `thread/status/changed`, `thread/closed`, `thread/goal/cleared` and `thread/archived` for
