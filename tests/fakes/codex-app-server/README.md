@@ -47,8 +47,8 @@ are logged in a separate control log (`control` in the `oacFake/calls` result, w
 | Method | Params | Result |
 |---|---|---|
 | `oacFake/turn/complete` | `threadId`; `status` `"completed"` (default) or `"interrupted"`; `agentText` (optional) | `{threadId, turnId, status, dispatched}`: ends the running turn. With `agentText` it first emits the agent message item. On `"completed"` the queue head is dispatched (`dispatched` is the new turn id, or `null`) |
-| `oacFake/thread/create` | `cwd`, `ephemeral`, `archived`, `subagent` (`"multi-agent-v2"` or `"thread-spawn"`), `loaded` (default `true`), `materialized` (default `true`) | `{threadId}`: a thread in a state the fixtures could not create, for the queue refusals. Every Codex method on a subagent thread answers `NOT_MODELLED` ("Not modelled") |
-| `oacFake/thread/setArchived` | `threadId`, `archived` (`true` or `false`) | `{threadId, archived, loaded}`: `true` puts an idle, materialized top-level thread with an empty queue into the state the S3 capture recorded after `thread/archive` (archived and not loaded, `cases-reload` L1023-L1030), so an add gets the recorded archived refusal (L1030-L1032); `false` puts it back, loaded and not archived. Test set-up only: it sends no frame, and models neither `thread/archive`'s notifications nor `thread/unarchive` |
+| `oacFake/thread/create` | `cwd`, `ephemeral`, `archived`, `subagent` (`"multi-agent-v2"` or `"thread-spawn"`), `loaded` (default `true`), `materialized` (default `true`, `false` when `ephemeral`) | `{threadId}`: a thread in a state the fixtures could not create, for the queue refusals. Only recorded states are made, and any other combination is refused (`-32602`): an archived thread must be `loaded: false` and materialized (S3 L1023-L1030); an ephemeral one loaded and not materialized (S3 L111-L119); a thread that is not loaded must be materialized (S3 L956-L1019); a subagent thread neither archived nor ephemeral. Every Codex method on a subagent thread answers `NOT_MODELLED` ("Not modelled") |
+| `oacFake/thread/setArchived` | `threadId`, `archived` (`true` or `false`) | `{threadId, archived, loaded}`: `true` puts an idle, materialized top-level thread with an empty queue into the state the S3 capture recorded after `thread/archive` (archived and not loaded, `cases-reload` L1023-L1030), so an add gets the recorded archived refusal (L1030-L1032); `false` puts it back, loaded and not archived. Test set-up only: it sends no frame, and models neither `thread/archive`'s notifications nor `thread/unarchive`. The restore leaves a recorded state (loaded and idle, S3 L981-L1018) by a transition that was not recorded (no `thread/unarchive` capture); no current check depends on that transition being real |
 | `oacFake/calls` | `clientName` (optional filter) | `{calls, steering, overrideMembers, handOffs, malformed, control}`: the call log (below); `steering` to `malformed` are `seq` lists; `control` is the control log |
 | `oacFake/thread/state` | `threadId` | `{loaded, materialized, activeTurnId, lastTurnInterrupted, queue, turns, subscribers}` |
 | `oacFake/templates` | none | which fixture file and line each replayed template came from |
@@ -172,6 +172,10 @@ error message or frame for these:
   `subagent`): `thread/queue/add` to it, loaded or not, and `thread/list` or
   `thread/loaded/list` while one would be listed. No fixture records a subagent thread, so
   the fake gives neither of upstream's subagent refusals nor an acceptance;
+- `thread/queue/add` to a thread before its first turn (made by `thread/start`, or with
+  `materialized: false`): every recorded accepted add went to a thread that had run a turn;
+- `thread/list` while an ephemeral or archived thread exists, and `thread/loaded/list`
+  while an ephemeral thread is loaded: no recorded list was taken in either state;
 - a host with no queue service (upstream's `user message queue is unavailable`): no fixture
   records one, and the fake has no control that makes one;
 - `turn/interrupt`, `thread/unsubscribe`, `thread/archive` and `thread/start` with

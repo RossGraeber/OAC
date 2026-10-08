@@ -11,7 +11,11 @@ verdict, pin, third-party dependency or ADR text changes.
 - **Fake.** The two subagent refusals and "no queue service" were the last fake behaviours
   modelled from source only. An add to a subagent thread now answers the fake's own
   `NOT_MODELLED` error, and the queue-unavailable control (`oacFake/queue/setAvailable`) is
-  removed. `tests/fakes/codex-app-server/README.md` "Source-only behaviours" is now empty.
+  removed. `oacFake/thread/create` makes only recorded thread states (PR #346 review
+  finding 1): it refuses an archived thread that is loaded, an ephemeral thread that is not
+  loaded, and the other unrecorded combinations. `NOT_MODELLED` answers an add before a
+  thread's first turn, and a list taken while an ephemeral or archived thread exists.
+  `tests/fakes/codex-app-server/README.md` "Source-only behaviours" is now empty.
 - **Checks re-pointed.** The contract suite's turned-away hand-off ([SEC-AUZ-027]
   `turned-away-makes-no-other-call`, [IFC-ADP-051] `completed-only-on-success`, and the
   planted `FallsBackToSteer` breach) and the pipelines demonstration (`failed` /

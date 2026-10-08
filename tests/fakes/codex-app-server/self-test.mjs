@@ -441,6 +441,50 @@ await test('refusals: ephemeral, archived and missing thread as recorded (S3 cap
   eq(control(fake, 'oacFake/calls', { clientName: 'adapter' }).calls.filter((x) => !['thread/queue/add', 'thread/loaded/list', 'thread/list'].includes(x.method)).map((x) => x.method), ['initialize', 'initialized'], 'no fallback call was made by the fake');
 });
 
+await test('thread/create makes only recorded states: unrecorded combinations are refused, and no add is accepted in one', () => {
+  const fake = new FakeCodexAppServer();
+  const c = client(fake, 'adapter');
+  const ctl = client(fake, 'oac-fake-control', { init: false });
+  const create = (p) => ctl.request('oacFake/thread/create', p);
+  // Refused at create: no fixture records these states.
+  // Each is refused by its own guard: the reason names it.
+  const refused = [
+    [{ archived: true }, 'archived'], // archived but loaded: the S3 capture's archived thread was notLoaded (L1024-L1026)
+    [{ archived: true, loaded: true }, 'archived'],
+    [{ archived: true, loaded: false, materialized: false }, 'archived'],
+    [{ archived: true, loaded: false, ephemeral: true }, 'archived'],
+    [{ ephemeral: true, loaded: false }, 'ephemeral'], // the recorded ephemeral refusal is for a loaded thread (L111-L119)
+    [{ ephemeral: true, materialized: true }, 'ephemeral'],
+    [{ loaded: false, materialized: false }, 'not loaded'],
+    [{ subagent: 'multi-agent-v2', ephemeral: true }, 'subagent'],
+    [{ subagent: 'thread-spawn', archived: true, loaded: false }, 'subagent'],
+  ];
+  for (const [p, why] of refused) {
+    const e = create(p).error;
+    eq(e?.code, -32602, `create ${JSON.stringify(p)} is refused`);
+    assert(e.message.includes(why), `create ${JSON.stringify(p)} is refused for the ${why} guard: ${e.message}`);
+  }
+  eq(fake.threads.size, 0, 'no thread was made');
+  // The recorded states are made, and their adds answer as recorded.
+  const mk = (p) => create(p).result.threadId;
+  const arch = mk({ archived: true, loaded: false });
+  eq(add(c, arch).error.code, -32600, 'archived add refused (S3 L1030-L1032)');
+  const eph = mk({ ephemeral: true });
+  eq(control(fake, 'oacFake/thread/state', { threadId: eph }).loaded, true, 'an ephemeral thread is loaded');
+  eq(add(c, eph).error.code, -32600, 'ephemeral add refused (S3 L114-L119)');
+  // An archived thread refuses the add whether or not it is loaded (the handler does not
+  // depend on create's guard).
+  fake.threads.get(arch).loaded = true;
+  eq(add(c, arch).error.code, -32600, 'archived and loaded: still the archived refusal');
+  // A thread before its first turn (thread/start, no turn): no fixture records an add to one.
+  const fresh = c.ok('thread/start', {}).thread.id;
+  eq(add(c, fresh).error.code, NOT_MODELLED, 'an add before the first turn is NOT_MODELLED');
+  eq(control(fake, 'oacFake/thread/state', { threadId: fresh }).queue.length, 0, 'nothing queued');
+  // No fixture records a list taken while an ephemeral or archived thread exists.
+  eq(c.request('thread/list', { cursor: null, limit: 5, sortKey: 'created_at' }).error.code, NOT_MODELLED, 'thread/list with an ephemeral or archived thread');
+  eq(c.request('thread/loaded/list', {}).error.code, NOT_MODELLED, 'thread/loaded/list with a loaded ephemeral thread');
+});
+
 await test('archive control: a thread put into the recorded archived state gets the recorded refusal, and takes adds again once put back', () => {
   const fake = new FakeCodexAppServer();
   const { threadId } = idleThread(fake);

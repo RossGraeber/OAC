@@ -408,6 +408,9 @@ impl CodexFake {
     /// "session <id> is archived. ..."` (L1030-L1032), which `spec/bindings/mcp.md` section
     /// 8.2.1 names among the add's refusals and classifies `handoff-failed` ([SC-DLV-009]).
     /// Put back, it is loaded and idle again. The thread must be idle with an empty queue.
+    /// The restore leaves a recorded state (loaded and idle, S3 L981-L1018) by a transition
+    /// that was not recorded (no `thread/unarchive` capture); no current check depends on
+    /// that transition being real.
     pub fn set_archived(&self, thread: &str, archived: bool) {
         self.control(
             "oacFake/thread/setArchived",
