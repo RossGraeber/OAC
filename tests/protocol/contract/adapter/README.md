@@ -2,8 +2,8 @@
 
 The adapter contract suite (#59, F10). It is one suite, written against
 `dyn oac_core::adapter::ProviderAdapter`, that every adapter runs unchanged against the fake
-harnesses. It is test-only. The real adapters run it from this crate's own tests, under a
-harness that lives in this crate (see "Where a harness lives").
+harnesses. It is test-only: an adapter takes it as a dev-dependency, and runs it from its own
+`tests/contract.rs` (see "Where a harness lives").
 
 - `src/lib.rs` holds the suite and its report.
 - `src/claude.rs` and `src/codex.rs` hold the harnesses over the fake Claude Code endpoint
@@ -16,7 +16,7 @@ harness that lives in this crate (see "Where a harness lives").
 - `tests/real_adapters.rs` runs the static scan against `adapters/claude` and
   `adapters/codex`.
 - `tests/path_modules.rs` runs the scan on scratch crates on disk.
-- `tests/harness_location.rs` checks that every harness lives in this crate.
+- `tests/harness_location.rs` checks where a harness may live.
 
 ## What a harness may not change
 
@@ -35,23 +35,40 @@ binding, and why the rest are honestly not applicable.
 
 ## Where a harness lives
 
-The harness a real adapter runs under lives in this crate. `claude::ClaudeHarness` is in
-`src/claude.rs`, and the Codex harness (G7) goes in `src/codex.rs` or
-`tests/real_adapters.rs`, never in an adapter's own `tests/`.
+The dependency direction is the documented one (07 §3, `scripts/check-crate-deps.mjs` rule 5,
+this crate's `Cargo.toml`): an adapter takes this suite as a dev-dependency, and the suite
+never depends on an adapter. So the harness a real adapter runs under lives in that adapter,
+at exactly one fixed path: **`adapters/<name>/tests/contract.rs`**. It may use what this
+crate gives it (`claude::ClaudeHarness`, `codex::CodexFake`).
 
-The suite cannot see a harness that fabricates or filters what the fake observed. Gate S4
-criterion 1 bounds that risk with a diff of `tests/protocol/contract/` against the suite's
-baseline, and the bound holds only for a harness inside that diff.
+The suite's own checks bound what a harness can do. What they cannot see is a harness that
+fabricates or filters what the fake observed. That residual is covered by reviewing the one
+fixed file, and Gate S4 evidence for an adapter must cite it at the commit that ran.
 
-`tests/harness_location.rs` checks this mechanically:
+`tests/harness_location.rs` keeps this mechanical:
 
-- only the packages in its `ALLOWED_DEPENDENTS` list depend on `oac-contract-adapter`. This
-  is read from `cargo metadata`, under any name or dependency kind. Today the list names only
-  `oac-transport-memory`, whose pipeline test drives the fakes. No adapter may be on it. The
-  list lives in this crate, so a new dependent is a diff the baseline shows;
-- those packages implement no `AdapterHarness`, and never rename this crate, glob its
-  items, or reach its `run`;
-- no other Rust file names `AdapterHarness`.
+- **Who may depend on the suite.** Only an adapter, `adapters/mcp-tools` (#352 lets it
+  dev-depend on a suite), and the packages in `ALLOWED_DEPENDENTS` may depend on
+  `oac-contract-adapter`. Today that list names only `oac-transport-memory`, whose pipeline
+  test drives the fakes. An adapter or the tool crate depends on the suite as a
+  dev-dependency only. No dependent renames it (`package = ..`).
+- **Which files may touch the harness.** In an adapter, only `tests/contract.rs` names
+  `AdapterHarness` or `oac_contract_adapter`, or reaches `run`. No other file outside this
+  crate and the listed packages names either.
+- **Shapes that could hide a harness.** The harness file and an adapter's other test files
+  hold no `self as` import, `macro_rules!`, `include!` (any form) or `#[path]`. The harness
+  file also holds no file module (`mod x;`) and no glob or renamed import, so it reads as
+  one file.
+- **What a listed package may do.** It may name `AdapterHarness` to drive the fakes'
+  harnesses. It may not implement or rename it, rename the suite, glob the suite's items,
+  reach `run`, or hold those shapes.
+- **What the walk skips.** It skips `target`, `.claude`, `.agents`, `node_modules` and
+  `.git` only at the repository root, and a cargo target directory (one with
+  `CACHEDIR.TAG`) anywhere. A symlink fails.
+
+These are text rules. What really bounds a listed transport is
+`scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness hidden
+there could only drive a stand-in.
 
 ## What an adapter's sources may not hold
 

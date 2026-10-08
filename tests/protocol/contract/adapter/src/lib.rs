@@ -72,17 +72,33 @@
 //!
 //! # Where a harness lives
 //!
-//! **The harness a real adapter runs under lives in this crate**: [`claude::ClaudeHarness`]
-//! in `src/claude.rs`, and the Codex harness (G7) in `src/codex.rs` or
-//! `tests/real_adapters.rs`, never an adapter's own `tests/`. The real-adapter runs are
-//! this crate's tests. `tests/harness_location.rs` checks it: only the packages its
-//! reviewed list names (none an adapter) depend on this crate, and they implement no
-//! harness and never reach [`run`]; no other Rust file names `AdapterHarness`.
+//! An adapter takes this suite as a dev-dependency, and the suite never depends on an
+//! adapter: 07 section 3, `scripts/check-crate-deps.mjs` rule 5, and this crate's
+//! `Cargo.toml`. So **the harness a real adapter runs under lives in that adapter, at
+//! exactly one fixed path: `adapters/<name>/tests/contract.rs`**. It may use what this
+//! crate gives it, such as [`claude::ClaudeHarness`] or [`codex::CodexFake`].
 //!
-//! What stays out of reach: a harness that fabricates or filters [`Observations`], or
-//! returns `Ok` from a step it did not do in a way the observations do not show. Because the
-//! harness lives here, Gate S4 criterion 1 covers that: a harness edit under
-//! `tests/protocol/contract/` shows as a diff against the suite's baseline.
+//! The suite's own checks bound what a harness can do, as above. What they cannot see is a
+//! harness that fabricates or filters [`Observations`], or returns `Ok` from a step it did
+//! not do in a way the observations do not show. That residual is covered by reviewing
+//! the one fixed file. Gate S4 evidence for an adapter must cite it, at the commit run.
+//!
+//! `tests/harness_location.rs` keeps the rule mechanical:
+//! - Only an adapter, `adapters/mcp-tools` and its listed packages (`oac-transport-memory`)
+//!   depend on this crate. The adapter and the tool crate do so as a dev-dependency only,
+//!   and none under another name.
+//! - In an adapter, only `tests/contract.rs` names `AdapterHarness` or this crate, or
+//!   reaches [`run`]. No other file outside this crate and the listed packages names
+//!   either.
+//! - The harness file and an adapter's other test files hold no `self as` import,
+//!   `macro_rules!`, `include!` or `#[path]`. The harness file also holds no file module and
+//!   no glob or renamed import.
+//! - A listed package may drive the fakes' harnesses, but may not implement or rename
+//!   `AdapterHarness`, reach [`run`], or hold those shapes.
+//!
+//! Those are text rules. What really bounds a listed transport is
+//! `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness
+//! hidden in it could drive only a stand-in.
 
 pub mod claude;
 pub mod codex;
@@ -1022,7 +1038,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             // running: a harness whose `start_turn` returns Ok without starting one would
             // make both rows pass without a busy session (#351, PR #355 review R2).
             // While the turn runs the harness holds both, so it must report at least two
-            // held inputs and neither among the inputs taken.
+            // held inputs and neither among the inputs taken. The held count is what the
+            // planted TurnNoop pins. The inputs check is defence in depth: no planted breach
+            // pins it, since only a harness that misreports Observations (the declared
+            // residual) could pass the held count and still let a message through.
             let mut not_busy: Vec<String> = [a, b]
                 .iter()
                 .filter(|(t, _)| took(during, t))
