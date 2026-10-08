@@ -155,6 +155,16 @@ function clientCaps(ex) {
   }
   return null;
 }
+// Pairing values (spec/bindings/mcp.md §4.5.2, [MCPB-ATT-005]).
+const PAIRING_VALUE = /^oac-pair-[0-9a-f]{32}$/;
+const isPairingWord = (w) => /^oac-pair-/i.test(w);
+// The result of a call refused with `unauthorized` on an unbound Codex connection whose
+// server pairs, or null.
+function pairingRefusal(ex, ctx) {
+  if (ctx.codex_pairing !== true || ctx.bound !== false || !isOacToolCall(ex)) return null;
+  const res = result(ex);
+  return isToolError(res) ? res : null;
+}
 const successResult = (ex) => {
   const res = result(ex);
   return res !== null && res.isError !== true ? res : null;
@@ -242,6 +252,50 @@ const CHECKS = {
     if (!isOacToolCall(ex) || ctx.bound !== false) return true;
     const res = result(ex);
     return isToolError(res) && codesInResult(res, env.table83).includes('unauthorized');
+  },
+
+  // §4.5 Codex issued-value pairing (binding revision 0.2). A pairing refusal is the
+  // `unauthorized` refusal of a call on an unbound Codex connection that carries a value of
+  // the `oac-pair-` form; the checks below apply only where `context.codex_pairing` is true.
+  'MCPB-ATT-004': (ex, ctx) => {
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    const anywhere = stringsIn(res).flatMap(wordsIn).filter(isPairingWord);
+    const inText = new Set(textBlocks(res).flatMap(wordsIn).filter(isPairingWord));
+    return anywhere.every((w) => inText.has(w));
+  },
+  'MCPB-ATT-005': (ex, ctx) => {
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    return stringsIn(res).flatMap(wordsIn).filter(isPairingWord).every((w) => PAIRING_VALUE.test(w));
+  },
+  // A connection the server cannot pair gets no pairing value at all.
+  'MCPB-ATT-022': (ex, ctx) => {
+    if (ctx.pairing_possible !== false) return true;
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    return !stringsIn(res).flatMap(wordsIn).some(isPairingWord);
+  },
+  // During an open pairing window, every value a refusal carries is that window's.
+  'MCPB-ATT-025': (ex, ctx) => {
+    if (typeof ctx.open_pairing_value !== 'string') return true;
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    return stringsIn(res).flatMap(wordsIn).filter(isPairingWord).every((w) => w === ctx.open_pairing_value);
+  },
+  // A pairing refusal never carries the value of an ended window (or another connection's).
+  'MCPB-ATT-026': (ex, ctx) => {
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    const ended = ctx.issued_pairing_values || [];
+    return !stringsIn(res).flatMap(wordsIn).filter(isPairingWord).some((w) => ended.includes(w));
+  },
+  // A value issued before this exchange appears in none of the server's messages here.
+  'MCPB-ATT-006': (ex, ctx) => {
+    if (ctx.codex_pairing !== true) return true;
+    const issued = ctx.issued_pairing_values || [];
+    const msgs = [ex.server_message, ...related(ex), ...serverEntries(subsequent(ex)).map((e) => e.message).filter(Boolean)];
+    return !msgs.some((m) => issued.some((v) => containsString(m, v)));
   },
 
   // §5 tools.

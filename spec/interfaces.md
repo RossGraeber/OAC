@@ -2,8 +2,10 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of
-PR #276 (E7, #47). Written by #273.
+**Revision:** 0.2, a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
+force from the merge of PR #276; E7, #47), made under
+`docs/planning/decisions/E7-interface-freeze.md` §7 (issue #69, PR #350). Written by #273. Appendix B
+records the change.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
 their rules. It says which part of an implementation carries out each of them (Appendix C),
@@ -446,11 +448,15 @@ authenticated the process at the other end ([IFC-ADP-012]). An **attachment**
 | `start_kind` | one of `fresh`, `transition`, `unmapped` | zero or once; absent when the harness reported none |
 | `cross_check` | string, the signal's cross-check value | zero or once |
 | `connection` | the `Connection` on which the signal arrived | zero or once; absent when no local connection carried it |
+| `revealed` | string, a pairing value (§5.6) that the adapter found in the harness's own report | zero or once; present only when the adapter binding document makes the signal a reveal |
 
 It has no pairing key. The pairing key is what the core process observes from the operating
 system about the peer of a `Connection` ([SC-ID-121], [IFC-ADP-012]); a signal that arrived
 on no local connection has none, unless the adapter binding document names one that the core
-process observes itself.
+process observes itself. `revealed` is such a key: a value the core itself issued on one
+attachment (§5.6), which the harness reported back. It narrows the candidates that the
+operating-system key leaves to the attachment it was issued on ([SC-ID-125]); it never
+replaces that key, and it is never a value the attaching process chose.
 
 **`AdapterCapabilities`** — what an adapter can do for one attachment: `active_inbound` (a
 boolean), `content_types` (part types it can hand off besides `text`, optional) and
@@ -478,12 +484,12 @@ uncorrelated ([SC-RCP-050] to [SC-RCP-052]).
 
 | Outcome | Members | When (`spec/bindings/mcp.md` §5.3 gives the same split) |
 |---|---|---|
-| `refused` | `error`, an `ErrorCode` whose scope in Table 8.3 includes `request` | no envelope was created ([SC-RCP-075], Table 8.3.3) |
+| `refused` | `error`, an `ErrorCode` whose scope in Table 8.3 includes `request`; optionally `pairing_value`, a pairing value (§5.6), only with `unauthorized` | no envelope was created ([SC-RCP-075], Table 8.3.3) |
 | `not-passed` | `id`, the envelope's `id`; `state`, `failed`; `error`, `transport-failure` or `internal-error` | an envelope was created but not passed to a transport (`spec/session-channels.md` §8.4.1; [IFC-TRN-032]) |
 | `sent` | `id`; `state`, `accepted-by-adapter`; for a reply, `correlated` or `uncorrelated` ([SC-RCP-055]); an event stream of the `DeliveryReceipt` values that the core later holds for the envelope | the envelope was passed to a transport |
 
 For a `DiscoveryRequest`: the discovery result (an array of `SessionDescriptor`), or
-`refused` with an `ErrorCode`.
+`refused` with an `ErrorCode` and, as for a `SendRequest`, optionally a `pairing_value`.
 
 **`ProvenanceSet`** — the provenance set of `spec/security.md` §12.1: sender, device,
 session, message id and reply target.
@@ -638,6 +644,7 @@ a session has no session id until the core binds it, and the descriptor is the c
 | `native-signal` | `signal`, a `NativeSignal` | a native signal arrived through the surface the adapter binding document names as authoritative for N |
 | `capabilities-changed` | `attachment` | `capabilities` for that attachment would now return a different value |
 | `attachment-closed` | `attachment` | the attachment ended |
+| `attachment-unconfirmed` | `attachment` | the adapter could not confirm, through a surface its binding document names, that a request on the bound attachment comes from the bound session |
 
 The core pairs each native signal with an attachment using the pairing keys it observed for
 both connections, and applies the ordered cases of `spec/session-channels.md` §6.7.3.
@@ -654,6 +661,23 @@ The core then deregisters the binding ([SC-ID-155]) and issues a withdrawal ([SC
 returns for an attachment changes.
 
 The core then issues a new announcement ([SC-DLV-052]).
+
+[IFC-ADP-091] An adapter that reports `attachment-unconfirmed` for a request MUST report it
+before it passes that request to the core.
+
+The core then refuses the request as one from an attachment it does not serve, so a request
+the adapter could not confirm is never served. An adapter whose binding document names no
+confirmation never reports the event (for one v0.1 harness, `spec/bindings/mcp.md` §4.5
+names one).
+
+[IFC-ADP-092] On `attachment-unconfirmed`, the core MUST stop accepting requests from, and
+handing off to, that attachment until a later native signal is paired with it.
+
+[IFC-ADP-093] On `attachment-unconfirmed`, the core MUST record a finding.
+
+The stop is the one [SC-ID-154] imposes after an unattributed signal, and it ends the same
+way: a later paired signal, which for an attachment already bound to the same harness-native
+id leaves its binding unchanged ([SC-ID-130]).
 
 `set_binding` tells the adapter the core's binding for one attachment: the session id it
 bound, or none when the attachment is unbound, its binding ended, or delivery to it is
@@ -769,6 +793,16 @@ with its outcome and its `ErrorCode` unchanged.
 
 An adapter binding document says how the harness's surface carries the result; the meaning
 does not change on the way.
+
+**Pairing values.** An adapter binding document can make the harness's own report of a
+refused request a native signal, by having the refusal carry a value the core issued on that
+attachment (for one v0.1 harness, `spec/bindings/mcp.md` §4.5). The core issues the value in
+the `pairing_value` of an `unauthorized` refusal; the adapter returns it to the harness as its binding document says
+(`spec/bindings/mcp.md` [MCPB-ATT-004]) and reports any harness report that carries it back as a `native-signal` whose
+`revealed` is that value ([IFC-ADP-020]).
+
+[IFC-ADP-090] The core MUST draw each pairing value it issues from a cryptographically secure
+random source, with at least 128 bits of entropy.
 
 [IFC-ADP-062] An adapter MAY present to the harness the `DeliveryReceipt` values that arrive on
 a `sent` result's event stream. An adapter that does not still returns the `RequestResult`,
@@ -1320,6 +1354,10 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-070 | MUST NOT | 5.7 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-071 | MUST | 5.7 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-080 | MUST | 5.8 | TODO(fixture): document review at each adapter's task; G4-G8 |
+| IFC-ADP-090 | MUST | 5.6 | TODO(fixture): randomness is not decided by a data fixture; G8 (#69) review of the core's source of pairing values. The value's form is fixtured under `spec/bindings/mcp.md` [MCPB-ATT-005] |
+| IFC-ADP-091 | MUST | 5.4 | TODO(fixture): F10 adapter suite with G8 (#69): a request that fails confirmation → the event is reported before the request reaches the sink |
+| IFC-ADP-092 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): after the event, requests from the attachment are refused with `unauthorized` and nothing is handed off to it, until a paired native signal |
+| IFC-ADP-093 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): the event → one finding |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |
@@ -1372,6 +1410,7 @@ Its rule moved to [IFC-ADP-012], with the pairing key now observed by the core p
 | 0.1 (draft) | 2026-10-04 | #273 (E7 blocker B1, #47): document written from the merged Stage 2 specifications. Core neutral types mapped to their wire forms, with local members kept out of payloads; the adapter contract with binding signals, hand-off outcomes, the request sink and the owner index; the transport contract carrying envelopes, authenticated presence records and authenticated receipts, with the declared capability set and the cross-implementation gate; neutrality and containment with the listed exceptions; requirement prefix `IFC`; fixtures under `tests/protocol/ifc-typ/` and `tests/protocol/ifc-trn/`. Supersedes `docs/planning/v0.1/05-interfaces.md` §13-§15. |
 | 0.1 (draft) | 2026-10-04 | Review of PR #279 and the operator rulings on #273: operations whose meaning changed renamed (`take_connection`, `watch_attachments`, `set_binding`, `accept_requests`, `send_presence`); persistence and offline queueing declared absent, and a transport holds a copy only in flight and never past its deadline or across a restart (IFC-TRN-026, IFC-TRN-033 to IFC-TRN-037); the `not-passed` request result; Appendix C gives every `MUST` and `MUST NOT` of the four documents one owner, checked by the reference runner; connections are created and authenticated by the core process (IFC-ADP-012, IFC-ADP-013); transport non-disclosure of subscriptions (IFC-TRN-043, IFC-TRN-044); `ChannelMessage` keeps unrecognized members (IFC-TYP-003); scope and device grants in Table 4.9; receipts addressed to the verifying key; the hand-off never steers and is made at most once (IFC-ADP-057, after #278); single-member negative fixtures for IFC-TYP-050 and IFC-TYP-060. |
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
+| 0.2 | 2026-10-08 | #69, PR #350, with `spec/bindings/mcp.md` 0.2 (the issued-value pairing for one v0.1 harness, §4.5 there): `NativeSignal` gains `revealed` and a `refused` result gains `pairing_value` (§4.10); the `attachment-unconfirmed` event (§5.4); IFC-ADP-090 (pairing values drawn from a secure random source), IFC-ADP-091 (the event comes before the request), IFC-ADP-092 and IFC-ADP-093 (the core stops serving the attachment until it is paired again, and records a finding); Appendix C gives owners to the `MUST` and `MUST NOT` requirements among MCPB-ATT-004 to MCPB-ATT-026, and to MCPB-CDX-006. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7: no wire form changes, the added members are optional, and every new `MUST` binds only an implementation that issues pairing values or receives the new event, so an implementation conformant to 0.1 stays conformant. |
 
 ## Appendix C. Owner index
 
@@ -1408,14 +1447,15 @@ carries the requirement out.
 | MCPB-DLV | adapter | 001, 002 |
 | MCPB-EXT | adapter | 001, 002, 003, 004 |
 | MCPB-ERA | adapter | 001, 002, 003, 004, 005, 007, 008, 009, 011 |
-| MCPB-ATT | core | 001, 002 |
+| MCPB-ATT | adapter | 004, 006, 008, 013, 014, 015, 018, 020, 021 |
+| MCPB-ATT | core | 001, 002, 005, 007, 009, 010, 011, 012, 016, 019, 022, 023, 025, 026 |
 | MCPB-TOOL | adapter | 001, 002, 003, 004, 005, 006, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021 |
 | MCPB-META | adapter | 001, 002, 003, 004, 005, 006, 007 |
 | MCPB-FBK | adapter | 001 |
 | MCPB-CLD | adapter | 001, 002, 003 |
-| MCPB-CDX | adapter | 001, 002, 003, 004, 005 |
-| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071 |
-| IFC-ADP | core | 011, 012, 042, 055 |
+| MCPB-CDX | adapter | 001, 002, 003, 004, 005, 006 |
+| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 091 |
+| IFC-ADP | core | 011, 012, 042, 055, 090, 092, 093 |
 | IFC-ADP | binding | 080 |
 | IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081 |
 | IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080 |

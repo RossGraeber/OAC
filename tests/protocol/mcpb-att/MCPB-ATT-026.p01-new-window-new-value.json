@@ -1,0 +1,48 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-ATT-026",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.2",
+  "kind": "positive",
+  "description": "After an earlier pairing window ended, the pairing refusal that opens a new window carries a new value.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": false,
+    "codex_pairing": true,
+    "issued_pairing_values": [
+      "oac-pair-3f9c2a7e10b84d6c95e1a0f27b4c8d35"
+    ]
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+          "name": "whoami",
+          "arguments": {}
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unauthorized: this connection is not yet paired with a session; pairing value oac-pair-5b0e8a2c19d74f63a8c2e1f0b4d97a16. You can call the tool once more."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

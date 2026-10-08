@@ -1,0 +1,45 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-ATT-005",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.2",
+  "kind": "positive",
+  "description": "The pairing value is oac-pair- followed by 32 lower-case hexadecimal digits.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": false,
+    "codex_pairing": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+          "name": "whoami",
+          "arguments": {}
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unauthorized: this connection is not yet paired with a session; pairing value oac-pair-3f9c2a7e10b84d6c95e1a0f27b4c8d35. Call the tool again."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

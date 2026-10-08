@@ -1,0 +1,60 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-ATT-006",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.2",
+  "kind": "negative",
+  "failure_mode": "pairing value echoed in another result",
+  "description": "A send result echoes the call's content, and with it a pairing value issued earlier on another connection; a Codex report of this result would reveal that value for the wrong thread.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "codex_pairing": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": true
+    },
+    "issued_pairing_values": [
+      "oac-pair-8d21c6f0e93a4b57a2c4e18f06d7b9a1"
+    ]
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+            "content": [
+              {
+                "type": "text",
+                "text": "The other thread was told oac-pair-8d21c6f0e93a4b57a2c4e18f06d7b9a1."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"id\":\"msg-01hzx3k8q2v6w9m4t7p0r5s1yc\",\"state\":\"accepted-by-adapter\",\"sent\":\"The other thread was told oac-pair-8d21c6f0e93a4b57a2c4e18f06d7b9a1.\"}"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}
