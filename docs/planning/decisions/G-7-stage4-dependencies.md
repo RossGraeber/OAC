@@ -299,10 +299,12 @@ before any adapter code exists, not an edit to make a real module pass.
 - **Baseline candidate:** the head commit of the PR that adds this record, for
   `tests/protocol/contract/`.
 - **Parallel pre-adapter change:** #347 (PR #348, branch
-  `test/347-handoff-failed-assertion`) edits `tests/protocol/contract/adapter/src/lib.rs`,
-  `src/plant.rs`, `src/claude.rs`, `src/codex.rs` and `tests/stand_in.rs`. This PR touches
-  none of those files. The Gate S4 baseline is `tests/protocol/contract/` on `main` once both
-  have merged; the Stage 4 exit record cites that merge commit.
+  `test/347-handoff-failed-assertion`; its own baseline candidate `ba9cf83`) edits
+  `tests/protocol/contract/adapter/src/lib.rs`, `src/plant.rs`, `src/claude.rs`,
+  `src/codex.rs` and `tests/stand_in.rs`. This PR edits none of those files. PR #348 merged
+  first (`d28237a`) and this branch merged `main` after it, so the head of this PR holds both
+  changes, and its merge commit is the Gate S4 baseline for `tests/protocol/contract/`; the
+  Stage 4 exit record cites that merge commit.
 
 ---
 
