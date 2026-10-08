@@ -21,7 +21,7 @@ import { homedir, platform, release, arch, type } from 'node:os';
 import { basename, join, posix, win32 } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runBounded } from './proc.mjs';
-import { canonicalForms, guardHolds, keepsBasename, rootGuard } from './canonical-path.mjs';
+import { canonicalForms, guardHolds, harnessHomeGuard, keepsBasename } from './canonical-path.mjs';
 
 // 2 (#140): herdr.executable, harnessExecutables, captures[].sha256.
 // 3 (#252): herdr.executableCheck, the comparison with PINS.md's expected herdr sha256.
@@ -177,7 +177,9 @@ export async function executableIdentity(path, { requested, env = process.env } 
   const real = exe?.real[0] ?? path;
   const id = { requested, resolved: true, basename: basename(path), realBasename: basename(real), sha256: null, bytes: null, format: null };
   if (!exe) return { ...id, notRead: 'could not be canonicalized (realpath failed); never read (fail closed, #353)' };
-  const homes = harnessConfigDirs(env).map((d) => rootGuard(d));
+  // harnessHomeGuard (#357): a home reporting no file identity (ino 0) fails closed, and an
+  // ino-only match on another device (overlayfs merged vs lower/upper) counts as inside.
+  const homes = harnessConfigDirs(env).map((d) => harnessHomeGuard(d));
   if (homes.some((h) => !h)) return { ...id, notRead: 'a harness config directory could not be canonicalized or its identity read; nothing read (fail closed, ADR-001 boundary 3, #353)' };
   // A harness may keep its managed binary under its config directory (Codex's standalone
   // install: a launcher directory linked to $CODEX_HOME/packages/standalone/releases/<v>/bin/).

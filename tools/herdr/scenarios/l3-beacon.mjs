@@ -114,7 +114,7 @@ import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVers
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
-import { canonicallyWithin } from '../lib/canonical-path.mjs';
+import { canonicallyInside } from '../lib/canonical-path.mjs';
 import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
@@ -299,15 +299,24 @@ export const claudeProjectSlug = (dir) => String(dir).replace(/[^A-Za-z0-9]/g, '
  * The probe project's Claude session files, entry shapes only (readSessionFile, operator
  * decision 2026-09-30). This is a deliberate read inside the Claude config directory, limited
  * (#353, PR #356 review) to plain entries that stay under `projectsRoot`: a slug directory or a
- * `*.jsonl` that is a symlink, is not a regular file/directory, or resolves (by spelling or by
- * file identity) outside `projectsRoot` is skipped and counted, never read.
+ * `*.jsonl` that is a symlink, is not a regular file/directory, or is not verifiably (by
+ * spelling or by file identity) under `projectsRoot` is skipped and counted, never read. The
+ * containment check allows a read, so any error answers "not under it" (fail closed, #357:
+ * canonicallyWithin, a refusing guard, answered "inside" on error and so allowed the read). A
+ * `*.jsonl` with more than one hard link (nlink > 1) may be another file in the Claude config
+ * directory, such as a credential file: it is skipped and counted in `hardLinked` (#357).
  */
 export function readProjectSessionFiles(dirs, projectsRoot, markers) {
-  const sf = { dirsFound: 0, files: 0, lines: 0, entries: [], skipped: 0 };
+  const sf = { dirsFound: 0, files: 0, lines: 0, entries: [], skipped: 0, hardLinked: 0 };
   const plain = (p, want) => {
     try {
       const st = lstatSync(p);
-      return !st.isSymbolicLink() && (want === 'dir' ? st.isDirectory() : st.isFile()) && canonicallyWithin(p, projectsRoot);
+      if (st.isSymbolicLink() || !(want === 'dir' ? st.isDirectory() : st.isFile())) return false;
+      if (want === 'file' && st.nlink > 1) {
+        sf.hardLinked += 1;
+        return false;
+      }
+      return canonicallyInside(p, projectsRoot);
     } catch {
       return false;
     }
@@ -1077,7 +1086,8 @@ export default {
         const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
         const dirs = [...new Set([projectDir, realpathSync(projectDir)].map((d) => join(claudeHome, 'projects', claudeProjectSlug(d))))];
         const sf = { read: true, source: process.env.CLAUDE_CONFIG_DIR ? '$CLAUDE_CONFIG_DIR/projects/<slug>' : '~/.claude/projects/<slug>', ...readProjectSessionFiles(dirs, join(claudeHome, 'projects'), markers) };
-        if (sf.skipped) finding(`B2 session file: ${sf.skipped} session entr${sf.skipped === 1 ? 'y' : 'ies'} skipped, not read: a symlink, not a plain file or directory, or resolving outside the projects directory (#353)`);
+        if (sf.skipped) finding(`B2 session file: ${sf.skipped} session entr${sf.skipped === 1 ? 'y' : 'ies'} skipped, not read: a symlink, not a plain file or directory, hard-linked, or not verifiably inside the projects directory (#353, #357)`);
+        if (sf.hardLinked) finding(`B2 session file: ${sf.hardLinked} *.jsonl file${sf.hardLinked === 1 ? '' : 's'} with more than one hard link skipped, not read: a hard link may be another file in the Claude config directory (#357)`);
         if (!sf.dirsFound) finding('B2 session file: no Claude project directory was found for the scratch probe project (slug rule UNVERIFIED); session-file shape not recorded');
         l3.sessionFile = sf;
       } else {

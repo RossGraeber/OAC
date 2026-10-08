@@ -9,9 +9,15 @@
 // Canonicalizing a directory resolves its own entry (and its ancestors'); it never lists,
 // opens or reads anything inside it.
 //
+// Two directions (#357): a guard that refuses a read (canonicallyWithin: "is this inside a
+// harness home?") answers "inside" on any error; a guard that allows one (canonicallyInside:
+// "is this inside the one directory we may read?") answers "not inside" on any error. Both
+// fail closed.
+//
 // Residuals (documented in tools/herdr/README.md): a hard link to a file inside a home has no
-// path relation to it; and the check and the later open are separate calls, so a directory on
-// the path swapped for a link in between (TOCTOU) would redirect the open.
+// path relation to it (the L3 session-file read skips any file with more than one link, #357);
+// and the check and the later open are separate calls, so a directory on the path swapped for
+// a link in between (TOCTOU) would redirect the open.
 
 import { realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -103,29 +109,45 @@ export function isMainModule(metaUrl, argv1 = process.argv[1]) {
 // exist" fails closed. Statting the root reads its entry's metadata only; nothing inside it is
 // listed or read, and the ancestor walk goes top down and stops at the first match, so it never
 // stats an entry below a matching root.
+//
+// A filesystem that reports ino 0 (FAT/exFAT, some network shares) has no usable identity.
+// Before #357 such a root fell back to the spelling checks alone, which reopens #353 there; now
+// a root without identity cannot be guarded (rootGuard() is null: the caller fails closed), and
+// an ino-0 entry on a target's chain is an error (fail closed).
+//
+// overlayfs (#357): the merged view of a file and its lowerdir/upperdir copy report different
+// st_dev with the same st_ino, so a (dev, ino) match misses it. A harness-home guard
+// (harnessHomeGuard()) therefore also refuses an ino-only match on another device. A false
+// positive there only leaves a file unhashed; the repository guard keeps the (dev, ino) match,
+// where a false positive would refuse a run.
+//
+// `stat` is injectable for the self-test only (an ino-0 filesystem cannot be made in a temp dir).
 
 /**
  * The identity of `p`'s own entry (following symlinks): { dev, ino } as bigints, or null when
- * it does not exist, or when the filesystem reports no inode (ino 0: identity is unusable
- * there and the spelling checks stand alone). Throws on any other stat error.
+ * it does not exist. Throws on any other stat error, and when the filesystem reports no inode
+ * (ino 0, code ENOINO: identity is unavailable there, #357).
  */
-export function entryIdentity(p) {
+export function entryIdentity(p, { stat = statSync } = {}) {
   let s;
   try {
-    s = statSync(p, { bigint: true });
+    s = stat(p, { bigint: true });
   } catch (err) {
     if (MISSING.has(err?.code)) return null;
     throw err;
   }
-  return s.ino === 0n ? null : { dev: s.dev, ino: s.ino };
+  if (s.ino === 0n) throw Object.assign(new Error('the filesystem reports no inode (ino 0): file identity is unavailable (#357)'), { code: 'ENOINO' });
+  return { dev: s.dev, ino: s.ino };
 }
 
 /**
  * Whether any form of `file` (a canonicalForms() result), or any ancestor of one, has one of
- * the identities `ids`. Each chain is walked from the filesystem root down; an entry that does
- * not exist (yet) is skipped; any other stat error answers true (fail closed).
+ * the identities `ids` (`anyDevice`: or the same ino on any device). Each chain is walked from
+ * the filesystem root down; an entry that does not exist (yet) is skipped; any other stat
+ * error, or an entry reporting ino 0, answers `onError` (true for a refusing guard, false for
+ * an allowing one: both fail closed).
  */
-export function identityWithin(file, ids) {
+export function identityWithin(file, ids, { onError = true, anyDevice = false, stat = statSync } = {}) {
   if (!ids.length) return false;
   for (const start of all(file)) {
     const chain = [];
@@ -138,44 +160,61 @@ export function identityWithin(file, ids) {
     for (const p of chain) {
       let s;
       try {
-        s = statSync(p, { bigint: true });
+        s = stat(p, { bigint: true });
       } catch (err) {
         if (MISSING.has(err?.code)) continue;
-        return true;
+        return onError;
       }
-      if (ids.some((i) => i.dev === s.dev && i.ino === s.ino)) return true;
+      if (s.ino === 0n) return onError;
+      if (ids.some((i) => i.ino === s.ino && (anyDevice || i.dev === s.dev))) return true;
     }
   }
   return false;
 }
 
 /**
- * The spellings and identity of a root (a harness home, the repository): { forms, ids }, or
- * null when it cannot be canonicalized or stat'ed (the caller fails closed).
+ * The spellings and identity of a root (a harness home, the repository): { forms, ids,
+ * anyDevice }, or null when it cannot be canonicalized or stat'ed, or reports no identity
+ * (ino 0, #357): the caller fails closed.
  */
-export function rootGuard(root) {
+export function rootGuard(root, { anyDevice = false, stat = statSync } = {}) {
   const forms = canonicalForms(root);
   if (!forms) return null;
   try {
-    const id = entryIdentity(forms.real[0] ?? forms.spelled);
-    return { forms, ids: id ? [id] : [] };
+    const id = entryIdentity(forms.real[0] ?? forms.spelled, { stat });
+    return { forms, ids: id ? [id] : [], anyDevice, stat };
   } catch {
     return null;
   }
 }
 
-/** `file` (a canonicalForms() result) is inside `guard` (a rootGuard() result), by spelling or identity. */
+/** A harness home's guard: rootGuard() that also refuses an ino-only match on another device (overlayfs, #357). */
+export const harnessHomeGuard = (home, opts = {}) => rootGuard(home, { ...opts, anyDevice: true });
+
+/** `file` (a canonicalForms() result) is inside `guard` (a rootGuard() result), by spelling or identity; errors answer inside. */
 export function guardHolds(file, guard) {
-  return formsWithin(file, guard.forms) || identityWithin(file, guard.ids);
+  return formsWithin(file, guard.forms) || identityWithin(file, guard.ids, { anyDevice: guard.anyDevice, stat: guard.stat });
 }
 
 /**
  * Whether `path` is within `root`, by spelling (canonicalized on both sides) or by file
- * identity. Fails closed: when either side cannot be canonicalized or stat'ed the answer is
- * true (treated as inside).
+ * identity. For a guard that refuses: when either side cannot be canonicalized or stat'ed, or
+ * reports no identity, the answer is true (treated as inside).
  */
-export function canonicallyWithin(path, root) {
+export function canonicallyWithin(path, root, { stat = statSync } = {}) {
   const f = canonicalForms(path);
-  const r = rootGuard(root);
+  const r = rootGuard(root, { stat });
   return !f || !r || guardHolds(f, r);
+}
+
+/**
+ * Whether `path` (which must exist) is verifiably within `root`, by spelling or by file
+ * identity. For a guard that allows a read (#357): any error -- either side not
+ * canonicalized, a stat error, no identity (ino 0) -- answers false (not inside, not read).
+ */
+export function canonicallyInside(path, root, { stat = statSync } = {}) {
+  const f = canonicalForms(path, { mustExist: true });
+  const r = rootGuard(root, { stat });
+  if (!f || !r) return false;
+  return formsWithin(f, r.forms) || identityWithin(f, r.ids, { onError: false, stat });
 }

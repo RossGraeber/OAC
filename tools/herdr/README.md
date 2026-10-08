@@ -603,16 +603,30 @@ the matching lifecycle cases run, and a filter that matches none fails.
   (Codex's standalone install), which is hashed;
 - with L3 `--param readSessionFile=true` (operator decision 2026-09-30), the scratch probe
   project's own `projects/<slug>/*.jsonl`. It records entry types and flags only, and reads
-  only plain files in a plain slug directory that stay under `projects/`.
+  only plain files in a plain slug directory that are verifiably under `projects/`. Any error
+  in that check means the file is not read (#357). A `*.jsonl` with more than one hard link
+  is not read either, and is recorded as a finding, because it may be another file in the
+  Claude config directory, such as a credential file (#357).
 
 Every other path is refused by `lib/canonical-path.mjs`. A path is refused when it resolves
 inside a home by spelling (as written, by realpath, or by the OS realpath, which covers
 symlinks, junctions, `..`, 8.3 names and case) or by file identity. File identity is the
 `(dev, ino)` of the home entry against the target and each of its ancestors; it catches a
-UNC admin-share spelling or a bind mount. The check fails closed on any error.
+UNC admin-share spelling or a bind mount. For a harness home the guard also refuses the same
+`ino` on another device, which covers an overlayfs merged view against its `lowerdir` or
+`upperdir`; a false positive there only leaves a file unhashed (#357). The check fails closed
+on any error. A home whose filesystem reports no inode (`ino` 0: FAT/exFAT, some network
+shares) has no usable identity, so nothing is read through that guard. An `ino` 0 entry on a
+target's path counts as an error (#357).
+
+The Linux bind-mount case in the self-test needs an unprivileged user and mount namespace,
+which the CI loopback-only sandbox does not allow. Where it is skipped under GitHub Actions,
+the skip is also emitted as a `::warning::` annotation, so it shows on the run summary (#357).
+It runs and passes on WSL.
 
 Residuals the guard cannot close:
-- a **hard link** to a credential file, which has no path relation to the home;
+- a **hard link** to a credential file, which has no path relation to the home (closed for
+  the L3 session-file read only, by the `nlink > 1` skip);
 - a **check-then-open race (TOCTOU)**: a directory on the path swapped for a link between the
   check and the open. That needs an active attacker on the operator's own machine.
 

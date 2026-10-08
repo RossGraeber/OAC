@@ -4,7 +4,7 @@
 // hashed or run, and no harness config directory is read (CLAUDE_CONFIG_DIR and CODEX_HOME
 // point into the temp directory).
 
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -15,7 +15,7 @@ import { resolveExecutable, executableIdentity, executableFormat, resolveHerdr, 
 import { hashConfig, harnessConfigTargets } from '../lib/l3.mjs';
 import { readProjectSessionFiles } from '../scenarios/l3-beacon.mjs';
 import { herdrVerification, verification, TO_FILL } from '../lib/gate-report-common.mjs';
-import { canonicalForms, canonicallyWithin, isMainModule } from '../lib/canonical-path.mjs';
+import { canonicalForms, canonicallyInside, canonicallyWithin, guardHolds, harnessHomeGuard, identityWithin, isMainModule, rootGuard } from '../lib/canonical-path.mjs';
 import { checkHerdrExecutable, herdrCheckDecision, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -27,6 +27,18 @@ const CRED_NAME = ['auth', 'json'].join('.');
 const IS_WIN = process.platform === 'win32';
 // The host env minus its PATH key, whatever its case (win32 env keys may be `Path`).
 const withoutPath = (e) => Object.fromEntries(Object.entries(e).filter(([k]) => k.toUpperCase() !== 'PATH'));
+
+// A case this host cannot run (#357): printed as a skip line and, under GitHub Actions, also
+// as a ::warning:: annotation, so a case CI cannot run (the Linux bind mount inside the
+// loopback-only sandbox) shows on the run summary instead of passing silently.
+export function skipNotice(text, env = process.env) {
+  const lines = [`  skip  ${text}`];
+  if (env.GITHUB_ACTIONS === 'true') lines.push(`::warning title=herdr self-test case skipped::${String(text).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`);
+  return lines;
+}
+const skip = (text) => {
+  for (const l of skipNotice(text)) console.log(l);
+};
 
 export async function identityUnit(check) {
   const dir = mkdtempSync(join(tmpdir(), 'oac-identity-'));
@@ -185,7 +197,7 @@ export async function identityUnit(check) {
       ];
       for (const [what, target, home] of cases) {
         const b = target && home ? spawnSync(process.execPath, [idProbe, target, home, cfg.claude], { encoding: 'utf8', timeout: 30000 }) : { status: 77 };
-        if (b.status === 77) console.log(`  skip  #353 identity (Windows) UNC case: \\\\localhost\\<drive>$ is not reachable on this host (${what})`);
+        if (b.status === 77) skip(`#353 identity (Windows) UNC case: \\\\localhost\\<drive>$ is not reachable on this host (${what})`);
         else {
           const u = probeResult(b);
           check(`#353 identity (Windows): ${what}`, !!u && unread(u), `${b.stdout}${b.stderr}`);
@@ -198,7 +210,7 @@ export async function identityUnit(check) {
       mkdirSync(view);
       const b = spawnSync('unshare', ['-Urm', 'sh', '-c', 'mount --bind "$1" "$2" || exit 77; exec "$3" "$4" "$5" "$6" "$7"', 'sh', realHome, view, process.execPath, idProbe, join(view, CRED_NAME), realHome, cfg.claude], { encoding: 'utf8', timeout: 30000 });
       const bid = probeResult(b);
-      if (b.error || (b.status !== 0 && !bid)) console.log(`  skip  #353 identity bind-mount case: no unprivileged user+mount namespace here (${b.error?.code ?? `exit ${b.status}`}: ${String(b.stderr).trim().split('\n')[0]})`);
+      if (b.error || (b.status !== 0 && !bid)) skip(`#353 identity bind-mount case: no unprivileged user+mount namespace here (${b.error?.code ?? `exit ${b.status}`}: ${String(b.stderr).trim().split('\n')[0]})`);
       else check('#353 identity (Linux): the target reached through a bind mount of CODEX_HOME is never read', !!bid && unread(bid), b.stdout + b.stderr);
     }
     // A child whose name starts with `..` is inside: a bare startsWith('..') test put it outside.
@@ -211,6 +223,62 @@ export async function identityUnit(check) {
     check('#353 canonicallyWithin (run.mjs isInside): a scratch dir under a `..x` child of the repository is inside', canonicallyWithin(join(dir, 'fake-repo', '..scratch'), join(dir, 'fake-repo')) === true);
     check('#353 canonicallyWithin (control): a dir reached through a linked ancestor is inside; a sibling is not', canonicallyWithin(join(linkParent, 'codex-home'), realParent) === true && canonicallyWithin(join(dir, 'bin1'), realParent) === false);
     check('#353 canonicalForms (helper unit): a path that does not exist is canonicalized through its nearest existing ancestor; mustExist refuses it', canonicalForms(join(linkParent, 'no', 'such')).real.some((r) => r === join(canonicalForms(realParent).real[0], 'no', 'such')) && canonicalForms(join(linkParent, 'no', 'such'), { mustExist: true }) === null);
+    // --- #357 (PR #356 re-review) ---------------------------------------------------------
+    // 1. The L3 read guard allows a read, so it must fail closed the other way: an error means
+    // "not inside", never "inside". A projects root that cannot be canonicalized (a NUL byte:
+    // realpath throws ERR_INVALID_ARG_VALUE, on every OS) used to answer "inside" for any path,
+    // and a plain slug directory anywhere was read.
+    const mk357 = [{ id: 'claude-channel', marker: 'MARK-357', token: 'TOK-357' }];
+    const anySlug = join(dir, 'anywhere-slug');
+    mkdirSync(anySlug);
+    writeFileSync(join(anySlug, 's.jsonl'), `${JSON.stringify({ type: 'leak357', note: 'MARK-357' })}\n`);
+    const badRoot = join(dir, 'claude-357', 'proj\0ects');
+    check('#357 canonicallyInside: a root that cannot be canonicalized is not inside (allowing guard fails closed); canonicallyWithin still answers inside (refusing guard)', canonicallyInside(anySlug, badRoot) === false && canonicallyWithin(anySlug, badRoot) === true);
+    const rsBad = readProjectSessionFiles([anySlug], badRoot, mk357);
+    check('#357 L3 session file: when the projects root cannot be canonicalized nothing is read (fail closed)', rsBad.files === 0 && rsBad.skipped === 1 && rsBad.entries.length === 0, JSON.stringify(rsBad));
+    if (!IS_WIN) {
+      // The same through a projects root behind a symlink loop (ELOOP).
+      symlinkSync(join(dir, 'loop357-b'), join(dir, 'loop357-a'));
+      symlinkSync(join(dir, 'loop357-a'), join(dir, 'loop357-b'));
+      const rsLoop = readProjectSessionFiles([anySlug], join(dir, 'loop357-a', 'projects'), mk357);
+      check('#357 L3 session file: a projects root behind a symlink loop (ELOOP) reads nothing', rsLoop.files === 0 && rsLoop.skipped === 1 && rsLoop.entries.length === 0, JSON.stringify(rsLoop));
+    }
+    // 2. A hard-linked *.jsonl in the slug directory that is another file of the Claude config
+    // directory (here a synthetic credential plant) is skipped and counted; a plain one is read.
+    const home357 = join(dir, 'claude-home-357');
+    const proj357 = join(home357, 'projects');
+    const slug357 = join(proj357, 'p-l3-project');
+    mkdirSync(slug357, { recursive: true });
+    writeFileSync(join(slug357, 'a.jsonl'), `${JSON.stringify({ type: 'user', note: 'MARK-357' })}\n`);
+    const cred357 = join(home357, CRED_NAME);
+    writeFileSync(cred357, `${JSON.stringify({ type: 'credleak', note: 'MARK-357' })}\n`);
+    linkSync(cred357, join(slug357, 'h.jsonl'));
+    const rsHard = readProjectSessionFiles([slug357], proj357, mk357);
+    check('#357 L3 session file: a *.jsonl hard link (nlink > 1) to a file elsewhere in the Claude config dir is skipped and counted, never read; the plain file is read', rsHard.files === 1 && rsHard.skipped === 1 && rsHard.hardLinked === 1 && rsHard.entries.length === 1 && rsHard.entries[0].type === 'user' && !(rsHard.sessionIds ?? []).includes('h'), JSON.stringify(rsHard));
+    const l3Src = readFileSync(join(REPO, 'tools', 'herdr', 'scenarios', 'l3-beacon.mjs'), 'utf8');
+    check('#357 L3 scenario: a hard-linked session file is recorded as a finding', /if \(sf\.hardLinked\) finding\(/.test(l3Src));
+    // 3. A filesystem that reports ino 0 has no identity: fail closed (before #357 the root's
+    // ids were empty and only the spellings were compared). An ino-0 filesystem cannot be made
+    // in a temp dir, so stat is replaced for these calls.
+    const zeroIno = (p, o) => ({ dev: statSync(p, o).dev, ino: 0n });
+    check('#357 rootGuard: a root reporting ino 0 has no guard (null: the caller fails closed)', rootGuard(realHome, { stat: zeroIno }) === null && harnessHomeGuard(realHome, { stat: zeroIno }) === null && rootGuard(realHome) !== null);
+    check('#357 canonicallyWithin: with the root reporting ino 0 a sibling outside it is treated as inside (refusing guard); control: it is outside', canonicallyWithin(join(dir, 'bin1'), realParent, { stat: zeroIno }) === true && canonicallyWithin(join(dir, 'bin1'), realParent) === false);
+    check('#357 canonicallyInside: with the root reporting ino 0 a path inside it is not allowed (allowing guard); control: it is', canonicallyInside(realHome, realParent, { stat: zeroIno }) === false && canonicallyInside(realHome, realParent) === true);
+    const homeId = rootGuard(realHome).ids;
+    const targetZero = (p, o) => (p === resolve(join(dir, 'bin1')) ? { dev: statSync(p, o).dev, ino: 0n } : statSync(p, o));
+    check('#357 identityWithin: an ino-0 entry on the target\'s chain is an error: inside for a refusing guard, not inside for an allowing one', identityWithin(canonicalForms(join(dir, 'bin1')), homeId, { stat: targetZero }) === true && identityWithin(canonicalForms(join(dir, 'bin1')), homeId, { stat: targetZero, onError: false }) === false && identityWithin(canonicalForms(join(dir, 'bin1')), homeId) === false);
+    // 4. overlayfs: the merged view reports another st_dev with the same st_ino. A harness-home
+    // guard refuses an ino-only match on another device; the repository guard does not.
+    const credForms = canonicalForms(credReal);
+    const shifted = { forms: canonicalForms(join(dir, 'bin1')), ids: homeId.map((i) => ({ dev: i.dev + 1n, ino: i.ino })) };
+    check('#357 harnessHomeGuard: the same ino on another device (overlayfs merged vs lowerdir/upperdir) is inside a harness home; rootGuard keeps the (dev, ino) match', guardHolds(credForms, { ...harnessHomeGuard(realHome), ...shifted }) === true && guardHolds(credForms, { ...rootGuard(realHome), ...shifted }) === false);
+    const manSrc = readFileSync(join(REPO, 'tools', 'herdr', 'lib', 'manifest.mjs'), 'utf8');
+    check('#357 manifest: executableIdentity guards the harness homes with harnessHomeGuard', /harnessConfigDirs\(env\)\.map\(\(d\) => harnessHomeGuard\(d\)\)/.test(manSrc) && !/rootGuard/.test(manSrc));
+    // 5. A skipped case is a visible CI warning under GitHub Actions, escaped for the runner.
+    const sn = skipNotice('bind 100%\nx', { GITHUB_ACTIONS: 'true' });
+    check('#357 skipNotice: under GitHub Actions a skip is also a ::warning:: annotation (escaped); elsewhere only the skip line', sn.length === 2 && sn[0] === '  skip  bind 100%\nx' && sn[1] === '::warning title=herdr self-test case skipped::bind 100%25%0Ax' && skipNotice('y', {}).length === 1);
+    const idSrc = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+    check('#357 skips: every skip in this file goes through skipNotice', !/console\.log\(`  skip/.test(idSrc));
     // Entry-point checks: a script started through a linked directory is still the main
     // module (before #353 run.mjs, ci.mjs and the report CLIs compared argv[1] as spelled with
     // Node's realpath'd module URL, so a throwaway clone under macOS's /var exited 0 silently).
