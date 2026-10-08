@@ -52,6 +52,10 @@
 //                                   (stands in for a Codex that persisted an approval)
 //   FAKE_CODEX_TRUST_PERSIST   #271: 1 = accepting the trust dialog appends a trust entry to
 //                              $CODEX_HOME/config.toml, as real Codex records trust
+//   FAKE_CODEX_UPDATE_PROMPT   #303: recorded | off-record | dont-remind-preselected: the start-up
+//                              update prompt seen live on 0.160.0, before any other screen
+//                              (unset: none). Skip writes nothing; "Skip until next version"
+//                              writes $CODEX_HOME/version.json; "Update now" exits
 //   FAKE_CODEX_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                              operator pressing Enter outside the driver)
 //   FAKE_CODEX_NO_ATTACH       1 = the TUI never connects to the daemon (embedded server)
@@ -488,6 +492,55 @@ async function tui(overrides = {}) {
   // off-record shapes the driver must refuse. The selection moves with up/down; Enter on
   // "Trust and continue" goes on, Enter on anything else leaves (as "Back" does), so a wrong
   // Enter shows up as a failed run.
+  // #303: Codex 0.160.0's start-up update prompt, before any other start-up screen, as seen live
+  // (lib/g2.mjs CODEX_DIALOG_KINDS 'update-prompt'; Windows install command, wrapped as
+  // captured). FAKE_CODEX_UPDATE_PROMPT: recorded | off-record (a fourth option, "Remind me
+  // tomorrow") | dont-remind-preselected (the highlight starts on option 3) | unset (none). Keys
+  // as in codex-rs/tui/src/update_prompt.rs@rust-v0.160.0: up/down move and wrap, enter selects
+  // the highlight, esc selects Skip. "Skip" goes on and writes nothing; "Skip until next version"
+  // writes $CODEX_HOME/version.json (as Codex's dismiss_version does) and goes on; "Update now"
+  // records that the installer would run and exits, so a wrong answer is a failed run.
+  if (env.FAKE_CODEX_UPDATE_PROMPT) {
+    const kind = env.FAKE_CODEX_UPDATE_PROMPT;
+    const opts = [
+      ["Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/", "     codex/install.ps1 | iex'`)"],
+      ['Skip'],
+      ['Skip until next version'],
+      ...(kind === 'off-record' ? [['Remind me tomorrow']] : []),
+    ];
+    let sel = kind === 'dont-remind-preselected' ? 2 : 0;
+    const render = () => ['', `  Update available · ${VERSION} → 9.9.9`, '  Release notes: https://github.com/openai/codex/releases/latest', '', ...opts.flatMap(([first, ...more], i) => [`${i === sel ? '› ' : '  '}${i + 1}. ${first}`, ...more]), '', '  enter continue · esc skip'].join('\n');
+    setScreen(render());
+    hist(render());
+    setState('blocked');
+    newKeys();
+    let chosen = null;
+    while (chosen === null) {
+      for (const k of newKeys().map((x) => x.trim())) {
+        if (k === 'enter') chosen = sel;
+        else if (k === 'esc') chosen = 1;
+        else if (k === 'down') sel = (sel + 1) % opts.length;
+        else if (k === 'up') sel = (sel + opts.length - 1) % opts.length;
+        if (chosen !== null) break;
+        setScreen(render());
+      }
+      if (chosen === null) await sleep(50);
+    }
+    const label = opts[chosen][0].replace(/ \(runs .*$/, '');
+    hist(`[update prompt: "${chosen + 1}. ${label}" selected]`);
+    // For the self-test's assertions: the answer, beside (never inside) the Codex home.
+    appendFileSync(join(HOME, '..', 'fake-codex-update-answer.log'), `${chosen + 1}. ${label}\n`);
+    if (label === 'Update now') {
+      hist('[update prompt: the installer would run now; leaving]');
+      process.exit(0);
+    }
+    if (label === 'Skip until next version') {
+      mkdirSync(HOME, { recursive: true });
+      writeFileSync(join(HOME, 'version.json'), `${JSON.stringify({ dismissed_version: '9.9.9' })}\n`);
+    }
+    setState('working');
+    setScreen('Starting…');
+  }
   const DIALOG = env.FAKE_CODEX_DIALOG || 'trust';
   const CWD = process.cwd();
   const NOTE = ['  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:', `  ${CWD}`, ''];

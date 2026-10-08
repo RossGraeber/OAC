@@ -19,7 +19,7 @@ any live leg, and the point of herdr (operator decision, #187). The human attend
 sign in to the harnesses and grant elevation. Since 2026-09-30 (#196) the driver accepts
 Claude Code's trust, MCP-approval and dev-channels dialogs itself in dev/test runs, G1
 included, and refuses every other dialog. One narrow exception (#271): in the G4 scenario
-only, it answers Codex's MCP tool-approval prompt "1. Allow" for G4's own server and tools. A human accepts a dialog only in a run meant to
+only, it answers Codex's MCP tool-approval prompt "1. Allow" for G4's own server and tools. And (#303) it answers Codex's start-up update prompt "2. Skip", never an update. A human accepts a dialog only in a run meant to
 meet a consent-step criterion (G1 criterion 5 under `accept=human`, G11; see
 "Operator-consent dialogs"). No live leg is "operator-typed only". Live runs are not in the default CI suite
 (`oac-testing` §2). The agent verifies the run from its evidence; the human signs only for
@@ -306,6 +306,23 @@ becomes FAIL. An earlier write, such as a Codex trust accept at startup, is outs
 The start-to-teardown comparison (`harnessConfig.unchanged`) stays a separate recorded fact.
 Decision record: `K-196-driver-accepts-dialogs.md` §7.
 
+**Amended 2026-10-08 (#303): Codex's start-up update prompt.** Lead decision on #303: the
+driver answers Codex's start-up update prompt "2. Skip" (this launch only), recorded as
+`driver`, in every scenario that launches Codex, or stops at once; it never waits out a
+handshake or attach timeout behind the prompt. Recorded live in G4 run
+20261006T001351Z-5b2e11 (Codex 0.160.0, Codex pane read seq 54): title "Update available ·
+<current> → <latest>", the release-notes line, options "1. Update now (runs `<command>`)",
+"2. Skip", "3. Skip until next version", marker `›` on option 1, footer "enter continue · esc
+skip" (`CODEX_DIALOG_KINDS['update-prompt']` and `planCodexUpdateSkip` in
+`tools/herdr/lib/g2.mjs`). On that exact form the driver sends one `down`, confirmed by a fresh
+read showing "Skip" selected, then Enter. Every other form, or the selection on "3. Skip until
+next version", ends the run `NOT RUN` on its first read, no key sent, with the reason "Codex
+update prompt shown at start-up (Codex <current> → <latest>) … answer it in Codex's own TUI …
+then re-run". The driver never sends "1. Update now" (it runs an installer) or "3. Skip until
+next version" (it writes Codex's updater state), and never runs an update. Codex's non-modal
+"✨ Update available!" box is screen chrome, kept in the capture, and needs no answer. Decision
+record: `K-196-driver-accepts-dialogs.md` §8.
+
 - **Read before any keystroke.** The driver reads the dialog's pane text verbatim
   (`--source visible`) and keeps it in the pane capture before it sends any key.
 - **Recognized dialogs only, and the pane decides the keys.** The kind table
@@ -331,7 +348,8 @@ Decision record: `K-196-driver-accepts-dialogs.md` §7.
 - **Every other dialog is refused (#197 review).** A kind with no option text on record is
   never driver-accepted, whatever is preselected: Claude Code's tool-permission prompt ("Do
   you want to proceed?"), and every Codex dialog other than the trust dialog on record
-  (#199).
+  (#199), the G4 tool-approval exception (#271) and the start-up update prompt's "2. Skip"
+  (#303).
   The run ends `NOT RUN` with no key sent. A run that may meet one uses `accept=human`.
   Tool approval is not in #196's scope. Driver-approving it would need its own recorded
   decision and a security note (`oac-security-work`, permission relay). #271 is that

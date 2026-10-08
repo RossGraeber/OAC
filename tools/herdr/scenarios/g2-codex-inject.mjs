@@ -5,15 +5,17 @@
 // against that run's fixture, criterion by criterion (tools/herdr/lib/g2-report.mjs). It
 // never changes G2's verdict, STATUS.md, or PINS.md.
 //
-// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G2-2026-10-05.md (an equivalence
-// record, not verdict-bearing; PR #300): run 20261005T052341Z-eb6c5a, a real herdr (v0.9.1)
-// and a real Codex (0.160.0), run outcome PASS, driver commit efb775f. The record holds for
-// that driver commit only: a later run relies on it only under oac-gates
+// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G2-2026-10-06.md (an equivalence
+// record, not verdict-bearing): run 20261006T000900Z-51a348, a real herdr (v0.9.1) and a real
+// Codex (0.160.0), run outcome PASS, driver commit c4def66. It supersedes G2-2026-10-05.md
+// (run 20261005T052341Z-eb6c5a, driver efb775f, PR #300), kept as history. The record holds
+// for its driver commit only: a later run relies on it only under oac-gates
 // references/scripted-runs.md "When a scripted run may carry a verdict" (among other
-// conditions, an empty tools/herdr/ diff, test/ excluded, against efb775f). No dialog
-// appeared in that run (its manifest records none), so the Codex trust-dialog pattern
-// (lib/g2.mjs) has not been exercised live in a G2 run. Two earlier runs that day were not
-// recorded:
+// conditions, an empty tools/herdr/ diff, test/ excluded, against c4def66). The #303 change
+// (Codex's start-up update prompt, answered "2. Skip" or stopped at once) is such a diff, so
+// G2 needs a re-record at the new driver commit. No Codex dialog has appeared in a recorded
+// G2 run, so neither the trust-dialog nor the update-prompt pattern (lib/g2.mjs) has been
+// exercised live in G2. Two runs on 2026-10-05 were not recorded:
 //   - 20261005T020547Z-84b913: its transcript carried third-party tool output (#130);
 //   - 20261005T041011Z-bb584c: its transcript carried harness-authored text in a daemon
 //     response that the elision did not then cover.

@@ -10,15 +10,18 @@
 // committed fixture's wire shapes. It is not the server that produced the human-run fixture
 // and cannot be verified identical to it; every comparison says so.
 //
-// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G4-2026-10-05.md (an equivalence
-// record, not verdict-bearing): run 20261005T013347Z-6803a7, a real herdr (v0.9.1), Claude
-// Code 2.1.285 and Codex 0.160.0, run outcome PASS, driver commit de42b54. It replaces
-// G4-2026-10-04.md (run 20261004T093525Z-c9beec, driver b478f2a), kept as history. The record
-// holds for its driver commit only: a later run relies on it only under oac-gates
-// references/scripted-runs.md "When a scripted run may carry a verdict" (among other
-// conditions, an empty tools/herdr/ diff, test/ excluded, against de42b54). In that run the
-// driver accepted all five dialogs on an exact match to their recorded text (the record's
-// findings). Whether Codex honors a per-invocation MCP-server `-c` override for an HTTP
+// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G4-2026-10-06.md (an equivalence
+// record, not verdict-bearing): run 20261006T022052Z-00cdd3, a real herdr (v0.9.1), Claude
+// Code 2.1.285 and Codex 0.160.0, run outcome PASS, driver commit c4def66. It replaces
+// G4-2026-10-05.md (run 20261005T013347Z-6803a7, driver de42b54) and G4-2026-10-04.md (driver
+// b478f2a), kept as history. The record holds for its driver commit only: a later run relies
+// on it only under oac-gates references/scripted-runs.md "When a scripted run may carry a
+// verdict" (among other conditions, an empty tools/herdr/ diff, test/ excluded, against
+// c4def66). The #303 change (Codex's start-up update prompt, answered "2. Skip" or stopped at
+// once; before it, run 20261006T001351Z-5b2e11 waited 90 s for an MCP handshake behind the
+// prompt) is such a diff, so G4 needs a re-record at the new driver commit. In the recorded
+// run the driver accepted all five dialogs on an exact match to their recorded text (the
+// record's findings). Whether Codex honors a per-invocation MCP-server `-c` override for an HTTP
 // server is partly answered there for Codex 0.160.0 (one Codex HTTP session, the override in
 // the process argv); that no other Codex user-config entry points at the run's port is still
 // UNVERIFIED from committed evidence.

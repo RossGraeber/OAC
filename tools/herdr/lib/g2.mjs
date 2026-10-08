@@ -11,7 +11,9 @@
 // One Codex dialog is accepted by the driver: the workspace-trust dialog seen live on 0.159.2
 // (#199), under the #197 rules. A second, Codex's MCP tool-approval prompt (seen live on 0.160.0,
 // #271), is answered "1. Allow" only for the G4 scenario's own server and tools
-// (planCodexToolApproval); every other scenario refuses it. Two more Codex startup screens are on record (#204, seen live
+// (planCodexToolApproval); every other scenario refuses it. A third, Codex's start-up update
+// prompt (seen live on 0.160.0, #303), is answered "2. Skip" only, in every scenario, and an
+// off-record form of it ends the run NOT RUN at once (planCodexUpdateSkip). Two more Codex startup screens are on record (#204, seen live
 // on 0.159.2) and are NEVER answered by the driver: the startup hook review and the hooks
 // browser it opens. The in-progress indicator ("esc to interrupt") was also seen live in the
 // #204 runs. Every other Codex pane-text pattern below is UNVERIFIED against a live Codex
@@ -191,6 +193,51 @@ export const CODEX_DIALOG_KINDS = Object.freeze({
     accept: 0,
     verified: 'herdr L3 probe run probe4 2026-09-30 (#199), Codex CLI / app-server 0.159.2 on Windows; "1. Trust and continue" preselected',
   },
+  'update-prompt': {
+    // #303. Seen live (G4 herdr run 20261006T001351Z-5b2e11, driver c4def66, Codex CLI 0.160.0
+    // on Windows; Codex pane capture, read seq 54 `codex:codex-startup-settled?`; the capture
+    // was not committed, the run ended NOT RUN), verbatim:
+    //
+    //       Update available · 0.160.0 → 0.160.1
+    //       Release notes: https://github.com/openai/codex/releases/latest
+    //
+    //     › 1. Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/
+    //          codex/install.ps1 | iex'`)
+    //       2. Skip
+    //       3. Skip until next version
+    //
+    //       enter continue · esc skip
+    //
+    // Source: codex-rs/tui/src/update_prompt.rs at tag rust-v0.160.0 (commit
+    // a956835d020762cb2b570053af06f643a11c0ecc, read 2026-10-08): the title is "Update
+    // available" · "<current> → <latest>" (:214-222), then "Release notes: " and
+    // https://github.com/openai/codex/releases/latest (:42, :229-230); the options are
+    // `Update now (runs `{update_command}`)`, "Skip", "Skip until next version" (:243-247), the
+    // highlight starts on "Update now" (:131), `down` moves it one option and wraps (:148,
+    // :186-192), a digit key or Esc selects at once without moving (:149-151, :153; the
+    // driver never sends either), Enter selects the highlighted option (:152). "Skip" (UpdateSelection::NotNow)
+    // continues the launch and persists nothing (:94); "Skip until next version" writes the
+    // updater's dismissal (updates::dismiss_version, :95-99); "Update now" runs the installer
+    // (:90-93). The command in option 1 depends on how Codex was installed, so only its shape
+    // is on record (`optionDetail`). The driver answers "2. Skip" only (#303, operator
+    // decision): one `down` from the preselected "Update now", verified by a fresh read
+    // showing exactly one `›` on "Skip", then Enter. It never selects option 1 or 3: a read
+    // showing the highlight on either before Enter stops the run NOT RUN with no Enter sent.
+    // Codex's NON-modal "✨ Update available! 0.160.0 -> 0.160.1" box (shown above the session
+    // after a dismissal) is screen chrome, not this dialog, and does not match `detect`.
+    detect: /^[ \t]*Update available · \S+ → \S+[ \t]*\r?$/m,
+    acceptOption: /^Skip$/,
+    options: Object.freeze(['Update now', 'Skip', 'Skip until next version']),
+    optionDetail: Object.freeze([/^\(runs `[^`]+`\)$/, null, null]),
+    numbered: true,
+    marker: '›',
+    footer: /^[ \t]*enter continue · esc skip[ \t]*\r?$/m,
+    body: /^Update available · \d+\.\d+\.\d+\S* → \d+\.\d+\.\d+\S* Release notes: https:\/\/github\.com\/openai\/codex\/releases\/latest$/,
+    preselected: 0,
+    accept: 1,
+    answer: '2. Skip',
+    verified: 'herdr G4 run 20261006T001351Z-5b2e11, Codex CLI 0.160.0 on Windows, Codex pane read seq 54; "1. Update now" preselected (#303); codex-rs/tui/src/update_prompt.rs@rust-v0.160.0',
+  },
   'hooks-review': {
     // Seen live (#204; 2026-09-30, scratch herdr runs of plain `codex` against the shared daemon,
     // Codex CLI / app-server 0.159.2, Windows), one untrusted user hook in hooks.json:
@@ -337,7 +384,9 @@ export async function waitCodexReady({ read, handleDialog, listLoaded, preLoaded
     await sleep(pollMs);
   }
 }
-const GENERIC_DIALOG = /Press enter to (?:confirm|continue)|Enter to confirm|Esc to cancel|\(y\/n\)|Allow command\?|Approve\b.*\?|\benter continue\b.*\besc back\b/i;
+// #303: "enter continue · esc skip" is the update prompt's footer; a screen showing it without
+// the recorded title is an unrecognized dialog (refused at once), never a screen to wait on.
+const GENERIC_DIALOG = /Press enter to (?:confirm|continue)|Enter to confirm|Esc to cancel|\(y\/n\)|Allow command\?|Approve\b.*\?|\benter continue\b.*\besc (?:back|skip)\b/i;
 
 // -> { dialog: kind | 'unknown' | null, selected, options, busy }
 export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' } = {}) {
@@ -353,6 +402,7 @@ export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' }
   const busy = busyIndicator ? s.toLowerCase().includes(busyIndicator.toLowerCase()) : false;
   // #271: the MCP tool-approval form is read with its own parser.
   if (dialog === 'mcp-tool-approval') return { dialog, variant: 'tool-approval', form: codexToolApprovalForm(s), selected: selectedOption(s), options: null, busy };
+  if (dialog === 'update-prompt') return { dialog, updatePrompt: codexUpdateVersions(s), selected: selectedOption(s), options: dialogOptions(s, dialog, CODEX_DIALOG_KINDS), busy };
   return { dialog, selected: dialog ? selectedOption(s) : null, options: dialog ? dialogOptions(s, dialog, CODEX_DIALOG_KINDS) : null, busy };
 }
 
@@ -363,8 +413,32 @@ export function classifyCodexScreen(text, { busyIndicator = 'esc to interrupt' }
 // g4-mcp-dual-era does). Every other Codex dialog is refused: NOT RUN, no key sent.
 export function driverMayAcceptCodex(classification, { toolApproval = null } = {}) {
   if (classification?.dialog === 'mcp-tool-approval') return planCodexToolApproval(classification, toolApproval);
+  if (classification?.dialog === 'update-prompt') return planCodexUpdateSkip(classification);
   return planDriverAccept(classification, CODEX_DIALOG_KINDS);
 }
+
+// --- #303: Codex's start-up update prompt ---------------------------------------------------
+//
+// The versions the prompt names ("Update available · <current> → <latest>"), or nulls.
+export function codexUpdateVersions(text) {
+  const m = /^[ \t]*Update available · (\S+) → (\S+)[ \t]*\r?$/m.exec(String(text ?? ''));
+  return { current: m?.[1] ?? null, latest: m?.[2] ?? null };
+}
+
+// The driver answers the recorded prompt "2. Skip" (planDriverAccept on the kind on record:
+// one `down` from "1. Update now", verified, then Enter). Anything off record ends the run NOT
+// RUN at once, on the first read of the prompt, with no key sent: the run never waits out a
+// handshake or attach timeout behind it. The plan carries `updatePrompt` (the versions shown
+// and, once sent, the answer), recorded on the dialog.
+export function planCodexUpdateSkip(classification) {
+  const p = planDriverAccept(classification, CODEX_DIALOG_KINDS);
+  const v = classification?.updatePrompt ?? { current: null, latest: null };
+  const updatePrompt = { current: v.current, latest: v.latest, answer: null };
+  if (p.ok) return { ...p, answer: CODEX_DIALOG_KINDS['update-prompt'].answer, updatePrompt };
+  return { ...p, updatePrompt, why: codexUpdatePromptStop(v, p.why) };
+}
+export const codexUpdatePromptStop = (v, why) =>
+  `Codex update prompt shown at start-up (Codex ${v.current ?? '?'} → ${v.latest ?? '?'}), not in the form on record (${why}); answer it in Codex's own TUI ("2. Skip" applies to that launch only), then re-run. The driver never runs an update and never writes Codex's updater state`;
 // A driverMayAcceptCodex bound to a scenario's own tool-approval expectation, read when a
 // dialog is planned. getExpected() -> { server, tools, arguments } | null.
 export const driverMayAcceptCodexExpecting = (getExpected) => (classification) => driverMayAcceptCodex(classification, { toolApproval: getExpected() ?? null });

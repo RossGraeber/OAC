@@ -31,7 +31,6 @@
 //     criterion `not evaluable`.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,7 +42,7 @@ import {
 import { parseSections, committedFile } from './g1.mjs';
 import { isLegacyRevision } from './compare-transcripts.mjs';
 import {
-  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine, lineSpan,
+  SCORES, ReportError, check, cell, mechanicalRow, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine, lineSpan, redactScriptSha256,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -437,7 +436,7 @@ function main(argv) {
     runManifestPath: `${HERDR_RUNS_DIR}/${runManifestName}`,
     transcriptText,
     pinsCommit: git.status === 0 ? git.stdout.trim() : null,
-    redactSha256: createHash('sha256').update(readFileSync(join(HERE, 'redact.mjs'))).digest('hex'),
+    redactSha256: redactScriptSha256(),
   });
   JSON.parse(committedFile(REPO, MANIFEST_PATH).bytes.toString('utf8')); // MANIFEST.json must parse at HEAD before a draft is offered for merging
   writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
