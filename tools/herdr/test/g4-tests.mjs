@@ -749,6 +749,33 @@ export function g4Cases(check) {
     check('g4 driver: the report still scores nothing on the accept (no G4 criterion names it)', evalRun(r).rows.map((x) => x.score).join('|') === [SCORES.NE, SCORES.EQ, SCORES.EQ, SCORES.EQ, SCORES.NE].join('|'));
   });
 
+  // #303: Codex 0.160.0's start-up update prompt (fake-codex FAKE_CODEX_UPDATE_PROMPT, the text
+  // seen live in G4 run 20261006T001351Z-5b2e11). That run waited 90 s for an MCP handshake
+  // behind it; now the driver answers "2. Skip" (a verified `down`, then Enter), or ends the run
+  // NOT RUN on the prompt's first read when its form is off record. Never "1. Update now" or
+  // "3. Skip until next version".
+  const upDialog = (g4) => g4.dialogs.find((d) => d.agent === 'codex' && d.kind === 'update-prompt');
+  const upAnswers = (r) => (existsSync(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) ? read(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) : '');
+  run('g4 #303 update prompt: the driver answers "2. Skip"', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37808, 37810)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: 'recorded' } }, (r) => {
+    const m = r.manifest;
+    const g4 = m.scenarioData.g4;
+    const d = upDialog(g4);
+    check('g4 #303 Skip: PASS; the update prompt answered by the DRIVER with `down` (verified on "Skip") then `enter`, answer "2. Skip"; Codex then reached its MCP connect', r.status === 0 && m.outcome === 'PASS' && d?.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["down","enter"]' && d.acceptKeys[0].expect === 'Skip' && Number.isInteger(d.acceptKeys[0].verifiedSeq) && d.updatePrompt?.answer === '2. Skip' && /20261006T001351Z-5b2e11/.test(d.patternVerified ?? '') && g4.codex.sessions.length === 1, `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+    check('g4 #303 Skip: the fake Codex saw exactly one answer, "2. Skip"; no updater state written; the harness config unchanged', upAnswers(r) === '2. Skip\n' && !existsSync(join(r.env.CODEX_HOME, 'version.json')) && m.harnessConfig.unchanged === true, upAnswers(r));
+    const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
+    const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
+    check('g4 #303 Skip: the Verification section\'s Dialogs line renders the driver\'s Skip with the versions shown', draft.status === 0 && /codex update-prompt \(read #\d+; Codex update prompt \S+ → 9\.9\.9: answer "2\. Skip" \(this launch only; no update run, no updater state written\); accepted by the DRIVER \(herdr dialog-accept: down #\d+, enter #\d+\)\)/.test(dl), dl || draft.stderr);
+  });
+  for (const [variant, why, port] of [['off-record', /not the ones on record/, 37818], ['dont-remind-preselected', /nor the preselection on record/, 37828]]) {
+    run(`g4 #303 update prompt ${variant}: NOT RUN at once, not a 90 s MCP wait`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: variant } }, (r) => {
+      const m = r.manifest;
+      const d = upDialog(m.scenarioData.g4);
+      const sentAfter = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
+      const readsAfter = m.commands.filter((x) => x.seq > (d?.readSeq ?? Infinity) && x.role === 'read' && x.argv.includes('read') && x.argv.includes('g4codex'));
+      check(`g4 #303 ${variant}: NOT RUN with the update-prompt reason, never the MCP-initialize timeout; the prompt refused with no key; no Codex read after its first read; nothing answered`, r.status === 3 && m.outcome === 'NOT RUN' && /Codex update prompt shown at start-up \(Codex \S+ → 9\.9\.9\)/.test(m.outcomeReason) && why.test(m.outcomeReason) && !/timed out after \d+ ms waiting for Codex's MCP client initialize/.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && sentAfter.length === 0 && readsAfter.length === 0 && upAnswers(r) === '' && !existsSync(join(r.env.CODEX_HOME, 'version.json')), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+    });
+  }
+
   // #267: Claude Code 2.1.285's multi-select MCP approval form (fake-claude `mcp-multiselect`),
   // in the order seen live (trust, MCP approval, dev channels).
   const MS_DIALOGS = 'workspace-trust,mcp-multiselect,dev-channels';
