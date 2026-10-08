@@ -615,8 +615,12 @@ cannot be read as a session id (26 Crockford Base32 characters, `spec/session-ch
 [MCPB-ATT-025] Every pairing refusal that an OAC server sends on one Codex connection during
 one pairing window MUST carry that window's pairing value.
 
-A new window, on the same connection or another, gets a new value from [IFC-ADP-090]'s
-source. "One value per window" above says why the value must not vary per call.
+[MCPB-ATT-026] An OAC server MUST NOT carry, in a pairing refusal, a pairing value of a pairing
+window that has ended.
+
+A new window, on the same connection or another, therefore gets a new value from
+[IFC-ADP-090]'s source. "One value per window" above says why the value must not vary per
+call.
 
 [MCPB-ATT-006] An OAC server MUST NOT place a pairing value in any message other than a
 pairing refusal on the connection it was issued on.
@@ -709,7 +713,7 @@ server or in Codex Desktop. Its calls get the plain `unauthorized` refusal of
 [MCPB-ATT-002], with no value.
 
 [MCPB-ATT-023] An OAC server MUST NOT open more than three pairing windows on one Codex
-connection without pairing a reveal on it.
+connection since the last reveal paired on it.
 
 After the third window ends unpaired, the connection's calls get the plain `unauthorized`
 refusal for as long as the connection lasts. A new connection starts again.
@@ -1723,6 +1727,7 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-ATT-023 | MUST NOT | TODO(fixture), owner G8 (#69) against the F9 fake: four calls on one connection, each window ending without a reveal → the fourth refusal carries no pairing value |
 | MCPB-ATT-024 | SHOULD NOT | none (not a `MUST`) |
 | MCPB-ATT-025 | MUST | `tests/protocol/mcpb-att/MCPB-ATT-025.p01-window-value-repeated.json`, `tests/protocol/mcpb-att/MCPB-ATT-025.n01-new-value-in-open-window.json` |
+| MCPB-ATT-026 | MUST NOT | `tests/protocol/mcpb-att/MCPB-ATT-026.p01-new-window-new-value.json`, `tests/protocol/mcpb-att/MCPB-ATT-026.n01-ended-window-value-reused.json` |
 | MCPB-TOOL-001 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-001.p01-four-tools-listed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-001.n01-whoami-missing.json` |
 | MCPB-TOOL-002 | MUST | TODO(fixture), owner G9 (#70): a comparison across eras, as for MCPB-ERA-007. Planned: `tools/list` on each era → identical names, schemas and result shapes |
 | MCPB-TOOL-003 | MUST | TODO(fixture), owner G9 (#70) with G5 (#66) and G8 (#69): a comparison across harnesses, which no single exchange holds. Planned: `tools/list` as two different clients → identical |
@@ -1776,4 +1781,4 @@ Binding revision 0.1 had no table of its own; its history is in `docs/planning/S
 | Revision | Date | Change |
 |---|---|---|
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
-| 0.2 | 2026-10-08 | #69, PR #350 (lead decision of 2026-10-08 to design a Codex reply pairing and propose it as a frozen-spec change): §4.5, the Codex issued-value pairing, binds a stdio connection that Codex started to one subscribed Codex thread on a reveal of a value the implementation issued on it, one value per connection and pairing window, and serves each call only on a live confirmation from that thread (MCPB-ATT-003 to MCPB-ATT-025); bounded pairing window (60 s), confirmation wait (10 s) and confirmation life (600 s, or the item's or turn's end); no pairing value where pairing cannot complete, and at most three windows per connection; MCPB-CDX-006 (no setting members in a subscribing `thread/resume`); §4.4 states that no documented per-request signal exists, so the refusal of an unbound connection is no longer called interim; a dated note at §5.4 records that MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 are met as written, with their meaning unchanged; §8.2, §9, §10 and §12.2 updated; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022 and MCPB-ATT-025. Minor revision (`spec/session-channels.md` §5.2, item 6): MCPB-ATT-003 is a `MAY`, MCPB-ATT-017 and MCPB-ATT-024 are `SHOULD`/`SHOULD NOT`, and every new `MUST` or `MUST NOT` binds only an implementation that pairs, so an implementation conformant to 0.1 stays conformant (§5.3, item 11). No requirement of 0.1 changes meaning, and no wire form changes. Matching changes: `spec/interfaces.md` 0.2 and `spec/security.md` 0.2. |
+| 0.2 | 2026-10-08 | #69, PR #350 (lead decision of 2026-10-08 to design a Codex reply pairing and propose it as a frozen-spec change): §4.5, the Codex issued-value pairing, binds a stdio connection that Codex started to one subscribed Codex thread on a reveal of a value the implementation issued on it, one value per connection and pairing window, and serves each call only on a live confirmation from that thread (MCPB-ATT-003 to MCPB-ATT-026); bounded pairing window (60 s), confirmation wait (10 s) and confirmation life (600 s, or the item's or turn's end); no pairing value where pairing cannot complete, and at most three windows per connection; MCPB-CDX-006 (no setting members in a subscribing `thread/resume`); §4.4 states that no documented per-request signal exists, so the refusal of an unbound connection is no longer called interim; a dated note at §5.4 records that MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 are met as written, with their meaning unchanged; §8.2, §9, §10 and §12.2 updated; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026. Minor revision (`spec/session-channels.md` §5.2, item 6): MCPB-ATT-003 is a `MAY`, MCPB-ATT-017 and MCPB-ATT-024 are `SHOULD`/`SHOULD NOT`, and every new `MUST` or `MUST NOT` binds only an implementation that pairs, so an implementation conformant to 0.1 stays conformant (§5.3, item 11). No requirement of 0.1 changes meaning, and no wire form changes. Matching changes: `spec/interfaces.md` 0.2 and `spec/security.md` 0.2. |

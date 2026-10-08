@@ -15,8 +15,8 @@ the lead approves and merges the pull request (`docs/planning/decisions/E7-inter
   `oac-pair-` value; Codex's own `item/completed` report of that refusal, received on the
   adapter's app-server connection, names the thread (its `threadId`), and binds the
   connection to it. Each later call is served only on Codex's own `item/started` report of
-  it. No value the call or its `_meta` carries is used. MCPB-ATT-003 to MCPB-ATT-025 and
-  MCPB-CDX-006; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022 and MCPB-ATT-025,
+  it. No value the call or its `_meta` carries is used. MCPB-ATT-003 to MCPB-ATT-026 and
+  MCPB-CDX-006; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026,
   the rest `TODO(fixture)` for G8 against the F9 fake. `spec/interfaces.md` 0.2: `revealed`, `pairing_value`, the
   `attachment-unconfirmed` event, IFC-ADP-090 to IFC-ADP-093. `spec/security.md` 0.2: one
   §13 row. `spec/session-channels.md` is unchanged: the pairing meets [SC-ID-121] as frozen
@@ -25,7 +25,7 @@ the lead approves and merges the pull request (`docs/planning/decisions/E7-inter
   hold under `spec/session-channels.md` §6.7: no Codex native signal could be paired. With
   the pairing, a Codex session is bound, and can receive, from its first OAC tool call.
 - **Runner.** `tests/protocol/runner/run.mjs` accepts `spec_revision` `0.2` for the MCP
-  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022 and MCPB-ATT-025. The security suite maps the new
+  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026. The security suite maps the new
   §13 row as `S13-misattributed-send`, gated on G8 (#69) with the placeholder
   `gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation`; the 09 §12 F11
   table gains its rendered row.

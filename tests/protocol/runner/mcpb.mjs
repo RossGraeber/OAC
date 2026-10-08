@@ -283,6 +283,13 @@ const CHECKS = {
     if (!res) return true;
     return stringsIn(res).flatMap(wordsIn).filter(isPairingWord).every((w) => w === ctx.open_pairing_value);
   },
+  // A pairing refusal never carries the value of an ended window (or another connection's).
+  'MCPB-ATT-026': (ex, ctx) => {
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    const ended = ctx.issued_pairing_values || [];
+    return !stringsIn(res).flatMap(wordsIn).filter(isPairingWord).some((w) => ended.includes(w));
+  },
   // A value issued before this exchange appears in none of the server's messages here.
   'MCPB-ATT-006': (ex, ctx) => {
     if (ctx.codex_pairing !== true) return true;
