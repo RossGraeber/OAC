@@ -22,14 +22,26 @@ pin, dependency, static-scan rule or ADR text changes.
   Two not-applicable cases remain, and the module doc's table records each: Claude has no
   refusal path, and the fake app-server does not model the MCP tool path that Codex
   requests travel.
-- **Planted breaches.** There are seven new harness breaches in `src/plant.rs`.
+- **PR #355 review.**
+  - An empty `native_ids` (now a required method) fails [IFC-TYP-092].
+  - A `start_turn` that returns `Ok` without starting a turn fails [SEC-AUZ-025] and
+    [SEC-AUZ-026]. While the turn should run, the harness must hold both busy messages,
+    and neither may be input yet.
+  - The harness a real adapter runs under lives in the suite crate.
+    `tests/harness_location.rs` checks this:
+    - only its `ALLOWED_DEPENDENTS` (`oac-transport-memory`, whose pipeline test drives
+      the fakes) depend on the suite, and they implement no harness and never reach
+      `run`;
+    - no other Rust file names `AdapterHarness`.
+  - The new breaches are `NoNativeIds` and `TurnNoop`.
+- **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
   `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
   makes it a breach. Three cases are not breaches, and the tests show they stay
   conformant: a weakened Claude profile, which equals the Claude profile; a refusal gap on
   Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
   before.
 - **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
-  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `dbd7972`.)
+  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `ae87239`.)
 
 **Last updated:** 2026-10-08 (**Issue #347: the adapter contract suite tells `handoff-failed`
 from not-now** (mutation M6 of the PR #346 review; Refs #59). No `spec/` file, fake, gate
