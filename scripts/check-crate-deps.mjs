@@ -61,15 +61,26 @@
 //      outside a comment, so the table, dotted and inline-table forms all fail. The adapter
 //      suite also requires each crates.io package an adapter resolves to sit under
 //      $CARGO_HOME/registry/src (`vet_registry_location` in its src/source.rs).
+//   8. No path package (source null) inside the workspace root that is not a workspace
+//      member, and no root `[workspace] exclude` that reaches adapters/ (PR #352 third review
+//      finding 2): an excluded crate depended on by path builds into the product while rules
+//      1-5 and the adapter suite, which read members only, never see it.
+//
+//   What these checks trust: CI's cargo command lines and environment. A `--config` flag, a
+//   redirected CARGO_HOME, or a CARGO_SOURCE_* / CARGO_PATCH* variable in a workflow could
+//   swap a source behind them; scripts/check-workflows.mjs W6 refuses each, so adding one is
+//   a reviewed change. Targets other than the three CI operating systems are not built.
 //
 //   --adapters-alone runs `cargo check --locked --lib` on the adapters and adapters/mcp-tools
 //   only, so their dependencies' features unify among themselves and not with cli/'s (PR
 //   #352 review finding 2): a feature only another member turns on (tokio's `net`, say) is
-//   then absent, and an adapter that uses it fails to build. It runs twice: with default
-//   features, and with `--all-features`, so code behind an adapter feature that is off by
-//   default (one cli/ might turn on) is compiled alone too (PR #352 second review finding 1).
-//   The adapters' own features are held to the vetted list, so "all features, alone" is the
-//   widest build they may legitimately get. CI runs it in job crate-deps.
+//   then absent, and an adapter that uses it fails to build. It runs four times: with
+//   default features and with `--all-features` (so code behind an adapter feature that is
+//   off by default, one cli/ might turn on, is compiled alone too; second review finding 1),
+//   each in the dev profile and in `--release` (so code under `cfg(not(debug_assertions))`,
+//   the shipped binary's profile, is too; third review finding 1). The adapters' own
+//   features are held to the vetted list, so "all features, alone" is the widest build they
+//   may legitimately get. CI runs it in job crate-deps on each of its three OSes.
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
 //   node scripts/check-crate-deps.mjs --metadata <file>  # check a saved metadata JSON
@@ -89,7 +100,7 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -220,6 +231,17 @@ export function checkMetadata(meta) {
       continue;
     }
     members.set(id, mod);
+  }
+  // 8. No path package inside the workspace root that is not a member (PR #352 third review
+  // finding 2): one excluded from the workspace and depended on by path builds into the
+  // product while rules 1-5 and the adapter suite, which read members only, never see it.
+  for (const p of meta.packages) {
+    if (meta.workspace_members.includes(p.id) || p.source != null) continue;
+    const rel = relative(root, dirname(p.manifest_path));
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+      violations.push(`${p.name} (${rel.split(sep).join('/') || '.'}): a path package inside the workspace root that is not a ` +
+        'workspace member (rule 8: excluded from every member check; make it a member in the module layout)');
+    }
   }
   if (!meta.resolve) {
     violations.push('metadata has no resolve graph (was it run with --no-deps?)');
@@ -352,6 +374,45 @@ export function checkCargoConfig(dir, opts) {
   return cargoConfigFiles(dir, opts).flatMap((f) => cargoConfigFindings(f, readFileSync(join(dir, f), 'utf8')));
 }
 
+// Rule 8, the manifest side (third review finding 2): the root manifest's workspace `exclude`
+// may name nothing that holds or sits under adapters/ (cargo matches an exclude as a path
+// prefix, so `.`, `adapters` and `adapters/acp` all count). Read from the TOML text: the
+// `exclude` key of `[workspace]`, or `workspace.exclude` at the top level, its array on one
+// line or several.
+export function workspaceExcludeFindings(text) {
+  const out = [];
+  let table = '';
+  let collecting = null;
+  const take = (chunk, line) => {
+    for (const m of chunk.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+      const v = (m[1] ?? m[2]).replace(/\\/g, '/').replace(/^(?:\.\/)+/, '').replace(/\/+$/, '').toLowerCase();
+      if (v === '' || v === '.' || v === 'adapters' || v.startsWith('adapters/')) {
+        out.push(`Cargo.toml:${line}: workspace exclude "${m[1] ?? m[2]}" reaches adapters/ (rule 8: an excluded crate escapes every member check)`);
+      }
+    }
+  };
+  String(text).replace(/\r\n/g, '\n').split('\n').forEach((raw, i) => {
+    const line = raw.replace(/\s+#.*$/, '').trim();
+    if (collecting !== null) {
+      take(line, i + 1);
+      if (line.includes(']')) collecting = null;
+      return;
+    }
+    if (line.startsWith('#') || line === '') return;
+    if (line.startsWith('[')) {
+      table = line.replace(/^\[+\s*|\s*\]+$/g, '').replace(/["'\s]/g, '');
+      return;
+    }
+    const key = line.split('=')[0].replace(/["'\s]/g, '');
+    if ((table === 'workspace' && key === 'exclude') || (table === '' && key === 'workspace.exclude')) {
+      const rhs = line.slice(line.indexOf('=') + 1);
+      take(rhs, i + 1);
+      if (!rhs.includes(']')) collecting = true;
+    }
+  });
+  return out;
+}
+
 export function cargoMetadata(cwd, extra = []) {
   const r = spawnSync('cargo', [...METADATA_ARGS, ...extra], {
     cwd,
@@ -376,15 +437,17 @@ function report(violations, label) {
 // ---------------------------------------------------------------------------------------
 // --self-test: synthetic metadata documents.
 
-function synth({ members, externals = [], edges }) {
-  // members: { name: relDir }; externals: [name]; edges: [[from, to, kind?]]
+function synth({ members, externals = [], edges, paths = {} }) {
+  // members: { name: relDir }; externals: [name]; edges: [[from, to, kind?]];
+  // paths: { name: relDir }, non-member path packages (source null) at relDir from the root.
   const root = resolve('/ws');
   const id = (n) => `id:${n}`;
   const packages = [
     ...Object.entries(members).map(([n, d]) => ({ id: id(n), name: n, manifest_path: join(root, d, 'Cargo.toml') })),
     ...externals.map((n) => ({ id: id(n), name: n, manifest_path: join(root, '..', 'registry', n, 'Cargo.toml') })),
+    ...Object.entries(paths).map(([n, d]) => ({ id: id(n), name: n, source: null, manifest_path: join(root, d, 'Cargo.toml') })),
   ];
-  const all = [...Object.keys(members), ...externals];
+  const all = [...Object.keys(members), ...externals, ...Object.keys(paths)];
   const nodes = all.map((n) => ({
     id: id(n),
     deps: edges
@@ -660,6 +723,27 @@ const SELF_TEST_CASES = [
   // PR #352 second review finding 4: a crate named exactly `codex`.
   { name: 'adapters/codex depends on a crate named exactly codex (forbidden)', meta: synth({ members: BASE_MEMBERS, externals: ['codex'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex']] }) },
   { name: 'cli/ reaches Codex (exact name, mixed case) through a helper', meta: synth({ members: BASE_MEMBERS, externals: ['helper', 'Codex'], edges: [...BASE_EDGES, ['oac-cli', 'helper'], ['helper', 'Codex']] }) },
+  // Rule 8 (PR #352 third review finding 2): a non-member path package inside the root.
+  {
+    name: 'rule 8: cli/ depends on an excluded adapters/acp (a non-member path package)',
+    meta: synth({ members: BASE_MEMBERS, paths: { 'oac-adapter-acp': 'adapters/acp' }, edges: [...BASE_EDGES, ['oac-cli', 'oac-adapter-acp'], ['oac-adapter-acp', 'oac-core']] }),
+  },
+  { name: 'rule 8: a non-member path package anywhere inside the root (vendor/x)', meta: synth({ members: BASE_MEMBERS, paths: { x: 'vendor/x' }, edges: [...BASE_EDGES, ['oac-core', 'x']] }) },
+  {
+    name: 'rule 8 control: a path package outside the workspace root',
+    expectClean: true,
+    meta: synth({ members: BASE_MEMBERS, paths: { outside: '../elsewhere/outside' }, edges: [...BASE_EDGES, ['oac-adapter-claude', 'outside', 'dev']] }),
+  },
+];
+
+// Rule 8, the manifest side: the root `[workspace]` exclude.
+const EXCLUDE_CASES = [
+  { name: 'rule 8: exclude = ["adapters/acp"]', text: '[workspace]\nresolver = "3"\nexclude = ["adapters/acp"]\nmembers = ["core"]\n' },
+  { name: 'rule 8: exclude of adapters itself, single quotes', text: "[workspace]\nexclude = ['adapters']\n" },
+  { name: 'rule 8: multi-line exclude, ./ prefix, Windows separator', text: '[workspace]\nexclude = [\n  "tools/x",\n  "./adapters\\\\acp",\n]\n' },
+  { name: 'rule 8: exclude = ["."]', text: '[workspace]\nexclude = ["."]\n' },
+  { name: 'rule 8: dotted workspace.exclude at the top level', text: 'workspace.exclude = ["Adapters/ACP"]\n[package]\nname = "x"\n' },
+  { name: 'rule 8 control: exclude outside adapters/, and a package exclude', expectClean: true, text: '[workspace]\nexclude = ["tools/scratch", "adaptersx"]\n[package]\nexclude = ["adapters/acp"]\n' },
 ];
 
 // Rule 7 (PR #352 second review finding 2): cargo configuration text.
@@ -695,6 +779,15 @@ function selfTest() {
       for (const x of v) console.log(`        ${x}`);
     }
   }
+  for (const c of EXCLUDE_CASES) {
+    const v = workspaceExcludeFindings(c.text);
+    const ok = c.expectClean ? v.length === 0 : v.length > 0;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${c.name}`);
+    if (!ok) {
+      failed++;
+      for (const x of v) console.log(`        ${x}`);
+    }
+  }
   for (const [f, want] of [['.cargo/config.toml', true], ['.cargo/config', true], ['adapters/acp/.cargo/CONFIG.TOML', true],
     ['.cargo/config.toml.bak', false], ['cargo/config.toml', false], ['x.cargo/config', false]]) {
     const ok = CARGO_CONFIG_FILE.test(f) === want;
@@ -705,7 +798,7 @@ function selfTest() {
   const allFeatures = METADATA_ARGS.includes('--all-features');
   console.log(`${allFeatures ? 'pass' : 'FAIL'}  cargo metadata runs with --all-features (optional dependencies are in the graph)`);
   if (!allFeatures) failed++;
-  const total = SELF_TEST_CASES.length + CARGO_CONFIG_CASES.length + 6 + 1;
+  const total = SELF_TEST_CASES.length + CARGO_CONFIG_CASES.length + EXCLUDE_CASES.length + 6 + 1;
   console.log(`self-test: ${total - failed}/${total} cases pass`);
   return failed ? 1 : 0;
 }
@@ -852,6 +945,30 @@ const MUTATIONS = [
     edit: () => '[patch.crates-io]\ntokio = { path = "../../../tokio" }\n',
   },
   { name: 'root .cargo/config with a paths override (rule 7)', file: '.cargo/config', edit: () => 'paths = ["../tokio"]\n' },
+  // Rule 8 (PR #352 third review finding 2): the review's repro, an adapter crate excluded from
+  // the workspace that cli/ depends on by path; and a non-member path package elsewhere in the
+  // root, which only the graph side of rule 8 sees.
+  {
+    name: 'exclude = ["adapters/acp"], cli/ depends on adapters/acp by path (rule 8)',
+    edits: [
+      { file: 'Cargo.toml', edit: (t) => addLine('workspace', 'exclude = ["adapters/acp"]', t) },
+      {
+        file: 'adapters/acp/Cargo.toml',
+        edit: () => '[package]\nname = "oac-adapter-acp"\nversion = "0.0.0"\nedition = "2024"\n\n[dependencies]\noac-core = { path = "../../core" }\n',
+      },
+      { file: 'adapters/acp/src/lib.rs', edit: () => 'pub struct Acp;\n' },
+      { file: 'cli/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-acp = { path = "../adapters/acp" }') },
+    ],
+  },
+  {
+    name: 'exclude = ["vendor"], cli/ depends on vendor/x by path (rule 8, graph side)',
+    edits: [
+      { file: 'Cargo.toml', edit: (t) => addLine('workspace', 'exclude = ["vendor"]', t) },
+      { file: 'vendor/x/Cargo.toml', edit: () => '[package]\nname = "vendored-x"\nversion = "0.0.1"\nedition = "2024"\nlicense = "MIT"\n' },
+      { file: 'vendor/x/src/lib.rs', edit: () => 'pub struct X;\n' },
+      { file: 'cli/Cargo.toml', edit: addDep('dependencies', 'vendored-x = { path = "../vendor/x" }') },
+    ],
+  },
 ];
 
 // Review finding 2 (feature unification): another member turns a feature on that an
@@ -884,6 +1001,18 @@ const OFF_BY_DEFAULT_FEATURE_MUTATION = {
   ],
 };
 
+// PR #352 third review finding 1: code that builds only in release (the `oac` binary's
+// profile) uses a feature only another member turns on. Every dev-profile run alone passes;
+// the release runs must fail.
+const RELEASE_ONLY_MUTATION = {
+  name: 'adapters/codex code under cfg(not(debug_assertions)) uses a borrowed feature (caught by the release runs of --adapters-alone)',
+  edits: [
+    { file: 'adapters/codex/Cargo.toml', edit: addDep('dependencies', 'featured-stub = { path = "../../../stubs/featured-stub" }') },
+    { file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'featured-stub = { path = "../../../stubs/featured-stub", features = ["net"] }') },
+    { file: 'adapters/codex/src/lib.rs', edit: (t) => `${t}\n#[cfg(not(debug_assertions))]\npub type Probe = featured_stub::net::Probe;\n` },
+  ],
+};
+
 // The adapter-side members: adapters/<name> and adapters/mcp-tools.
 export function adapterPackages(meta) {
   const root = meta.workspace_root;
@@ -894,11 +1023,15 @@ export function adapterPackages(meta) {
     .sort();
 }
 
-// The two adapters-alone runs: default features, then every adapter feature (PR #352
-// second review finding 1).
+// The adapters-alone runs: default features, then every adapter feature (PR #352 second
+// review finding 1), each in the dev profile and in release, so code behind
+// `cfg(not(debug_assertions))` (the shipped binary's profile) is compiled alone too (third
+// review finding 1).
 export const ADAPTERS_ALONE_RUNS = [
   { label: 'default features', args: [] },
   { label: '--all-features', args: ['--all-features'] },
+  { label: 'release, default features', args: ['--release'] },
+  { label: 'release, --all-features', args: ['--release', '--all-features'] },
 ];
 
 // `cargo check --lib` on the adapter-side members alone (review finding 2), once per
@@ -935,7 +1068,13 @@ function mutationTest() {
     // Rule 7 first: a planted source replacement may leave cargo unable to resolve at all.
     const cfg = checkCargoConfig(dir, { tracked: false, memberDirs });
     if (cfg.length) return { failed: true, by: `checker: ${cfg[0]}${cfg.length > 1 ? ` (+${cfg.length - 1} more)` : ''}` };
+    // Rule 8's manifest side, reported with whatever the graph side finds too.
+    const excl = workspaceExcludeFindings(readFileSync(join(dir, 'Cargo.toml'), 'utf8'));
     const m = cargoMetadata(dir);
+    if (excl.length) {
+      const graph = m.status === 0 ? checkMetadata(JSON.parse(m.stdout)).filter((x) => x.includes('rule 8')) : [];
+      return { failed: true, by: `checker: ${excl[0]}${graph.length ? `; and ${graph[0]}` : ''}` };
+    }
     if (m.status !== 0) {
       const line = (m.stderr.split(/\r?\n/).find((l) => /error/i.test(l)) ?? 'cargo metadata failed').trim();
       if (m.stderr.includes(CARGO_CYCLE)) return { failed: true, by: `cargo refused the manifest: ${line}` };
@@ -990,7 +1129,27 @@ function mutationTest() {
     console.log(`${ok ? 'pass' : 'FAIL'}  ${OFF_BY_DEFAULT_FEATURE_MUTATION.name} -- ${r.malformed ??
       `member+adapter build with x exit ${r.whole}, alone default-features exit ${r.dflt}, alone --all-features exit ${r.all?.status}`}`);
   }
-  const total = cases.length + 2;
+  // Third review finding 1: release-only code. The member build in release compiles; both
+  // dev-profile runs alone pass (the bypass); both release runs alone fail.
+  {
+    const r = withWorkspaceCopy(RELEASE_ONLY_MUTATION, (ws) => {
+      const unlock = (args) => spawnSync('cargo', args, { cwd: ws, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+      const gen = unlock(['generate-lockfile', '--offline']);
+      if (gen.status !== 0) return { malformed: `generate-lockfile: ${gen.stderr.trim().split('\n').pop()}` };
+      const whole = unlock(['check', '--offline', '--release', '--lib', '-p', 'oac-transport-memory', '-p', 'oac-adapter-codex']);
+      const alone = adaptersAlone(ws);
+      return { whole: whole.status, runs: alone.runs, alone: alone.status };
+    });
+    const st = (label) => r.runs?.find((x) => x.label === label);
+    const dev = ['default features', '--all-features'].map(st);
+    const rel = ['release, default features', 'release, --all-features'].map(st);
+    const ok = !r.malformed && r.whole === 0 && r.alone !== 0 && dev.every((x) => x?.status === 0) &&
+      rel.every((x) => x && x.status !== 0 && /E0433|E0412|E0425|could not find `net`|cannot find/.test(x.out));
+    if (!ok) bad++;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${RELEASE_ONLY_MUTATION.name} -- ${r.malformed ??
+      `member+adapter release build exit ${r.whole}, alone ${(r.runs ?? []).map((x) => `${x.label} exit ${x.status}`).join(', ')}`}`);
+  }
+  const total = cases.length + 3;
   console.log(`mutation test: ${total - bad}/${total} cases pass`);
   return bad ? 1 : 0;
 }
@@ -1029,7 +1188,8 @@ function main(argv) {
   }
   const meta = JSON.parse(r.stdout);
   const configs = cargoConfigFiles(repoRoot, { tracked: true });
-  return report([...checkCargoConfig(repoRoot, { tracked: true }), ...checkMetadata(meta)],
+  return report([...checkCargoConfig(repoRoot, { tracked: true }),
+    ...workspaceExcludeFindings(readFileSync(join(repoRoot, 'Cargo.toml'), 'utf8')), ...checkMetadata(meta)],
     `${meta.workspace_members.length} workspace members, ${meta.packages.length} packages, ` +
       `${configs.length} tracked cargo configuration file(s)`);
 }

@@ -17,8 +17,8 @@
 #                        transport crate ownership over `cargo metadata` (07 section 3),
 #                        and `--adapters-alone`: the adapters and adapters/mcp-tools build
 #                        with only their own dependency features, not ones another member
-#                        turns on, with default features and with --all-features (#7, G-7
-#                        section 5).
+#                        turns on, with default features and with --all-features, each in
+#                        dev and release profiles (#7, G-7 section 5).
 #   licenses (<os>)    scripts/check-licenses.mjs: SPDX headers and the dependency license
 #                        inventory; an unapproved license fails the job (07 section 5).
 #   herdr-selftest (<os>)  the herdr driver's offline self-test against its test doubles
