@@ -7,18 +7,21 @@
 // hashHarnessConfig(). (The self-test also calls harnessConfigFiles() to plant synthetic
 // files in its own temp dirs, behind a path guard -- see test/selftest.mjs makeBase().)
 // harnessConfigDirs() names their directories only so executableIdentity() can refuse to
-// read anything there but a command's own managed binary (#140).
+// read anything there but a command's own managed binary (#140). Those directories are
+// canonicalized (realpath of the directory entry; nothing inside is listed or read) so a
+// symlinked spelling cannot walk around the refusal (#353, lib/canonical-path.mjs).
 //
 // Environment VALUES are never read here except for the allowlist in env-probe.mjs
 // (HERDR_*, TERM, COLORTERM). Everything else is compared by variable NAME only, so a
 // provider credential that happens to sit in the operator's environment is never read.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync, statSync, accessSync, realpathSync, createReadStream, constants as fsConstants } from 'node:fs';
+import { readFileSync, existsSync, statSync, accessSync, createReadStream, constants as fsConstants } from 'node:fs';
 import { homedir, platform, release, arch, type } from 'node:os';
-import { basename, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path';
+import { basename, join, posix, win32 } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runBounded } from './proc.mjs';
+import { canonicalForms, guardHolds, keepsBasename, rootGuard } from './canonical-path.mjs';
 
 // 2 (#140): herdr.executable, harnessExecutables, captures[].sha256.
 // 3 (#252): herdr.executableCheck, the comparison with PINS.md's expected herdr sha256.
@@ -62,6 +65,8 @@ export function harnessConfigFiles(env = process.env) {
 export function hashHarnessConfig(env = process.env) {
   return harnessConfigFiles(env).map(({ label, path }) => {
     if (!existsSync(path)) return { file: label, present: false, sha256: null };
+    // #353: a config file linked to a file of another name (a credential file) is not read.
+    if (!keepsBasename(path)) return { file: label, present: true, sha256: null, error: 'not read: resolves to a file of another name (#353)' };
     try {
       return { file: label, present: true, sha256: sha256File(path) };
     } catch (err) {
@@ -131,13 +136,6 @@ function harnessConfigDirs(env = process.env) {
   return [env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), env.CODEX_HOME || join(homedir(), '.codex')];
 }
 
-// Compared as spelled: the config directory itself is never touched, not even by realpath
-// (the self-test's fs trace holds the driver to that).
-function isUnder(file, dir) {
-  const rel = relative(resolve(dir), file);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
-
 // Format by magic bytes: a native executable ('elf', 'pe', 'mach-o') or a 'script' (a #!
 // line, or a .cmd/.bat/.ps1/.js/.mjs/.cjs/.sh file); otherwise 'unknown'.
 export function executableFormat(head, file = '') {
@@ -169,19 +167,24 @@ async function sha256Stream(path) {
 // Identity of one resolved executable. `path` is absolute (or null when it did not resolve).
 export async function executableIdentity(path, { requested, env = process.env } = {}) {
   if (!path) return { requested, resolved: false, basename: null, realBasename: null, sha256: null, bytes: null, format: null, error: `${requested} not found` };
-  let real = path;
-  try {
-    real = realpathSync(path);
-  } catch {
-    /* recorded as spelled */
-  }
+  // #353: both sides are compared canonicalized (as spelled, realpath, OS realpath), and
+  // anything that cannot be canonicalized is not read (fail closed). Before #353 the file was
+  // realpath'd and the config directory was not: with CODEX_HOME under a symlinked directory
+  // (macOS /var -> /private/var) a file inside it compared as outside, and was hashed. File
+  // identity is compared too (PR #356 review B1): a UNC admin-share or bind-mount spelling of
+  // a home is not mapped back by either realpath, but its (dev, ino) is the home's.
+  const exe = canonicalForms(path, { mustExist: true });
+  const real = exe?.real[0] ?? path;
   const id = { requested, resolved: true, basename: basename(path), realBasename: basename(real), sha256: null, bytes: null, format: null };
+  if (!exe) return { ...id, notRead: 'could not be canonicalized (realpath failed); never read (fail closed, #353)' };
+  const homes = harnessConfigDirs(env).map((d) => rootGuard(d));
+  if (homes.some((h) => !h)) return { ...id, notRead: 'a harness config directory could not be canonicalized or its identity read; nothing read (fail closed, ADR-001 boundary 3, #353)' };
   // A harness may keep its managed binary under its config directory (Codex's standalone
   // install: a launcher directory linked to $CODEX_HOME/packages/standalone/releases/<v>/bin/).
-  // That one file -- named for the requested command, never a config or credential file -- is
-  // hashed; anything else there is not read.
+  // That one file -- named for the requested command after every symlink, never a config or
+  // credential file -- is hashed; anything else there is not read.
   const ownBinary = new RegExp(`^${requested.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\.exe|\\.com)?$`, 'i');
-  if (harnessConfigDirs(env).some((d) => isUnder(real, d)) && !ownBinary.test(basename(real))) {
+  if (homes.some((h) => guardHolds(exe, h)) && !exe.real.every((r) => ownBinary.test(basename(r)))) {
     return { ...id, notRead: 'resolves inside a harness config directory to a file not named for the command; never read (ADR-001 boundary 3)' };
   }
   try {

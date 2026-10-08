@@ -57,6 +57,23 @@ const throws = (fn, cls, re) => {
 };
 
 export function g2Unit(check) {
+  // --- fake daemon socket path (#353) -----------------------------------------------------
+  // A CODEX_HOME long enough to put $CODEX_HOME/app-server-control/*.sock over the Unix-socket
+  // limit (104 bytes on macOS, 108 on Linux): the fake daemon must still listen and answer.
+  if (process.platform !== 'win32') {
+    const t = mkdtempSync(join(tmpdir(), 'oac-fc-long-'));
+    const home = join(t, 'h'.repeat(120));
+    mkdirSync(home);
+    try {
+      const fc = (...a) => spawnSync(process.execPath, [join(HERE, 'fake-codex.mjs'), ...a], { env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8', timeout: 20000 });
+      fc('app-server', 'daemon', 'start');
+      const v = fc('app-server', 'daemon', 'version');
+      check('g2 fake daemon #353: with a long CODEX_HOME the daemon listens on a short socket path and answers', v.status === 0 && /"status":"running"/.test(v.stdout), `${v.status} ${v.stdout}${v.stderr}`);
+    } finally {
+      stopFakeCodexDaemon(home);
+      rmSync(t, { recursive: true, force: true });
+    }
+  }
   // --- Codex version warning (#216: warn, never gate) -----------------------------------------
   const pins = read(join(REPO, 'docs', 'planning', 'PINS.md'));
   const real = parseCodexVersions(pins);
@@ -467,6 +484,14 @@ export function stopFakeCodexDaemon(codexHome) {
   } catch {
     /* gone */
   }
+  // #353: the fake daemon's short socket directory (fake-codex.mjs SOCK_PTR), removed only
+  // when it has the exact /tmp/oac-fc-XXXXXX shape the fake creates.
+  try {
+    const d = dirname(read(join(codexHome, 'app-server-control', 'socket-path')).trim());
+    if (/^\/tmp\/oac-fc-[A-Za-z0-9]{6}$/.test(d)) rmSync(d, { recursive: true, force: true });
+  } catch {
+    /* none */
+  }
 }
 
 const inside = (p, root) => {
@@ -489,7 +514,8 @@ export function g2Cases(check) {
     check('g2 human: PASS (exit 0)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
     check('g2 human: plain `codex` launched through agent start --kind codex with nothing after it', JSON.stringify(m.launch.argv) === '["codex"]' && g2.launch.verbatim && r.calls.some((c) => /agent start g2codex --kind codex --pane w1:p1 --timeout \d+$/.test(c.argv.join(' '))));
     const pa = g2.paneArgv[0];
-    check('g2 human: the pane process argv, read from /proc, is `node <base>/bin/codex` with no argument after codex', pa.proof.found && pa.proof.plain && pa.argv.some((a) => a.source.startsWith('/proc/') && a.argv?.length === 2 && basename(a.argv[1]) === 'codex'), JSON.stringify(pa));
+    // Linux reads argv from /proc; elsewhere (macOS, #353) from the ps process table.
+    check('g2 human: the pane process argv, read from /proc (ps off Linux), is `node <base>/bin/codex` with no argument after codex', pa.proof.found && pa.proof.plain && pa.argv.some((a) => (process.platform === 'linux' ? a.source.startsWith('/proc/') : /^ps /.test(a.source)) && a.argv?.length === 2 && basename(a.argv[1]) === 'codex'), JSON.stringify(pa));
     check('g2 human: `codex app-server daemon start` ran first, then daemon version; CLI, daemon and wire all verified', g2.daemon.start.exitCode === 0 && g2.versions.verified && g2.versions.daemon.appServerVersion === PIN && g2.versions.wire === PIN && g2.postRun.matches && daemonStarted(r));
     check('g2 human: client staged from HEAD, sha256 matches the committed blob; ran unmodified in every mode', g2.client.match && g2.client.copySha256 === COMMITTED_CLIENT_SHA256 && g2.client.copy === '<SCRATCH>/g2-client/client.mjs' && /^list(?:,list){2,},turn,busyqueue,turns$/.test(g2.clientRuns.map((x) => x.mode).join()) && g2.clientRuns.every((x) => x.problems.length === 0 && x.exitCode === 0) && g2.divergence.length === 0, JSON.stringify(g2.clientRuns.map((x) => [x.mode, x.exitCode, x.problems])));
     const d = g2.dialogs[0];
@@ -518,12 +544,16 @@ export function g2Cases(check) {
     const driverHome = underHome(driver);
     check('g2 trace: the tracer saw the driver and the client (non-empty traces)', driver.length > 50 && client.length > 0, `${driver.length} ${client.length}`);
     check('g2 trace: positive control -- the driver\'s own harness-config hash reads under the Codex home ARE traced', driverHome.some((t) => t.path.endsWith('config.toml')) && driverHome.some((t) => t.path.endsWith('hooks.json')));
-    check('g2 trace: the driver opened nothing else under the Codex home (no credential file, no sessions, no socket)', driverHome.every((t) => hashed.has(t.path)), JSON.stringify([...new Set(driverHome.filter((t) => !hashed.has(t.path)).map((t) => t.path))]));
+    // #353: executableIdentity() canonicalizes the home itself (realpath of the directory
+    // entry; nothing inside it is listed, opened or read). Allowed on the home path only.
+    const homeEntry = (t) => /^(?:realpath|stat)(?:Sync)?$/.test(t.op) && [home, r.env.CODEX_HOME].some((h) => resolve(h) === resolve(t.path));
+    check('g2 trace: #353 positive control -- the driver canonicalized the Codex home (realpath of the directory entry only)', driverHome.some(homeEntry));
+    check('g2 trace: the driver opened nothing else under the Codex home (no credential file, no sessions, no socket)', driverHome.every((t) => hashed.has(t.path) || homeEntry(t)), JSON.stringify([...new Set(driverHome.filter((t) => !hashed.has(t.path) && !homeEntry(t)).map((t) => `${t.op} ${t.path}`))]));
     check('g2 trace: the staged client opened nothing under the Codex home at all', underHome(client).length === 0, JSON.stringify(underHome(client).map((t) => t.path)));
     const exe = (t) => basename(t.file).replace(/\.exe$/i, '');
     const driverExes = [...new Set(driver.filter((t) => t.kind === 'spawn').map(exe))].sort();
     const clientExes = [...new Set(client.filter((t) => t.kind === 'spawn').map(exe))].sort();
-    check('g2 trace: the driver started only node (herdr, the client), git and codex -- no credential-store tool', driverExes.every((e) => [basename(process.execPath), 'git', 'codex'].includes(e)), driverExes.join(','));
+    check('g2 trace: the driver started only node (herdr, the client), git and codex (and ps off Linux, for pane argv, #353) -- no credential-store tool', driverExes.every((e) => [basename(process.execPath), 'git', 'codex', ...(process.platform === 'linux' ? [] : ['ps'])].includes(e)), driverExes.join(','));
     check('g2 trace: the client started only `codex app-server proxy`', clientExes.join() === 'codex' && client.filter((t) => t.kind === 'spawn').every((t) => JSON.stringify(t.args) === '["app-server","proxy"]'), JSON.stringify(client.filter((t) => t.kind === 'spawn')));
 
     // The report CLI: draft, then --write into a temporary root (never the repo).
@@ -586,7 +616,9 @@ export function g2Cases(check) {
     const secretFile = join(r.base, 'planted-secret.txt');
     const secret = existsSync(secretFile) ? read(secretFile) : '';
     check('g2 #232 planted: the secret is unknown-shaped (redaction alone leaves it in place)', /^[a-z]{20}$/.test(secret) && createRedactor().redactValue({ v: secret }).value.v === secret);
-    const planted = (g2.paneArgv ?? []).flatMap((pa) => pa.argv).filter((a) => a.minimized && a.argv?.length === 4 && a.argv[3] === argPlaceholder(secret));
+    // Linux (/proc): the child's argv is exactly 4 entries. Off Linux (#353) ps splits the -e
+    // script on spaces, so only the last entry, the secret's placeholder, is fixed.
+    const planted = (g2.paneArgv ?? []).flatMap((pa) => pa.argv).filter((a) => a.minimized && (process.platform === 'linux' ? a.argv?.length === 4 : a.argv?.length >= 4) && a.argv.at(-1) === argPlaceholder(secret));
     check('g2 #232 planted: the descendant carrying it was recorded, its argv minimized to the executable and length placeholders', planted.length >= 1 && planted.every((a) => !a.argv[0].includes('/') && a.argv.slice(1).every((x) => /^<arg len=\d+>$/.test(x))), JSON.stringify(g2.paneArgv?.map((pa) => pa.argv)));
     const leaked = filesUnder(r.outDir).filter((f) => read(f).includes(secret));
     check('g2 #232 planted: the secret is in neither the run manifest nor any other file the run wrote', secret.length === 20 && !r.manifestText.includes(secret) && leaked.length === 0 && filesUnder(r.outDir).length >= 2, leaked.map((f) => relative(r.outDir, f)).join(','));

@@ -86,10 +86,11 @@
 // repository (G1-result.md paraphrases them), so the defaults are not verbatim Box C.
 
 import { existsSync, lstatSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
+import { canonicallyWithin } from '../lib/canonical-path.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
@@ -136,7 +137,9 @@ export function assertNotInjected(label, text) {
 // driver never records that trust itself (Claude Code does, in its own state). It writes only the scenario's own `.mcp.json` there, and
 // refuses a directory inside this repository or one whose `.mcp.json` registers anything
 // but `g1spike`.
-export function operatorProjectDir(dir) {
+// The repository test is canonical on both sides (#353): a plain directory reached through a
+// symlinked ancestor that lands in this checkout is inside it. `repo` is for the self-test.
+export function operatorProjectDir(dir, { repo = REPO } = {}) {
   const abs = resolve(String(dir));
   if (!isAbsolute(String(dir))) throw new DriverError('--param projectDir must be an absolute path');
   let st;
@@ -146,8 +149,7 @@ export function operatorProjectDir(dir) {
     throw new DriverError(`--param projectDir ${abs} does not exist; create it and trust it in Claude Code first`);
   }
   if (st.isSymbolicLink() || !st.isDirectory()) throw new DriverError(`--param projectDir ${abs} is not a plain directory`);
-  const rel = relative(REPO, abs);
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) throw new DriverError(`--param projectDir ${abs} is inside this repository; use a directory outside it`);
+  if (canonicallyWithin(abs, repo)) throw new DriverError(`--param projectDir ${abs} is inside this repository; use a directory outside it`);
   const mcpPath = join(abs, '.mcp.json');
   if (existsSync(mcpPath)) {
     let names = null;

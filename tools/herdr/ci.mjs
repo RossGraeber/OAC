@@ -52,11 +52,12 @@
 // 0 ok, 1 not clean, 2 usage error.
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, appendFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { createRedactor, reportIsClean, summarize } from './lib/redact.mjs';
+import { isMainModule, canonicallyWithin } from './lib/canonical-path.mjs';
 
 // run.mjs is imported lazily (in ciRun): the self-test reaches this file from inside
 // run.mjs's own top-level await, and a static import back into run.mjs would deadlock.
@@ -105,21 +106,11 @@ export function defaultWorkdir(env = process.env) {
   return join(temp, `oac-herdr-${id}-${attempt}`);
 }
 
-function insideRepo(dir) {
-  let root = REPO_ROOT;
-  try {
-    root = realpathSync(REPO_ROOT);
-  } catch {
-    /* keep as is */
-  }
-  let d = resolve(dir);
-  try {
-    d = realpathSync(d);
-  } catch {
-    /* not created yet */
-  }
-  const rel = relative(root, d);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+// #353: canonicalized on both sides, a work dir that does not exist yet through its nearest
+// existing ancestor (before, a not-yet-created dir under a symlink into the checkout compared
+// as spelled, so outside). Fails closed: a path that cannot be canonicalized is inside.
+export function insideRepo(dir, root = REPO_ROOT) {
+  return canonicallyWithin(resolve(dir), root);
 }
 
 function checkWorkdir(workdir) {
@@ -352,7 +343,7 @@ async function main(argv) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isMainModule(import.meta.url)) {
   const code = await main(process.argv.slice(2));
   // Exit explicitly, as run.mjs does: an abandoned scenario may still hold handles.
   process.stdout.write('', () => process.stderr.write('', () => process.exit(code)));

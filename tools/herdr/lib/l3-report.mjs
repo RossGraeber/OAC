@@ -44,9 +44,9 @@
 //
 // Node built-ins only.
 
+import { isMainModule } from './canonical-path.mjs';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { L3_RECORD_VERSION, MARKER_SHAPE, TOKEN_SHAPE, sha256, compareSections, neutralizePlaceholders, assertNoMarkerLeak } from './l3.mjs';
 import { createRedactor } from './redact.mjs';
@@ -798,6 +798,6 @@ export function main(argv, { log = console.log, error = console.error } = {}) {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   process.exitCode = main(process.argv.slice(2));
 }
