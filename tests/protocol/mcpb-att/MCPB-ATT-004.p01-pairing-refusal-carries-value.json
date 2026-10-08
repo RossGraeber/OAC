@@ -1,0 +1,53 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-ATT-004",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.2",
+  "kind": "positive",
+  "description": "A send on an unbound Codex connection gets a pairing refusal: unauthorized, with the pairing value in a text block.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": false,
+    "codex_pairing": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+            "content": [
+              {
+                "type": "text",
+                "text": "Tests pass on the branch."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unauthorized: this connection is not yet paired with a session; pairing value oac-pair-3f9c2a7e10b84d6c95e1a0f27b4c8d35. Call the tool again."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

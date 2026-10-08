@@ -107,6 +107,12 @@ function listFixtures() {
   return { fixtures: out, stray };
 }
 
+// The revisions each document has had; a fixture cites the one it was written against
+// (§3.3). A document not listed has had only 0.1.
+const REVISIONS = {
+  'spec/bindings/mcp.md': ['0.1', '0.2'],
+};
+
 // The fixture's own form (§3.3; spec/bindings/mcp.md §12.2).
 function formProblems(f, fx) {
   const p = [];
@@ -118,7 +124,8 @@ function formProblems(f, fx) {
   if (m && fx.kind !== (m[2] === 'p' ? 'positive' : 'negative')) p.push(`kind ${fx.kind} does not match the file name`);
   if (fx.requirement && dirOfId(fx.requirement) !== f.dir) p.push(`requirement ${fx.requirement} does not belong in ${f.dir}/`);
   if (fx.requirement && DOC_OF_PREFIX[fx.requirement.split('-')[0]] !== fx.spec) p.push(`spec ${fx.spec} is not the document of ${fx.requirement}`);
-  if (fx.spec_revision !== '0.1') p.push(`spec_revision ${fx.spec_revision} is not 0.1`);
+  const revisions = REVISIONS[fx.spec] || ['0.1'];
+  if (!revisions.includes(fx.spec_revision)) p.push(`spec_revision ${fx.spec_revision} is not one of ${revisions.join(', ')}`);
   if ((fx.kind === 'negative') !== (typeof fx.failure_mode === 'string')) p.push('failure_mode must be present exactly on a negative fixture');
   if (typeof fx.description !== 'string' || fx.description.length === 0) p.push('description missing');
   for (const m2 of ['context', 'input', 'expected']) if (fx[m2] === null || typeof fx[m2] !== 'object') p.push(`${m2} missing`);
