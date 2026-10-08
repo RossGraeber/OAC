@@ -317,7 +317,9 @@ function daemon() {
       return reply({ turn: turnObj(startTurn(t, (params.input ?? []).map((x) => x.text ?? '').join(''), null, c), false) });
     }
     if (method === 'thread/queue/add') {
-      if (!t) return error(-32600, 'thread not found');
+      // As recorded on Codex 0.161.0 (S3 capture, #343): an unknown thread is -32603 from the
+      // thread store. turn/start and thread/turns/list of an unknown thread are not recorded.
+      if (!t) return error(-32603, `failed to read thread: invalid thread-store request: no rollout found for thread id ${params.threadId}`);
       const text = (params.input ?? []).map((x) => x.text ?? '').join('');
       const q = { id: randomUUID(), input: (params.input ?? []).map((x) => ({ ...x, text_elements: [] })), clientUserMessageId: params.clientUserMessageId };
       if (t.status === 'idle') startTurn(t, text, params.clientUserMessageId, c);

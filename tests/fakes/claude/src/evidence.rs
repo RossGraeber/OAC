@@ -17,6 +17,7 @@
 //! | legacy `tools/list` request | D6 line 9 |
 //! | modern `tools/list` request, after a successful probe | G4 line 12 |
 //! | `tools/call` shape (`_meta` with `claudecode/toolUseId`, `progressToken`) | D6 line 13 (and G1 Box C line 24) |
+//! | later `tools/call` ids (3, 4) and the `toolu_` id form | G1 herdr capture lines 14, 16, 18 ([`G1_HERDR_CALLS`]) |
 //! | mid-turn wrapper around a `<channel>` tag | G5 rendered line 13 |
 //!
 //! The fixture paths and versions are listed in
@@ -33,6 +34,11 @@ pub const D6: &str = include_str!(
 /// G1 Box C, the verdict-bearing G1 run, Claude Code `2.1.283`, 2026-09-28.
 pub const G1_BOX_C: &str = include_str!(
     "../../../../docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-09-28-2.1.283-boxC.jsonl"
+);
+/// G1 herdr capture for #343 (Gate S3 criterion 5), Claude Code `2.1.285`, 2026-10-07: one
+/// session with three `reply` calls, ids 2, 3 and 4 (lines 14-19).
+pub const G1_HERDR_CALLS: &str = include_str!(
+    "../../../../docs/planning/gates/fixtures/g1-claude-wake/transcript-2026-10-07-2.1.285-herdr.jsonl"
 );
 /// G4 dual-era run, Claude Code `2.1.283`, 2026-09-26.
 pub const G4: &str = include_str!(

@@ -74,6 +74,7 @@ import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
 import { removeScratch, SCRATCH_RETRY_DELAYS_MS } from '../lib/scratch.mjs';
 import { g1Unit, g1Cases, installFakeClaudeCli, cloneWithPins } from './g1-tests.mjs';
 import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.mjs';
+import { s3Unit } from './s3-tests.mjs';
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 import { g4Unit, g4Cases } from './g4-tests.mjs';
 import { g5Unit, g5Cases } from './g5-tests.mjs';
@@ -1087,6 +1088,7 @@ export async function runSelfTest() {
   await unitScratch();
   g1Unit(check);
   g2Unit(check);
+  s3Unit(check);
   await g4Unit(check);
   await g5Unit(check);
   l3Unit(check);
