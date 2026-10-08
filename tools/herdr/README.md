@@ -584,10 +584,11 @@ compares working-tree files with HEAD in git's normalized form, as `git status` 
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
 shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
 self-test needs POSIX `sh` and is skipped on Windows. CI runs the whole self-test in the
-default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu and
-windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only. It
-does not yet run cleanly on the macos image (identity-gate units and the fake-Codex-daemon
-lifecycle cases fail there), so that image is left out. To loop one lifecycle case (#239), set
+default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu, macos and
+windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only.
+(macos since #353: its temp directory sits under the symlinked `/var`, which every driver path
+guard now canonicalizes, and the fake Codex daemon's socket lives in a short `/tmp`
+directory.) To loop one lifecycle case (#239), set
 `OAC_HERDR_SELFTEST_ONLY` to part of its name, e.g.
 `OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
 the matching lifecycle cases run, and a filter that matches none fails.
