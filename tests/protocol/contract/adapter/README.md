@@ -11,7 +11,16 @@ harnesses. It is test-only: an adapter takes it as a dev-dependency.
 - `src/plant.rs` holds the planted breaches that `tests/stand_in.rs` uses. Adapter code
   never reaches them: a path into `plant` is a finding of its own row, `TEST-PLANT`.
 - `tests/stand_in.rs` runs the suite against well-behaved stand-in adapters and against
-  each planted breach.
+  each planted breach, an adapter's or a harness's.
+
+## What a harness may not change
+
+A harness is written by the adapter's task, so the suite does not take its word for the
+binding (#351). It identifies the binding from the hand-off calls the fake recorded, and
+runs every check under its own profile for that binding (`BINDINGS`). A harness profile that
+differs fails. So does a `Gap` from a step that the binding's profile makes mandatory, and
+an empty list of source files. The module doc of `src/lib.rs` has the table of which steps
+are mandatory for which binding, and why the rest are honestly not applicable.
 - `tests/real_adapters.rs` runs the static scan against `adapters/claude` and
   `adapters/codex`.
 - `tests/path_modules.rs` runs the scan on scratch crates on disk.
