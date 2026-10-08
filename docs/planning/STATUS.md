@@ -15,9 +15,9 @@ the lead approves and merges the pull request (`docs/planning/decisions/E7-inter
   `oac-pair-` value; Codex's own `item/completed` report of that refusal, received on the
   adapter's app-server connection, names the thread (its `threadId`), and binds the
   connection to it. Each later call is served only on Codex's own `item/started` report of
-  it. No value the call or its `_meta` carries is used. MCPB-ATT-003 to MCPB-ATT-017 and
-  MCPB-CDX-006; fixtures for MCPB-ATT-004 to MCPB-ATT-006, the rest `TODO(fixture)` for G8
-  against the F9 fake. `spec/interfaces.md` 0.2: `revealed`, `pairing_value`, the
+  it. No value the call or its `_meta` carries is used. MCPB-ATT-003 to MCPB-ATT-025 and
+  MCPB-CDX-006; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022 and MCPB-ATT-025,
+  the rest `TODO(fixture)` for G8 against the F9 fake. `spec/interfaces.md` 0.2: `revealed`, `pairing_value`, the
   `attachment-unconfirmed` event, IFC-ADP-090 to IFC-ADP-093. `spec/security.md` 0.2: one
   §13 row. `spec/session-channels.md` is unchanged: the pairing meets [SC-ID-121] as frozen
   (an operating-system key, narrowed by an issued value), which the lead is asked to confirm.
@@ -25,13 +25,21 @@ the lead approves and merges the pull request (`docs/planning/decisions/E7-inter
   hold under `spec/session-channels.md` §6.7: no Codex native signal could be paired. With
   the pairing, a Codex session is bound, and can receive, from its first OAC tool call.
 - **Runner.** `tests/protocol/runner/run.mjs` accepts `spec_revision` `0.2` for the MCP
-  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006. The security suite maps the new
+  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022 and MCPB-ATT-025. The security suite maps the new
   §13 row as `S13-misattributed-send`, gated on G8 (#69) with the placeholder
   `gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation`; the 09 §12 F11
   table gains its rendered row.
 - **Ledger.** The per-request-signal item is closed (none exists); the multi-thread-connection
-  item is reworded (source says no); three new items (rows 71 to 73 of `11-risks.md`); the
-  C4 pairing-facility item now also covers Codex.)
+  item is reworded (source says no); new items are rows 71 to 75 of `11-risks.md` (74: the F9
+  fake needs `mcpToolCall` items, owners G8 #69 and F9 #58); the C4 pairing-facility item now
+  also covers Codex.
+- **Review round (PR #350, CHANGES REQUESTED):** reveals and confirmations only from
+  subscribed threads; bounded pairing window (60 s), confirmation wait (10 s) and
+  confirmation life (600 s, or the item's or turn's end); one pairing value per connection and
+  window, so MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 hold as written with no carve-out;
+  no pairing value where pairing cannot complete, and at most three windows per connection;
+  matching rule for calls without arguments; residuals for read-only disclosure, `config`
+  overrides and process ancestry.)
 
 **Last updated:** 2026-10-08 (**Issue #6: Gate S3 is met. Stage 3 exits and Stage 4 (Epic G,
 #7, milestone M5) opens.** The exit decision is `docs/planning/decisions/F-6-stage3-exit.md`,
@@ -2633,6 +2641,13 @@ L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
 - **New, from #69 (2026-10-08):** whether the app-server applies `thread/resume` setting
   overrides to a thread that is already loaded (UNVERIFIED; `spec/bindings/mcp.md`
   [MCPB-CDX-006] forbids sending them either way). Owner G7 (#68). `11-risks.md` row 73.
+- **New, from #69 (2026-10-08, PR #350 review):** that a Codex call with no arguments is
+  reported as `arguments: null` and sent without an `arguments` member, so the two match
+  (UNVERIFIED — source only at `rust-v0.161.0`; `spec/bindings/mcp.md` §4.5.1 fact C9).
+  Availability only. Owner G8 (#69). `11-risks.md` row 75.
+- **Prerequisite, from #69 (2026-10-08, PR #350 review):** the F9 fake app-server emits no
+  `mcpToolCall` items, so the `TODO(fixture)` items of `spec/bindings/mcp.md` §4.5 wait for
+  them. Owners G8 (#69) and F9 (#58). `11-risks.md` row 74.
 - **New, from E6 (#46, 2026-10-03):** whether legacy clients other than Codex `0.157.1`,
   Claude Code's channel path included, accept an `extensions` member in an `initialize`
   result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).

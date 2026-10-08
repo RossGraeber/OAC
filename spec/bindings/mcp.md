@@ -6,7 +6,7 @@
   fixtures or marks it `TODO(fixture)`.
 - **Binding revision:** `0.2`, a minor revision of the frozen `0.1`, made under
   `docs/planning/decisions/E7-interface-freeze.md` §7 and in force from the lead's approval
-  and merge of its pull request (#69). Appendix A records the change.
+  and merge of PR #350 (issue #69). Appendix A records the change.
   Fixtures written against `0.1` keep citing `spec_revision` `0.1`; fixtures added in
   `0.2` cite `0.2`.
 - **Extension identifier:** `io.github.rossgraeber/oac-session-channels`
@@ -437,9 +437,9 @@ schema), recorded (a committed fixture), or source only.
 
 - **C1 — no documented per-request signal.** `D` names no `_meta` member that Codex sends
   to an MCP server. Source only: Codex adds `callId` and `x-codex-turn-metadata`
-  (`B/core/src/mcp_tool_call.rs#L1320-L1356`) and `threadId` and `sessionId`
-  (`#L1409-L1431`, key names at `#L1264-L1266`) to every `tools/call` `_meta`. Not used
-  (§4.4).
+  (`B/core/src/mcp_tool_call.rs#L1320-L1356`), `threadId` and `sessionId`, and, for a call
+  that has an originating window, `windowId` (`#L1409-L1431`, key names at
+  `#L1262-L1266`) to a `tools/call` `_meta`. Not used (§4.4).
 - **C2 — the MCP runtime is per thread (source only).** Each Codex session creates its own
   MCP runtime, commented as "one stable thread-owned MCP runtime handle"
   (`B/core/src/session/session.rs#L1606-L1608`; `B/codex-mcp/src/runtime.rs#L3-L4`). So
@@ -467,26 +467,51 @@ schema), recorded (a committed fixture), or source only.
   result goes back to the model (`#L623-L632`, `#L1058-L1102`). Between the two, the result
   can be changed by a tool-lifecycle extension built into Codex
   (`B/core/src/tools/lifecycle.rs#L86-L108`), for image or audio blocks the model cannot
-  take (`#L942-L979`), and above a size cap (`#L981-L1023`); a pairing refusal is short
+  take (`B/core/src/mcp_tool_call.rs#L942-L979`), and above a size cap
+  (`B/core/src/mcp_tool_call.rs#L981-L1023`). An error result (`isError: true`) is reported
+  in `result`, with status `failed`, not in `error` (`#L1058-L1102`). Source shows no
+  `item/completed` for a call whose turn is aborted while the call is in flight. A pairing
+  refusal is short
   text, so only the first could touch it. A changed refusal is simply never a reveal, which
   costs availability only. Runtime order and content are UNVERIFIED (§10).
-- **C6 — item notifications go to the thread's subscribers, with the thread's id.** `D`:
-  `thread/start` "automatically subscribes you to turn/item events for that thread".
-  Source: the notification carries the id of the thread that emitted it and goes only to
+- **C6 — item notifications carry the thread's id and reach the thread's subscribers.**
+  `D`: `thread/start` "automatically subscribes you to turn/item events for that thread".
+  Source: an item notification carries the id of the thread that emitted it and is sent to
   the connections subscribed to that thread
   (`B/app-server/src/bespoke_event_handling.rs#L1073-L1135`;
   `B/app-server/src/outgoing_message.rs#L142-L209`). Recorded: a connection that subscribed
   to a TUI-hosted thread with `thread/resume` received `item/started` with that thread's
   `threadId` (`docs/planning/gates/fixtures/g2-codex-inject/transcript.jsonl` lines 51 and
-  63, Codex `0.154.0`; `docs/planning/gates/G2-result.md`). No run has recorded an
-  `mcpToolCall` item on such a subscription, so that is UNVERIFIED (§10).
-- **C7 — `thread/resume` can change settings.** Its parameters include `model`, `cwd`,
-  `approvalPolicy`, `sandbox`, `permissions` and `config`
-  (`B/app-server-protocol/src/protocol/v2/thread.rs#L354-L414`).
+  63, Codex `0.154.0`; `docs/planning/gates/G2-result.md`). Routing is not exact, though:
+  at `0.161.0` some thread notifications (`thread/status/changed`, `thread/closed`,
+  `thread/goal/cleared`, `thread/archived`) reached a connection subscribed only to another
+  thread, and a connection after its `thread/unsubscribe`
+  (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+  L63-L69, L829, L959-L997; `docs/planning/v0.1/11-risks.md` row 70). So which threads'
+  notifications arrive on the carrier is not a guarantee; [MCPB-ATT-018] makes the
+  subscription a rule of the server instead. No run has recorded an `mcpToolCall` item on a
+  subscription, so that is UNVERIFIED (§10).
+- **C7 — `thread/start` and `thread/resume` can change settings.** `thread/resume`'s
+  parameters include `model`, `cwd`, `approvalPolicy`, `sandbox`, `permissions` and a
+  `config` map of configuration keys (`B/app-server-protocol/src/protocol/v2/thread.rs#L354-L414`);
+  `thread/start` has the same `config` map (`thread.rs#L100`). `D`: `thread/resume` takes
+  "the same configuration overrides supported by `thread/start`".
 - **C8 — dynamic tools.** A client can register tools with the experimental
   `thread/start.dynamicTools` (`thread.rs#L145-L151`), and their calls reach the client as
   the `item/tool/call` request with the thread's id (`B/app-server-protocol/src/protocol/common.rs#L1808-L1811`).
   Only the client that starts a thread can register them.
+- **C9 — a call with no arguments (source only).** When the model gives an empty argument
+  string, Codex parses it to no value (`B/core/src/mcp_tool_call.rs#L145-L150`), reports the
+  item's `arguments` as `null` (`#L1041`, `#L1087`), and sends the `tools/call` without an
+  `arguments` member (`B/rmcp-client/src/rmcp_client.rs#L847-L855`, `#L868`). Arguments are
+  otherwise sent as parsed, unless the tool declares file-input fields, which the OAC tools
+  do not (`B/core/src/mcp_openai_file.rs#L39-L41`). A non-object argument value is refused
+  by Codex before any call is sent (`rmcp_client.rs#L847-L853`).
+- **C10 — turns end with `turn/completed`.** `D`: it carries `{ turn }`, emitted "with final
+  status when the model finishes or after a `turn/interrupt` cancellation". Recorded at
+  `0.161.0` with `threadId` and `turn.id`
+  (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+  L90). An `item/started` carries the same turn's id as `turnId` (C4).
 
 #### 4.5.2 Terms
 
@@ -499,46 +524,60 @@ schema), recorded (a committed fixture), or source only.
 - **Carrier:** the Codex adapter's own connection to the Codex app-server (§2.3; C4 §4),
   on which it subscribes to threads and receives their notifications. It carries native
   signals (`spec/interfaces.md` §5.4); it is not an attachment.
-- **Pairing value:** a single-use random string that the implementation issues on one Codex
-  connection.
+- **Subscribed thread:** a thread to which the carrier subscribed (by `thread/start`,
+  `thread/resume` or `thread/fork`) and from which it has not since unsubscribed.
+- **Pairing value:** a random string that the implementation issues on one Codex connection
+  for one pairing window.
+- **Pairing window:** the period that starts when the server sends a pairing refusal on a
+  Codex connection that has no open pairing window, and ends when a reveal of its value is
+  paired or when its bounded length ([MCPB-ATT-019]) runs out, whichever comes first.
 - **Pairing refusal:** the `unauthorized` refusal of [MCPB-ATT-002] for a call on an unbound
-  Codex connection, when it carries a pairing value.
+  Codex connection, or under [MCPB-ATT-015], when it carries a pairing value.
+- **Matching arguments:** a call's `arguments` and an item's `arguments` match when they are
+  equal JSON values, and also when the call has no `arguments` member and the item's
+  `arguments` is `null` (C9). An empty object `{}` matches only `{}`.
 - **Reveal:** an `item/completed` notification, received on the carrier, whose `item` has
   `type` `mcpToolCall`, whose `server` is the registered name, whose `tool` and `arguments`
-  equal the name and arguments of a call that got a pairing refusal, and whose
-  `result.content` equals that pairing refusal's `content`. "Equal" is JSON-value equality.
-  A reveal reveals the pairing value of that refusal.
+  match the name and arguments of a call that got a pairing refusal, and whose
+  `result.content` is the same JSON value as that pairing refusal's `content`. A reveal
+  reveals the pairing value of that refusal.
 - **Confirmation:** an `item/started` notification, received on the carrier for the thread
   a Codex connection is bound to, whose `item` has `type` `mcpToolCall`, whose `server` is
-  the registered name, and whose `tool` and `arguments` equal a call's name and arguments.
-  It confirms that call.
+  the registered name, and whose `tool` and `arguments` match a call's name and arguments.
+  It confirms that call while it is live ([MCPB-ATT-021]).
 
 #### 4.5.3 How the pairing works
 
 1. A Codex thread T calls an OAC tool on its connection C. C is unbound, so the call is
-   refused with `unauthorized` ([MCPB-ATT-002]). The refusal carries a fresh pairing value
-   V. No envelope is created, and the refusal names no session.
+   refused with `unauthorized` ([MCPB-ATT-002]). The refusal carries the pairing value V of
+   C's current pairing window. No envelope is created, and the refusal names no session.
 2. Codex reports T's call on the carrier: an `item/completed` whose `threadId` is T and
    whose result is the refusal, V included (C4, C5, C6). That is a reveal.
 3. The reveal is the native signal for the harness-native id T
    (`spec/session-channels.md` §6.7.1). The implementation pairs it with C using two keys.
    The first it observes from the operating system: C's process descends from the Codex
-   process at the other end of the carrier ([SC-ID-121]), which leaves the Codex
-   connections of that Codex process as candidates. The second is V: it was written to C
-   only, so it leaves C as the one candidate ([SC-ID-125]). The binding then follows
-   `spec/session-channels.md` §6.7.3.
-4. T's model calls the tool again (the pairing refusal's text asks it to). On a bound
-   connection each call is served only once a confirmation for it has arrived: Codex's own
-   report that thread T is making that call now.
+   process at the other end of the carrier ([SC-ID-121]). That key admits every process
+   that Codex process starts, the OAC server processes of all its threads and any process a
+   thread's own tools start alike, so it does not tell them apart. The second key does: V
+   was written to C only, so it leaves C as the one candidate ([SC-ID-125]). The binding
+   then follows `spec/session-channels.md` §6.7.3.
+4. T's model calls the tool again, which the pairing refusal's text allows once. On a bound
+   connection each call is served only once a live confirmation for it has arrived: Codex's
+   own report that thread T is making that call now.
 
 V decides which thread's reports are consulted for C. The confirmation decides each call.
 A wrong pairing therefore cannot make a call count as T's unless T's own report shows T
-making a call with the same name and arguments (§4.5.5).
+making a call with the same name and arguments in its current turn (§4.5.5).
 
 Neither key is a value the attaching process supplies ([SC-ID-121]). The OAC server process
 on C relays nothing it chose; V is issued by the implementation and comes back in a report
 the harness makes about its own thread, through the carrier. The thread id is the
 notification's `threadId`, set by the app-server (C6), never a value from the call.
+
+**One value per window.** Every pairing refusal on C during one pairing window carries the
+same V ([MCPB-ATT-025]). The value therefore depends on the connection and the time only,
+never on the call: two calls that differ only in `to` get the same result, so
+[MCPB-TOOL-017], [MCPB-TOOL-019] and [MCPB-TOOL-021] hold for pairing refusals as written.
 
 **Start kind and cross-check.** This binding maps every reveal to the start kind `fresh`.
 Codex reports no cross-check value. A reveal that binds therefore binds under case 3(c) of
@@ -551,7 +590,8 @@ ended with its process ([SC-ID-155]).
 the ancestry between them, on each platform is UNVERIFIED. It is the same open item as the
 Claude pairing's (`spec/session-channels.md` §6.7.2 dated note; C4 §3 "Pairing
 requirement"), owned by G9 (#70). Until it is established every reveal is unpairable
-([SC-ID-125]), which costs availability, never authority.
+([SC-ID-125]), and the server issues no pairing value ([MCPB-ATT-022]): that costs
+availability, never authority.
 
 #### 4.5.4 Requirements
 
@@ -572,10 +612,16 @@ The 32 digits carry the 128 random bits of `spec/interfaces.md` [IFC-ADP-090]. T
 cannot be read as a session id (26 Crockford Base32 characters, `spec/session-channels.md`
 §6.1) or a device fingerprint (64 hexadecimal digits, `spec/security.md` §5.2).
 
-[MCPB-ATT-006] An OAC server MUST NOT place a pairing value in any message other than the
-pairing refusal that issued it.
+[MCPB-ATT-025] Every pairing refusal that an OAC server sends on one Codex connection during
+one pairing window MUST carry that window's pairing value.
 
-A reveal counts only when its result equals the pairing refusal. If the server echoed a
+A new window, on the same connection or another, gets a new value from [IFC-ADP-090]'s
+source. "One value per window" above says why the value must not vary per call.
+
+[MCPB-ATT-006] An OAC server MUST NOT place a pairing value in any message other than a
+pairing refusal on the connection it was issued on.
+
+A reveal counts only when its result equals a pairing refusal. If the server echoed a
 pairing value anywhere else, for example by copying an argument into a result, a thread that
 had learned the value could make Codex report a reveal for a connection that is not its own.
 
@@ -588,12 +634,23 @@ notification's `threadId` member.
 Never from the call's arguments or `_meta` ([SC-ID-162]), and never from
 `x-codex-turn-metadata` (#46 decision).
 
+[MCPB-ATT-018] An OAC server MUST NOT use as a reveal or a confirmation a notification whose
+`threadId` is not a subscribed thread of its carrier.
+
+Notifications for other threads can reach the carrier (C6). Taking only subscribed threads
+keeps pairing to the threads the adapter chose to serve, which are the threads launched
+OAC-enabled (`[ADR-001-A2 Amendment]`).
+
+[MCPB-ATT-019] An OAC server MUST end every pairing window no later than 60 seconds after it
+started.
+
+The length is an implementation setting; any length up to 60 seconds meets the rule. A reveal normally follows its refusal within one app-server notification (C5).
+
 [MCPB-ATT-009] An OAC server MUST NOT bind on a reveal that it receives after the pairing
 window of the revealed value has ended.
 
-The pairing window starts when the pairing refusal is sent. Its length is bounded and is not
-fixed here, as for [SC-ID-123]. A reveal that arrives later is dropped with a diagnostic, as
-[SC-ID-124] and [SC-ID-128] drop a signal whose window ended.
+A reveal that arrives later is dropped with a diagnostic, as [SC-ID-124] and [SC-ID-128] drop
+a signal whose window ended.
 
 [MCPB-ATT-010] An OAC server MUST NOT pair a reveal of a pairing value that an earlier reveal
 has already paired.
@@ -609,24 +666,60 @@ name, or something else outside this design, produced the value (§4.5.5). The c
 ends unbound, as for a stale binding ([SC-ID-152], [SC-ID-153]).
 
 [MCPB-ATT-013] An OAC server MUST NOT serve a tool call on a bound Codex connection unless it
-has received a confirmation of that call.
+holds a live confirmation of that call.
 
-A call waits for its confirmation for a bounded confirmation window, not fixed here. The
-confirmation can arrive before the call, because Codex reports the item before any approval
-prompt (C5); it stays usable until the `item/completed` of the same item `id` arrives.
+[MCPB-ATT-020] An OAC server MUST NOT hold a call on a bound Codex connection waiting for its
+confirmation for longer than 10 seconds.
+
+The length is an implementation setting; any length up to 10 seconds meets the rule. A confirmation normally arrives before its call, because Codex reports the item
+before any approval prompt and before the call (C5).
+
+[MCPB-ATT-021] An OAC server MUST NOT use a confirmation after the first of: the
+`item/completed` of the same item `id`, the `turn/completed` whose `threadId` and `turn.id`
+are the confirmation's `threadId` and `turnId`, and 600 seconds after the confirmation
+arrived.
+
+Before the first of those a confirmation is **live**. Source shows no `item/completed` for a
+call whose turn is aborted while the call is in flight (C5), so the turn's end (C10) and the
+time limit are what end an orphaned confirmation. The 600 seconds cover an approval prompt
+the user answers slowly; a call approved later than that is refused and the connection
+re-pairs (availability only). Any shorter limit meets the rule too.
 
 [MCPB-ATT-014] An OAC server MUST NOT use one confirmation for more than one call.
 
-[MCPB-ATT-015] An OAC server that receives no confirmation for a call on a bound Codex
-connection within the confirmation window MUST refuse the call with `unauthorized`.
+[MCPB-ATT-015] An OAC server that has no live confirmation for a call on a bound Codex
+connection when the wait of [MCPB-ATT-020] ends MUST refuse the call with `unauthorized`.
 
 [MCPB-ATT-016] An OAC server that refuses a call under [MCPB-ATT-015] MUST stop serving
 calls on that connection until a later reveal is paired with it.
 
-The refusal under [MCPB-ATT-015] is itself a pairing refusal, so the next call re-pairs the
-connection. A reveal for the thread the connection is bound to leaves the binding unchanged
-(`spec/session-channels.md` [SC-ID-130]) and lifts the stop. `spec/interfaces.md`
-[IFC-ADP-091] to [IFC-ADP-093] carry this between the adapter and the core.
+The refusal under [MCPB-ATT-015] is a pairing refusal when [MCPB-ATT-022] and
+[MCPB-ATT-023] allow one, so the next call can re-pair the connection. A reveal for the
+thread the connection is bound to leaves the binding unchanged (`spec/session-channels.md`
+[SC-ID-130]) and lifts the stop. `spec/interfaces.md` [IFC-ADP-091] to [IFC-ADP-093] carry
+this between the adapter and the core.
+
+[MCPB-ATT-022] An OAC server MUST NOT send a pairing refusal on a Codex connection that it
+cannot pair.
+
+A connection cannot be paired when the operating-system key is not available on the
+platform (§4.5.3), or when that key shows that the connection's process does not descend
+from the Codex process at the other end of the carrier, as for a thread in an embedded TUI
+server or in Codex Desktop. Its calls get the plain `unauthorized` refusal of
+[MCPB-ATT-002], with no value.
+
+[MCPB-ATT-023] An OAC server MUST NOT open more than three pairing windows on one Codex
+connection without pairing a reveal on it.
+
+After the third window ends unpaired, the connection's calls get the plain `unauthorized`
+refusal for as long as the connection lasts. A new connection starts again.
+
+[MCPB-ATT-024] The text of an `unauthorized` refusal on a Codex connection that carries no
+pairing value SHOULD NOT invite the caller to call again.
+
+Such a refusal is final for that connection. A server deviates by asking for a retry; each
+retry is then refused again, and where Codex asks the user to approve OAC tool calls, each
+retry also prompts the user for a call that is then refused.
 
 [MCPB-ATT-017] An OAC server SHOULD check that the `item/completed` notification of each
 confirmation it used reports, as `result.content`, the content that the server returned for
@@ -637,30 +730,30 @@ A server deviates by not checking. It then does not notice a connection that car
 thread's calls (fact C2 failing) until a confirmation is missing. A result above Codex's
 size cap is reported truncated (C5), so a server that checks compares only results below it.
 
-Two pairing refusals that differ only in their pairing values count as the same `result`
-for [MCPB-TOOL-017], [MCPB-TOOL-019] and [MCPB-TOOL-021]: the value depends on no session.
-
 > **Reference implementation note:** the v0.1 pairing refusal's text reads "unauthorized:
 > this connection is not yet paired with a session; pairing value oac-pair-<32 hex digits>.
-> Call the tool again." The adapter subscribes the carrier to each Codex thread it serves
-> with `thread/resume` ([MCPB-CDX-006]) and keeps the open `mcpToolCall` items of each
-> thread, keyed by item `id`, until their `item/completed` arrives.
+> You can call the tool once more." The plain refusal reads "unauthorized: this connection
+> cannot be paired with a session." The v0.1 windows are 30 seconds for pairing, 5 seconds
+> for the confirmation wait and 600 seconds for a confirmation's life. The adapter subscribes
+> the carrier to each Codex thread it serves with `thread/resume` ([MCPB-CDX-006]) and keeps
+> the live `mcpToolCall` items of each thread, keyed by item `id`.
 
 #### 4.5.5 Threat table
 
 Each row uses the `oac-security-work` §1 template. A mitigation whose proving test does not
 exist yet is an open risk, carried in `docs/planning/v0.1/11-risks.md` (RISK-SEC-SPEC,
 RISK-G4), not a closed mitigation. "G8" is #69, tested against the F9 fake app-server (#58),
-which needs `mcpToolCall` items added for it.
+which needs `mcpToolCall` items added for it (`docs/planning/v0.1/11-risks.md` row 74).
 
 | Attack | Precondition | Mitigation | Proving test | Residual risk |
 |---|---|---|---|---|
-| Impersonation: thread U's call is attributed to thread T's session | U and T run in one Codex daemon; both call OAC tools | A connection binds only on the reveal of a value issued on it ([MCPB-ATT-007]), taken from the notification's `threadId` ([MCPB-ATT-008]); every call needs T's own confirmation ([MCPB-ATT-013], [MCPB-ATT-014]) | `mcpb-att/MCPB-ATT-004.*`, `MCPB-ATT-005.*`, `MCPB-ATT-006.*` (value form and non-disclosure); the rest G8: not yet built, open risk | If one connection carried calls from T and U (fact C2 failing), a call of U whose name and arguments equal a pending call of T would be served as T's. Its content is exactly what T itself asked to send, and T's own call is then refused for want of a confirmation; [MCPB-ATT-017] detects it afterwards |
-| Self-asserted identity in the request: `_meta` `threadId`, `sessionId`, `callId` or `x-codex-turn-metadata`, or a session id in the arguments | A Codex client, a model or a prompt-injected peer puts an id in a call | Never read for attribution ([MCPB-ATT-008]; [SC-ID-162]; [MCPB-ATT-001]) | `mcpb-att/MCPB-ATT-001.n01`, `.n02`; `sc-id/SC-ID-162.p01` | None known |
-| Forged reveal: a thread that learned V makes Codex report a result containing V | V leaked, for example through the model of a thread whose reveal was missed | V appears in no message but its own refusal, arguments echoed included ([MCPB-ATT-006]); a reveal's whole `content` must equal the refusal ([MCPB-ATT-007] with §4.5.2); window ([MCPB-ATT-009]); single use ([MCPB-ATT-010]) | `mcpb-att/MCPB-ATT-006.n01`; window and single use: G8, open risk | A second MCP server registered under the same name in another thread's Codex configuration could return V. That needs write access to that configuration, which is the same-user local boundary of [SEC-AUZ-030]. One value revealed for two threads ends the binding with a finding ([MCPB-ATT-011], [MCPB-ATT-012]) |
-| Replay of a pairing or a confirmation | An old reveal, or one `item/started`, is offered for a second call | Single-use values ([MCPB-ATT-010]); one confirmation per call ([MCPB-ATT-014]); notifications arrive only on the adapter's own carrier (C6) | G8: not yet built, open risk | None known |
-| Race: the call reaches the server before its `item/started`, or a turn starts between a check and a call | Notifications and calls travel on different connections | The call waits for its confirmation within a bounded window; nothing is served on a guess ([MCPB-ATT-013], [MCPB-ATT-015]); a missed confirmation stops the connection until it is paired again ([MCPB-ATT-016]) | G8: not yet built, open risk | A late notification costs a refused call and a re-pairing (availability, not authority) |
-| A connection from a process Codex did not start | A local process opens a connection to the OAC server's process or to the core | OS peer authentication [SEC-AUZ-030]; the OS pairing key requires descent from the Codex process on the carrier ([SC-ID-121]) | G9 (#70): not yet built, open risk | Platform facility UNVERIFIED (`RISK-LOCAL-IPC`); until it is established every reveal is unpairable |
+| Impersonation: thread U's call is attributed to thread T's session | U and T run in one Codex daemon; both call OAC tools | A connection binds only on the reveal of a value issued on it ([MCPB-ATT-007]), taken from the notification's `threadId` ([MCPB-ATT-008]) of a subscribed thread ([MCPB-ATT-018]); every call needs a live confirmation from T ([MCPB-ATT-013], [MCPB-ATT-014], [MCPB-ATT-021]) | `mcpb-att/MCPB-ATT-004.*`, `MCPB-ATT-005.*`, `MCPB-ATT-006.*`, `MCPB-ATT-025.*` (value form, one value per window, non-disclosure); the rest G8: not yet built, open risk | Only if one connection carried calls from T and U (fact C2 failing): while T has a live confirmation, that is, a call with the same name and matching arguments that T started in its current turn, at most 600 s ago, and has not completed, a call of U with that name and those arguments is served as T's. For `send` and `reply` its content is exactly what T itself asked to send. For `list_sessions` and `whoami`, often called with `{}`, U reads T's discovery view and T's own session id and device fingerprint, scoped by T's grants. T's own call is then refused for want of a confirmation; [MCPB-ATT-017] detects it afterwards |
+| Self-asserted identity in the request: `_meta` `threadId`, `sessionId`, `windowId`, `callId` or `x-codex-turn-metadata`, or a session id in the arguments | A Codex client, a model or a prompt-injected peer puts an id in a call | Never read for attribution ([MCPB-ATT-008]; [SC-ID-162]; [MCPB-ATT-001]) | `mcpb-att/MCPB-ATT-001.n01`, `.n02`; `sc-id/SC-ID-162.p01` | None known |
+| Forged reveal: a thread that learned V makes Codex report a result containing V | V leaked, for example through the model of a thread whose reveal was missed | V appears in no message but a pairing refusal on its own connection, arguments echoed included ([MCPB-ATT-006]); a reveal's whole `content` must equal a refusal ([MCPB-ATT-007] with §4.5.2); bounded window ([MCPB-ATT-019], [MCPB-ATT-009]); single use ([MCPB-ATT-010]); subscribed threads only ([MCPB-ATT-018]) | `mcpb-att/MCPB-ATT-006.n01`; window, single use and subscription: G8, open risk | An MCP server under the registered name, other than the OAC server, could return V for another thread. Anyone who can write that thread's Codex configuration can add one, and so can any client of the same app-server, without writing a file, through the `config` override of `thread/start` or `thread/resume` (C7). Both are the same-user local boundary of [SEC-AUZ-030]. One value revealed for two threads ends the binding with a finding ([MCPB-ATT-011], [MCPB-ATT-012]) |
+| Replay of a pairing or a confirmation | An old reveal, or one `item/started`, is offered for a second call | Single-use values ([MCPB-ATT-010]); one confirmation per call ([MCPB-ATT-014]); confirmations expire ([MCPB-ATT-021]); notifications are taken only from the adapter's own carrier | G8: not yet built, open risk | None known |
+| Race: the call reaches the server before its `item/started`, or a turn starts between a check and a call | Notifications and calls travel on different connections | The call waits for its confirmation within a bounded wait; nothing is served on a guess ([MCPB-ATT-013], [MCPB-ATT-020], [MCPB-ATT-015]); a missed confirmation stops the connection until it is paired again ([MCPB-ATT-016]) | G8: not yet built, open risk | A late notification costs a refused call and a re-pairing (availability, not authority) |
+| A connection from a process other than the thread's own OAC server process | A local process, or a process a thread's own tools start, opens a connection to the core or speaks MCP to it | OS peer authentication [SEC-AUZ-030]. The OS pairing key only narrows candidates to processes the Codex process started, and a process a thread's tools start passes it too; what tells connections apart is V, which only the OAC server's own result carries back ([MCPB-ATT-006], [MCPB-ATT-007]) | G9 (#70) and G8: not yet built, open risk | Platform facility UNVERIFIED (`RISK-LOCAL-IPC`); until it is established no pairing value is issued ([MCPB-ATT-022]) |
+| Endless retries and repeated approval prompts | Pairing cannot complete: no OS facility, a thread outside the carrier's app-server, or reveals that never arrive | No value where pairing is impossible ([MCPB-ATT-022]); at most three windows per connection ([MCPB-ATT-023]); a final refusal does not invite a retry ([MCPB-ATT-024]) | G8: not yet built, open risk | Up to three refused calls, each possibly prompting the user, before the connection gets the final refusal |
 | Settings changed by the subscription | The adapter subscribes with `thread/resume` | No setting members ([MCPB-CDX-006]) | G7 (#68) / G8 against the F9 fake: not yet built, open risk | Whether the app-server applies resume overrides to a loaded thread is UNVERIFIED; it is forbidden either way |
 | Malicious peer prompt injection | A granted peer sends adversarial content to T | Unchanged: a binding sets `from` and authorizes nothing ([SC-ID-157]); content stays untrusted (`spec/security.md` §1.2, [SEC-AUZ-020]) | as `spec/security.md` §13 | The model judges |
 | Unauthorized routing or discovery; cross-project disclosure | A bound Codex session sends, or calls `list_sessions` | Unchanged: default deny and working-directory scoping (`spec/security.md` §9); refusals on an unbound connection name no session ([MCPB-TOOL-021]) | as `spec/security.md` §13 | As there |
@@ -671,16 +764,21 @@ which needs `mcpToolCall` items added for it.
 
 #### 4.5.6 Consequences, stated plainly
 
-- **The first OAC call on every Codex connection is refused.** It is the pairing refusal;
-  the model calls again. A Codex thread that never calls an OAC tool stays unbound: its
-  session is not present, not discoverable, and receives no hand-off
+- **The first OAC call on every Codex connection is refused.** It is the pairing refusal,
+  and the model calls once more. A Codex thread that never calls an OAC tool stays unbound:
+  its session is not present, not discoverable, and receives no hand-off
   (`spec/session-channels.md` [SC-ID-182]; `spec/interfaces.md` [IFC-ADP-030]).
+- **Where Codex asks the user to approve OAC tool calls, the pairing call is approved too.**
+  The user approves a call that is then refused. A connection that cannot pair gets the
+  final refusal at once ([MCPB-ATT-022]), and at most three pairing windows are opened
+  ([MCPB-ATT-023]), so this is bounded.
 - **Every served call waits for its confirmation**, which adds the latency of one app-server
-  notification.
+  notification, and a call approved more than 600 seconds after Codex reported it is
+  refused ([MCPB-ATT-021]).
 - **A replaced connection gets a new session id** (§4.5.3). Peers addressing the old id no
   longer reach the thread, and grants are not carried forward ([SC-ID-151]).
-- **Only threads the adapter subscribes to can pair.** A thread in an app-server the carrier
-  does not reach (an embedded TUI server, Codex Desktop) is never paired: the
+- **Only subscribed threads can pair** ([MCPB-ATT-018]). A thread in an app-server the
+  carrier does not reach (an embedded TUI server, Codex Desktop) is never paired: the
   "launched OAC-enabled" rule of `[ADR-001-A2 Amendment]`.
 - **HTTP registrations stay refused** on both eras ([MCPB-ATT-002]); Codex's modern-era
   client is opt-in and HTTP-only in the one run observed (§4.2 fact 8).
@@ -689,11 +787,12 @@ which needs `mcpToolCall` items added for it.
 
 | Alternative | Why rejected |
 |---|---|
-| `_meta` ids Codex sends (`threadId`, `sessionId`, `callId`, `x-codex-turn-metadata`) | Undocumented and client-asserted (C1; §4.4); [SC-ID-162]; #46 decision |
+| `_meta` ids Codex sends (`threadId`, `sessionId`, `windowId`, `callId`, `x-codex-turn-metadata`) | Undocumented and client-asserted (C1; §4.4); [SC-ID-162]; #46 decision |
 | A per-thread value in the server's launch environment or `codex mcp add` registration | None exists (C3) |
 | The connection alone, taking one connection per thread | Per-thread connections are source only (C2); MCP `2026-07-28` forbids treating connection identity as session continuity (§4.4); [MCPB-ATT-001] |
 | A token placed in the model's context, or the model echoing `oac_message_id` (`docs/planning/v0.1/11-risks.md` row 17) | Model-generated text never establishes identity (`spec/security.md` [SEC-PRV-002]; `oac-security-work` §3); a token in context leaks with the context |
 | Matching calls to `item/started` across every subscribed thread, without a pairing value | A thread the adapter does not observe could take another thread's pending report by sending the same arguments, and so bind a connection to the wrong session |
+| A fresh pairing value for every refusal | The value would then vary per call, so two refusals that differ only in `to` would differ, against [MCPB-TOOL-017], [MCPB-TOOL-019] and [MCPB-TOOL-021] as frozen |
 | Dynamic tools (C8) | Experimental, registered only by the client that starts a thread, so not available for a thread a person started in the TUI; it would also move the tool surface off this binding. A candidate if a later revision has OAC start the thread |
 
 ## 5. Tool surface
@@ -915,6 +1014,13 @@ connection before it is paired names or reveals any session, even though [MCPB-A
 already refuses that connection's tool calls. The rule does not restrict what the server
 does about sessions the bound session is authorized to discover. Timing is outside it, as
 the reference implementation note below explains.
+
+*Dated note, 2026-10-08 (#69, binding revision 0.2): a server that pairs Codex connections
+(§4.5) meets [MCPB-TOOL-017], [MCPB-TOOL-019] and [MCPB-TOOL-021] as written. The pairing
+value in its refusals is the same for every call on one connection during one pairing window
+([MCPB-ATT-025]), so it depends on the connection and the time, never on `to` or on any
+session. Two requests that differ only in `to` get the same `result`; the meaning of these
+three requirements does not change.*
 
 Discovery grants are not symmetric: a session can be authorized to discover and send to the
 bound session while the bound session is not authorized to discover it. [MCPB-TOOL-021]
@@ -1448,6 +1554,8 @@ rows record the closure with a dated note in the same change.
 | A carrier subscribed to a TUI-hosted thread with `thread/resume` receives that thread's `mcpToolCall` items (§4.5.1, fact C6) | other item types recorded (G2, `0.154.0`); `mcpToolCall` UNVERIFIED (new, §4.5); owner #69 | added to `docs/planning/STATUS.md` and `11-risks.md` RISK-G4 in binding revision 0.2's change |
 | Whether the app-server applies `thread/resume` setting overrides to a loaded thread ([MCPB-CDX-006]) | UNVERIFIED (new, §8.2.1); owner G7 (#68) | added to `docs/planning/STATUS.md` in binding revision 0.2's change |
 | Which operating-system call yields the peer process of the carrier and of a Codex connection, and their ancestry, on each platform (§4.5.3) | UNVERIFIED; the same item as the Claude pairing's (`spec/session-channels.md` §6.7.2); owner G9 (#70) | already in `docs/planning/STATUS.md`; `11-risks.md` RISK-LOCAL-IPC |
+| A call with no arguments is reported with `arguments: null` and sent without an `arguments` member, so the two match (§4.5.2; §4.5.1 fact C9) | source only at `rust-v0.161.0`; runtime UNVERIFIED (new, §4.5); availability only: if a version sends `{}` instead, such calls are refused for want of a confirmation; owner G8 (#69) | added to `docs/planning/STATUS.md` and `11-risks.md` row 75 in binding revision 0.2's change |
+| The F9 fake app-server emits `mcpToolCall` items, as every `TODO(fixture)` of §4.5 needs | not yet built; owners G8 (#69) and F9 (#58) | `docs/planning/STATUS.md`; `11-risks.md` row 74 |
 | A legacy client other than Codex `0.157.1` ignores an `extensions` member in an `initialize` result | UNVERIFIED (new, [MCPB-ERA-008]) | added to `docs/planning/STATUS.md` in this change |
 | A Codex `turn/start` sent during a regular turn steers it; `thread/queue/add` never does; a steering `turn/start` applies its setting overrides (§8.2.1) | verified from source at `rust-v0.160.0` and the upstream test; observed live once at `0.160.0` (E1 run) | #224 step-1 findings; `docs/planning/STATUS.md` (the S10 item closes in #274's change) |
 | Which `thread/queue/add` errors, if any, mean "not now" ([SC-DLV-008]) | UNVERIFIED (#274); owner G7 (#68) | added to `docs/planning/STATUS.md` in #274's change |
@@ -1505,7 +1613,12 @@ ones:
   - `codex_pairing`, `true` when the connection is a Codex connection whose server pairs
     under §4.5. Absent means `false`.
   - `issued_pairing_values`, an array of the pairing values (§4.5.2) that the server issued
-    before this exchange, on any connection. Absent means none.
+    before this exchange, on another connection or in a pairing window that has ended.
+    Absent means none.
+  - `open_pairing_value`, the pairing value of the connection's open pairing window, when
+    one is open before this exchange. Absent means none is open.
+  - `pairing_possible`, `false` when the server cannot pair the connection
+    ([MCPB-ATT-022]). Absent means `true`.
   - `addressed` describes the session a `send` or `reply` names in `to`. It is an
     object with `presence`, the presence state that the OAC server's implementation
     holds for that session as its observer (`online`, `unreachable` or `unknown`,
@@ -1602,6 +1715,14 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-ATT-015 | MUST | TODO(fixture), owner G8 (#69) against the F9 fake: no confirmation within the window → refused with `unauthorized`, carrying a new pairing value |
 | MCPB-ATT-016 | MUST | TODO(fixture), owner G8 (#69) against the F9 fake: after the refusal of MCPB-ATT-015 a further call is refused until a reveal for the bound thread arrives, then served on its confirmation |
 | MCPB-ATT-017 | SHOULD | none (not a `MUST`) |
+| MCPB-ATT-018 | MUST NOT | TODO(fixture), owner G8 (#69) against the F9 fake (#58), with `mcpToolCall` items added to it: an `item/completed` or `item/started` whose `threadId` is a thread the carrier never subscribed to, or unsubscribed from, arriving on the carrier (negative) → neither a reveal nor a confirmation |
+| MCPB-ATT-019 | MUST | TODO(fixture), owner G8 (#69) against the F9 fake: a reveal arriving 61 seconds after its window opened → not paired, whatever the configured length |
+| MCPB-ATT-020 | MUST NOT | TODO(fixture), owner G8 (#69) against the F9 fake: a call whose `item/started` never arrives → refused no later than 10 seconds after it arrived |
+| MCPB-ATT-021 | MUST NOT | TODO(fixture), owner G8 (#69) against the F9 fake: a call matching an `item/started` whose `item/completed` arrived, whose turn ended with `turn/completed`, or that arrived 601 seconds earlier (negative) → not served |
+| MCPB-ATT-022 | MUST NOT | `tests/protocol/mcpb-att/MCPB-ATT-022.p01-plain-refusal-when-unpairable.json`, `tests/protocol/mcpb-att/MCPB-ATT-022.n01-pairing-value-when-unpairable.json` |
+| MCPB-ATT-023 | MUST NOT | TODO(fixture), owner G8 (#69) against the F9 fake: four calls on one connection, each window ending without a reveal → the fourth refusal carries no pairing value |
+| MCPB-ATT-024 | SHOULD NOT | none (not a `MUST`) |
+| MCPB-ATT-025 | MUST | `tests/protocol/mcpb-att/MCPB-ATT-025.p01-window-value-repeated.json`, `tests/protocol/mcpb-att/MCPB-ATT-025.n01-new-value-in-open-window.json` |
 | MCPB-TOOL-001 | MUST | `tests/protocol/mcpb-tool/MCPB-TOOL-001.p01-four-tools-listed.json`, `tests/protocol/mcpb-tool/MCPB-TOOL-001.n01-whoami-missing.json` |
 | MCPB-TOOL-002 | MUST | TODO(fixture), owner G9 (#70): a comparison across eras, as for MCPB-ERA-007. Planned: `tools/list` on each era → identical names, schemas and result shapes |
 | MCPB-TOOL-003 | MUST | TODO(fixture), owner G9 (#70) with G5 (#66) and G8 (#69): a comparison across harnesses, which no single exchange holds. Planned: `tools/list` as two different clients → identical |
@@ -1655,4 +1776,4 @@ Binding revision 0.1 had no table of its own; its history is in `docs/planning/S
 | Revision | Date | Change |
 |---|---|---|
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
-| 0.2 | 2026-10-08 | #69 (lead decision of 2026-10-08 to design a Codex reply pairing and propose it as a frozen-spec change): §4.5, the Codex issued-value pairing, binds a stdio connection that Codex started to one Codex thread on a reveal of a value the implementation issued on it, and serves each call only on Codex's own confirmation of it (MCPB-ATT-003 to MCPB-ATT-017); MCPB-CDX-006 (no setting members in a subscribing `thread/resume`); §4.4 states that no documented per-request signal exists, so the refusal of an unbound connection is no longer called interim; §8.2, §9, §10 and §12.2 updated; fixtures for MCPB-ATT-004 to MCPB-ATT-006. Minor revision (`spec/session-channels.md` §5.2, item 6): MCPB-ATT-003 is a `MAY`, and every new `MUST` or `MUST NOT` binds only an implementation that pairs, so an implementation conformant to 0.1 stays conformant (§5.3, item 11). No wire form changes. Matching changes: `spec/interfaces.md` 0.2 and `spec/security.md` 0.2. |
+| 0.2 | 2026-10-08 | #69, PR #350 (lead decision of 2026-10-08 to design a Codex reply pairing and propose it as a frozen-spec change): §4.5, the Codex issued-value pairing, binds a stdio connection that Codex started to one subscribed Codex thread on a reveal of a value the implementation issued on it, one value per connection and pairing window, and serves each call only on a live confirmation from that thread (MCPB-ATT-003 to MCPB-ATT-025); bounded pairing window (60 s), confirmation wait (10 s) and confirmation life (600 s, or the item's or turn's end); no pairing value where pairing cannot complete, and at most three windows per connection; MCPB-CDX-006 (no setting members in a subscribing `thread/resume`); §4.4 states that no documented per-request signal exists, so the refusal of an unbound connection is no longer called interim; a dated note at §5.4 records that MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 are met as written, with their meaning unchanged; §8.2, §9, §10 and §12.2 updated; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022 and MCPB-ATT-025. Minor revision (`spec/session-channels.md` §5.2, item 6): MCPB-ATT-003 is a `MAY`, MCPB-ATT-017 and MCPB-ATT-024 are `SHOULD`/`SHOULD NOT`, and every new `MUST` or `MUST NOT` binds only an implementation that pairs, so an implementation conformant to 0.1 stays conformant (§5.3, item 11). No requirement of 0.1 changes meaning, and no wire form changes. Matching changes: `spec/interfaces.md` 0.2 and `spec/security.md` 0.2. |

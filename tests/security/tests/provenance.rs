@@ -402,7 +402,7 @@ fn gated_row18_codex_reply_correlation_is_not_trusted_alone() {
 /// `spec/security.md` §13 "Misattributed send request": a Codex stdio connection is bound
 /// only on a reveal of a value issued on it, and each call on it is served only on the bound
 /// thread's own report of that call (`spec/bindings/mcp.md` §4.5, [MCPB-ATT-007] to
-/// [MCPB-ATT-016]). Gated: the pairing is the Codex adapter's, G8, against the F9 fake
+/// [MCPB-ATT-025]). Gated: the pairing is the Codex adapter's, G8, against the F9 fake
 /// with `mcpToolCall` items.
 #[test]
 #[ignore = "GATED on #69 (G8, Codex adapter issued-value pairing)"]

@@ -1207,8 +1207,8 @@ Stage 3 exit record `docs/planning/decisions/F-6-stage3-exit.md` closes row 64 b
 its STATUS.md bullet is removed.) (Dated note, 2026-10-08, #6: the record's re-run against
 the #343 capture adds row 70: which connections Codex sends a thread's notifications to,
 recorded in the S3 capture but UNVERIFIED as a rule and not modelled by the fake.) (Dated
-note, 2026-10-08, #69: rows 71-73 come from the Codex issued-value pairing,
-`spec/bindings/mcp.md` 0.2 §4.5.)
+note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
+`spec/bindings/mcp.md` 0.2 §4.5, rows 74-75 from the PR #350 review.)
 
 | # | STATUS.md item (short) | Disposition |
 |---|---|---|
@@ -1285,6 +1285,8 @@ note, 2026-10-08, #69: rows 71-73 come from the Codex issued-value pairing,
 | 71 | Codex emits a call's `item/started` before the MCP call and its `item/completed`, with the result the server returned, before the result reaches the model (`spec/bindings/mcp.md` §4.5.1 fact C5; source only at `rust-v0.161.0`, `codex-rs/core/src/mcp_tool_call.rs` L259-L265, L466, L623-L632). Owner G8 (#69) | RISK-G4 |
 | 72 | A carrier subscribed to a TUI-hosted thread with `thread/resume` receives that thread's `mcpToolCall` items with the thread's `threadId` (`spec/bindings/mcp.md` §4.5.1 fact C6; other item types recorded at `0.154.0`, G2 `transcript.jsonl` L51, L63). Owner G8 (#69) | RISK-G4 |
 | 73 | Whether the app-server applies `thread/resume` setting overrides to a thread that is already loaded (`spec/bindings/mcp.md` [MCPB-CDX-006], which forbids sending them either way). Owner G7 (#68) | RISK-CODEX-EXPERIMENTAL |
+| 74 | The F9 fake app-server (`tests/fakes/codex-app-server/`) emits no `mcpToolCall` items, so none of the `TODO(fixture)` items of `spec/bindings/mcp.md` §4.5 (MCPB-ATT-007 to MCPB-ATT-023) can be written yet. Owners G8 (#69) and F9 (#58) | RISK-SEC-SPEC |
+| 75 | A Codex call with no arguments is reported as `arguments: null` and sent without an `arguments` member, which §4.5.2 treats as matching (source only at `rust-v0.161.0`: `codex-rs/core/src/mcp_tool_call.rs` L145-L150, L1041, L1087; `codex-rs/rmcp-client/src/rmcp_client.rs` L847-L855, L868). Availability only. Owner G8 (#69) | RISK-G4 |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

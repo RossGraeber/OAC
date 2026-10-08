@@ -269,6 +269,20 @@ const CHECKS = {
     if (!res) return true;
     return stringsIn(res).flatMap(wordsIn).filter(isPairingWord).every((w) => PAIRING_VALUE.test(w));
   },
+  // A connection the server cannot pair gets no pairing value at all.
+  'MCPB-ATT-022': (ex, ctx) => {
+    if (ctx.pairing_possible !== false) return true;
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    return !stringsIn(res).flatMap(wordsIn).some(isPairingWord);
+  },
+  // During an open pairing window, every value a refusal carries is that window's.
+  'MCPB-ATT-025': (ex, ctx) => {
+    if (typeof ctx.open_pairing_value !== 'string') return true;
+    const res = pairingRefusal(ex, ctx);
+    if (!res) return true;
+    return stringsIn(res).flatMap(wordsIn).filter(isPairingWord).every((w) => w === ctx.open_pairing_value);
+  },
   // A value issued before this exchange appears in none of the server's messages here.
   'MCPB-ATT-006': (ex, ctx) => {
     if (ctx.codex_pairing !== true) return true;
