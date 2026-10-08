@@ -2,9 +2,11 @@
 
 //! The adapter contract suite against the real adapters (#59, F10).
 //!
-//! The static checks run against `adapters/claude` and `adapters/codex` today, and against
-//! `adapters/mcp-tools`, the tool crate both may depend on (#7): a dependency's own files
-//! are seen only when they are scanned too (`source` module docs). The files
+//! The static checks run against every workspace member under `adapters/`, found through
+//! `cargo metadata` (`source::adapter_members`; PR #352 second review finding 3): today
+//! `adapters/claude`, `adapters/codex` and `adapters/mcp-tools`, the tool crate both may
+//! depend on (#7). A dependency's own files are seen only when they are scanned too
+//! (`source` module docs). The files
 //! scanned are the ones cargo compiles, taken from `cargo metadata` (each target's
 //! `src_path`, the build script included) and everything under `src/`, and the manifest
 //! is checked for keys that move a target or switch its discovery and for unvetted
@@ -20,21 +22,31 @@
 use std::path::{Path, PathBuf};
 
 use oac_contract_adapter::source::{
-    FORBIDDEN_FAMILIES, FORBIDDEN_NAMES, PLANT, Vetted, implements_provider_adapter,
-    macros_that_load_files, package_sources, rust_files, scan, vetted_dependencies,
+    FORBIDDEN_FAMILIES, FORBIDDEN_NAMES, Finding, PLANT, Resolved, Vetted, adapter_members,
+    cargo_registry_src, implements_provider_adapter, macros_that_load_files, package_sources,
+    rust_files, scan, vet_registry_location, vetted_dependencies,
 };
 
-/// The crates under `adapters/` the static checks read: both adapters, and the tool crate
-/// they share (#7, `docs/planning/decisions/G-7-stage4-dependencies.md` §4).
-const SCANNED: [&str; 3] = ["claude", "codex", "mcp-tools"];
-
-fn adapter_dir(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../adapters")
-        .join(name)
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..")
 }
 
-fn listed(findings: &[oac_contract_adapter::source::Finding]) -> String {
+/// The crates under `adapters/` the static checks read: every workspace member there, from
+/// `cargo metadata` (`source::adapter_members`), not a fixed list, so a new adapter is
+/// vetted the moment it joins the workspace (PR #352 second review finding 3). Today: both
+/// adapters and the tool crate they share (#7, G-7 §4), which this checks are among them.
+fn scanned() -> Vec<PathBuf> {
+    let dirs = adapter_members(&repo_root()).expect("the workspace's adapter members");
+    for want in ["claude", "codex", "mcp-tools"] {
+        assert!(
+            dirs.iter().any(|d| d.ends_with(want)),
+            "adapters/{want} is not a workspace member: {dirs:?}"
+        );
+    }
+    dirs
+}
+
+fn listed(findings: &[Finding]) -> String {
     findings
         .iter()
         .map(ToString::to_string)
@@ -42,18 +54,74 @@ fn listed(findings: &[oac_contract_adapter::source::Finding]) -> String {
         .join("; ")
 }
 
+/// Every static-routing and dependency finding for the adapter package at `dir`.
+fn static_findings(dir: &Path) -> Vec<Finding> {
+    let s = package_sources(dir);
+    assert!(!s.built.is_empty(), "no sources for {}", dir.display());
+    let mut findings = s.findings;
+    findings.extend(scan(&s.built));
+    findings
+}
+
 #[test]
 fn the_real_adapters_pass_the_static_routing_checks() {
-    for name in SCANNED {
-        let s = package_sources(&adapter_dir(name));
-        assert!(!s.built.is_empty(), "no sources for adapters/{name}");
-        let mut findings = s.findings;
-        findings.extend(scan(&s.built));
+    for dir in scanned() {
+        let findings = static_findings(&dir);
         assert!(
             findings.is_empty(),
-            "adapters/{name}: {}",
+            "{}: {}",
+            dir.display(),
             listed(&findings)
         );
+    }
+}
+
+/// The planted case for PR #352 second review finding 3: a new `adapters/acp` member that
+/// takes `tokio` with `net`, `process` and `fs`, and an unvetted crate, and uses
+/// `tokio::net`. It is found by `adapter_members` (the fixed list it replaced did not hold
+/// it) and refused by the same checks as the real adapters. A scratch workspace in the
+/// system temp directory, removed afterwards; no network (`--offline`).
+#[test]
+fn a_new_adapter_member_is_found_and_vetted() {
+    let ws = std::env::temp_dir().join(format!("oac-new-adapter-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    let core = std::fs::canonicalize(repo_root().join("core")).unwrap();
+    let core = core.to_string_lossy().replace('\\', "/");
+    let core = core.trim_start_matches("//?/");
+    let write = |rel: &str, text: &str| {
+        let p = ws.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "Cargo.toml",
+        "[workspace]\nresolver = \"3\"\nmembers = [\"adapters/acp\", \"stub\"]\n",
+    );
+    write(
+        "stub/Cargo.toml",
+        "[package]\nname = \"planted-stub\"\nversion = \"0.0.1\"\nedition = \"2024\"\n",
+    );
+    write("stub/src/lib.rs", "");
+    write(
+        "adapters/acp/Cargo.toml",
+        &format!(
+            "[package]\nname = \"oac-adapter-acp\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n\
+             [dependencies]\noac-core = {{ path = \"{core}\" }}\n\
+             planted-stub = {{ path = \"../../stub\" }}\n\
+             tokio = {{ version = \"=1.53.2\", features = [\"net\", \"process\", \"fs\"] }}\n"
+        ),
+    );
+    write(
+        "adapters/acp/src/lib.rs",
+        "pub type Probe = Option<tokio::net::TcpStream>;\n",
+    );
+    let dirs = adapter_members(&ws).expect("the scratch workspace's adapter members");
+    assert_eq!(dirs.len(), 1, "{dirs:?}");
+    assert!(dirs[0].ends_with("adapters/acp"), "{dirs:?}");
+    let all = listed(&static_findings(&dirs[0]));
+    let _ = std::fs::remove_dir_all(&ws);
+    for want in ["`planted-stub`", "feature `net` is not vetted"] {
+        assert!(all.contains(want), "no `{want}` finding in: {all}");
     }
 }
 
@@ -63,18 +131,15 @@ fn the_real_adapters_pass_the_static_routing_checks() {
 /// not (make a connection, say), and may define test macros.
 #[test]
 fn no_real_adapter_test_reaches_the_planted_breaches() {
-    for name in SCANNED {
-        let mut files = package_sources(&adapter_dir(name)).checks;
-        files.extend(rust_files(&adapter_dir(name).join("tests")));
+    for dir in scanned() {
+        let name = dir.display();
+        let mut files = package_sources(&dir).checks;
+        files.extend(rust_files(&dir.join("tests")));
         let found: Vec<_> = scan(&files)
             .into_iter()
             .filter(|f| f.requirement == PLANT)
             .collect();
-        assert!(
-            found.is_empty(),
-            "adapters/{name} tests: {}",
-            listed(&found)
-        );
+        assert!(found.is_empty(), "{name} tests: {}", listed(&found));
     }
 }
 
@@ -197,6 +262,21 @@ fn the_vetted_registry_dependencies_export_no_file_loading_macro() {
                 }
             }
             let manifest = p.get("manifest_path").and_then(|m| m.as_str()).unwrap();
+            // The copy read here is the registry's own, not a vendored one a `[source]`
+            // replacement points at (PR #352 second review finding 2).
+            let at = Resolved {
+                name: name.to_owned(),
+                version: got.to_owned(),
+                source: p.get("source").and_then(|s| s.as_str()).map(str::to_owned),
+                dir: Path::new(manifest).parent().unwrap().to_path_buf(),
+            };
+            assert!(
+                at.source.is_some(),
+                "{name} resolves to a path, not crates.io"
+            );
+            if let Some(why) = vet_registry_location(&at, cargo_registry_src().as_deref()) {
+                panic!("{why}");
+            }
             let src = Path::new(manifest).parent().unwrap().join("src");
             for f in rust_files(&src) {
                 let text = std::fs::read_to_string(&f).unwrap();
@@ -247,8 +327,9 @@ fn the_forbidden_lists_agree() {
 
 #[test]
 fn no_real_adapter_implements_the_trait_yet() {
-    for name in SCANNED {
-        let s = package_sources(&adapter_dir(name));
+    for dir in scanned() {
+        let name = dir.display();
+        let s = package_sources(&dir);
         // A manifest the checks cannot read fails closed here too (its IFC-ADP-010 row).
         let mut found: Vec<_> = s
             .findings
@@ -258,7 +339,7 @@ fn no_real_adapter_implements_the_trait_yet() {
         found.extend(implements_provider_adapter(&s.built));
         assert!(
             found.is_empty(),
-            "adapters/{name} implements ProviderAdapter ({}): run the adapter contract suite \
+            "{name} implements ProviderAdapter ({}): run the adapter contract suite \
              against it through the fakes, and replace this test (see this file's docs)",
             listed(&found)
         );

@@ -1077,7 +1077,9 @@ pub const FORBIDDEN_FAMILIES: &[&str] = &["codex-"];
 /// Crates refused by exact name, as [`FORBIDDEN_FAMILIES`] are by prefix. `rmcp-macros`: the
 /// vetted `rmcp` form refuses its `macros` feature, and if anything in the graph turned it on,
 /// feature unification would hand its proc-macros to the adapters (review finding 2).
-pub const FORBIDDEN_NAMES: &[&str] = &["rmcp-macros"];
+/// `codex`: the family is the `codex-` prefix, so the bare name is listed too (PR #352 second
+/// review finding 4).
+pub const FORBIDDEN_NAMES: &[&str] = &["codex", "rmcp-macros"];
 
 /// How a vetted dependency is identified ([`vetted_dependencies`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1308,6 +1310,83 @@ pub fn package_sources(crate_dir: &Path) -> PackageSources {
     }
     s.built.extend(crate_files(crate_dir));
     s
+}
+
+/// The workspace members under `adapters/` of the workspace at `workspace` (its root
+/// directory), from `cargo metadata --no-deps`: every adapter and `adapters/mcp-tools`, at any
+/// depth (PR #352 second review finding 3). Not a fixed list, so a new adapter (an
+/// `adapters/acp`) is held to the same checks the moment it joins the workspace. Sorted by
+/// directory. `Err` when cargo metadata fails, or lists no member there.
+pub fn adapter_members(workspace: &Path) -> Result<Vec<PathBuf>, String> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let out = std::process::Command::new(cargo)
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--offline",
+            "--manifest-path",
+        ])
+        .arg(workspace.join("Cargo.toml"))
+        .output()
+        .map_err(|e| format!("cargo metadata: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let json = oac_core::json::parse(&out.stdout).map_err(|e| format!("{e:?}"))?;
+    let top = json.as_object().ok_or("cargo metadata: not an object")?;
+    let root = top
+        .get("workspace_root")
+        .and_then(|r| r.as_str())
+        .ok_or("cargo metadata: no workspace_root")?;
+    let root = std::fs::canonicalize(root).map_err(|e| format!("{root}: {e}"))?;
+    let members: HashSet<&str> = top
+        .get("workspace_members")
+        .and_then(|m| m.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|m| m.as_str())
+        .collect();
+    let mut dirs = Vec::new();
+    for p in top
+        .get("packages")
+        .and_then(|p| p.as_array())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| p.as_object())
+    {
+        let id = p.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        if !members.contains(id) {
+            continue;
+        }
+        let Some(dir) = p
+            .get("manifest_path")
+            .and_then(|m| m.as_str())
+            .and_then(|m| Path::new(m).parent())
+            .and_then(|d| std::fs::canonicalize(d).ok())
+        else {
+            return Err(format!(
+                "member {id}: manifest directory cannot be resolved"
+            ));
+        };
+        let under = dir
+            .strip_prefix(&root)
+            .ok()
+            .and_then(|rel| rel.components().next())
+            .is_some_and(|c| c.as_os_str() == "adapters");
+        if under {
+            dirs.push(dir);
+        }
+    }
+    dirs.sort();
+    if dirs.is_empty() {
+        return Err("no workspace member under adapters/".into());
+    }
+    Ok(dirs)
 }
 
 /// One dependency of a package, as `cargo metadata` lists it.
@@ -1562,6 +1641,60 @@ pub fn vet_resolved(r: &Resolved, vetted: &[(&str, Vetted)]) -> Option<String> {
     ))
 }
 
+/// Cargo's registry source directory, `$CARGO_HOME/registry/src`, from the value of
+/// `CARGO_HOME` and the user's home directory. An unset or empty `CARGO_HOME` means cargo's
+/// default, `~/.cargo` (on Windows `%USERPROFILE%\.cargo`). `None` when neither is known.
+pub fn registry_src_from(
+    cargo_home: Option<std::ffi::OsString>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let cargo_home = match cargo_home.filter(|h| !h.is_empty()) {
+        Some(h) => PathBuf::from(h),
+        None => home?.join(".cargo"),
+    };
+    Some(cargo_home.join("registry").join("src"))
+}
+
+/// [`registry_src_from`] for this process's environment.
+pub fn cargo_registry_src() -> Option<PathBuf> {
+    registry_src_from(std::env::var_os("CARGO_HOME"), std::env::home_dir())
+}
+
+/// Why a package resolved from a registry is not where cargo unpacks registry crates (PR #352
+/// second review finding 2): a `[source]` replacement in a cargo configuration file keeps the
+/// reported source `registry+https://github.com/rust-lang/crates.io-index` while cargo builds
+/// a vendored copy anywhere, edited. Each registry package's directory must lie under
+/// `registry_src` ([`cargo_registry_src`]). Both paths are canonicalized, so `..` segments,
+/// symlinks, Windows `\\?\` prefixes and letter case compare as the file system resolves
+/// them; a path that cannot be canonicalized fails closed. A path or git package is `None`
+/// here (its identity is [`vet_resolved`]'s and [`vet_dependency`]'s business).
+pub fn vet_registry_location(r: &Resolved, registry_src: Option<&Path>) -> Option<String> {
+    let source = r.source.as_deref()?;
+    if !(source.starts_with("registry+") || source.starts_with("sparse+")) {
+        return None;
+    }
+    let under = registry_src.is_some_and(|base| {
+        matches!(
+            (std::fs::canonicalize(&r.dir), std::fs::canonicalize(base)),
+            (Ok(d), Ok(b)) if d.starts_with(&b)
+        )
+    });
+    if under {
+        return None;
+    }
+    Some(format!(
+        "resolved package `{} {}` from {source} is at {}, not under cargo's registry sources {} \
+         (a [source] replacement in a cargo configuration file?)",
+        r.name,
+        r.version,
+        r.dir.display(),
+        registry_src.map_or_else(
+            || "(CARGO_HOME and the home directory are unknown)".to_owned(),
+            |p| p.display().to_string()
+        )
+    ))
+}
+
 /// Why a workspace root manifest's `[patch]` or `[replace]` tables are refused: any entry for
 /// a [`Vetted::Registry`] crate or a forbidden crate (review finding 3). Reads the TOML text by
 /// table header and key, as [`manifest_findings`] does: `[patch.crates-io]` with a `tokio =`
@@ -1616,8 +1749,10 @@ pub fn patch_findings(text: &str, vetted: &[(&str, Vetted)]) -> Vec<String> {
 
 /// The resolved-graph checks for one package (review finding 3): each normal or build
 /// dependency must resolve to its vetted identity ([`vet_resolved`]), no forbidden crate may be
-/// anywhere in the package's resolved closure (any kind), and the workspace root manifest may
-/// not patch a vetted or forbidden crate ([`patch_findings`]). From
+/// anywhere in the package's resolved closure (any kind), every registry package in that
+/// closure must sit under cargo's registry sources ([`vet_registry_location`], second review
+/// finding 2), and the workspace root manifest may not patch a vetted or forbidden crate
+/// ([`patch_findings`]). From
 /// `cargo metadata --all-features --offline` (the full resolve).
 fn resolved_findings(manifest: &Path) -> Vec<String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -1739,18 +1874,22 @@ fn resolved_findings(manifest: &Path) -> Vec<String> {
             why.extend(vet_resolved(r, &vetted));
         }
     }
+    let registry_src = cargo_registry_src();
     let mut seen = HashSet::new();
     let mut queue = VecDeque::from([this]);
     while let Some(id) = queue.pop_front() {
         for (pkg, _) in edges.get(&id).cloned().unwrap_or_default() {
             if seen.insert(pkg.clone()) {
-                if let Some(r) = packages.get(&pkg)
-                    && is_forbidden_crate(&r.name)
-                {
-                    why.push(format!(
-                        "resolved graph holds forbidden `{}` (G-7 section 2)",
-                        r.name
-                    ));
+                if let Some(r) = packages.get(&pkg) {
+                    if is_forbidden_crate(&r.name) {
+                        why.push(format!(
+                            "resolved graph holds forbidden `{}` (G-7 section 2)",
+                            r.name
+                        ));
+                    }
+                    // Every registry package in the closure, not only the vetted ones: the
+                    // review's repro edited `tokio-macros`, which tokio reaches.
+                    why.extend(vet_registry_location(r, registry_src.as_deref()));
                 }
                 queue.push_back(pkg);
             }
@@ -2672,6 +2811,9 @@ mod tests {
             assert!(!is_forbidden_crate(ok), "{ok}");
         }
         assert!(is_forbidden_crate("Codex_App_Server_Protocol"));
+        // PR #352 second review finding 4: the bare name.
+        assert!(is_forbidden_crate("codex"));
+        assert!(is_forbidden_crate("CODEX"));
     }
 
     /// PR #352 review finding 1: an adapter's own `[features]` table cannot turn on an
@@ -2807,6 +2949,90 @@ mod tests {
         ] {
             assert_eq!(patch_findings(ok, &vetted), Vec::<String>::new(), "{ok}");
         }
+    }
+
+    /// PR #352 second review finding 2: a registry package outside `$CARGO_HOME/registry/src`
+    /// (a `[source]` replacement to a vendored directory) is refused, wherever it is in the
+    /// closure; one inside is not. On real directories, so canonicalization is exercised.
+    #[test]
+    fn registry_packages_must_sit_under_cargo_registry_sources() {
+        let tmp = std::env::temp_dir().join(format!("oac-registry-src-{}", std::process::id()));
+        let home = tmp.join("home");
+        let src = registry_src_from(None, Some(home.clone())).unwrap();
+        let inside = src.join("index.crates.io-1949cf8c6b5b557f/tokio-macros-2.7.2");
+        let vendored = tmp.join("ws/vend/tokio-macros-2.7.2");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&vendored).unwrap();
+        let at = |dir: PathBuf| Resolved {
+            name: "tokio-macros".into(),
+            version: "2.7.2".into(),
+            source: Some(CRATES_IO.into()),
+            dir,
+        };
+        assert_eq!(vet_registry_location(&at(inside.clone()), Some(&src)), None);
+        for (case, r) in [
+            (
+                "vendored directory, still reported as crates.io",
+                at(vendored.clone()),
+            ),
+            (
+                "`..` out of the registry sources",
+                at(src.join("../../../ws/vend/tokio-macros-2.7.2")),
+            ),
+            (
+                "a directory that does not exist",
+                at(src.join("missing-1.0.0")),
+            ),
+            (
+                "sparse registry, vendored",
+                Resolved {
+                    source: Some("sparse+https://index.crates.io/".into()),
+                    ..at(vendored.clone())
+                },
+            ),
+        ] {
+            assert!(vet_registry_location(&r, Some(&src)).is_some(), "{case}");
+        }
+        // Unknown CARGO_HOME and home directory: fail closed.
+        assert!(vet_registry_location(&at(inside.clone()), None).is_some());
+        // A path or git package is not a registry package.
+        for source in [None, Some("git+https://example.invalid/x#0".to_owned())] {
+            assert_eq!(
+                vet_registry_location(
+                    &Resolved {
+                        source,
+                        ..at(vendored.clone())
+                    },
+                    Some(&src)
+                ),
+                None
+            );
+        }
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// `$CARGO_HOME/registry/src`, with CARGO_HOME unset or empty meaning `~/.cargo`, and
+    /// Windows-style paths kept as given.
+    #[test]
+    fn registry_src_defaults_to_the_home_cargo_directory() {
+        let tail = |p: &Path| {
+            p.components()
+                .rev()
+                .take(3)
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        let win = PathBuf::from(r"C:\Users\someone");
+        for unset in [None, Some(std::ffi::OsString::new())] {
+            let got = registry_src_from(unset, Some(win.clone())).unwrap();
+            assert!(got.starts_with(&win), "{}", got.display());
+            assert_eq!(tail(&got), ["src", "registry", ".cargo"]);
+        }
+        let set = registry_src_from(Some(r"D:\cargo-home".into()), Some(win)).unwrap();
+        assert!(set.starts_with(r"D:\cargo-home"), "{}", set.display());
+        assert_eq!(tail(&set)[..2], ["src", "registry"]);
+        assert_eq!(registry_src_from(None, None), None);
+        assert!(registry_src_from(Some("/opt/cargo".into()), None).is_some());
     }
 
     #[test]

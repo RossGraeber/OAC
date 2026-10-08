@@ -45,18 +45,31 @@
 //      cli/ the same way (#52, #315 review N-b).
 //   6. Forbidden crates are reachable from no member at all, cli/ included, over any edge
 //      kind (#7; ADR-001 Boundary; docs/planning/decisions/G-7-stage4-dependencies.md
-//      section 2): every `codex-*` crate (FORBIDDEN_FAMILIES; no Codex crate is allowed),
-//      and `rmcp-macros` (FORBIDDEN_NAMES; the vetted rmcp form refuses its `macros`
+//      section 2): every `codex-*` crate and `codex` itself (FORBIDDEN_FAMILIES and
+//      FORBIDDEN_NAMES; no Codex crate is allowed, PR #352 second review finding 4), and
+//      `rmcp-macros` (FORBIDDEN_NAMES; the vetted rmcp form refuses its `macros`
 //      feature, and a crate elsewhere in the graph that turned it on would unify it into
 //      the adapters' build, PR #352 review finding 2). A forbidden name fails wherever it
 //      appears in a member's closure, so a crate that only reaches one fails too.
 //      Names match case-insensitively, with `_` folded to `-`. Limit: a vendored copy whose
 //      [package] name is edited is outside any check by name (G-7 section 2.3).
+//   7. No tracked cargo configuration file (`.cargo/config` or `.cargo/config.toml`, at the
+//      root or under any directory) may name `source`, `patch` or `paths` (PR #352 second
+//      review finding 2): a `[source]` replacement keeps a crate's reported source
+//      crates.io while cargo builds a vendored, edited copy, and `[patch]` or `paths` in a
+//      config file swap a crate outside every manifest. The match is on the word anywhere
+//      outside a comment, so the table, dotted and inline-table forms all fail. The adapter
+//      suite also requires each crates.io package an adapter resolves to sit under
+//      $CARGO_HOME/registry/src (`vet_registry_location` in its src/source.rs).
 //
 //   --adapters-alone runs `cargo check --locked --lib` on the adapters and adapters/mcp-tools
 //   only, so their dependencies' features unify among themselves and not with cli/'s (PR
 //   #352 review finding 2): a feature only another member turns on (tokio's `net`, say) is
-//   then absent, and an adapter that uses it fails to build. CI runs it in job crate-deps.
+//   then absent, and an adapter that uses it fails to build. It runs twice: with default
+//   features, and with `--all-features`, so code behind an adapter feature that is off by
+//   default (one cli/ might turn on) is compiled alone too (PR #352 second review finding 1).
+//   The adapters' own features are held to the vetted list, so "all features, alone" is the
+//   widest build they may legitimately get. CI runs it in job crate-deps.
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
 //   node scripts/check-crate-deps.mjs --metadata <file>  # check a saved metadata JSON
@@ -105,13 +118,15 @@ export const ownedFamily = (name) => OWNED_EXTERNAL.find((o) => o.re.test(fold(n
 
 // Rule 6 (#7; G-7 section 2): crates no member may reach. The lead's decision is that no
 // Codex crate is allowed, so the whole `codex-` family is refused (PR #352 review finding
-// 4), not a list. `rmcp-macros` is refused by name (finding 2). The same two lists are
+// 4), not a list, and a crate named exactly `codex` too (second review finding 4).
+// `rmcp-macros` is refused by name (finding 2). The same two lists are
 // FORBIDDEN_FAMILIES and FORBIDDEN_NAMES in tests/protocol/contract/adapter/src/source.rs;
 // a test there checks they agree.
 export const FORBIDDEN_FAMILIES = [
   'codex-',
 ];
 export const FORBIDDEN_NAMES = [
+  'codex',
   'rmcp-macros',
 ];
 export const isForbidden = (name) => {
@@ -292,6 +307,49 @@ export function checkMetadata(meta) {
     }
   }
   return violations;
+}
+
+// Rule 7 (PR #352 second review finding 2): a cargo configuration file that can swap a
+// crate's source. Refused when the word `source`, `patch` or `paths` appears anywhere
+// outside a full-line comment: `[source.crates-io]`, `source.crates-io.replace-with = ..`,
+// `source = { .. }`, `[patch.crates-io]`, `paths = [..]` and their quoted forms all match.
+// Fail-closed by design: a value that only mentions the word fails too.
+export const CARGO_CONFIG_FILE = /(?:^|\/)\.cargo\/config(?:\.toml)?$/i;
+export function cargoConfigFindings(path, text) {
+  const out = [];
+  String(text).replace(/\r\n/g, '\n').split('\n').forEach((raw, i) => {
+    const line = raw.trim();
+    if (line.startsWith('#')) return;
+    const m = /\b(source|patch|paths)\b/i.exec(line);
+    if (m) {
+      out.push(`${path}:${i + 1}: cargo configuration names \`${m[1]}\` (rule 7: a [source] replacement, ` +
+        '[patch] or `paths` override swaps a crate outside every manifest; PR #352 second review finding 2)');
+    }
+  });
+  return out;
+}
+
+// The cargo configuration files rule 7 reads. `tracked`: the files git tracks anywhere in
+// the repository (`git ls-files`). Otherwise (a mutation-test copy, not a git repository):
+// `.cargo/config` and `.cargo/config.toml` at the root and under each member directory.
+export function cargoConfigFiles(dir, { tracked, memberDirs = [] }) {
+  if (tracked) {
+    const r = spawnSync('git', ['ls-files', '-z'], { cwd: dir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    if (r.error || r.status !== 0) throw new Error(`git ls-files failed: ${r.error ?? r.stderr}`);
+    return r.stdout.split('\0').filter((f) => f && CARGO_CONFIG_FILE.test(f));
+  }
+  const found = [];
+  for (const d of ['', ...memberDirs]) {
+    for (const f of ['config', 'config.toml']) {
+      const rel = [d, '.cargo', f].filter(Boolean).join('/');
+      if (existsSync(join(dir, rel))) found.push(rel);
+    }
+  }
+  return found;
+}
+
+export function checkCargoConfig(dir, opts) {
+  return cargoConfigFiles(dir, opts).flatMap((f) => cargoConfigFindings(f, readFileSync(join(dir, f), 'utf8')));
 }
 
 export function cargoMetadata(cwd, extra = []) {
@@ -599,6 +657,21 @@ const SELF_TEST_CASES = [
   { name: 'adapters/mcp-tools depends on zenoh', meta: synth({ members: TOOLS_MEMBERS, externals: ['zenoh'], edges: [...TOOLS_EDGES, ['oac-mcp-tools', 'zenoh']] }) },
   { name: 'adapters/mcp-tools depends on codex-app-server-protocol', meta: synth({ members: TOOLS_MEMBERS, externals: ['codex-app-server-protocol'], edges: [...TOOLS_EDGES, ['oac-mcp-tools', 'codex-app-server-protocol']] }) },
   { name: 'nested tool crate path (adapters/mcp-tools/inner)', meta: synth({ members: { ...TOOLS_MEMBERS, 'oac-inner': 'adapters/mcp-tools/inner' }, edges: [...TOOLS_EDGES, ['oac-inner', 'oac-core']] }) },
+  // PR #352 second review finding 4: a crate named exactly `codex`.
+  { name: 'adapters/codex depends on a crate named exactly codex (forbidden)', meta: synth({ members: BASE_MEMBERS, externals: ['codex'], edges: [...BASE_EDGES, ['oac-adapter-codex', 'codex']] }) },
+  { name: 'cli/ reaches Codex (exact name, mixed case) through a helper', meta: synth({ members: BASE_MEMBERS, externals: ['helper', 'Codex'], edges: [...BASE_EDGES, ['oac-cli', 'helper'], ['helper', 'Codex']] }) },
+];
+
+// Rule 7 (PR #352 second review finding 2): cargo configuration text.
+const CARGO_CONFIG_CASES = [
+  { name: 'rule 7: [source.crates-io] replace-with (the vendored-and-edited repro)', path: '.cargo/config.toml', text: '[source.crates-io]\nreplace-with = "v"\n\n[source.v]\ndirectory = "vend"\n' },
+  { name: 'rule 7: dotted source.crates-io.replace-with at top level', path: '.cargo/config.toml', text: 'source.crates-io.replace-with = "v"\n' },
+  { name: 'rule 7: inline-table source = { .. }', path: '.cargo/config', text: 'source = { crates-io = { replace-with = "v" } }\n' },
+  { name: 'rule 7: quoted ["source"] header', path: '.cargo/config.toml', text: '[ "source" . "crates-io" ]\nreplace-with = "v"\n' },
+  { name: 'rule 7: [patch.crates-io] in a config file', path: 'adapters/codex/.cargo/config.toml', text: '[patch.crates-io]\ntokio = { path = "../tokio" }\n' },
+  { name: 'rule 7: paths override', path: '.cargo/config', text: 'paths = ["../tokio"]\n' },
+  { name: 'rule 7: upper case, CRLF', path: '.cargo/config.toml', text: '[build]\r\njobs = 2\r\n[SOURCE.crates-io]\r\nreplace-with = "v"\r\n' },
+  { name: 'rule 7 control: [build] and [env] only', expectClean: true, path: '.cargo/config.toml', text: '# no source swap here\n[build]\njobs = 2\n[env]\nRUST_LOG = "info"\n' },
 ];
 
 function selfTest() {
@@ -612,11 +685,27 @@ function selfTest() {
       for (const x of v) console.log(`        ${x}`);
     }
   }
+  // Rule 7: cargo configuration files that can swap a crate's source.
+  for (const c of CARGO_CONFIG_CASES) {
+    const v = cargoConfigFindings(c.path, c.text);
+    const ok = c.expectClean ? v.length === 0 : v.length > 0;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${c.name}`);
+    if (!ok) {
+      failed++;
+      for (const x of v) console.log(`        ${x}`);
+    }
+  }
+  for (const [f, want] of [['.cargo/config.toml', true], ['.cargo/config', true], ['adapters/acp/.cargo/CONFIG.TOML', true],
+    ['.cargo/config.toml.bak', false], ['cargo/config.toml', false], ['x.cargo/config', false]]) {
+    const ok = CARGO_CONFIG_FILE.test(f) === want;
+    console.log(`${ok ? 'pass' : 'FAIL'}  rule 7 reads ${f}: ${want}`);
+    if (!ok) failed++;
+  }
   // B1: every metadata call must resolve optional dependencies too.
   const allFeatures = METADATA_ARGS.includes('--all-features');
   console.log(`${allFeatures ? 'pass' : 'FAIL'}  cargo metadata runs with --all-features (optional dependencies are in the graph)`);
   if (!allFeatures) failed++;
-  const total = SELF_TEST_CASES.length + 1;
+  const total = SELF_TEST_CASES.length + CARGO_CONFIG_CASES.length + 6 + 1;
   console.log(`self-test: ${total - failed}/${total} cases pass`);
   return failed ? 1 : 0;
 }
@@ -688,12 +777,14 @@ export function withWorkspaceCopy(edit, fn) {
     }
     for (const e of edit ? (edit.edits ?? [edit]) : []) {
       const p = join(ws, e.file);
-      const before = readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+      // A file the mutation creates (a planted .cargo/config.toml) starts empty.
+      const before = existsSync(p) ? readFileSync(p, 'utf8').replace(/\r\n/g, '\n') : '';
       const after = e.edit(before);
       if (after === before) throw new Error(`mutation "${edit.name}" did not change ${e.file}`);
+      mkdirSync(dirname(p), { recursive: true });
       writeFileSync(p, after);
     }
-    return fn(ws);
+    return fn(ws, memberDirs.map((d) => d.split(sep).join('/')));
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -748,6 +839,19 @@ const MUTATIONS = [
   // #7: the shared MCP tool crate.
   { name: 'adapters/mcp-tools depends on adapters/claude', file: 'adapters/mcp-tools/Cargo.toml', edit: addDep('dependencies', 'oac-adapter-claude = { path = "../claude" }') },
   { name: 'transports/memory depends on adapters/mcp-tools', file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'oac-mcp-tools = { path = "../../adapters/mcp-tools" }') },
+  // Rule 7 (PR #352 second review finding 2): a cargo configuration file that swaps a
+  // crate's source, at the root and under a member.
+  {
+    name: 'root .cargo/config.toml replaces crates-io with a vendored directory (rule 7)',
+    file: '.cargo/config.toml',
+    edit: () => '[source.crates-io]\nreplace-with = "v"\n\n[source.v]\ndirectory = "vend"\n',
+  },
+  {
+    name: 'adapters/codex/.cargo/config.toml patches tokio (rule 7)',
+    file: 'adapters/codex/.cargo/config.toml',
+    edit: () => '[patch.crates-io]\ntokio = { path = "../../../tokio" }\n',
+  },
+  { name: 'root .cargo/config with a paths override (rule 7)', file: '.cargo/config', edit: () => 'paths = ["../tokio"]\n' },
 ];
 
 // Review finding 2 (feature unification): another member turns a feature on that an
@@ -763,6 +867,23 @@ const UNIFICATION_MUTATION = {
   ],
 };
 
+// PR #352 second review finding 1: an adapter feature `x`, off by default and naming no
+// dependency (so the `[features]` vet has nothing to refuse), gates code that needs a
+// feature only another member turns on. cli/ (here `--features oac-adapter-codex/x` on the
+// member build) turns `x` on. A default-features adapters-alone build never compiles that
+// code; the `--all-features` run must.
+const OFF_BY_DEFAULT_FEATURE_MUTATION = {
+  name: 'adapters/codex feature `x` (off by default, enabled by another member) gates a borrowed feature (caught by the --all-features run of --adapters-alone)',
+  edits: [
+    {
+      file: 'adapters/codex/Cargo.toml',
+      edit: (t) => addLine('features', 'x = []', addLine('dependencies', 'featured-stub = { path = "../../../stubs/featured-stub" }', t)),
+    },
+    { file: 'transports/memory/Cargo.toml', edit: addDep('dependencies', 'featured-stub = { path = "../../../stubs/featured-stub", features = ["net"] }') },
+    { file: 'adapters/codex/src/lib.rs', edit: (t) => `${t}\n#[cfg(feature = "x")]\npub type Probe = featured_stub::net::Probe;\n` },
+  ],
+};
+
 // The adapter-side members: adapters/<name> and adapters/mcp-tools.
 export function adapterPackages(meta) {
   const root = meta.workspace_root;
@@ -773,19 +894,36 @@ export function adapterPackages(meta) {
     .sort();
 }
 
-// `cargo check --lib` on the adapter-side members alone (review finding 2).
+// The two adapters-alone runs: default features, then every adapter feature (PR #352
+// second review finding 1).
+export const ADAPTERS_ALONE_RUNS = [
+  { label: 'default features', args: [] },
+  { label: '--all-features', args: ['--all-features'] },
+];
+
+// `cargo check --lib` on the adapter-side members alone (review finding 2), once per
+// ADAPTERS_ALONE_RUNS entry. `status` is the first non-zero exit, or 0; `runs` has each.
 export function adaptersAlone(dir) {
   const m = cargoMetadata(dir, ['--no-deps']);
-  if (m.status !== 0) return { status: 2, out: m.stderr };
+  if (m.status !== 0) return { status: 2, out: m.stderr, runs: [] };
   const names = adapterPackages(JSON.parse(m.stdout));
-  if (names.length === 0) return { status: 2, out: 'no adapter packages found' };
-  const r = spawnSync('cargo', ['check', '--locked', '--offline', '--lib', ...names.flatMap((n) => ['-p', n])], {
-    cwd: dir,
-    encoding: 'utf8',
-    maxBuffer: 256 * 1024 * 1024,
+  if (names.length === 0) return { status: 2, out: 'no adapter packages found', runs: [] };
+  const runs = ADAPTERS_ALONE_RUNS.map((run) => {
+    const r = spawnSync('cargo', ['check', '--locked', '--offline', '--lib', ...run.args, ...names.flatMap((n) => ['-p', n])], {
+      cwd: dir,
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+    });
+    if (r.error) throw r.error;
+    return { label: run.label, status: r.status, out: `${r.stdout}${r.stderr}` };
   });
-  if (r.error) throw r.error;
-  return { status: r.status, out: `${r.stdout}${r.stderr}`, names };
+  const bad = runs.find((r) => r.status !== 0);
+  return {
+    status: bad ? bad.status : 0,
+    out: runs.map((r) => `--- adapters alone, ${r.label}: exit ${r.status}\n${r.out}`).join('\n'),
+    names,
+    runs,
+  };
 }
 
 // Only cargo's cycle error counts as cargo catching a planted edge; any other cargo error
@@ -793,7 +931,10 @@ export function adaptersAlone(dir) {
 const CARGO_CYCLE = 'cyclic package dependency';
 
 function mutationTest() {
-  const runCheck = (dir) => {
+  const runCheck = (dir, memberDirs) => {
+    // Rule 7 first: a planted source replacement may leave cargo unable to resolve at all.
+    const cfg = checkCargoConfig(dir, { tracked: false, memberDirs });
+    if (cfg.length) return { failed: true, by: `checker: ${cfg[0]}${cfg.length > 1 ? ` (+${cfg.length - 1} more)` : ''}` };
     const m = cargoMetadata(dir);
     if (m.status !== 0) {
       const line = (m.stderr.split(/\r?\n/).find((l) => /error/i.test(l)) ?? 'cargo metadata failed').trim();
@@ -829,7 +970,27 @@ function mutationTest() {
     if (!ok) bad++;
     console.log(`${ok ? 'pass' : 'FAIL'}  ${UNIFICATION_MUTATION.name} -- ${r.malformed ?? `member+adapter build exit ${r.whole}, adapters-alone exit ${r.alone}`}`);
   }
-  const total = cases.length + 1;
+  // Second review finding 1: the off-by-default adapter feature. The member build with `x`
+  // on compiles; the default-features run alone passes (the bypass); the --all-features run
+  // alone fails, so --adapters-alone as a whole fails.
+  {
+    const r = withWorkspaceCopy(OFF_BY_DEFAULT_FEATURE_MUTATION, (ws) => {
+      const unlock = (args) => spawnSync('cargo', args, { cwd: ws, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+      const gen = unlock(['generate-lockfile', '--offline']);
+      if (gen.status !== 0) return { malformed: `generate-lockfile: ${gen.stderr.trim().split('\n').pop()}` };
+      const whole = unlock(['check', '--offline', '--lib', '-p', 'oac-transport-memory', '-p', 'oac-adapter-codex',
+        '--features', 'oac-adapter-codex/x']);
+      const alone = adaptersAlone(ws);
+      const run = (label) => alone.runs.find((x) => x.label === label);
+      return { whole: whole.status, alone: alone.status, dflt: run('default features')?.status, all: run('--all-features') };
+    });
+    const ok = !r.malformed && r.whole === 0 && r.dflt === 0 && r.alone !== 0 && r.all?.status !== 0 &&
+      /E0433|E0412|E0425|could not find `net`|cannot find/.test(r.all?.out ?? '');
+    if (!ok) bad++;
+    console.log(`${ok ? 'pass' : 'FAIL'}  ${OFF_BY_DEFAULT_FEATURE_MUTATION.name} -- ${r.malformed ??
+      `member+adapter build with x exit ${r.whole}, alone default-features exit ${r.dflt}, alone --all-features exit ${r.all?.status}`}`);
+  }
+  const total = cases.length + 2;
   console.log(`mutation test: ${total - bad}/${total} cases pass`);
   return bad ? 1 : 0;
 }
@@ -842,7 +1003,8 @@ function main(argv) {
   if (argv[0] === '--adapters-alone') {
     const r = adaptersAlone(repoRoot);
     if (r.status === 0) {
-      console.log(`adapters alone: CLEAN (cargo check --lib -p ${r.names.join(' -p ')})`);
+      console.log(`adapters alone: CLEAN (cargo check --lib -p ${r.names.join(' -p ')}; ` +
+        `${r.runs.map((x) => x.label).join(', then ')})`);
       return 0;
     }
     console.log(r.out);
@@ -866,7 +1028,10 @@ function main(argv) {
     return 2;
   }
   const meta = JSON.parse(r.stdout);
-  return report(checkMetadata(meta), `${meta.workspace_members.length} workspace members, ${meta.packages.length} packages`);
+  const configs = cargoConfigFiles(repoRoot, { tracked: true });
+  return report([...checkCargoConfig(repoRoot, { tracked: true }), ...checkMetadata(meta)],
+    `${meta.workspace_members.length} workspace members, ${meta.packages.length} packages, ` +
+      `${configs.length} tracked cargo configuration file(s)`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
