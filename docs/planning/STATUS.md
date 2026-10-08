@@ -4,6 +4,33 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-08 (**Issue #351: the adapter contract suite no longer trusts a
+harness's profile or gaps** (PR #348 review; Refs #59). No `spec/` file, fake, gate verdict,
+pin, dependency, static-scan rule or ADR text changes.
+
+- **Profile.** The suite identifies the binding from the operations of the hand-off calls
+  the fake recorded (`identify_binding` over `BINDINGS`, `claude::PROFILE` and
+  `codex::PROFILE`), and runs every check under its own profile for that binding. A harness
+  profile that differs (weakened, another binding's, or invented) fails [IFC-ADP-010]
+  `harness-profile-is-the-bindings`. `Profile` gains `surface_operations`, `runs_own_turns`
+  and `makes_requests`.
+- **Gaps.** A `Gap` from a step the binding's profile makes mandatory fails the rows it
+  used to make not applicable: `refuse_hand_offs` when `turned_away_code` is set
+  ([SEC-AUZ-027], [SC-DLV-009]); `start_turn` when `runs_own_turns` ([SEC-AUZ-025],
+  [SEC-AUZ-026]); and `request` when `makes_requests` ([IFC-ADP-003], [IFC-ADP-031],
+  [IFC-ADP-060]). `Gap::Broken` always fails. An empty `source_files` fails the static rows.
+  Two not-applicable cases remain, and the module doc's table records each: Claude has no
+  refusal path, and the fake app-server does not model the MCP tool path that Codex
+  requests travel.
+- **Planted breaches.** There are seven new harness breaches in `src/plant.rs`.
+  `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
+  makes it a breach. Three cases are not breaches, and the tests show they stay
+  conformant: a weakened Claude profile, which equals the Claude profile; a refusal gap on
+  Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
+  before.
+- **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
+  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `dbd7972`.)
+
 **Last updated:** 2026-10-08 (**Issue #347: the adapter contract suite tells `handoff-failed`
 from not-now** (mutation M6 of the PR #346 review; Refs #59). No `spec/` file, fake, gate
 verdict, pin, dependency, static-scan rule or ADR text changes.
