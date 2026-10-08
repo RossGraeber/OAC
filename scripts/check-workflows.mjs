@@ -59,7 +59,9 @@
 //       and only when the structural reader's whole `run:` value is exactly that command
 //       (a folded continuation, or a block, quoted or flow form, fails: PR #349 B1), in a
 //       step with no env:, working-directory:, second run: or shell other than bash, under
-//       no job env:/defaults:, workflow defaults: or non-CARGO_* workflow env: (#353);
+//       no job env:/defaults:/container:/services:, workflow defaults: or non-CARGO_*
+//       workflow env: (#353). Out of reach of any static check: an earlier step writing
+//       NODE_OPTIONS or LOOPBACK_ONLY to $GITHUB_ENV (ci.yml itself sets LOOPBACK_ONLY so);
 //   D3  no harness CLI install (the Claude Code or Codex npm packages, `codex`/`claude`
 //       installers).
 // Opt-in workflows (workflow_dispatch only) may use D1-D3; W0-W5 still hold.
@@ -171,7 +173,7 @@ function selftestStepOk(step, job, doc) {
   if (new Set(keys).size !== keys.length || !keys.every((k) => SELFTEST_STEP_KEYS.has(k))) return false;
   const shell = get(step, 'shell');
   if (shell && !(shell.value.t === 'str' && shell.value.v === 'bash')) return false;
-  if (job?.t !== 'map' || new Set(job.pairs.map((p) => p.key)).size !== job.pairs.length || get(job, 'env') || get(job, 'defaults')) return false;
+  if (job?.t !== 'map' || new Set(job.pairs.map((p) => p.key)).size !== job.pairs.length || ['env', 'defaults', 'container', 'services'].some((k) => get(job, k))) return false;
   if (new Set(doc.pairs.map((p) => p.key)).size !== doc.pairs.length || get(doc, 'defaults')) return false;
   const env = get(doc, 'env')?.value;
   if (env && !(env.t === 'map' && env.pairs.every((p) => SELFTEST_WORKFLOW_ENV.test(p.key))) && !(env.t === 'str' && env.v === '')) return false;
@@ -1039,6 +1041,8 @@ const CASES = [
   ['D2 a uses: on the exempt step (#353)', 'x.yml', withStep(SELFTEST_STEP({ before: '        uses: ./.github/actions/setup\n' })), ['D2'], SETUP],
   ['D2 job env: (#353)', 'x.yml', withJob('    env:\n      NODE_OPTIONS: --require ./x.js').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
   ['D2 job defaults: run: working-directory (#353)', 'x.yml', withJob('    defaults:\n      run:\n        working-directory: vendor').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
+  ['D2 job container: (#353 review)', 'x.yml', withJob('    container: node:20').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
+  ['D2 job services: (#353 review)', 'x.yml', withJob('    services:\n      x:\n        image: alpine').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
   ['D2 workflow defaults: run: shell (#353)', 'x.yml', withStep(SELFTEST_STEP()).replace('jobs:\n  test:\n', 'defaults:\n  run:\n    shell: sh\njobs:\n  test:\n'), ['D2']],
   ['D2 workflow env: BASH_ENV (#353)', 'x.yml', withStep(SELFTEST_STEP()).replace('jobs:\n  test:\n', 'env:\n  BASH_ENV: ./x.sh\njobs:\n  test:\n'), ['D2']],
   ['control: a CARGO_* workflow env keeps the exemption (#353)', 'x.yml', withStep(SELFTEST_STEP()).replace('jobs:\n  test:\n', 'env:\n  CARGO_TERM_COLOR: always\njobs:\n  test:\n'), []],

@@ -20,7 +20,8 @@
 //          self-test against its test doubles, and only when the whole parsed `run:` value
 //          is exactly that command (no continuation line folds into it, PR #349 B1), in a
 //          step with no env:, working-directory:, second run: or shell other than bash,
-//          under no job env:/defaults:, workflow defaults: or non-CARGO_* workflow env:, in a
+//          under no job env:/defaults:/container:/services:, workflow defaults: or
+//          non-CARGO_* workflow env:, in a
 //          workflow with no YAML anchor, alias or merge key (#353); and that opt-in workflow's triggers are exactly
 //          workflow_dispatch + push (main, docs/planning/PINS.md), its permissions exactly
 //          contents: read, every action is actions/checkout or actions/upload-artifact at
@@ -364,7 +365,7 @@ function hasYamlAnchorOrAlias(text) {
 const selftestStepOk = (step, job, root) => {
   if (!(step instanceof Map) || ![...step.keys()].every((k) => SELFTEST_STEP_KEYS.has(k))) return false;
   if (step.has('shell') && step.get('shell').value !== 'bash') return false;
-  if (!(job instanceof Map) || job.has('env') || job.has('defaults')) return false;
+  if (!(job instanceof Map) || ['env', 'defaults', 'container', 'services'].some((k) => job.has(k))) return false;
   if (root.has('defaults')) return false;
   const env = root.get('env')?.value;
   if (env !== undefined && env !== null && !(env instanceof Map && [...env.keys()].every((k) => SELFTEST_WORKFLOW_ENV.test(k)))) return false;
@@ -962,6 +963,8 @@ const SELFTEST_STEP_BYPASSES = [
   ['a uses: on the exempt step', selftestWf({ before: '        uses: ./x\n' })],
   ['job env:', selftestWf({ job: '    env:\n      NODE_OPTIONS: --require ./x.js\n' })],
   ['job defaults: run: working-directory', selftestWf({ job: '    defaults:\n      run:\n        working-directory: vendor\n' })],
+  ['job container: (another node and bash)', selftestWf({ job: '    container: node:20\n' })],
+  ['job services:', selftestWf({ job: '    services:\n      x:\n        image: alpine\n' })],
   ['workflow defaults: run: shell', selftestWf({ top: 'defaults:\n  run:\n    shell: sh\n' })],
   ['workflow env: BASH_ENV', selftestWf({ top: 'env:\n  BASH_ENV: ./x.sh\n' })],
   ['a YAML anchor elsewhere in the workflow', selftestWf({ top: 'env:\n  CARGO_X: &x echo hi\n' })],
