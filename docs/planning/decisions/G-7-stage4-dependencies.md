@@ -309,19 +309,34 @@ version held only the first layer):
 4. **Feature unification** (finding 2). A workspace build unifies features across members,
    so `cli/` turning on `tokio/net` would hand it to the adapters in every `--workspace`
    build and in the `oac` binary. `node scripts/check-crate-deps.mjs --adapters-alone` runs
-   `cargo check --locked --lib` on the adapters and `adapters/mcp-tools` alone, twice: with
-   default features, and with `--all-features`, so code behind an adapter feature that is off
-   by default and that `cli/` turns on is compiled alone too (second review finding 1). An
-   adapter that uses a dependency feature it does not turn on itself fails either way; CI
-   runs it in job `crate-deps`. The adapters' own features are held to the vetted list
-   (layer 2), so "all features, alone" is the widest build they may get. And `rmcp-macros`
-   is refused anywhere in the graph (rule 6), so no member can unify `macros` in.
+   `cargo check --locked --lib` on the adapters and `adapters/mcp-tools` alone, four times:
+   with default features and with `--all-features`, so code behind an adapter feature that
+   is off by default and that `cli/` turns on is compiled alone too (second review finding
+   1), each in the dev profile and in `--release`, so code under `cfg(not(debug_assertions))`
+   (the shipped binary's profile) is too (third review finding 1). An adapter that uses a
+   dependency feature it does not turn on itself fails in every run that compiles that code;
+   CI runs it in job `crate-deps` on ubuntu, windows and macos. The adapters' own features
+   are held to the vetted list (layer 2), so "all features, alone" is the widest build they
+   may get. And `rmcp-macros` is refused anywhere in the graph (rule 6), so no member can
+   unify `macros` in.
 5. **Which packages are checked** (second review finding 3). `tests/real_adapters.rs` takes
    the set it scans from `cargo metadata`: every workspace member under `adapters/`, not a
-   fixed list, so a new adapter (`adapters/acp`) is held to layers 1-3 when it joins.
+   fixed list, so a new adapter (`adapters/acp`) is held to layers 1-3 when it joins. And
+   `check-crate-deps.mjs` rule 8 refuses a path package inside the workspace root that is
+   not a member, and a root `[workspace] exclude` that reaches `adapters/` (third review
+   finding 2), so no crate there can be built in while escaping the member checks.
 
 So in an adapter, `tokio`'s `net`, `process` and `fs` and `rmcp`'s `macros` are refused at
-every layer, and the code that compiles under `--adapters-alone` can use none of them (§8.3).
+every layer, and the code that compiles under `--adapters-alone` (dev and release profiles,
+default and all features, on the three CI operating systems) can use none of them (§8.3).
+
+**What the checks trust** (third review finding 3). These layers hold against anything
+committed in a manifest or a tracked cargo configuration file. They trust CI's cargo command
+lines and environment, and each of these gaps needs a reviewed workflow change to open: a
+cargo `--config` flag, a `CARGO_HOME` CI points somewhere else, and targets other than the
+three CI operating systems (code under another `cfg(target_os)` is never compiled alone).
+`scripts/check-workflows.mjs` W6 refuses `--config`, `CARGO_HOME` and `CARGO_SOURCE_*` /
+`CARGO_PATCH*` in any workflow, so the first two cannot arrive as an unreviewed edit either.
 Planted breaches: `source.rs` `feature_tables_cannot_widen_vetted_crates`,
 `resolved_identity_and_patches_are_vetted` and `registry_dependencies_are_vetted_by_pin_and_features`;
 `check-crate-deps.mjs` self-test (`rmcp-macros` through `rmcp` in `cli/`) and mutation test
@@ -334,7 +349,12 @@ member `.cargo/config.toml` with `[source]` or `[patch]`, and a `.cargo/config` 
 `registry_packages_must_sit_under_cargo_registry_sources` and
 `registry_src_defaults_to_the_home_cargo_directory`, and `tests/real_adapters.rs`
 `a_new_adapter_member_is_found_and_vetted` (a scratch `adapters/acp` taking `tokio` with
-`net`, `process` and `fs` and an unvetted crate is found and refused). Checked by hand on a scratch
+`net`, `process` and `fs` and an unvetted crate is found and refused). Third review:
+`check-crate-deps.mjs --mutation-test` plants code under `cfg(not(debug_assertions))` that
+needs a borrowed feature (both dev runs alone pass, both release runs fail), and the review's
+`exclude = ["adapters/acp"]` with `cli/` depending on it by path, and an excluded `vendor/x`
+(rule 8); the self-test plants rule 8 on synthetic graphs and exclude texts, and
+`check-workflows.mjs --self-test` plants W6. Checked by hand on a scratch
 change (not committed): an adapter with `[features] default = ["tokio/net"]`, and a root
 `[patch.crates-io] tokio = { path = .. }`, each fail `tests/real_adapters.rs`.
 
@@ -486,7 +506,8 @@ PR #350 (`spec/69-codex-reply-pairing`, "Codex issued-value pairing for outbound
 | `docs/planning/PINS.md` | New rows and records: `tokio`, `rcgen`, `windows-sys`, `libc`; dated notes on `rmcp` (pin unchanged; consumers), Zenoh (features, licences of its graph), `interprocess` (not chosen for use, D3) |
 | `docs/planning/v0.1/11-risks.md` | Traceability row 16: the `rmcp`-based server is now the adapters' MCP server side |
 | `scripts/check-licenses.mjs` | Licence policy (§3.2) and self-test |
-| `scripts/check-crate-deps.mjs` | `tools` module kind; rule 6 (the `codex-` family, `codex` and `rmcp-macros`); Codex app-server owner family folded into rule 6; rule 7 (no tracked `.cargo/config*` naming `source`, `patch` or `paths`); `--adapters-alone` with default features and `--all-features`; self-test and mutation cases |
+| `scripts/check-crate-deps.mjs` | `tools` module kind; rule 6 (the `codex-` family, `codex` and `rmcp-macros`); Codex app-server owner family folded into rule 6; rule 7 (no tracked `.cargo/config*` naming `source`, `patch` or `paths`); rule 8 (no non-member path package inside the root, no `exclude` reaching `adapters/`); `--adapters-alone` with default features and `--all-features`, each in dev and release; self-test and mutation cases |
+| `scripts/check-workflows.mjs` | W6: no cargo `--config`, `CARGO_HOME` or `CARGO_SOURCE_*` / `CARGO_PATCH*` in a workflow (§5 "What the checks trust"); self-test cases |
 | `.github/workflows/ci.yml` | Job `crate-deps` runs `--adapters-alone` (§5 layer 4) |
 | `scripts/check-containment.mjs` | Check 12 scope without `Cargo.lock`; self-test (§7) |
 | `tests/protocol/contract/adapter/src/source.rs`, `tests/real_adapters.rs`, `README.md` | §2.3, §5 |
@@ -501,7 +522,7 @@ PR #350 (`spec/69-codex-reply-pairing`, "Codex issued-value pairing for outbound
 ## 11. Checks run
 
 On this branch (Windows 11, Rust 1.98.1, short target dir), re-run after the PR #352
-second-review fixes (`cargo test --workspace`: 47 suites, 456 tests, 0 failed):
+third-review fixes (`cargo test --workspace`: 47 suites, 456 tests, 0 failed):
 
 - `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings`;
   `cargo test --workspace`.
@@ -514,10 +535,10 @@ second-review fixes (`cargo test --workspace`: 47 suites, 456 tests, 0 failed):
 
 All pass: `cargo test --workspace` green; `check-licenses` CLEAN (self-test 61/61,
 mutation 4/4); `check-crate-deps` CLEAN, 11 members, no tracked cargo configuration file
-(self-test 167/167, mutation 36/36), and `--adapters-alone` CLEAN in both runs;
+(self-test 176/176, mutation 39/39), and `--adapters-alone` CLEAN in all four runs;
 `check-containment` CLEAN (self-test 33/33); `check-fixture-manifest` (self-test 73/73);
 `check-herdr-containment` CLEAN (self-test 116/117, one case skipped on this platform);
-`check-skills` within budget; `check-workflows` CLEAN (self-test 116/116);
+`check-skills` within budget; `check-workflows` CLEAN (self-test 124/124);
 `sync-agents-skills --check` in sync (self-test 28/28). The `boundary-lint.yml` ripgrep
 checks 3 and 8, run locally, are clean. CI on the PR is the record for the three OSes.
 
@@ -552,6 +573,14 @@ Second round, https://github.com/RossGraeber/OAC/pull/352#issuecomment-606855195
 | 3 | A new adapter was not vetted (fixed `SCANNED` list) | §5 layer 5: the scanned set comes from `cargo metadata`; planted `adapters/acp` in `tests/real_adapters.rs` |
 | 4 | A crate named exactly `codex` | §2.3: `codex` in `FORBIDDEN_NAMES`; planted in the self-test and `source.rs` |
 | 12 | "Held against workspace unification" wording | Re-worded in PINS.md, 07 §5, the suite README and §5 to name both runs and rule 7 |
+
+Third round, https://github.com/RossGraeber/OAC/pull/352#issuecomment-6069542587:
+
+| # | Finding | Answer |
+|---|---|---|
+| 1 | Release-only code (`cfg(not(debug_assertions))`) escaped `--adapters-alone` | §5 layer 4: release runs, default and all features; planted in `check-crate-deps.mjs --mutation-test` |
+| 2 | An adapter crate excluded from the workspace and used by `cli/` was not checked | §5 layer 5: rule 8 (non-member path packages inside the root; `exclude` reaching `adapters/`); planted in the self-test and the mutation test |
+| 3 | What the checks trust | §5 "What the checks trust" and the suite README name `--config`, a redirected `CARGO_HOME` and other targets; `check-workflows.mjs` W6 refuses the first two (and `CARGO_SOURCE_*` / `CARGO_PATCH*`) in workflows |
 
 ---
 

@@ -76,10 +76,13 @@ Identifiers are compared without a raw `r#` prefix everywhere.
 What these per-package checks cannot see is feature unification: another workspace member
 turning on a feature (`tokio/net`) that an adapter then uses, directly or behind an adapter
 feature that is off by default and that the other member turns on. `scripts/check-crate-deps.mjs
---adapters-alone`, run in CI, builds the adapters and `adapters/mcp-tools` alone twice, once
-with default features and once with `--all-features`, so both fail there (G-7 §5). The same
-script's rule 7 refuses a tracked `.cargo/config` or `.cargo/config.toml` that names
-`source`, `patch` or `paths`.
+--adapters-alone`, run in CI, builds the adapters and `adapters/mcp-tools` alone four times,
+with default features and with `--all-features`, each in the dev profile and in `--release`
+(so code under `cfg(not(debug_assertions))` is compiled too), and all of these fail there
+(G-7 §5). The same script's rule 7 refuses a tracked `.cargo/config` or `.cargo/config.toml`
+that names `source`, `patch` or `paths`, and its rule 8 refuses a path package inside the
+workspace root that is not a member, and a root `[workspace] exclude` that reaches
+`adapters/`, so an excluded crate cannot be built in unchecked.
 
 **The cost of the word rule.** A binding named `path` may be handed to a macro
 (`format!("{}", path)`). A binding named `include`, `include_str` or `include_bytes` may
@@ -91,6 +94,13 @@ proc-macro, can load a file from a bare literal (`dep::load!("../x.rs")`). No st
 sees that. This is why the dependency list is vetted: a new dependency is reviewed for the
 macros it exports before it is added. `adapters/mcp-tools`, which the adapters may depend
 on, is scanned under the same rules as an adapter.
+
+The dependency checks trust CI's cargo command lines and environment. Three gaps stay open,
+and each needs a reviewed workflow change: a cargo `--config` flag (the outer cargo's, which
+this suite's inner `cargo metadata` never sees), a `CARGO_HOME` that CI points somewhere
+else, and targets other than the three CI operating systems. `scripts/check-workflows.mjs`
+W6 refuses `--config`, `CARGO_HOME` and `CARGO_SOURCE_*` / `CARGO_PATCH*` in workflows
+(G-7 §5).
 
 No adapter needs any of the refused shapes today. If an adapter needs a macro, a module or
 target outside cargo's default layout, or another dependency, that is a deliberate change

@@ -760,8 +760,10 @@ semver, and are recorded verbatim — never reformatted.
   in the resolved package (a registry copy under `$CARGO_HOME/registry/src`), for every
   workspace member under `adapters/`. `scripts/check-crate-deps.mjs` refuses a tracked
   `.cargo/config*` naming `source`, `patch` or `paths` (rule 7), and its `--adapters-alone`
-  run in CI builds the adapters alone with default features and with `--all-features`, so
-  an adapter using a `tokio` feature that only another member turns on fails (G-7 §5). `cli/` and `transports/zenoh/` record theirs in
+  run in CI builds the adapters alone with default features and with `--all-features`, each
+  in dev and release profiles, so an adapter using a `tokio` feature that only another
+  member turns on fails (G-7 §5). These checks trust CI's cargo command lines and
+  environment (`check-workflows.mjs` W6; G-7 §5). `cli/` and `transports/zenoh/` record theirs in
   their tasks.
 - Decision: lead, in chat 2026-10-08 (G-7 §1, §5).
 - **Gates affected: none directly** — implementation dependency.
