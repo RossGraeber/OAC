@@ -27,13 +27,19 @@ pin, dependency, static-scan rule or ADR text changes.
   - A `start_turn` that returns `Ok` without starting a turn fails [SEC-AUZ-025] and
     [SEC-AUZ-026]. While the turn should run, the harness must hold both busy messages,
     and neither may be input yet.
-  - The harness a real adapter runs under lives in the suite crate.
-    `tests/harness_location.rs` checks this:
-    - only its `ALLOWED_DEPENDENTS` (`oac-transport-memory`, whose pipeline test drives
-      the fakes) depend on the suite, and they implement no harness and never reach
-      `run`;
-    - no other Rust file names `AdapterHarness`.
   - The new breaches are `NoNativeIds` and `TurnNoop`.
+- **Where a harness lives (PR #355 second review, B1 and B2).** The documented direction
+  stands (07 §3, crate-deps rule 5): an adapter takes the suite as a dev-dependency, and
+  the suite never depends on an adapter. A real adapter's harness lives at exactly
+  `adapters/<name>/tests/contract.rs`. Reviewing that one file covers the fabrication
+  residual, and Gate S4 evidence must cite it.
+  - `tests/harness_location.rs` lets an adapter, and `adapters/mcp-tools` (#352),
+    dev-depend on the suite. It refuses a rename or a non-dev edge.
+  - Only the harness file may name `AdapterHarness` or the suite, or reach `run`.
+    `oac-transport-memory` stays listed, and crate-deps is what bounds it.
+  - Adapter test files and listed packages may hold no `self as`, `macro_rules!`,
+    `include!` or `#[path]`.
+  - The walk skips tool directories only at the root, plus cargo target directories.
 - **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
   `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
   makes it a breach. Three cases are not breaches, and the tests show they stay
@@ -41,7 +47,7 @@ pin, dependency, static-scan rule or ADR text changes.
   Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
   before.
 - **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
-  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `ae87239`.)
+  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `ce69574`.)
 
 **Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
 revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
