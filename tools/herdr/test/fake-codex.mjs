@@ -92,11 +92,11 @@
 //                              no redaction pattern matches), and writes that secret to this file
 //                              so the self-test can prove it never reaches a record
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const env = process.env;
 const HOME = env.CODEX_HOME;
@@ -106,14 +106,33 @@ if (!HOME) {
 }
 const VERSION = env.FAKE_CODEX_VERSION || '0.157.1';
 const CTL = join(HOME, 'app-server-control');
-const SOCK = join(CTL, 'app-server-control.sock');
+// #353: on POSIX the fake daemon's socket lives in a short mkdtemp directory under /tmp, not
+// under $CODEX_HOME. A Unix-socket path is limited (104 bytes on macOS, 108 on Linux), and with
+// a long TMPDIR (macOS /var/folders/...) $CODEX_HOME/app-server-control/<name>.sock went over
+// it: the daemon never listened and the client saw "initialize returned no userAgent". The
+// daemon records the path in $CODEX_HOME/app-server-control/socket-path; every other
+// fake-codex process reads it there. (The real daemon's socket is under CODEX_HOME; this is a
+// test-double deviation only.) win32 keeps the old spelling.
+const SOCK_PTR = join(CTL, 'socket-path');
+const SHORT_SOCK_DIR = /^\/tmp\/oac-fc-[A-Za-z0-9]{6}$/;
+const sockPath = () => {
+  if (process.platform === 'win32') return join(CTL, 'app-server-control.sock');
+  try {
+    const p = readFileSync(SOCK_PTR, 'utf8').trim();
+    return SHORT_SOCK_DIR.test(dirname(p)) ? p : null;
+  } catch {
+    return null;
+  }
+};
 const PIDFILE = join(CTL, 'fake-daemon.pid');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const args = process.argv.slice(2);
 
 const canConnect = () =>
   new Promise((res) => {
-    const s = connect(SOCK);
+    const p = sockPath();
+    if (!p) return res(false);
+    const s = connect(p);
     s.on('connect', () => {
       s.destroy();
       res(true);
@@ -143,13 +162,13 @@ async function main() {
   if (args[0] === 'app-server' && args[1] === 'daemon' && args[2] === 'start') {
     mkdirSync(CTL, { recursive: true });
     if (await canConnect()) {
-      console.log(JSON.stringify({ status: 'already running', socketPath: SOCK }));
+      console.log(JSON.stringify({ status: 'already running', socketPath: sockPath() }));
       return;
     }
     const d = spawn(process.execPath, [process.argv[1], '__fake-daemon'], { detached: true, stdio: 'ignore', env });
     d.unref();
     for (let i = 0; i < 100 && !(await canConnect()); i++) await sleep(50);
-    console.log(JSON.stringify({ status: 'started', socketPath: SOCK }));
+    console.log(JSON.stringify({ status: 'started', socketPath: sockPath() }));
     return;
   }
   if (args[0] === 'app-server' && args[1] === 'daemon' && args[2] === 'version') {
@@ -163,7 +182,7 @@ async function main() {
     return;
   }
   if (args[0] === 'app-server' && args[1] === 'proxy') {
-    const s = connect(SOCK);
+    const s = connect(sockPath() ?? join(CTL, 'no-socket'));
     s.on('error', (e) => {
       console.error(`proxy: ${e.code}`);
       process.exit(1);
@@ -184,7 +203,17 @@ async function main() {
 
 function daemon() {
   mkdirSync(CTL, { recursive: true });
-  rmSync(SOCK, { force: true });
+  let SOCK;
+  if (process.platform === 'win32') {
+    SOCK = join(CTL, 'app-server-control.sock');
+    rmSync(SOCK, { force: true });
+  } else {
+    // A previous daemon's short directory (killed, so it could not clean up) is removed first.
+    const old = sockPath();
+    if (old) rmSync(dirname(old), { recursive: true, force: true });
+    SOCK = join(mkdtempSync('/tmp/oac-fc-'), 's.sock');
+    writeFileSync(SOCK_PTR, `${SOCK}\n`);
+  }
   writeFileSync(PIDFILE, String(process.pid));
   const WIRE = env.FAKE_CODEX_WIRE_VERSION || VERSION;
   const reject = new Set((env.FAKE_CODEX_REJECT || '').split(',').filter(Boolean));
@@ -716,7 +745,7 @@ async function tui(overrides = {}) {
   let sock = null;
   if (env.FAKE_CODEX_NO_ATTACH !== '1' && !mcp.size) {
     sock = await new Promise((res) => {
-      const s = connect(SOCK);
+      const s = connect(sockPath() ?? join(CTL, 'no-socket'));
       s.on('connect', () => res(s));
       s.on('error', () => res(null));
     });

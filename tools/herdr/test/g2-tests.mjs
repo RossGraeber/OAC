@@ -57,6 +57,23 @@ const throws = (fn, cls, re) => {
 };
 
 export function g2Unit(check) {
+  // --- fake daemon socket path (#353) -----------------------------------------------------
+  // A CODEX_HOME long enough to put $CODEX_HOME/app-server-control/*.sock over the Unix-socket
+  // limit (104 bytes on macOS, 108 on Linux): the fake daemon must still listen and answer.
+  if (process.platform !== 'win32') {
+    const t = mkdtempSync(join(tmpdir(), 'oac-fc-long-'));
+    const home = join(t, 'h'.repeat(120));
+    mkdirSync(home);
+    try {
+      const fc = (...a) => spawnSync(process.execPath, [join(HERE, 'fake-codex.mjs'), ...a], { env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8', timeout: 20000 });
+      fc('app-server', 'daemon', 'start');
+      const v = fc('app-server', 'daemon', 'version');
+      check('g2 fake daemon #353: with a long CODEX_HOME the daemon listens on a short socket path and answers', v.status === 0 && /"status":"running"/.test(v.stdout), `${v.status} ${v.stdout}${v.stderr}`);
+    } finally {
+      stopFakeCodexDaemon(home);
+      rmSync(t, { recursive: true, force: true });
+    }
+  }
   // --- Codex version warning (#216: warn, never gate) -----------------------------------------
   const pins = read(join(REPO, 'docs', 'planning', 'PINS.md'));
   const real = parseCodexVersions(pins);
@@ -467,6 +484,14 @@ export function stopFakeCodexDaemon(codexHome) {
   } catch {
     /* gone */
   }
+  // #353: the fake daemon's short socket directory (fake-codex.mjs SOCK_PTR), removed only
+  // when it has the exact /tmp/oac-fc-XXXXXX shape the fake creates.
+  try {
+    const d = dirname(read(join(codexHome, 'app-server-control', 'socket-path')).trim());
+    if (/^\/tmp\/oac-fc-[A-Za-z0-9]{6}$/.test(d)) rmSync(d, { recursive: true, force: true });
+  } catch {
+    /* none */
+  }
 }
 
 const inside = (p, root) => {
@@ -518,7 +543,11 @@ export function g2Cases(check) {
     const driverHome = underHome(driver);
     check('g2 trace: the tracer saw the driver and the client (non-empty traces)', driver.length > 50 && client.length > 0, `${driver.length} ${client.length}`);
     check('g2 trace: positive control -- the driver\'s own harness-config hash reads under the Codex home ARE traced', driverHome.some((t) => t.path.endsWith('config.toml')) && driverHome.some((t) => t.path.endsWith('hooks.json')));
-    check('g2 trace: the driver opened nothing else under the Codex home (no credential file, no sessions, no socket)', driverHome.every((t) => hashed.has(t.path)), JSON.stringify([...new Set(driverHome.filter((t) => !hashed.has(t.path)).map((t) => t.path))]));
+    // #353: executableIdentity() canonicalizes the home itself (realpath of the directory
+    // entry; nothing inside it is listed, opened or read). Allowed on the home path only.
+    const homeEntry = (t) => /^realpath(?:Sync)?$/.test(t.op) && [home, r.env.CODEX_HOME].some((h) => resolve(h) === resolve(t.path));
+    check('g2 trace: #353 positive control -- the driver canonicalized the Codex home (realpath of the directory entry only)', driverHome.some(homeEntry));
+    check('g2 trace: the driver opened nothing else under the Codex home (no credential file, no sessions, no socket)', driverHome.every((t) => hashed.has(t.path) || homeEntry(t)), JSON.stringify([...new Set(driverHome.filter((t) => !hashed.has(t.path) && !homeEntry(t)).map((t) => `${t.op} ${t.path}`))]));
     check('g2 trace: the staged client opened nothing under the Codex home at all', underHome(client).length === 0, JSON.stringify(underHome(client).map((t) => t.path)));
     const exe = (t) => basename(t.file).replace(/\.exe$/i, '');
     const driverExes = [...new Set(driver.filter((t) => t.kind === 'spawn').map(exe))].sort();
