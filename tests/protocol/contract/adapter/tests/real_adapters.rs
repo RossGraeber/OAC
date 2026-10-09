@@ -11,13 +11,19 @@
 //! `src_path`, the build script included) and everything under `src/`, and the manifest
 //! is checked for keys that move a target or switch its discovery and for unvetted
 //! dependencies (`source::package_sources`). Their sources are parsed and every path
-//! resolved through its imports (`source`). The behavioural suite cannot run yet: on this
-//! revision neither crate implements `ProviderAdapter`; both are F1 scaffolds, and the
-//! adapters are Epic G (G4 to G8). The last test keeps that fact checked rather than
-//! assumed. It fails as soon as an adapter implements the trait, under any alias or import
-//! style, and the task that adds the implementation replaces it with a run of
-//! `oac_contract_adapter::run` against the fakes (`claude::ClaudeHarness` under both
-//! `MidTurnRelease` settings; a harness over `codex::CodexFake`).
+//! resolved through its imports (`source`). The behavioural suite runs from each adapter's
+//! one harness file, `adapters/<name>/tests/contract.rs` (README, "Where a harness lives"),
+//! never from here. The last test keeps that tied to the code: an adapter that implements
+//! `ProviderAdapter`, under any alias or import style, must have that file, and it must
+//! reach `oac_contract_adapter::run` and assert the report conformant. An adapter that does
+//! not implement the trait yet (an F1 scaffold) needs none.
+//!
+//! *Dated note, 2026-10-09 (#65, G4):* until G4 the last test failed as soon as any adapter
+//! implemented the trait, and said that the task adding the implementation replaces it
+//! "with a run of `oac_contract_adapter::run` against the fakes". Since #351 that run may
+//! live only in the adapter's `tests/contract.rs` (`tests/harness_location.rs`), so G4
+//! replaced it with the check above, which holds every adapter, the Codex one included,
+//! to the same rule.
 
 use std::path::{Path, PathBuf};
 
@@ -371,22 +377,42 @@ fn the_forbidden_lists_agree() {
 }
 
 #[test]
-fn no_real_adapter_implements_the_trait_yet() {
+fn every_real_adapter_that_implements_the_trait_runs_the_suite() {
     for dir in scanned() {
         let name = dir.display();
         let s = package_sources(&dir);
         // A manifest the checks cannot read fails closed here too (its IFC-ADP-010 row).
-        let mut found: Vec<_> = s
+        let unreadable: Vec<_> = s
             .findings
             .into_iter()
             .filter(|f| f.requirement == "IFC-ADP-010")
             .collect();
-        found.extend(implements_provider_adapter(&s.built));
+        assert!(unreadable.is_empty(), "{name}: {}", listed(&unreadable));
+        let implements = implements_provider_adapter(&s.built);
+        if implements.is_empty() {
+            continue;
+        }
         assert!(
-            found.is_empty(),
-            "{name} implements ProviderAdapter ({}): run the adapter contract suite \
-             against it through the fakes, and replace this test (see this file's docs)",
-            listed(&found)
+            !dir.ends_with("mcp-tools"),
+            "{name} is the shared tool crate, not an adapter, and implements ProviderAdapter ({})",
+            listed(&implements)
         );
+        let harness = dir.join("tests").join("contract.rs");
+        let text = std::fs::read_to_string(&harness).unwrap_or_else(|e| {
+            panic!(
+                "{name} implements ProviderAdapter ({}) but has no harness file {}: {e}",
+                listed(&implements),
+                harness.display()
+            )
+        });
+        for needed in ["oac_contract_adapter", "run(", ".assert_conformant()"] {
+            assert!(
+                text.contains(needed),
+                "{name} implements ProviderAdapter ({}), and its harness file {} does not \
+                 run the adapter contract suite (no `{needed}`)",
+                listed(&implements),
+                harness.display()
+            );
+        }
     }
 }
