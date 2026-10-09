@@ -90,7 +90,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
-import { canonicallyWithin } from '../lib/canonical-path.mjs';
+import { canonicallyWithin, rootGuardProblem } from '../lib/canonical-path.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
@@ -138,8 +138,10 @@ export function assertNotInjected(label, text) {
 // refuses a directory inside this repository or one whose `.mcp.json` registers anything
 // but `g1spike`.
 // The repository test is canonical on both sides (#353): a plain directory reached through a
-// symlinked ancestor that lands in this checkout is inside it. `repo` is for the self-test.
-export function operatorProjectDir(dir, { repo = REPO } = {}) {
+// symlinked ancestor that lands in this checkout is inside it. A checkout whose filesystem
+// reports no file identity is refused with that reason (#357). `repo` and `stat` are for the
+// self-test.
+export function operatorProjectDir(dir, { repo = REPO, stat } = {}) {
   const abs = resolve(String(dir));
   if (!isAbsolute(String(dir))) throw new DriverError('--param projectDir must be an absolute path');
   let st;
@@ -149,7 +151,9 @@ export function operatorProjectDir(dir, { repo = REPO } = {}) {
     throw new DriverError(`--param projectDir ${abs} does not exist; create it and trust it in Claude Code first`);
   }
   if (st.isSymbolicLink() || !st.isDirectory()) throw new DriverError(`--param projectDir ${abs} is not a plain directory`);
-  if (canonicallyWithin(abs, repo)) throw new DriverError(`--param projectDir ${abs} is inside this repository; use a directory outside it`);
+  const repoProblem = rootGuardProblem(repo, stat ? { stat } : {});
+  if (repoProblem) throw new DriverError(`the repository checkout ${repoProblem}; refusing --param projectDir (fail closed)`);
+  if (canonicallyWithin(abs, repo, stat ? { stat } : {})) throw new DriverError(`--param projectDir ${abs} is inside this repository; use a directory outside it`);
   const mcpPath = join(abs, '.mcp.json');
   if (existsSync(mcpPath)) {
     let names = null;

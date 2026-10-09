@@ -603,16 +603,43 @@ the matching lifecycle cases run, and a filter that matches none fails.
   (Codex's standalone install), which is hashed;
 - with L3 `--param readSessionFile=true` (operator decision 2026-09-30), the scratch probe
   project's own `projects/<slug>/*.jsonl`. It records entry types and flags only, and reads
-  only plain files in a plain slug directory that stay under `projects/`.
+  only plain files in a plain slug directory that are verifiably under `projects/`. Any error
+  in that check means the file is not read (#357). A `*.jsonl` with more than one hard link
+  is not read either, and is recorded as a finding, because it may be another file in the
+  Claude config directory, such as a credential file (#357). Nor is a `*.jsonl` whose `st_dev`
+  differs from its slug directory's, which is a file mounted in from another filesystem
+  (#357).
 
 Every other path is refused by `lib/canonical-path.mjs`. A path is refused when it resolves
 inside a home by spelling (as written, by realpath, or by the OS realpath, which covers
 symlinks, junctions, `..`, 8.3 names and case) or by file identity. File identity is the
 `(dev, ino)` of the home entry against the target and each of its ancestors; it catches a
-UNC admin-share spelling or a bind mount. The check fails closed on any error.
+UNC admin-share spelling or a bind mount. For a harness home the guard also refuses the same
+`ino` on another device. That covers an overlayfs merged view against its `lowerdir` only,
+because a directory that exists in `lowerdir` reports the `lowerdir` inode in the merged view
+(#357). An executable this rule leaves unhashed is recorded as a run finding. A home that is a
+filesystem or subvolume root (ext4 `ino` 2, btrfs `ino` 256) can make it a false positive,
+and the executable is then UNVERIFIED. The check fails closed on any error. A home whose
+filesystem reports no inode (`ino` 0: FAT/exFAT, some network shares) has no usable
+identity, so nothing is read through that guard. An `ino` 0 entry on a target's path counts
+as an error. A repository checkout on such a filesystem is refused with that reason (#357).
 
-Residuals the guard cannot close:
-- a **hard link** to a credential file, which has no path relation to the home;
+The Linux namespace cases in the self-test need an unprivileged user and mount namespace: the
+bind mount of a home, the overlayfs merged-vs-`lowerdir` case, and the L3 file mounted in from
+a tmpfs. The CI loopback-only sandbox does not allow such a namespace. Where a case is skipped
+under GitHub Actions, the skip is also emitted as a `::warning::` annotation, so it shows on
+the run summary (#357). They run on WSL.
+
+Residuals the guard cannot close (each but the race needs mount privilege or a hard link
+made by the operator's own account):
+- a **hard link** to a credential file, which has no path relation to the home (closed for
+  the L3 session-file read only, by the `nlink > 1` skip);
+- an **overlayfs `upperdir` or `workdir`** spelling of a merged harness home, or the merged
+  view of a home spelled by its `upperdir`. The `upperdir` copy of a directory has an inode of
+  its own, which no merged entry reports, so neither the `(dev, ino)` nor the `ino`-only match
+  sees it (PR #358 review B1);
+- a **same-filesystem bind mount of one file** into the L3 slug directory: it keeps the
+  slug directory's `st_dev` and `nlink` 1;
 - a **check-then-open race (TOCTOU)**: a directory on the path swapped for a link between the
   check and the open. That needs an active attacker on the operator's own machine.
 
