@@ -15,15 +15,13 @@
 //          symlinks to driver code. Workflows
 //          (K6 #129): no GitHub Actions workflow other than
 //          .github/workflows/herdr-provider-optin.yml references tools/herdr or a label a
-//          self-hosted runner carries, but for one exact line (#345): a `run:` of
-//          `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the driver's offline
-//          self-test against its test doubles, and only when the whole parsed `run:` value
-//          is exactly that command (no continuation line folds into it, PR #349 B1), in a
-//          step with no env:, working-directory:, second run: or shell other than bash,
-//          under no job env:/defaults:/container:/services:, workflow defaults: or
-//          non-CARGO_* workflow env:, in a
-//          workflow with no YAML anchor, alias or merge key (#353); and that opt-in workflow's triggers are exactly
-//          workflow_dispatch + push (main, docs/planning/PINS.md), its permissions exactly
+//          self-hosted runner carries. (The #345/#349/#353 exemption for the driver
+//          self-test line in another workflow was retired on 2026-10-08 with ci.yml, the
+//          workflow that ran it: there is no GitHub-hosted CI any more, and the self-test
+//          runs client-side in `node scripts/local-ci.mjs`. No other workflow tracked is
+//          the expected state, reported ok, not PENDING.) That opt-in workflow's only
+//          trigger is workflow_dispatch (the push-to-main-on-PINS.md trigger went the same
+//          day), its permissions exactly
 //          contents: read, every action is actions/checkout or actions/upload-artifact at
 //          a commit SHA (checkout without persisted credentials), with no secrets or
 //          github.token use, no expression inside a `run:` block, and no direct driver
@@ -240,11 +238,11 @@ const parsedRule = (fn) => (text) => {
   return fn(root);
 };
 const keysOf = (v) => (v instanceof Map ? [...v.keys()] : Array.isArray(v) ? v : typeof v === 'string' ? [v] : []);
-const sameList = (v, want) => Array.isArray(v) && v.length === want.length && v.every((x, i) => x === want[i]);
 
-// on: exactly { workflow_dispatch, push } -- an allowlist, so any other event (issues,
-// watch, fork, discussion, pull_request*, workflow_run, schedule, ...) fails.
-const OPTIN_TRIGGERS = ['push', 'workflow_dispatch'];
+// on: exactly { workflow_dispatch } -- an allowlist, so any other event (push, issues,
+// watch, fork, discussion, pull_request*, workflow_run, schedule, ...) fails. Since
+// 2026-10-08 (no GitHub-side runs a person did not start) push is refused too.
+const OPTIN_TRIGGERS = ['workflow_dispatch'];
 function optinTriggers(root) {
   const on = root.get('on');
   if (!on) return [1];
@@ -254,23 +252,11 @@ function optinTriggers(root) {
   if (keys.length !== OPTIN_TRIGGERS.length) return [on.line];
   return [];
 }
-// push: branches exactly [main], paths exactly [docs/planning/PINS.md], nothing else;
 // workflow_dispatch: inputs only.
 function optinTriggerFilters(root) {
   const on = root.get('on')?.value;
-  // List or scalar form: a push listed there has no branch or path filter at all.
-  if (!(on instanceof Map)) return keysOf(on).includes('push') ? [root.get('on')?.line ?? 1] : [];
+  if (!(on instanceof Map)) return [];
   const hits = [];
-  const push = on.get('push');
-  if (push) {
-    const pm = push.value;
-    const ok =
-      pm instanceof Map &&
-      pm.size === 2 &&
-      sameList(pm.get('branches')?.value, ['main']) &&
-      sameList(pm.get('paths')?.value, ['docs/planning/PINS.md']);
-    if (!ok) hits.push(push.line);
-  }
   const wd = on.get('workflow_dispatch');
   if (wd && wd.value !== null && !(wd.value instanceof Map && [...wd.value.keys()].every((k) => k === 'inputs'))) hits.push(wd.line);
   return hits;
@@ -317,109 +303,19 @@ const JOB_TOKEN_RE = /\bgithub\s*(?:\.\s*token\b|\[\s*['"]token['"]\s*\])/i;
 // another workflow whose runs-on names any of them could be routed to a harness runner.
 const RUNNER_LABEL_TOKEN = /(?<![\w.-])(?:self-hosted|oac-harness|linux|windows|macos|x64|arm64|arm)(?![\w.-])/i;
 
-// #345: the one tools/herdr reference another workflow may carry, line for line: a `run:` that
-// is exactly the driver's offline self-test (`node tools/herdr/run.mjs --self-test`, its test
-// doubles only: no harness, no scenario, no driver option), optionally behind the
-// loopback-only wrapper. Anything else on that line, any other driver argument or entry
-// point, a comment naming the path, or the command inside a run: block fails as before. Kept
-// in step with D2's exception in scripts/check-workflows.mjs (DRIVER_SELFTEST_LINE there).
-//
-// PR #349 review B1: YAML folds a deeper-indented next line into a plain `run:` value, so the
-// physical line alone does not decide. A line is exempt only when ALL of these hold:
-//   - the physical line matches DRIVER_SELFTEST_LINE (an unquoted plain value, no block
-//     indicator, no flow collection, nothing after the command);
-//   - the next non-blank line (comments included) is not indented deeper than the `run` key,
-//     so no continuation line folds into the value;
-//   - the whole workflow parses with parseYamlLite (which refuses a continuation, a multi-line
-//     quoted or flow value, and anything else it cannot read), and the parsed `run` value whose
-//     key is on this line is exactly DRIVER_SELFTEST_COMMAND.
-// A workflow the reader cannot parse gets no exemption: every tools/herdr line in it is a hit.
-//
-// #353 (PR #349 re-review hardening): the step itself must not change what the line runs. The
-// exempt `run` key must sit directly in a step of a job's `steps:` whose keys are only
-// SELFTEST_STEP_KEYS, each once (so no `env:`, no `working-directory:`, no second `run:`;
-// parseYamlLite already refuses a duplicate key), whose `shell:`, if any, is exactly `bash`;
-// the job carries no `env:` or `defaults:`; the workflow carries no top-level `defaults:` and
-// its top-level `env:` sets only CARGO_* names; and the workflow holds no YAML anchor, alias
-// or merge key anywhere. Kept in step with D2 in scripts/check-workflows.mjs.
-const DRIVER_SELFTEST_LINE = /^\s*(?:-\s+)?run:\s+(?:\$LOOPBACK_ONLY\s+)?node\s+tools\/herdr\/run\.mjs\s+--self-test\s*$/;
-const DRIVER_SELFTEST_COMMAND = /^(?:\$LOOPBACK_ONLY )?node tools\/herdr\/run\.mjs --self-test$/;
-const SELFTEST_STEP_KEYS = new Set(['name', 'id', 'if', 'shell', 'run', 'timeout-minutes']);
-const SELFTEST_WORKFLOW_ENV = /^CARGO_[A-Z0-9_]+$/;
-// A YAML anchor (&x), alias (*x) or merge key (<<) at the start of a node: after `key:`, after
-// `- `, or at a flow item, past any tags. Text inside a plain scalar (`a && b`, `ls *.x`) is not
-// a node start. A block scalar's content lines are scanned too: fail-closed, never fail-open.
-function hasYamlAnchorOrAlias(text) {
-  const node = (s) => /^(?:![^\s]*\s+)*[&*]/.test(s);
-  return text.split(/\r?\n/).some((raw) => {
-    let t = stripYamlComment(raw).trim();
-    while (/^-(?:\s|$)/.test(t)) t = t.slice(1).trim();
-    if (node(t)) return true;
-    const m = /^("[^"]*"|'[^']*'|[^\s:'"][^:]*?)\s*:(?:\s+(.*))?$/.exec(t);
-    if (m && unquote(m[1]) === '<<') return true;
-    const rest = m ? (m[2] ?? '') : t;
-    if (node(rest)) return true;
-    return /^[[{]/.test(rest) && /[[{,]\s*(?:[^:,[\]{}]+:\s+)?(?:![^\s]*\s+)*[&*]|[[{,]\s*<<\s*:/.test(rest);
-  });
-}
-const selftestStepOk = (step, job, root) => {
-  if (!(step instanceof Map) || ![...step.keys()].every((k) => SELFTEST_STEP_KEYS.has(k))) return false;
-  if (step.has('shell') && step.get('shell').value !== 'bash') return false;
-  if (!(job instanceof Map) || ['env', 'defaults', 'container', 'services'].some((k) => job.has(k))) return false;
-  if (root.has('defaults')) return false;
-  const env = root.get('env')?.value;
-  if (env !== undefined && env !== null && !(env instanceof Map && [...env.keys()].every((k) => SELFTEST_WORKFLOW_ENV.test(k)))) return false;
-  return true;
-};
-// line number -> the parsed value of every `run` key that sits in a step passing
-// selftestStepOk; null when the workflow cannot be parsed or holds an anchor, alias or merge key.
-function runValuesByLine(text) {
-  let root;
-  try {
-    root = parseYamlLite(text);
-  } catch {
-    return null;
-  }
-  if (hasYamlAnchorOrAlias(text)) return null;
-  const out = new Map();
-  const jobs = root.get('jobs')?.value;
-  for (const { value: job } of jobs instanceof Map ? jobs.values() : []) {
-    const steps = job instanceof Map ? job.get('steps')?.value : null;
-    for (const step of Array.isArray(steps) ? steps : []) {
-      const e = step instanceof Map ? step.get('run') : null;
-      if (e && typeof e.value === 'string' && e.line !== null && selftestStepOk(step, job, root)) out.set(e.line, e.value);
-    }
-  }
-  return out;
-}
-function continuesBelow(lines, i) {
-  const keyCol = lines[i].indexOf('run:');
-  for (let j = i + 1; j < lines.length; j++) {
-    if (lines[j].trim() === '') continue;
-    return lines[j].length - lines[j].trimStart().length > keyCol;
-  }
-  return false;
-}
-function otherWorkflowHerdrRefs(text) {
-  const lines = text.split(/\r?\n/);
-  let runs;
-  const exempt = (line, i) => {
-    if (!DRIVER_SELFTEST_LINE.test(line) || continuesBelow(lines, i)) return false;
-    runs ??= runValuesByLine(text);
-    return !!runs && DRIVER_SELFTEST_COMMAND.test(runs.get(i + 1) ?? '');
-  };
-  return lines.flatMap((line, i) => (HERDR_PATH_REF.test(line) && !exempt(line, i) ? [i + 1] : []));
-}
+// No exemption any more: every tools/herdr reference in another workflow is a hit, the
+// driver self-test line included (#345's exemption, hardened by #349 and #353, retired on
+// 2026-10-08 with ci.yml; the self-test runs in `node scripts/local-ci.mjs`).
 const OTHER_WORKFLOW_RULES = [
-  { label: `workflow other than ${OPTIN_WORKFLOW} references tools/herdr (beyond the one offline self-test line, #345)`, scan: otherWorkflowHerdrRefs },
+  { label: `workflow other than ${OPTIN_WORKFLOW} references tools/herdr`, re: HERDR_PATH_REF },
   {
     label: `workflow other than ${OPTIN_WORKFLOW} names a label a self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm, arm64)`,
     re: RUNNER_LABEL_TOKEN,
   },
 ];
 const OPTIN_WORKFLOW_RULES = [
-  { label: 'opt-in workflow triggers are not exactly workflow_dispatch and push', scan: parsedRule(optinTriggers) },
-  { label: 'opt-in workflow push is not main-only on docs/planning/PINS.md, or workflow_dispatch has more than inputs', scan: parsedRule(optinTriggerFilters) },
+  { label: 'opt-in workflow triggers are not exactly workflow_dispatch', scan: parsedRule(optinTriggers) },
+  { label: 'opt-in workflow workflow_dispatch has more than inputs', scan: parsedRule(optinTriggerFilters) },
   { label: 'opt-in workflow permissions are not exactly contents: read', scan: parsedRule(optinPermissions) },
   { label: 'opt-in workflow uses an action that is not actions/checkout or actions/upload-artifact pinned by commit SHA', scan: optinUses },
   { label: 'opt-in workflow checkout does not set persist-credentials: false', scan: optinCheckoutToken },
@@ -861,15 +757,13 @@ function runChecks(root) {
 
   // Check 9c: workflows (K6). Only the opt-in workflow reaches the driver or the harness
   // runners, and it has no fork-reachable trigger, no secrets, and no run-block expression.
-  scanTarget(
-    '9',
-    `workflows other than ${OPTIN_WORKFLOW}`,
-    otherWorkflows,
-    OTHER_WORKFLOW_RULES,
-    false,
-    'no other workflows tracked',
-    'workflow(s)',
-  );
+  // No other workflow is the expected state since 2026-10-08 (no GitHub-hosted CI), so an
+  // empty list is ok here, not PENDING: there is nothing left to build.
+  if (otherWorkflows.length === 0) {
+    results.push({ check: '9', target: `workflows other than ${OPTIN_WORKFLOW}`, status: 'ok', detail: 'none tracked (expected: no GitHub-hosted CI)', hits: [] });
+  } else {
+    scanTarget('9', `workflows other than ${OPTIN_WORKFLOW}`, otherWorkflows, OTHER_WORKFLOW_RULES, false, '', 'workflow(s)');
+  }
   scanTarget('9', OPTIN_WORKFLOW, optinWorkflow, OPTIN_WORKFLOW_RULES, false, 'opt-in workflow not tracked (K6 creates it)', 'workflow');
 
   // Check 10: credential access / harness-config mutation in the driver.
@@ -919,9 +813,6 @@ const OPTIN_CLEAN = [
   '      scenario:',
   '        type: choice',
   '        options: [smoke]',
-  '  push:',
-  '    branches: [main]',
-  '    paths: [docs/planning/PINS.md]',
   'permissions:',
   '  contents: read',
   'jobs:',
@@ -944,35 +835,9 @@ const OPTIN_CLEAN = [
   '        if: ${{ always() }}',
   '',
 ].join('\n');
-const optin = (insert, after = '  push:') => OPTIN_CLEAN.replace(`${after}\n`, `${after}\n${insert}\n`);
-
-// #353: the exempt self-test step in a workflow other than the opt-in one, with something
-// in the step, its job or the workflow that changes what the line runs. Each must fail check 9
-// (D2 in scripts/check-workflows.mjs plants the same set).
-const selftestWf = ({ shell = '        shell: bash\n', before = '', after = '', job = '', top = '', tail = '' } = {}) =>
-  `on: [push]\n${top}jobs:\n  a:\n    runs-on: ubuntu-latest\n${job}    steps:\n      - name: herdr self-test\n${shell}${before}        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n${after}${tail}`;
-const SELFTEST_STEP_BYPASSES = [
-  ['step env: overrides LOOPBACK_ONLY', selftestWf({ before: "        env:\n          LOOPBACK_ONLY: sh -c 'echo x' --\n" })],
-  ['step env: sets NODE_OPTIONS', selftestWf({ before: '        env:\n          NODE_OPTIONS: --require ./x.js\n' })],
-  ['step working-directory:', selftestWf({ before: '        working-directory: vendor/other\n' })],
-  ['shell: node {0}', selftestWf({ shell: '        shell: node {0}\n' })],
-  ['shell: sh', selftestWf({ shell: '        shell: sh\n' })],
-  ['shell: bash with its own arguments', selftestWf({ shell: '        shell: bash --rcfile ./x.sh {0}\n' })],
-  ['a second run: key after the exempt one', selftestWf({ after: '        run: echo replaced\n' })],
-  ['a second run: key before the exempt one', selftestWf({ before: '        run: echo first\n' })],
-  ['a uses: on the exempt step', selftestWf({ before: '        uses: ./x\n' })],
-  ['job env:', selftestWf({ job: '    env:\n      NODE_OPTIONS: --require ./x.js\n' })],
-  ['job defaults: run: working-directory', selftestWf({ job: '    defaults:\n      run:\n        working-directory: vendor\n' })],
-  ['job container: (another node and bash)', selftestWf({ job: '    container: node:20\n' })],
-  ['job services:', selftestWf({ job: '    services:\n      x:\n        image: alpine\n' })],
-  ['workflow defaults: run: shell', selftestWf({ top: 'defaults:\n  run:\n    shell: sh\n' })],
-  ['workflow env: BASH_ENV', selftestWf({ top: 'env:\n  BASH_ENV: ./x.sh\n' })],
-  ['a YAML anchor elsewhere in the workflow', selftestWf({ top: 'env:\n  CARGO_X: &x echo hi\n' })],
-  ['a YAML alias step after the exempt one', selftestWf({ top: 'env:\n  CARGO_X: &x echo hi\n', tail: '      - run: *x\n' })],
-  ['a YAML alias as a sequence item', selftestWf({ tail: '      - *s\n' })],
-  ['a YAML merge key in the job', selftestWf({ job: '    <<: { env: { NODE_OPTIONS: x } }\n' })],
-];
-const SELFTEST_CONTROL = 'on: [push]\nenv:\n  CARGO_TERM_COLOR: always\njobs:\n  a:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - name: build\n        run: cargo build && ls target/*.d\n      - name: herdr driver self-test\n        shell: bash\n        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n';
+const optin = (insert, after = 'on:') => OPTIN_CLEAN.replace(`${after}\n`, `${after}\n${insert}\n`);
+// The old ci.yml herdr-selftest shape (#353). Its exemption is retired: it is a hit now.
+const OLD_CI_SELFTEST = 'on: [push]\nenv:\n  CARGO_TERM_COLOR: always\njobs:\n  a:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - name: build\n        run: cargo build && ls target/*.d\n      - name: herdr driver self-test\n        shell: bash\n        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n';
 
 const CLEAN_BASE = {
   'adapters/claude/src/lib.rs': '// adapter\n',
@@ -1197,8 +1062,12 @@ const SELF_TEST_CASES = [
     OPTIN_CLEAN.replace(/^on:\n[\s\S]*?(?=^permissions:)/m, 'on: [workflow_dispatch, issues]\n')),
   violation('9 opt-in workflow trigger list form: unfiltered push', '.github/workflows/herdr-provider-optin.yml',
     OPTIN_CLEAN.replace(/^on:\n[\s\S]*?(?=^permissions:)/m, 'on: [push, workflow_dispatch]\n')),
-  violation('9 opt-in workflow push widened to another branch', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('branches: [main]', 'branches: [main, dev]')),
-  violation('9 opt-in workflow push gains tags', '.github/workflows/herdr-provider-optin.yml', optin('    tags: [v*]', '  push:')),
+  // 2026-10-08: the push-to-main-on-PINS.md trigger is gone; dispatch is the only trigger.
+  violation('9 opt-in workflow regains the push-on-PINS.md trigger', '.github/workflows/herdr-provider-optin.yml', optin('  push:\n    branches: [main]\n    paths: [docs/planning/PINS.md]')),
+  violation('9 opt-in workflow gains an unfiltered push', '.github/workflows/herdr-provider-optin.yml', optin('  push:')),
+  violation('9 opt-in workflow gains a pull_request trigger', '.github/workflows/herdr-provider-optin.yml', optin('  pull_request:')),
+  violation('9 opt-in workflow trigger as a bare push scalar', '.github/workflows/herdr-provider-optin.yml',
+    OPTIN_CLEAN.replace(/^on:\n[\s\S]*?(?=^permissions:)/m, 'on: push\n')),
   violation('9 opt-in workflow reads toJSON(secrets)', '.github/workflows/herdr-provider-optin.yml', optin('          ALL: ${{ toJSON(secrets) }}', '        env:')),
   violation('9 opt-in workflow reads github.token', '.github/workflows/herdr-provider-optin.yml', optin('          T: ${{ github.token }}', '        env:')),
   violation('9 opt-in workflow sets contents: write', '.github/workflows/herdr-provider-optin.yml', OPTIN_CLEAN.replace('  contents: read', '  contents: write')),
@@ -1213,39 +1082,25 @@ const SELF_TEST_CASES = [
   violation('9 other workflow runs on bare default labels', '.github/workflows/extra.yml', 'jobs:\n  a:\n    runs-on: [linux, x64]\n'),
   violation('9 other workflow matrix names a bare windows label', '.github/workflows/extra.yml',
     'jobs:\n  a:\n    strategy:\n      matrix:\n        os: [ubuntu-latest, "windows"]\n    runs-on: ${{ matrix.os }}\n'),
-  // #345: only the exact offline self-test line is allowed in another workflow.
+  // 2026-10-08: the #345 exemption is retired (no hosted CI; local-ci.mjs runs the self-test),
+  // so every form of the driver self-test line in another workflow is a hit now.
+  violation('9 other workflow runs the driver self-test line (exemption retired)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n'),
+  violation('9 other workflow runs the unwrapped self-test line (exemption retired)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n'),
+  violation('9 the old ci.yml herdr-selftest shape (#353; exemption retired)', '.github/workflows/ci.yml', OLD_CI_SELFTEST),
   violation('9 other workflow runs the driver self-test with a scenario too (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/run.mjs --self-test --scenario smoke\n'),
   violation('9 other workflow chains the self-test to a driver call (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/run.mjs --self-test && node tools/herdr/ci.mjs run\n'),
   violation('9 other workflow runs the self-test inside a run: block (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: |\n          node tools/herdr/run.mjs --self-test\n'),
-  violation('9 other workflow names the driver path in a comment (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      # see tools/herdr/README.md\n      - run: node tools/herdr/run.mjs --self-test\n'),
-  // PR #349 review B1: text YAML folds into the exempt line's value, or a line inside another
-  // scalar that looks like the exempt line. Each passed the single-line check alone.
-  ...[
-    ['a plain continuation line folds a scenario in', '      - run: node tools/herdr/run.mjs --self-test\n          --scenario g2-codex-inject\n'],
-    ['a continuation after a blank line', '      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n\n          --scenario smoke\n'],
-    ['a continuation under a key-form run:', '      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n          --scenario smoke\n'],
-    ['the line inside a | block scalar', '      - run: |\n          run: node tools/herdr/run.mjs --self-test\n          echo next\n'],
-    ['the line inside a > block scalar', '      - run: >\n          run: node tools/herdr/run.mjs --self-test\n'],
-    ['the line inside a multi-line double-quoted scalar', '      - run: "echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke"\n'],
-    ['the line inside a multi-line single-quoted scalar', "      - run: 'echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke'\n"],
-    ['the line inside a multi-line flow mapping', '      - { name: x,\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke }\n'],
-  ].map(([what, steps]) => violation(`9 other workflow: ${what} (PR #349 B1)`, '.github/workflows/lint.yml', `on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n${steps}`)),
-  // #353 (PR #349 re-review): the exempt step, job or workflow changes what the line runs.
-  ...SELFTEST_STEP_BYPASSES.map(([what, text]) => violation(`9 other workflow: ${what} (#353)`, '.github/workflows/lint.yml', text)),
+  violation('9 other workflow names the driver path in a comment (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      # see tools/herdr/README.md\n      - run: echo ok\n'),
   violation('9 other workflow runs another driver entry point\'s self-test (#345)', '.github/workflows/lint.yml', 'on: [push]\njobs:\n  a:\n    steps:\n      - run: node tools/herdr/ci.mjs --self-test\n'),
   // Controls: these must NOT fail.
-  {
-    name: 'control: another workflow may run the driver self-test line, wrapped or not (#345)',
-    expect: 'clean',
-    files: { ...CLEAN_BASE, '.github/workflows/ci.yml': 'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n' },
-  },
-  {
-    name: 'control: the ci.yml shape (#353) -- name, shell: bash, CARGO_* workflow env, `&&` and a glob elsewhere -- keeps its exemption',
-    expect: 'clean',
-    files: { ...CLEAN_BASE, '.github/workflows/ci.yml': SELFTEST_CONTROL },
-  },
   { name: 'control: empty tree reports PENDING', expect: 'pending', files: { 'README.md': '# empty\n' } },
   { name: 'control: clean full tree reports CLEAN', expect: 'clean', files: CLEAN_BASE },
+  {
+    // 2026-10-08: no workflow beside the opt-in one is the expected state -- ok, not PENDING.
+    name: 'control: no other workflow tracked reports CLEAN, not PENDING',
+    expect: 'clean',
+    files: Object.fromEntries(Object.entries(CLEAN_BASE).filter(([p]) => p !== '.github/workflows/lint.yml')),
+  },
   {
     name: 'control: other workflow on GitHub-hosted labels is clean',
     expect: 'clean',
