@@ -335,8 +335,11 @@ const git = (args) => {
 // The concrete action for each step on `platform`: { step, skip?, notRun?, argv?, env, bash? }.
 export function plan(tier, { platform, quick, work, only = null }) {
   const steps = TIERS[tier];
+  // --only keeps the loopback sandbox steps whenever it keeps a sandboxed step: on Linux a
+  // sandboxed step never runs without them.
+  const keepSandbox = only && steps.some((s) => s.sandbox && only.includes(s.id));
   return steps
-    .filter((s) => !only || only.includes(s.id))
+    .filter((s) => !only || only.includes(s.id) || (keepSandbox && s.id.startsWith('loopback-')))
     .map((s) => {
       if (s.os && !s.os.includes(platform)) return { step: s, [s.notRunElsewhere ? 'notRun' : 'skip']: s.osReason };
       const env = { ...(s.offline ? OFFLINE : {}), ...(s.env ?? {}), ...(quick && s.quickEnv ? s.quickEnv : {}) };
@@ -530,6 +533,8 @@ function selfTest() {
     const expected = TIERS.default.map((s) => s.id).filter((id) => !want.includes(id));
     check(`plan ${platform}: the stub runner sees every step, in order`, JSON.stringify(seen) === JSON.stringify(expected));
   }
+  check('plan: --only a sandboxed step keeps the loopback select and probe steps', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['herdr-self-test'] }).map((a) => a.step.id)) === '["loopback-select","loopback-probe","herdr-self-test"]');
+  check('plan: --only an unsandboxed step runs it alone', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['skills'] }).map((a) => a.step.id)) === '["skills"]');
   check('plan: g3-macos is NOT RUN off macOS and runs on macOS', plan('g3-macos', { platform: 'linux', work: '/w' })[0].notRun && plan('g3-macos', { platform: 'darwin', work: '/w' })[0].bash === 'g3-macos');
   check('plan: mutation runs in the loopback wrapper on Linux, with a work dir', plan('mutation', { platform: 'linux', work: '/w' }).find((a) => a.step.id === 'mutation-check').argv.join(' ') === 'bash scripts/loopback-only.sh node tests/security/mutation-check.mjs --work-dir /w/security-mutation');
 
