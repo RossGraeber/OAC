@@ -201,7 +201,7 @@ Actions minutes; the upload step stores a run artifact for 14 days.
 
 There is no other trigger. `scripts/check-herdr-containment.mjs` check 9 reads the
 workflow's `on:` keys and fails `node scripts/local-ci.mjs` unless they are exactly
-`workflow_dispatch`, and `scripts/check-workflows.mjs` W6 does the same for every workflow.
+`workflow_dispatch`, and `scripts/check-workflows.mjs` W7 does the same for every workflow.
 It is an allowlist, so `push`, `schedule` and any trigger any GitHub user can fire
 (`issues`, `watch`, `fork`, `discussion`, …) fail too.
 The same check requires `permissions` to be exactly `contents: read`, every `uses:` to be

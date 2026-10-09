@@ -96,6 +96,7 @@ export const TIERS = {
     { id: 'crate-deps-self-test', name: 'dependency direction self-test', cmd: ['node', 'scripts/check-crate-deps.mjs', '--self-test'] },
     { id: 'crate-deps', name: 'dependency direction', cmd: ['node', 'scripts/check-crate-deps.mjs'], offline: true },
     { id: 'crate-deps-mutation', name: 'dependency direction mutation test', cmd: ['node', 'scripts/check-crate-deps.mjs', '--mutation-test'], offline: true },
+    { id: 'crate-deps-adapters-alone', name: 'adapters build alone (no feature borrowed from another member; #7, G-7 section 5)', cmd: ['node', 'scripts/check-crate-deps.mjs', '--adapters-alone'], offline: true },
     // ci.yml job `licenses`
     { id: 'licenses-self-test', name: 'license check self-test', cmd: ['node', 'scripts/check-licenses.mjs', '--self-test'] },
     { id: 'licenses-mutation', name: 'license check mutation test', cmd: ['node', 'scripts/check-licenses.mjs', '--mutation-test'], offline: true },
@@ -106,7 +107,7 @@ export const TIERS = {
     { id: 'fixture-manifest-self-test', name: 'fixture manifest self-test', cmd: ['node', 'scripts/check-fixture-manifest.mjs', '--self-test'] },
     { id: 'fixture-manifest', name: 'fixture manifest (MANIFEST.json matches committed fixtures; needs full history)', cmd: ['node', 'scripts/check-fixture-manifest.mjs'] },
     { id: 'workflows-self-test', name: 'workflow policy self-test', cmd: ['node', 'scripts/check-workflows.mjs', '--self-test'] },
-    { id: 'workflows', name: 'workflow policy (W6 dispatch only, W7 self-hosted only)', cmd: ['node', 'scripts/check-workflows.mjs'] },
+    { id: 'workflows', name: 'workflow policy (W6 no cargo source override, W7 dispatch only, W8 self-hosted only)', cmd: ['node', 'scripts/check-workflows.mjs'] },
     // boundary-lint.yml job `boundary-lint`, checks 9-10
     { id: 'herdr-containment-self-test', name: 'checks 9-10 self-test', cmd: ['node', 'scripts/check-herdr-containment.mjs', '--self-test'] },
     { id: 'herdr-containment', name: 'checks 9-10 herdr containment', cmd: ['node', 'scripts/check-herdr-containment.mjs'] },
@@ -204,6 +205,7 @@ export const PATHS = {
   'crate-deps-self-test': ['scripts/check-crate-deps.mjs'],
   'crate-deps': [...RUST, 'scripts/check-crate-deps.mjs'],
   'crate-deps-mutation': [...RUST, 'scripts/check-crate-deps.mjs'],
+  'crate-deps-adapters-alone': [...RUST, 'scripts/check-crate-deps.mjs'],
   'licenses-self-test': ['scripts/check-licenses.mjs', 'scripts/check-crate-deps.mjs'],
   'licenses-mutation': [...RUST, 'scripts/check-licenses.mjs', 'scripts/check-crate-deps.mjs'],
   licenses: [...RUST, 'scripts/', 'tools/', 'scripts/check-licenses.mjs'],
@@ -260,6 +262,7 @@ export const PORTED = [
   ['ci.yml crate-deps: Dependency direction self-test', 'default', 'crate-deps-self-test'],
   ['ci.yml crate-deps: Dependency direction', 'default', 'crate-deps'],
   ['ci.yml crate-deps: Dependency direction mutation test', 'default', 'crate-deps-mutation'],
+  ['ci.yml crate-deps: Adapters build alone (PR #352)', 'default', 'crate-deps-adapters-alone'],
   ['ci.yml licenses: License check self-test', 'default', 'licenses-self-test'],
   ['ci.yml licenses: License check mutation test', 'default', 'licenses-mutation'],
   ['ci.yml licenses: License headers and dependency inventory', 'default', 'licenses'],
@@ -407,12 +410,14 @@ function summary(tier, results, ctx, totalMs) {
   const n = (s) => results.filter((r) => r.status === s).length;
   const verdict = n('FAIL') ? 'FAIL' : n('NOT RUN') ? 'INCOMPLETE' : 'PASS';
   const rustc = (spawnSync('rustc', ['--version'], { encoding: 'utf8' }).stdout ?? '').trim() || 'rustc not found';
+  const overrides = Object.keys(process.env).filter((k) => /^CARGO_(?:HOME$|SOURCE|PATCH)/i.test(k)).sort();
   const lines = [
     `### local-ci: ${verdict} (tier ${tier}${ctx.quick ? ', --quick' : ''}${ctx.only ? ', PARTIAL --only' : ''})`,
     '',
     `- HEAD: \`${head}\` (${branch}); work tree ${dirty ? `DIRTY (${dirty} tracked file(s) changed): this is not a run of HEAD` : 'clean'}`,
     `- Platform: ${ctx.platform} ${process.arch}${ctx.wsl ? ' (WSL)' : ''}, OS ${osRelease()}; node ${process.version}; ${rustc}`,
     `- Loopback-only sandbox: ${ctx.platform === 'linux' ? 'used for the sandboxed steps' : 'not available on this OS (as on the old windows/macos CI legs)'}`,
+    `- Cargo source overrides inherited from the environment (W6; the dependency checks trust it): ${overrides.length ? `**${overrides.join(', ')}** (review them)` : 'none'}`,
     `- ${n('PASS')} passed, ${n('FAIL')} failed, ${n('SKIP')} skipped, ${n('NOT RUN')} not run; ${fmt(totalMs)} in all`,
     '',
     '| Step | Result | Time |',
@@ -429,6 +434,9 @@ function summary(tier, results, ctx, totalMs) {
 const OPT_IN_SWITCH = /--(?:include-)?ignored\b|\bOAC_TEST_[A-Z0-9_]+|tools[\\/]+herdr/;
 const HARNESS_INSTALL = /@anthropi[c]-ai\/claude-code|@open[a]i\/codex|\bclaude\.ai\/install|\b(?:npm|npx|pnpm|yarn|bun)\b[^\n]*\b(?:claude-code|codex)\b|\bbrew\s+install\b[^\n]*\b(?:codex|claude)\b/i;
 const DRIVER_SELFTEST = 'node tools/herdr/run.mjs --self-test';
+// W6 of scripts/check-workflows.mjs (PR #352): what can swap a crate's source behind the
+// dependency checks. Refused in every step; the summary lists any such variable it inherits.
+const CARGO_OVERRIDE = /(?:^|[^\w-])--config\b|\bCARGO_HOME\b|\bCARGO_(?:SOURCE|PATCH)\w*/i;
 
 // Violations of the default-tier policy in `steps`.
 export function policy(steps) {
@@ -440,6 +448,8 @@ export function policy(steps) {
     const exempt = (s.cmd ?? []).join(' ') === DRIVER_SELFTEST && !s.env && Object.keys(s.quickEnv ?? {}).every((k) => k === 'OAC_HERDR_SELFTEST_UNIT_ONLY');
     if (!exempt && (OPT_IN_SWITCH.test(text) || OPT_IN_SWITCH.test(envText))) v.push(`${s.id}: opt-in switch in the default tier (D2)`);
     if (HARNESS_INSTALL.test(text)) v.push(`${s.id}: harness CLI install in the default tier (D3)`);
+    // check-workflows.mjs W6's policy, for the command lines the dependency checks now trust.
+    if (CARGO_OVERRIDE.test(`${text} ${envText}`)) v.push(`${s.id}: cargo source override (--config, CARGO_HOME, CARGO_SOURCE_*, CARGO_PATCH*; W6, G-7 section 5)`);
     if (s.cmd?.[0] === 'cargo') {
       if (s.cmd[1] === 'fetch') fetched = true;
       else if (s.cmd[1] !== 'fmt' && !s.offline) v.push(`${s.id}: cargo step without CARGO_NET_OFFLINE`);
@@ -557,6 +567,10 @@ function selfTest() {
   check('policy: a harness CLI install is caught', plant({ id: 'x', cmd: ['npm', 'install', '-g', P('@open', 'ai/codex')] }));
   check('policy: a cargo step without CARGO_NET_OFFLINE is caught', plant({ id: 'x', cmd: ['cargo', 'build'] }));
   check('policy: a default step limited to one OS is caught', plant({ id: 'x', cmd: ['node', 'x.mjs'], os: ['linux'] }));
+  check('policy: a cargo --config source replacement is caught (W6)', plant({ id: 'x', cmd: ['cargo', '--config', 'source.crates-io.replace-with="v"', 'build'], offline: true }));
+  check('policy: CARGO_HOME in a step env is caught (W6)', plant({ id: 'x', cmd: ['node', 'x.mjs'], env: { CARGO_HOME: '/tmp/h' } }));
+  check('policy: CARGO_PATCH* in a step env is caught (W6)', plant({ id: 'x', cmd: ['node', 'x.mjs'], env: { cargo_patch_crates_io_tokio_path: 'x' } }));
+  check('policy: --configure is not a cargo --config (control)', policy([...TIERS.default, { id: 'x', cmd: ['node', 'x.mjs', '--configure-only'] }]).length === 0);
   check('policy: it is held to the default tier only (the keystore tier, an opt-in, would fail it)', policy(TIERS.keystore).some((x) => x.includes('D2')));
 
   // 5. planted boundary-lint checks in throwaway git trees

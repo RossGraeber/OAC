@@ -45,33 +45,39 @@
 //       included, and so is any index (`x[..]`): a value reaches a script through `env:`
 //       and a shell variable (`"$X"`), never pasted in. Step outputs are refused rather
 //       than tracked for taint.
+//   W6  no cargo source override (PR #352 third review finding 3): no `--config` flag, no
+//       `CARGO_HOME`, and no `CARGO_SOURCE_*` or `CARGO_PATCH*` variable, outside a comment.
+//       The dependency checks (scripts/check-crate-deps.mjs, the adapter contract suite)
+//       trust the cargo command lines and environment they run under; any of these can swap
+//       a crate's source behind them, so adding one is a reviewed change to this rule. (The
+//       same policy holds for scripts/local-ci.mjs's steps: its --self-test refuses them.)
 // No GitHub-hosted CI (lead decision, 2026-10-08: "Anything that has an associated cost on
 // the github side needs to go"). PR and merge checks run client-side with
 // `node scripts/local-ci.mjs`; the only workflow left is the herdr opt-in one on
 // operator-owned runners. Two rules keep it that way:
-//   W6  only `workflow_dispatch` in `on:` (a scalar, a sequence or a mapping, the key quoted
+//   W7  only `workflow_dispatch` in `on:` (a scalar, a sequence or a mapping, the key quoted
 //       or not): no `pull_request`, `pull_request_target`, `push`, `schedule` or any other
 //       event, so nothing runs unattended or from a pull request. (`pull_request_target`
 //       and `workflow_run` are also W4.)
-//   W7  every job runs on an operator-owned self-hosted runner: its `runs-on:` names the
+//   W8  every job runs on an operator-owned self-hosted runner: its `runs-on:` names the
 //       literal label `self-hosted` (scalar, sequence, or a `{ group, labels }` mapping's
 //       `labels:`). A label only an expression supplies (`${{ matrix.os }}`), a runner
 //       group without that label (a larger, billed runner), a job calling a reusable
 //       workflow (`uses:`) and a job with no `runs-on:` all fail. A GitHub-hosted runner
 //       bills Actions minutes on every run, manual ones included.
 // Check 9 (scripts/check-herdr-containment.mjs) refuses a self-hosted label in any workflow
-// but the herdr one, so W7 and check 9 together leave room for no other workflow.
+// but the herdr one, so W8 and check 9 together leave room for no other workflow.
 // Retired 2026-10-08 with the hosted default tier they policed: D1 (no self-hosted runner in
-// the default tier; W7 now requires one), D2 (no opt-in switch, with the #345/#349/#353
+// the default tier; W8 now requires one), D2 (no opt-in switch, with the #345/#349/#353
 // exemption for the herdr driver self-test line) and D3 (no harness CLI install). No
-// workflow can be default tier any more (W6 refuses every unattended trigger); the default
+// workflow can be default tier any more (W7 refuses every unattended trigger); the default
 // tier is scripts/local-ci.mjs, whose --self-test holds its steps to the D2 and D3 policy.
 //
 // Two readers, both failing closed. The structural one parses the YAML into mappings,
-// sequences and scalars for W0-W3, the `if:` part of W4, W5, W6 and W7; a workflow whose
+// sequences and scalars for W0-W3, the `if:` part of W4, W5, W7 and W8; a workflow whose
 // `on:` or top-level `permissions:` it cannot find is a violation. The line one reads the
-// text for W1 too (so a `uses:` either reader sees is checked), and for W4: YAML comments
-// are stripped before W1 and the credential-name match, so a header saying "no
+// text for W1 too (so a `uses:` either reader sees is checked), and for W4 and W6: YAML
+// comments are stripped before W1, W6 and the credential-name match, so a header saying "no
 // secrets" is not a hit; the text of a block scalar (a run: script) is never treated as a
 // comment. W4's expression rules read the raw text, so an expression inside a YAML comment
 // fails too (GitHub would not evaluate it there; failing on it is the safe side).
@@ -88,6 +94,14 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 
 const SHA_PIN = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/;
 const CREDENTIAL = /ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|CODEX_API_KEY|OPENAI_ORG|\bGITHUB_TOKEN\b|\bauth\.json\b|\.credentials\.json/i;
+// W6 (PR #352 third review finding 3): what the dependency checks trust. A cargo `--config`
+// flag, a redirected CARGO_HOME, or a CARGO_SOURCE_* / CARGO_PATCH* variable can swap a
+// crate's source outside every manifest and tracked cargo configuration file.
+const CARGO_OVERRIDE = [
+  { re: /(?:^|[^\w-])--config\b/, msg: 'cargo --config flag' },
+  { re: /\bCARGO_HOME\b/i, msg: 'CARGO_HOME set or read' },
+  { re: /\bCARGO_(?:SOURCE|PATCH)\w*/i, msg: 'CARGO_SOURCE_* or CARGO_PATCH* variable' },
+];
 const EXPRESSION_RULES = [
   { re: /\bsecrets\b/i, msg: 'secrets context in an expression' },
   { re: /\bgithub\s*\.\s*token\b/i, msg: 'github.token in an expression' },
@@ -621,6 +635,8 @@ function commonRules(text, hit) {
   scan.forEach((l, i) => {
     if (SECRETS_INHERIT.test(l)) hit('W4', i + 1, 'secrets: inherit');
     if (CREDENTIAL.test(l)) hit('W4', i + 1, 'provider or harness credential name');
+    const w6 = CARGO_OVERRIDE.find((r) => r.re.test(l));
+    if (w6) hit('W6', i + 1, `${w6.msg}: the dependency checks trust CI's cargo command lines and environment (G-7 section 5); this needs a reviewed rule change, not a workflow edit`);
   });
   return { doc, locals };
 }
@@ -664,16 +680,16 @@ function checkWorkflow(name, text, readLocal = () => null) {
   const on = doc ? triggers(doc) : null;
   if (doc && (on === null || on.length === 0)) hit('W4', 0, 'no readable `on:` triggers');
   for (const t of on ?? []) if (PRIVILEGED_TRIGGER.test(t)) hit('W4', 0, `privileged trigger ${t}`);
-  // W6: a person starts every run; nothing runs unattended or from a pull request.
-  for (const t of on ?? []) if (t !== 'workflow_dispatch') hit('W6', 0, `trigger ${t}: only workflow_dispatch is allowed (no GitHub-hosted CI; PR and merge checks run client-side with node scripts/local-ci.mjs)`);
+  // W7: a person starts every run; nothing runs unattended or from a pull request.
+  for (const t of on ?? []) if (t !== 'workflow_dispatch') hit('W7', 0, `trigger ${t}: only workflow_dispatch is allowed (no GitHub-hosted CI; PR and merge checks run client-side with node scripts/local-ci.mjs)`);
 
   if (doc) {
-    // W7: every job runs on an operator-owned self-hosted runner, never a GitHub-hosted one.
+    // W8: every job runs on an operator-owned self-hosted runner, never a GitHub-hosted one.
     const jobs = get(doc, 'jobs')?.value;
-    if (jobs?.t !== 'map' || jobs.pairs.length === 0) hit('W7', 0, 'no readable `jobs:`');
+    if (jobs?.t !== 'map' || jobs.pairs.length === 0) hit('W8', 0, 'no readable `jobs:`');
     for (const job of jobs?.t === 'map' ? jobs.pairs : []) {
       const why = hostedRunner(job.value);
-      if (why) hit('W7', job.line, `job ${job.key}: ${why}`);
+      if (why) hit('W8', job.line, `job ${job.key}: ${why}`);
     }
     // W2: top-level permissions exactly contents: read.
     const top = get(doc, 'permissions');
@@ -702,7 +718,7 @@ function checkWorkflow(name, text, readLocal = () => null) {
   return v;
 }
 
-// W7: why a job could land on a GitHub-hosted runner, or null. Its `runs-on:` must be a
+// W8: why a job could land on a GitHub-hosted runner, or null. Its `runs-on:` must be a
 // literal label list (a scalar, a sequence, or a `{ group, labels }` mapping's `labels:`)
 // that names `self-hosted`; a label from an expression alone (`${{ matrix.os }}`) cannot be
 // proved, a `group:` without that label is a larger (hosted, billed) runner, and a job that
@@ -889,42 +905,42 @@ const CASES = [
   ['W4 toJSON(github)', 'x.yml', GOOD.replace('key: cargo-', 'key: ${{ toJSON(github) }}-'), ['W4']],
   ['W4 an expression split across lines', 'x.yml', withStep('      - env:\n          T: ${{ github\n            .token }}\n        run: true'), ['W4']],
   ['W4 a heredoc # line in a run: block', 'x.yml', GOOD.replace('          echo done', '          cat <<EOF\n          #${{ secrets.K }}\n          EOF'), ['W5', 'W4']],
-  ['W4 W7 secrets: inherit, in a reusable-workflow call', 'x.yml', GOOD.replace(`${RUNS_ON}\n    steps:`, '    uses: ./.github/workflows/other.yml\n    secrets: inherit\n    steps:'), ['W4', 'W7']],
+  ['W4 W8 secrets: inherit, in a reusable-workflow call', 'x.yml', GOOD.replace(`${RUNS_ON}\n    steps:`, '    uses: ./.github/workflows/other.yml\n    secrets: inherit\n    steps:'), ['W4', 'W8']],
   ['W4 provider key variable', 'x.yml', withStep('      - env:\n          ANTHROPIC_API_KEY: x\n        run: true'), ['W4']],
   ['W4 secrets in an opt-in workflow', 'optin.yml', OPTIN.replace('OAC_TEST_REAL_KEYRING: "1"', 'TOKEN: ${{ secrets.T }}'), ['W4']],
-  ['W4 W6 pull_request_target', 'x.yml', GOOD.replace('  workflow_dispatch:', '  pull_request_target:'), ['W4', 'W6']],
-  ['W4 W6 workflow_run', 'x.yml', withOn('on:\n  workflow_dispatch:\n  workflow_run:\n    workflows: [x]\n'), ['W4', 'W6']],
-  // Lead decision 2026-10-08: no GitHub-hosted CI. W6 refuses every trigger but a manual
-  // dispatch, in any form `on:` can take; W7 refuses every runner but a self-hosted one.
-  ['W6 pull_request (block mapping)', 'x.yml', GOOD.replace('  workflow_dispatch:', '  pull_request:'), ['W6']],
-  ['W6 pull_request with branches', 'x.yml', GOOD.replace('  workflow_dispatch:', '  pull_request:\n    branches: [main]'), ['W6']],
-  ['W6 pull_request beside workflow_dispatch', 'x.yml', GOOD.replace('  workflow_dispatch:', '  workflow_dispatch:\n  pull_request:'), ['W6']],
-  ['W6 quoted "pull_request" key', 'x.yml', GOOD.replace('  workflow_dispatch:', '  "pull_request":'), ['W6']],
-  ['W6 pull_request in an inline on list', 'x.yml', withOn('on: [workflow_dispatch, pull_request]\n'), ['W6']],
-  ['W6 on: pull_request as a scalar', 'x.yml', withOn('on: pull_request\n'), ['W6']],
-  ['W6 pull_request in a flow mapping', 'x.yml', withOn('on: { workflow_dispatch: {}, pull_request: { types: [opened] } }\n'), ['W6']],
-  ['W6 push to main (the old ci.yml trigger)', 'x.yml', withOn('on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n'), ['W6']],
-  ['W6 push on a path (the old herdr PINS.md trigger)', 'x.yml', withOn('on:\n  workflow_dispatch:\n  push:\n    branches: [main]\n    paths: [docs/planning/PINS.md]\n'), ['W6']],
-  ['W6 on: push as a scalar', 'x.yml', withOn('on: push\n'), ['W6']],
-  ['W6 a weekly schedule beside workflow_dispatch (the old mutation trigger)', 'x.yml', withOn("on:\n  schedule:\n    - cron: '23 5 * * 1'\n  workflow_dispatch:\n"), ['W6']],
-  ['W6 a schedule-only workflow in flow style', 'x.yml', withOn("on: { schedule: [ { cron: '0 * * * *' } ] }\n"), ['W6']],
-  ['W6 W6 push and pull_request_target in a block sequence', 'x.yml', withOn('on:\n  - push\n  - pull_request_target\n'), ['W4', 'W6', 'W6']],
-  ['W6 issues (an event a stranger can fire)', 'x.yml', withOn('on: [workflow_dispatch, issues]\n'), ['W6']],
-  ['W6 workflow_call (runs wherever a caller runs)', 'x.yml', withOn('on:\n  workflow_call:\n'), ['W6']],
-  ['W6 a PR trigger in the herdr opt-in workflow', 'herdr-provider-optin.yml', OPTIN.replace('  workflow_dispatch:', '  workflow_dispatch:\n  pull_request:'), ['W6']],
+  ['W4 W7 pull_request_target', 'x.yml', GOOD.replace('  workflow_dispatch:', '  pull_request_target:'), ['W4', 'W7']],
+  ['W4 W7 workflow_run', 'x.yml', withOn('on:\n  workflow_dispatch:\n  workflow_run:\n    workflows: [x]\n'), ['W4', 'W7']],
+  // Lead decision 2026-10-08: no GitHub-hosted CI. W7 refuses every trigger but a manual
+  // dispatch, in any form `on:` can take; W8 refuses every runner but a self-hosted one.
+  ['W7 pull_request (block mapping)', 'x.yml', GOOD.replace('  workflow_dispatch:', '  pull_request:'), ['W7']],
+  ['W7 pull_request with branches', 'x.yml', GOOD.replace('  workflow_dispatch:', '  pull_request:\n    branches: [main]'), ['W7']],
+  ['W7 pull_request beside workflow_dispatch', 'x.yml', GOOD.replace('  workflow_dispatch:', '  workflow_dispatch:\n  pull_request:'), ['W7']],
+  ['W7 quoted "pull_request" key', 'x.yml', GOOD.replace('  workflow_dispatch:', '  "pull_request":'), ['W7']],
+  ['W7 pull_request in an inline on list', 'x.yml', withOn('on: [workflow_dispatch, pull_request]\n'), ['W7']],
+  ['W7 on: pull_request as a scalar', 'x.yml', withOn('on: pull_request\n'), ['W7']],
+  ['W7 pull_request in a flow mapping', 'x.yml', withOn('on: { workflow_dispatch: {}, pull_request: { types: [opened] } }\n'), ['W7']],
+  ['W7 push to main (the old ci.yml trigger)', 'x.yml', withOn('on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n'), ['W7']],
+  ['W7 push on a path (the old herdr PINS.md trigger)', 'x.yml', withOn('on:\n  workflow_dispatch:\n  push:\n    branches: [main]\n    paths: [docs/planning/PINS.md]\n'), ['W7']],
+  ['W7 on: push as a scalar', 'x.yml', withOn('on: push\n'), ['W7']],
+  ['W7 a weekly schedule beside workflow_dispatch (the old mutation trigger)', 'x.yml', withOn("on:\n  schedule:\n    - cron: '23 5 * * 1'\n  workflow_dispatch:\n"), ['W7']],
+  ['W7 a schedule-only workflow in flow style', 'x.yml', withOn("on: { schedule: [ { cron: '0 * * * *' } ] }\n"), ['W7']],
+  ['W7 W7 push and pull_request_target in a block sequence', 'x.yml', withOn('on:\n  - push\n  - pull_request_target\n'), ['W4', 'W7', 'W7']],
+  ['W7 issues (an event a stranger can fire)', 'x.yml', withOn('on: [workflow_dispatch, issues]\n'), ['W7']],
+  ['W7 workflow_call (runs wherever a caller runs)', 'x.yml', withOn('on:\n  workflow_call:\n'), ['W7']],
+  ['W7 a PR trigger in the herdr opt-in workflow', 'herdr-provider-optin.yml', OPTIN.replace('  workflow_dispatch:', '  workflow_dispatch:\n  pull_request:'), ['W7']],
   ['control: pull_request and push in a comment and in an expression are not triggers', 'x.yml', GOOD.replace('  workflow_dispatch:', '  workflow_dispatch: # no pull_request or push trigger').replace('          echo done', '          echo "${{ github.event_name }}" # pull_request never'), []],
-  ['W7 ubuntu-latest (the old ci.yml runner)', 'x.yml', withRunsOn('    runs-on: ubuntu-latest'), ['W7']],
-  ['W7 windows-latest in a list', 'x.yml', withRunsOn('    runs-on: [windows-latest]'), ['W7']],
-  ['W7 macos-latest (the old g3 runner)', 'x.yml', withRunsOn('    runs-on: macos-latest'), ['W7']],
-  ['W7 a hosted matrix through an expression', 'x.yml', withRunsOn('    runs-on: ${{ matrix.os }}'), ['W7']],
-  ['W7 self-hosted only inside an expression', 'x.yml', withRunsOn("    runs-on: ${{ 'self-hosted' }}"), ['W7']],
-  ['W7 a larger-runner group without the self-hosted label', 'x.yml', withRunsOn('    runs-on:\n      group: ubuntu-runners\n      labels: [ubuntu-latest-8-cores]'), ['W7']],
-  ['W7 a group alone', 'x.yml', withRunsOn('    runs-on: { group: big }'), ['W7']],
-  ['W7 no runs-on', 'x.yml', withRunsOn(''), ['W7']],
-  ['W7 a second job on a hosted runner', 'x.yml', withJobs(`  test:\n${RUNS_ON}\n    steps: []\n  lint:\n    runs-on: ubuntu-24.04\n    steps: []`), ['W7']],
-  ['W7 self-hosted as part of a longer label', 'x.yml', withRunsOn('    runs-on: [not-self-hosted]'), ['W7']],
-  ['W7 a hosted runner in the herdr opt-in workflow', 'herdr-provider-optin.yml', OPTIN.replace('[self-hosted, macos]', 'macos-latest'), ['W7']],
-  ['W7 a job that calls a reusable workflow', 'x.yml', withJobs(`  test:\n${RUNS_ON}\n    steps: []\n  call:\n    uses: ./.github/workflows/other.yml`), ['W7']],
+  ['W8 ubuntu-latest (the old ci.yml runner)', 'x.yml', withRunsOn('    runs-on: ubuntu-latest'), ['W8']],
+  ['W8 windows-latest in a list', 'x.yml', withRunsOn('    runs-on: [windows-latest]'), ['W8']],
+  ['W8 macos-latest (the old g3 runner)', 'x.yml', withRunsOn('    runs-on: macos-latest'), ['W8']],
+  ['W8 a hosted matrix through an expression', 'x.yml', withRunsOn('    runs-on: ${{ matrix.os }}'), ['W8']],
+  ['W8 self-hosted only inside an expression', 'x.yml', withRunsOn("    runs-on: ${{ 'self-hosted' }}"), ['W8']],
+  ['W8 a larger-runner group without the self-hosted label', 'x.yml', withRunsOn('    runs-on:\n      group: ubuntu-runners\n      labels: [ubuntu-latest-8-cores]'), ['W8']],
+  ['W8 a group alone', 'x.yml', withRunsOn('    runs-on: { group: big }'), ['W8']],
+  ['W8 no runs-on', 'x.yml', withRunsOn(''), ['W8']],
+  ['W8 a second job on a hosted runner', 'x.yml', withJobs(`  test:\n${RUNS_ON}\n    steps: []\n  lint:\n    runs-on: ubuntu-24.04\n    steps: []`), ['W8']],
+  ['W8 self-hosted as part of a longer label', 'x.yml', withRunsOn('    runs-on: [not-self-hosted]'), ['W8']],
+  ['W8 a hosted runner in the herdr opt-in workflow', 'herdr-provider-optin.yml', OPTIN.replace('[self-hosted, macos]', 'macos-latest'), ['W8']],
+  ['W8 a job that calls a reusable workflow', 'x.yml', withJobs(`  test:\n${RUNS_ON}\n    steps: []\n  call:\n    uses: ./.github/workflows/other.yml`), ['W8']],
   ['W4 bare if: on github.token (#332)', 'x.yml', withStep("      - if: startsWith(github.token, 'ghs_')\n        run: true"), ['W4']],
   ['W4 bare if: on the whole github context (#332)', 'x.yml', withStep("      - if: contains(toJSON(github), 'x')\n        run: true"), ['W4']],
   ['W4 bare job-level if: on secrets (#332)', 'x.yml', withJob("    if: secrets.K != ''"), ['W4']],
@@ -960,6 +976,15 @@ const CASES = [
   ['W5 event text in a step shell: (N-c)', 'x.yml', withStep('      - shell: bash -c "${{ github.event.issue.title }} {0}"\n        run: true'), ['W5']],
   ['W5 event text in defaults.run.shell (N-c)', 'x.yml', GOOD.replace('jobs:\n  test:\n', 'defaults:\n  run:\n    shell: "${{ github.head_ref }} {0}"\njobs:\n  test:\n'), ['W5']],
   ['control: allowlisted expressions in run:', 'x.yml', withStep("      - run: |\n          echo \"${{ runner.os }} ${{ runner.temp }} ${{ github.sha }} ${{ github.run_id }}\"\n          echo \"${{ steps.s.outcome == 'success' && 'yes' || 'no' }} ${{ format('{0}-x', runner.os) }}\"\n          echo \"${{ hashFiles('Cargo.lock') }} ${{ 3 }} ${{ true }} ${{ 'it''s env.X, a string' }}\""), []],
+  // PR #352 third review finding 3: W6, cargo source overrides in CI.
+  ['W6 cargo --config source replacement in run:', 'x.yml', GOOD.replace('cargo test --workspace #', "cargo --config 'source.crates-io.replace-with=\"v\"' test --workspace #"), ['W6']],
+  ['W6 --config= form in a run: block', 'x.yml', GOOD.replace('          echo done', '          cargo test --config=patch.crates-io.tokio.path=\\"x\\"'), ['W6']],
+  ['W6 CARGO_HOME in a job env:', 'x.yml', withJob('    env:\n      CARGO_HOME: ${{ github.workspace }}/h'), ['W6']],
+  ['W6 CARGO_HOME exported in a script', 'x.yml', GOOD.replace('          echo done', '          export CARGO_HOME="$PWD/h"'), ['W6']],
+  ['W6 CARGO_SOURCE_* in a step env:', 'x.yml', withStep('      - env:\n          CARGO_SOURCE_CRATES_IO_REPLACE_WITH: v\n        run: true'), ['W6']],
+  ['W6 CARGO_PATCH* in a step env: (lower case)', 'x.yml', withStep('      - env:\n          cargo_patch_crates_io_tokio_path: x\n        run: true'), ['W6']],
+  ['W6 CARGO_HOME inside a local action', 'x.yml', withStep('      - uses: ./.github/actions/setup'), ['W6'], { './.github/actions/setup': `${ACTION_GOOD}    - shell: bash\n      run: echo "CARGO_HOME=/tmp/h" >> "$GITHUB_ENV"\n` }],
+  ['control: --configure and a comment naming CARGO_HOME are not W6', 'x.yml', GOOD.replace('          echo done', '          ./x --configure-only').replace('# Manual dispatch only.', '# Manual dispatch only; CARGO_HOME is never set.'), []],
   ['control: matrix.* through env: and a plain shell:', 'x.yml', withStep('      - shell: bash\n        env:\n          OS: ${{ matrix.os }}\n        run: echo "$OS"'), []],
   ['W0 an anchor after a tag', 'x.yml', withStep('      - env:\n          T: !!str &t echo hi\n        run: true'), ['W0']],
   // PR #336 review B4: anchors, aliases and merge keys are refused (W0).
@@ -971,8 +996,8 @@ const CASES = [
   ['W0 a merge key', 'x.yml', withJob('    <<: { permissions: write-all }'), ['W0']],
   ['W0 a merge key in a flow mapping', 'x.yml', withJobs('  test: { <<: { permissions: write-all }, runs-on: self-hosted }'), ['W0']],
   ['W0 a workflow the structural reader cannot read', 'x.yml', GOOD.replace('jobs:\n  test:', 'jobs:\n  test: {'), ['W0']],
-  // The old ci.yml shape, the old default tier gone: a hosted runner fails W7, its push W6.
-  ['W6 W7 the old ci.yml shape (push to main, hosted matrix)', 'x.yml', withOn('on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n').replace(RUNS_ON, '    runs-on: ${{ matrix.os }}'), ['W6', 'W7']],
+  // The old ci.yml shape, the old default tier gone: a hosted runner fails W8, its push W7.
+  ['W7 W8 the old ci.yml shape (push to main, hosted matrix)', 'x.yml', withOn('on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n').replace(RUNS_ON, '    runs-on: ${{ matrix.os }}'), ['W7', 'W8']],
 ];
 
 function runSelfTest() {

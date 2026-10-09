@@ -116,7 +116,7 @@ rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|hel
 #    exempt any more: the #345 exemption for the driver self-test line (hardened by PR #349
 #    and #353) was retired on 2026-10-08 with ci.yml, the one workflow that used it; the
 #    self-test runs client-side in `node scripts/local-ci.mjs`. With no other workflow
-#    tracked, this target reports ok, not PENDING (scripts/check-workflows.mjs W7 refuses a
+#    tracked, this target reports ok, not PENDING (scripts/check-workflows.mjs W8 refuses a
 #    hosted runner, so together the two leave room for no other workflow). The opt-in
 #    workflow is read with a small fail-closed YAML reader and must have: `on:` exactly
 #    {workflow_dispatch} (an allowlist: push, schedule, issues/watch/fork/discussion/PR
@@ -189,7 +189,8 @@ fi
 # 12. Zenoh containment (boundary 5; DESIGN acceptance criterion 9; 07 section 4(a)): no
 #    Zenoh name, `zid`, key expression or liveliness term in any git-tracked entry outside
 #    transports/zenoh/ under core/ cli/ adapters/ transports/ spec/ tests/fakes/
-#    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml / Cargo.lock.
+#    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml. Not Cargo.lock
+#    (G-7 section 7): the zenoh crates in it are confined by check-crate-deps.mjs rule 4.
 #    Wider than check 1, and the close of the scope gap 09 section 8 and C7 section 2
 #    record: `zenoh` matches inside longer identifiers, `zid` as any snake/kebab/camel/
 #    Pascal segment (leading too: `zidMap`, `ZidMap`), and adapters/ and cli/ are in

@@ -12,8 +12,10 @@ harnesses. It is test-only: an adapter takes it as a dev-dependency.
   never reaches them: a path into `plant` is a finding of its own row, `TEST-PLANT`.
 - `tests/stand_in.rs` runs the suite against well-behaved stand-in adapters and against
   each planted breach.
-- `tests/real_adapters.rs` runs the static scan against `adapters/claude` and
-  `adapters/codex`.
+- `tests/real_adapters.rs` runs the static scan against every workspace member under
+  `adapters/`, found through `cargo metadata` rather than a fixed list (today
+  `adapters/claude`, `adapters/codex` and `adapters/mcp-tools`). A planted case shows a new
+  `adapters/acp` member is found and refused.
 - `tests/path_modules.rs` runs the scan on scratch crates on disk.
 
 ## What an adapter's sources may not hold
@@ -37,16 +39,55 @@ is a finding under every row:
 - **a manifest key that moves a target or switches discovery**: `path` or `build` outside a
   dependency table, and `autolib`, `autobins`, `autoexamples`, `autotests` or
   `autobenches`;
-- **a normal or build dependency that is not vetted**: `VETTED_DEPENDENCIES` lists them,
-  `oac-core` only today, and each one is checked to export no macro and to be no
-  proc-macro. A dependency is vetted by identity, not by name, since any crate can call
-  itself `oac-core`. It must be a path dependency with no `source` (no registry, no git),
-  must be depended on under its own name (no `package = ..` rename), and its directory
-  must canonicalize to the repository's own `core/`;
+- **a normal or build dependency that is not vetted**: `VETTED_DEPENDENCIES` lists them
+  (#7, `docs/planning/decisions/G-7-stage4-dependencies.md` §5). A dependency is vetted by
+  identity, not by name, since any crate can call itself `oac-core`, and is depended on
+  under its own name (no `package = ..` rename):
+  - `oac-core` and `oac-mcp-tools`, the repository's own crates: path dependencies with no
+    `source` (no registry, no git), whose directories canonicalize to `core/` and
+    `adapters/mcp-tools/`. Each is checked to export no macro and to be no proc-macro.
+  - `rmcp` `=3.4.0` (default features off; `server` and `transport-async-rw` only, so its
+    `macros` feature is refused) and `tokio` `=1.53.2` (only the features `rmcp` enables on
+    it: `sync`, `macros`, `rt`, `time`, `io-util`), from crates.io at exactly those
+    requirements. Once either is in the workspace graph, `tests/real_adapters.rs` checks it
+    is at its pin and is not itself a proc-macro, and that none of its own `macro_rules!`
+    bodies can load a file. It does not vet the proc-macros reached through their features
+    (`tokio-macros`, `schemars_derive`, `serde_derive`); G-7 §5 records those as read by
+    hand, and the test lists them;
+- **a `[features]` table at all**: an adapter may declare no feature, since a non-monotonic
+  cfg (`cfg(all(feature = "a", not(feature = "b")))`) compiles under no adapters-alone run
+  while another member turning on `a` builds it in; and, as a second line, no entry may turn
+  on an unvetted feature of a vetted crate (`tokio/net`, `rmcp/macros`) or name a forbidden
+  crate;
+- **a resolved dependency that is not the vetted identity**: the package `cargo metadata`
+  resolves for each normal or build dependency must be from crates.io at its pin (or the
+  repository's own directory), so a `[patch]` or `[replace]` cannot swap it; the
+  workspace root manifest may hold no `[patch]` and no `[replace]` at all; every non-member
+  package the adapter builds must be a crates.io registry package, with no path or git
+  source anywhere in its closure (the repository's own `oac-core` excepted); and every
+  registry package in the resolved closure must sit under `$CARGO_HOME/registry/src`
+  (`~/.cargo` when `CARGO_HOME` is unset), so a `[source]` replacement in a cargo
+  configuration file cannot swap in a vendored, edited copy that still reports crates.io;
+- **a forbidden crate under any dependency kind, dev included, or anywhere in the resolved
+  graph**: the whole `codex-` family (`FORBIDDEN_FAMILIES`), a crate named exactly `codex`,
+  and `rmcp-macros` (`FORBIDDEN_NAMES`) ([ADR-001 Boundary]; G-7 §2). `scripts/check-crate-deps.mjs` rule 6
+  refuses the same anywhere in the workspace graph, transitively, and a test checks the two
+  lists agree;
 - **a symlink** on the way to a module file, or among the files scanned;
 - a file that cannot be read or does not parse.
 
 Identifiers are compared without a raw `r#` prefix everywhere.
+
+What these per-package checks cannot see is feature unification: another workspace member
+turning on a feature (`tokio/net`) that an adapter then uses, directly or behind an adapter
+feature that is off by default and that the other member turns on. `scripts/check-crate-deps.mjs
+--adapters-alone`, run in CI, builds the adapters and `adapters/mcp-tools` alone four times,
+with default features and with `--all-features`, each in the dev profile and in `--release`
+(so code under `cfg(not(debug_assertions))` is compiled too), and all of these fail there
+(G-7 §5). The same script's rule 7 refuses a tracked `.cargo/config` or `.cargo/config.toml`
+that names `source`, `patch` or `paths`, and its rule 8 refuses a path package inside the
+workspace root that is not a member, and a root `[workspace] exclude` that reaches
+`adapters/`, so an excluded crate cannot be built in unchecked.
 
 **The cost of the word rule.** A binding named `path` may be handed to a macro
 (`format!("{}", path)`). A binding named `include`, `include_str` or `include_bytes` may
@@ -56,7 +97,17 @@ literal.
 **What stays out of reach.** A macro from another crate, or a derive or attribute
 proc-macro, can load a file from a bare literal (`dep::load!("../x.rs")`). No static scan
 sees that. This is why the dependency list is vetted: a new dependency is reviewed for the
-macros it exports before it is added.
+macros it exports before it is added. `adapters/mcp-tools`, which the adapters may depend
+on, is scanned under the same rules as an adapter.
+
+The dependency checks trust CI's cargo command lines and environment. Three gaps stay open,
+and each needs a reviewed workflow change: a cargo `--config` flag (the outer cargo's, which
+this suite's inner `cargo metadata` never sees), a `CARGO_HOME` that CI points somewhere
+else, and targets other than the three CI operating systems. `scripts/check-workflows.mjs`
+W6 refuses `--config`, `CARGO_HOME` and `CARGO_SOURCE_*` / `CARGO_PATCH*` in workflows
+(G-7 §5). Since 2026-10-08 "CI" is the client-side `node scripts/local-ci.mjs` (no
+GitHub-hosted CI): its `--self-test` refuses the same overrides in its steps, and its
+summary lists any such variable inherited from the developer's environment.
 
 No adapter needs any of the refused shapes today. If an adapter needs a macro, a module or
 target outside cargo's default layout, or another dependency, that is a deliberate change

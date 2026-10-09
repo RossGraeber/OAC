@@ -54,7 +54,15 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-07 (issue #343: the `Codex CLI / app-server` row's last tested
+**Last updated:** 2026-10-08 (issue #7, decision record
+`docs/planning/decisions/G-7-stage4-dependencies.md`: added rows `tokio`, `rcgen`,
+`windows-sys` and `libc`, fixed pins for Stage 4, each `Gates affected: none`
+(implementation dependencies). The pin-move checklist was executed in the same commit: rows
+were added, but none names a gate, so no `G<n>-result.md` `Pin rows relied on` field or
+`docs/planning/STATUS.md` `Pins relied on` cell changes, and no verdict is invalidated. The
+`Rust MCP SDK (rmcp)` and Zenoh pins are unchanged; dated notes record their Stage 4 features
+and consumers. `rmcp` stays at `3.4.0` rather than the current `3.5.1`: moving it would
+revert G1 and G4, G-7 §3.1.) Previously 2026-10-07 (issue #343: the `Codex CLI / app-server` row's last tested
 version is now `@openai/codex@0.161.0`, from the S3 fixture capture herdr run of 2026-10-07.
 Routine record-keeping for a floating harness row (#216): not a pin move, no verdict or
 record is invalidated. The Claude Code row is unchanged: the same day's G1 capture ran on
@@ -130,6 +138,10 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | `ed25519-dalek` (envelope signature) | supported | `3.0.0` | not stated on source page | https://crates.io/api/v1/crates/ed25519-dalek; https://raw.githubusercontent.com/dalek-cryptography/curve25519-dalek/main/ed25519-dalek/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `serde_jcs` (canonical serialization, RFC 8785 JCS) | supported | `0.2.0` | 2026-03-25 | https://crates.io/api/v1/crates/serde_jcs; https://docs.rs/serde_jcs/0.2.0/serde_jcs/ | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
+| `tokio` (async runtime) | supported | `1.53.2` | 2026-10-03 | https://crates.io/api/v1/crates/tokio/1.53.2 | 2026-10-08 | none directly (implementation dependency — see note) |
+| `rcgen` (local-mode TLS certificate) | supported | `0.14.10` | 2026-08-28 | https://crates.io/api/v1/crates/rcgen/0.14.10 | 2026-10-08 | none directly (implementation dependency — see note) |
+| `windows-sys` (named-pipe peer PID) | supported | `0.61.2` | 2025-10-06 | https://crates.io/api/v1/crates/windows-sys/0.61.2 | 2026-10-08 | none directly (implementation dependency — see note) |
+| `libc` (Unix socket peer credentials) | supported | `0.2.190` | not stated on source page | https://crates.io/crates/libc; the workspace `Cargo.lock` | 2026-10-08 | none directly (implementation dependency — see note) |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
 | ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha, verified 2026-10-06: prerelease `schema-v2.0.0-alpha.7`; v2 protocol docs in Draft since 2026-07-20; see "ACP" dated note) | not stated on source page | https://agentclientprotocol.com/protocol/; https://github.com/agentclientprotocol/agent-client-protocol at `487ad3ea` | 2026-10-06 | none (not a v0.1 dependency) |
 | herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior verified on Windows 2026-09-28 (K1 go on Windows), Linux and macOS UNVERIFIED, overall go provisional, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
@@ -577,6 +589,16 @@ semver, and are recorded verbatim — never reformatted.
 - Gates affected: **G4** (dual-era server — this is the SDK the server is built on),
   **G1** (Claude wake — Claude Code requires `MCP_PROTOCOL_NEGOTIATION=legacy`, i.e. a
   server that can negotiate `2025-11-25`).
+- **Dated note, 2026-10-08 (#7, `docs/planning/decisions/G-7-stage4-dependencies.md`).** Pin
+  unchanged. Stage 4 form: `rmcp = "=3.4.0"`, `default-features = false`, features `server`
+  and `transport-async-rw` only (so `macros`, the `rmcp-macros` proc-macros, is refused),
+  consumed by `adapters/mcp-tools/` and both adapters (the adapter contract suite's
+  `VETTED_DEPENDENCIES`, G-7 §5), no longer by `cli/` (`mcp-shim`). Feature map and licence
+  re-read 2026-10-08 from https://crates.io/api/v1/crates/rmcp/3.4.0 (published
+  2026-09-15T15:44:08Z, `license` Apache-2.0). The current release is `3.5.1` (2026-10-05);
+  it is not taken, because a move of this row reverts G1 and G4 under the checklist above
+  although neither run exercised `rmcp` (G-7 §3.1). A later move is the lead's call, with the
+  checklist.
 
 ### `keyring` (credential store)
 
@@ -621,6 +643,9 @@ semver, and are recorded verbatim — never reformatted.
 - **Gates affected: none directly** — implementation dependency (Stage 3+ local-IPC
   transport crate for the daemon/`oac mcp-shim` connection), not a gate-spike
   dependency.
+- **Dated note, 2026-10-08 (#7, G-7 §8.1).** Not recommended for use: the recommendation is
+  `tokio`'s named pipes and Unix sockets, with peer PID from `tokio`'s `peer_cred()` and
+  `windows-sys`. G9 (#70) confirms. The row stays as the C2 candidate until then.
 
 ### `age` (encrypted-file key-storage fallback)
 
@@ -711,6 +736,70 @@ semver, and are recorded verbatim — never reformatted.
   `eclipse-zenoh==1.10.1`. GitHub's compare of the wheel's core checkout `1211779` with tag
   `1.10.1` reports them identical. The wheel has no pin row of its own. A G3 re-run must use
   a wheel verified to wrap this core tag, or use the Rust crate.
+
+- **Dated note, 2026-10-08 (#7, G-7 §3.1, §3.3).** Pin unchanged. Stage 4 form:
+  `zenoh = "=1.10.1"`, `default-features = false`, features `transport_tcp` and
+  `transport_tls` only: no `unstable`, no `shared-memory`, no other transport. crates.io
+  (https://crates.io/api/v1/crates/zenoh/1.10.1, retrieved 2026-10-08) records 1.10.1 as
+  published 2026-09-07, license `EPL-2.0 OR Apache-2.0`, `rust_version` 1.75.0, matching the
+  GitHub release above; the open crates.io cross-check item is G1's to close. Its resolved
+  graph brings licences beyond the earlier accepted list (Zlib, ISC, BSD-2-Clause,
+  CDLA-Permissive-2.0, `Apache-2.0 AND ISC`, and MPL-2.0 for `option-ext` 0.2.0), accepted
+  by the lead's licence decisions of 2026-10-08 (07 §5 "Accepted licenses"). Its TLS link
+  resolves to `rustls` 0.23.45 with `ring` 0.17.14.
+
+### `tokio` (async runtime)
+
+- Surface label: **supported** — general-purpose async runtime, not a provider surface.
+- Pinned crate version: `1.53.2` (`=1.53.2`). Published 2026-10-03, license MIT. Source:
+  https://crates.io/api/v1/crates/tokio/1.53.2, retrieved 2026-10-08.
+- Features: per consumer. In `adapters/*` and `adapters/mcp-tools/` only those `rmcp` 3.4.0
+  enables on it (`sync`, `macros`, `rt`, `time`, and `io-util` through
+  `transport-async-rw`; `rmcp-3.4.0/Cargo.toml` L840-L847). Held by the adapter contract
+  suite's `VETTED_DEPENDENCIES` on the dependency line, in the adapter's own `[features]` and
+  in the resolved package (a registry copy under `$CARGO_HOME/registry/src`), for every
+  workspace member under `adapters/`. `scripts/check-crate-deps.mjs` refuses a tracked
+  `.cargo/config*` naming `source`, `patch` or `paths` (rule 7), and its `--adapters-alone`
+  run in CI builds the adapters alone with default features and with `--all-features`, each
+  in dev and release profiles, so an adapter using a `tokio` feature that only another
+  member turns on fails (G-7 §5). These checks trust CI's cargo command lines and
+  environment (`check-workflows.mjs` W6; G-7 §5). `cli/` and `transports/zenoh/` record theirs in
+  their tasks.
+- Decision: lead, in chat 2026-10-08 (G-7 §1, §5).
+- **Gates affected: none directly** — implementation dependency.
+
+### `rcgen` (local-mode TLS certificate)
+
+- Surface label: **supported**.
+- Pinned crate version: `0.14.10` (`=0.14.10`), `default-features = false`, features `pem`
+  and `ring` (the ring backend, lead decision 2026-10-08). Published 2026-08-28, license
+  MIT OR Apache-2.0 (Apache-2.0 elected). Source:
+  https://crates.io/api/v1/crates/rcgen/0.14.10, retrieved 2026-10-08.
+- Use: the automatically generated local-mode TLS certificate (C7 §5). Consumer
+  (`transports/zenoh/` or the daemon's state code in `cli/`) decided by G3 (#64).
+- **Gates affected: none directly** — implementation dependency.
+
+### `windows-sys` (named-pipe peer PID)
+
+- Surface label: **supported**.
+- Pinned crate version: `0.61.2` (`=0.61.2`), features `Win32_Foundation`,
+  `Win32_System_Pipes`. Published 2025-10-06, license MIT OR Apache-2.0 (Apache-2.0
+  elected). Source: https://crates.io/api/v1/crates/windows-sys/0.61.2, retrieved
+  2026-10-08. Already in the workspace `Cargo.lock` at this version.
+- Use: `GetNamedPipeClientProcessId` (`src/Windows/Win32/System/Pipes/mod.rs` L14 at
+  0.61.2) for local IPC peer auth in `cli/` (G-7 §8.1; G9 #70 confirms).
+- **Gates affected: none directly** — implementation dependency.
+
+### `libc` (Unix socket peer credentials)
+
+- Surface label: **supported**.
+- Pinned crate version: `0.2.190` (`=0.2.190`), already a Unix dependency of `cli/` and in
+  the workspace `Cargo.lock` (07 §5, #52 dated note). License MIT OR Apache-2.0 (Apache-2.0
+  elected), from the lock's resolve, retrieved 2026-10-08.
+- Use: Unix socket peer credentials where `tokio`'s `peer_cred()` does not cover a need:
+  `SO_PEERCRED` on Linux, `LOCAL_PEEREPID`/`LOCAL_PEERPID` on macOS
+  (`src/unix/bsd/apple/mod.rs` L3172 at 0.2.190) (G-7 §8.1).
+- **Gates affected: none directly** — implementation dependency.
 
 ### Rust toolchain
 

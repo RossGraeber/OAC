@@ -48,6 +48,6 @@ What `node scripts/local-ci.mjs` enforces so they stay opt-in:
   installs a harness CLI (the policy `scripts/check-workflows.mjs` D2 and D3 held over the
   hosted default tier until 2026-10-08).
 - `scripts/check-workflows.mjs` fails any workflow that names a secret or a provider
-  credential (W4), starts other than by `workflow_dispatch` (W6) or runs on a GitHub-hosted
-  runner (W7).
+  credential (W4), starts other than by `workflow_dispatch` (W7) or runs on a GitHub-hosted
+  runner (W8).
 - Check 9 keeps this directory a leaf and keeps the driver out of everything else.

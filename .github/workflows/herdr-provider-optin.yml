@@ -12,7 +12,7 @@
 # only on operator-owned self-hosted runners, which bill no GitHub Actions minutes.
 #
 # Hard rules for this file. scripts/check-herdr-containment.mjs (oac-boundaries check 9)
-# and scripts/check-workflows.mjs (W6, W7) fail `node scripts/local-ci.mjs` if any is broken:
+# and scripts/check-workflows.mjs (W7, W8) fail `node scripts/local-ci.mjs` if any is broken:
 #   - The only trigger is workflow_dispatch (checked as an allowlist). No push, schedule or
 #     PR-event trigger, no event chained from another workflow, and no event any stranger
 #     can fire (issues, stars, forks, discussions).
