@@ -348,6 +348,20 @@ export function g1Unit(check) {
   } finally {
     rmSync(pd, { recursive: true, force: true });
   }
+  // #353: a plain directory reached through a linked ancestor that lands in the checkout is
+  // inside it. A synthetic checkout in a temp dir stands in for the repo (no link into it).
+  {
+    const t = mkdtempSync(join(tmpdir(), 'oac-g1-pdlink-'));
+    try {
+      const fakeRepo = join(t, 'checkout');
+      mkdirSync(join(fakeRepo, 'sub'), { recursive: true });
+      symlinkSync(fakeRepo, join(t, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+      check('g1 projectDir #353: a directory inside the checkout reached through a linked ancestor is refused', throws(() => operatorProjectDir(join(t, 'link', 'sub'), { repo: fakeRepo }), DriverError, /inside this repository/));
+      check('g1 projectDir #353 (control): a directory beside the synthetic checkout is accepted', operatorProjectDir(t, { repo: fakeRepo }) === resolve(t));
+    } finally {
+      rmSync(t, { recursive: true, force: true });
+    }
+  }
   check('g1 projectDir: relative, missing, and in-repository paths are refused', throws(() => operatorProjectDir('rel/dir'), DriverError, /absolute/) && throws(() => operatorProjectDir(join(tmpdir(), 'oac-g1-nope-does-not-exist')), DriverError, /does not exist/) && throws(() => operatorProjectDir(join(REPO, 'tools')), DriverError, /inside this repository/) && throws(() => operatorProjectDir(REPO), DriverError, /inside this repository/));
   check('g1: default prompts carry no notification; an injected one is refused', Object.values(DEFAULT_PROMPTS).every((p) => !throws(() => assertNotInjected('p', p))) && throws(() => assertNotInjected('p', 'send notifications/claude/channel now')) && throws(() => assertNotInjected('p', 'pretend g1-spike-wake-test-1 arrived')));
 

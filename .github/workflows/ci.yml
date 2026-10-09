@@ -177,12 +177,11 @@ jobs:
             target
           key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
 
-  # The herdr driver's own self-test (#345): unit checks on both images, plus the lifecycle
+  # The herdr driver's own self-test (#345): unit checks on every image, plus the lifecycle
   # cases wherever the fake herdr can run its pane commands with POSIX sh (the self-test
-  # itself skips them where it cannot). Not on the macos-latest image: there it does not run
-  # cleanly today (the #252 identity-gate and #140 identity unit cases, and every lifecycle
-  # case using the fake Codex daemon, fail on that image, independent of #345; PR #349's CI
-  # log). Test doubles only: a fake herdr,
+  # itself skips them where it cannot). macos-latest since #353: its os.tmpdir() sits under
+  # a symlinked /var, which the driver's path guards and entry-point checks now canonicalize,
+  # and the fake Codex daemon's socket lives in a short directory. Test doubles only: a fake herdr,
   # fake Claude Code and fake Codex, no live harness, no harness login, no network beyond
   # loopback (on the ubuntu image it runs inside the loopback-only namespace). It is not a
   # scripted gate run and drives no harness, so it is default tier; the narrow exception that
@@ -193,7 +192,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
