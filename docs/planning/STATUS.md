@@ -62,6 +62,9 @@ pin, dependency, static-scan rule or ADR text changes.
     refused. Every adapter file and every listed-package file may not hold `include`,
     `include_str` or `include_bytes` as a whole word, the same word rule `source.rs`
     applies to adapter `src/`.
+  - Seventh review: `main` (#352, #361) is merged in. The residual list now names a hostile
+    edit to an allowed dependency (`oac-core`, `oac-fake-claude`) that re-exports an
+    `include` macro. Review covers it, like any hostile edit to reviewed code.
 - **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
   `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
   makes it a breach. Three cases are not breaches, and the tests show they stay
@@ -69,7 +72,8 @@ pin, dependency, static-scan rule or ADR text changes.
   Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
   before.
 - **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
-  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `7dce5ea`.)
+  #347 was. It merges after #352, so it sets the baseline (record G-7 §6). Baseline
+  candidate for `tests/protocol/contract/`: commit `b85814f`.)
 
 **Last updated:** 2026-10-08 (**Issue #7: the Stage 4 dependency decisions, recorded before
 any adapter code** (Refs #7, #59, #69). The lead's decisions in chat of 2026-10-08 are in
