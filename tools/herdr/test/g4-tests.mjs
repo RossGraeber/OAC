@@ -708,7 +708,9 @@ export function g4Cases(check) {
     check('g4 trace: nothing traced wrote, moved or deleted anything under either harness home', trace.filter((t) => t.kind === 'write' && t.path && underHome(t)).length === 0, JSON.stringify(trace.filter((t) => t.kind === 'write' && t.path && underHome(t)).map((t) => t.path)));
     check('g4 trace: no process wrote a Codex config file anywhere (no global edit, no project .codex/config.toml); positive control: the driver\'s own herdr-config.toml write IS traced', trace.filter((t) => t.kind === 'write' && t.path && basename(t.path) === 'config.toml').length === 0 && trace.some((t) => t.kind === 'write' && basename(t.path ?? '') === 'herdr-config.toml'));
     check('g4 trace: nothing copied or listed the Codex home (never copied)', trace.filter((t) => ['copyFileSync', 'copyFile', 'cpSync', 'cp', 'readdirSync', 'readdir', 'opendirSync', 'opendir'].includes(t.op) && t.path && underHome(t)).length === 0);
-    check('g4 trace: the driver read nothing under either home beyond the three harness-config hashes', driver.filter((t) => t.kind === 'fs' && t.path && underHome(t)).every((t) => hashed.has(t.path)), JSON.stringify([...new Set(driver.filter((t) => t.kind === 'fs' && t.path && underHome(t) && !hashed.has(t.path)).map((t) => t.path))]));
+    // #353: realpath of a home's own directory entry (executableIdentity canonicalizes it) reads nothing inside it.
+    const homeEntry = (t) => /^(?:realpath|stat)(?:Sync)?$/.test(t.op) && homes.some((h) => resolve(h) === resolve(t.path));
+    check('g4 trace: the driver read nothing under either home beyond the three harness-config hashes', driver.filter((t) => t.kind === 'fs' && t.path && underHome(t)).every((t) => hashed.has(t.path) || homeEntry(t)), JSON.stringify([...new Set(driver.filter((t) => t.kind === 'fs' && t.path && underHome(t) && !hashed.has(t.path) && !homeEntry(t)).map((t) => `${t.op} ${t.path}`))]));
     check('g4 trace: the server opened nothing under either home and started no process', server.filter((t) => t.path && underHome(t)).length === 0 && server.filter((t) => t.kind === 'spawn').length === 0);
 
     // The report CLI.
@@ -748,6 +750,33 @@ export function g4Cases(check) {
     check('g4 driver: PASS; each recognized dialog read, then accepted by the driver with no input in between', r.status === 0 && g4.dialogs.length === 2 && g4.dialogs.map((d) => d.agent).sort().join() === 'claude,codex' && g4.dialogs.every((d) => d.acceptOrigin === 'driver' && d.inputBetweenReadAndAccept === 0 && m.commands.find((x) => x.seq === d.acceptSeq - 1)?.argv.includes('read')), `${m.outcome} ${m.outcomeReason}`);
     check('g4 driver: the report still scores nothing on the accept (no G4 criterion names it)', evalRun(r).rows.map((x) => x.score).join('|') === [SCORES.NE, SCORES.EQ, SCORES.EQ, SCORES.EQ, SCORES.NE].join('|'));
   });
+
+  // #303: Codex 0.160.0's start-up update prompt (fake-codex FAKE_CODEX_UPDATE_PROMPT, the text
+  // seen live in G4 run 20261006T001351Z-5b2e11). That run waited 90 s for an MCP handshake
+  // behind it; now the driver answers "2. Skip" (a verified `down`, then Enter), or ends the run
+  // NOT RUN on the prompt's first read when its form is off record. Never "1. Update now" or
+  // "3. Skip until next version".
+  const upDialog = (g4) => g4.dialogs.find((d) => d.agent === 'codex' && d.kind === 'update-prompt');
+  const upAnswers = (r) => (existsSync(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) ? read(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) : '');
+  run('g4 #303 update prompt: the driver answers "2. Skip"', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37808, 37810)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: 'recorded' } }, (r) => {
+    const m = r.manifest;
+    const g4 = m.scenarioData.g4;
+    const d = upDialog(g4);
+    check('g4 #303 Skip: PASS; the update prompt answered by the DRIVER with `down` (verified on "Skip") then `enter`, answer "2. Skip"; Codex then reached its MCP connect', r.status === 0 && m.outcome === 'PASS' && d?.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["down","enter"]' && d.acceptKeys[0].expect === 'Skip' && Number.isInteger(d.acceptKeys[0].verifiedSeq) && d.updatePrompt?.answer === '2. Skip' && /20261006T001351Z-5b2e11/.test(d.patternVerified ?? '') && g4.codex.sessions.length === 1, `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+    check('g4 #303 Skip: the fake Codex saw exactly one answer, "2. Skip"; no updater state written; the harness config unchanged', upAnswers(r) === '2. Skip\n' && !existsSync(join(r.env.CODEX_HOME, 'version.json')) && m.harnessConfig.unchanged === true, upAnswers(r));
+    const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
+    const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
+    check('g4 #303 Skip: the Verification section\'s Dialogs line renders the driver\'s Skip with the versions shown', draft.status === 0 && /codex update-prompt \(read #\d+; Codex update prompt \S+ → 9\.9\.9: answer "2\. Skip" \(this launch only; no update run, no updater state written\); accepted by the DRIVER \(herdr dialog-accept: down #\d+, enter #\d+\)\)/.test(dl), dl || draft.stderr);
+  });
+  for (const [variant, why, port] of [['off-record', /not the ones on record/, 37818], ['dont-remind-preselected', /nor the preselection on record/, 37828]]) {
+    run(`g4 #303 update prompt ${variant}: NOT RUN at once, not a 90 s MCP wait`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: variant } }, (r) => {
+      const m = r.manifest;
+      const d = upDialog(m.scenarioData.g4);
+      const sentAfter = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
+      const readsAfter = m.commands.filter((x) => x.seq > (d?.readSeq ?? Infinity) && x.role === 'read' && x.argv.includes('read') && x.argv.includes('g4codex'));
+      check(`g4 #303 ${variant}: NOT RUN with the update-prompt reason, never the MCP-initialize timeout; the prompt refused with no key; no Codex read after its first read; nothing answered`, r.status === 3 && m.outcome === 'NOT RUN' && /Codex update prompt shown at start-up \(Codex \S+ → 9\.9\.9\)/.test(m.outcomeReason) && why.test(m.outcomeReason) && !/timed out after \d+ ms waiting for Codex's MCP client initialize/.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && sentAfter.length === 0 && readsAfter.length === 0 && upAnswers(r) === '' && !existsSync(join(r.env.CODEX_HOME, 'version.json')), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
+    });
+  }
 
   // #267: Claude Code 2.1.285's multi-select MCP approval form (fake-claude `mcp-multiselect`),
   // in the order seen live (trust, MCP approval, dev channels).

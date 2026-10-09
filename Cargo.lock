@@ -2141,6 +2141,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "oac-mcp-tools"
+version = "0.0.0"
+dependencies = [
+ "oac-core",
+]
+
+[[package]]
 name = "oac-security-suite"
 version = "0.0.0"
 dependencies = [

@@ -107,7 +107,17 @@ rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|hel
 #    Workflows (K6): no workflow other than
 #    .github/workflows/herdr-provider-optin.yml names tools/herdr or any label a
 #    self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm,
-#    arm64 -- a job routes to any runner holding all its runs-on labels). The opt-in
+#    arm64 -- a job routes to any runner holding all its runs-on labels). One exact line is
+#    exempt (#345): a `run:` of `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the
+#    driver's offline self-test against its test doubles (ci.yml `herdr-selftest`); any
+#    other text on the line, a comment naming the path, or a run: block still fails, and
+#    the whole parsed `run:` value must be exactly that command: a deeper-indented
+#    continuation line, or the line inside a block, quoted or flow scalar, fails (PR #349
+#    review B1). Its step may hold only name/id/if/shell/run/timeout-minutes, each once,
+#    shell only `bash`; no job env:/defaults:/container:/services:, no workflow defaults:,
+#    workflow env: CARGO_* only, and no YAML anchor, alias or merge key (#353; D2 holds the
+#    same). Not statically checkable: a sibling step writing to `$GITHUB_ENV` (ci.yml sets
+#    LOOPBACK_ONLY that way); that rests on review of the job. The opt-in
 #    workflow is read with a small fail-closed YAML reader and must have: `on:` exactly
 #    {workflow_dispatch, push} (an allowlist: issues/watch/fork/discussion/PR events all
 #    fail), push limited to branches [main] and paths [docs/planning/PINS.md],
@@ -179,7 +189,8 @@ fi
 # 12. Zenoh containment (boundary 5; DESIGN acceptance criterion 9; 07 section 4(a)): no
 #    Zenoh name, `zid`, key expression or liveliness term in any git-tracked entry outside
 #    transports/zenoh/ under core/ cli/ adapters/ transports/ spec/ tests/fakes/
-#    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml / Cargo.lock.
+#    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml. Not Cargo.lock
+#    (G-7 section 7): the zenoh crates in it are confined by check-crate-deps.mjs rule 4.
 #    Wider than check 1, and the close of the scope gap 09 section 8 and C7 section 2
 #    record: `zenoh` matches inside longer identifiers, `zid` as any snake/kebab/camel/
 #    Pascal segment (leading too: `zidMap`, `ZidMap`), and adapters/ and cli/ are in

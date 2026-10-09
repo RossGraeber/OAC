@@ -129,6 +129,8 @@ export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKind
   if (plan.variant) Object.assign(d, { variant: plan.variant, listedServers: plan.listedServers, expectedServers: plan.expectedServers });
   // #271: Codex's MCP tool-approval prompt records what it asked and what the scenario expected.
   if (plan.toolApproval) d.toolApproval = { ...plan.toolApproval };
+  // #303: Codex's start-up update prompt records the versions it named and the answer.
+  if (plan.updatePrompt) d.updatePrompt = { ...plan.updatePrompt };
   if (!plan.ok) {
     d.acceptOrigin = 'none (driver refused)';
     stop(`${who}: ${plan.why}; the driver did not accept it`);
@@ -191,6 +193,7 @@ export async function driverAcceptDialog({ herdr, target, r, d, kind, dialogKind
   const res = await herdr.dialogAccept(target, ['enter']);
   d.acceptKeys.push({ key: 'enter', seq: res.entry.seq, expect: null, verifiedSeq: d.confirmReadSeq ?? null });
   if (d.toolApproval) d.toolApproval.answer = plan.answer ?? null;
+  if (d.updatePrompt) d.updatePrompt.answer = plan.answer ?? null;
   d.acceptOrigin = 'driver';
   d.acceptSeq = res.entry.seq;
   d.acceptAt = res.entry.startedAt;

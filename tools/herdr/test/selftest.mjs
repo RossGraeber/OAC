@@ -72,6 +72,8 @@ import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSess
 import { harnessConfigFiles, herdrLaunchEnv } from '../lib/manifest.mjs';
 import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
 import { removeScratch, SCRATCH_RETRY_DELAYS_MS } from '../lib/scratch.mjs';
+import { lfSha256, redactScriptSha256 } from '../lib/gate-report-common.mjs';
+import { committedFile } from '../lib/committed-file.mjs';
 import { g1Unit, g1Cases, installFakeClaudeCli, cloneWithPins } from './g1-tests.mjs';
 import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.mjs';
 import { s3Unit } from './s3-tests.mjs';
@@ -320,6 +322,14 @@ function unitRedaction() {
   const kj = r.redactJsonl(`{"a":1}\n-----BEGIN PGP PRIVATE KEY BLOCK-----\n${body.join('\n')}\n-----END PGP PRIVATE KEY BLOCK-----\n{"b":2}\n`);
   check('fix2/11: JSONL capture gets the same key-block treatment', kj.text === '{"a":1}\n{"b":2}\n' && reportIsClean(kj.report), JSON.stringify(kj));
   check('fix2: a stray END marker or key-material line is a residual hit', r.scan('-----END OPENSSH PRIVATE KEY-----').residualGenericHits.length > 0 && r.scan(body[0]).residualGenericHits.length > 0);
+
+  // #303 (PR #302 review): the redaction script's hash recorded in fixture entries is of its
+  // LF-normalised content, the same on a CRLF and an LF checkout, and equal to the committed
+  // blob's sha256 whenever the working-tree file matches HEAD.
+  const lfText = 'line one\nline two\n';
+  check('#303 redact hash: CRLF and LF content hash the same (the LF bytes\' sha256)', lfSha256(Buffer.from(lfText.replace(/\n/g, '\r\n'))) === lfSha256(Buffer.from(lfText)) && lfSha256(Buffer.from(lfText)) === createHash('sha256').update(lfText).digest('hex'));
+  const rc = committedFile(REPO, 'tools/herdr/lib/redact.mjs');
+  check('#303 redact hash: redactScriptSha256() is the committed blob\'s sha256 (working tree matches HEAD), whatever the checkout\'s line endings', rc.workingTreeMatchesHead === false || redactScriptSha256() === rc.committedSha256, `${redactScriptSha256()} ${rc.committedSha256} matchesHead=${rc.workingTreeMatchesHead}`);
 
   // Fix 3: JSON-shaped auth headers.
   const hdr = '{"headers":{"Authorization":"Basic c2VjcmV0OnNlY3JldA=="}}\n{"Cookie":"session=abc123def456"}\n{"Set-Cookie": "sid=abc123def456"}\nclean';

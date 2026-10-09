@@ -14,9 +14,15 @@
 #                      the fake Codex app-server self-test (tests/fakes/codex-app-server/,
 #                        F9 #58), including its stdio and loopback WebSocket transports.
 #   crate-deps (<os>)  scripts/check-crate-deps.mjs: dependency direction and provider/
-#                        transport crate ownership over `cargo metadata` (07 section 3).
+#                        transport crate ownership over `cargo metadata` (07 section 3),
+#                        and `--adapters-alone`: the adapters and adapters/mcp-tools build
+#                        with only their own dependency features, not ones another member
+#                        turns on, with default features and with --all-features, each in
+#                        dev and release profiles (#7, G-7 section 5).
 #   licenses (<os>)    scripts/check-licenses.mjs: SPDX headers and the dependency license
 #                        inventory; an unapproved license fails the job (07 section 5).
+#   herdr-selftest (<os>)  the herdr driver's offline self-test against its test doubles
+#                        (#345): no live harness, loopback only; see the job's comment.
 # Each check also runs its self-test and, where it has one, its mutation test.
 #
 # Network. The only network use is fetching the toolchain (rust-toolchain.toml, 1.98.1,
@@ -171,6 +177,42 @@ jobs:
             target
           key: cargo-test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
 
+  # The herdr driver's own self-test (#345): unit checks on every image, plus the lifecycle
+  # cases wherever the fake herdr can run its pane commands with POSIX sh (the self-test
+  # itself skips them where it cannot). macos-latest since #353: its os.tmpdir() sits under
+  # a symlinked /var, which the driver's path guards and entry-point checks now canonicalize,
+  # and the fake Codex daemon's socket lives in a short directory. Test doubles only: a fake herdr,
+  # fake Claude Code and fake Codex, no live harness, no harness login, no network beyond
+  # loopback (on the ubuntu image it runs inside the loopback-only namespace). It is not a
+  # scripted gate run and drives no harness, so it is default tier; the narrow exception that
+  # lets this one line name the driver is check 9 in scripts/check-herdr-containment.mjs and
+  # D2 in scripts/check-workflows.mjs. No cargo step: the self-test needs node and git only.
+  herdr-selftest:
+    name: herdr-selftest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out (no persisted token)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select the loopback-only sandbox (by kernel, not by image name)
+        shell: bash
+        run: bash scripts/loopback-only.sh --select >> "$GITHUB_ENV"
+
+      - name: Loopback-only sandbox probe (loopback connects, nothing else is reachable)
+        if: env.LOOPBACK_ONLY != ''
+        run: bash scripts/loopback-only.sh --probe
+
+      - name: herdr driver self-test (test doubles only; lifecycle cases where sh runs them)
+        shell: bash
+        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test
+
   crate-deps:
     name: crate-deps (${{ matrix.os }})
     strategy:
@@ -209,6 +251,13 @@ jobs:
         env:
           CARGO_NET_OFFLINE: "true"
         run: node scripts/check-crate-deps.mjs --mutation-test
+
+      # The vetted dependency features hold per adapter, not just per manifest: a workspace
+      # build unifies features across members (PR #352 review finding 2).
+      - name: Adapters build alone (no feature borrowed from another member)
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: node scripts/check-crate-deps.mjs --adapters-alone
 
   licenses:
     name: licenses (${{ matrix.os }})

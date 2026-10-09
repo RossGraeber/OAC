@@ -103,7 +103,7 @@
 // harness config (oac-boundaries check 10), reads no credential file and asks no OS credential
 // store for anything; the harnesses serve every model turn from their own sign-in.
 
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -114,6 +114,7 @@ import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVers
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
+import { canonicallyInside } from '../lib/canonical-path.mjs';
 import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
@@ -293,6 +294,80 @@ export function boxState(start, now = Date.now(), budgetMs = L3_BOX_MS) {
 // [A-Za-z0-9] becomes '-'. Observed on this machine's own ~/.claude/projects naming; UNVERIFIED
 // as a documented rule, so both the path and its realpath are tried.
 export const claudeProjectSlug = (dir) => String(dir).replace(/[^A-Za-z0-9]/g, '-');
+
+/**
+ * Why a session-file entry (its lstat `st`) is not read, or null: 'symlink', 'not-plain' (not
+ * a regular file / directory as `want`), 'hard-linked' (a file with nlink > 1, #357) or
+ * 'other-device' (a file whose st_dev differs from its slug directory's lstat `parent`, #357).
+ */
+export function sessionEntrySkip(st, want, parent = null) {
+  if (st.isSymbolicLink()) return 'symlink';
+  if (!(want === 'dir' ? st.isDirectory() : st.isFile())) return 'not-plain';
+  if (want === 'file' && st.nlink > 1) return 'hard-linked';
+  if (want === 'file' && parent && st.dev !== parent.dev) return 'other-device';
+  return null;
+}
+
+/** The run findings a readProjectSessionFiles() result carries (#353, #357). */
+export function sessionFileFindings(sf) {
+  const out = [];
+  if (sf.skipped) out.push(`B2 session file: ${sf.skipped} session entr${sf.skipped === 1 ? 'y' : 'ies'} skipped, not read: a symlink, not a plain file or directory, hard-linked, on another device, or not verifiably inside the projects directory (#353, #357)`);
+  if (sf.hardLinked) out.push(`B2 session file: ${sf.hardLinked} *.jsonl file${sf.hardLinked === 1 ? '' : 's'} with more than one hard link skipped, not read: a hard link may be another file in the Claude config directory (#357)`);
+  if (sf.otherDevice) out.push(`B2 session file: ${sf.otherDevice} *.jsonl file${sf.otherDevice === 1 ? '' : 's'} on another device than the slug directory skipped, not read: a file mounted in from another filesystem (#357)`);
+  if (!sf.dirsFound) out.push('B2 session file: no Claude project directory was found for the scratch probe project (slug rule UNVERIFIED); session-file shape not recorded');
+  return out;
+}
+
+/**
+ * The probe project's Claude session files, entry shapes only (readSessionFile, operator
+ * decision 2026-09-30). This is a deliberate read inside the Claude config directory, limited
+ * (#353, PR #356 review) to plain entries that stay under `projectsRoot`: a slug directory or a
+ * `*.jsonl` that is a symlink, is not a regular file/directory, or is not verifiably (by
+ * spelling or by file identity) under `projectsRoot` is skipped and counted, never read. The
+ * containment check allows a read, so any error answers "not under it" (fail closed, #357:
+ * canonicallyWithin, a refusing guard, answered "inside" on error and so allowed the read). A
+ * `*.jsonl` with more than one hard link (nlink > 1) may be another file in the Claude config
+ * directory, such as a credential file: it is skipped and counted in `hardLinked` (#357). A
+ * `*.jsonl` on another device than its slug directory (a file bind-mounted in from another
+ * filesystem) is skipped and counted in `otherDevice` (#357, PR #358 review); a bind mount
+ * from the same filesystem keeps st_dev and is a documented residual.
+ */
+export function readProjectSessionFiles(dirs, projectsRoot, markers) {
+  const sf = { dirsFound: 0, files: 0, lines: 0, entries: [], skipped: 0, hardLinked: 0, otherDevice: 0 };
+  const plain = (p, want, parent = null) => {
+    try {
+      const st = lstatSync(p);
+      const why = sessionEntrySkip(st, want, parent);
+      if (why === 'hard-linked') sf.hardLinked += 1;
+      if (why === 'other-device') sf.otherDevice += 1;
+      return why === null && canonicallyInside(p, projectsRoot) ? st : null;
+    } catch {
+      return null;
+    }
+  };
+  for (const d of dirs) {
+    if (!existsSync(d)) continue;
+    const dst = plain(d, 'dir');
+    if (!dst) {
+      sf.skipped += 1;
+      continue;
+    }
+    sf.dirsFound += 1;
+    for (const n of readdirSync(d).filter((x) => x.endsWith('.jsonl'))) {
+      const f = join(d, n);
+      if (!plain(f, 'file', dst)) {
+        sf.skipped += 1;
+        continue;
+      }
+      const shapes = sessionEntryShapes(readFileSync(f, 'utf8'), markers);
+      sf.files += 1;
+      (sf.sessionIds ??= []).push(n.replace(/\.jsonl$/, ''));
+      sf.lines += shapes.lines;
+      sf.entries.push(...shapes.entries);
+    }
+  }
+  return sf;
+}
 
 const ENUM = /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/;
 const enumOrNull = (v, markers) => (typeof v === 'string' && ENUM.test(v) && !findMarkerLeaks(v, markers).length ? v : v == null ? null : '<non-enum>');
@@ -1035,19 +1110,8 @@ export default {
       if (params.readSessionFile === 'true') {
         const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
         const dirs = [...new Set([projectDir, realpathSync(projectDir)].map((d) => join(claudeHome, 'projects', claudeProjectSlug(d))))];
-        const sf = { read: true, source: process.env.CLAUDE_CONFIG_DIR ? '$CLAUDE_CONFIG_DIR/projects/<slug>' : '~/.claude/projects/<slug>', dirsFound: 0, files: 0, lines: 0, entries: [] };
-        for (const d of dirs) {
-          if (!existsSync(d)) continue;
-          sf.dirsFound += 1;
-          for (const n of readdirSync(d).filter((x) => x.endsWith('.jsonl'))) {
-            const shapes = sessionEntryShapes(readFileSync(join(d, n), 'utf8'), markers);
-            sf.files += 1;
-            (sf.sessionIds ??= []).push(n.replace(/\.jsonl$/, ''));
-            sf.lines += shapes.lines;
-            sf.entries.push(...shapes.entries);
-          }
-        }
-        if (!sf.dirsFound) finding('B2 session file: no Claude project directory was found for the scratch probe project (slug rule UNVERIFIED); session-file shape not recorded');
+        const sf = { read: true, source: process.env.CLAUDE_CONFIG_DIR ? '$CLAUDE_CONFIG_DIR/projects/<slug>' : '~/.claude/projects/<slug>', ...readProjectSessionFiles(dirs, join(claudeHome, 'projects'), markers) };
+        for (const f of sessionFileFindings(sf)) finding(f);
         l3.sessionFile = sf;
       } else {
         l3.sessionFile = { read: false, note: 'not read (--param readSessionFile is not true); the poll path (`sync --print`) is the B2 session-file evidence' };

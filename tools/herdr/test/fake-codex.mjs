@@ -52,6 +52,10 @@
 //                                   (stands in for a Codex that persisted an approval)
 //   FAKE_CODEX_TRUST_PERSIST   #271: 1 = accepting the trust dialog appends a trust entry to
 //                              $CODEX_HOME/config.toml, as real Codex records trust
+//   FAKE_CODEX_UPDATE_PROMPT   #303: recorded | off-record | dont-remind-preselected: the start-up
+//                              update prompt seen live on 0.160.0, before any other screen
+//                              (unset: none). Skip writes nothing; "Skip until next version"
+//                              writes $CODEX_HOME/version.json; "Update now" exits
 //   FAKE_CODEX_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                              operator pressing Enter outside the driver)
 //   FAKE_CODEX_NO_ATTACH       1 = the TUI never connects to the daemon (embedded server)
@@ -88,11 +92,11 @@
 //                              no redaction pattern matches), and writes that secret to this file
 //                              so the self-test can prove it never reaches a record
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const env = process.env;
 const HOME = env.CODEX_HOME;
@@ -102,14 +106,39 @@ if (!HOME) {
 }
 const VERSION = env.FAKE_CODEX_VERSION || '0.157.1';
 const CTL = join(HOME, 'app-server-control');
-const SOCK = join(CTL, 'app-server-control.sock');
+// #353: on POSIX the fake daemon's socket lives in a short mkdtemp directory under /tmp, not
+// under $CODEX_HOME. A Unix-socket path is limited (104 bytes on macOS, 108 on Linux), and with
+// a long TMPDIR (macOS /var/folders/...) $CODEX_HOME/app-server-control/<name>.sock went over
+// it: the daemon never listened and the client saw "initialize returned no userAgent". The
+// daemon records the path in $CODEX_HOME/app-server-control/socket-path; every other
+// fake-codex process reads it there. (The real daemon's socket is under CODEX_HOME; this is a
+// test-double deviation only.) win32 keeps the old spelling.
+const SOCK_PTR = join(CTL, 'socket-path');
+const SHORT_SOCK_DIR = /^\/tmp\/oac-fc-[A-Za-z0-9]{6}$/;
+const sockPath = () => {
+  if (process.platform === 'win32') return join(CTL, 'app-server-control.sock');
+  try {
+    const p = readFileSync(SOCK_PTR, 'utf8').trim();
+    return SHORT_SOCK_DIR.test(dirname(p)) ? p : null;
+  } catch {
+    return null;
+  }
+};
 const PIDFILE = join(CTL, 'fake-daemon.pid');
+// #353: a thread's `path` (its rollout file; never read by anyone) is spelled under a fixed
+// short directory, not under $CODEX_HOME. Under macOS's long TMPDIR, $CODEX_HOME/sessions/
+// rollout-<uuid>.jsonl reached the residual scan's long-text threshold (lib/elide.mjs
+// LONG_TEXT_MIN, 120) and the capture was withheld; real paths are redacted to the home
+// placeholder first, the self-test's temp CODEX_HOME is not.
+const ROLLOUT_DIR = '/codex-home/sessions';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const args = process.argv.slice(2);
 
 const canConnect = () =>
   new Promise((res) => {
-    const s = connect(SOCK);
+    const p = sockPath();
+    if (!p) return res(false);
+    const s = connect(p);
     s.on('connect', () => {
       s.destroy();
       res(true);
@@ -139,13 +168,13 @@ async function main() {
   if (args[0] === 'app-server' && args[1] === 'daemon' && args[2] === 'start') {
     mkdirSync(CTL, { recursive: true });
     if (await canConnect()) {
-      console.log(JSON.stringify({ status: 'already running', socketPath: SOCK }));
+      console.log(JSON.stringify({ status: 'already running', socketPath: sockPath() }));
       return;
     }
     const d = spawn(process.execPath, [process.argv[1], '__fake-daemon'], { detached: true, stdio: 'ignore', env });
     d.unref();
     for (let i = 0; i < 100 && !(await canConnect()); i++) await sleep(50);
-    console.log(JSON.stringify({ status: 'started', socketPath: SOCK }));
+    console.log(JSON.stringify({ status: 'started', socketPath: sockPath() }));
     return;
   }
   if (args[0] === 'app-server' && args[1] === 'daemon' && args[2] === 'version') {
@@ -159,7 +188,7 @@ async function main() {
     return;
   }
   if (args[0] === 'app-server' && args[1] === 'proxy') {
-    const s = connect(SOCK);
+    const s = connect(sockPath() ?? join(CTL, 'no-socket'));
     s.on('error', (e) => {
       console.error(`proxy: ${e.code}`);
       process.exit(1);
@@ -180,7 +209,17 @@ async function main() {
 
 function daemon() {
   mkdirSync(CTL, { recursive: true });
-  rmSync(SOCK, { force: true });
+  let SOCK;
+  if (process.platform === 'win32') {
+    SOCK = join(CTL, 'app-server-control.sock');
+    rmSync(SOCK, { force: true });
+  } else {
+    // A previous daemon's short directory (killed, so it could not clean up) is removed first.
+    const old = sockPath();
+    if (old) rmSync(dirname(old), { recursive: true, force: true });
+    SOCK = join(mkdtempSync('/tmp/oac-fc-'), 's.sock');
+    writeFileSync(SOCK_PTR, `${SOCK}\n`);
+  }
   writeFileSync(PIDFILE, String(process.pid));
   const WIRE = env.FAKE_CODEX_WIRE_VERSION || VERSION;
   const reject = new Set((env.FAKE_CODEX_REJECT || '').split(',').filter(Boolean));
@@ -194,9 +233,9 @@ function daemon() {
   }
   const conns = new Set();
   const nowSec = () => Math.floor(Date.now() / 1000);
-  const saved = { id: '0190aaaa-0000-7000-8000-000000000001', preview: 'PRIVATE unrelated saved session preview', cwd: '/home/someone-else/private-project', path: join(HOME, 'sessions', 'rollout-private.jsonl') };
+  const saved = { id: '0190aaaa-0000-7000-8000-000000000001', preview: 'PRIVATE unrelated saved session preview', cwd: '/home/someone-else/private-project', path: `${ROLLOUT_DIR}/rollout-private.jsonl` };
 
-  const threadObj = (t) => ({ id: t.id, environments: [{ environmentId: 'local', cwd: t.cwd, runtimeWorkspaceRoots: [t.cwd] }], sessionId: t.id, preview: t.preview, cliVersion: WIRE, status: { type: t.status }, path: join(HOME, 'sessions', `rollout-${t.id}.jsonl`) });
+  const threadObj = (t) => ({ id: t.id, environments: [{ environmentId: 'local', cwd: t.cwd, runtimeWorkspaceRoots: [t.cwd] }], sessionId: t.id, preview: t.preview, cliVersion: WIRE, status: { type: t.status }, path: `${ROLLOUT_DIR}/rollout-${t.id}.jsonl` });
   const turnObj = (tn, withItems) => ({ id: tn.id, items: withItems ? tn.items : [], itemsView: withItems ? 'full' : 'notLoaded', status: tn.status, error: null, startedAt: tn.startedAt, completedAt: tn.completedAt, durationMs: null });
   const replyFor = (text, t) => {
     if (/Who sent the most recent message/.test(text)) {
@@ -488,6 +527,55 @@ async function tui(overrides = {}) {
   // off-record shapes the driver must refuse. The selection moves with up/down; Enter on
   // "Trust and continue" goes on, Enter on anything else leaves (as "Back" does), so a wrong
   // Enter shows up as a failed run.
+  // #303: Codex 0.160.0's start-up update prompt, before any other start-up screen, as seen live
+  // (lib/g2.mjs CODEX_DIALOG_KINDS 'update-prompt'; Windows install command, wrapped as
+  // captured). FAKE_CODEX_UPDATE_PROMPT: recorded | off-record (a fourth option, "Remind me
+  // tomorrow") | dont-remind-preselected (the highlight starts on option 3) | unset (none). Keys
+  // as in codex-rs/tui/src/update_prompt.rs@rust-v0.160.0: up/down move and wrap, enter selects
+  // the highlight, esc selects Skip. "Skip" goes on and writes nothing; "Skip until next version"
+  // writes $CODEX_HOME/version.json (as Codex's dismiss_version does) and goes on; "Update now"
+  // records that the installer would run and exits, so a wrong answer is a failed run.
+  if (env.FAKE_CODEX_UPDATE_PROMPT) {
+    const kind = env.FAKE_CODEX_UPDATE_PROMPT;
+    const opts = [
+      ["Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/", "     codex/install.ps1 | iex'`)"],
+      ['Skip'],
+      ['Skip until next version'],
+      ...(kind === 'off-record' ? [['Remind me tomorrow']] : []),
+    ];
+    let sel = kind === 'dont-remind-preselected' ? 2 : 0;
+    const render = () => ['', `  Update available · ${VERSION} → 9.9.9`, `  Release notes: https://github.com/open${'a'}i/codex/releases/latest`, '', ...opts.flatMap(([first, ...more], i) => [`${i === sel ? '› ' : '  '}${i + 1}. ${first}`, ...more]), '', '  enter continue · esc skip'].join('\n');
+    setScreen(render());
+    hist(render());
+    setState('blocked');
+    newKeys();
+    let chosen = null;
+    while (chosen === null) {
+      for (const k of newKeys().map((x) => x.trim())) {
+        if (k === 'enter') chosen = sel;
+        else if (k === 'esc') chosen = 1;
+        else if (k === 'down') sel = (sel + 1) % opts.length;
+        else if (k === 'up') sel = (sel + opts.length - 1) % opts.length;
+        if (chosen !== null) break;
+        setScreen(render());
+      }
+      if (chosen === null) await sleep(50);
+    }
+    const label = opts[chosen][0].replace(/ \(runs .*$/, '');
+    hist(`[update prompt: "${chosen + 1}. ${label}" selected]`);
+    // For the self-test's assertions: the answer, beside (never inside) the Codex home.
+    appendFileSync(join(HOME, '..', 'fake-codex-update-answer.log'), `${chosen + 1}. ${label}\n`);
+    if (label === 'Update now') {
+      hist('[update prompt: the installer would run now; leaving]');
+      process.exit(0);
+    }
+    if (label === 'Skip until next version') {
+      mkdirSync(HOME, { recursive: true });
+      writeFileSync(join(HOME, 'version.json'), `${JSON.stringify({ dismissed_version: '9.9.9' })}\n`);
+    }
+    setState('working');
+    setScreen('Starting…');
+  }
   const DIALOG = env.FAKE_CODEX_DIALOG || 'trust';
   const CWD = process.cwd();
   const NOTE = ['  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:', `  ${CWD}`, ''];
@@ -663,7 +751,7 @@ async function tui(overrides = {}) {
   let sock = null;
   if (env.FAKE_CODEX_NO_ATTACH !== '1' && !mcp.size) {
     sock = await new Promise((res) => {
-      const s = connect(SOCK);
+      const s = connect(sockPath() ?? join(CTL, 'no-socket'));
       s.on('connect', () => res(s));
       s.on('error', () => res(null));
     });

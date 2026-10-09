@@ -357,9 +357,19 @@ export default {
     // requested explicitly (K1 §5 item 5) so a wait cannot hang on it, and it never leads
     // to anything being sent again.
     // #253: a wait whose answer carries no agent_status ends the run NOT RUN (recordWaitState).
+    // A herdr `unknown` is a finding the first time any wait sees it, whichever wait that is
+    // (as G2's waitState does since 0831193): the operator-turn wait may return before the
+    // turn starts (#253), so keying the finding to that one wait made it depend on timing
+    // (PR #349 re-review, #353).
+    let unknownNoted = false;
     const waitState = async (context, timeoutMs) => {
       const w = await herdr.agentWait(AGENT, { until: ['idle', 'done', 'blocked', 'unknown'], timeoutMs: Math.max(1000, timeoutMs) });
-      return recordWaitState({ g: s3, context, w, ctx, stop });
+      const st = recordWaitState({ g: s3, context, w, ctx, stop });
+      if (st.state === 'unknown' && !unknownNoted) {
+        unknownNoted = true;
+        ctx.finding(`herdr reported agent state \`unknown\` (${context}, herdr command #${w.entry.seq}); recorded, nothing re-sent (K1 §5 item 5)`);
+      }
+      return st;
     };
 
     // Wait until the pane shows neither a dialog nor work in progress. `done` (#253) is the
@@ -614,9 +624,8 @@ export default {
       // before the prompt was picked up (#253). The operator's turn being over is established
       // on the wire below (the watch stream's thread/resume status or thread/status/changed
       // idle) before anything is delivered.
-      const after = (await waitState('operator-turn', num('turnTimeoutMs'))).state;
+      await waitState('operator-turn', num('turnTimeoutMs'));
       const afterRead = await read('after-operator-turn');
-      if (after === 'unknown') ctx.finding(`herdr reported agent state \`unknown\` after the operator's turn (herdr command #${s3.herdrStates.at(-1).seq}); recorded, nothing re-sent (K1 §5 item 5)`);
       if (afterRead.screen.dialog) await handleDialog(afterRead, 'operator-turn');
       const attachDeadline = deadlineFor(num('attachTimeoutMs'));
       const attachWaited0 = humanWaitMs;

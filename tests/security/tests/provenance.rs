@@ -398,3 +398,16 @@ fn gated_row17_codex_frame_uses_a_receiver_generated_delimiter() {
 fn gated_row18_codex_reply_correlation_is_not_trusted_alone() {
     std::panic!("GATED on #69: write against the Codex adapter's reply correlation");
 }
+
+/// `spec/security.md` §13 "Misattributed send request": a Codex stdio connection is bound
+/// only on a reveal of a value issued on it, and each call on it is served only on the bound
+/// thread's own report of that call (`spec/bindings/mcp.md` §4.5, [MCPB-ATT-007] to
+/// [MCPB-ATT-025]). Gated: the pairing is the Codex adapter's, G8, against the F9 fake
+/// with `mcpToolCall` items.
+#[test]
+#[ignore = "GATED on #69 (G8, Codex adapter issued-value pairing)"]
+fn gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation() {
+    std::panic!(
+        "GATED on #69: drive the Codex adapter against the F9 fake: a call from another thread, a late or reused reveal, and a missing confirmation are each refused"
+    );
+}

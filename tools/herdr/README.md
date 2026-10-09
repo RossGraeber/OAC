@@ -153,6 +153,17 @@ Per Codex source at `rust-v0.160.0`, "Allow" persists nothing. Rules:
 `scripted-runs.md` "Operator-consent dialogs" (#271); decision record
 `docs/planning/decisions/K-196-driver-accepts-dialogs.md` §7.
 
+**Codex's start-up update prompt: "2. Skip" only (#303).** When a newer Codex is out, Codex
+0.160.0 opens with "Update available · <current> → <latest>" and the options "1. Update now
+(runs `<command>`)", "2. Skip", "3. Skip until next version" (recorded live in G4 run
+20261006T001351Z-5b2e11, which waited 90 s for an MCP handshake behind it). In every scenario
+the driver now answers the recorded form "2. Skip", this launch only: one `down`, verified by a
+fresh read showing "Skip" selected, then `enter` (`lib/g2.mjs` `planCodexUpdateSkip`). Any other
+form, or the selection on option 3, ends the run `NOT RUN` on its first read, no key sent,
+naming the versions and asking you to answer it in Codex's own TUI and re-run. The driver never
+runs an update and never writes Codex's updater state. The dialog record holds `updatePrompt`
+(current, latest, answer). Decision record: K-196 §8.
+
 **Codex startup: verified-ready before the first message (#204).** Codex 0.159.2 shows its
 composer ("› Ask Codex to do anything") *before* its session exists: the startup draft. Text
 typed there is held ("Waiting for startup · esc cancel") until the app-server bootstrap, any
@@ -298,9 +309,13 @@ report generator scores every pass criterion against the human run's committed f
 writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of them is
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
 `scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G2, G4 and
-G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. G2's is
-`G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`, Codex 0.160.0, run outcome PASS, driver
-commit `efb775f`, PR #300). Two earlier G2 runs that day were not recorded:
+G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. The current
+G2 and G4 equivalence records are `G2-2026-10-06.md` (run `20261006T000900Z-51a348`) and
+`G4-2026-10-06.md` (run `20261006T022052Z-00cdd3`), both Codex 0.160.0, run outcome PASS,
+driver commit `c4def66`. The #303 change (Codex's update prompt) is under `tools/herdr/`
+outside `test/`, so neither backs a run at a later driver commit: G2 and G4 need a re-record
+at the new commit. The earlier G2 record, `G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`,
+driver `efb775f`, PR #300), is kept as history. Two earlier G2 runs on 2026-10-05 were not recorded:
 `20261005T020547Z-84b913`, whose transcript held third-party tool output (#130), and
 `20261005T041011Z-bb584c`, whose transcript held harness-authored text in a daemon response
 that the elision did not then cover. A record holds for its own driver commit: a later
@@ -568,10 +583,65 @@ compares working-tree files with HEAD in git's normalized form, as `git status` 
 **3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
 shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
-self-test needs POSIX `sh` and is skipped on Windows. To loop one lifecycle case (#239), set
+self-test needs POSIX `sh` and is skipped on Windows. CI runs the whole self-test in the
+default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu, macos and
+windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only.
+(macos since #353: its temp directory sits under the symlinked `/var`, which every driver path
+guard now canonicalizes, and the fake Codex daemon's socket lives in a short `/tmp`
+directory.) To loop one lifecycle case (#239), set
 `OAC_HERDR_SELFTEST_ONLY` to part of its name, e.g.
 `OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
 the matching lifecycle cases run, and a filter that matches none fails.
+
+**What the driver reads in a harness home (#353).** The driver reads, under
+`CLAUDE_CONFIG_DIR`/`~/.claude` and `CODEX_HOME`/`~/.codex`, only:
+
+- the harness-config files it hashes (`settings.json`, `config.toml` and `hooks.json`; L3
+  also reads `.claude.json`). A file that is a symlink to a file of another name, such as a
+  credential file, is not read;
+- a harness's managed binary under its home, named for the command after every symlink
+  (Codex's standalone install), which is hashed;
+- with L3 `--param readSessionFile=true` (operator decision 2026-09-30), the scratch probe
+  project's own `projects/<slug>/*.jsonl`. It records entry types and flags only, and reads
+  only plain files in a plain slug directory that are verifiably under `projects/`. Any error
+  in that check means the file is not read (#357). A `*.jsonl` with more than one hard link
+  is not read either, and is recorded as a finding, because it may be another file in the
+  Claude config directory, such as a credential file (#357). Nor is a `*.jsonl` whose `st_dev`
+  differs from its slug directory's, which is a file mounted in from another filesystem
+  (#357).
+
+Every other path is refused by `lib/canonical-path.mjs`. A path is refused when it resolves
+inside a home by spelling (as written, by realpath, or by the OS realpath, which covers
+symlinks, junctions, `..`, 8.3 names and case) or by file identity. File identity is the
+`(dev, ino)` of the home entry against the target and each of its ancestors; it catches a
+UNC admin-share spelling or a bind mount. For a harness home the guard also refuses the same
+`ino` on another device. That covers an overlayfs merged view against its `lowerdir` only,
+because a directory that exists in `lowerdir` reports the `lowerdir` inode in the merged view
+(#357). An executable this rule leaves unhashed is recorded as a run finding. A home that is a
+filesystem or subvolume root (ext4 `ino` 2, btrfs `ino` 256) can make it a false positive,
+and the executable is then UNVERIFIED. The check fails closed on any error. A home whose
+filesystem reports no inode (`ino` 0: FAT/exFAT, some network shares) has no usable
+identity, so nothing is read through that guard. An `ino` 0 entry on a target's path counts
+as an error. A repository checkout on such a filesystem is refused with that reason (#357).
+
+The Linux namespace cases in the self-test need an unprivileged user and mount namespace: the
+bind mount of a home, the overlayfs merged-vs-`lowerdir` case, and the L3 file mounted in from
+a tmpfs. The CI loopback-only sandbox does not allow such a namespace. Where a case is skipped
+under GitHub Actions, the skip is also emitted as a `::warning::` annotation, so it shows on
+the run summary (#357). They run on WSL.
+
+Residuals the guard cannot close (each but the race needs mount privilege or a hard link
+made by the operator's own account):
+- a **hard link** to a credential file, which has no path relation to the home (closed for
+  the L3 session-file read only, by the `nlink > 1` skip);
+- an **overlayfs `upperdir` or `workdir`** spelling of a merged harness home, or the merged
+  view of a home spelled by its `upperdir`. The `upperdir` copy of a directory has an inode of
+  its own, which no merged entry reports, so neither the `(dev, ino)` nor the `ino`-only match
+  sees it (PR #358 review B1);
+- a **same-filesystem bind mount of one file** into the L3 slug directory: it keeps the
+  slug directory's `st_dev` and `nlink` 1;
+- a **check-then-open race (TOCTOU)**: a directory on the path swapped for a link between the
+  check and the open. That needs an active attacker on the operator's own machine.
 
 **4. Claude Code permission rules, when an agent runs the live steps.** Claude Code's
 permission prompts and its auto-mode classifier may refuse a command that launches a real

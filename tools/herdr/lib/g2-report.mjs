@@ -31,8 +31,8 @@
 //   - herdr agent state never scores anything.
 //   - Any run outcome other than PASS makes every criterion `not evaluable`.
 
+import { isMainModule } from './canonical-path.mjs';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,7 +42,7 @@ import {
   DEFAULT_OPERATOR_PROMPT, compareByMode, formatModeDiff, g2Facts, identifyTuiThread, parseG2Transcript, readG2Criteria, G2_CRITERIA_SHA256, CriteriaDriftError,
 } from './g2.mjs';
 import { parseSections, committedFile, sha256 } from './g1.mjs';
-import { describeDialogs, harnessVerification, lineSpan, noConsentCriterionLine, verification } from './gate-report-common.mjs';
+import { describeDialogs, harnessVerification, lineSpan, noConsentCriterionLine, redactScriptSha256, verification } from './gate-report-common.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -502,7 +502,7 @@ function main(argv) {
     runManifestPath: `${HERDR_RUNS_DIR}/${runManifestName}`,
     transcriptText,
     pinsCommit: git.status === 0 ? git.stdout.trim() : null,
-    redactSha256: createHash('sha256').update(readFileSync(join(HERE, 'redact.mjs'))).digest('hex'),
+    redactSha256: redactScriptSha256(),
     manifestJson: JSON.parse(committedFile(REPO, MANIFEST_PATH).bytes.toString('utf8')),
   });
   writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
@@ -511,7 +511,7 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (err) {

@@ -48,8 +48,8 @@
 // tools/herdr/, and never overwrites. Its Verification section (#252) is generated from the
 // run manifest for the recording agent to re-check.
 
+import { isMainModule } from './canonical-path.mjs';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,7 +63,7 @@ import { parseSections, committedFile } from './g1.mjs';
 import { CODEX_DAEMON_VERSION_FIELDS } from './pins.mjs';
 import { schemaBlockFor } from './g2-report.mjs';
 import {
-  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine, lineSpan,
+  SCORES, ReportError, check, cell, operatorRow, parseOperatorScores, parseReportArgs, writeTargets, verification, harnessVerification, reconstructionCallout, describeDialogs, noConsentCriterionLine, lineSpan, redactScriptSha256,
 } from './gate-report-common.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -798,7 +798,7 @@ function mainC13({ o, operatorScores, runDir, manifest, g5 }) {
   writeTargets(targets, report);
   if (publish) {
     const git = spawnSync('git', ['log', '-1', '--format=%H', '--', 'docs/planning/PINS.md'], { cwd: REPO, encoding: 'utf8', timeout: 10000 });
-    const entries = draftManifestEntries({ manifest, fixtures, runManifestPath: `${HERDR_RUNS_DIR}/${runManifestName}`, texts, pinsCommit: git.status === 0 ? git.stdout.trim() : null, redactSha256: createHash('sha256').update(readFileSync(join(HERE, 'redact.mjs'))).digest('hex'), manifestJson: JSON.parse(committedFile(REPO, MANIFEST_PATH).bytes.toString('utf8')), cases, note: C13_NOTE });
+    const entries = draftManifestEntries({ manifest, fixtures, runManifestPath: `${HERDR_RUNS_DIR}/${runManifestName}`, texts, pinsCommit: git.status === 0 ? git.stdout.trim() : null, redactSha256: redactScriptSha256(), manifestJson: JSON.parse(committedFile(REPO, MANIFEST_PATH).bytes.toString('utf8')), cases, note: C13_NOTE });
     writeFileSync(join(runDir, 'manifest-entries.draft.json'), `${JSON.stringify(entries, null, 2)}\n`);
   }
   console.log(`wrote ${targets.map(([t]) => t).join('\n      ')}`);
@@ -850,7 +850,7 @@ function main(argv) {
     runManifestPath: `${HERDR_RUNS_DIR}/${runManifestName}`,
     texts,
     pinsCommit: git.status === 0 ? git.stdout.trim() : null,
-    redactSha256: createHash('sha256').update(readFileSync(join(HERE, 'redact.mjs'))).digest('hex'),
+    redactSha256: redactScriptSha256(),
     manifestJson: JSON.parse(committedFile(REPO, MANIFEST_PATH).bytes.toString('utf8')),
     cases,
   });
@@ -860,7 +860,7 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (err) {

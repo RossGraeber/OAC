@@ -105,7 +105,13 @@ const SELECT_MARK_UNNUMBERED = /^[\s│|]*[❯›▶▸→]\s*(\S.*?)\s*[│|]*\
 //   footer    the kind's own footer pattern (default: DEFAULT_FOOTER); when set, a read
 //             without it is refused, and a selection marker below it counts;
 //   body      the question paragraph between the detect line and the options, verbatim: the
-//             pane must show it whole or as a prefix ending in "…";
+//             pane must show it whole or as a prefix ending in "…"; or (#303) a RegExp the
+//             whole paragraph, whitespace collapsed, must match (a body naming versions);
+//   optionDetail  (#303, numbered kinds) an array parallel to `options`: a RegExp for the
+//             detail an option shows after its label and one space (Codex's update prompt:
+//             "Update now (runs `<command>`)"), or null. A detail wrapped onto unnumbered,
+//             deeper-indented lines is joined back while it is incomplete. The option still
+//             counts by its label; a detail that does not match leaves it off record;
 //   note      an optional block above the question: if shown, it must be exactly this text;
 //   refuse    the driver never answers this kind, and this is why (#204: Codex's startup
 //             hook review is the operator's consent decision). planDriverAccept refuses it
@@ -268,14 +274,41 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
   // A numbered kind (#199) has body text at the options' column above them (Codex's wrapped
   // "Trust this folder? …" paragraph); there, only a numbered line before the options is one.
   const optionCol = def.numbered ? null : (parsed.find((p) => p.selected)?.col ?? null);
+  // #303: a numbered kind with `optionDetail` (Codex's update prompt) shows an option as its
+  // recorded label plus a detail that varies by machine ("Update now (runs `<command>`)"), and
+  // the TUI wraps a long detail onto unnumbered, unmarked lines indented past the option's
+  // text. Such lines are joined onto that option while its detail is still incomplete, and
+  // only then; the option is then matched on its label and its detail pattern.
+  if (def.numbered && def.optionDetail) {
+    for (let i = 0; i < parsed.length; i += 1) {
+      const p = parsed[i];
+      if (p.num === undefined || !p.body) continue;
+      const idx = def.options.findIndex((o, n) => def.optionDetail[n] && p.body.startsWith(`${o} `));
+      if (idx === -1) continue;
+      const detailOf = (b) => b.slice(def.options[idx].length + 1);
+      while (!def.optionDetail[idx].test(detailOf(p.body)) && i + 1 < parsed.length) {
+        const q = parsed[i + 1];
+        if (q.num !== undefined || q.selected || !q.body || q.col <= p.col) break;
+        p.body = `${p.body} ${q.body}`;
+        parsed.splice(i + 1, 1);
+      }
+    }
+  }
+  const detailLabel = (b) => {
+    if (!def.optionDetail) return null;
+    const idx = def.options.findIndex((o, n) => def.optionDetail[n] && b.startsWith(`${o} `) && def.optionDetail[n].test(b.slice(o.length + 1)));
+    return idx === -1 ? null : { text: def.options[idx], detail: b.slice(def.options[idx].length + 1) };
+  };
   let inOptions = false;
   const bodyLines = [];
   for (const p of parsed) {
     if (p.selected) marked += 1;
     if (!p.body) continue;
-    const known = def.options.includes(p.body);
+    const withDetail = p.num !== undefined ? detailLabel(p.body) : null;
+    const known = def.options.includes(p.body) || !!withDetail;
     if (known || p.selected) inOptions = true;
-    if (known) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected, mark: p.mark });
+    if (withDetail) found.push({ text: withDetail.text, detail: withDetail.detail, number: Number(p.num), selected: p.selected, mark: p.mark });
+    else if (known) found.push({ text: p.body, number: p.num === undefined ? null : Number(p.num), selected: p.selected, mark: p.mark });
     else if (inOptions || p.num !== undefined || (optionCol !== null && p.col === optionCol)) unknown.push(p.body);
     else bodyLines.push(p.body);
   }
@@ -314,6 +347,9 @@ export function dialogOptions(text, kind, dialogKinds = DIALOG_KINDS) {
 
 function bodyMatches(lines, recorded) {
   let t = lines.join(' ').replace(/\s+/g, ' ').trim();
+  // #303: a recorded body with a variable part (Codex's update prompt names two versions) is a
+  // whole-text pattern; it has no truncated form.
+  if (recorded instanceof RegExp) return recorded.test(t);
   if (t === recorded) return true;
   if (!t.endsWith('…')) return false;
   t = t.slice(0, -1).trimEnd();

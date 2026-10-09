@@ -27,7 +27,9 @@
 //! ([IFC-ADP-010]), the no-polling assertion of `docs/planning/v0.1/09-test-strategy.md`
 //! §5 (named test `contract/adapter/no-polling`, under [IFC-ADP-040]), the never-steer and
 //! holding hand-off rules ([SEC-AUZ-022], [SEC-AUZ-025] to [SEC-AUZ-027]; for the Codex
-//! profile [MCPB-CDX-002] to [MCPB-CDX-005]), [IFC-NEU-002], and the adapter halves of
+//! profile [MCPB-CDX-002] to [MCPB-CDX-005]), the outcome a binding gives a harness's
+//! refusal ([SC-DLV-009] for the Codex profile, `spec/bindings/mcp.md` §8.2.1; see
+//! [`Profile::turned_away_code`]), [IFC-NEU-002], and the adapter halves of
 //! [IFC-TYP-090] to [IFC-TYP-092]. "Routes through core policy rather than straight to a
 //! transport" is asserted twice: every harness request must reach the core's request sink
 //! ([IFC-ADP-003]), and the adapter's source must not reach a transport, sign or verify, or
@@ -185,6 +187,12 @@ pub struct Profile {
     pub steering_operations: &'static [&'static str],
     /// Binding rules, as (requirement id, rule).
     pub rules: &'static [(&'static str, Rule)],
+    /// The code the binding gives the refusal that [`AdapterHarness::refuse_hand_offs`]
+    /// makes the harness answer, when the harness can refuse a hand-off call at all. The
+    /// suite checks the adapter's outcome for that refusal against it through Table 5.3 of
+    /// `spec/interfaces.md` ([`HandOffOutcome::recorded`]): `handoff-failed`
+    /// ([SC-DLV-009]) or `destination-unavailable` ([SC-DLV-008]).
+    pub turned_away_code: Option<ErrorCode>,
 }
 
 /// What an adapter under test supplies: the adapter, wired to a fake harness.
@@ -215,7 +223,9 @@ pub trait AdapterHarness {
     /// Release everything the harness holds and let every turn end.
     fn drain(&mut self, s: usize) -> Step<()>;
 
-    /// Make the harness turn away the next hand-off call, as unable to take input.
+    /// Make the harness turn away the next hand-off call, with the refusal that
+    /// [`Profile::turned_away_code`] classifies (a Codex harness: the recorded archived
+    /// refusal, through [`codex::CodexFake::set_archived`]).
     fn refuse_hand_offs(&mut self, s: usize) -> Step<()>;
 
     /// Undo [`AdapterHarness::refuse_hand_offs`].
@@ -938,12 +948,48 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                     Verdict::Pass(format!("{} for a turned-away hand-off", out.as_str()))
                 }
             });
+            // The binding names the refusal's code; the adapter's outcome must map to it
+            // through Table 5.3. For the Codex profile the refusal is the recorded archived
+            // one, which spec/bindings/mcp.md §8.2.1 classifies `handoff-failed`
+            // ([SC-DLV-009]), not "cannot take input now" ([SC-DLV-008]): an adapter that
+            // reports `not-now` for it passes every other row (#347).
+            check!(ctx, "SC-DLV-009", "refusal-reported-as-binding-says", {
+                match profile.turned_away_code {
+                    None => Verdict::NotApplicable(format!(
+                        "the {} binding gives the harness's refusal no code",
+                        profile.name
+                    )),
+                    Some(want) => {
+                        let got = out.recorded().1;
+                        if got == Some(want) {
+                            Verdict::Pass(format!(
+                                "{} ({}) for the refusal the binding classifies {}",
+                                out.as_str(),
+                                want.as_str(),
+                                want.as_str()
+                            ))
+                        } else {
+                            Verdict::Fail(format!(
+                                "{} ({}) for a refusal the binding classifies {}",
+                                out.as_str(),
+                                got.map_or("no code", ErrorCode::as_str),
+                                want.as_str()
+                            ))
+                        }
+                    }
+                }
+            });
         }
         Err(g) => {
             let why = format!("the fake harness cannot turn a hand-off away: {g}");
             ctx.row(
                 "SEC-AUZ-027",
                 "turned-away-makes-no-other-call",
+                Verdict::NotApplicable(why.clone()),
+            );
+            ctx.row(
+                "SC-DLV-009",
+                "refusal-reported-as-binding-says",
                 Verdict::NotApplicable(why),
             );
         }

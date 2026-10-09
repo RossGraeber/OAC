@@ -45,6 +45,11 @@
 //       included, and so is any index (`x[..]`): a value reaches a script through `env:`
 //       and a shell variable (`"$X"`), never pasted in. Step outputs are refused rather
 //       than tracked for taint.
+//   W6  no cargo source override (PR #352 third review finding 3): no `--config` flag, no
+//       `CARGO_HOME`, and no `CARGO_SOURCE_*` or `CARGO_PATCH*` variable, outside a comment.
+//       The dependency checks (scripts/check-crate-deps.mjs, the adapter contract suite)
+//       trust CI's cargo command lines and environment; any of these can swap a crate's
+//       source behind them, so adding one is a reviewed change to this rule.
 // Default-tier workflows (any trigger other than workflow_dispatch: a `schedule` runs
 // unattended, with no opt-in, so it is the default tier too, oac-testing section 2; the
 // herdr opt-in workflow is the exception, with its own stricter rules in
@@ -53,10 +58,18 @@
 //       routed through a matrix fails too (check 9 also refuses every runner label in any
 //       workflow but the herdr one);
 //   D2  no opt-in switch: no `--ignored` / `--include-ignored` test run, no OAC_TEST_*
-//       opt-in variable, no tools/herdr driver;
+//       opt-in variable, no tools/herdr driver. One exception (#345): a `run:` line that is
+//       exactly `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the driver's
+//       offline self-test against its test doubles (no harness; check 9 holds the same line),
+//       and only when the structural reader's whole `run:` value is exactly that command
+//       (a folded continuation, or a block, quoted or flow form, fails: PR #349 B1), in a
+//       step with no env:, working-directory:, second run: or shell other than bash, under
+//       no job env:/defaults:/container:/services:, workflow defaults: or non-CARGO_*
+//       workflow env: (#353). Out of reach of any static check: an earlier step writing
+//       NODE_OPTIONS or LOOPBACK_ONLY to $GITHUB_ENV (ci.yml itself sets LOOPBACK_ONLY so);
 //   D3  no harness CLI install (the Claude Code or Codex npm packages, `codex`/`claude`
 //       installers).
-// Opt-in workflows (workflow_dispatch only) may use D1-D3; W0-W5 still hold.
+// Opt-in workflows (workflow_dispatch only) may use D1-D3; W0-W6 still hold.
 //
 // Two readers, both failing closed. The structural one parses the YAML into mappings,
 // sequences and scalars for W0-W3, the `if:` part of W4 and W5; a workflow whose `on:` or
@@ -86,6 +99,14 @@ const OPT_IN_TRIGGERS = new Set(['workflow_dispatch']);
 
 const SHA_PIN = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/;
 const CREDENTIAL = /ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|CODEX_API_KEY|OPENAI_ORG|\bGITHUB_TOKEN\b|\bauth\.json\b|\.credentials\.json/i;
+// W6 (PR #352 third review finding 3): what the dependency checks trust. A cargo `--config`
+// flag, a redirected CARGO_HOME, or a CARGO_SOURCE_* / CARGO_PATCH* variable can swap a
+// crate's source outside every manifest and tracked cargo configuration file.
+const CARGO_OVERRIDE = [
+  { re: /(?:^|[^\w-])--config\b/, msg: 'cargo --config flag' },
+  { re: /\bCARGO_HOME\b/i, msg: 'CARGO_HOME set or read' },
+  { re: /\bCARGO_(?:SOURCE|PATCH)\w*/i, msg: 'CARGO_SOURCE_* or CARGO_PATCH* variable' },
+];
 const EXPRESSION_RULES = [
   { re: /\bsecrets\b/i, msg: 'secrets context in an expression' },
   { re: /\bgithub\s*\.\s*token\b/i, msg: 'github.token in an expression' },
@@ -128,6 +149,70 @@ const SECRETS_INHERIT = /\bsecrets\s*:\s*['"]?inherit\b/i;
 const PRIVILEGED_TRIGGER = /^(?:pull_request_target|workflow_run)$/;
 const SELF_HOSTED = /\bself-hosted\b/i;
 const OPT_IN_SWITCH = /--(?:include-)?ignored\b|\bOAC_TEST_[A-Z0-9_]+|tools[\\/]+herdr/;
+// #345: the one tools/herdr line the default tier may hold: a `run:` that is exactly the
+// driver's offline self-test (its test doubles only; it drives no harness), optionally behind
+// the loopback-only wrapper. Nothing else on the line, no other driver argument or entry
+// point, and not inside a run: block scalar. Kept in step with check 9's exception in
+// scripts/check-herdr-containment.mjs (DRIVER_SELFTEST_LINE there).
+const DRIVER_SELFTEST_LINE = /^\s*(?:-\s+)?run:\s+(?:\$LOOPBACK_ONLY\s+)?node\s+tools\/herdr\/run\.mjs\s+--self-test\s*$/;
+// PR #349 review B1: YAML folds a deeper-indented next line into a plain `run:` value, so the
+// physical line alone does not decide. A line is exempt only when ALL of these hold: it
+// matches DRIVER_SELFTEST_LINE (an unquoted plain value: no block indicator, quote or flow
+// collection); the next non-blank line (comments included) is not indented deeper than the
+// `run` key; and the structural reader's `run` pair whose key is on this line has a value
+// starting on this line that is exactly DRIVER_SELFTEST_COMMAND (the reader joins plain,
+// quoted and flow continuations, so any folded-in text breaks the match). A document the
+// reader cannot read (W0) gets no exemption.
+const DRIVER_SELFTEST_COMMAND = /^(?:\$LOOPBACK_ONLY )?node tools\/herdr\/run\.mjs --self-test$/;
+function continuesBelow(lines, i) {
+  const keyCol = lines[i].indexOf('run:');
+  for (let j = i + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '') continue;
+    return indentOf(lines[j]) > keyCol;
+  }
+  return false;
+}
+// #353 (PR #349 re-review hardening): nothing around the line may change what it runs. The
+// `run` pair must sit directly in a step of a job's `steps:` whose keys are only
+// SELFTEST_STEP_KEYS, each once (no `env:`, no `working-directory:`, no second `run:`), whose
+// `shell:`, if any, is exactly `bash`; the job has no `env:` or `defaults:`; the workflow has no
+// top-level `defaults:` and its top-level `env:` sets only CARGO_* names. YAML anchors, aliases
+// and merge keys are already W0 (the reader refuses them), and an unreadable document gets no
+// exemption. Kept in step with check 9 in scripts/check-herdr-containment.mjs.
+const SELFTEST_STEP_KEYS = new Set(['name', 'id', 'if', 'shell', 'run', 'timeout-minutes']);
+const SELFTEST_WORKFLOW_ENV = /^CARGO_[A-Z0-9_]+$/;
+function selftestStepOk(step, job, doc) {
+  const keys = step.pairs.map((p) => p.key);
+  if (new Set(keys).size !== keys.length || !keys.every((k) => SELFTEST_STEP_KEYS.has(k))) return false;
+  const shell = get(step, 'shell');
+  if (shell && !(shell.value.t === 'str' && shell.value.v === 'bash')) return false;
+  if (job?.t !== 'map' || new Set(job.pairs.map((p) => p.key)).size !== job.pairs.length || ['env', 'defaults', 'container', 'services'].some((k) => get(job, k))) return false;
+  if (new Set(doc.pairs.map((p) => p.key)).size !== doc.pairs.length || get(doc, 'defaults')) return false;
+  const env = get(doc, 'env')?.value;
+  if (env && !(env.t === 'map' && env.pairs.every((p) => SELFTEST_WORKFLOW_ENV.test(p.key))) && !(env.t === 'str' && env.v === '')) return false;
+  return true;
+}
+// The 1-based lines whose `run:` is exactly the driver self-test, as above.
+function driverSelftestLines(text, doc) {
+  const out = new Set();
+  if (doc?.t !== 'map') return out;
+  const lines = text.split(/\r?\n/);
+  const jobs = get(doc, 'jobs')?.value;
+  for (const j of jobs?.t === 'map' ? jobs.pairs : []) {
+    const steps = get(j.value, 'steps')?.value;
+    for (const step of steps?.t === 'seq' ? steps.items : []) {
+      if (step.t !== 'map') continue;
+      for (const p of step.pairs) {
+        if (p.key !== 'run' || p.value.t !== 'str' || p.value.line !== p.line || !DRIVER_SELFTEST_COMMAND.test(p.value.v)) continue;
+        if (!selftestStepOk(step, j.value, doc)) continue;
+        const i = p.line - 1;
+        if (DRIVER_SELFTEST_LINE.test(lines[i] ?? '') && !continuesBelow(lines, i)) out.add(p.line);
+      }
+    }
+  }
+  return out;
+}
+const optInSwitch = (line, n, exempt) => OPT_IN_SWITCH.test(line) && !(DRIVER_SELFTEST_LINE.test(line) && exempt.has(n));
 // The package names are spelled with a one-letter class so that oac-boundaries check 3
 // (no provider SDK name in the code tree) does not match this lint's own source.
 const HARNESS_INSTALL = /@anthropi[c]-ai\/claude-code|@open[a]i\/codex|\bclaude\.ai\/install|\b(?:npm|npx|pnpm|yarn|bun)\b[^\n]*\b(?:claude-code|codex)\b|\bbrew\s+install\b[^\n]*\b(?:codex|claude)\b/i;
@@ -625,12 +710,15 @@ function commonRules(text, defaultTier, hit) {
   scan.forEach((l, i) => {
     if (SECRETS_INHERIT.test(l)) hit('W4', i + 1, 'secrets: inherit');
     if (CREDENTIAL.test(l)) hit('W4', i + 1, 'provider or harness credential name');
+    const w6 = CARGO_OVERRIDE.find((r) => r.re.test(l));
+    if (w6) hit('W6', i + 1, `${w6.msg}: the dependency checks trust CI's cargo command lines and environment (G-7 section 5); this needs a reviewed rule change, not a workflow edit`);
   });
 
   if (defaultTier) {
+    const selftestExempt = driverSelftestLines(text, doc);
     scan.forEach((l, i) => {
       if (SELF_HOSTED.test(l)) hit('D1', i + 1, 'self-hosted runner in the default tier');
-      if (OPT_IN_SWITCH.test(l)) hit('D2', i + 1, 'opt-in switch in the default tier');
+      if (optInSwitch(l, i + 1, selftestExempt)) hit('D2', i + 1, 'opt-in switch in the default tier');
       if (HARNESS_INSTALL.test(l)) hit('D3', i + 1, 'harness CLI install in the default tier');
     });
   }
@@ -707,9 +795,10 @@ function checkWorkflow(name, text, readLocal = () => null) {
   // D1-D3 need the tier, known only now: run them over the workflow's own text again.
   if (defaultTier) {
     const { scan } = readLines(text);
+    const selftestExempt = driverSelftestLines(text, doc);
     scan.forEach((l, i) => {
       if (SELF_HOSTED.test(l)) hit('D1', i + 1, 'self-hosted runner in the default tier');
-      if (OPT_IN_SWITCH.test(l)) hit('D2', i + 1, 'opt-in switch in the default tier');
+      if (optInSwitch(l, i + 1, selftestExempt)) hit('D2', i + 1, 'opt-in switch in the default tier');
       if (HARNESS_INSTALL.test(l)) hit('D3', i + 1, 'harness CLI install in the default tier');
     });
   }
@@ -822,6 +911,10 @@ jobs:
 const withJob = (perm) => GOOD.replace('    runs-on:', `${perm}\n    runs-on:`);
 const withStep = (step) => GOOD.replace('      - run: cargo test', `${step}\n      - run: cargo test`);
 const withJobs = (jobs) => GOOD.replace(/jobs:\n[\s\S]*$/, `jobs:\n${jobs}\n`);
+// #353: the exempt herdr self-test step as ci.yml writes it, with optional extra lines (no
+// trailing newline, for withStep).
+const SELFTEST_STEP = ({ shell = '        shell: bash\n', before = '', after = '' } = {}) =>
+  `      - name: herdr self-test\n${shell}${before}        run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n${after}`.replace(/\n$/, '');
 const ACTION_GOOD = `name: setup
 runs:
   using: composite
@@ -924,6 +1017,15 @@ const CASES = [
   ['W5 event text in a step shell: (N-c)', 'x.yml', withStep('      - shell: bash -c "${{ github.event.issue.title }} {0}"\n        run: true'), ['W5']],
   ['W5 event text in defaults.run.shell (N-c)', 'x.yml', GOOD.replace('jobs:\n  test:\n', 'defaults:\n  run:\n    shell: "${{ github.head_ref }} {0}"\njobs:\n  test:\n'), ['W5']],
   ['control: allowlisted expressions in run:', 'x.yml', withStep("      - run: |\n          echo \"${{ runner.os }} ${{ runner.temp }} ${{ github.sha }} ${{ github.run_id }}\"\n          echo \"${{ steps.s.outcome == 'success' && 'yes' || 'no' }} ${{ format('{0}-x', runner.os) }}\"\n          echo \"${{ hashFiles('Cargo.lock') }} ${{ 3 }} ${{ true }} ${{ 'it''s env.X, a string' }}\""), []],
+  // PR #352 third review finding 3: W6, cargo source overrides in CI.
+  ['W6 cargo --config source replacement in run:', 'x.yml', GOOD.replace('cargo test --workspace #', "cargo --config 'source.crates-io.replace-with=\"v\"' test --workspace #"), ['W6']],
+  ['W6 --config= form in a run: block', 'x.yml', GOOD.replace('          echo done', '          cargo test --config=patch.crates-io.tokio.path=\\"x\\"'), ['W6']],
+  ['W6 CARGO_HOME in a job env:', 'x.yml', withJob('    env:\n      CARGO_HOME: ${{ github.workspace }}/h'), ['W6']],
+  ['W6 CARGO_HOME exported in a script', 'x.yml', GOOD.replace('          echo done', '          export CARGO_HOME="$PWD/h"'), ['W6']],
+  ['W6 CARGO_SOURCE_* in a step env:', 'x.yml', withStep('      - env:\n          CARGO_SOURCE_CRATES_IO_REPLACE_WITH: v\n        run: true'), ['W6']],
+  ['W6 CARGO_PATCH* in a step env: (lower case)', 'x.yml', withStep('      - env:\n          cargo_patch_crates_io_tokio_path: x\n        run: true'), ['W6']],
+  ['W6 CARGO_HOME inside a local action', 'x.yml', withStep('      - uses: ./.github/actions/setup'), ['W6'], { './.github/actions/setup': `${ACTION_GOOD}    - shell: bash\n      run: echo "CARGO_HOME=/tmp/h" >> "$GITHUB_ENV"\n` }],
+  ['control: --configure and a comment naming CARGO_HOME are not W6', 'x.yml', GOOD.replace('          echo done', '          ./x --configure-only').replace('# Default tier.', '# Default tier; CARGO_HOME is never set.'), []],
   ['control: matrix.* through env: and a plain shell:', 'x.yml', withStep('      - shell: bash\n        env:\n          OS: ${{ matrix.os }}\n        run: echo "$OS"'), []],
   ['W0 an anchor after a tag', 'x.yml', withStep('      - env:\n          T: !!str &t echo hi\n        run: true'), ['W0']],
   // PR #336 review B4: anchors, aliases and merge keys are refused (W0).
@@ -941,6 +1043,47 @@ const CASES = [
   ['D2 --ignored inside a run: block', 'x.yml', GOOD.replace('          echo done', '          cargo test -- --include-ignored'), ['D2']],
   ['D2 OAC_TEST_ flag in the default tier', 'x.yml', withStep('      - env:\n          OAC_TEST_REAL_KEYRING: "1"\n        run: true'), ['D2']],
   ['D2 herdr driver in the default tier', 'x.yml', GOOD.replace('cargo test --workspace', 'node tools/herdr/ci.mjs run'), ['D2']],
+  // #345: only the exact offline self-test line is allowed.
+  ['control: the herdr driver self-test line (#345)', 'x.yml', withStep('      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test'), []],
+  ['control: the herdr driver self-test line, no wrapper (#345)', 'x.yml', withStep('      - shell: bash\n        run: node tools/herdr/run.mjs --self-test'), []],
+  ['D2 the driver with a scenario beside --self-test (#345)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --self-test --scenario smoke'), ['D2']],
+  ['D2 the driver run with a scenario (#345)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --scenario g2-codex-inject'), ['D2']],
+  ['D2 the self-test chained to another driver call (#345)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --self-test && node tools/herdr/ci.mjs run'), ['D2']],
+  ['D2 the self-test line inside a run: block (#345)', 'x.yml', GOOD.replace('          echo done', '          node tools/herdr/run.mjs --self-test'), ['D2']],
+  ['D2 the self-test of another driver entry point (#345)', 'x.yml', withStep('      - run: node tools/herdr/ci.mjs --self-test'), ['D2']],
+  // #353 (PR #349 re-review): the exempt step, its job or the workflow changes what the line
+  // runs. check 9 in scripts/check-herdr-containment.mjs plants the same set.
+  ['control: the ci.yml shape keeps its exemption (#353)', 'x.yml', withStep(SELFTEST_STEP()), []],
+  ['D2 step env: overrides LOOPBACK_ONLY (#353)', 'x.yml', withStep(SELFTEST_STEP({ before: "        env:\n          LOOPBACK_ONLY: sh -c 'echo x' --\n" })), ['D2']],
+  ['D2 step env: sets NODE_OPTIONS (#353)', 'x.yml', withStep(SELFTEST_STEP({ before: '        env:\n          NODE_OPTIONS: --require ./x.js\n' })), ['D2']],
+  ['D2 step working-directory: (#353)', 'x.yml', withStep(SELFTEST_STEP({ before: '        working-directory: vendor/other\n' })), ['D2']],
+  ['D2 shell: node {0} (#353)', 'x.yml', withStep(SELFTEST_STEP({ shell: '        shell: node {0}\n' })), ['D2']],
+  ['D2 shell: sh (#353)', 'x.yml', withStep(SELFTEST_STEP({ shell: '        shell: sh\n' })), ['D2']],
+  ['D2 shell: bash with its own arguments (#353)', 'x.yml', withStep(SELFTEST_STEP({ shell: '        shell: bash --rcfile ./x.sh {0}\n' })), ['D2']],
+  ['D2 a second run: key after the exempt one (#353)', 'x.yml', withStep(SELFTEST_STEP({ after: '        run: echo replaced\n' })), ['D2']],
+  ['D2 a second run: key before the exempt one (#353)', 'x.yml', withStep(SELFTEST_STEP({ before: '        run: echo first\n' })), ['D2']],
+  ['D2 a uses: on the exempt step (#353)', 'x.yml', withStep(SELFTEST_STEP({ before: '        uses: ./.github/actions/setup\n' })), ['D2'], SETUP],
+  ['D2 job env: (#353)', 'x.yml', withJob('    env:\n      NODE_OPTIONS: --require ./x.js').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
+  ['D2 job defaults: run: working-directory (#353)', 'x.yml', withJob('    defaults:\n      run:\n        working-directory: vendor').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
+  ['D2 job container: (#353 review)', 'x.yml', withJob('    container: node:20').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
+  ['D2 job services: (#353 review)', 'x.yml', withJob('    services:\n      x:\n        image: alpine').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['D2']],
+  ['D2 workflow defaults: run: shell (#353)', 'x.yml', withStep(SELFTEST_STEP()).replace('jobs:\n  test:\n', 'defaults:\n  run:\n    shell: sh\njobs:\n  test:\n'), ['D2']],
+  ['D2 workflow env: BASH_ENV (#353)', 'x.yml', withStep(SELFTEST_STEP()).replace('jobs:\n  test:\n', 'env:\n  BASH_ENV: ./x.sh\njobs:\n  test:\n'), ['D2']],
+  ['control: a CARGO_* workflow env keeps the exemption (#353)', 'x.yml', withStep(SELFTEST_STEP()).replace('jobs:\n  test:\n', 'env:\n  CARGO_TERM_COLOR: always\njobs:\n  test:\n'), []],
+  ['D2 a YAML anchor elsewhere in the workflow (#353)', 'x.yml', withStep(SELFTEST_STEP()).replace('jobs:\n  test:\n', 'env:\n  CARGO_X: &x echo hi\njobs:\n  test:\n'), ['W0', 'D2']],
+  ['D2 a YAML alias step after the exempt one (#353)', 'x.yml', withStep(`${SELFTEST_STEP()}\n      - run: *x`).replace('jobs:\n  test:\n', 'env:\n  CARGO_X: &x echo hi\njobs:\n  test:\n'), ['W0', 'D2']],
+  ['D2 a YAML alias as a sequence item (#353)', 'x.yml', withStep(`${SELFTEST_STEP()}\n      - *s`), ['W0', 'D2']],
+  ['D2 a YAML merge key in the job (#353)', 'x.yml', withJob('    <<: { env: { NODE_OPTIONS: x } }').replace('      - run: cargo test', `${SELFTEST_STEP()}\n      - run: cargo test`), ['W0', 'D2']],
+  // PR #349 review B1: text YAML folds into the exempt line's value, or a line inside another
+  // scalar that looks like the exempt line. Each passed the single-line check alone.
+  ['D2 a plain continuation line folds a scenario into the self-test (PR #349 B1)', 'x.yml', withStep('      - run: node tools/herdr/run.mjs --self-test\n          --scenario g2-codex-inject'), ['D2']],
+  ['D2 a continuation after a blank line (PR #349 B1)', 'x.yml', withStep('      - run: $LOOPBACK_ONLY node tools/herdr/run.mjs --self-test\n\n          --scenario smoke'), ['W0', 'D2']],
+  ['D2 a continuation under a key-form run: (PR #349 B1)', 'x.yml', withStep('      - shell: bash\n        run: node tools/herdr/run.mjs --self-test\n          --scenario smoke'), ['D2']],
+  ['D2 the line inside a | block scalar (PR #349 B1)', 'x.yml', withStep('      - run: |\n          run: node tools/herdr/run.mjs --self-test\n          echo next'), ['D2']],
+  ['D2 the line inside a > block scalar (PR #349 B1)', 'x.yml', withStep('      - run: >\n          run: node tools/herdr/run.mjs --self-test'), ['D2']],
+  ['D2 the line inside a multi-line double-quoted scalar (PR #349 B1)', 'x.yml', withStep('      - run: "echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke"'), ['D2']],
+  ["D2 the line inside a multi-line single-quoted scalar (PR #349 B1)", 'x.yml', withStep("      - run: 'echo start\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke'"), ['D2']],
+  ['D2 the line inside a multi-line flow mapping (PR #349 B1)', 'x.yml', withStep('      - { name: x,\n          run: node tools/herdr/run.mjs --self-test\n          --scenario smoke }'), ['D2']],
   // PR #336 review B5: a schedule runs unattended, so it is the default tier.
   ['D2 D3 a schedule-only workflow is the default tier', 'x.yml', `name: s\non: { schedule: [ { cron: '0 * * * *' } ] }\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm install -g @open${'ai'}/codex && cargo test -- --include-ignored && OAC_TEST_REAL=1 node tools/herdr/ci.mjs run\n`, ['D2', 'D3']],
   ['D2 a schedule with workflow_dispatch is still the default tier', 'optin.yml', OPTIN.replace('  workflow_dispatch:', "  schedule:\n    - cron: '0 5 * * 1'\n  workflow_dispatch:"), ['D2', 'D2']],

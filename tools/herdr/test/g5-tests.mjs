@@ -518,7 +518,9 @@ export function g5Cases(check) {
     const server = trace.filter((t) => t.script && /[\\/]g5-server[\\/]g5-channel\.mjs$/.test(t.script));
     const hashed = new Set(['config.toml', 'hooks.json'].flatMap((n) => [join(r.env.CODEX_HOME, n), join(realpathSync(r.env.CODEX_HOME), n)]).concat([join(r.env.CLAUDE_CONFIG_DIR, 'settings.json'), join(realpathSync(r.env.CLAUDE_CONFIG_DIR), 'settings.json')]));
     check('g5 trace: the tracer saw the driver, the client and the server', driver.length > 50 && client.length > 0 && server.length > 0, `${driver.length} ${client.length} ${server.length}`);
-    check('g5 trace: the driver read nothing under either home beyond the harness-config hashes, and wrote nothing there', driver.filter(underHome).every((t) => t.kind === 'fs' && hashed.has(t.path)), JSON.stringify([...new Set(driver.filter(underHome).filter((t) => !hashed.has(t.path)).map((t) => `${t.op} ${t.path}`))]));
+    // #353: realpath of a home's own directory entry (executableIdentity canonicalizes it) reads nothing inside it.
+    const homeEntry = (t) => t.kind === 'fs' && /^(?:realpath|stat)(?:Sync)?$/.test(t.op) && homes.some((h) => resolve(h) === resolve(t.path));
+    check('g5 trace: the driver read nothing under either home beyond the harness-config hashes, and wrote nothing there', driver.filter(underHome).every((t) => (t.kind === 'fs' && hashed.has(t.path)) || homeEntry(t)), JSON.stringify([...new Set(driver.filter(underHome).filter((t) => !hashed.has(t.path) && !homeEntry(t)).map((t) => `${t.op} ${t.path}`))]));
     check('g5 trace: the client and the server opened nothing under either home', client.filter(underHome).length === 0 && server.filter(underHome).length === 0);
     check('g5 trace: the client started only `codex app-server proxy`; the server started nothing', client.filter((t) => t.kind === 'spawn').every((t) => t.file === 'codex' && JSON.stringify(t.args) === '["app-server","proxy"]') && client.some((t) => t.kind === 'spawn') && server.every((t) => t.kind !== 'spawn'));
 
