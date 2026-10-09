@@ -585,6 +585,12 @@ already fixed — each closed its own conflict as `RESOLVED-IN-DECISION` instead
 below), explicitly declining to issue `A4`. `A4` remains the next number a future
 amendment would take, and is not issued by this file.
 
+*Dated note, 2026-10-09 (payload sealing, the lead's ruling on PR #364):* `ADR-001-A4` is
+proposed in `docs/planning/ADR-001-AMENDMENTS.md`. It narrows the "full E2E encryption"
+deferral of ADR-001's "v0.1 scope" to what per-recipient payload sealing
+(`spec/security.md` §14) does not cover. It is in force from the lead's merge of its pull
+request; the next free number is then `A5`.
+
 Every quotation below is copied from `docs/planning/ADR-001-AMENDMENTS.md`, not
 independently re-fetched from `ADR-001.md` — per this file's own Generated-summary
 notice: the amendments ledger is authoritative for this verbatim text.

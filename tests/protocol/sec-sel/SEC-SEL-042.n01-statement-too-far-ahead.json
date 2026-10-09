@@ -1,0 +1,40 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-042",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "issued_at too far ahead",
+  "description": "Bob's statement issued 300 seconds ahead of the consumer's clock is refused: a statement from the future cannot block every later one.",
+  "stage": "agreement",
+  "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ]
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+      "seq": 1,
+      "issued_at": "2026-10-09T13:05:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "ropLIA-TJ6Iid_Z8-KE1NaniH6QwQl3HTuPi5GrusSQOpxwSSy1-Cy6uYVXy7ApOXL8QFXxndF58CUv3yoFpBA"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}

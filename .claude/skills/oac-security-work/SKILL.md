@@ -114,7 +114,9 @@ Security principal -> Device -> Harness -> Session
 A session's authority derives from this chain, not from anything the message content
 claims. Security layers named in ADR-001: authenticated/encrypted transport, default-deny
 ACL/policy, cryptographic message authenticity, replay protection, optional later E2E
-encryption.
+encryption. ADR-001-A4 (proposed; in force once the lead merges it) adds per-recipient payload
+sealing on every transport that declares it (`spec/security.md` §14): sealing hides content,
+never authenticates, and is no substitute for the signature.
 
 **Default-deny is the standing posture.** DESIGN "Security": "Default deny." Any new
 routing rule, ACL subject, or authorization path an agent adds must start denied and be

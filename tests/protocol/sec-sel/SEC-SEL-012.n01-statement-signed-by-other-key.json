@@ -1,0 +1,45 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-012",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "signature by another trusted key",
+  "description": "A statement that names Bob's key id but is signed by Mallory's key is refused.",
+  "stage": "agreement",
+  "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      },
+      {
+        "principal": "principal-m",
+        "key_id": "f9d705129917c4e5e0735c6d9b2fbe75e185a91df3eb643b107fe3711d9c954b",
+        "public_key": "ect6X1av62gGwcrcQ_oDwMA6T2NyTMflmuCuoqEklFM"
+      }
+    ]
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+      "seq": 1,
+      "issued_at": "2026-10-09T12:00:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "GJalsrTzZdBEBkcm2IdIZ0ycGHhg0C8ExblkNvEUpCZz31jc9P4YRSMR3ft6KgNDtoenrIDL5nc4K3-IP1BZAg"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}
