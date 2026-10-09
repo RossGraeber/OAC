@@ -965,6 +965,42 @@ fn a_doctest_that_includes_a_harness_is_caught() {
     std::fs::remove_dir_all(&t).unwrap();
 }
 
+#[test]
+fn an_aliased_include_of_a_harness_is_caught() {
+    // The sixth review's E1 plant: an adapter test file aliases `include` and loads a
+    // harness from a non-.rs file outside adapters/, which the name rule does not read.
+    let notes = "#[test]\nfn hidden() {\n    let _run = oac_contract_adapter::run as fn(&mut dyn oac_contract_adapter::AdapterHarness) -> oac_contract_adapter::Report;\n}\n";
+    let t = scratch_repo(
+        "harness-location-e1",
+        &[
+            (
+                "adapters/codex/Cargo.toml",
+                "[package]\nname = \"oac-adapter-codex\"\n\n[dev-dependencies]\noac-contract-adapter = { path = \"../../tests/protocol/contract/adapter\" }\n",
+            ),
+            (
+                "adapters/codex/tests/notes.rs",
+                "use std::include as notes;\nnotes!(\"../../../docs/zz/notes.txt\");\n",
+            ),
+            ("docs/zz/notes.txt", notes),
+        ],
+        &[
+            "adapters/codex/Cargo.toml",
+            "adapters/codex/tests/notes.rs",
+            "docs/zz/notes.txt",
+        ],
+    );
+    let bad = tree_findings(&t, Some("target"), &[]);
+    assert!(
+        bad.iter()
+            .any(|b| b.starts_with("adapters/codex/tests/notes.rs: the identifier `include`")),
+        "{bad:#?}"
+    );
+    // The included file itself sits outside adapters/ and is not .rs, so only the word
+    // rule on the including file catches the route.
+    assert!(!bad.iter().any(|b| b.starts_with("docs/")), "{bad:#?}");
+    std::fs::remove_dir_all(&t).unwrap();
+}
+
 // ---- the file rules -----------------------------------------------------------------------
 
 /// Where a file sits, for the rules.
@@ -1044,6 +1080,17 @@ fn hiding_shapes(text: &str) -> Vec<String> {
     for m in ["include!", "include_str!", "include_bytes!"] {
         if d.contains(m) {
             found.push(m.to_owned());
+        }
+    }
+    // The identifiers themselves, as whole words, so an alias (`use std::include as x;`)
+    // or a path form (`std::include!`) is refused too: the word rule `source.rs` applies to
+    // adapter `src/` (PR #355 sixth review, E1). Its cost is the same: a binding may not be
+    // named `include`, `include_str` or `include_bytes`, even in a comment.
+    for w in ["include", "include_str", "include_bytes"] {
+        if has_word(text, w) {
+            found.push(format!(
+                "the identifier `{w}`, which can load a file under any alias"
+            ));
         }
     }
     let attrs = d.match_indices("#[").chain(d.match_indices("#!["));
@@ -1286,6 +1333,25 @@ fn the_file_rules_catch_each_planted_shape() {
             Scope::AdapterOther,
             "use oac_contract_adapter::AdapterHarness;",
         ),
+        // The sixth review's E1: an aliased include, in each scope it reaches.
+        (
+            Scope::AdapterTest,
+            "use std::include as notes;\nnotes!(\"../../../docs/zz/notes.txt\");",
+        ),
+        (Scope::AdapterTest, "std::include ! (\"../h.txt\");"),
+        (
+            Scope::Harness,
+            "use std::include_str as text;\nconst T: &str = text!(\"h.txt\");",
+        ),
+        (
+            Scope::AdapterOther,
+            "use std::include_str as text;\n#[doc = text!(\"../n.md\")]\npub fn f() {}",
+        ),
+        (
+            Scope::Listed,
+            "use core::include_bytes as b;\nstatic B: &[u8] = b!(\"h.bin\");",
+        ),
+        (Scope::Listed, "use std::{include as i};"),
         // The fifth review's D1: a doctest in a doc comment.
         (
             Scope::AdapterOther,

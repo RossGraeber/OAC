@@ -59,7 +59,10 @@ harness.
   `AdapterHarness` or `oac_contract_adapter`, or reaches `run`. No other file outside this
   crate and the listed packages names either.
 - **Shapes that could hide a harness.** The harness file and an adapter's other test files
-  hold no `self as` import, `macro_rules!`, `include!` (any form) or `#[path]`. The harness
+  hold no `self as` import, `macro_rules!`, `include!` (any form) or `#[path]`. They also
+  hold no identifier `include`, `include_str` or `include_bytes` as a whole word, which
+  refuses an aliased include (`use std::include as x;`), as `source.rs`'s word rule does
+  for adapter `src/`. This applies to adapter `src/` files and to listed packages too. The harness
   file also holds no file module (`mod x;`) and no glob or renamed import, so it reads as
   one file.
 - **What a listed package may do.** It may name `AdapterHarness` to drive the fakes'
