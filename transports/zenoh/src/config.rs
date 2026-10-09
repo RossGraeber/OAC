@@ -4,7 +4,7 @@
 //! configuration built from it inside this crate.
 //!
 //! Local mode only (C7 §5): in-process sessions, every listener bound to `127.0.0.1`, no
-//! separate router process (`zenohd`), and **no multicast scouting and no gossip**. Peers
+//! separately run router daemon, and **no multicast scouting and no gossip**. Peers
 //! meet at a fixed loopback rendezvous port. The first transport to start listens on it, in
 //! Zenoh's router mode inside this process, and relays between the others. Every later
 //! transport is a peer that connects to it alone, and reconnects to the port if that link

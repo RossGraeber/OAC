@@ -30,7 +30,7 @@
 //! `docs/planning/decisions/C7-zenoh-transport.md` §3 designed, as built.
 //!
 //! **Local mode: loopback only, fail closed.** One Zenoh session per started transport,
-//! in-process; no separate router process (`zenohd`, C7 §5). Every listener is bound to
+//! in-process; no separately run router daemon (C7 §5). Every listener is bound to
 //! `127.0.0.1`. Multicast scouting and gossip are **off**: transports meet at a fixed
 //! loopback rendezvous port ([`PeerConfiguration::local`] uses [`DEFAULT_RENDEZVOUS_PORT`];
 //! [`PeerConfiguration::rendezvous`] names another). The first transport to start listens
