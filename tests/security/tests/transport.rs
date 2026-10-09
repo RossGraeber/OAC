@@ -187,3 +187,16 @@ fn row09_a_payload_from_any_endpoint_is_judged_by_its_signature_alone() {
     let second = net.deliver_all(&mut bob);
     assert_eq!(second[0].state, DeliveryState::Duplicate);
 }
+
+/// `spec/security.md` §13 "Reading payloads on a shared transport", "Agreement-key
+/// substitution" and "Clear-text fallback": every payload on a sealing transport is sealed to
+/// its recipient device's admitted agreement key, opens only there, and is never passed or
+/// taken unsealed (`spec/security.md` §14; `spec/interfaces.md` §6.10). Gated: the core does
+/// not seal yet, and no transport declares `sealing`.
+#[test]
+#[ignore = "GATED on #62 (G1, the core's payload sealing and a sealing transport)"]
+fn gated_s13_payloads_on_a_sealing_transport_open_only_for_their_recipient() {
+    std::panic!(
+        "GATED on #62: three devices on one sealing transport: only the recipient opens a frame, a substituted or older agreement statement is refused, and no payload is passed or taken unsealed"
+    );
+}

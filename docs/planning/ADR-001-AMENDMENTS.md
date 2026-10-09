@@ -376,6 +376,54 @@ remains layer 2 of the same three-layer decision, MCP remains the negotiation/to
 packaging, and delivery remains provider-native as PLANNING-PROMPT.md §3.3 already
 establishes.
 
+## ADR-001-A4
+
+**Status:** proposed on 2026-10-09 with the payload-sealing spec revision
+(`spec/security.md` 0.3 §14, `spec/interfaces.md` 0.3 §6.10, `spec/session-channels.md`
+0.2). In force when the lead approves and merges that pull request; until then it is a
+proposal, not an amendment.
+
+**Resolves:** a conflict with the lead's ruling of 2026-10-09 on PR #364 (the G1 reference
+transport, review finding 2: https://github.com/RossGraeber/OAC/pull/364#issuecomment-6075170836).
+The ruling keeps a transport on which every peer receives every payload, on condition that
+each payload is encrypted for its recipient. That is end-to-end encryption between devices,
+which ADR-001's "v0.1 scope" defers. `oac-boundaries` boundary 11 makes the conflict a stop:
+it is recorded here instead of being designed around. A4 is the next free number
+(`docs/planning/v0.1/03-decisions-and-amendments.md` §2).
+
+**Old text (verbatim):**
+
+`ADR-001.md` "Security model", the "Security layers" line (line 56), in full:
+
+```
+Security layers: authenticated/encrypted transport; default-deny ACL/policy; cryptographic message authenticity; replay protection; optional later E2E encryption. Model-generated text claiming an identity never establishes identity.
+```
+
+`ADR-001.md` "v0.1 scope", the "Defer" line (line 63), in full:
+
+```
+Defer group rooms/broadcast, attachments, durable offline mailboxes, federation, full E2E encryption, GUI, production Gemini/ChatGPT/Cursor adapters, and alternative transports.
+```
+
+**New text:**
+
+```
+Security layers: authenticated/encrypted transport; default-deny ACL/policy; cryptographic message authenticity; replay protection; per-recipient payload sealing on transports that deliver to every peer (v0.1); optional later E2E encryption beyond it. Model-generated text claiming an identity never establishes identity.
+```
+
+```
+Defer group rooms/broadcast, attachments, durable offline mailboxes, federation, E2E encryption beyond per-recipient payload sealing (forward secrecy, metadata confidentiality, confidentiality toward the recipient device's own harnesses), GUI, production Gemini/ChatGPT/Cursor adapters, and alternative transports.
+```
+
+**Rationale.** Per-recipient sealing is the smallest confidentiality layer that lets a
+transport deliver every payload to every peer without one installation reading another's
+payloads, which the G1 transport needs to hide whether a session is listening
+(`spec/interfaces.md` [IFC-TRN-043]). It is device-to-device, done by the core, and
+transport-neutral: the specification names no transport concept, and it neither replaces
+nor relaxes envelope signing (`spec/security.md` §6.6, §14.6). What "full E2E encryption"
+would add beyond it stays deferred, by name. No other ADR-001 text changes; boundaries 1-14
+are untouched: sealing calls no model API, holds no provider credential and keeps no message.
+
 ## Conflict register C1-C10 (resolved)
 
 Statuses, defined once:
