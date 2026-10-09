@@ -860,7 +860,8 @@ list.
   - `one_local_session_cannot_evict_another_sessions_records`;
   - `ended_sessions_free_their_partitions` (at a cap of 16, in every `cargo test`), and
     `full_scale_ended_sessions_free_their_partitions` (4096 short-lived own sessions, then
-    a new peer is still recorded; `#[ignore]`d, run by `scale-optin.yml` or
+    a new peer is still recorded; `#[ignore]`d, run by `node scripts/local-ci.mjs --tier
+    scale` (the hosted `scale-optin.yml` until 2026-10-08) or
     `cargo test -p oac-core --release -- --ignored full_scale`);
   - `expired_emptied_and_removed_partitions_are_reclaimed`;
   - `expired_partitions_go_in_expiry_order` and

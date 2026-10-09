@@ -4,6 +4,37 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-08 (**No GitHub-hosted CI: every check runs client-side with
+`node scripts/local-ci.mjs`** (Refs #123). The lead decided on 2026-10-08 that PR checks run
+client-side ("Tests for PR should be done client side"), then that "Anything that has an
+associated cost on the github side needs to go". No gate verdict, pin, spec text, ADR text
+or dependency changes.
+
+- **Workflows.** Deleted, all on GitHub-hosted runners: `ci.yml`, `boundary-lint.yml`,
+  `keystore-optin.yml`, `scale-optin.yml`, `security-mutation-optin.yml` (and its weekly
+  schedule), `g3-macos-hosted.yml`. Kept: `herdr-provider-optin.yml` (operator-owned
+  self-hosted runners, no GitHub minutes), its push-on-PINS.md trigger removed: manual
+  dispatch only.
+- **Runner.** `scripts/local-ci.mjs` runs every step of the deleted workflows: the default
+  tier before every PR and merge, on Windows and in WSL (on Linux the test steps run in
+  `scripts/loopback-only.sh`), with a summary naming the HEAD SHA pasted into the PR; `--quick`
+  skips the herdr self-test's lifecycle half; opt-in tiers `--tier keystore|scale|mutation|
+  g3-macos` on demand. The boundary-lint `rg` commands sit verbatim in `.github/local-ci.sh`.
+  Its `--self-test` maps every deleted workflow step to a local step, runs the plan on three
+  OSes against a stub, checks every script and flag, holds the default tier to the old D2/D3
+  policy, and runs each `rg` check on planted throwaway trees.
+- **Lints.** `scripts/check-workflows.mjs`: new W6 (only `workflow_dispatch`) and W7
+  (self-hosted runners only); D1-D3 retired with the hosted default tier. Check 9: the
+  opt-in workflow's only trigger is `workflow_dispatch`; the #345 self-test-line exemption is
+  retired; no other workflow tracked is ok, not PENDING.
+- **Lost coverage.** The macOS legs (the old `ci.yml` macos image, `keystore-optin` Keychain,
+  `g3-macos-hosted`) run only where a Mac is available; the weekly mutation schedule and the
+  push-to-main runs are gone; runs no longer start on a clean hosted image. PR #330's
+  candidate required-checks list no longer applies.
+- **Docs.** `oac-testing` §2, `oac-implementation`, `oac-boundaries` and its
+  mechanical-checks reference, `oac-authoring-skills`, 09 §3-4, 07, `herdr-runner.md`, the
+  herdr, security, integration and fake-Codex READMEs; `.agents/` re-synced.)
+
 **Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
 revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
 decided on 2026-10-08 to design a pairing so that Codex can send. Nothing is in force until

@@ -9,8 +9,9 @@ product crate or root manifest may pull it into a default build
 (`scripts/check-herdr-containment.mjs`, check 9).
 
 The CI-default fake-harness tier does not live here: the fakes are under `tests/fakes/`
-(#318), and the tier runs as `cargo test --workspace` in `.github/workflows/ci.yml`
-(for example `transports/memory/tests/pipelines.rs`).
+(#318), and the tier runs as `cargo test --workspace` in `node scripts/local-ci.mjs`, the
+client-side CI (there is no GitHub-hosted CI since 2026-10-08), for example
+`transports/memory/tests/pipelines.rs`.
 
 ## Provider integration: opt-in and pinned (#61, F12)
 
@@ -21,7 +22,7 @@ What exists today:
 
 - The herdr scenarios in `tools/herdr/scenarios/` (gates G1, G2, G4, G5, the smoke run),
   started by hand (`node tools/herdr/run.mjs`) or by `.github/workflows/herdr-provider-optin.yml`,
-  which runs only on a manual dispatch or a push to main that changes `docs/planning/PINS.md`,
+  which runs only on a manual dispatch (its push-on-PINS.md trigger went on 2026-10-08),
   on operator-owned self-hosted runners. Pinned: herdr must match its PINS.md row exactly
   (another version is NOT RUN); each run records the harness version it ran on and prints a
   `VERSION WARNING`, never a failure, when that differs from PINS.md's minimum or last tested
@@ -40,10 +41,13 @@ smoke, not provider integration. These tests follow the herdr reuse contract
 (`tools/herdr/README.md`, "Reuse contract"): they live here, drive the harness through the
 driver as a separate process, and run only from the opt-in workflow.
 
-What CI enforces so they stay opt-in:
+What `node scripts/local-ci.mjs` enforces so they stay opt-in:
 
-- `scripts/check-workflows.mjs` (boundary-lint job `workflow-policy`) fails any default-tier
-  workflow (one with a trigger other than `workflow_dispatch`, the herdr workflow aside) that
-  names a secret, a provider credential, an `OAC_TEST_*` opt-in variable, an `--ignored` test
-  run, the herdr driver, a self-hosted runner or a harness CLI install.
+- Its `--self-test` fails a default-tier step that runs an `--ignored` test, sets an
+  `OAC_TEST_*` opt-in variable, reaches the herdr driver beyond its offline self-test or
+  installs a harness CLI (the policy `scripts/check-workflows.mjs` D2 and D3 held over the
+  hosted default tier until 2026-10-08).
+- `scripts/check-workflows.mjs` fails any workflow that names a secret or a provider
+  credential (W4), starts other than by `workflow_dispatch` (W6) or runs on a GitHub-hosted
+  runner (W7).
 - Check 9 keeps this directory a leaf and keeps the driver out of everything else.

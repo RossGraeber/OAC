@@ -24,11 +24,12 @@ mentions Zenoh, Claude, Codex, MCP method names, or key expressions").
 
 ## Combined command (Git Bash / ripgrep)
 
-`spec/` exists (#41) and CI runs the zero-hits group below (step "Checks 1-2 and spec
-neutral vocabulary" in `.github/workflows/boundary-lint.yml`, the source of truth: if it
+`spec/` exists (#41) and `node scripts/local-ci.mjs` runs the zero-hits group below
+(section `boundary-checks-1-2` of `.github/local-ci.sh`, copied verbatim from the deleted
+`boundary-lint.yml` when GitHub-hosted CI went on 2026-10-08; the source of truth: if it
 changes, change this block too). The exemption is task-scoped (§3 of `SKILL.md`) and names
 one exact regular file, the task E6 MCP binding `spec/bindings/mcp.md`, not a directory: any
-other file under `spec/bindings/` is scanned like the rest of `spec/`. CI passes `rg` an
+other file under `spec/bindings/` is scanned like the rest of `spec/`. It passes `rg` an
 explicit file list (every regular file under `spec/` from `find`, minus that one path) with
 `--hidden --no-ignore`, so dot-files and ignored files stay in scope and no glob can drop
 one. It also fails if `spec/bindings/mcp.md` exists but is not a regular file, or if anything
@@ -65,6 +66,6 @@ ordinary use of "initialize" or "notifications" as English words is not.
 ## A missing path is not a pass
 
 If a path a check names does not exist, ripgrep exits 2 with an I/O error (verified: ripgrep
-15.2.0, Git Bash). That is a failure, not zero hits. `spec/` exists (#41) and CI fails if it
+15.2.0, Git Bash). That is a failure, not zero hits. `spec/` exists (#41) and `local-ci.mjs` fails if it
 is missing; for any other path a check names before it is built, re-run the command once the
 path exists, per `oac-boundaries` "Mechanical checks".

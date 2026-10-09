@@ -76,7 +76,7 @@ by judgment call:
 - The crate-level edges are enforced by `scripts/check-crate-deps.mjs` over `cargo metadata`
   (all dependency kinds and features, transitive reachability, zenoh and Codex app-server
   crates kept with their owner), run with its `--self-test` and `--mutation-test` by
-  `.github/workflows/ci.yml` job `crate-deps` (#50, #61). A new module path or a new owned external
+  `node scripts/local-ci.mjs` (steps `crate-deps*`; #50, #61). A new module path or a new owned external
   crate family means updating that script in the same PR.
 
 ## 3. Design-for-replacement — acceptance conditions, not aspiration
@@ -110,6 +110,10 @@ From PLANNING-PROMPT.md §6, restated as conditions any code change must satisfy
 3. CI default tier must be green with **no live provider, no API key, and no network beyond
    loopback** (PLANNING-PROMPT.md §6, §9.10; Epic F exit condition). Provider integration
    tests sit behind an explicit opt-in flag and run only against pinned versions.
+   "CI" is client-side: there is no GitHub-hosted CI (lead decision, 2026-10-08). Before
+   opening or merging a PR, run `node scripts/local-ci.mjs` on Windows and in WSL, and paste
+   both summaries into the PR; a red step blocks the merge as a red CI job did. New checks
+   are steps in that script, never workflows (`oac-testing` §2).
 4. See `oac-testing` for the full tier taxonomy and how to add a fixture; not restated here.
 
 ## 5. Error handling conventions
@@ -152,8 +156,9 @@ condition, §4 above). Do not add a dependency without an inventory entry.
 - [ ] The design-for-replacement conditions (§3) still hold after the change.
 - [ ] A contract test suite exists and was written before the real module it now covers, or
       already existed and the module passes it unchanged.
-- [ ] CI default tier passes with no live provider, no API key, no network beyond loopback;
-      any new provider-integration test is opt-in and pinned.
+- [ ] `node scripts/local-ci.mjs` passes on Windows and in WSL (summaries pasted into the
+      PR) with no live provider, no API key, no network beyond loopback; any new
+      provider-integration test is opt-in and pinned.
 - [ ] Delivery-state and error-type rules in §5 hold for every new delivery/error path.
 - [ ] Every new third-party dependency has a recorded license and Apache-2.0 compatibility
       check, with copyleft flagged if present.
