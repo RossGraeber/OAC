@@ -133,7 +133,11 @@ function fakeSession(mode, { state = 'idle', seq = 3, at = 0 } = {}) {
   };
   setAgent(state, seq, at);
   const herdr = new HerdrSession({ herdrCmd: [process.execPath, FAKE], sessionName: name, env: { ...process.env, FAKE_HERDR_STATE: root, FAKE_HERDR_MODE: mode }, cwd: root, timebox: { remainingMs: () => 60000 }, commands: [], defaultDeadlineMs: 15000 });
-  return { herdr, setAgent, logOnly, waitArmed, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  // Each fake-herdr call is a child process run with cwd: root. On Windows a child that has
+  // just exited (or an AV scanner) can still hold root open briefly, and the delete fails
+  // EPERM; Node's own retries absorb that (as in g4/g5-tests), and a directory that still
+  // cannot be removed after them throws, failing the self-test.
+  return { herdr, setAgent, logOnly, waitArmed, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 export async function waitUnit(check) {
