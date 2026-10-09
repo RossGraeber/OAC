@@ -57,7 +57,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { createRedactor, reportIsClean, summarize } from './lib/redact.mjs';
-import { isMainModule, canonicallyWithin } from './lib/canonical-path.mjs';
+import { isMainModule, canonicallyWithin, rootGuardProblem } from './lib/canonical-path.mjs';
 
 // run.mjs is imported lazily (in ciRun): the self-test reaches this file from inside
 // run.mjs's own top-level await, and a static import back into run.mjs would deadlock.
@@ -115,6 +115,8 @@ export function insideRepo(dir, root = REPO_ROOT) {
 
 function checkWorkdir(workdir) {
   if (!isAbsolute(workdir)) throw new UsageError('the work dir must be an absolute path');
+  const repoProblem = rootGuardProblem(REPO_ROOT);
+  if (repoProblem) throw new UsageError(`the repository checkout ${repoProblem}; refusing (fail closed)`);
   if (insideRepo(workdir)) throw new UsageError('the work dir must be outside the repository checkout');
 }
 

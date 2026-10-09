@@ -21,7 +21,7 @@ import { homedir, platform, release, arch, type } from 'node:os';
 import { basename, join, posix, win32 } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runBounded } from './proc.mjs';
-import { canonicalForms, guardHolds, keepsBasename, rootGuard } from './canonical-path.mjs';
+import { canonicalForms, guardMatch, harnessHomeGuard, keepsBasename } from './canonical-path.mjs';
 
 // 2 (#140): herdr.executable, harnessExecutables, captures[].sha256.
 // 3 (#252): herdr.executableCheck, the comparison with PINS.md's expected herdr sha256.
@@ -164,6 +164,34 @@ async function sha256Stream(path) {
   return { sha256: hash.digest('hex'), bytes, head };
 }
 
+/**
+ * Whether an executable (a canonicalForms() result) is refused by the harness-home guards
+ * `homes` (harnessHomeGuard() results): null to hash it, else { notRead } and, when every
+ * match is the ino-only rule on another device, a `finding` (#357, PR #358 review): that rule
+ * has false positives (a home that is a filesystem or subvolume root), so an executable it
+ * leaves unhashed is said so, never silent.
+ *
+ * A harness may keep its managed binary under its config directory (Codex's standalone
+ * install: a launcher directory linked to $CODEX_HOME/packages/standalone/releases/<v>/bin/).
+ * That one file -- named for the requested command after every symlink, never a config or
+ * credential file -- is hashed; anything else there is not read.
+ */
+export function homeRefusal(exe, homes, requested) {
+  const ownBinary = new RegExp(`^${requested.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\.exe|\\.com)?$`, 'i');
+  const matches = homes.map((h) => guardMatch(exe, h)).filter((m) => m !== null);
+  if (!matches.length || exe.real.every((r) => ownBinary.test(basename(r)))) return null;
+  if (matches.every((m) => m === 'inode-other-device')) {
+    return {
+      notRead: 'shares a harness config directory\'s inode on another device only (the overlayfs merged-vs-lowerdir rule); never read (ADR-001 boundary 3, #357)',
+      finding: `${requested} executable not hashed: a directory on its path has a harness config directory's inode on another device (the overlayfs merged-vs-lowerdir rule, #357). If the harness home is a filesystem or subvolume root (ext4 ino 2, btrfs ino 256), this is a false positive and the executable's identity is UNVERIFIED`,
+    };
+  }
+  return { notRead: 'resolves inside a harness config directory to a file not named for the command; never read (ADR-001 boundary 3)' };
+}
+
+/** The findings executableIdentity() results carry (#357), for the run's manifest. */
+export const identityFindings = (ids) => ids.filter((x) => x && typeof x.finding === 'string').map((x) => x.finding);
+
 // Identity of one resolved executable. `path` is absolute (or null when it did not resolve).
 export async function executableIdentity(path, { requested, env = process.env } = {}) {
   if (!path) return { requested, resolved: false, basename: null, realBasename: null, sha256: null, bytes: null, format: null, error: `${requested} not found` };
@@ -177,16 +205,12 @@ export async function executableIdentity(path, { requested, env = process.env } 
   const real = exe?.real[0] ?? path;
   const id = { requested, resolved: true, basename: basename(path), realBasename: basename(real), sha256: null, bytes: null, format: null };
   if (!exe) return { ...id, notRead: 'could not be canonicalized (realpath failed); never read (fail closed, #353)' };
-  const homes = harnessConfigDirs(env).map((d) => rootGuard(d));
+  // harnessHomeGuard (#357): a home reporting no file identity (ino 0) fails closed, and an
+  // ino-only match on another device (overlayfs merged vs lowerdir) counts as inside.
+  const homes = harnessConfigDirs(env).map((d) => harnessHomeGuard(d));
   if (homes.some((h) => !h)) return { ...id, notRead: 'a harness config directory could not be canonicalized or its identity read; nothing read (fail closed, ADR-001 boundary 3, #353)' };
-  // A harness may keep its managed binary under its config directory (Codex's standalone
-  // install: a launcher directory linked to $CODEX_HOME/packages/standalone/releases/<v>/bin/).
-  // That one file -- named for the requested command after every symlink, never a config or
-  // credential file -- is hashed; anything else there is not read.
-  const ownBinary = new RegExp(`^${requested.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\.exe|\\.com)?$`, 'i');
-  if (homes.some((h) => guardHolds(exe, h)) && !exe.real.every((r) => ownBinary.test(basename(r)))) {
-    return { ...id, notRead: 'resolves inside a harness config directory to a file not named for the command; never read (ADR-001 boundary 3)' };
-  }
+  const refused = homeRefusal(exe, homes, requested);
+  if (refused) return { ...id, ...refused };
   try {
     const { sha256, bytes, head } = await sha256Stream(real);
     return { ...id, sha256, bytes, format: executableFormat(head, real) };
