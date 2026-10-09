@@ -81,6 +81,8 @@ use std::sync::Arc;
 mod authorization;
 #[path = "conformance/presence_receipts.rs"]
 mod presence_receipts;
+#[path = "conformance/sealing.rs"]
+mod sealing;
 
 fn protocol_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1020,6 +1022,51 @@ fn fixture_name(path: &str) -> &str {
 fn base64url_decode(s: &str) -> Vec<u8> {
     base64_decode(&s.replace('-', "+").replace('_', "/"))
 }
+
+/// The `oac-sealing-fixture/1` fixtures of `spec/security.md` §14.10 (#369), stage by stage
+/// through [`sealing::run`]: every one must run and pass, and each stage must have positive
+/// and negative fixtures, so none is skipped silently.
+#[test]
+fn sealing_fixtures() {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut failures = Vec::new();
+    for fx in sealing::fixtures() {
+        *counts
+            .entry(format!("{} {}", fx.stage, fx.kind))
+            .or_default() += 1;
+        if let Err(e) = sealing::run(&fx) {
+            failures.push(format!("{}: {e}", fx.path));
+        }
+    }
+    eprintln!("sealing fixtures run: {counts:?}");
+    for stage in [
+        "agreement positive",
+        "agreement negative",
+        "seal positive",
+        "seal negative",
+        "open positive",
+        "open negative",
+    ] {
+        assert!(
+            counts.get(stage).copied().unwrap_or(0) > 0,
+            "no {stage} fixture ran"
+        );
+    }
+    let total: usize = counts.values().sum();
+    assert!(
+        total >= SEALING_FIXTURES,
+        "{total} sealing fixtures ran, expected at least {SEALING_FIXTURES}"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} sealing fixture(s) failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// The `oac-sealing-fixture/1` fixtures under `tests/protocol/sec-sel/` at revision 0.3.
+const SEALING_FIXTURES: usize = 36;
 
 /// `spec/security.md` §6.3 states that `VerifyingKey::verify_strict` of `ed25519-dalek`
 /// 3.0.0 meets [SEC-SIG-020] to [SEC-SIG-024] on every `sec-sig` fixture, UNVERIFIED until a

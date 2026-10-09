@@ -25,6 +25,10 @@ getrandom = "=0.4.3"
 zeroize = "=1.9.0"
 # Constant-time comparison of seeds; already in the graph under ed25519-dalek.
 subtle = "=2.6.1"
+# Payload sealing (#369; spec/security.md section 14): HPKE base mode, DHKEM(X25519,
+# HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305. Approved by the lead on 2026-10-09; already in
+# Cargo.lock under age. Inventory: 07 section 5.
+hpke = { version = "=0.12.0", default-features = false, features = ["alloc", "x25519"] }
 
 [dev-dependencies]
 # Scalar arithmetic for constructing malleable and small-order signatures in signing.rs's

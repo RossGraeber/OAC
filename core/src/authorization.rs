@@ -47,7 +47,9 @@ use crate::ids::{KeyId, SessionId, Timestamp, Token};
 use crate::keys::DeviceIdentity;
 use crate::pairing::{PairedPeer, PairingRecord, PairingSnapshot, PairingStore, PairingStoreError};
 use crate::registration::RegistrationRecord;
+use crate::replay::REPLAY_WINDOW_MS;
 use crate::reply::{EnvelopeRecord, ReplyHeaders, reply_headers};
+use crate::sealing::{AgreementStatement, HeldStatement, StatementRefusal, check_statement};
 use crate::trust::{AddKeyError, TrustedKeySet};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -751,6 +753,10 @@ pub struct SentRecord {
     /// receipt must name to be accepted (`spec/security.md` [SEC-RCT-003], check 3; #55, F6).
     /// `None` only for a record built without its envelope, which then matches no receipt.
     pub nonce: Option<String>,
+    /// The envelope's `ttl_ms`, when present: with `created_at`, its hand-off deadline,
+    /// which is also the deadline of a receipt that describes it (`spec/interfaces.md` Table
+    /// 6.1; `spec/security.md` [SEC-SEL-036]).
+    pub ttl_ms: Option<u64>,
 }
 
 impl SentRecord {
@@ -763,6 +769,19 @@ impl SentRecord {
             to_key_id: to_key,
             created_at: env.created_at().clone(),
             nonce: Some(env.security().nonce().to_owned()),
+            ttl_ms: env.ttl_ms(),
+        }
+    }
+
+    /// The envelope's hand-off deadline, in nanoseconds since the epoch: the earlier of
+    /// `created_at` plus `ttl_ms` and the end of the replay window
+    /// (`spec/session-channels.md` §8.1.3; [`crate::replay::HandOffDeadline`]).
+    pub fn handoff_deadline_unix_nanos(&self) -> i128 {
+        let created = self.created_at.unix_nanos();
+        let window_end = created + i128::from(REPLAY_WINDOW_MS) * 1_000_000;
+        match self.ttl_ms {
+            Some(t) => window_end.min(created + i128::from(t) * 1_000_000),
+            None => window_end,
         }
     }
 }
@@ -1217,6 +1236,9 @@ pub enum RestoreError {
     Store(PairingStoreError),
     /// The snapshot pairs a key twice, or pairs this device's own key.
     DuplicateKey(KeyId),
+    /// The snapshot holds an agreement statement for a key it does not pair, or two for one
+    /// key ([SEC-SEL-015], [SEC-SEL-041]).
+    StatementWithoutKey(KeyId),
 }
 
 impl fmt::Display for RestoreError {
@@ -1224,6 +1246,12 @@ impl fmt::Display for RestoreError {
         match self {
             RestoreError::Store(e) => e.fmt(f),
             RestoreError::DuplicateKey(k) => write!(f, "key {k} paired twice"),
+            RestoreError::StatementWithoutKey(k) => {
+                write!(
+                    f,
+                    "agreement statement for key {k} without a single pairing"
+                )
+            }
         }
     }
 }
@@ -1238,6 +1266,8 @@ pub struct KeyRemoval {
     pub grants: Vec<Grant>,
     /// The session ids whose binding or conflict mark named the key.
     pub bindings: Vec<SessionId>,
+    /// The agreement statement held for the key, if any ([SEC-SEL-015]).
+    pub agreement_statement: Option<HeldStatement>,
 }
 
 /// A message that passed security step 4: the only input step 5,
@@ -1306,6 +1336,12 @@ pub struct AuthorizationEngine {
     sent: RecordBook<SessionId, SentRecord>,
     handed_off: RecordBook<HandOffPartition, HandOffRecord>,
     relay: BTreeSet<SessionId>,
+    /// The agreement statement admitted for each trusted key that has one
+    /// (`spec/security.md` §14.3): kept beside the trusted key set, so that removing a key
+    /// removes its statement in the same step ([SEC-SEL-015]), and saved with the paired keys
+    /// ([SEC-SEL-041]). This device's own statement is held here too ([SEC-SEL-016]) but
+    /// not saved: its agreement key store is its source.
+    agreements: BTreeMap<KeyId, HeldStatement>,
     clock: Arc<dyn Clock>,
     log: Box<dyn DecisionLog>,
 }
@@ -1352,6 +1388,7 @@ impl AuthorizationEngine {
             sent: RecordBook::new(false),
             handed_off: RecordBook::new(true),
             relay: BTreeSet::new(),
+            agreements: BTreeMap::new(),
             clock,
             log,
         }
@@ -1385,17 +1422,31 @@ impl AuthorizationEngine {
             }
         }
         engine.relay = snapshot.relay_enabled.into_iter().collect();
+        // [SEC-SEL-041]: the statements held come back with the keys they belong to.
+        for held in snapshot.agreement_statements {
+            let key = held.key_id().clone();
+            if !engine.paired.contains_key(&key) || engine.agreements.contains_key(&key) {
+                return Err(RestoreError::StatementWithoutKey(key));
+            }
+            engine.agreements.insert(key, held);
+        }
         Ok(engine)
     }
 
-    /// The paired keys, grants and relay settings, the state a [`PairingStore`] keeps.
-    /// Binding tables and sent and hand-off records live in memory only
-    /// (`spec/security.md` §11.3, §9.5).
+    /// The paired keys, grants, relay settings and the agreement statements held for paired
+    /// keys, the state a [`PairingStore`] keeps. Binding tables and sent and hand-off records
+    /// live in memory only (`spec/security.md` §11.3, §9.5).
     pub fn snapshot(&self) -> PairingSnapshot {
         PairingSnapshot {
             paired: self.paired.values().cloned().collect(),
             grants: self.grants.clone(),
             relay_enabled: self.relay.iter().cloned().collect(),
+            agreement_statements: self
+                .agreements
+                .values()
+                .filter(|h| h.key_id() != &self.own_key)
+                .cloned()
+                .collect(),
         }
     }
 
@@ -1501,20 +1552,124 @@ impl AuthorizationEngine {
     ///
     /// [`PairError`]: the key is already trusted, or the store did not save it, in which
     /// case the key is not added.
+    ///
+    /// When the pairing carried the peer's agreement statement (`spec/security.md` §14.3,
+    /// "Pairing"), it is admitted in the same step under [SEC-SEL-012] to [SEC-SEL-014],
+    /// with no further confirmation, and saved with the key. A statement that is refused
+    /// leaves the pairing standing, with no statement held: payloads to that device are then
+    /// not passed to a sealing transport ([SEC-SEL-024]) until a later statement is admitted
+    /// ([`AuthorizationEngine::admit_statement`]). [`AuthorizationEngine::held_statement`]
+    /// says which.
     pub fn pair(&mut self, peer: PairedPeer, store: &dyn PairingStore) -> Result<(), PairError> {
-        let record = peer.into_record();
+        let (record, statement) = peer.into_parts();
         let key_id = record.key_id();
         self.trusted
             .add_paired_key(record.principal().clone(), *record.public_key())
             .map_err(PairError::AlreadyTrusted)?;
         self.paired.insert(key_id.clone(), record);
+        let admitted = statement.and_then(|st| {
+            let now = self.clock.now();
+            // Only a statement signed by the key being paired is taken with it.
+            check_statement(&st, &self.trusted, |_| None, &now)
+                .ok()
+                .filter(|h| h.key_id() == &key_id)
+        });
+        if let Some(h) = admitted.clone() {
+            self.agreements.insert(key_id.clone(), h);
+        }
         if let Err(e) = self.save(store) {
             self.trusted.remove(&key_id);
             self.paired.remove(&key_id);
+            self.agreements.remove(&key_id);
             return Err(PairError::NotSaved(e));
         }
-        self.change(format!("paired key {key_id}"));
+        self.change(format!(
+            "paired key {key_id}{}",
+            if admitted.is_some() {
+                " with its agreement statement"
+            } else {
+                ""
+            }
+        ));
         Ok(())
+    }
+
+    // ---- Agreement statements (spec/security.md §14.3) --------------------------------
+
+    /// Admits `statement`, carried at pairing or over any later channel, under
+    /// [SEC-SEL-010] to [SEC-SEL-014] and [SEC-SEL-042] at the engine clock's time, in place
+    /// of the statement held for its key, and saves it to `store` ([SEC-SEL-041]). This
+    /// device's own statement is admitted with [`AuthorizationEngine::admit_own_statement`].
+    ///
+    /// # Errors
+    ///
+    /// [`StatementRefusal`]; nothing changes. [`StatementRefusal::NotSaved`] when the store did
+    /// not save it: it is then not admitted (fail closed).
+    pub fn admit_statement(
+        &mut self,
+        statement: &AgreementStatement,
+        store: &dyn PairingStore,
+    ) -> Result<&HeldStatement, StatementRefusal> {
+        let now = self.clock.now();
+        let agreements = &self.agreements;
+        let held = check_statement(
+            statement,
+            &self.trusted,
+            |k| agreements.get(k).cloned(),
+            &now,
+        )?;
+        let key = held.key_id().clone();
+        if key == self.own_key {
+            // Its source is this device's agreement key store, not the pairing store.
+            return self.admit_own_statement(statement);
+        }
+        let seq = held.seq();
+        let previous = self.agreements.insert(key.clone(), held);
+        if let Err(e) = self.save(store) {
+            match previous {
+                Some(p) => self.agreements.insert(key, p),
+                None => self.agreements.remove(&key),
+            };
+            return Err(StatementRefusal::NotSaved(e));
+        }
+        self.change(format!(
+            "admitted agreement statement seq {seq} for key {key}"
+        ));
+        Ok(&self.agreements[&key])
+    }
+
+    /// Holds this device's own agreement statement as admitted for its own key
+    /// ([SEC-SEL-016]), under the same checks as any other. The statement already held, read
+    /// back unchanged after a restart, is kept as it is.
+    ///
+    /// # Errors
+    ///
+    /// [`StatementRefusal`]: the statement is not this device's, or is refused.
+    pub fn admit_own_statement(
+        &mut self,
+        statement: &AgreementStatement,
+    ) -> Result<&HeldStatement, StatementRefusal> {
+        let now = self.clock.now();
+        let held = check_statement(statement, &self.trusted, |_| None, &now)?;
+        if held.key_id() != &self.own_key {
+            return Err(StatementRefusal::Signature);
+        }
+        let key = self.own_key.clone();
+        match self.agreements.get(&key) {
+            Some(h) if h == &held => {}
+            Some(h) if h.seq() >= held.seq() => return Err(StatementRefusal::NotNewer),
+            _ => {
+                self.change(format!("holds own agreement statement seq {}", held.seq()));
+                self.agreements.insert(key.clone(), held);
+            }
+        }
+        Ok(&self.agreements[&key])
+    }
+
+    /// The agreement statement held for `key`, the only source of the agreement key a
+    /// payload to that device is sealed to ([SEC-SEL-023]).
+    pub fn held_statement(&self, key: &KeyId) -> Option<&HeldStatement> {
+        self.agreements.get(key)
     }
 
     /// Removes `key_id` from the trusted key set and, in the same step, every grant and
@@ -1539,6 +1694,8 @@ impl AuthorizationEngine {
             .remove(key_id)
             .ok_or(RemoveKeyError::NotTrusted)?;
         self.paired.remove(key_id);
+        // [SEC-SEL-015]: its agreement statement goes in the same step.
+        let agreement_statement = self.agreements.remove(key_id);
         let (removed, kept): (Vec<Grant>, Vec<Grant>) = std::mem::take(&mut self.grants)
             .into_iter()
             .partition(|g| g.names_key(key_id));
@@ -1566,6 +1723,7 @@ impl AuthorizationEngine {
         Ok(KeyRemoval {
             grants: removed,
             bindings,
+            agreement_statement,
         })
     }
 
