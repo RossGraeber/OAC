@@ -16,7 +16,7 @@ use oac_core::transport::{
 use zenoh::Wait;
 
 use crate::addressing::{Partition, destination_digest};
-use crate::config::Role;
+use crate::config::{Role, free_loopback_port};
 use crate::{PeerConfiguration, PeerTransport};
 
 fn conf(tag: &str) -> PeerConfiguration {
@@ -25,6 +25,17 @@ fn conf(tag: &str) -> PeerConfiguration {
         .unwrap()
         .port();
     PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}"))
+}
+
+/// The native configuration of a raw peer joining `c`'s rendezvous.
+fn joiner(c: &PeerConfiguration) -> zenoh::Config {
+    c.native(Role::Joiner, free_loopback_port().unwrap())
+        .unwrap()
+}
+
+/// True when a raw joiner is linked to the rendezvous holder.
+fn linked(s: &zenoh::Session) -> bool {
+    s.info().routers_zid().wait().count() >= 1
 }
 
 fn key(c: char) -> KeyId {
@@ -54,8 +65,8 @@ fn native_interest_does_not_depend_on_subscriptions() {
     let c = conf("043");
     let a = PeerTransport::new();
     a.start(&key('a'), c.clone().wrap()).unwrap();
-    let observer = zenoh::open(c.native(Role::Joiner).unwrap()).wait().unwrap();
-    assert!(wait_for(|| a.connected_peers() >= 1));
+    let observer = zenoh::open(joiner(&c)).wait().unwrap();
+    assert!(wait_for(|| linked(&observer)));
     let p = Partition::new(c.partition());
     let (subd, unsubd) = (session(1), session(2));
     let pub_subd = observer
@@ -109,9 +120,7 @@ fn discovery_alone_hands_the_core_nothing() {
         )
         .unwrap();
     b.start(&key('b'), c.wrap()).unwrap();
-    assert!(wait_for(
-        || a.connected_peers() >= 1 && b.connected_peers() >= 1
-    ));
+    assert!(wait_for(|| b.connected_peers() >= 1));
     thread::sleep(Duration::from_secs(1));
     assert!(events.lock().unwrap().is_empty());
     assert!(inbound.lock().unwrap().is_empty());
@@ -142,8 +151,8 @@ fn an_expired_frame_is_dropped_on_arrival() {
             Arc::new(move |x| g.lock().unwrap().push(x.payload.octets().to_vec())),
         )
         .unwrap();
-    let raw = zenoh::open(c.native(Role::Joiner).unwrap()).wait().unwrap();
-    assert!(wait_for(|| a.connected_peers() >= 1));
+    let raw = zenoh::open(joiner(&c)).wait().unwrap();
+    assert!(wait_for(|| linked(&raw)));
     let k = Partition::new(c.partition()).key(&destination_digest(&session(3)));
     let now = crate::transport::unix_millis_now();
     let link = [7u8; 16];

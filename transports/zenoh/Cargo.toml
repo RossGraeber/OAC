@@ -18,11 +18,18 @@ oac-core.workspace = true
 # zenoh 1.10.1 (docs/planning/PINS.md), dual EPL-2.0 OR Apache-2.0: OAC elects Apache-2.0
 # (C1 section 7, C7 section 8). Stable API only: no `unstable`, no `shared-memory`. Default
 # features off; `transport_tcp` is the one link this transport opens (C7 section 5: a
-# loopback TCP listener; multicast scouting needs no link feature). TLS is G3's (#64).
+# loopback TCP rendezvous; scouting is off in local mode). TLS is G3's (#64).
 zenoh = { version = "=1.10.1", default-features = false, features = ["transport_tcp"] }
 # The one-way hash behind the private key expressions (C7 section 3). Already in the graph
 # at this version through core/.
 sha2 = "=0.11.0"
 
+[features]
+# Test support only: `PeerTransport::identifiers_for_leak_checks`, the native strings a
+# leak test checks for. Off by default, so no peer id or locator reaches a dependent; this
+# crate's own tests turn it on through the dev-dependency below.
+test-support = []
+
 [dev-dependencies]
 oac-contract-transport = { path = "../../tests/protocol/contract/transport" }
+oac-transport-zenoh = { path = ".", features = ["test-support"] }

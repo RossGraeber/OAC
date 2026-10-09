@@ -2173,6 +2173,7 @@ version = "0.0.0"
 dependencies = [
  "oac-contract-transport",
  "oac-core",
+ "oac-transport-zenoh",
  "sha2 0.11.0",
  "zenoh",
 ]

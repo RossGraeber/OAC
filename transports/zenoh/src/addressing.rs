@@ -105,6 +105,11 @@ impl Partition {
         }
     }
 
+    /// The bare prefix `oac/1/<partition>`.
+    pub(crate) fn prefix(&self) -> &str {
+        &self.prefix
+    }
+
     /// The key expression a payload for `digest` is put on.
     pub(crate) fn key(&self, digest: &Digest128) -> String {
         format!("{}/{}", self.prefix, hex(digest))

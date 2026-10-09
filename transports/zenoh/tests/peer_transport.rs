@@ -4,10 +4,13 @@
 //! binding's errors (`oac_core::transport::TransportError`), the `not-taken` cases of
 //! Table 6.1, and the neutral public surface (C7 §2).
 
-use std::net::TcpListener;
+use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use zenoh::Wait;
 
 use oac_core::health::HealthState;
 use oac_core::ids::{KeyId, SessionId};
@@ -16,7 +19,8 @@ use oac_core::transport::{
     TransportConfiguration, TransportError,
 };
 use oac_transport_zenoh::{
-    DEFAULT_PARTITION, MAX_PAYLOAD_OCTETS, PeerConfiguration, PeerTransport,
+    DEFAULT_PARTITION, DEFAULT_RENDEZVOUS_PORT, MAX_PAYLOAD_OCTETS, PeerConfiguration,
+    PeerTransport,
 };
 
 fn conf() -> PeerConfiguration {
@@ -175,11 +179,247 @@ fn a_transport_starts_again_after_shutdown_with_nothing_kept() {
 }
 
 #[test]
-fn the_local_default_is_multicast_in_the_default_partition() {
+fn the_local_default_is_the_loopback_rendezvous_in_the_default_partition() {
     let c = PeerConfiguration::default();
-    assert!(c.discovers_by_multicast());
+    assert_eq!(c, PeerConfiguration::local());
+    assert_eq!(c, PeerConfiguration::rendezvous(DEFAULT_RENDEZVOUS_PORT));
     assert_eq!(c.partition(), DEFAULT_PARTITION);
-    assert!(!PeerConfiguration::rendezvous(1).discovers_by_multicast());
+    assert_eq!(c.rendezvous_port(), DEFAULT_RENDEZVOUS_PORT);
+}
+
+/// A non-loopback IPv4 address of this host, or why there is none. Connecting a UDP socket
+/// sends nothing; it only asks the OS which source address it would use.
+fn lan_address() -> Result<Ipv4Addr, String> {
+    let s = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|e| e.to_string())?;
+    s.connect(("192.0.2.1", 9))
+        .map_err(|e| format!("no route off the host: {e}"))?;
+    match s.local_addr().map_err(|e| e.to_string())?.ip() {
+        IpAddr::V4(a) if !a.is_loopback() && !a.is_unspecified() => Ok(a),
+        other => Err(format!("the only source address is {other}")),
+    }
+}
+
+/// PR #364 review, blocking finding 1: local mode never reaches beyond loopback. A plain
+/// Zenoh peer listening on this host's LAN address, with multicast scouting on (interface
+/// "auto"), gossip on and a subscriber on every key, receives none of the frames two local
+/// transports exchange, and is never linked to either of them.
+#[test]
+fn local_mode_reaches_nothing_beyond_loopback() {
+    let lan = match lan_address() {
+        Ok(a) => a,
+        Err(why) => {
+            eprintln!("SKIPPED: this host has no non-loopback interface to probe from ({why})");
+            return;
+        }
+    };
+    let mut probe_conf = zenoh::Config::default();
+    for (k, v) in [
+        ("mode", r#""peer""#.to_owned()),
+        ("listen/endpoints", format!(r#"["tcp/{lan}:0"]"#)),
+        ("scouting/multicast/enabled", "true".to_owned()),
+        ("scouting/gossip/enabled", "true".to_owned()),
+    ] {
+        probe_conf.insert_json5(k, &v).unwrap();
+    }
+    let probe = match zenoh::open(probe_conf).wait() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("SKIPPED: the probe cannot listen on {lan}: {e}");
+            return;
+        }
+    };
+    let heard = Arc::new(AtomicUsize::new(0));
+    let h = heard.clone();
+    let _all = probe
+        .declare_subscriber("**")
+        .callback(move |_| {
+            h.fetch_add(1, Ordering::SeqCst);
+        })
+        .wait()
+        .unwrap();
+    let c = conf();
+    let (a, b) = (PeerTransport::new(), PeerTransport::new());
+    a.start(&key('a'), c.clone().wrap()).unwrap();
+    b.start(&key('b'), c.wrap()).unwrap();
+    let got: Got = Arc::default();
+    let _s = b.subscribe(&session(9), sink(&got)).unwrap();
+    let start = Instant::now();
+    let mut probe_linked = 0;
+    while got.lock().unwrap().is_empty() || start.elapsed() < Duration::from_secs(4) {
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "the control never arrived"
+        );
+        a.publish(
+            &session(9),
+            Payload::new(PayloadKind::Envelope, b"local only".to_vec()),
+            later(),
+        );
+        let info = probe.info();
+        probe_linked =
+            probe_linked.max(info.peers_zid().wait().count() + info.routers_zid().wait().count());
+        thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(
+        probe_linked, 0,
+        "a local transport was linked to the LAN probe"
+    );
+    assert_eq!(
+        heard.load(Ordering::SeqCst),
+        0,
+        "the LAN probe received frames"
+    );
+    // The later transport is linked to the rendezvous holder and to nothing else.
+    assert_eq!(b.connected_peers(), 1);
+    a.shutdown();
+    b.shutdown();
+    let _ = probe.close().wait();
+}
+
+/// With gossip off, a later peer links only to the peer holding the rendezvous port; two
+/// later peers still reach each other, routed through it.
+#[test]
+fn later_peers_reach_each_other_through_the_rendezvous_peer() {
+    let c = conf();
+    let (holder, j1, j2) = (
+        PeerTransport::new(),
+        PeerTransport::new(),
+        PeerTransport::new(),
+    );
+    holder.start(&key('a'), c.clone().wrap()).unwrap();
+    j1.start(&key('b'), c.clone().wrap()).unwrap();
+    j2.start(&key('c'), c.wrap()).unwrap();
+    let got: Got = Arc::default();
+    let _s = j2.subscribe(&session(12), sink(&got)).unwrap();
+    let start = Instant::now();
+    while got.lock().unwrap().is_empty() {
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "j1 never reached j2 (j1 linked to {}, j2 to {})",
+            j1.connected_peers(),
+            j2.connected_peers()
+        );
+        j1.publish(
+            &session(12),
+            Payload::new(PayloadKind::Envelope, b"j".to_vec()),
+            later(),
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(
+        j1.connected_peers(),
+        1,
+        "a later peer linked to more than the rendezvous"
+    );
+    for t in [holder, j1, j2] {
+        t.shutdown();
+    }
+}
+
+/// When the transport holding the rendezvous port shuts down, a later transport is cut off
+/// until another transport takes the port; then it reconnects and receives again.
+#[test]
+fn a_later_peer_reconnects_when_the_rendezvous_holder_is_replaced() {
+    let c = conf();
+    let (holder, j) = (PeerTransport::new(), PeerTransport::new());
+    holder.start(&key('a'), c.clone().wrap()).unwrap();
+    j.start(&key('b'), c.clone().wrap()).unwrap();
+    let got: Got = Arc::default();
+    let _s = j.subscribe(&session(13), sink(&got)).unwrap();
+    holder.shutdown();
+    let next = PeerTransport::new();
+    next.start(&key('c'), c.wrap()).unwrap();
+    let start = Instant::now();
+    while got.lock().unwrap().is_empty() {
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "the later peer never reconnected"
+        );
+        next.publish(
+            &session(13),
+            Payload::new(PayloadKind::Envelope, b"again".to_vec()),
+            later(),
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+    j.shutdown();
+    next.shutdown();
+}
+
+/// A handler that stalls holds up only its own transport's later handlers: the link keeps
+/// draining, the publisher is not blocked, and another transport keeps receiving
+/// (binding document, "Timing").
+#[test]
+fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
+    let c = conf();
+    let (a, b, other) = (
+        PeerTransport::new(),
+        PeerTransport::new(),
+        PeerTransport::new(),
+    );
+    a.start(&key('a'), c.clone().wrap()).unwrap();
+    b.start(&key('b'), c.clone().wrap()).unwrap();
+    other.start(&key('c'), c.wrap()).unwrap();
+    let release = Arc::new(Mutex::new(()));
+    let held = release.lock().unwrap();
+    let stalled = Arc::new(AtomicUsize::new(0));
+    let (r, st) = (release.clone(), stalled.clone());
+    let _stuck = b
+        .subscribe(
+            &session(10),
+            Arc::new(move |_| {
+                st.fetch_add(1, Ordering::SeqCst);
+                let _wait = r.lock().unwrap();
+            }),
+        )
+        .unwrap();
+    let fine: Got = Arc::default();
+    let _ok = other.subscribe(&session(11), sink(&fine)).unwrap();
+    let start = Instant::now();
+    while stalled.load(Ordering::SeqCst) == 0 {
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "b never received"
+        );
+        a.publish(
+            &session(10),
+            Payload::new(PayloadKind::Envelope, b"s".to_vec()),
+            later(),
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    // b's handler is now stuck. Publishing to it, and to the other peer, still returns at
+    // once, and the other peer still receives.
+    let t = Instant::now();
+    for _ in 0..50 {
+        a.publish(
+            &session(10),
+            Payload::new(PayloadKind::Envelope, vec![0; 4096]),
+            later(),
+        );
+    }
+    assert!(
+        t.elapsed() < Duration::from_secs(2),
+        "publish blocked: {:?}",
+        t.elapsed()
+    );
+    let t = Instant::now();
+    while fine.lock().unwrap().is_empty() {
+        assert!(
+            t.elapsed() < Duration::from_secs(15),
+            "the other peer stopped receiving"
+        );
+        a.publish(
+            &session(11),
+            Payload::new(PayloadKind::Envelope, b"f".to_vec()),
+            later(),
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    drop(held);
+    for t in [a, b, other] {
+        t.shutdown();
+    }
 }
 
 type Got = Arc<Mutex<Vec<(PayloadKind, Vec<u8>)>>>;

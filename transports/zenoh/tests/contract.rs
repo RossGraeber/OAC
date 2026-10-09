@@ -2,15 +2,11 @@
 
 //! The shared transport contract suite (#59, F10; `tests/protocol/contract/transport/`) run
 //! against the real Zenoh transport, unchanged, over loopback (#62, G1 acceptance item 1;
-//! Gate S4 criterion 1). Two media, one per discovery path:
-//!
-//! - **multicast**: [`PeerConfiguration::local`], the production default (C7 §5, gate G3);
-//! - **rendezvous**: [`PeerConfiguration::rendezvous`], a fixed loopback port with
-//!   multicast scouting off, the G3 fallback.
-//!
-//! A host that cannot send to the multicast group at all (the Linux CI test step runs in a
-//! loopback-only network namespace) skips the multicast leg with a printed `GAP:` line; the
-//! rendezvous leg runs everywhere.
+//! Gate S4 criterion 1). Local mode has one discovery path, a fixed loopback rendezvous
+//! with multicast scouting and gossip off ([`PeerConfiguration::local`] is
+//! [`PeerConfiguration::rendezvous`] on the default port; PR #364 review finding 1). Each
+//! medium uses a fresh free port, so media never meet, and the suite runs on every host,
+//! the Linux loopback-only namespace included.
 //!
 //! Each medium is a fresh partition, so nothing started on one medium reaches another. The
 //! media use the real clock and have no fault control: the checks that need a copy held in
@@ -20,11 +16,11 @@
 //! of the medium and has every running transport publish to it until each probe has heard
 //! from every transport. Only then is a payload published next certain to have a path.
 //!
-//! `health_must_not_contain` lists every native peer id, fixed endpoint and key expression
-//! prefix the medium's transports held, and the multicast group address.
+//! `health_must_not_contain` lists every native peer id, listening and rendezvous endpoint
+//! and key expression prefix the medium's transports held, and the multicast group address.
 
 use std::collections::HashSet;
-use std::net::{TcpListener, UdpSocket};
+use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -51,13 +47,7 @@ fn unique() -> u64 {
     t ^ (u64::from(std::process::id()) << 32) ^ MEDIA.fetch_add(1, Ordering::Relaxed)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Discovery {
-    Multicast,
-    Rendezvous,
-}
-
-struct PeerHarness(Discovery);
+struct PeerHarness;
 
 struct PeerMedium {
     conf: PeerConfiguration,
@@ -67,19 +57,13 @@ struct PeerMedium {
 
 impl TransportHarness for PeerHarness {
     fn name(&self) -> String {
-        match self.0 {
-            Discovery::Multicast => "zenoh peer, loopback, multicast discovery".into(),
-            Discovery::Rendezvous => "zenoh peer, loopback, fixed rendezvous port".into(),
-        }
+        "zenoh peer, local mode (loopback rendezvous)".into()
     }
 
     fn medium(&self) -> Box<dyn Medium> {
-        let conf = match self.0 {
-            Discovery::Multicast => PeerConfiguration::local(),
-            Discovery::Rendezvous => PeerConfiguration::rendezvous(free_port()),
-        };
         Box::new(PeerMedium {
-            conf: conf.with_partition(format!("contract-{:016x}", unique())),
+            conf: PeerConfiguration::rendezvous(free_port())
+                .with_partition(format!("contract-{:016x}", unique())),
             made: Mutex::new(Vec::new()),
             probes: AtomicU64::new(1),
         })
@@ -194,35 +178,9 @@ fn check(report: &Report) {
     }
 }
 
-/// Why this host cannot send a multicast datagram at all, if it cannot: for example a
-/// network namespace whose only interface is loopback, with no multicast route (the Linux
-/// CI test step runs in one, `scripts/loopback-only.sh`). Port 9 is the discard port, so the
-/// probe reaches no scouting socket.
-fn no_multicast_route() -> Option<String> {
-    let s = UdpSocket::bind("0.0.0.0:0").ok()?;
-    s.send_to(b"oac multicast route probe", "224.0.0.224:9")
-        .err()
-        .map(|e| e.to_string())
-}
-
 #[test]
-fn contract_suite_with_multicast_discovery() {
-    if let Some(why) = no_multicast_route() {
-        // Recorded, not passed silently: the rendezvous leg below covers the transport on
-        // this host, and the multicast leg runs on every host that has a multicast route.
-        eprintln!(
-            "GAP: multicast leg not run on this host: sending to the scouting group fails ({why}). \
-             The fixed rendezvous leg covers this host."
-        );
-        return;
-    }
-    let report = run(&PeerHarness(Discovery::Multicast));
-    check(&report);
-}
-
-#[test]
-fn contract_suite_with_a_fixed_rendezvous_port() {
-    let report = run(&PeerHarness(Discovery::Rendezvous));
+fn contract_suite_in_local_mode() {
+    let report = run(&PeerHarness);
     check(&report);
     // Scouting off: multicast_discovery is declared absent, so the check passes outright.
     assert!(matches!(
