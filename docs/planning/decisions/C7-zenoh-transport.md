@@ -198,6 +198,30 @@ delivery to a specific opaque session id (the only addressing mode C4 defines) t
 thing this layout can express — there is no key pattern in this design a v0.1 broadcast
 feature could piggyback on without a new decision.
 
+*Dated note, 2026-10-08 (#62, G1): conflict recorded (`oac-evidence` §6). This section
+predates the frozen `spec/interfaces.md` §6.4, whose [IFC-TRN-043] forbids making a
+subscription observable to another implementation "through a declaration of interest" or
+"through routing state". One native subscriber per session key expression, as "subscribe-
+to-that-exact-key" above implies, is a declaration any peer holding the session id can
+detect. So the transport as built declares one subscriber per started transport, on
+`oac/1/<partition>/*`, at `start`, and filters by destination locally; `subscribe` changes
+only a local table. Publishing is unchanged: a payload goes to exactly one destination's key
+expression, and there is still no group, room or broadcast feature. The cost is that every
+peer of a partition receives every frame and drops those it has no subscription for, which
+is why the transport declares `destination_restricted` absent. The frozen spec wins over this
+pre-freeze text; no ADR-001 text is affected. The as-built mapping, the key-expression form
+(`oac/1/<partition>/<digest>`, SHA-256 truncated to 128 bits) and the capability evidence are
+the transport binding document in `transports/zenoh/src/lib.rs` ([IFC-TRN-090]).*
+
+*Dated note, 2026-10-09 (#62; the lead's ruling on PR #364): the partition-wide
+subscriber above is ratified on one condition. Each frame must be encrypted for its
+recipient, so that only the addressed session or device key can read its content and other
+peers see only size and timing, which matches the "traffic only" wording of
+`spec/interfaces.md` §6.4. That is a frozen-spec addition, designed in its own spec PR
+(#367). Until that addition **and** the core's sealing work that implements it have
+landed, the Zenoh transport must not carry real traffic. Every peer of a partition, and the
+rendezvous holder (§5 dated notes), can read every frame.*
+
 ## 4. Presence mapping
 
 **Neutral states, from DESIGN.** Quoted, DESIGN.md line 105: "Start with `online`,
@@ -362,7 +386,68 @@ configuration; it is recorded here because a future local-mode tuning change tha
 for `#iface=` on Windows or macOS would be relying on an undocumented behaviour, which
 this document flags in advance rather than after the fact.
 
+*Dated note, 2026-10-09 (#62, G1; PR #364 review, blocking finding 1): reversal taken, for
+a reason this section did not foresee.* "Multicast scouting: ON by default" is reversed to
+the named reversal path above, on every platform. With scouting on, a local-mode peer
+answered scouts and connected out to a plain Zenoh peer listening on a LAN address, which
+then received envelope frames: binding the listener to `127.0.0.1` does not stop a peer
+from connecting *out*. Scouting cannot be confined to loopback with the stable
+configuration:
+- autoconnect has no filter on the locators a peer is told;
+- with gossip on, a neighbour forwards its own neighbours' locators one hop
+  (`zenoh` `1.10.1`, `src/net/protocol/network.rs` L609-L627);
+- on Linux a socket receives group datagrams that any socket on the host joined, on any
+  interface.
+
+So local mode now fails closed:
+- scouting and gossip are off, and every listener is on `127.0.0.1`;
+- transports meet at a fixed loopback rendezvous, port `17447` by default (the port G3's
+  rendezvous scenario used; the lead may want to ratify the default);
+- the first transport holds the port with its in-process session in Zenoh's `router` mode,
+  so that it relays, and later transports are `client` sessions linked to it alone. This
+  is not `zenohd`; boundary 6 is unaffected;
+- `multicast_discovery` is declared absent.
+
+`transports/zenoh/tests/peer_transport.rs`
+`local_mode_reaches_nothing_beyond_loopback` proves it. A LAN-address probe peer with
+scouting on receives nothing and is never linked, and the test fails if scouting is turned
+back on. The as-built description is the binding document in `transports/zenoh/src/lib.rs`.
+The "Scouting exposure beyond loopback in local mode" row of §9 is now closed by design
+rather than a residual.
+
+*Dated note, 2026-10-09 (#62; the lead's ruling on PR #364): the local-mode design above
+is ratified. That design is the fixed loopback rendezvous on port `17447`, scouting and
+gossip off, with the first transport as the in-process `router` and later transports as
+its clients. The ratification has one condition: **G3 (#64) must prove the relay's
+identity with a per-user pinned TLS certificate before OAC carries real traffic.** The
+condition answers a new risk the PR #364 re-review measured. Nothing authenticates the
+holder of the rendezvous port, so any local program that binds it first, or first after
+the holder exits, is the relay every OAC transport on the host uses:
+- it receives every frame, and can drop, delay or withhold any of them;
+- a program on the port that is not a Zenoh session stops OAC from starting;
+- one process, possibly another OS user's, relays the whole host;
+- transports are cut off between holders;
+- `17447` is fixed and unregistered.
+
+The §9 row "Rendezvous port squatting in local mode" and `docs/planning/v0.1/11-risks.md`
+row 81 record it. That §9 row replaces the "Scouting exposure" row's residual, which the
+note above closes. Envelope signatures and replay protection still hold. The coming
+per-recipient encryption (§3 dated note) answers confidentiality, but not delivery
+control or denial of service.*
+
 ## 6. LAN-mode section
+
+*Dated note, 2026-10-09 (#62, G1): a requirement on G3 (#64), recorded here so that G3
+sees it, and as `docs/planning/v0.1/11-risks.md` row 77.* The G1 frame carries a payload's
+deadline as a wall-clock expiry, and the receiver drops a frame at or after it. That is
+exact on one host, where both read one clock. Between hosts it is not safe: a receiver
+whose clock runs `d` behind the sender's can hand a frame over up to `d` after its deadline
+([IFC-TRN-034]); a receiver `d` ahead drops early, which is safe. Before LAN mode carries a
+frame between hosts, G3 must bound this, and record the bound in the binding document. Two
+ways to do it:
+- carry the time left instead of an expiry, and subtract a stated transit allowance; or
+- declare a maximum skew, subtract it at the sender, and refuse any payload with less time
+  left than that bound.
 
 **TLS is the v0.1 default; QUIC is the named alternative.** Zenoh's config exposes both
 TLS and QUIC listeners with per-endpoint certificates (`oac-zenoh` §5: "TLS/mTLS and
@@ -526,6 +611,7 @@ planning/decisions/C6-trust-rendering.md` §12 (provider-rendering-level threats
 | `zid`-as-identity misuse | A future code path is tempted to key an ACL rule, allowlist entry, or authorization decision on a Zenoh `zid` instead of an authenticated ACL subject | ACL subjects are certificate common name or username only, never `zid` (§6, restating `docs/planning/decisions/C5-envelope-auth.md` §12 and `oac-zenoh` §5's "explicitly unauthenticated and unfit for production"); the containment lint's `\bzid\b` pattern (§2) flags a whole-token `zid` identifier that leaks into `core/` or `spec/` only | The containment lint (`oac-boundaries` check 1, §2) — **proven scope is narrower than a full mitigation**: it does not match `zid` embedded inside a `snake_case`/`camelCase` identifier (e.g. `session_zid`), and it does not run against `adapters/` or `cli/` at all (§2's correction) | Pending — `core/`/`spec/` do not exist yet, so the lint reports a missing-path error, not a pass, until Stage 3 code lands; even once it runs clean, a `zid`-shaped identifier embedded in a longer token, or any leak into `adapters/`/`cli/`, is unproven by this test and remains an open risk, not a closed mitigation (`oac-security-work` §1) |
 | LAN certificate misissuance | An attacker completes, or forges completion of, C5 §10(b)'s short-code pairing flow and obtains a certificate with an attacker-controlled common name | Certificate issuance is entirely C5 §10(b)'s already-decided pairing flow (6-digit/120-second/5-attempt short code) — this document adds no separate issuance path an attacker could target instead; common name is derived from the device public-key fingerprint (§6), not attacker-suppliable free text | F5 (authorization engine and pairing store, per `docs/planning/decisions/C4-session-identity.md` §13's identical row for the analogous device-key-exfiltration threat); F11 security suite | F5/F11 not yet built; this row is the transport-layer restatement of the pairing-flow threat C5 §13 already owns at the identity layer — not a new attack surface C7 itself introduces, since C7 reuses rather than redesigns issuance (§6) |
 | Scouting exposure beyond loopback in local mode | Local-mode multicast scouting (§5), left on by default, is reachable from outside the intended loopback-only scope (e.g. a misconfigured host where `127.0.0.1`-only binding does not actually prevent multicast group membership from being visible on a shared LAN segment) | Listener itself binds `127.0.0.1` (§5); scouting's own multicast address (`224.0.0.224:7446`) is a discovery-only channel, not the data-plane publish/subscribe path, and any peer that scouting helps discover still faces §5's loopback-bound listener for the actual pub/sub link; the G3 fixed-rendezvous-endpoint fallback (§5) is the named reversal path if a platform's scouting behaviour is found to leak beyond the intended scope | Gate G3 (must record real scouting-socket behaviour per platform, per `oac-zenoh` §3's Windows `0.0.0.0`/`SO_REUSEADDR` note); the containment lint does not cover this row (it is a runtime network-behaviour question, not a static-text one) | Gate G3 `NOT RUN` (note 2026-10-02, #219: G3 is now `PASS` at gate level — loopback discovery and TLS on `127.0.0.1` on all three platforms, macOS on a GitHub-hosted VM; this row's OAC-specific residual is not exercised by G3 and stands); the Windows `0.0.0.0`/`SO_REUSEADDR` scouting-socket behaviour (`oac-zenoh` §3) is not yet exercised against a real multi-host or shared-segment topology — this is exactly the class of finding G3 is timeboxed to produce, per `docs/planning/PLANNING-PROMPT.md` §4 |
+| Rendezvous port squatting in local mode (added 2026-10-09, #62, PR #364 re-review) | A local program, run by any OS user, binds the loopback rendezvous port (default `17447`, fixed and unregistered) before the first OAC transport, or after the holder exits; or an unrelated program already uses that port | None yet in G1: nothing authenticates the holder. Listeners and connections stay on `127.0.0.1` (§5 dated note), so the exposure is the host's local processes; envelope signatures and replay protection still give integrity (C5); a non-Zenoh program on the port makes `start` fail with an error naming the port. **Required before real traffic: G3 (#64) authenticates the relay with a per-user pinned TLS certificate** (lead's condition, §5 dated note); per-recipient encryption (§3 dated note, #367) covers confidentiality | `transports/zenoh/tests/peer_transport.rs` `a_port_held_by_something_else_is_named_in_the_start_error` (the denial-of-service case is reported, not prevented); the authentication test is G3's | Open, medium-high for the design: a squatter relays, reads (until encryption) and can drop, delay or withhold every frame; any program on the port blocks OAC; one process, possibly another user's, relays the whole host; transports are cut off between holders. Not exploitable while the transport carries no real traffic. `11-risks.md` row 81, owner G3 (#64) |
 
 Every row names its proving test; none is marked mitigated without one, per
 `oac-security-work` §1's rule. Because every named test's current verdict is `NOT RUN` or

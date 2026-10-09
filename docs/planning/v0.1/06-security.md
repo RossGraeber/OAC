@@ -209,7 +209,9 @@ default in v0.1 (§11 below).
 
 TLS/mTLS and QUIC listeners are used for LAN mode; local mode binds loopback and leaves
 multicast scouting on by default, disablable, with no manual certificate management
-required locally (`docs/planning/DESIGN.md` "Security"; C7 §5-§6).
+required locally (`docs/planning/DESIGN.md` "Security"; C7 §5-§6). *(Dated note,
+2026-10-09, #62: scouting is now off in local mode, which uses a fixed loopback rendezvous
+instead, because a scouting peer connected out to the LAN; C7 §5 dated note.)*
 
 **The one-sentence relationship, stated so it cannot be misread, quoted from C5 §12:**
 **the Zenoh ACL is a coarse pre-filter, the envelope signature is the authenticity

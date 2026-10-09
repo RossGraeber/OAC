@@ -1364,7 +1364,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-010 | MUST NOT | 6.2 | covered by SEC-SIG-030 (TODO(fixture) there); F11, H2 |
 | IFC-TRN-011 | MUST | 6.2 | `ifc-trn/IFC-TRN-011.n01`, `.n02`; loss and delay: TODO(fixture), F10 with F7's fault injection |
 | IFC-TRN-012 | MUST NOT | 6.2 | TODO(fixture): F11, H2 |
-| IFC-TRN-013 | MUST NOT | 6.2 | TODO(fixture): F10 transport suite; G1 |
+| IFC-TRN-013 | MUST NOT | 6.2 | tested, no fixture (a behaviour, not a wire form): two transport peers that found each other hand the core no presence event and no payload until one is sent, the reference transport's test `discovery_alone_hands_the_core_nothing` (G1, #62) |
 | IFC-TRN-020 | MUST | 6.3 | TODO(fixture): F7, F10 transport suite |
 | IFC-TRN-021 | MUST NOT | 6.3 | TODO(fixture): F10 transport suite, against each declared capability |
 | IFC-TRN-022 | MUST NOT | 6.3 | TODO(fixture): F10, the core run against F7 with every capability absent |
@@ -1383,9 +1383,9 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-040 | MUST | 6.4 | TODO(fixture): F10 transport suite |
 | IFC-TRN-041 | MUST NOT | 6.4 | TODO(fixture): F10 transport suite asserts no polling; H1 |
 | IFC-TRN-042 | MUST | 6.4 | TODO(fixture): F6, F10 |
-| IFC-TRN-043 | MUST NOT | 6.4 | TODO(fixture): F10 transport suite, a differential test over subscribed and unsubscribed destinations; G1, H2 |
-| IFC-TRN-044 | MUST NOT | 6.4 | TODO(fixture): F10 transport suite; G1 |
-| IFC-TRN-050 | MUST | 6.5 | TODO(fixture): F10 transport suite; G2 |
+| IFC-TRN-043 | MUST NOT | 6.4 | tested, no fixture (a behaviour, not a wire form): F10 transport suite check `subscriptions-not-revealed`, run unchanged against the reference transport (G1, #62); the differential test over a subscribed and an unsubscribed destination, as seen by a third party holding both session ids, the reference transport's test `native_interest_does_not_depend_on_subscriptions`; H2 |
+| IFC-TRN-044 | MUST NOT | 6.4 | tested, no fixture (a behaviour, not a wire form): F10 transport suite check `result-independent-of-subscription`, run unchanged against the in-memory transport (F7) and the reference transport (G1, #62) |
+| IFC-TRN-050 | MUST | 6.5 | tested, no fixture (a behaviour, not a wire form): F10 transport suite check `presence-whole-to-named-device`, run unchanged against the in-memory transport (F7) and the reference transport (G1, #62); the reference transport's test `frames_reach_only_their_own_local_consumer` |
 | IFC-TRN-051 | MUST | 6.5 | TODO(fixture): F6, F10 |
 | IFC-TRN-060 | MUST | 6.6 | TODO(fixture): F10 transport suite |
 | IFC-TRN-061 | MAY | 6.6 | none (MAY) |

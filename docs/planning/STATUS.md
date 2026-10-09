@@ -4,6 +4,62 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-09 (**Issue #62 (G1): the lead's rulings on PR #364.** No gate
+verdict, pin or ADR text changes.
+
+- **No real traffic yet.** The partition-wide subscriber is ratified on condition of
+  per-recipient frame encryption: a frozen-spec addition, PR #367. Until that addition and
+  the core's sealing work have landed, the Zenoh transport must not carry real traffic
+  (C7 §3 dated note; binding document).
+- **Local mode ratified, with a condition.** The fixed loopback rendezvous (`17447`), with
+  the first transport as the in-process relay, is ratified on condition that G3 (#64)
+  authenticates the relay with a per-user pinned TLS certificate before real traffic.
+  Rendezvous port squatting is recorded in C7 §5 and §9 and in 11-risks.md row 81, owner
+  #64. The cases: an unauthenticated relay that can read, drop or delay frames; denial of
+  service by any program on the port; one process, possibly another user's, relaying the
+  host; a cut-off between holders; a fixed, unregistered port. `start` now names the port
+  when something else holds it.
+
+**Last updated:** 2026-10-09 (**Issue #62 (G1): the Zenoh reference transport, after the
+PR #364 review.** No gate verdict, pin or ADR text changes.
+
+- **Local mode, reversed to the C7 §5 fallback.** With multicast scouting on, a local-mode
+  peer connected out to a LAN peer, which received envelope frames (review finding 1). Local
+  mode now fails closed on every platform. Scouting and gossip are off, and transports meet
+  at a fixed loopback rendezvous (port `17447` by default). The first transport holds it in
+  Zenoh's in-process `router` mode; later transports are `client` sessions linked to it.
+  `multicast_discovery` is declared absent. Dated note in C7 §5; a LAN-probe test proves the
+  change.
+- **Timing.** Handlers run on a dispatch thread behind a bounded queue that drops when full,
+  not on Zenoh's receive callback; a blocked `put` waits at most 1 s.
+- **New ledger rows.** 11-risks.md row 76: the carrier handle is set by the sender, so G2
+  (#63) must not attribute carrier loss by it. Row 77: G3 (#64) must bound clock skew
+  before LAN mode. RISK-G3 no longer bears on local mode.
+
+**Last updated:** 2026-10-08 (**Issue #62 (G1): the Zenoh reference transport.** No gate
+verdict, pin or ADR text changes. Zenoh `=1.10.1` (Apache-2.0 arm, default features off) and
+`sha2 =0.11.0` (already core's) are added to `transports/zenoh/` only, under the pins and
+licence policy of `docs/planning/decisions/G-7-stage4-dependencies.md` (#352). G1 enables
+`transport_tcp` only, of the two features G-7 records; `transport_tls` comes with G3 (#64).
+
+- **Transport.** `transports/zenoh/` implements the frozen `Transport` contract on the stable
+  `Wait` path and passes the transport contract suite unchanged, over loopback
+  (`transports/zenoh/tests/contract.rs`; the fixed rendezvous since 2026-10-09).
+  Its binding document ([IFC-TRN-090], publish and subscribe half) is
+  `transports/zenoh/src/lib.rs`.
+- **Finding, C7 §3 against [IFC-TRN-043].** Per-session native subscriptions would reveal
+  a subscription to any peer holding the session id. The transport declares one subscriber
+  per started transport, on its partition, and filters locally; publishing still targets
+  one destination's key expression. Recorded as a dated note in C7 §3.
+- **Spec index.** [IFC-TRN-013], [IFC-TRN-043] and [IFC-TRN-044] name their tests instead of
+  `TODO(fixture)` (index rows only, no version bump).
+- **Ledger.** Closed: the crates.io cross-check (11-risks.md row 10, crates.io API retrieved
+  2026-10-08) and the `rustls` TLS stack (row 15, from Zenoh's own `1.10.1` manifests); their
+  bullets below are removed. Narrowed: binary size (row 6, first measurement, Windows only),
+  the Rust crate under G3 (row 36, Windows only: no GitHub Actions under the lead's policy,
+  and WSL refused by the session's worktree guard) and presence
+  carriage (row 61, records carried; carrier loss stays G2).)
+
 **Last updated:** 2026-10-08 (**Issue #351: the adapter contract suite no longer trusts a
 harness's profile or gaps** (PR #348 review; Refs #59). No `spec/` file, fake, gate verdict,
 pin, dependency, static-scan rule or ADR text changes.
@@ -2687,7 +2743,18 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
 - G3 criteria via the Rust `zenoh` crate built with toolchain `1.98.1`, using OAC's feature
   set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
-  `docs/planning/gates/G3-result.md`).
+  `docs/planning/gates/G3-result.md`. Narrowed 2026-10-08, #62: on Windows 11 the Rust
+  crate passes the transport contract suite over loopback; since 2026-10-09 local mode is
+  the loopback rendezvous only, with no multicast; Linux and macOS not yet run;
+  11-risks.md row 36).
+- The Zenoh transport's carrier handle is set by the sender and checked by nothing, so it
+  cannot attribute carrier loss (UNVERIFIED as a basis for attribution — no mechanism binds
+  it to a link; G2 #63 must use its own link or liveliness observations; 11-risks.md row 76).
+- Frame expiry under clock skew between hosts (UNVERIFIED for LAN mode — exact on one host,
+  unbounded across hosts until G3 #64 bounds it; C7 §6 dated note; 11-risks.md row 77).
+- The identity of the local-mode rendezvous holder (UNVERIFIED — nothing authenticates it,
+  so any local program on the port is the relay; G3 #64 must pin it with a per-user TLS
+  certificate before real traffic; C7 §5 dated note; 11-risks.md row 81).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.157.1` (UNVERIFIED — G2
   has exercised Windows only, on both `0.154.0` and the `0.157.1` re-run; see
   `docs/planning/gates/G2-result.md`).
@@ -2712,7 +2779,9 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
 - The 5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate; see
   REVERIFICATION-B2.md §3.4 box 7. Earlier text said the first G3 build artifact from task
   D3 would resolve it. D3 ran the Python wheel and built no Rust artifact, so the owner is
-  now task I3, which records the actual release binary size).
+  now task I3, which records the actual release binary size. Narrowed 2026-10-08, #62:
+  10,401,792 octets on Windows x86_64 MSVC for a release binary that runs the transport,
+  `transports/zenoh/examples/loopback.rs`; Linux and macOS not measured; 11-risks.md row 6).
 - The named compatibility shim boundary for the Claude Code Channels preview surface
   (UNVERIFIED — DESIGN.md names no such module; out of scope for B2, needs a C-series
   decision or a DESIGN.md update; see REVERIFICATION-B2.md "Carried to 11-risks.md").
@@ -2730,9 +2799,6 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   drift: the v2 JSON schemas are published as `v2.0.0-alphaX` prereleases, latest
   `schema-v2.0.0-alpha.7` (2026-09-30), and the v2 protocol docs are separately in Draft
   (record §1.3 A8; `PINS.md` "ACP").)*
-- Zenoh crate version/date read from GitHub releases rather than crates.io directly,
-  because the crates.io page did not return content in B1 and was not re-attempted in B2
-  (UNVERIFIED — re-confirm on crates.io when reachable; see PINS.md).
 - `codex mcp-server` deprecation date (2026-08-20) and deletion date (2026-09-05)
   (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
   re-confirmed against the CLI reference in B1 or B2; see REVERIFICATION-B2.md §3.2
@@ -2799,9 +2865,6 @@ L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
   Claude Code's channel path included, accept an `extensions` member in an `initialize`
   result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).
 
-- Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
-  from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own
-  `Cargo.toml`/feature docs; see `docs/planning/decisions/C1-language-runtime.md` §9).
 - Whether an `rmcp`-based OAC server, run end-to-end against a live Claude Code
   instance with `MCP_PROTOCOL_NEGOTIATION=legacy`, actually registers as a channel
   (UNVERIFIED — SDK capability verified, runtime behaviour is gate G4's job, verdict
