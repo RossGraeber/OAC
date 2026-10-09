@@ -180,6 +180,7 @@ adapters/*, transports/*, cli/ -> tests/fakes/* (Rust members)   (dev-dependency
 tests/protocol/contract/*      -> core/, tests/fakes/*   (only; #59)
 adapters/*, transports/*, cli/ -> tests/protocol/contract/*   (dev-dependency only; #59)
 tests/security                 -> core/, tests/fakes/*, transports/*, tests/protocol/contract/*   (only; #60)
+tests/security                 -> adapters/*   (dev-dependency only; #65)
 (nothing)                      -> tests/security   (#60)
 ```
 
@@ -247,6 +248,10 @@ whose closure holds a crate on `FORBIDDEN_EXTERNAL`, G-7 §2.3.)
 `core/`, a fake, a transport and (through a transport's dev-dependency) a contract suite,
 and fails any member that reaches it. A transport it reaches still brings that transport's owned crates under rule 4, so in practice it reaches
 `transports/memory/` only.)
+(Dated note, 2026-10-09, #65: the same script lets `tests/security` reach an adapter, and
+through it `adapters/mcp-tools`, over dev edges only (rule 5), so that the security suite
+runs the Claude adapter's own mitigations for 06 rows 11, 15 and 16 against the fake. Its
+library still holds no adapter.)
 
 ---
 

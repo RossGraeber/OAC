@@ -16,7 +16,8 @@
 //   tests/fakes/* -> core/ only        (#57: test doubles, never in a product build)
 //   tests/protocol/contract/* -> core/ and tests/fakes/* only
 //                                      (#59: the contract suites, never in a product build)
-//   tests/security -> core/, tests/fakes/*, transports/* and tests/protocol/contract/* only
+//   tests/security -> core/, tests/fakes/*, transports/* and tests/protocol/contract/* only,
+//                                      and adapters/* as a dev-dependency only (#65)
 //                                      (#60: the security suite; a leaf, nothing reaches it)
 //
 // What is checked, for every workspace member, over every dependency kind (normal, build
@@ -37,7 +38,10 @@
 //      is compiled into the `oac` binary. An adapter, a transport or cli/ may take one as a
 //      dev-dependency (rule 2 allows the reach); core/ may not, because core/ reaches
 //      nothing in-repo. The security suite (#60) is a test crate itself, so it may build a
-//      fake and a transport in; no member at all may reach it (rule 2).
+//      fake and a transport in; no member at all may reach it (rule 2). It may reach an
+//      adapter (and through it adapters/mcp-tools) over dev edges only (#65): its normal and
+//      build closure holds no adapter, so the adapters' mitigations are tested from its
+//      `tests/` without its library depending on product adapter code.
 //   4. Transport crates stay with their owner: the zenoh crates may be a direct dependency
 //      of transports/zenoh only (07 section 5, "Consuming module"), and may not be
 //      reachable from any member other than their owner and cli/. So none is reachable from
@@ -212,8 +216,10 @@ function allowedReach(from, to) {
   if (from.kind === 'tools') return to.kind === 'core' || to.kind === 'fake' || to.kind === 'suite';
   if (from.kind === 'suite') return to.kind === 'core' || to.kind === 'fake'; // contract suites
   // The security suite (#60): core/, a fake, a transport to carry envelopes over, and a
-  // contract suite, which a transport reaches as a dev-dependency (#59).
-  if (from.kind === 'security') return ['core', 'fake', 'transport', 'suite'].includes(to.kind);
+  // contract suite, which a transport reaches as a dev-dependency (#59). Since G4 (#65) also
+  // an adapter, and through it the shared tool crate, as a dev-dependency only (rule 5),
+  // so that the adapters' own security mitigations run in this suite.
+  if (from.kind === 'security') return ['core', 'fake', 'transport', 'suite', 'adapter', 'tools'].includes(to.kind);
   // adapters: also the shared tool crate (#7)
   if (from.kind === 'adapter' && to.kind === 'tools') return true;
   // adapters and transports: core/, and a fake or a suite as a dev-dependency (rule 5)
@@ -347,6 +353,27 @@ export function checkMetadata(meta) {
         for (let c = reached; c !== null; c = built.get(c)) chain.unshift(nameOf(c));
         const what = tmod.kind === 'fake' ? 'test double' : 'contract suite';
         violations.push(`${name} builds in ${what} ${tmod.path} (allowed only as a dev-dependency): ${chain.join(' -> ')}`);
+      }
+    }
+    // 5, for the security suite (#65): it reaches an adapter, or the shared tool crate, over
+    // dev edges only. Its library, which its tests and the threat-map tool build, holds none.
+    if (mod.kind === 'security') {
+      const built = new Map([[id, null]]);
+      const q = [id];
+      while (q.length) {
+        const cur = q.shift();
+        for (const d of depsOf(cur)) {
+          if (built.has(d.id) || !d.kinds.some((k) => k.kind !== 'dev')) continue;
+          built.set(d.id, cur);
+          q.push(d.id);
+        }
+      }
+      for (const reached of built.keys()) {
+        const tmod = members.get(reached);
+        if (tmod?.kind !== 'adapter' && tmod?.kind !== 'tools') continue;
+        const chain = [];
+        for (let c = reached; c !== null; c = built.get(c)) chain.unshift(nameOf(c));
+        violations.push(`${name} builds in ${tmod.path} (the security suite takes an adapter only as a dev-dependency): ${chain.join(' -> ')}`);
       }
     }
   }
@@ -695,6 +722,17 @@ const SELF_TEST_CASES = [
     meta: synth({ members: SECURITY_MEMBERS, edges: SECURITY_EDGES }),
   },
   { name: 'security suite -> adapter', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-adapter-claude']] }) },
+  // #65: an adapter, as a dev-dependency only, so the adapter's mitigations run in the suite.
+  {
+    name: 'control: the security suite dev-depends on an adapter',
+    expectClean: true,
+    meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-adapter-claude', 'dev']] }),
+  },
+  { name: 'security suite -> adapter (build-dependency)', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-adapter-claude', 'build']] }) },
+  {
+    name: 'security suite builds in an adapter through a third-party crate',
+    meta: synth({ members: SECURITY_MEMBERS, externals: ['shim'], edges: [...SECURITY_EDGES, ['oac-security-suite', 'shim'], ['shim', 'oac-adapter-claude']] }),
+  },
   { name: 'security suite -> cli (dev-dependency)', meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-cli', 'dev']] }) },
   { name: 'control: the security suite may reach a contract suite', expectClean: true, meta: synth({ members: SECURITY_MEMBERS, edges: [...SECURITY_EDGES, ['oac-security-suite', 'oac-contract-transport']] }) },
   {

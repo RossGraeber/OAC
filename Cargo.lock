@@ -2157,6 +2157,7 @@ dependencies = [
 name = "oac-security-suite"
 version = "0.0.0"
 dependencies = [
+ "oac-adapter-claude",
  "oac-core",
  "oac-fake-claude",
  "oac-transport-memory",

@@ -60,9 +60,11 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
 
   Each is `#[ignore = "GATED on #N ..."]`. Its body is a single `std::panic!`, so it fails
   if run and is never a pass.
-- **Un-gating a G4, G7 or G8 placeholder** means driving a real adapter. The crate rule does
-  not let this suite reach `adapters/*` today. That rule must first admit an adapter as a
-  dev-dependency, or the test must move into the adapter's crate.
+- **Un-gating a G7 or G8 placeholder** means driving a real adapter. Since G4 (#65) the
+  crate rule (`scripts/check-crate-deps.mjs` rule 5) admits an adapter as a dev-dependency
+  of this suite, never a normal or build one. G4's three placeholders (rows 11, 15 and 16)
+  now drive the Claude adapter into the fake Claude Code endpoint, in
+  `tests/provenance.rs`.
 
 ## Mutation check
 

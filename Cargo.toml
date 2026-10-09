@@ -15,7 +15,8 @@
 #   tests/protocol/contract/*
 #                     -> core/ and tests/fakes/* only; the contract suites (#59), reached
 #                        by product crates through dev-dependencies only, like the fakes
-#   tests/security    -> core/, tests/fakes/*, transports/* and the contract suites only;
+#   tests/security    -> core/, tests/fakes/*, transports/* and the contract suites only,
+#                        and adapters/* as a dev-dependency only (#65);
 #                        the security suite (#60), a leaf: nothing depends on it
 #
 # scripts/check-crate-deps.mjs enforces these edges over `cargo metadata`, and keeps
