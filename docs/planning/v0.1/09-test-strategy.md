@@ -144,7 +144,11 @@ above is its default run: before a PR is opened or merged it runs on Windows and
 and each run's summary (git HEAD SHA, every step's result) is pasted into the PR; on Linux
 the test steps run inside `scripts/loopback-only.sh`, as on the old ubuntu image. The
 opt-in tiers run locally on demand (`--tier keystore|scale|mutation|g3-macos`). PR #330's
-candidate required-checks list no longer applies: no GitHub check exists to require. What
+candidate required-checks list no longer applies: no GitHub check exists to require.
+The port is frozen as data in `scripts/local-ci.ported.json`, which `--self-test` compares
+with the live plan; any diff to that file must be justified in its PR against the deleted
+workflow YAML at `c8497d6` (`git show c8497d6:.github/workflows/<name>`) or a newly added
+check. What
 the local run cannot reproduce is listed as lost coverage in this note's PR (the macOS legs
 without a Mac, and a hosted runner's clean image).
 

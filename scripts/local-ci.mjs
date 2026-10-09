@@ -21,16 +21,26 @@
 //   node scripts/local-ci.mjs --only <id>[,<id>...]    # run only these steps (the summary
 //                                                      # says PARTIAL; not for a PR)
 //   node scripts/local-ci.mjs --self-test      # prove every step still runs (see below)
-//   --allow-cargo-config   do not fail on a cargo config file outside the repository that can
-//                          swap a crate's source (it is still listed in the summary)
+//   --allow-cargo-config   do not fail on cargo config files outside the repository (they are
+//                          still listed in the summary)
+//   --allow-env            do not fail on inherited variables that change what is built or
+//                          run (still listed); inherited OAC_HERDR_SELFTEST_* / OAC_TEST_*
+//                          always fail
 //
-// Cargo configuration outside the repository (PR #365 review B2): cargo also reads
+// Cargo configuration outside the repository (PR #365 review B2, re-review): cargo also reads
 // $CARGO_HOME/config(.toml) and .cargo/config(.toml) in every ancestor of the checkout. Any
-// of them can hold `[source] replace-with`, `[patch]` or `paths`, which swap a crate's source
-// behind check-crate-deps.mjs, --adapters-alone and the licence inventory (G-7 section 5,
-// check-workflows.mjs W6). Hosted runners started clean; a developer machine does not. Step
-// `cargo-config` lists every such file and fails when one holds those keys, unless
-// --allow-cargo-config is passed; the summary lists them either way.
+// of them can swap a crate's source (`[source] replace-with`, `[patch]`, `paths`, in many
+// TOML spellings: quoted keys, inline tables, dotted keys) behind check-crate-deps.mjs,
+// --adapters-alone and the licence inventory (G-7 section 5, check-workflows.mjs W6). Hosted
+// runners started clean; a developer machine does not. Step `cargo-config` fails on ANY such
+// file unless --allow-cargo-config; the keys it recognises are reported as information only.
+//
+// Inherited environment (PR #365 re-review B3): step `environment` fails on an inherited
+// OAC_HERDR_SELFTEST_* or OAC_TEST_* (each would switch a step off or on unseen; --quick and
+// the keystore tier set theirs for their own child only, and inherited ones are dropped from
+// every child), and, unless --allow-env, on NODE_OPTIONS, RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS,
+// RUSTDOCFLAGS, RUSTC, RUSTC_WRAPPER, RUSTC_WORKSPACE_WRAPPER, CARGO_BUILD_*, CARGO_TARGET_*,
+// CARGO_PROFILE_*, CARGO_SOURCE_* and CARGO_PATCH*. The summary lists them, and CARGO_HOME.
 //
 // The default tier keeps the old rules (oac-testing section 2; PLANNING-PROMPT sections 6 and
 // 9.10): no live provider, no API key, no network beyond loopback. The one networked step is
@@ -84,7 +94,8 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 const BASH_BODIES = '.github/local-ci.sh';
 const PORTED_FILE = 'scripts/local-ci.ported.json';
 // Steps of this runner's own, with no counterpart in a deleted workflow.
-const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config']);
+const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config', 'environment']);
+const GUARDS = new Set(['cargo-config', 'environment']);
 const TOOLCHAIN = '1.98.1'; // rust-toolchain.toml; docs/planning/PINS.md
 
 // ---- steps ----------------------------------------------------------------------------
@@ -101,7 +112,8 @@ const OFFLINE = { CARGO_NET_OFFLINE: 'true' };
 const LINUX_ONLY_SANDBOX = 'not Linux: no network namespace; the rule rests on offline cargo and loopback-only fakes, as on the old windows/macos CI legs';
 
 const toolchain = { id: 'toolchain', name: `rustc is the ${TOOLCHAIN} pin (rust-toolchain.toml)`, check: 'toolchain' };
-const cargoConfig = { id: 'cargo-config', name: 'no cargo config outside the repository swaps a crate source (PR #365 B2)', check: 'cargo-config' };
+const cargoConfig = { id: 'cargo-config', name: 'no cargo config file outside the repository (PR #365 B2)', check: 'cargo-config' };
+const environment = { id: 'environment', name: 'no inherited variable switches a step off or changes the build (PR #365 B3)', check: 'environment' };
 const fetch = { id: 'cargo-fetch', name: 'cargo fetch --locked (the one networked step)', cmd: ['cargo', 'fetch', '--locked'] };
 const loopbackSelect = { id: 'loopback-select', name: 'loopback-only sandbox: select (mandatory on Linux)', check: 'loopback-select', os: ['linux'], osReason: LINUX_ONLY_SANDBOX };
 const loopbackProbe = { id: 'loopback-probe', name: 'loopback-only sandbox: probe (loopback connects, nothing else is reachable)', cmd: ['bash', 'scripts/loopback-only.sh', '--probe'], os: ['linux'], osReason: LINUX_ONLY_SANDBOX };
@@ -111,6 +123,7 @@ export const TIERS = {
     // ci.yml job `test`
     toolchain,
     cargoConfig,
+    environment,
     { id: 'fmt', name: 'cargo fmt --check', cmd: ['cargo', 'fmt', '--all', '--check'] },
     fetch,
     { id: 'build', name: 'cargo build (all targets)', cmd: ['cargo', 'build', '--workspace', '--all-targets', '--locked'], offline: true },
@@ -168,6 +181,7 @@ export const TIERS = {
   keystore: [
     toolchain,
     cargoConfig,
+    environment,
     {
       id: 'keystore-os-store',
       name: 'real credential store round trip (Credential Manager / Keychain)',
@@ -200,6 +214,7 @@ export const TIERS = {
   scale: [
     toolchain,
     cargoConfig,
+    environment,
     fetch,
     { id: 'scale-full', name: 'full-scale bound tests (release, ignored by default)', cmd: ['cargo', 'test', '-p', 'oac-core', '--release', '--locked', 'full_scale', '--', '--ignored'], offline: true },
   ],
@@ -207,6 +222,7 @@ export const TIERS = {
   mutation: [
     toolchain,
     cargoConfig,
+    environment,
     fetch,
     loopbackSelect,
     loopbackProbe,
@@ -225,6 +241,7 @@ const PRODUCT = ['adapters/', 'core/', 'cli/', 'transports/', 'spec/'];
 export const PATHS = {
   toolchain: ['rust-toolchain.toml'],
   'cargo-config': ['**'], // and files outside the repository: never skip it
+  environment: ['**'], // the caller's environment: never skip it
   fmt: [...RUST, 'rustfmt.toml', '.rustfmt.toml'],
   'cargo-fetch': ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'],
   build: RUST,
@@ -401,11 +418,47 @@ export function cargoConfigFiles({ root = repoRoot, cargoHome = process.env.CARG
     } catch {
       continue;
     }
-    const lines = text.split(/\r?\n/).map((l) => l.replace(/#.*$/, ''));
-    const flagged = SOURCE_KEYS.filter(([re]) => lines.some((l) => re.test(l))).map(([, what]) => what);
+    // Information only (PR #365 re-review): TOML has too many spellings of a key for a line
+    // match to be a gate. Quotes are dropped and inline tables split before matching.
+    const lines = text.split(/\r?\n/).flatMap((l) => l.replace(/#.*$/, '').replace(/["']/g, '').split(/[{,]/));
+    const flagged = SOURCE_KEYS.filter(([re]) => lines.some((l) => re.test(l) || re.test(`[${l.replace(/^\s*(\w[\w.-]*)\s*=.*$/, '$1')}`))).map(([, what]) => what);
     out.push({ path, flagged });
   }
   return out;
+}
+
+// The gate (PR #365 re-review B2): any cargo config file outside the repository fails, unless
+// --allow-cargo-config. What a file holds is reported, never trusted to decide.
+export function cargoConfigVerdict(files, allow) {
+  if (!files.length) return { status: 'PASS', note: 'no cargo config outside the repository' };
+  const list = files.map((f) => `${f.path}${f.flagged.length ? ` (holds ${f.flagged.join(', ')})` : ''}`).join('; ');
+  if (allow) return { status: 'PASS', note: `--allow-cargo-config: ${list}` };
+  return { status: 'FAIL', note: `${list}: cargo reads ${files.length === 1 ? 'it' : 'them'} and any can swap a crate's source behind the dependency checks; move ${files.length === 1 ? 'it' : 'them'} aside or pass --allow-cargo-config` };
+}
+
+// Inherited environment (PR #365 re-review B3). A step's own switches (the --quick env, the
+// keystore tier's OAC_TEST_REAL_KEYRING) are set for that child only; inherited ones are
+// refused and never passed on. Variables that change what is built or run fail unless
+// --allow-env; CARGO_HOME is listed only (a relocated cargo home is common and is what
+// step cargo-config reads).
+const SWITCH_ENV = /^(?:OAC_HERDR_SELFTEST_|OAC_TEST_)/i;
+const BUILD_ENV = /^(?:NODE_OPTIONS|RUSTFLAGS|CARGO_ENCODED_RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTDOCFLAGS|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTC|CARGO_BUILD_\w+|CARGO_TARGET_\w+|CARGO_PROFILE_\w+|CARGO_SOURCE\w*|CARGO_PATCH\w*)$/i;
+const LISTED_ENV = /^CARGO_HOME$/i;
+export function envReport(env) {
+  const keys = Object.keys(env).sort();
+  return { switches: keys.filter((k) => SWITCH_ENV.test(k)), build: keys.filter((k) => BUILD_ENV.test(k)), listed: keys.filter((k) => LISTED_ENV.test(k)) };
+}
+export function envVerdict(env, allow) {
+  const r = envReport(env);
+  if (r.switches.length) return { status: 'FAIL', note: `inherited ${r.switches.join(', ')}: a switch only a step may set (--quick sets the herdr one for its child); unset ${r.switches.length === 1 ? 'it' : 'them'}` };
+  if (r.build.length && !allow) return { status: 'FAIL', note: `inherited ${r.build.join(', ')} change${r.build.length === 1 ? 's' : ''} what is built or run; unset or pass --allow-env` };
+  const parts = [...(r.build.length ? [`--allow-env: ${r.build.join(', ')}`] : []), ...(r.listed.length ? [`listed: ${r.listed.join(', ')}`] : [])];
+  return { status: 'PASS', note: parts.join('; ') || 'nothing inherited that changes a step' };
+}
+// A child's environment: the caller's, minus every inherited switch, plus the step's own.
+export function childEnv(base, stepEnv) {
+  const env = Object.fromEntries(Object.entries(base).filter(([k]) => !SWITCH_ENV.test(k)));
+  return { ...env, CARGO_INCREMENTAL: '0', ...stepEnv };
 }
 
 const git = (args) => {
@@ -422,7 +475,9 @@ export function plan(tier, { platform, quick, work, only = null }) {
   // sandboxed step never runs without them.
   const keepSandbox = only && steps.some((s) => s.sandbox && only.includes(s.id));
   return steps
-    .filter((s) => !only || only.includes(s.id) || (keepSandbox && s.id.startsWith('loopback-')))
+    // ...and always the guard steps: an --only run is still refused on a foreign cargo config
+    // or an inherited variable that changes the build.
+    .filter((s) => !only || only.includes(s.id) || GUARDS.has(s.id) || (keepSandbox && s.id.startsWith('loopback-')))
     .map((s) => {
       if (s.os && !s.os.includes(platform)) return { step: s, [s.notRunElsewhere ? 'notRun' : 'skip']: s.osReason };
       const env = { ...(s.offline ? OFFLINE : {}), ...(s.env ?? {}), ...(quick && s.quickEnv ? s.quickEnv : {}) };
@@ -477,7 +532,12 @@ function run(actions, ctx) {
     if (a.notRun) { done('NOT RUN', a.notRun); continue; }
     const missing = (a.step.needs ?? []).filter((p) => !onPath(p));
     if (missing.length) { done('NOT RUN', `missing on PATH: ${missing.join(', ')}${a.step.install ? `; install: ${a.step.install}` : ''}`); continue; }
-    const env = { ...process.env, CARGO_INCREMENTAL: '0', ...a.env };
+    const env = childEnv(process.env, a.env);
+    if (a.check === 'environment') {
+      const v = envVerdict(process.env, ctx.allowEnv);
+      done(v.status, v.note);
+      continue;
+    }
     if (a.check === 'toolchain') {
       const r = spawnSync('rustc', ['--version'], { cwd: repoRoot, encoding: 'utf8', env });
       const out = (r.stdout ?? '').trim();
@@ -488,12 +548,9 @@ function run(actions, ctx) {
     if (a.check === 'cargo-config') {
       const files = cargoConfigFiles();
       ctx.cargoConfigs = files;
-      for (const f of files) console.log(`${f.path}: ${f.flagged.length ? `holds ${f.flagged.join(', ')}` : 'no source-swapping keys'}`);
-      const bad = files.filter((f) => f.flagged.length);
-      if (!files.length) done('PASS', 'no cargo config outside the repository');
-      else if (!bad.length) done('PASS', `${files.length} file(s) outside the repository, none with source-swapping keys`);
-      else if (ctx.allowCargoConfig) done('PASS', `--allow-cargo-config: ${bad.map((f) => f.path).join(', ')} hold source-swapping keys`);
-      else done('FAIL', `${bad.map((f) => `${f.path} (${f.flagged.join(', ')})`).join('; ')} can swap a crate's source behind the dependency checks; remove it or pass --allow-cargo-config`);
+      for (const f of files) console.log(`${f.path}: ${f.flagged.length ? `holds ${f.flagged.join(', ')} (information only)` : 'no key recognised (information only)'}`);
+      const v = cargoConfigVerdict(files, ctx.allowCargoConfig);
+      done(v.status, v.note);
       continue;
     }
     if (a.check === 'loopback-select') {
@@ -529,7 +586,7 @@ const fmt = (ms) => (ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(m
 function cargoConfigLine(ctx) {
   const files = ctx.cargoConfigs ?? cargoConfigFiles();
   if (!files.length) return 'none';
-  const list = files.map((f) => `\`${f.path}\`${f.flagged.length ? ` **holds ${f.flagged.join(', ')}**` : ' (no source-swapping keys)'}`).join('; ');
+  const list = files.map((f) => `**\`${f.path}\`**${f.flagged.length ? ` (holds ${f.flagged.join(', ')})` : ''}`).join('; ');
   return `${list}${ctx.allowCargoConfig ? ' (--allow-cargo-config)' : ''}`;
 }
 
@@ -540,15 +597,20 @@ function summary(tier, results, ctx, totalMs) {
   const n = (s) => results.filter((r) => r.status === s).length;
   const verdict = n('FAIL') ? 'FAIL' : n('NOT RUN') ? 'INCOMPLETE' : 'PASS';
   const rustc = (spawnSync('rustc', ['--version'], { encoding: 'utf8' }).stdout ?? '').trim() || 'rustc not found';
-  const overrides = Object.keys(process.env).filter((k) => /^CARGO_(?:HOME$|SOURCE|PATCH)/i.test(k)).sort();
+  const er = envReport(process.env);
+  const envLine = [
+    ...er.switches.map((k) => `**${k}** (refused)`),
+    ...er.build.map((k) => `**${k}**${ctx.allowEnv ? ' (--allow-env)' : ' (refused)'}`),
+    ...er.listed,
+  ].join(', ') || 'none';
   const lines = [
     `### local-ci: ${verdict} (tier ${tier}${ctx.quick ? ', --quick' : ''}${ctx.only ? ', PARTIAL --only' : ''})`,
     '',
     `- HEAD: \`${head}\` (${branch}); work tree ${dirty ? `DIRTY (${dirty} tracked file(s) changed): this is not a run of HEAD` : 'clean'}`,
     `- Platform: ${ctx.platform} ${process.arch}${ctx.wsl ? ' (WSL)' : ''}, OS ${osRelease()}; node ${process.version}; ${rustc}`,
     `- Loopback-only sandbox: ${ctx.platform === 'linux' ? 'used for the sandboxed steps' : 'not available on this OS (as on the old windows/macos CI legs)'}`,
-    `- Cargo source overrides inherited from the environment (W6; the dependency checks trust it): ${overrides.length ? `**${overrides.join(', ')}** (review them)` : 'none'}`,
-    `- Cargo config outside the repository (read by cargo; the dependency checks trust it): ${cargoConfigLine(ctx)}`,
+    `- Inherited environment that switches a step off or changes the build (OAC_HERDR_SELFTEST_*, OAC_TEST_*, NODE_OPTIONS, RUSTFLAGS, RUSTC_WRAPPER, RUSTDOCFLAGS, CARGO_BUILD_*/TARGET_*/PROFILE_*/SOURCE*/PATCH*; CARGO_HOME listed): ${envLine}`,
+    `- Cargo config files outside the repository (any one fails unless --allow-cargo-config): ${cargoConfigLine(ctx)}`,
     `- ${n('PASS')} passed, ${n('FAIL')} failed, ${n('SKIP')} skipped, ${n('NOT RUN')} not run; ${fmt(totalMs)} in all`,
     '',
     '| Step | Result | Time |',
@@ -685,8 +747,8 @@ function selfTest() {
     const expected = TIERS.default.map((s) => s.id).filter((id) => !want.includes(id));
     check(`plan ${platform}: the stub runner sees every step, in order`, JSON.stringify(seen) === JSON.stringify(expected));
   }
-  check('plan: --only a sandboxed step keeps the loopback select and probe steps', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['herdr-self-test'] }).map((a) => a.step.id)) === '["loopback-select","loopback-probe","herdr-self-test"]');
-  check('plan: --only an unsandboxed step runs it alone', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['skills'] }).map((a) => a.step.id)) === '["skills"]');
+  check('plan: --only a sandboxed step keeps the guards and the loopback select and probe steps', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['herdr-self-test'] }).map((a) => a.step.id)) === '["cargo-config","environment","loopback-select","loopback-probe","herdr-self-test"]');
+  check('plan: --only an unsandboxed step runs it with the guards only', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['skills'] }).map((a) => a.step.id)) === '["cargo-config","environment","skills"]');
   check('plan: g3-macos is NOT RUN off macOS and runs on macOS', plan('g3-macos', { platform: 'linux', work: '/w' })[0].notRun && plan('g3-macos', { platform: 'darwin', work: '/w' })[0].bash === 'g3-macos');
   check('plan: mutation runs in the loopback wrapper on Linux, with a work dir', plan('mutation', { platform: 'linux', work: '/w' }).find((a) => a.step.id === 'mutation-check').argv.join(' ') === 'bash scripts/loopback-only.sh node tests/security/mutation-check.mjs --work-dir /w/security-mutation');
 
@@ -787,9 +849,58 @@ function selfTest() {
       check("cargo config: the repository's own .cargo/ is left to check-crate-deps rule 7", !at('a/b/repo/.cargo/config.toml'));
       const home2 = mine(cargoConfigFiles({ root: join(t, 'a', 'b', 'repo'), cargoHome: join(t, 'home2') })).find((f) => f.path === join(t, 'home2', 'config'));
       check('cargo config: a legacy $CARGO_HOME/config with paths is found and flagged', home2?.flagged.includes('paths'));
+      check('cargo config: a plain file with no recognised key still fails the step without --allow-cargo-config', cargoConfigVerdict([at('a/b/.cargo/config')], false).status === 'FAIL');
+      check('cargo config: --allow-cargo-config passes and still names the files', (() => {
+        const v = cargoConfigVerdict(found, true);
+        return v.status === 'PASS' && v.note.includes(join(t, 'home', 'config.toml'));
+      })());
+      check('cargo config: none found passes', cargoConfigVerdict([], false).status === 'PASS');
+      // The re-review's spellings (and the one it proved cargo honours): each, as the only
+      // $CARGO_HOME/config.toml, must fail the step without the flag, whatever the flags say.
+      const SPELLINGS = [
+        '["source".crates-io]\n"replace-with" = "vend"\n["source".vend]\ndirectory = "no-such-vendor-dir"\n',
+        "['source'.v]\ndirectory = 'x'\n",
+        'source = { crates-io = { "replace-with" = "v" }, v = { directory = "x" } }\n',
+        'patch = { crates-io = { serde = { path = "x" } } }\n',
+        '"patch".crates-io.serde.path = "x"\n',
+        '["patch".crates-io]\nserde = { path = "x" }\n',
+        '"paths" = ["../x"]\n',
+        '[ source . crates-io ]\nreplace-with = "v"\n',
+        '[build]\njobs = 1\n',
+      ];
+      SPELLINGS.forEach((text, i) => {
+        const home = join(t, `spell${i}`);
+        put(`spell${i}/config.toml`, text);
+        const f = mine(cargoConfigFiles({ root: join(t, 'a', 'b', 'repo'), cargoHome: home })).filter((x) => x.path.startsWith(home));
+        check(`cargo config: spelling ${i + 1} ${JSON.stringify(text.split('\n')[0])} is found and fails without --allow-cargo-config`, f.length === 1 && cargoConfigVerdict(f, false).status === 'FAIL');
+      });
     } finally {
       rmSync(t, { recursive: true, force: true });
     }
+  }
+
+  // 7. inherited environment (PR #365 re-review B3)
+  {
+    const base = { PATH: '/bin', HOME: '/h' };
+    check('environment: a clean environment passes', envVerdict(base, false).status === 'PASS');
+    for (const k of ['OAC_HERDR_SELFTEST_UNIT_ONLY', 'OAC_HERDR_SELFTEST_ONLY', 'OAC_TEST_REAL_KEYRING', 'oac_test_x']) {
+      check(`environment: inherited ${k} fails, --allow-env or not`, envVerdict({ ...base, [k]: '1' }, false).status === 'FAIL' && envVerdict({ ...base, [k]: '1' }, true).status === 'FAIL');
+    }
+    for (const k of ['NODE_OPTIONS', 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_TARGET', 'CARGO_TARGET_DIR', 'CARGO_PROFILE_DEV_OPT_LEVEL', 'CARGO_SOURCE_CRATES_IO_REPLACE_WITH', 'CARGO_PATCH_X']) {
+      check(`environment: inherited ${k} fails without --allow-env and passes, listed, with it`, envVerdict({ ...base, [k]: 'x' }, false).status === 'FAIL' && envVerdict({ ...base, [k]: 'x' }, true).note.includes(k));
+    }
+    check('environment: CARGO_HOME is listed, not refused', (() => {
+      const v = envVerdict({ ...base, CARGO_HOME: '/c' }, false);
+      return v.status === 'PASS' && v.note.includes('CARGO_HOME');
+    })());
+    check('environment: CARGO_TERM_COLOR and CARGO_NET_OFFLINE are not caught (controls)', envVerdict({ ...base, CARGO_TERM_COLOR: 'always', CARGO_NET_OFFLINE: 'true' }, false).status === 'PASS');
+    const child = childEnv({ ...base, OAC_HERDR_SELFTEST_ONLY: 'x', OAC_HERDR_SELFTEST_UNIT_ONLY: '1', OAC_TEST_REAL_KEYRING: '1' }, {});
+    check('environment: inherited switches never reach a child', !Object.keys(child).some((k) => /^OAC_/.test(k)));
+    const quick = plan('default', { platform: 'linux', quick: true, work: '/w' }).find((a) => a.step.id === 'herdr-self-test');
+    check('environment: --quick sets its herdr switch for that child only', childEnv(base, quick.env).OAC_HERDR_SELFTEST_UNIT_ONLY === '1' && !('OAC_HERDR_SELFTEST_UNIT_ONLY' in childEnv(base, plan('default', { platform: 'linux', quick: true, work: '/w' }).find((a) => a.step.id === 'cargo-test').env)));
+    const ks = plan('keystore', { platform: 'win32', work: '/w' }).find((a) => a.step.id === 'keystore-os-store');
+    check("environment: the keystore tier's own OAC_TEST_REAL_KEYRING reaches its child", childEnv({ ...base, OAC_TEST_REAL_KEYRING: '0' }, ks.env).OAC_TEST_REAL_KEYRING === '1');
+    check('environment: every tier that builds runs the environment and cargo-config steps first', ['default', 'keystore', 'scale', 'mutation'].every((t) => JSON.stringify(TIERS[t].slice(0, 3).map((s) => s.id)) === '["toolchain","cargo-config","environment"]'));
   }
 
   console.log(`\nlocal-ci self-test: ${failed ? `${failed} FAILED` : 'all passed'}`);
@@ -800,7 +911,7 @@ function selfTest() {
 
 function usage(msg) {
   if (msg) console.error(`local-ci: ${msg}`);
-  console.error('usage: node scripts/local-ci.mjs [--quick] [--allow-cargo-config] [--tier default|keystore|scale|mutation|g3-macos] [--only id,...] [--list] | --self-test');
+  console.error('usage: node scripts/local-ci.mjs [--quick] [--allow-cargo-config] [--allow-env] [--tier default|keystore|scale|mutation|g3-macos] [--only id,...] [--list] | --self-test');
   process.exit(2);
 }
 
@@ -810,6 +921,7 @@ function main(argv) {
   let list = false;
   let only = null;
   let allowCargoConfig = false;
+  let allowEnv = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--self-test') {
@@ -817,6 +929,7 @@ function main(argv) {
       return selfTest();
     } else if (a === '--quick') quick = true;
     else if (a === '--allow-cargo-config') allowCargoConfig = true;
+    else if (a === '--allow-env') allowEnv = true;
     else if (a === '--list') list = true;
     else if (a === '--tier') {
       tier = argv[++i];
@@ -840,7 +953,7 @@ function main(argv) {
   try {
     wsl = platform === 'linux' && /microsoft/i.test(readFileSync('/proc/version', 'utf8'));
   } catch {}
-  const ctx = { platform, quick, only, bash, wsl, allowCargoConfig };
+  const ctx = { platform, quick, only, bash, wsl, allowCargoConfig, allowEnv };
   const t0 = Date.now();
   const results = run(plan(tier, { platform, quick, work, only }), ctx);
   const { text, verdict } = summary(tier, results, ctx, Date.now() - t0);

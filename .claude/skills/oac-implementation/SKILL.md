@@ -159,6 +159,8 @@ condition, §4 above). Do not add a dependency without an inventory entry.
 - [ ] `node scripts/local-ci.mjs` passes on Windows and in WSL (summaries pasted into the
       PR) with no live provider, no API key, no network beyond loopback; any new
       provider-integration test is opt-in and pinned.
+- [ ] Any diff to `scripts/local-ci.ported.json` (the frozen port contract) is justified in the
+      PR against the deleted workflow YAML at `c8497d6` or a newly added check.
 - [ ] Delivery-state and error-type rules in §5 hold for every new delivery/error path.
 - [ ] Every new third-party dependency has a recorded license and Apache-2.0 compatibility
       check, with copyleft flagged if present.

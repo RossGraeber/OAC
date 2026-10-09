@@ -34,9 +34,10 @@ or dependency changes.
   `g3-macos-hosted`) run only where a Mac is available; the weekly mutation schedule and the
   push-to-main runs are gone; runs no longer start on a clean hosted image, so cargo config
   outside the repository (`$CARGO_HOME/config.toml`, an ancestor's `.cargo/config.toml`) can
-  swap a crate's source behind the dependency checks: step `cargo-config` lists those files
-  and fails on `[source]`, `[patch]`, `paths` or `replace-with` unless `--allow-cargo-config`
-  (PR #365 review B2). The port is frozen as data in `scripts/local-ci.ported.json` (50
+  swap a crate's source behind the dependency checks: step `cargo-config` fails on any such
+  file unless `--allow-cargo-config` (PR #365 review B2), and step `environment` fails on an
+  inherited `OAC_HERDR_SELFTEST_*`/`OAC_TEST_*` switch and, unless `--allow-env`, on
+  `NODE_OPTIONS`, `RUSTFLAGS`, `RUSTC_WRAPPER` and the like (B3). The port is frozen as data in `scripts/local-ci.ported.json` (50
   rows, count and sha256) and `--self-test` compares the live plan with it (review B1). PR
   #330's candidate required-checks list no longer applies.
 - **Docs.** `oac-testing` §2, `oac-implementation`, `oac-boundaries` and its
