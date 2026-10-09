@@ -58,6 +58,10 @@ pin, dependency, static-scan rule or ADR text changes.
     - adapter lib targets set `doctest = false`, now set in `adapters/claude` and
       `adapters/codex`.
     No workspace member may have a build script. The target-directory check fails closed.
+  - Sixth review (E1): an aliased include, such as `use std::include as notes;`, is
+    refused. Every adapter file and every listed-package file may not hold `include`,
+    `include_str` or `include_bytes` as a whole word, the same word rule `source.rs`
+    applies to adapter `src/`.
 - **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
   `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
   makes it a breach. Three cases are not breaches, and the tests show they stay
@@ -65,7 +69,7 @@ pin, dependency, static-scan rule or ADR text changes.
   Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
   before.
 - **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
-  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `f98c047`.)
+  #347 was. Baseline candidate for `tests/protocol/contract/`: commit `7dce5ea`.)
 
 **Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
 revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
