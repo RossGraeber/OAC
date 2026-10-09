@@ -30,9 +30,8 @@
 //
 // Pure functions, Node built-ins only. It reads two files and prints; it never writes.
 
+import { isMainModule } from './canonical-path.mjs';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 export class TranscriptError extends Error {}
 
@@ -345,6 +344,6 @@ function main(argv) {
   return res.summary.identical ? 0 : 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   process.exitCode = main(process.argv.slice(2));
 }

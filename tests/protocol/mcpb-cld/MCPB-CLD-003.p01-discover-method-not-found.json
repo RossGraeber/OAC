@@ -1,0 +1,39 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-CLD-003",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A stdio channel server answers the `server/discover` probe with `-32601 Method not found`, which is not a modern error, so a dual-era client falls back to `initialize` (G4 fixture lines 6, 8, 14).",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "unestablished",
+    "server_role": "channel-path"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

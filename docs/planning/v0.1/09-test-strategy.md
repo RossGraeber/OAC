@@ -10,6 +10,10 @@ C5-envelope-auth.md` §7-§8, §13; `docs/planning/decisions/C7-zenoh-transport.
 04-tasks-EF.json` tasks E8, F8-F12; `docs/planning/backlog/05-tasks-GHIJ.json` tasks
 H1-H5.
 
+(Dated note, 2026-10-05, #305: the `05-interfaces.md` §13 and §15 sources above are the M0
+draft of the adapter and transport contracts. The frozen `spec/interfaces.md` supersedes
+`05-interfaces.md` §13-§15 (`spec/interfaces.md` §9), and the live contract citations below point there.)
+
 **Scope.** This file owns four things: the eight-tier test taxonomy (§2), the
 CI-default-versus-opt-in split and its mechanics (§3-§4), the fixture capture and
 refresh process (§13), and the two mandatory traceability tables — DESIGN acceptance
@@ -28,9 +32,13 @@ Code (Channels) pin went floating 2026-09-27, last observed `v2.1.283`, invalida
 PASS; re-run and **PASSED again** 2026-09-28 on `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
 criteria 2/3 f; Claude all criteria x)
-(`docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per
+(`docs/planning/gates/G5-result.md`) (dated note, 2026-10-03, #220: G5 is now **PASS**
+after its Codex-leg re-run under C13 §11), and G3 stays `NOT RUN` at gate level (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per
 `docs/planning/STATUS.md` "Current stage," the project is still at **Pre-Stage 0** — no
-E8/F8-F12/H1-H5 test exists yet. This file is the **design** these tasks build against,
+E8/F8-F12/H1-H5 test exists yet. *(Dated note, 2026-10-03, #254: the "Pre-Stage 0"
+statement is stale. Read the current stage from `docs/planning/STATUS.md` "Current stage"
+rather than from this caveat; this file does not restate it. E8's conformance fixtures have
+since started landing under `tests/protocol/`; no F8-F12 or H1-H5 test exists yet.)* This file is the **design** these tasks build against,
 not a report of tests that pass; a gate result is not one of the test tiers this file
 owns. Every "proves"/"asserts" statement below names what a built test will assert once
 its owning task lands, not a result.
@@ -91,7 +99,7 @@ mitigation's proof across two tiers.
 |---|---|---|---|---|---|---|
 | 1 | Unit | Module-level logic: envelope encode/decode, replay/dedup logic, the delivery-receipt state machine (F2/F4/F6 acceptance boxes) | In-process code only | CI-default | F2-F7 (each carries its own unit-test acceptance box); wired into the default pipeline by F12 | Stage 3 |
 | 2 | Spec conformance | Wire representation matches the frozen closed error taxonomy (`05-interfaces.md` §10, 10 rows), the delivery-state set (`05-interfaces.md` §9, 8 states), and the `ttl_ms`-before-replay-window precedence rule (`05-interfaces.md` §10) — detail at §6 below | The E8 conformance fixture set | CI-default | E8; wired into CI by F12 | Stage 2 (fixture set built); wired into CI at Stage 3 |
-| 3 | Contract — adapter + transport | The `ProviderAdapter` (`05-interfaces.md` §13) and `Transport` (§15) contracts are obeyed identically by every implementation, including the no-polling rule (§5 below) | Adapter sub-row: fake Claude/Codex endpoints (F8/F9) at Stage 3, real adapters unchanged at Stage 4. Transport sub-row: the in-memory transport (F7) at Stage 3, real Zenoh over loopback unchanged at Stage 4 | CI-default against fakes/in-memory; against real adapters it is the provider-integration tier (row 6), opt-in, pinned — but real Zenoh over loopback stays CI-default (§3's loopback rule: no live provider, no API key, no network beyond loopback) | F10 | Stage 3 (fakes/in-memory, adapter sub-row real at Stage 4 opt-in); Stage 4 (transport sub-row real, CI-default) |
+| 3 | Contract — adapter + transport | The `ProviderAdapter` (`spec/interfaces.md` §5, Table 5.2) and `Transport` (`spec/interfaces.md` §6, Table 6.4) contracts are obeyed identically by every implementation, including the no-polling rule (§5 below) | Adapter sub-row: fake Claude/Codex endpoints (F8/F9) at Stage 3, real adapters unchanged at Stage 4. Transport sub-row: the in-memory transport (F7) at Stage 3, real Zenoh over loopback unchanged at Stage 4 | CI-default against fakes/in-memory; against real adapters it is the provider-integration tier (row 6), opt-in, pinned — but real Zenoh over loopback stays CI-default (§3's loopback rule: no live provider, no API key, no network beyond loopback) | F10 | Stage 3 (fakes/in-memory, adapter sub-row real at Stage 4 opt-in); Stage 4 (transport sub-row real, CI-default) |
 | 4 | Security (resilience folded in, see above) | Spoof, replay, duplicate-suppression-including-across-restart, unauthorized-routing, cross-project-leakage, `zid`-never-an-identity, and local-IPC-peer-auth mitigations from `06-security.md` §14 — detail at §7 below | Fakes (F11) at Stage 3; real transport/adapters (H2, and H3 for the resilience sub-row) at Stage 5 | CI-default against fakes; against real adapters (Claude Code, Codex) it is opt-in, pinned — but against real Zenoh over loopback, with no live adapter in the path, it stays CI-default (§3's loopback rule) | F11; H2; H3 | Stage 3 (fakes); Stage 5 (real adapters, opt-in; real-Zenoh-only cases CI-default) |
 | 5 | Fake-harness integration | Core + adapter + transport wired together with no live provider — the Stage 3 exit condition | Fake Claude endpoint (F8), fake Codex endpoint (F9), in-memory or loopback transport (F7) | CI-default | F12 | Stage 3 |
 | 6 | Provider integration | Real adapter behaviour against a real, pinned harness version — the runtime half of gates G1/G2 | Real Claude Code / real Codex, on pinned versions (`docs/planning/PINS.md`), driven through herdr by default (Epic K; §4), the operator attending only for sign-in (#187); since 2026-09-30 the driver accepts harness dialogs in dev/test runs, recorded as `driver`, except a consent step a gate criterion names (#196, `oac-gates` `references/scripted-runs.md`) | Opt-in only, explicit flag, pinned versions — never the default `test` run (F12 acceptance: "Provider integration tests exist but are opt-in and pinned"). Real Zenoh over loopback is not this row — it needs no live provider, so it is CI-default under row 3/4 (§3's loopback rule), never this opt-in tier | F12 isolates it as its own target; exercised at Stage 4 | Stage 4 |
@@ -262,6 +270,20 @@ old peer treats as `failed` is non-breaking and requires only a spec-revision bu
 way, the new row's own conformance fixture must land in the same change that adds it —
 the fixture set is never allowed to lag the error taxonomy it exists to prove.
 
+*(Dated note, 2026-10-07, #61, F12: CI runs the fixture set twice on every OS: through the
+reference runner (`tests/protocol/runner/`, every stage from the spec text) and through the
+workspace's own code (`core/tests/conformance.rs`). The Rust harness runs every stage
+except four, which it lists by name; a fixture of any other unrun stage fails. `binding`
+(26 `sc-id` fixtures) is the core's, pending #331: the core has no
+binding-from-native-signal logic for §6.7 yet, although `spec/session-channels.md` §3.3's
+reference implementation note has F12 drive it. `mcp-binding`, `provenance` and `body` are
+adapter work. It requires the two `send`-stage fixtures F2 deferred (SC-ENV-021.p01,
+SC-ENV-066.n01) to run and pass.)*
+
+*(Dated note, 2026-10-07, #331: `binding` now runs through the core's own §6.7 logic
+(`core/src/session_binding.rs`), all 26 fixtures, and leaves the Rust harness's not-run
+list; three stages remain there, all adapter work.)*
+
 ---
 
 ## 7. Security tier detail
@@ -340,6 +362,21 @@ list to cover `adapters/`/`cli/`, or a second check for embedded-token leaks, or
 neither exists today. Carried forward to `docs/planning/v0.1/11-risks.md` (task A12, not
 yet landed) as an open item, per the same disposition `docs/planning/v0.1/06-security.md`
 §15 already applies to every unproven mitigation.
+
+*(Dated note, 2026-10-07, #61, F12: the second check now exists. `oac-boundaries` check 12,
+`scripts/check-containment.mjs`, runs as the build-failing `containment` job of
+`.github/workflows/boundary-lint.yml`. It matches `zenoh` anywhere in a token, `zid` as a
+`snake_case`, kebab-case or `camelCase` segment, key expressions and liveliness terms, in
+every git-tracked entry outside `transports/zenoh/` under `core/`, `cli/`, `adapters/`,
+`transports/`, `spec/`, `tests/fakes/` and `tests/protocol/`, and in the root manifests,
+with a self-test planting each shape. Both halves of the gap above are closed for those
+paths. What it still does not prove: a leak spelled some other way (a Zenoh type behind a
+`type` alias whose name avoids every pattern; a name built at compile time with `concat!`
+or a pasting macro, or at run time; `\u{...}` or other escapes; homoglyphs, such as a
+Cyrillic letter inside `zenoh`), and any
+path outside its scope (`tests/security/`, `tests/integration/`, which compose a real
+transport in Stages 4-5). Criterion 9's proof is that lint, as above; this residue stays a
+v0.1 gap.)*
 
 ---
 
@@ -441,20 +478,22 @@ Criterion text verbatim, `docs/planning/DESIGN.md` "v0.1 acceptance criteria" (l
 owning gate, where one applies, is `NOT RUN`** — no row is marked done ahead of its test
 actually existing and passing, per `docs/planning/backlog/05-tasks-GHIJ.json` task H5's
 own acceptance box: "Any unproven criterion is called out as a v0.1 gap rather than
-quietly marked done."
+quietly marked done." *(Dated note, 2026-10-03, #254: "Pre-Stage 0" here is stale; read
+the current stage from `docs/planning/STATUS.md` "Current stage", and gate verdicts from its
+Gate verdicts table. This table's statuses are not re-authored here.)*
 
 | # | Criterion (verbatim) | Named test | Tier | CI-default / opt-in | Current status |
 |---|---|---|---|---|---|
 | 1 | "One-command local startup." | Cross-platform CLI smoke — one-command start (§10) | CLI smoke | CI-default | not-yet-written |
-| 2 | "Claude and Codex adapters expose distinct neutral sessions." | `contract/adapter/discover-sessions-attach` (`ProviderAdapter.discover_sessions`/`attach`, `05-interfaces.md` §13) | Contract — adapter | CI-default (fakes); opt-in (real, row 6) | not-yet-written |
-| 3 | "Sessions discover one another through neutral APIs." | `contract/transport/presence-discovery` (`05-interfaces.md` §6, §15's `watch_presence`) | Contract — transport | CI-default (in-memory and real Zenoh over loopback — §3's loopback rule) | not-yet-written |
+| 2 | "Claude and Codex adapters expose distinct neutral sessions." | `contract/adapter/session-binding-signals` (`ProviderAdapter`'s session binding signals, `spec/interfaces.md` §5.4) | Contract — adapter | CI-default (fakes); opt-in (real, row 6) | not-yet-written |
+| 3 | "Sessions discover one another through neutral APIs." | `contract/transport/presence-discovery` (`05-interfaces.md` §6; the `Transport` presence operations, `spec/interfaces.md` §6.5-§6.6) | Contract — transport | CI-default (in-memory and real Zenoh over loopback — §3's loopback rule) | not-yet-written |
 | 4 | "Claude actively messages Codex without receiver polling." | `contract/adapter/no-polling` (§5) + H1's clause 1 (§9) | Contract (CI-default) + end-to-end (opt-in) | CI-default for the contract half; opt-in for the E2E half | not-yet-written |
 | 5 | "Codex actively replies to Claude." | H1's clause 2 (§9) | End-to-end | Opt-in | not-yet-written |
 | 6 | "Authenticated provenance and authorization are enforced." | Security tier's spoof + unauthorized-routing tests (§7) | Security | CI-default (fakes); opt-in (real, H2) | not-yet-written |
 | 7 | "Replay/duplicate handling exists." | Security tier's replay + duplicate-suppression tests, including across restart (§7) | Security | CI-default (fakes); opt-in (real, H2/H3) | not-yet-written |
 | 8 | "No cross-provider model API invocation." | H1's clause 3 (§9) — asserted by the test itself — plus the `oac-boundaries` boundary-lint self-checks each planning file already carries | End-to-end (test) + lint (boundary) | Opt-in (E2E); CI-default (lint) | not-yet-written |
 | 9 | "Zenoh-specific types stay inside its transport module." | The `oac-boundaries` CI lint (§8) — **not a runtime test** | Lint | CI-default | not-yet-written (lint itself pending — `core/`/`spec/` do not exist yet, per `docs/planning/decisions/C7-zenoh-transport.md` §2) |
-| 10 | "Transport contract is documented enough to independently add a second backend." | `05-interfaces.md` §17's NATS/MQTT design-for-replacement proof (task E9) — **a doc proof, not a test** | Doc proof | N/A | not-yet-written; `05-interfaces.md` §22's own acceptance close-out already records this proof as **NOT MET as of the M0 draft** — every NATS/MQTT capability cell is `UNVERIFIED` |
+| 10 | "Transport contract is documented enough to independently add a second backend." | The E9 design-for-replacement proofs, `docs/planning/decisions/E9-replacement-proofs.md` §3-§6 (task E9, #49), which supersede `05-interfaces.md` §17 — **a doc proof, not a test** | Doc proof | N/A | **MET** (2026-10-06, #49): NATS and MQTT walked against the frozen `spec/interfaces.md` §6, every capability cell cited to first-party sources. *(Dated note, 2026-10-06, #49: until now this cell read "not-yet-written; `05-interfaces.md` §22 ... records this proof as NOT MET as of the M0 draft — every NATS/MQTT capability cell is `UNVERIFIED`".)* |
 
 ---
 
@@ -467,12 +506,16 @@ for orientation, and the proving test already named at §7 above (or cited to §
 currently passing proving test is an explicit v0.1 gap, per §14's row content and §15's
 "unproven-mitigation disposition" — none of the twenty-four rows (row 24 added by #236,
 2026-10-02) currently has a passing
-**test** (F11/H2/H3/G3/G7/G8/G9 are all `NOT RUN`, Pre-Stage 0), though rows 5, 16, and
+**test** (F11/H2/H3/G3/G7/G8/G9 are all `NOT RUN`, Pre-Stage 0 — dated note, 2026-10-03,
+#254: "Pre-Stage 0" is stale, read the current stage from `docs/planning/STATUS.md`
+"Current stage"; none of these tests has run yet), though rows 5, 16, and
 17's named gate has since run: gate **G1 `PASS`** (row 16 — originally on Claude Code
 `v2.1.282`, invalidated when the pin went floating 2026-09-27, re-run and PASSED again
 2026-09-28 on `v2.1.283`, see `docs/planning/gates/G1-result.md`), gate G2 `PASS` (row 17), and
 gate G5 **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (rows 5, 16, 17 — `docs/planning/gates/
-G5-result.md`). A gate result is not one of this file's test tiers, so it does not by
+G5-result.md`; dated note, 2026-10-03, #220: G5 is now **PASS** after its Codex-leg
+re-run under C13 §11, so the "G5 FAIL" citations in the table below are history, and C13
+is `RESOLVED-IN-DECISION`). A gate result is not one of this file's test tiers, so it does not by
 itself close a row; see §14 rows 5, 16, 17 (`06-security.md`) for what each gate
 actually confirmed. Rows 21-23 (L4, issue #169) cover an external memory service beside
 OAC (`docs/planning/decisions/L1-beacon-memory.md`); rows 21-22's scenario is L10, an
@@ -496,7 +539,7 @@ opt-in provider-integration scenario blocked until Stage 5 opens, never CI-defau
 | 12 | Unauthorized Codex `turn/steer` | F11; task G7; gate G2 | v0.1 gap — `NOT RUN` |
 | 13 | Local IPC peer spoofing | F11; G9 (§7 "Local IPC peer auth") | v0.1 gap — `NOT RUN` |
 | 14 | Cross-project leakage via `list_sessions` | H2 (§7 "Cross-project leakage") | v0.1 gap — `NOT RUN` |
-| 15 | Silently dropped `meta` key yielding unlabelled provenance | F8; task G4 | v0.1 gap — `NOT RUN`; neither test exists yet |
+| 15 | Silently dropped `meta` key yielding unlabelled provenance | F8; task G4 | F8 fake reproduces the drop (`tests/fakes/claude/tests/replay.rs` `g5_meta_key_cases`, replaying G5 C4/C4b, passes); the adapter-side test (G4) is not written — still a v0.1 gap |
 | 16 | Provenance spoofing via message body, Claude | gate G1; gate G5 | gate **G1 `PASS`** (originally on Claude Code `v2.1.282`, invalidated by the 2026-09-27 pin float, re-run and PASSED again 2026-09-28 on `v2.1.283` — `docs/planning/gates/G1-result.md`); gate **G5 `FAIL`; Claude criteria met** (2026-09-27, `docs/planning/gates/G5-result.md`) — still a v0.1 gap: a gate result is not one of this file's test tiers (F11/H2 `NOT RUN`), so it does not by itself close this row |
 | 17 | Provenance spoofing via forged header/delimiter, Codex | gate G2; gate G5 | gate G2 `PASS`; gate **G5 `FAIL`; Codex criteria 2/3 f** (2026-09-27, `docs/planning/gates/G5-result.md`) — v0.1 gap, tracked as conflict-register entry C13, required before Stage 2's interface freeze on this surface |
 | 18 | Reply misattribution via forged `in_reply_to` | task G8 | v0.1 gap — `NOT RUN`; whether Codex reliably echoes a header-supplied id back at all is itself UNVERIFIED (`docs/planning/STATUS.md`) |
@@ -506,6 +549,74 @@ opt-in provider-integration scenario blocked until Stage 5 opens, never CI-defau
 | 22 | False authority via a cited memory ID | L10 (memory ID absent from Claude `meta` and the Codex header block); gate G5; F11 | v0.1 gap — L10/F11 `NOT RUN`; inherits row 17's Codex residual until C13 is resolved |
 | 23 | Capture of an OAC-delivered message by an external memory/telemetry service | None — open risk, not a mitigation (`06-security.md` §15); L2/L3 observe whether capture happens | Open risk — `RISK-BEACON`; capture itself UNVERIFIED (L1 §6 U1) |
 | 24 | Session binding via a spoofed `CLAUDE_CODE_SESSION_ID` | F11; G9 (§7 "Local IPC peer auth") | v0.1 gap — `NOT RUN` |
+
+*Dated note, 2026-10-07, #60 (F11): the security suite against the fakes has landed at
+`tests/security/` (`oac-security-suite`, CI-default: no live provider, no API key, loopback
+only). The table below is its threat-to-test map, rendered from `THREATS` in
+`tests/security/src/lib.rs`; `tests/security/tests/threat_map.rs` fails if it drifts from
+that map or names a test that does not exist, and `tests/security/check-compiled-tests.mjs`
+(CI, every OS) fails if a test the map counts is not what cargo compiled and ran. "Proven" means every test named passes in the
+default `cargo test` run and drives the real core (envelope stage, security steps 1 to 5,
+authorization, presence and receipt authentication, pairing, key removal), with envelopes
+over the in-memory transport where the row is about the carrying path, and the fake Claude
+Code endpoint for what the harness renders. "Gated" names the part that needs a component
+not built yet, with its owning issue; each gated test is `#[ignore = "GATED on #N ..."]` and
+fails if run, so it is never a pass. A gated part keeps that part of the row a v0.1 gap, as
+§15 of `06-security.md` requires. "Harness facts" are tests that record what the fake
+Claude Code endpoint (replaying recorded harness behaviour) does with hostile content: a
+precondition a mitigation relies on, never a proof of it. Row 16 is proven by its core-side
+tests; its harness cases run the core's verified message through a stand-in for the G4
+adapter's `meta` mapping (`stand_in_provenance`) and are listed as facts. Row 15 is gated:
+its mitigation is the G4 adapter's, and its harness test is a fact. "Core tests" are
+`oac-core` tests that carry a part this suite cannot reach through the public API (the
+deterministic pairing-code binding, the window function at both ends), cited by path and
+checked to exist. The table above is unchanged; where it says `NOT RUN` for F11, read this
+table. The `S13-` rows are the `spec/security.md` §13 rows that 06 does not number, and
+`threat_map.rs` checks that every §13 row is covered by some entry; `X-exhaustion` comes
+from the PR #317 and #321 threat rows, not from §13.*
+
+<!-- F11 threat map: generated from tests/security/src/lib.rs THREATS; begin -->
+
+| Threat row | Attack | Proving tests (`tests/security/`, passing) | Harness facts (precondition, not proof) | Core tests (`oac-core`) | Gated, with owning issue | Status |
+|---|---|---|---|---|---|---|
+| 06-1 | Impersonation: a forged envelope | `row01_envelope_signed_by_an_unpaired_key_is_rejected`<br>`row01_claiming_a_trusted_principal_with_another_key_is_rejected`<br>`row01_a_trusted_key_id_with_a_forged_signature_is_rejected`<br>`row01_signature_from_another_trusted_device_does_not_verify` | none | none | none | proven |
+| 06-2 | Unauthorized routing or discovery | `row02_trusted_peer_without_a_grant_is_rejected_unauthorized`<br>`row02_a_grant_is_one_way`<br>`row02_a_grant_for_one_session_does_not_cover_another`<br>`row02_unauthorized_peer_cannot_discover_a_session`<br>`row02_unauthorized_peer_cannot_address_a_session_through_presence`<br>`row02_reply_right_covers_only_the_reply_to_the_one_message`<br>`row02_unauthorized_send_through_the_composed_pipeline` | none | none | none | proven |
+| 06-3 | Tampering in flight | `row03_rewriting_any_signed_member_breaks_the_signature`<br>`row03_a_flipped_signature_bit_is_rejected`<br>`row03_tampered_bytes_over_the_transport_are_rejected` | none | none | none | proven |
+| 06-4 | Replay | `row04_copy_outside_the_replay_window_is_rejected`<br>`row04_copy_dated_ahead_of_the_window_is_rejected`<br>`row04_the_window_is_open_at_its_edge`<br>`row04_replay_inside_the_window_is_a_duplicate_handed_off_once`<br>`row04_expiry_is_checked_before_the_replay_window`<br>`row04_replay_after_restart_inside_the_window_is_the_named_residual`<br>`row04_transport_duplicates_are_handed_off_once`<br>`row04_receipt_flooding_by_replay_is_bounded` | none | `replay::tests::window_is_open_at_both_ends_at_full_precision` | none | proven |
+| 06-5 | Prompt injection from an authenticated peer | `row05_hostile_content_is_delivered_as_content_and_obeyed_never`<br>`row05_content_never_reaches_an_authorization_decision`<br>`row05_the_decision_log_holds_no_content` | none | none | none | proven |
+| 06-6 | Compromised transport infrastructure | `row06_forged_envelope_injected_on_the_transport_is_rejected`<br>`row03_tampered_bytes_over_the_transport_are_rejected`<br>`row04_transport_duplicates_are_handed_off_once` | none | none | #62, #64: the same cases over the real reference transport on loopback (G1 transport, G3 security configuration) | proven (core and fakes); gated part open |
+| 06-7 | Accidental cross-project disclosure | `row07_scope_grant_does_not_cover_another_working_directory`<br>`row07_scope_grant_does_not_cover_a_subdirectory`<br>`row07_presence_is_released_only_to_granted_devices` | none | none | #74: H2's live cross-project check against real adapters | proven (core and fakes); gated part open |
+| 06-8 | Leaked device key | `row08_removing_a_key_revokes_it_in_one_step`<br>`row08_captured_envelope_from_a_removed_key_is_rejected`<br>`row08_removal_survives_a_restart`<br>`row08_a_failed_save_still_revokes`<br>`row08_own_key_cannot_be_removed`<br>`row08_device_key_never_appears_in_debug_output` | none | none | none | proven |
+| 06-9 | Transport-only authenticity assumed | `row09_a_payload_from_any_endpoint_is_judged_by_its_signature_alone`<br>`row06_forged_envelope_injected_on_the_transport_is_rejected` | none | none | none | proven |
+| 06-10 | A transport peer identifier used as an identity | `row09_a_payload_from_any_endpoint_is_judged_by_its_signature_alone` | none | none | #64: ACL subjects of the reference transport's configuration (G3); grants are keyed by key id only, by construction | proven (core and fakes); gated part open |
+| 06-11 | Permission-relay abuse | `row11_relay_is_off_by_default_even_with_a_device_wide_grant`<br>`row11_relay_is_enabled_for_one_session_only_by_the_operator`<br>`row11_a_deliver_permit_never_permits_relay` | none | none | #65: the Claude adapter's permission relay surface stays off (gated_row11_adapter_never_relays_without_a_relay_permit) | proven (core and fakes); gated part open |
+| 06-12 | Steering a running turn | `row12_hand_off_is_made_at_most_once_and_no_outcome_steers`<br>`row12_no_decision_kind_enables_steering` | none | none | #68: the Codex adapter hands off queue-only and never calls a steering method (gated_row12_codex_hand_off_is_queue_only) | proven (core and fakes); gated part open |
+| 06-13 | Local IPC peer spoofing | none | none | none | #70: the daemon's local IPC endpoint and its OS peer check (gated_row13_ipc_admits_only_the_same_user) | gated: v0.1 gap |
+| 06-14 | Cross-project leakage through discovery | `row02_unauthorized_peer_cannot_discover_a_session`<br>`row14_discovery_lists_only_sessions_the_requester_may_reach` | none | none | #74: H2's live check of the discovery tool against real adapters | proven (core and fakes); gated part open |
+| 06-15 | A silently dropped meta key leaves provenance unlabelled | none | `row15_the_harness_drops_unsafe_keys_so_provenance_keys_must_be_safe` | none | #65: the mitigation (const key table, partial provenance detected before send, message refused) is the Claude adapter's (gated_row15_adapter_refuses_a_partial_provenance_set) | gated: v0.1 gap |
+| 06-16 | Provenance spoofing through the body, Claude | `row16_content_claiming_another_sender_does_not_change_provenance`<br>`row16_a_line_break_in_a_provenance_value_cannot_pass_the_envelope_stage` | `row16_forged_channel_tag_in_content_adds_no_attribute`<br>`row16_pre_escaped_closer_in_content_adds_no_attribute`<br>`row16_mid_turn_hostile_content_adds_no_attribute`<br>`row16_meta_key_injection_through_content_adds_no_attribute` | none | #65: the G4 adapter's own meta mapping (gated_row16_adapter_takes_provenance_only_from_verified_members); the exact text of a sender-written `<\/channel>` is a RenderGap until a capture records it | proven (core and fakes); gated part open |
+| 06-17 | Provenance spoofing through a forged header or delimiter, Codex | none | none | none | #68: the Codex adapter's frame builder (gated_row17_codex_frame_uses_a_receiver_generated_delimiter) | gated: v0.1 gap |
+| 06-18 | Reply misattribution through a forged in_reply_to | `row02_reply_right_covers_only_the_reply_to_the_one_message` | none | none | #69: the Codex adapter's reply correlation (gated_row18_codex_reply_correlation_is_not_trusted_alone) | proven (core and fakes); gated part open |
+| 06-19 | Stale registration replay after resume | `row19_a_registration_record_signed_by_another_device_binds_nothing`<br>`row19_an_ended_session_receives_nothing`<br>`row19_a_resume_takes_a_new_registration_and_the_old_one_ends` | none | none | #70: a session's lifetime tied to its IPC connection (gated_row19_session_lifetime_follows_the_ipc_connection) | proven (core and fakes); gated part open |
+| 06-20 | Session-id spoofing | `row20_claiming_a_session_id_bound_to_another_key_is_refused_with_a_finding`<br>`row20_a_refused_claim_binds_nothing` | none | none | none | proven |
+| 06-21 | Prompt injection through a memory reference | `row21_a_memory_reference_stays_content` | none | none | #175: L10's opt-in scenario with a real memory service (Stage 5) | proven (core and fakes); gated part open |
+| 06-22 | False authority through a cited memory reference | `row22_a_cited_memory_reference_is_never_provenance_or_authority`<br>`row05_content_never_reaches_an_authorization_decision` | none | none | #175: L10's opt-in scenario with a real memory service (Stage 5) | proven (core and fakes); gated part open |
+| 06-23 | Capture of delivered content by an external memory service | none | none | none | none | open risk (06 §15) |
+| 06-24 | Session binding through a spoofed CLAUDE_CODE_SESSION_ID | `row24_a_spoofed_session_variable_is_never_a_pairing_key`<br>`row24_a_newcomer_never_displaces_a_bound_hook_id`<br>`row24_an_unpairable_payload_fails_closed`<br>`row24_a_refused_payload_deregisters_a_stale_shim` | none | `tests/conformance.rs::conformance_fixtures` | #70: the daemon's IPC and the OS-observed pairing key (peer PID and ancestry, UNVERIFIED per platform), on which pairing rests and which the tests here supply (gated_row24_spoofed_session_variable_binds_nothing) | core decision proven; pairing key gated (G9) |
+| S13-squatting | Session-id squatting by a related device, through presence | `s13_squatting_announcement_marks_conflict_and_fails_closed`<br>`s13_own_session_is_never_marked_under_conflict` | none | none | none | proven |
+| S13-malleability | Signature malleability and weak or mixed-order points | `s13_malleable_and_weak_point_signatures_are_rejected` | none | `signing::tests::constructed_malleable_and_small_order_signatures_are_rejected` | none | proven |
+| S13-cross-protocol | A signature over one kind of object presented as another | `s13_an_envelope_signed_under_another_domain_is_rejected`<br>`s13_a_registration_signed_under_the_envelope_domain_binds_nothing` | none | `signing::tests::a_signature_does_not_cross_domains` | none | proven |
+| S13-canonicalization | Canonicalization mismatch between signer and verifier | `s13_canonical_forms_verify_and_altered_forms_do_not` | none | `tests/conformance.rs::conformance_fixtures` | none | proven |
+| S13-retransmission | Duplicate suppression that blocks a legitimate retransmission | `s13_a_copy_not_handed_off_does_not_block_its_retransmission`<br>`row12_hand_off_is_made_at_most_once_and_no_outcome_steers` | none | none | none | proven |
+| S13-existence-oracle | An unauthorized sender learns whether a session exists | `s13_unauthorized_refusal_is_the_same_whether_or_not_the_session_exists` | none | none | none | proven |
+| S13-consent | Bypass of a harness's own consent step | none | none | none | #74: [SEC-AUZ-023] is checked by H2's review of the launch path (gated_s13_no_harness_consent_step_is_automated) | gated: v0.1 gap |
+| S13-misattributed-send | Misattributed send request between conversations of one harness process | none | none | none | #69: the Codex adapter's issued-value pairing and per-call confirmation, spec/bindings/mcp.md §4.5 (gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation) | gated: v0.1 gap |
+| S13-presence-forgery | Presence forgery, tampering, forwarding or replay | `s13_presence_signed_by_an_unpaired_key_is_discarded`<br>`s13_tampered_presence_record_is_discarded`<br>`s13_forwarded_presence_record_is_discarded`<br>`s13_replayed_stale_presence_record_is_discarded`<br>`s13_unrelated_issuer_cannot_announce`<br>`s13_forged_withdrawal_cannot_take_a_session_offline` | none | none | none | proven |
+| S13-receipt-forgery | Receipt forgery, or a receipt from the wrong receiver | `s13_receipt_from_an_unpaired_key_is_discarded`<br>`s13_receipt_from_another_trusted_device_is_discarded`<br>`s13_altered_receipt_is_discarded`<br>`s13_receipt_for_an_envelope_never_sent_is_discarded`<br>`s13_receipt_with_the_wrong_nonce_is_discarded`<br>`s13_receipt_claiming_the_sender_observer_is_discarded`<br>`s13_no_receipt_for_an_unverified_copy` | none | none | none | proven |
+| S13-pairing | Trust on first use, and a party in the middle of pairing | `s13_pairing_mitm_substitution_is_caught_by_the_code`<br>`s13_second_offer_ends_the_pairing`<br>`s13_five_wrong_codes_abort_and_the_window_expires`<br>`s13_key_id_comparison_refuses_a_substituted_key`<br>`s13_a_signature_alone_never_makes_a_key_trusted` | none | `pairing::tests::substituted_key_or_nonce_changes_the_code_or_fails` | none | proven |
+| X-exhaustion | Registry and quota exhaustion (PR #317 and #321 threat rows; spec §8.3, §8.4, §11) | `x_full_duplicate_store_refuses_without_evicting`<br>`x_one_key_cannot_fill_the_duplicate_store`<br>`x_duplicate_store_headroom_leaves_room_for_another_key`<br>`x_one_issuer_cannot_fill_the_presence_registry`<br>`x_presence_registry_capacity_is_bounded`<br>`x_receipt_allowance_is_per_device_and_bounded`<br>`x_oversized_envelope_is_refused_before_parsing`<br>`x_envelope_bindings_are_bounded`<br>`x_binding_table_fair_share_takes_from_the_heaviest`<br>`x_late_copy_from_an_ended_session_records_nothing`<br>`x_expired_record_partitions_are_reclaimed_in_order` | none | `authorization::tests::envelope_bindings_leave_the_bound_when_referred_to`<br>`authorization::tests::entries_whose_records_came_first_are_kept` | none | proven |
+
+<!-- F11 threat map: end -->
 
 ---
 
@@ -561,6 +672,12 @@ longer forces a re-capture either. Each fixture records the version it was captu
 carries `version_matches_pin: false`, which is a warning. Re-capture when a newer
 version changes the behaviour a fixture documents.
 
+*Dated note, 2026-10-06, #57 (F8): the fake Claude endpoint, `tests/fakes/claude/`, reads
+the fixtures in place from `docs/planning/gates/fixtures/` (compiled in), so there is no
+runtime copy under `tests/` to drift. Each value it sends or renders is checked against a
+named fixture line by `tests/fakes/claude/tests/replay.rs`; behaviour no fixture shows makes
+it halt, refuse or leave the text unfixed, never guess (crate docs).*
+
 **The Stage 3 runtime fixture path under `tests/` is deliberately not fixed here.**
 `docs/planning/DESIGN.md`'s "Suggested repository shape" sketches
 `tests/{protocol,security,integration}/` and labels it "Suggested," not fixed — this file
@@ -568,6 +685,16 @@ does not invent a subpath under `tests/` for where F8/F9's fake endpoints load f
 from at runtime. That path is confirmed by F8 and F9 themselves when they land (Stage 3),
 per `docs/planning/v0.1/07-repository-and-dependencies.md` §1's identical deferral for the
 `tests/` module row.
+
+*Dated note, 2026-10-06 (#58, F9): the fake Codex app-server is at
+`tests/fakes/codex-app-server/`. It loads the recorded fixtures in place, from
+`docs/planning/gates/fixtures/` (D6 `d6-codex-protocol/`, G2 and G5 Codex transcripts),
+and copies none of them, so `MANIFEST.json` stays the one inventory. It is a Node process
+(built-ins only) over stdio and loopback WebSocket, so a Rust contract test spawns it by
+path. It sits under `tests/fakes/`, not `tests/integration/`, because the latter is the
+opt-in leaf that no product path may reference (`scripts/check-herdr-containment.mjs`
+check 9), and the fakes are CI-default. Its provenance table, source-only behaviours and
+not-modelled list are its `README.md`.*
 
 ---
 
@@ -584,6 +711,11 @@ caveat on its "Suggested repository shape," and per `oac-testing`'s own §3: inv
 ad hoc test location before F8/F9 confirm the actual Stage 3 layout is forbidden. Any
 fixture path this file or a future test-writing task needs is provisional until F8/F9
 land.
+
+*Dated note, 2026-10-06, #57: F8 confirms the fake-endpoint location: `tests/fakes/<name>/`.
+The fake Claude endpoint is `tests/fakes/claude/`, a test-only workspace member that
+product crates may take as a dev-dependency only (`07-repository-and-dependencies.md` §1,
+§3).*
 
 ---
 
@@ -673,6 +805,9 @@ Per `oac-evidence` §8, checked against this file:
   NATS/MQTT optional-capability items from task E9/A6 (§11 row 10, via `05-interfaces.md`
   §17/§20, which carries the reason). All three already appear in
   `docs/planning/STATUS.md`'s "Open UNVERIFIED items" list — not restated as new here.
+  *(Dated note, 2026-10-06, #49: the NATS/MQTT items are closed. E9 re-verified them against
+  first-party sources, `docs/planning/decisions/E9-replacement-proofs.md` §9, and removed
+  them from STATUS.md.)*
 - **No new UNVERIFIED item is added by this file.** Every fact this file states is either
   a design decision this file itself makes (the resilience-into-security fold, §2; the
   `contract/adapter/no-polling` test name, §5) or a citation to an already-landed source.
@@ -759,7 +894,8 @@ Every reference below is a repo-relative path; no prior context is assumed.
 - `docs/planning/DESIGN.md`
 - `docs/planning/PLANNING-PROMPT.md` §6, §8, §9 item 10, §11 item 2
 - `docs/planning/v0.1/03-decisions-and-amendments.md`
-- `docs/planning/v0.1/05-interfaces.md`
+- `docs/planning/v0.1/05-interfaces.md` (§13-§15 superseded by `spec/interfaces.md`)
+- `spec/interfaces.md` (frozen: §5, §6)
 - `docs/planning/v0.1/06-security.md`
 - `docs/planning/v0.1/07-repository-and-dependencies.md`
 - `docs/planning/v0.1/08-cli-and-deployment.md`

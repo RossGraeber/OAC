@@ -1,0 +1,34 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-085",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A `duplicate` receipt for a retransmission arrives after `handed-to-harness`.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 2,
+    "deadline_passed": false
+  },
+  "input": {
+    "held": [
+      {
+        "state": "accepted-by-adapter",
+        "observer": "sender"
+      },
+      {
+        "state": "handed-to-harness",
+        "observer": "receiver"
+      },
+      {
+        "state": "duplicate",
+        "observer": "receiver",
+        "error": "duplicate"
+      }
+    ]
+  },
+  "expected": {
+    "state": "handed-to-harness",
+    "retry_allowed": false
+  }
+}

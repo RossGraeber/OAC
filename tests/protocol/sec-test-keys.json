@@ -1,0 +1,57 @@
+{
+  "format": "oac-test-keys/1",
+  "warning": "TEST KEYS ONLY. Every seed is SHA-256 of the public label shown, so anyone can recompute it. Never use these keys outside conformance fixtures.",
+  "seed_rule": "seed = SHA-256(UTF-8 \"oac-test-key/\" + label); nonce for label N = first 16 octets of SHA-256(UTF-8 \"oac-test-nonce/\" + N), base64url without padding, except two deliberately malformed nonces: SEC-SIG-003.n01 pads the nonce for label n1 with ==, and SEC-SIG-003.n02 uses the first 8 octets for label short",
+  "nonce_labels": [
+    "conc",
+    "jcs1",
+    "jcs2",
+    "jcs3",
+    "jcs4",
+    "mixa",
+    "n1",
+    "n2",
+    "n3",
+    "other",
+    "reply1",
+    "reply2",
+    "reply3",
+    "retry1",
+    "retry2",
+    "short",
+    "x1",
+    "x2",
+    "x3",
+    "x4"
+  ],
+  "keys": [
+    {
+      "label": "alice",
+      "principal": "principal-a",
+      "seed_hex": "404616bd59c9b8b3739dc249fff73869964eeea749e75fc6f2e49ba7567b8019",
+      "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc",
+      "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174"
+    },
+    {
+      "label": "bob",
+      "principal": "principal-b",
+      "seed_hex": "e21e5d0618d0a498b0a51e343704d869b304bdb18b3d3480bc160ca4450a6e1a",
+      "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g",
+      "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    },
+    {
+      "label": "carol",
+      "principal": "principal-c",
+      "seed_hex": "1d78c4d55df46de6d8a321ccf239a99b4887137b97614fec6481b184edf526fc",
+      "public_key": "LGPN2K_EISaRrzouTAmZRDaX66hHaXyOX0i-x3X0JUE",
+      "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9"
+    },
+    {
+      "label": "mallory",
+      "principal": "principal-m",
+      "seed_hex": "8fc147cb0d6adb7c4678abd9cf676dcdc3e2566fa68c32b46ef5873967491dc8",
+      "public_key": "ect6X1av62gGwcrcQ_oDwMA6T2NyTMflmuCuoqEklFM",
+      "key_id": "f9d705129917c4e5e0735c6d9b2fbe75e185a91df3eb643b107fe3711d9c954b"
+    }
+  ]
+}

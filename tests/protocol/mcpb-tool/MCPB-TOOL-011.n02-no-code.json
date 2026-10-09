@@ -1,0 +1,57 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-011",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "code missing",
+  "description": "The tool execution error text describes the failure in prose and carries no Table 8.3 code.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "unknown",
+      "discoverable": true
+    }
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 45,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 45,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Could not send: the recipient was not found."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

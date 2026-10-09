@@ -5,10 +5,18 @@
 // against Box C, criterion by criterion (tools/herdr/lib/g1-report.mjs). It never changes
 // G1's verdict, STATUS.md, or PINS.md.
 //
-// LIVE STATUS: UNVERIFIED. This scenario has only been exercised against the test doubles
-// in tools/herdr/test/ (a fake herdr and a fake Claude Code); it has never driven a real
-// herdr or a real Claude Code. Every Claude Code pane-text pattern it relies on except the
-// dev-channels dialog is a guess to be confirmed by the first operator run (lib/g1.mjs).
+// LIVE STATUS: RUN LIVE; NO CURRENT EQUIVALENCE RECORD.
+// docs/planning/gates/herdr-runs/G1-2026-09-29.md: run 20260929T034856Z-05b135, herdr
+// reporting `herdr 0.9.1` (executable identity UNVERIFIED: schemaVersion 1 manifest, #252)
+// and Claude Code 2.1.283, run outcome PASS, accept=human, driver commit 3050ed6. Since #252
+// (dated note, 2026-10-03) it stays on record but is not a current equivalence record: its
+// manifest records no herdr executable or sha256.
+// A G1 run under the current driver must re-establish equivalence; a later run relies on a
+// record only under oac-gates references/scripted-runs.md "When a scripted run may carry a
+// verdict" (among other conditions, an empty tools/herdr/ diff, test/ excluded, against the
+// record's driver commit). That run's pane capture confirms the dev-channels dialog and the
+// `esc to interrupt` indicator (the record's findings); other Claude Code pane-text patterns
+// (lib/g1.mjs) are confirmed only as far as a committed record shows them.
 //
 // Operator command (a machine with herdr at the PINS.md pin and a logged-in Claude Code, any
 // version: versions float, and one other than PINS.md's last tested version is a VERSION
@@ -78,16 +86,17 @@
 // repository (G1-result.md paraphrases them), so the defaults are not verbatim Box C.
 
 import { existsSync, lstatSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
+import { canonicallyWithin, rootGuardProblem } from '../lib/canonical-path.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, CLAUDE_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
 import { transcriptFacts, selectSegment, parseTranscript } from '../lib/compare-transcripts.mjs';
-import { driverAcceptDialog } from '../lib/gate-common.mjs';
+import { driverAcceptDialog, recordWaitState, takeBaseline, armActivityWatch, turnFloor, pastFloor, ACTIVITY_STATES } from '../lib/gate-common.mjs';
 import {
-  G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, dialogMatchesBoxC, DIALOG_KINDS,
+  G1_LAUNCH, G1_SERVER_NAME, COMMITTED_SERVER, classifyScreen, driverMayAccept, mcpServerNames, dialogMatchesBoxC, DIALOG_KINDS,
   formatSection, parseSections, fixtureNames, unverifiedNames, stageServerCopy, committedFile, midTurnWindow, normalizeDialogText, sameDialog, acceptHint,
   COMMITTED_SERVER_SHA256, PINS_PATH,
 } from '../lib/g1.mjs';
@@ -128,7 +137,11 @@ export function assertNotInjected(label, text) {
 // driver never records that trust itself (Claude Code does, in its own state). It writes only the scenario's own `.mcp.json` there, and
 // refuses a directory inside this repository or one whose `.mcp.json` registers anything
 // but `g1spike`.
-export function operatorProjectDir(dir) {
+// The repository test is canonical on both sides (#353): a plain directory reached through a
+// symlinked ancestor that lands in this checkout is inside it. A checkout whose filesystem
+// reports no file identity is refused with that reason (#357). `repo` and `stat` are for the
+// self-test.
+export function operatorProjectDir(dir, { repo = REPO, stat } = {}) {
   const abs = resolve(String(dir));
   if (!isAbsolute(String(dir))) throw new DriverError('--param projectDir must be an absolute path');
   let st;
@@ -138,8 +151,9 @@ export function operatorProjectDir(dir) {
     throw new DriverError(`--param projectDir ${abs} does not exist; create it and trust it in Claude Code first`);
   }
   if (st.isSymbolicLink() || !st.isDirectory()) throw new DriverError(`--param projectDir ${abs} is not a plain directory`);
-  const rel = relative(REPO, abs);
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) throw new DriverError(`--param projectDir ${abs} is inside this repository; use a directory outside it`);
+  const repoProblem = rootGuardProblem(repo, stat ? { stat } : {});
+  if (repoProblem) throw new DriverError(`the repository checkout ${repoProblem}; refusing --param projectDir (fail closed)`);
+  if (canonicallyWithin(abs, repo, stat ? { stat } : {})) throw new DriverError(`--param projectDir ${abs} is inside this repository; use a directory outside it`);
   const mcpPath = join(abs, '.mcp.json');
   if (existsSync(mcpPath)) {
     let names = null;
@@ -218,6 +232,7 @@ export default {
       captureNames: null,
       agentStart: null,
       dialogs: [],
+      herdrStates: [], // #253: every herdr agent wait, its agent_status and state_change_seq
       devChannelsDialogSeen: false,
       handshake: null,
       triggers: [],
@@ -296,7 +311,7 @@ export default {
       if (accept === 'driver') {
         // Every key is sent straight after a read of AGENT; selection moves are verified by
         // reads; Enter only on the accepting option (lib/gate-common.mjs driverAcceptDialog).
-        await driverAcceptDialog({ herdr, target: AGENT, r, d, kind, dialogKinds: DIALOG_KINDS, plan: driverMayAccept(r.screen), read, stop, num, sleep, deadlineFor });
+        await driverAcceptDialog({ herdr, target: AGENT, r, d, kind, dialogKinds: DIALOG_KINDS, plan: driverMayAccept(r.screen, { expectedMcpServers: mcpServerNames(g1.mcpJson) }), read, stop, num, sleep, deadlineFor });
         return;
       }
       // Human accept: the driver sends nothing; it waits for the dialog to change.
@@ -335,21 +350,27 @@ export default {
     };
 
     // Wait until the pane shows neither a dialog nor work in progress. herdr agent state
-    // only schedules the next read; the read decides.
-    const settle = async (context, timeoutMs) => {
-      await sleep(num('settleMs'));
+    // only schedules the next read; the read decides. #253: a wait whose answer carries no
+    // agent_status ends the run NOT RUN (recordWaitState), and `since` (a prompt typed with
+    // `agent prompt --wait`, or an activity watch armed before a push) makes the settle wait
+    // for that input's own turn: a settled state past the activity herdr observed
+    // (lib/gate-common.mjs turnFloor). This wait never requests `unknown`.
+    const settle = async (context, timeoutMs, { since = null } = {}) => {
       const deadline = deadlineFor(timeoutMs);
       const waited0 = humanWaitMs;
+      const floor = await turnFloor({ since, g: g1, context, ctx, stop });
+      if (!since) await sleep(num('settleMs'));
       let blockedUnseen = 0;
       for (;;) {
         const left = leftUntil(deadline, waited0);
         if (left <= 0) stop(`${context}: the pane did not settle within ${timeoutMs} ms`);
         const w = await herdr.agentWait(AGENT, { until: ['idle', 'done', 'blocked'], timeoutMs: Math.max(1000, left) });
+        const st = recordWaitState({ g: g1, context, w, ctx, stop });
         const r = await read(`${context}-settled?`, { keep: 'on-change' });
         // herdr saying `blocked` while the screen shows no dialog the driver can name: herdr
         // state may lag the screen, so look again; if it persists, treat it as an
         // unrecognized dialog -- the conservative reading (never accepted by the driver).
-        if (!r.screen.dialog && w.json?.result?.agent?.state === 'blocked') {
+        if (!r.screen.dialog && st.state === 'blocked') {
           if (++blockedUnseen < 3) {
             await sleep(pollMs);
             continue;
@@ -360,10 +381,11 @@ export default {
           await handleDialog(r, context);
           continue;
         }
-        if (r.screen.busy) {
+        if (r.screen.busy || !pastFloor(st, floor)) {
           await sleep(pollMs);
           continue;
         }
+        r.settled = { state: st.state, waitSeq: st.seq, stateChangeSeq: st.stateChangeSeq, floor: floor.floor, turnBegunBy: floor.by };
         return r;
       }
     };
@@ -399,10 +421,20 @@ export default {
     };
     const channelFrames = (kind) => (entries) => transcriptFacts(entries).channelNotifications.filter((n) => n.kind === kind);
 
-    const prompt = async (label, text) => {
+    // #253: { wait: true } types the prompt only into an agent herdr reports idle/done, through
+    // `herdr agent prompt --wait` (herdr observes the prompt's activity); the record is what
+    // settle({ since }) takes. Without wait (the busy prompt): herdr's queued-state answer.
+    const prompt = async (label, text, { wait = false } = {}) => {
       assertNotInjected(label, text);
-      const res = await herdr.agentPrompt(AGENT, text);
-      return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt };
+      if (!wait) {
+        const res = await herdr.agentPrompt(AGENT, text);
+        return { seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, queued: { state: res.state, stateChangeSeq: res.stateChangeSeq } };
+      }
+      const base = await takeBaseline({ herdr, name: AGENT, g: g1, context: label, ctx, stop });
+      if (ACTIVITY_STATES.includes(base.state)) stop(`herdr reported ${base.state} (herdr command #${base.seq}) just before the ${label}; a prompt is never typed into a running turn (#253); nothing sent`);
+      const res = await herdr.agentPrompt(AGENT, text, { wait: { until: ['idle', 'done', 'blocked'], timeoutMs: num('turnTimeoutMs') } });
+      const after = recordWaitState({ g: g1, context: `${label} --wait`, w: res, ctx, stop });
+      return { kind: 'prompt-wait', seq: res.entry.seq, startedAt: res.entry.startedAt, endedAt: res.entry.endedAt, baseline: base, settledAtReturn: { state: after.state, stateChangeSeq: after.stateChangeSeq } };
     };
 
     try {
@@ -516,6 +548,9 @@ export default {
       const pre = await read('pre-wake-idle-check');
       const promptsBefore = herdr.commands.filter((c) => c.argv.includes('prompt')).length;
       if (pre.screen.busy || pre.screen.dialog) stop('the session was not visibly idle before the wake trigger');
+      // #253: a baseline and an activity watch before the push; the wake-turn settle waits for it.
+      const wakeBase = await takeBaseline({ herdr, name: AGENT, g: g1, context: 'wake-push', ctx, stop });
+      const wakeWatch = await armActivityWatch({ herdr, name: AGENT, base: wakeBase, timeoutMs: num('turnTimeoutMs'), armMs: pollMs, sleep });
       const wakeTrig = fire('wake');
       const wakeFrame = await waitWire('the wake notification', (es) => channelFrames('wake-test')(es)[0], num('wireTimeoutMs'), { label: 'wake-wait' });
       // Before waiting for the wake turn to end, wait (bounded) for it to visibly begin --
@@ -530,7 +565,7 @@ export default {
         else if (r.screen.busy || normalizeDialogText(r.text) !== normalizeDialogText(pre.text)) wakeTurnSeen = { seq: r.seq, busy: r.screen.busy };
         else await sleep(pollMs);
       }
-      const afterWake = await settle('wake-turn', num('turnTimeoutMs'));
+      const afterWake = await settle('wake-turn', num('turnTimeoutMs'), { since: wakeWatch });
       const wakeRead = await read('after-wake', { source: 'recent-unwrapped', lines: readLines });
       g1.wake = {
         preReadSeq: pre.seq,
@@ -545,8 +580,8 @@ export default {
       };
 
       // --- 4. attribute query and the dropped meta key -------------------------------------
-      const aq = await prompt('attributePrompt', prompts.attributePrompt);
-      await settle('attribute-query', num('turnTimeoutMs'));
+      const aq = await prompt('attributePrompt', prompts.attributePrompt, { wait: true });
+      await settle('attribute-query', num('turnTimeoutMs'), { since: aq });
       const aqRead = await read('after-attribute-query', { source: 'recent-unwrapped', lines: readLines });
       g1.attributeQuery = { prompt: aq, answerReadSeq: aqRead.seq };
 
@@ -590,14 +625,14 @@ export default {
       };
 
       // --- 6. reply tool call -----------------------------------------------------------
-      const rp = await prompt('replyPrompt', prompts.replyPrompt);
+      const rp = await prompt('replyPrompt', prompts.replyPrompt, { wait: true });
       const call = await waitWire(
         'the reply tool call and its result',
         (es) => transcriptFacts(es).replyCalls.find((c) => c.resultLine !== null) ?? null,
         num('turnTimeoutMs'),
         { label: 'reply-wait' },
       );
-      await settle('reply-turn', num('turnTimeoutMs'));
+      await settle('reply-turn', num('turnTimeoutMs'), { since: rp });
       const replyRead = await read('after-reply', { source: 'recent-unwrapped', lines: readLines });
       g1.reply = { prompt: rp, wire: call, afterReadSeq: replyRead.seq };
 

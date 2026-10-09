@@ -1,0 +1,53 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-134",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A moved on from native-x to native-y and still holds cross-check native-x. A transition signal for native-x on C is not a duplicate.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x",
+        "binding": {
+          "native_id": "native-y",
+          "session_id": "5c8d1e4f7g0h3j6k9m2n5p8q1r"
+        }
+      },
+      {
+        "attachment": "C"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "transition",
+      "pairing": "paired",
+      "attachment": "C"
+    }
+  },
+  "expected": {
+    "result": "bound",
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-x",
+        "binding": {
+          "native_id": "native-y",
+          "session_id": "5c8d1e4f7g0h3j6k9m2n5p8q1r"
+        }
+      },
+      {
+        "attachment": "C",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "new"
+        }
+      }
+    ],
+    "record": "none"
+  }
+}

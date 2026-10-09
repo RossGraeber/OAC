@@ -1,0 +1,52 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ENV-021",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The addressed session declares revision 0.0. The sender, which implements 0.1, sets `version` to its own revision, 0.1, not to the peer's.",
+  "stage": "send",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-a",
+          "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+        }
+      }
+    ],
+    "declarations": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "io.github.rossgraeber/oac-session-channels": {
+          "revision": "0.0",
+          "active_inbound": true
+        }
+      }
+    }
+  },
+  "input": {
+    "request": {
+      "attachment": "A",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "content": [
+        {
+          "type": "text",
+          "text": "Please review the scheduler module."
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "sent",
+    "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+    "version": "0.1"
+  }
+}

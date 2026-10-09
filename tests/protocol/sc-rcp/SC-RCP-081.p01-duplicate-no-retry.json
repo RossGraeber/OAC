@@ -1,0 +1,30 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-081",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The receiver reported `duplicate`. An earlier copy was or may have been handed off, so no retry.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 1,
+    "deadline_passed": false
+  },
+  "input": {
+    "held": [
+      {
+        "state": "accepted-by-adapter",
+        "observer": "sender"
+      },
+      {
+        "state": "duplicate",
+        "observer": "receiver",
+        "error": "duplicate"
+      }
+    ]
+  },
+  "expected": {
+    "state": "duplicate",
+    "retry_allowed": false
+  }
+}

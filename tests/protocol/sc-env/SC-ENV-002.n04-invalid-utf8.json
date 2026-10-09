@@ -1,0 +1,23 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ENV-002",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "octets that are not UTF-8",
+  "description": "The serialized envelope contains the octets 0xFF 0xFE inside the text string, so it is not UTF-8.",
+  "stage": "envelope",
+  "context": {
+    "receiver_time": "2026-10-03T12:00:01.000Z",
+    "supported_major_versions": [
+      0
+    ]
+  },
+  "input": {
+    "envelope_base64": "eyJ2ZXJzaW9uIjoiMC4xIiwiaWQiOiJtc2ctMDFoengzazhxMnY2dzltNHQ3cDByNXMxeWEiLCJmcm9tIjoiMDFoYXJuN3g5azJtNHA2cThyMHMydDR2NnciLCJ0byI6IjdncTNtOHoyYzVrOXQxdzR4NmIwbjJyOHZkIiwiY3JlYXRlZF9hdCI6IjIwMjYtMTAtMDNUMTI6MDA6MDAuMDAwWiIsInR0bF9tcyI6MzAwMDAwLCJjb250ZW50IjpbeyJ0eXBlIjoidGV4dCIsInRleHQiOiL//lBsZWFzZSByZXZpZXcgdGhlIHNjaGVkdWxlciBtb2R1bGUuIn1dLCJzZWN1cml0eSI6eyJwcmluY2lwYWwiOiJmaXh0dXJlLXBsYWNlaG9sZGVyLXByaW5jaXBhbCIsImtleV9pZCI6ImZpeHR1cmUtcGxhY2Vob2xkZXIta2V5LWlkIiwibm9uY2UiOiJmaXh0dXJlLXBsYWNlaG9sZGVyLW5vbmNlIiwic2lnbmF0dXJlIjoiZml4dHVyZS1wbGFjZWhvbGRlci1zaWduYXR1cmUifX0="
+  },
+  "expected": {
+    "result": "rejected",
+    "error": "malformed-envelope"
+  }
+}

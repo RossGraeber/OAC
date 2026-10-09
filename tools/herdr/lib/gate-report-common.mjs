@@ -1,9 +1,17 @@
 // Shared pieces of the K8 (#131) report generators, lib/g4-report.mjs and lib/g5-report.mjs:
-// score vocabulary, check rows, CLI argument parsing, the never-overwrite writer, the unticked
-// operator attestation, and the reconstruction callout every G4/G5 comparison carries.
+// score vocabulary, check rows, CLI argument parsing, the never-overwrite writer, the
+// verification block (#252), and the reconstruction callout every G4/G5 comparison carries.
 
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// #303 (PR #302 review): a fixture entry's `redaction.script_sha256` is the sha256 of
+// lib/redact.mjs with CRLF normalised to LF, i.e. of the LF text git stores, so the value is
+// the same on every platform (a core.autocrlf=true checkout holds the file as CRLF).
+export const lfSha256 = (bytes) => createHash('sha256').update(Buffer.from(Buffer.from(bytes).toString('utf8').replace(/\r\n/g, '\n'), 'utf8')).digest('hex');
+export const redactScriptSha256 = () => lfSha256(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'redact.mjs')));
 
 export const SCORES = Object.freeze({ EQ: 'equivalent', NEQ: 'not equivalent', NE: 'not evaluable' });
 export class ReportError extends Error {}
@@ -13,6 +21,15 @@ export const required = (row) => row.checks.filter((c) => !c.name.startsWith('(s
 export const failed = (row) => required(row).filter((c) => !c.ok).map((c) => c.name).join('; ');
 export const allRequired = (row) => required(row).every((c) => c.ok);
 export const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+
+// The transcript lines of one exchange (request line, response line) as a MANIFEST.json
+// coverage item (#290). A range only when the lines are adjacent; otherwise a list, because
+// a range would claim the lines of whatever was interleaved between them (another server's
+// probe, a push). `last` missing or equal to `first` is a single line.
+export function lineSpan(first, last) {
+  if (last == null || last === first) return `${first}`;
+  return Number.isInteger(first) && Number.isInteger(last) && last === first + 1 ? `${first}-${last}` : `${first}, ${last}`;
+}
 
 // Operator scores, only for the rows that take one; each needs a note.
 export function parseOperatorScores(pairs, allowed, why) {
@@ -96,39 +113,111 @@ export function describeDialog(d) {
   } else if (d.acceptOrigin === 'human') {
     how = 'accepted outside the driver (recorded as human: the driver sent no keystroke and the screen changed)';
   } else how = `not accepted (${d.acceptOrigin ?? 'no accept recorded'})`;
-  return `${who}${d.kind} (read #${d.readSeq ?? '?'}; ${how})`;
+  // #267: a recorded variant (the multi-select MCP form) names the servers it listed.
+  const variant = d.variant ? `; ${d.variant} form listing ${JSON.stringify(d.listedServers ?? [])}, expected ${JSON.stringify(d.expectedServers ?? null)}` : '';
+  // #271: Codex's MCP tool-approval prompt: what it asked, what the scenario registered, the answer.
+  const t = d.toolApproval;
+  const tool = t
+    ? `; Codex MCP tool approval: prompt ${JSON.stringify(t.question)}, server ${JSON.stringify(t.server)}, tool ${JSON.stringify(t.tool)}; the scenario registered server ${JSON.stringify(t.expected?.server ?? null)}, tools ${JSON.stringify(t.expected?.tools ?? null)}; answer ${t.answer ? `"${t.answer}" (this call only)${d.confirmReadSeq ? `, confirmed by read #${d.confirmReadSeq} before Enter` : ''}` : 'none'}`
+    : '';
+  // #303: Codex's start-up update prompt: the versions it named and the answer ("2. Skip" only).
+  const u = d.updatePrompt;
+  const update = u ? `; Codex update prompt ${u.current ?? '?'} → ${u.latest ?? '?'}: answer ${u.answer ? `"${u.answer}" (this launch only; no update run, no updater state written)` : 'none'}` : '';
+  return `${who}${d.kind} (read #${d.readSeq ?? '?'}${variant}${tool}${update}; ${how})`;
 }
 
-export const describeDialogs = (dialogs) => (dialogs ?? []).map(describeDialog).join('; ') || 'none';
+// harnessConfig: the run manifest's, so that a driver "Allow" on a tool-approval prompt (#271)
+// is shown with the config-hash check that proves no approval was persisted.
+export function describeDialogs(dialogs, { harnessConfig } = {}) {
+  const text = (dialogs ?? []).map(describeDialog).join('; ') || 'none';
+  const allows = (dialogs ?? []).filter((d) => d.toolApproval?.answer && d.acceptOrigin === 'driver').length;
+  if (!allows || harnessConfig === undefined) return text;
+  // The check is against the snapshot taken just before the first Allow (sinceFirstAllow); the
+  // start-to-teardown comparison is a separate fact, shown beside it.
+  const s = harnessConfig?.sinceFirstAllow;
+  const hc = s?.unchanged === true
+    ? `VERIFIED unchanged since the snapshot before the first Allow (\`harnessConfig.sinceFirstAllow.unchanged\` true, snapshot \`harnessConfig.beforeFirstAllow\` at ${harnessConfig.beforeFirstAllow?.at ?? '?'}): no persistent approval was written to the hashed harness config`
+    : `UNVERIFIED — \`harnessConfig.sinceFirstAllow.unchanged\` is ${JSON.stringify(s?.unchanged ?? null)}${s?.changed?.length ? ` (changed: ${s.changed.join(', ')})` : ''}: a persisted approval is not ruled out`;
+  const whole = `; start to teardown: ${harnessConfig?.unchanged === true ? 'unchanged' : `changed (${(harnessConfig?.changed ?? []).join(', ') || 'not recorded'})`} (\`harnessConfig.unchanged\`)`;
+  return `${text}. Harness config after ${allows} driver "Allow" answer(s) (#271): ${hc}${whole}`;
+}
 
-// The attestation's consent line for a gate none of whose criteria names a consent step: it
-// says so, and lists the dialog accepts truthfully (driver or human) for the operator to check.
-export const noConsentCriterionLine = (gate, dialogs) =>
-  `none — no criterion of ${gate} names a consent step. Dialogs on record: ${describeDialogs(dialogs)}; each driver accept above was the driver's, not mine.`;
+// --- Verification (#252) -------------------------------------------------------------------
+//
+// Operator decision on #252 (2026-10-03): a record's findings rest on verification from the
+// evidence, with citations, or are UNVERIFIED; the operator's attestation is not the basis.
+// The generator derives each line from the run manifest and cites the field; the recording
+// agent re-checks every citation and fills the `<TO FILL: ...>` slots, which
+// scripts/check-fixture-manifest.mjs refuses to see left in a record that claims eligibility.
+// A person signs off only on the human actions: steps the agent could not do (a consent step a
+// criterion names, an interactive sign-in, credentials).
+export const TO_FILL = '<TO FILL';
 
-// The herdr hash for the attestation's herdr line (#140): the sha256 the driver recorded for
-// the herdr executable it spawned (run-manifest.json `herdr.executable`), when that was a
-// native binary and not the node-run test double; otherwise the placeholder, for the operator.
-export function herdrExecutableHash(manifest) {
-  const x = manifest?.herdr?.executable;
-  if (x?.testDouble === true) return '`<64 hex>` (the run manifest records a test-double herdr, run under node; this line cannot be ticked)';
-  if (x?.testDouble === false && /^[0-9a-f]{64}$/.test(x.sha256 ?? '') && ['elf', 'pe', 'mach-o'].includes(x.format)) {
-    return `\`${x.sha256}\` (recorded by the driver: run-manifest.json \`herdr.executable\`)`;
+// A consent-free gate's human-actions line: no criterion of it names a consent step.
+export const noConsentCriterionLine = (gate) => `none required by a criterion: no criterion of ${gate} names a consent step, and every dialog accept above is the driver's or recorded as human.`;
+
+// The herdr line: the version against the pin, the executable hash against PINS.md's expected
+// value for the platform (herdr.executableCheck, #252), native and not the test double, and
+// unchanged at teardown. -> { verified, text }.
+export function herdrVerification(manifest) {
+  const h = manifest?.herdr ?? {};
+  const x = h.executable;
+  const c = h.executableCheck;
+  const why = [];
+  if (!h.observedVersionOutput || h.observedVersionOutput !== h.expectedVersionOutput) why.push(`\`herdr --version\` ${JSON.stringify(h.observedVersionOutput ?? null)} is not the pin's ${JSON.stringify(h.expectedVersionOutput ?? null)}`);
+  if (!x) why.push('the run manifest records no herdr.executable (schemaVersion 1, before #140)');
+  else {
+    if (x.testDouble !== false) why.push(`herdr.executable.testDouble is ${JSON.stringify(x.testDouble ?? null)} (the node-run test double)`);
+    else if (!['elf', 'pe', 'mach-o'].includes(x.format) || !/^[0-9a-f]{64}$/.test(x.sha256 ?? '')) why.push(`herdr.executable is not a hashed native binary (format ${JSON.stringify(x.format ?? null)})`);
+    if (x.unchangedAfterRun === false) why.push('the executable changed during the run (herdr.executable.unchangedAfterRun false)');
   }
-  return '`<64 hex>`';
+  if (!c) why.push('the run manifest records no herdr.executableCheck (a driver before #252): the hash was compared with nothing');
+  else if (c.result !== 'match') why.push(`herdr.executableCheck.result is \`${c.result}\` (${c.detail ?? 'no detail'})`);
+  else if (c.firstParty !== true) why.push(`the executable matches the locally observed value PINS.md records for \`${c.platform}\` (first-party source UNVERIFIED; \`herdr.executableCheck.firstParty\` ${JSON.stringify(c.firstParty ?? null)})`);
+  const hash = /^[0-9a-f]{64}$/.test(x?.sha256 ?? '') ? `\`${x.sha256}\`` : 'none recorded';
+  if (why.length) return { verified: false, text: `UNVERIFIED — ${why.join('; ')}. Executable sha256: ${hash}.` };
+  return {
+    verified: true,
+    text: `VERIFIED — \`herdr --version\` \`${h.observedVersionOutput}\` equals the PINS.md pin (\`herdr.observedVersionOutput\`, \`herdr.expectedVersionOutput\`); executable \`${x.basename ?? '?'}\` (${x.format}, not the test double) sha256 ${hash} equals PINS.md's first-party expected sha256 for \`${c.platform}\` (\`herdr.executable.sha256\`, \`herdr.executableCheck\`; basis: ${c.basis ?? 'not recorded'}); unchanged at teardown: ${x.unchangedAfterRun ?? 'not recorded'} (\`herdr.executable.unchangedAfterRun\`).`,
+  };
 }
 
-// The attestation block, generated unticked (oac-gates references/scripted-runs.md).
-export function attestation({ herdrVersion, herdrHash = '`<64 hex>`', harnesses, consent }) {
+// The herdr line for a record built from several runs (L3: one run per phase): VERIFIED only
+// when every run's herdr is, each phase cited. -> { verified, text }.
+export function herdrVerificationAll(runs) {
+  const each = runs.map(({ label, manifest }) => ({ label, ...herdrVerification(manifest) }));
+  if (!each.length) return { verified: false, text: 'UNVERIFIED — no run manifest.' };
+  const verified = each.every((e) => e.verified);
+  return { verified, text: `${verified ? 'VERIFIED' : 'UNVERIFIED'} — ${each.map((e) => `${e.label}: ${e.text}`).join(' ')}` };
+}
+
+// The harness line. `verified` is the report's own versionsVerified(): every source it
+// checks (CLI, wire, daemon; post-run where the gate records one) reported one version.
+// `versions` names those sources and their fields; the executables are cited by hash.
+export function harnessVerification(manifest, { verified, versions }) {
+  const ex = Object.entries(manifest?.harnessExecutables ?? {}).filter(([, e]) => e && typeof e === 'object');
+  const exe = ex.map(([k, e]) => `\`${k}\` → \`${e.basename ?? '?'}\` sha256 ${/^[0-9a-f]{64}$/.test(e.sha256 ?? '') ? `\`${e.sha256}\`` : 'not recorded'} (\`harnessExecutables.${k}\`)`).join(', ') || 'not recorded';
+  return verified
+    ? `VERIFIED — ${versions}: one and the same version per harness from every source listed (the report's versionsVerified). Executables that answered \`--version\`: ${exe}. Not shown by the record: that the pane ran these files (its shell resolves PATH itself; scripted-runs.md "What the record cannot show").`
+    : `UNVERIFIED — ${versions}: the sources did not report one and the same version per harness, or were not recorded (see Findings). Executables that answered \`--version\`: ${exe}.`;
+}
+
+// The verification block. `humanActions`: the steps a person did that the agent could not,
+// each naming who (a `<TO FILL: ...>` slot where only the person can say).
+// Only the slot lines carry the TO_FILL token: the preamble names the slots without it, because
+// scripts/check-fixture-manifest.mjs refuses any `<TO FILL` left in a Verification section.
+export function verification({ manifest, harness, dialogs, dialogsField, humanActions, heading = '## Verification', extra = [], herdr = herdrVerification(manifest) }) {
   return [
-    '## Operator attestation',
+    heading,
     '',
-    'Generated unticked. Only the operator who ran this machine ticks these lines, each only if true (`.claude/skills/oac-gates/references/scripted-runs.md` "Operator attestation"). An unticked line means this record is neither an equivalence record nor verdict-bearing.',
+    'Each line is checked from the evidence it cites (run-manifest.json fields beside this record), or marked UNVERIFIED with the reason (`.claude/skills/oac-gates/references/scripted-runs.md` "Verification"). Generated from the run manifest; the recording agent re-checks every citation and fills each slot the generator left open (marked TO FILL). A herdr or Harness line that is UNVERIFIED means this record is neither an equivalence record nor verdict-bearing.',
     '',
-    `- [ ] **herdr:** the real herdr binary ran, not a test double. \`herdr --version\`: \`${herdrVersion ?? '?'}\`; sha256 of the executable: ${herdrHash}`,
-    `- [ ] **Harness:** the real, logged-in ${harnesses} ran, not test doubles.`,
-    `- [ ] **Consent dialog:** ${consent}`,
-    '- **Attested by:** <operator>, <YYYY-MM-DD>',
+    `- **herdr:** ${herdr.text}`,
+    `- **Harness:** ${harness}`,
+    ...extra,
+    `- **Dialogs:** ${describeDialogs(dialogs, { harnessConfig: manifest?.harnessConfig ?? null })} (\`${dialogsField}\`; each driver key is a \`dialog-accept\` command in \`commands\`)`,
+    `- **Human actions:** ${humanActions} Sign-ins or credentials a person supplied for this run: ${TO_FILL}: none, or each action and who did it>.`,
+    `- **Verified by:** ${TO_FILL}: recording agent>, ${TO_FILL}: YYYY-MM-DD>`,
     '',
   ];
 }

@@ -1,0 +1,2543 @@
+{
+  "schemaVersion": 3,
+  "runId": "20261007T221317Z-1a3890",
+  "outcome": "PASS",
+  "outcomeReason": null,
+  "scenario": {
+    "name": "s3-codex-capture",
+    "file": "tools/herdr/scenarios/s3-codex-capture.mjs",
+    "description": "Stage 1 fixture capture for Gate S3 criterion 5 (#343): live Codex app-server behaviour the fake modelled from source. Not a gate run; not verdict-bearing.",
+    "params": {
+      "accept": "driver",
+      "operatorPrompt": "Greet me in a single word.",
+      "idleAddText": "OAC S3 capture idle add: reply with exactly the words OAC S3 IDLE ADD RECEIVED. Do not use any tools.",
+      "casesTimeoutMs": "1500000",
+      "startupTimeoutMs": "120000",
+      "humanAcceptTimeoutMs": "300000",
+      "cliTimeoutMs": "60000",
+      "clientTimeoutMs": "60000",
+      "wireTimeoutMs": "30000",
+      "readyTimeoutMs": "120000",
+      "attachTimeoutMs": "180000",
+      "listPollMs": "3000",
+      "turnTimeoutMs": "300000",
+      "settleMs": "3000",
+      "pollMs": "1000",
+      "busyIndicator": "esc to interrupt",
+      "readLines": "2000",
+      "maxDialogs": "12"
+    }
+  },
+  "launch": {
+    "argv": [
+      "codex"
+    ],
+    "herdrReportedArgv": [
+      "codex"
+    ]
+  },
+  "driver": {
+    "entry": "tools/herdr/run.mjs",
+    "commit": "c1de8f423c98e9fcae8a14ff9691ada3a647c199",
+    "toolsHerdrDirty": false,
+    "node": "v25.2.1"
+  },
+  "herdr": {
+    "pinRow": "herdr (test tooling)",
+    "executable": {
+      "requested": "herdr",
+      "resolved": true,
+      "basename": "herdr.exe",
+      "realBasename": "herdr.exe",
+      "sha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "bytes": 25562624,
+      "format": "pe",
+      "runUnderNode": false,
+      "testDouble": false,
+      "unchangedAfterRun": true
+    },
+    "executableCheck": {
+      "platform": "win32-x64",
+      "expectedSha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "firstParty": true,
+      "basis": "First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`).",
+      "result": "match",
+      "detail": "herdr executable sha256 equals PINS.md's expected value for win32-x64"
+    },
+    "pinnedTag": "v0.9.1",
+    "pinsSource": {
+      "path": "docs/planning/PINS.md",
+      "headCommit": "c1de8f423c98e9fcae8a14ff9691ada3a647c199",
+      "committedSha256": "3bfa3d2e8ea005536e89bc08cbbfe343d6ac1fa791f5af43a69629316267f4a3",
+      "workingTreeMatchesHead": true
+    },
+    "expectedVersionOutput": "herdr 0.9.1",
+    "observedVersionOutput": "herdr 0.9.1",
+    "serverStatus": {
+      "status": "running",
+      "running": true,
+      "version": "0.9.1",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": false,
+        "detached_server_daemon": false,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true
+      },
+      "compatible": true,
+      "endpoint_compatible": true,
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-s3-codex-capture-20261007T221317Z-7df4ab\\herdr.sock",
+      "session": "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+      "restart_needed": false,
+      "server_binary_stale": false
+    },
+    "config": {
+      "path": "<SCRATCH>\\herdr-config.toml",
+      "contents": "[update]\nversion_check = false\nmanifest_check = false\n"
+    },
+    "agentManifests": {
+      "id": "cli:server:agent-manifests",
+      "result": {
+        "last_check_unix": 1790783747,
+        "last_result": "failed: failed to fetch https://herdr.dev/agent-detection/index.toml",
+        "manifests": [
+          {
+            "active_version": "2026.09.14.1",
+            "agent": "pi",
+            "cached_remote_version": "2026.09.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\pi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "claude",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\claude.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.23.1",
+            "agent": "codex",
+            "cached_remote_version": "2026.09.23.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\codex.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "gemini",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\gemini.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.03.1",
+            "agent": "cursor",
+            "cached_remote_version": "2026.08.03.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cursor.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.15.1",
+            "agent": "devin",
+            "cached_remote_version": "2026.06.15.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\devin.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.24.1",
+            "agent": "agy",
+            "cached_remote_version": "2026.06.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\agy.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "cline",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cline.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "opencode",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\opencode.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.29.1",
+            "agent": "copilot",
+            "cached_remote_version": "2026.08.29.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\copilot.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kimi",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kimi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.19.1",
+            "agent": "kiro",
+            "cached_remote_version": "2026.09.19.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kiro.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "droid",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\droid.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.1",
+            "agent": "amp",
+            "cached_remote_version": "2026.07.09.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\amp.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.18.1",
+            "agent": "grok",
+            "cached_remote_version": "2026.09.18.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\grok.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.24.1",
+            "agent": "hermes",
+            "cached_remote_version": "2026.07.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\hermes.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kilo",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kilo.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "qodercli",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qodercli.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.14.1",
+            "agent": "qwen",
+            "cached_remote_version": "2026.08.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qwen.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.24.1",
+            "agent": "letta",
+            "cached_remote_version": "2026.08.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\letta.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.2",
+            "agent": "maki",
+            "cached_remote_version": "2026.07.09.2",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\maki.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.26.1",
+            "agent": "muse",
+            "cached_remote_version": "2026.08.26.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\muse.toml",
+            "source_kind": "remote"
+          }
+        ],
+        "type": "agent_manifest_status"
+      }
+    }
+  },
+  "harnessVersions": {
+    "codex": "codex-cli 0.161.0"
+  },
+  "harnessExecutables": {
+    "codex": {
+      "requested": "codex",
+      "resolved": true,
+      "basename": "codex.exe",
+      "realBasename": "codex.exe",
+      "sha256": "a0f89acca07a511734cac7fddee26b2106fab68918717bc90df16104a0760a30",
+      "bytes": 332179248,
+      "format": "pe"
+    }
+  },
+  "os": {
+    "platform": "win32",
+    "type": "Windows_NT",
+    "release": "10.0.26300",
+    "arch": "x64"
+  },
+  "session": {
+    "name": "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+    "serverPid": 35044,
+    "panePids": [
+      32320,
+      4456,
+      18028
+    ]
+  },
+  "env": {
+    "serverLaunch": {
+      "added": {
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml"
+      },
+      "removed": [
+        "ANTHROPIC_BASE_URL",
+        "CLAUDECODE",
+        "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
+        "CLAUDE_AGENT_SDK_VERSION",
+        "CLAUDE_CODE_ACCOUNT_UUID",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_DESKTOP_APP_VERSION",
+        "CLAUDE_CODE_DISABLE_CRON",
+        "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+        "CLAUDE_CODE_EAGER_FLUSH",
+        "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES",
+        "CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL",
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+        "CLAUDE_CODE_ENABLE_TELEMETRY",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_HOST_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "CLAUDE_CODE_OAUTH_SCOPES",
+        "CLAUDE_CODE_ORGANIZATION_UUID",
+        "CLAUDE_CODE_REPORT_FINDINGS",
+        "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_SIMPLE",
+        "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+        "CLAUDE_CODE_USER_EMAIL",
+        "CLAUDE_PID",
+        "CLAUDE_PREVIEW_CLASSIFIER_FLOOR"
+      ]
+    },
+    "pane": {
+      "paneId": "w1:p1",
+      "added": [
+        "COLORTERM",
+        "ComSpec",
+        "HERDR_BIN_PATH",
+        "HERDR_ENV",
+        "HERDR_PANE_ID",
+        "HERDR_SESSION",
+        "HERDR_SOCKET_PATH",
+        "HERDR_TAB_ID",
+        "HERDR_WORKSPACE_ID",
+        "Path",
+        "windir"
+      ],
+      "removed": [
+        "COMSPEC",
+        "PATH",
+        "WINDIR",
+        "__COMPAT_LAYER"
+      ],
+      "values": {
+        "COLORTERM": "truecolor",
+        "HERDR_BIN_PATH": "<USER_HOME>\\.herdr\\packages\\standalone\\releases\\0.9.1-x86_64-pc-windows-msvc\\herdr.exe",
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml",
+        "HERDR_ENV": "1",
+        "HERDR_PANE_ID": "w1:p1",
+        "HERDR_SESSION": "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "HERDR_SOCKET_PATH": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-s3-codex-capture-20261007T221317Z-7df4ab\\herdr.sock",
+        "HERDR_TAB_ID": "w1:t1",
+        "HERDR_WORKSPACE_ID": "w1",
+        "TERM": "xterm-256color"
+      },
+      "note": "Names compared against the herdr server launch env. Values recorded for HERDR_*, TERM and COLORTERM only. Additions can also come from the pane shell's own startup files."
+    }
+  },
+  "harnessConfig": {
+    "before": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "f5a3bb4c05f6e4adbe1acda493a683b80530205fb6299f5dc3beed0849899c00"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "9bf4886bd8926f659f363510695499ec5f0668a8d426ec01acf509c5f36bb927"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "after": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "f5a3bb4c05f6e4adbe1acda493a683b80530205fb6299f5dc3beed0849899c00"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "9bf4886bd8926f659f363510695499ec5f0668a8d426ec01acf509c5f36bb927"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "unchanged": true,
+    "changed": [],
+    "mustStayUnchanged": []
+  },
+  "timebox": {
+    "budgetMs": 3600000,
+    "start": "2026-10-07T22:13:17.344Z",
+    "end": "2026-10-07T22:16:04.675Z",
+    "elapsedMs": 167331,
+    "expired": false,
+    "teardownEnd": "2026-10-07T22:16:07.158Z"
+  },
+  "commands": [
+    {
+      "seq": 1,
+      "role": "preflight",
+      "argv": [
+        "herdr",
+        "--version"
+      ],
+      "target": null,
+      "startedAt": "2026-10-07T22:13:17.728Z",
+      "endedAt": "2026-10-07T22:13:17.785Z",
+      "durationMs": 57,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 12,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 2,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "server"
+      ],
+      "target": null,
+      "startedAt": "2026-10-07T22:13:19.185Z",
+      "endedAt": null,
+      "durationMs": null,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": null,
+        "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
+      },
+      "pid": 35044
+    },
+    {
+      "seq": 3,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "status",
+        "server",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-07T22:13:19.197Z",
+      "endedAt": "2026-10-07T22:13:19.252Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 5000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 492,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 4,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "server",
+        "agent-manifests",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-07T22:13:19.253Z",
+      "endedAt": "2026-10-07T22:13:19.610Z",
+      "durationMs": 357,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 7198,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 5,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "workspace",
+        "create",
+        "--no-focus",
+        "--cwd",
+        "<SCRATCH>\\s3-project",
+        "--label",
+        "oac-s3"
+      ],
+      "target": null,
+      "startedAt": "2026-10-07T22:13:20.772Z",
+      "endedAt": "2026-10-07T22:13:20.909Z",
+      "durationMs": 137,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 671,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 6,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-07T22:13:20.910Z",
+      "endedAt": "2026-10-07T22:13:20.996Z",
+      "durationMs": 86,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1458,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 7,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "pane",
+        "run",
+        "w1:p1",
+        "C:\\nvm4w\\nodejs\\node.exe <REPO>\\tools\\herdr\\lib\\env-probe.mjs <SCRATCH>\\env-probe-831a414d.json 831a414d"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-07T22:13:22.216Z",
+      "endedAt": "2026-10-07T22:13:22.279Z",
+      "durationMs": 63,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 0,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 8,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "pane",
+        "wait-output",
+        "w1:p1",
+        "--regex",
+        "^\\s*ENVPROBE-OK-831a414d\\s*$",
+        "--timeout",
+        "20000"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-07T22:13:22.279Z",
+      "endedAt": "2026-10-07T22:13:22.452Z",
+      "durationMs": 173,
+      "bound": {
+        "herdrTimeoutMs": 20000,
+        "driverDeadlineMs": 25000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 608,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 9,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "start",
+        "s3codex",
+        "--kind",
+        "codex",
+        "--pane",
+        "w1:p1",
+        "--timeout",
+        "120000"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:22.453Z",
+      "endedAt": "2026-10-07T22:13:26.602Z",
+      "durationMs": 4149,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 460,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 10,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-07T22:13:26.603Z",
+      "endedAt": "2026-10-07T22:13:26.671Z",
+      "durationMs": 68,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 562,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 11,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "wait",
+        "s3codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "120000"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:30.638Z",
+      "endedAt": "2026-10-07T22:13:30.695Z",
+      "durationMs": 57,
+      "bound": {
+        "herdrTimeoutMs": 120000,
+        "driverDeadlineMs": 125000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 439,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 12,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:30.696Z",
+      "endedAt": "2026-10-07T22:13:30.751Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 660,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 13,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:30.752Z",
+      "endedAt": "2026-10-07T22:13:30.805Z",
+      "durationMs": 53,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 660,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 14,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "get",
+        "s3codex"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:31.074Z",
+      "endedAt": "2026-10-07T22:13:31.132Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 438,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 15,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "wait",
+        "s3codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "299941"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:31.132Z",
+      "endedAt": "2026-10-07T22:13:31.192Z",
+      "durationMs": 60,
+      "bound": {
+        "herdrTimeoutMs": 299941,
+        "driverDeadlineMs": 304941,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 439,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 16,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:31.192Z",
+      "endedAt": "2026-10-07T22:13:31.248Z",
+      "durationMs": 56,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 660,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 17,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "get",
+        "s3codex"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:34.251Z",
+      "endedAt": "2026-10-07T22:13:34.351Z",
+      "durationMs": 100,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 438,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 18,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "get",
+        "s3codex"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:34.351Z",
+      "endedAt": "2026-10-07T22:13:34.416Z",
+      "durationMs": 65,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 438,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 19,
+      "role": "operator-input",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "prompt",
+        "s3codex",
+        "Greet me in a single word."
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:34.416Z",
+      "endedAt": "2026-10-07T22:13:34.792Z",
+      "durationMs": 376,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 445,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 20,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "wait",
+        "s3codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:34.793Z",
+      "endedAt": "2026-10-07T22:13:34.876Z",
+      "durationMs": 83,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 439,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 21,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:34.876Z",
+      "endedAt": "2026-10-07T22:13:34.946Z",
+      "durationMs": 70,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 690,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 22,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:38.284Z",
+      "endedAt": "2026-10-07T22:13:38.370Z",
+      "durationMs": 86,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 777,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 23,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:38.656Z",
+      "endedAt": "2026-10-07T22:13:38.712Z",
+      "durationMs": 56,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 784,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 24,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:39.468Z",
+      "endedAt": "2026-10-07T22:13:39.532Z",
+      "durationMs": 64,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 926,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 25,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:39.736Z",
+      "endedAt": "2026-10-07T22:13:39.795Z",
+      "durationMs": 59,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 926,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 26,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:40.906Z",
+      "endedAt": "2026-10-07T22:13:41.358Z",
+      "durationMs": 452,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 926,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 27,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "wait",
+        "s3codex",
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--until",
+        "unknown",
+        "--timeout",
+        "300000"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:44.627Z",
+      "endedAt": "2026-10-07T22:13:44.996Z",
+      "durationMs": 369,
+      "bound": {
+        "herdrTimeoutMs": 300000,
+        "driverDeadlineMs": 305000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 466,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 28,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "visible"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:44.996Z",
+      "endedAt": "2026-10-07T22:13:45.253Z",
+      "durationMs": 257,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 944,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 29,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "agent",
+        "read",
+        "s3codex",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "2000"
+      ],
+      "target": "s3codex",
+      "startedAt": "2026-10-07T22:13:45.253Z",
+      "endedAt": "2026-10-07T22:13:45.817Z",
+      "durationMs": 564,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 944,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 30,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-07T22:16:03.413Z",
+      "endedAt": "2026-10-07T22:16:03.483Z",
+      "durationMs": 70,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 562,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 31,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-07T22:16:04.842Z",
+      "endedAt": "2026-10-07T22:16:04.904Z",
+      "durationMs": 62,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 562,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 32,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "stop",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-07T22:16:05.828Z",
+      "endedAt": "2026-10-07T22:16:06.063Z",
+      "durationMs": 235,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 25000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 361,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 33,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "delete",
+        "oac-k-s3-codex-capture-20261007T221317Z-7df4ab",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-07T22:16:07.000Z",
+      "endedAt": "2026-10-07T22:16:07.058Z",
+      "durationMs": 58,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 361,
+      "stderrBytes": 0
+    }
+  ],
+  "teardown": {
+    "sessionStop": "ok",
+    "serverExited": true,
+    "panes": {
+      "created": 1,
+      "queried": [
+        "w1:p1"
+      ],
+      "notQueried": []
+    },
+    "forcedKills": [],
+    "leftoverProcesses": [],
+    "unverifiedPids": [],
+    "skippedReusedPids": [],
+    "skippedPreexistingPids": [],
+    "protectedProcesses": [],
+    "processScan": "process table (pid, parent pid, creation time, argv) checked for --session <name>",
+    "sessionDelete": "ok",
+    "clean": false,
+    "leftover": "<SCRATCH>",
+    "leftoverError": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+  },
+  "scratch": {
+    "location": "os.tmpdir(), outside the repository",
+    "path": "<SCRATCH>",
+    "removed": false,
+    "holders": [
+      "the shared Codex app-server daemon (left running; the driver never stops it) may hold the directory of a thread it loaded under scratch; it is released on `codex app-server daemon stop`, or when the daemon unloads the thread (documented: no subscribers and no thread activity for 30 minutes). The driver does not call thread/archive or thread/delete, which would unload it sooner, because both write to the operator's Codex thread store (thread/delete destroys the run's rollout) and whether their shutdown releases the directory handle is unverified"
+    ],
+    "removal": {
+      "attempts": 5,
+      "errors": [
+        {
+          "attempt": 1,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 2,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 3,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 4,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        },
+        {
+          "attempt": 5,
+          "code": "EPERM",
+          "message": "EPERM, Permission denied: \\\\?\\<SCRATCH> '\\\\?\\<SCRATCH>'"
+        }
+      ]
+    }
+  },
+  "captures": [
+    {
+      "file": "pane-2026-10-07-0.161.0-herdr.txt",
+      "format": "text",
+      "written": true,
+      "sha256": "25f59db38138cb636c70966af2700455779112bbdf12472aeab4605e1729be02",
+      "redaction": {
+        "mode": "text",
+        "lines": 337,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {},
+        "residualLeaks": [],
+        "residualGenericHits": [],
+        "elidedToolOutputLines": [
+          {
+            "line": 105,
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 147,
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 189,
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 231,
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 273,
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 315,
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          }
+        ]
+      }
+    },
+    {
+      "file": "transcript-2026-10-07-0.161.0-herdr.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "sha256": "9d6eb102ff04a04cb6704e42946d2875becf3cce2b8f1ef0ae68efce2b76fe94",
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 1040,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "elidedToolOutputs": [
+          {
+            "line": 50,
+            "path": "$.payload.result.collaborationMode.settings.developer_instructions",
+            "bytes": 1307,
+            "sha256": "9fe43931f329b9a052622cded0cfc498c375286bd0dc8b411c75f0eaef7bac73"
+          },
+          {
+            "line": 146,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 1003,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          }
+        ],
+        "replacements": {
+          "home": 25,
+          "literal <SCRATCH>": 37
+        },
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    }
+  ],
+  "redaction": {
+    "runLiteralPlaceholders": [
+      "<INSTALLATION_ID>"
+    ]
+  },
+  "scenarioData": {
+    "workspace": {
+      "workspaceId": "w1",
+      "tabId": "w1:t1",
+      "paneId": "w1:p1"
+    },
+    "s3": {
+      "nonVerdictBearing": "K7: compared against the human-run G2 0.157.1 re-run; never changes the G2 verdict",
+      "acceptPolicy": "driver",
+      "params": {
+        "accept": "driver",
+        "operatorPrompt": "Greet me in a single word.",
+        "idleAddText": "OAC S3 capture idle add: reply with exactly the words OAC S3 IDLE ADD RECEIVED. Do not use any tools.",
+        "casesTimeoutMs": "1500000",
+        "startupTimeoutMs": "120000",
+        "humanAcceptTimeoutMs": "300000",
+        "cliTimeoutMs": "60000",
+        "clientTimeoutMs": "60000",
+        "wireTimeoutMs": "30000",
+        "readyTimeoutMs": "120000",
+        "attachTimeoutMs": "180000",
+        "listPollMs": "3000",
+        "turnTimeoutMs": "300000",
+        "settleMs": "3000",
+        "pollMs": "1000",
+        "busyIndicator": "esc to interrupt",
+        "readLines": "2000",
+        "maxDialogs": "12"
+      },
+      "launch": {
+        "expected": [
+          "codex"
+        ],
+        "actual": [
+          "codex"
+        ],
+        "verbatim": true
+      },
+      "versions": {
+        "pinsRow": "Codex CLI / app-server",
+        "pinsMinimum": "0.154.0",
+        "pinsLastTested": "0.160.0",
+        "pinsCommit": "a956835d020762cb2b570053af06f643a11c0ecc",
+        "pinsSource": {
+          "path": "docs/planning/PINS.md",
+          "headCommit": "c1de8f423c98e9fcae8a14ff9691ada3a647c199",
+          "committedSha256": "3bfa3d2e8ea005536e89bc08cbbfe343d6ac1fa791f5af43a69629316267f4a3",
+          "workingTreeMatchesHead": true
+        },
+        "cliOutput": "codex-cli 0.161.0",
+        "cli": "0.161.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.161.0",
+          "appServerVersion": "0.161.0",
+          "managedCodexVersion": "0.161.0"
+        },
+        "wireUserAgent": "oac_s3_capture/0.161.0 (Windows 10.0.26300; x86_64) unknown (oac_s3_capture; 0.0.1)",
+        "wire": "0.161.0",
+        "verified": true,
+        "matchesLastTested": false,
+        "warnings": [
+          "VERSION WARNING (G2): `codex --version` reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G2): `codex app-server daemon version` cliVersion reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G2): `codex app-server daemon version` appServerVersion reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G2): `codex app-server daemon version` managedCodexVersion reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G2): the wire initialize userAgent reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run."
+        ]
+      },
+      "client": {
+        "committed": "docs/planning/gates/fixtures/s3-codex-capture/client.mjs.throwaway-quarantined",
+        "headCommit": "c1de8f423c98e9fcae8a14ff9691ada3a647c199",
+        "gitMode": "100644",
+        "committedSha256": "defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82",
+        "expectedSha256": "defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82",
+        "workingTreeSha256": "defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82",
+        "workingTreeIsSymlink": false,
+        "workingTreeMatchesHead": true,
+        "copy": "<SCRATCH>\\s3-client\\client.mjs",
+        "copySha256": "defe7102d7820dafe4e8aa6d4d26c9949a5e4a760e11a161f11d1ef7c0a69b82",
+        "match": true
+      },
+      "date": "2026-10-07",
+      "fixtures": {
+        "transcript": "transcript-2026-10-07-0.161.0-herdr.jsonl",
+        "pane": "pane-2026-10-07-0.161.0-herdr.txt"
+      },
+      "captureNames": {
+        "transcript": "transcript-2026-10-07-0.161.0-herdr.jsonl",
+        "pane": "pane-2026-10-07-0.161.0-herdr.txt"
+      },
+      "daemon": {
+        "start": {
+          "label": "daemon start",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "start"
+          ],
+          "startedAt": "2026-10-07T22:13:19.953Z",
+          "endedAt": "2026-10-07T22:13:20.260Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "stdout": "{\"status\":\"alreadyRunning\",\"backend\":\"pid\",\"managedCodexPath\":\"<USER_HOME>\\\\.codex\\\\packages\\\\standalone\\\\current\\\\bin\\\\codex.exe\",\"managedCodexVersion\":\"0.161.0\",\"socketPath\":\"<USER_HOME>\\\\.codex\\\\app-server-control\\\\app-server-control.sock\",\"cliVersion\":\"0.161.0\",\"appServerVersion\":\"0.161.0\"}",
+          "stderr": ""
+        },
+        "versionBefore": {
+          "label": "daemon version",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "startedAt": "2026-10-07T22:13:20.260Z",
+          "endedAt": "2026-10-07T22:13:20.485Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.161.0",
+            "appServerVersion": "0.161.0",
+            "managedCodexVersion": "0.161.0"
+          }
+        },
+        "versionAfter": {
+          "label": "daemon version (post-run)",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "startedAt": "2026-10-07T22:16:03.198Z",
+          "endedAt": "2026-10-07T22:16:03.405Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.161.0",
+            "appServerVersion": "0.161.0",
+            "managedCodexVersion": "0.161.0"
+          }
+        }
+      },
+      "clientRuns": [
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-07T22:13:20.486Z",
+          "endedAt": "2026-10-07T22:13:20.766Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 300,
+          "stdoutStatus": [],
+          "stderr": "(node:37124) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 0,
+          "linesAfter": 10,
+          "problems": []
+        },
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-07T22:13:30.806Z",
+          "endedAt": "2026-10-07T22:13:31.071Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 300,
+          "stdoutStatus": [],
+          "stderr": "(node:33172) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 10,
+          "linesAfter": 20,
+          "problems": []
+        },
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-07T22:13:34.947Z",
+          "endedAt": "2026-10-07T22:13:35.276Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 300,
+          "stdoutStatus": [],
+          "stderr": "(node:37912) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 20,
+          "linesAfter": 30,
+          "problems": []
+        },
+        {
+          "mode": "list",
+          "args": [],
+          "startedAt": "2026-10-07T22:13:38.370Z",
+          "endedAt": "2026-10-07T22:13:38.640Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 339,
+          "stdoutStatus": [],
+          "stderr": "(node:31440) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 30,
+          "linesAfter": 42,
+          "problems": []
+        },
+        {
+          "mode": "turns",
+          "args": [
+            "01a1186d-b327-74f2-ac20-e3c5d0a9e81c"
+          ],
+          "startedAt": "2026-10-07T22:13:38.918Z",
+          "endedAt": "2026-10-07T22:13:39.171Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 63,
+          "stdoutStatus": [],
+          "stderr": "(node:36480) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 51,
+          "linesAfter": 59,
+          "problems": []
+        },
+        {
+          "mode": "idleadd",
+          "args": [
+            "01a1186d-b327-74f2-ac20-e3c5d0a9e81c",
+            "OAC S3 capture idle add: reply with exactly the words OAC S3 IDLE ADD RECEIVED. Do not use any tools."
+          ],
+          "startedAt": "2026-10-07T22:13:39.174Z",
+          "endedAt": "2026-10-07T22:13:39.453Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 303,
+          "stdoutStatus": [],
+          "stderr": "(node:38344) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 59,
+          "linesAfter": 71,
+          "problems": []
+        },
+        {
+          "mode": "cases",
+          "args": [
+            "<SCRATCH>\\s3-cases-project"
+          ],
+          "startedAt": "2026-10-07T22:13:45.820Z",
+          "endedAt": "2026-10-07T22:16:01.239Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 5635,
+          "stdoutStatus": [
+            "[case] {\"name\":\"request-before-initialize\",\"observed\":\"error {\\\"code\\\":-32600,\\\"message\\\":\\\"Not initialized\\\"}\"}",
+            "[case] {\"name\":\"queue-add-without-experimentalApi\",\"observed\":\"error {\\\"code\\\":-32600,\\\"message\\\":\\\"thread/queue/add requires experimentalApi capability\\\"}\"}",
+            "[case] {\"name\":\"resume-unknown-thread\",\"observed\":\"error {\\\"code\\\":-32600,\\\"message\\\":\\\"no rollout found for thread id 01a1186e-0702-7dc3-9b62-11bf04b88215\\\"}\"}",
+            "[case] {\"name\":\"queue-add-unknown-thread\",\"observed\":\"error {\\\"code\\\":-32603,\\\"message\\\":\\\"failed to read thread: invalid thread-store request: no rollout found for thread id 01a1186e-074f-7179-98bf-063f2ced21db\\\"}\"}",
+            "[case] {\"name\":\"thread-start-ephemeral\",\"observed\":\"result thread 01a1186e-07a6-70e2-b9a9-8fbfb4ab0174 status {\\\"type\\\":\\\"idle\\\"} ephemeral true\"}",
+            "[case] {\"name\":\"queue-add-ephemeral-thread\",\"observed\":\"error {\\\"code\\\":-32600,\\\"message\\\":\\\"ephemeral thread does not support queued submissions: 01a1186e-07a6-70e2-b9a9-8fbfb4ab0174\\\"}\"}",
+            "[case] {\"name\":\"unsubscribe-ephemeral-thread\",\"observed\":\"result {\\\"status\\\":\\\"unsubscribed\\\"}\"}",
+            "[case] {\"name\":\"thread-start\",\"observed\":\"result thread 01a1186e-0838-7c90-baf1-2712782d930b status {\\\"type\\\":\\\"idle\\\"} ephemeral false\"}",
+            "[case] {\"name\":\"busy-turn-start\",\"observed\":\"result {\\\"turn\\\":{\\\"id\\\":\\\"01a1186e-08d2-7031-b488-984967155fec\\\",\\\"items\\\":[],\\\"itemsView\\\":\\\"notLoaded\\\",\\\"status\\\":\\\"inProgress\\\",\\\"error\\\":null,\\\"startedAt\\\":null,\\\"completedAt\\\":null,\\\"durationMs\\\":null}}\"}",
+            "[case] {\"name\":\"queue-add-while-busy-1\",\"observed\":\"result {\\\"queuedSubmission\\\":{\\\"id\\\":\\\"01a1186e-090e-7dd0-a177-fa7f2b7f99ea\\\",\\\"input\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"OAC S3 capture: reply with exactly the words OAC S3 Q1. Do not use any tools.\\\",\\\"text_elements\\\":[]}],\\\"clientUserMessageId\\\":\\\"dc0450d5-75ef-4d7e-a05a-b13410017c0e\\\"}}\"}",
+            "[case] {\"name\":\"queue-add-while-busy-2\",\"observed\":\"result {\\\"queuedSubmission\\\":{\\\"id\\\":\\\"01a1186e-0912-7301-8b8d-a4fa8f2c334f\\\",\\\"input\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"OAC S3 capture: reply with exactly the words OAC S3 Q2. Do not use any tools.\\\",\\\"text_elements\\\":[]}],\\\"clientUserMessageId\\\":\\\"769dbd24-5b90-46ee-8d26-c94d7d43a476\\\"}}\"}",
+            "[case] {\"name\":\"busy-turn-completed\",\"observed\":\"completed\"}",
+            "[case] {\"name\":\"first-queued-turn\",\"observed\":{\"turnId\":\"01a1186e-2e37-73d3-9795-b8a34fbfe239\",\"completed\":\"completed\"}}",
+            "[case] {\"name\":\"second-queued-turn\",\"observed\":{\"turnId\":\"01a1186e-32ff-7991-8ca6-b116ae143a41\",\"completed\":\"completed\"}}",
+            "[case] {\"name\":\"queued-turns-distinct\",\"observed\":true}",
+            "[case] {\"name\":\"queue-add-idle-extra-member\",\"observed\":\"result {\\\"queuedSubmission\\\":{\\\"id\\\":\\\"01a1186e-3830-7463-b057-50d2a239685c\\\",\\\"input\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"OAC S3 capture: reply with exactly the words OAC S3 EXTRA MEMBER. Do not use any tools.\\\",\\\"text_elements\\\":[]}],\\\"clientUserMessageId\\\":\\\"a3206a34-7eb8-4a7a-8b31-668a61773683\\\"}}\"}",
+            "[case] {\"name\":\"queue-add-idle-extra-member-turn\",\"observed\":{\"turnId\":\"01a1186e-3831-7c21-808e-b05694b70e16\",\"completed\":\"completed\"}}",
+            "[case] {\"name\":\"interrupt-turn-start\",\"observed\":\"result {\\\"turn\\\":{\\\"id\\\":\\\"01a1186e-3e16-75e0-88c5-2b09e3404eb9\\\",\\\"items\\\":[],\\\"itemsView\\\":\\\"notLoaded\\\",\\\"status\\\":\\\"inProgress\\\",\\\"error\\\":null,\\\"startedAt\\\":null,\\\"completedAt\\\":null,\\\"durationMs\\\":null}}\"}",
+            "[case] {\"name\":\"turn-interrupt\",\"observed\":\"result {}\"}",
+            "[case] {\"name\":\"interrupted-turn-completed\",\"observed\":\"interrupted\"}",
+            "[case] {\"name\":\"queue-add-after-interrupt\",\"observed\":\"result {\\\"queuedSubmission\\\":{\\\"id\\\":\\\"01a1186e-4515-79d0-9e5e-090f1cb68deb\\\",\\\"input\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"OAC S3 capture: reply with exactly the words OAC S3 AFTER INTERRUPT. Do not use any tools.\\\",\\\"text_elements\\\":[]}],\\\"clientUserMessageId\\\":\\\"b07531b1-f713-4710-8d69-b6410c4f208f\\\"}}\"}",
+            "[case] {\"name\":\"after-interrupt-dispatch-within-quiet-window\",\"observed\":\"none in 25000 ms\"}",
+            "[case] {\"name\":\"after-interrupt-turn-start\",\"observed\":\"result {\\\"turn\\\":{\\\"id\\\":\\\"01a1186e-a6c6-7482-bc74-b35a6ff4f46d\\\",\\\"items\\\":[],\\\"itemsView\\\":\\\"notLoaded\\\",\\\"status\\\":\\\"inProgress\\\",\\\"error\\\":null,\\\"startedAt\\\":null,\\\"completedAt\\\":null,\\\"durationMs\\\":null}}\"}",
+            "[case] {\"name\":\"after-interrupt-turn-completed\",\"observed\":\"completed\"}",
+            "[case] {\"name\":\"after-interrupt-queued-turn\",\"observed\":{\"turnId\":\"01a1186e-aef8-7f12-9837-6bb91e69c2cd\",\"completed\":\"completed\"}}",
+            "[case] {\"name\":\"unsubscribe\",\"observed\":\"result {\\\"status\\\":\\\"unsubscribed\\\"}\"}",
+            "[case] {\"name\":\"thread-closed\",\"observed\":\"thread/closed received\"}",
+            "[case] {\"name\":\"loaded-before-add\",\"observed\":false}",
+            "[case] {\"name\":\"queue-add-unloaded\",\"observed\":\"result {\\\"queuedSubmission\\\":{\\\"id\\\":\\\"01a1186f-a48d-7492-b433-4c4a49e27f49\\\",\\\"input\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"OAC S3 capture: reply with exactly the words OAC S3 UNLOADED. Do not use any tools.\\\",\\\"text_elements\\\":[]}],\\\"clientUserMessageId\\\":\\\"f8ff26b8-e289-4809-a0d4-e1099b3bf58e\\\"}}\"}",
+            "[case] {\"name\":\"unloaded-events-within-quiet-window\",\"observed\":\"none in 25000 ms\"}",
+            "[case] {\"name\":\"loaded-after-add\",\"observed\":false}",
+            "[case] {\"name\":\"resume-after-add\",\"observed\":\"result thread 01a1186e-0838-7c90-baf1-2712782d930b status {\\\"type\\\":\\\"idle\\\"} ephemeral false\"}",
+            "[case] {\"name\":\"unloaded-queued-turn\",\"observed\":{\"turnId\":\"01a11870-0790-7fa2-9b4d-83672ccdcad0\",\"completed\":\"completed\"}}",
+            "[case] {\"name\":\"turns-list\",\"observed\":\"8 turns\"}",
+            "[case] {\"name\":\"archive\",\"observed\":\"result {}\"}",
+            "[case] {\"name\":\"queue-add-archived\",\"observed\":\"error {\\\"code\\\":-32600,\\\"message\\\":\\\"session 01a1186e-0838-7c90-baf1-2712782d930b is archived. Run `codex unarchive 01a1186e-0838-7c90-baf1-2712782d930b` to unarchive it first.\\\"}\"}",
+            "[done] cases: 36 observations"
+          ],
+          "stderr": "(node:34908) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 90,
+          "linesAfter": 1032,
+          "problems": []
+        },
+        {
+          "mode": "turns",
+          "args": [
+            "01a1186d-b327-74f2-ac20-e3c5d0a9e81c"
+          ],
+          "startedAt": "2026-10-07T22:16:01.256Z",
+          "endedAt": "2026-10-07T22:16:01.521Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutBytes": 126,
+          "stdoutStatus": [],
+          "stderr": "(node:25032) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 1032,
+          "linesAfter": 1040,
+          "problems": []
+        }
+      ],
+      "preLaunch": {
+        "run": 0,
+        "loaded": [
+          "01a1186a-64e1-72a2-9767-4084647ee1be"
+        ]
+      },
+      "agentStart": {
+        "seq": 9,
+        "errorCode": null,
+        "herdrReportedArgv": [
+          "codex"
+        ]
+      },
+      "paneArgv": [
+        {
+          "context": "after agent start",
+          "seq": 10,
+          "herdrProcessInfo": {
+            "pane_id": "w1:p1",
+            "shell_pid": 32320,
+            "foreground_processes": [
+              {
+                "pid": 18028
+              }
+            ]
+          },
+          "argv": [
+            {
+              "pid": 18028,
+              "argv": [
+                "codex.exe"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            }
+          ],
+          "proof": {
+            "found": true,
+            "pid": 18028,
+            "codexToken": "<SECRET>",
+            "argsAfterCodex": [],
+            "plain": true
+          }
+        },
+        {
+          "context": "end of run",
+          "seq": 30,
+          "herdrProcessInfo": {
+            "pane_id": "w1:p1",
+            "shell_pid": 32320,
+            "foreground_processes": [
+              {
+                "pid": 18028
+              }
+            ]
+          },
+          "argv": [
+            {
+              "pid": 18028,
+              "argv": [
+                "codex.exe"
+              ],
+              "source": "Win32_Process.CommandLine (process table)",
+              "minimized": true
+            }
+          ],
+          "proof": {
+            "found": true,
+            "pid": 18028,
+            "codexToken": "<SECRET>",
+            "argsAfterCodex": [],
+            "plain": true
+          }
+        }
+      ],
+      "dialogs": [],
+      "herdrStates": [
+        {
+          "context": "startup",
+          "seq": 11,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 57
+        },
+        {
+          "context": "codex-ready-settle:observed:baseline (agent get)",
+          "seq": 14,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 58
+        },
+        {
+          "context": "codex-ready-settle",
+          "seq": 15,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 60
+        },
+        {
+          "context": "codex-ready-settle:re-check:baseline (agent get)",
+          "seq": 17,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 100
+        },
+        {
+          "context": "operator-prompt:baseline (agent get)",
+          "seq": 18,
+          "command": "agent get",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 65
+        },
+        {
+          "context": "operator-turn",
+          "seq": 20,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "durationMs": 83
+        },
+        {
+          "context": "idle-add-turn",
+          "seq": 27,
+          "command": "agent wait",
+          "state": "idle",
+          "stateChangeSeq": 5,
+          "durationMs": 369
+        }
+      ],
+      "operatorInput": {
+        "seq": 19,
+        "startedAt": "2026-10-07T22:13:34.416Z",
+        "endedAt": "2026-10-07T22:13:34.792Z",
+        "text": "Greet me in a single word.",
+        "baseline": {
+          "seq": 18,
+          "state": "idle",
+          "stateChangeSeq": 1
+        }
+      },
+      "thread": {
+        "id": "01a1186d-b327-74f2-ac20-e3c5d0a9e81c",
+        "listLine": 42,
+        "preLaunchLoaded": false
+      },
+      "watch": {
+        "startedAt": "2026-10-07T22:13:38.655Z",
+        "pid": 31104,
+        "linesBefore": 42,
+        "resumeLine": 50,
+        "resumeStatus": "idle",
+        "stoppedAt": "2026-10-07T22:16:04.665Z"
+      },
+      "idle": {
+        "line": 50,
+        "via": "thread/resume result"
+      },
+      "idleAdd": {
+        "text": "OAC S3 capture idle add: reply with exactly the words OAC S3 IDLE ADD RECEIVED. Do not use any tools.",
+        "priorTurnsLine": 58,
+        "priorLastTurn": {
+          "id": "01a1186d-d9ca-7580-a6e3-58c71ca7f436",
+          "status": "completed"
+        },
+        "run": 5,
+        "requestLine": 65,
+        "responseLine": 69,
+        "clientUserMessageId": "05c8b5a5-36f4-49b9-9996-68f5bf8bf595",
+        "queuedSubmissionId": "01a1186d-ebc4-7ee2-b9e7-1c57b33f9a2d",
+        "turnStartedLine": 71,
+        "turnId": "01a1186d-ebc4-7ee2-b9e7-1c77b6caf605",
+        "userItemLine": 72,
+        "completedLine": 90,
+        "completedStatus": "completed",
+        "agentMessages": [
+          "OAC S3 IDLE ADD RECEIVED"
+        ],
+        "noTurnStartSent": true,
+        "afterReadSeq": 29
+      },
+      "cases": {
+        "run": 6,
+        "dir": "<cases project directory, in the scratch directory>",
+        "observations": [
+          {
+            "name": "request-before-initialize",
+            "observed": "error {\"code\":-32600,\"message\":\"Not initialized\"}"
+          },
+          {
+            "name": "queue-add-without-experimentalApi",
+            "observed": "error {\"code\":-32600,\"message\":\"thread/queue/add requires experimentalApi capability\"}"
+          },
+          {
+            "name": "resume-unknown-thread",
+            "observed": "error {\"code\":-32600,\"message\":\"no rollout found for thread id 01a1186e-0702-7dc3-9b62-11bf04b88215\"}"
+          },
+          {
+            "name": "queue-add-unknown-thread",
+            "observed": "error {\"code\":-32603,\"message\":\"failed to read thread: invalid thread-store request: no rollout found for thread id 01a1186e-074f-7179-98bf-063f2ced21db\"}"
+          },
+          {
+            "name": "thread-start-ephemeral",
+            "observed": "result thread 01a1186e-07a6-70e2-b9a9-8fbfb4ab0174 status {\"type\":\"idle\"} ephemeral true"
+          },
+          {
+            "name": "queue-add-ephemeral-thread",
+            "observed": "error {\"code\":-32600,\"message\":\"ephemeral thread does not support queued submissions: 01a1186e-07a6-70e2-b9a9-8fbfb4ab0174\"}"
+          },
+          {
+            "name": "unsubscribe-ephemeral-thread",
+            "observed": "result {\"status\":\"unsubscribed\"}"
+          },
+          {
+            "name": "thread-start",
+            "observed": "result thread 01a1186e-0838-7c90-baf1-2712782d930b status {\"type\":\"idle\"} ephemeral false"
+          },
+          {
+            "name": "busy-turn-start",
+            "observed": "result {\"turn\":{\"id\":\"01a1186e-08d2-7031-b488-984967155fec\",\"items\":[],\"itemsView\":\"notLoaded\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":null,\"completedAt\":null,\"durationMs\":null}}"
+          },
+          {
+            "name": "queue-add-while-busy-1",
+            "observed": "result {\"queuedSubmission\":{\"id\":\"01a1186e-090e-7dd0-a177-fa7f2b7f99ea\",\"input\":[{\"type\":\"text\",\"text\":\"OAC S3 capture: reply with exactly the words OAC S3 Q1. Do not use any tools.\",\"text_elements\":[]}],\"clientUserMessageId\":\"dc0450d5-75ef-4d7e-a05a-b13410017c0e\"}}"
+          },
+          {
+            "name": "queue-add-while-busy-2",
+            "observed": "result {\"queuedSubmission\":{\"id\":\"01a1186e-0912-7301-8b8d-a4fa8f2c334f\",\"input\":[{\"type\":\"text\",\"text\":\"OAC S3 capture: reply with exactly the words OAC S3 Q2. Do not use any tools.\",\"text_elements\":[]}],\"clientUserMessageId\":\"769dbd24-5b90-46ee-8d26-c94d7d43a476\"}}"
+          },
+          {
+            "name": "busy-turn-completed",
+            "observed": "completed"
+          },
+          {
+            "name": "first-queued-turn",
+            "observed": {
+              "turnId": "01a1186e-2e37-73d3-9795-b8a34fbfe239",
+              "completed": "completed"
+            }
+          },
+          {
+            "name": "second-queued-turn",
+            "observed": {
+              "turnId": "01a1186e-32ff-7991-8ca6-b116ae143a41",
+              "completed": "completed"
+            }
+          },
+          {
+            "name": "queued-turns-distinct",
+            "observed": true
+          },
+          {
+            "name": "queue-add-idle-extra-member",
+            "observed": "result {\"queuedSubmission\":{\"id\":\"01a1186e-3830-7463-b057-50d2a239685c\",\"input\":[{\"type\":\"text\",\"text\":\"OAC S3 capture: reply with exactly the words OAC S3 EXTRA MEMBER. Do not use any tools.\",\"text_elements\":[]}],\"clientUserMessageId\":\"a3206a34-7eb8-4a7a-8b31-668a61773683\"}}"
+          },
+          {
+            "name": "queue-add-idle-extra-member-turn",
+            "observed": {
+              "turnId": "01a1186e-3831-7c21-808e-b05694b70e16",
+              "completed": "completed"
+            }
+          },
+          {
+            "name": "interrupt-turn-start",
+            "observed": "result {\"turn\":{\"id\":\"01a1186e-3e16-75e0-88c5-2b09e3404eb9\",\"items\":[],\"itemsView\":\"notLoaded\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":null,\"completedAt\":null,\"durationMs\":null}}"
+          },
+          {
+            "name": "turn-interrupt",
+            "observed": "result {}"
+          },
+          {
+            "name": "interrupted-turn-completed",
+            "observed": "interrupted"
+          },
+          {
+            "name": "queue-add-after-interrupt",
+            "observed": "result {\"queuedSubmission\":{\"id\":\"01a1186e-4515-79d0-9e5e-090f1cb68deb\",\"input\":[{\"type\":\"text\",\"text\":\"OAC S3 capture: reply with exactly the words OAC S3 AFTER INTERRUPT. Do not use any tools.\",\"text_elements\":[]}],\"clientUserMessageId\":\"b07531b1-f713-4710-8d69-b6410c4f208f\"}}"
+          },
+          {
+            "name": "after-interrupt-dispatch-within-quiet-window",
+            "observed": "none in 25000 ms"
+          },
+          {
+            "name": "after-interrupt-turn-start",
+            "observed": "result {\"turn\":{\"id\":\"01a1186e-a6c6-7482-bc74-b35a6ff4f46d\",\"items\":[],\"itemsView\":\"notLoaded\",\"status\":\"inProgress\",\"error\":null,\"startedAt\":null,\"completedAt\":null,\"durationMs\":null}}"
+          },
+          {
+            "name": "after-interrupt-turn-completed",
+            "observed": "completed"
+          },
+          {
+            "name": "after-interrupt-queued-turn",
+            "observed": {
+              "turnId": "01a1186e-aef8-7f12-9837-6bb91e69c2cd",
+              "completed": "completed"
+            }
+          },
+          {
+            "name": "unsubscribe",
+            "observed": "result {\"status\":\"unsubscribed\"}"
+          },
+          {
+            "name": "thread-closed",
+            "observed": "thread/closed received"
+          },
+          {
+            "name": "loaded-before-add",
+            "observed": false
+          },
+          {
+            "name": "queue-add-unloaded",
+            "observed": "result {\"queuedSubmission\":{\"id\":\"01a1186f-a48d-7492-b433-4c4a49e27f49\",\"input\":[{\"type\":\"text\",\"text\":\"OAC S3 capture: reply with exactly the words OAC S3 UNLOADED. Do not use any tools.\",\"text_elements\":[]}],\"clientUserMessageId\":\"f8ff26b8-e289-4809-a0d4-e1099b3bf58e\"}}"
+          },
+          {
+            "name": "unloaded-events-within-quiet-window",
+            "observed": "none in 25000 ms"
+          },
+          {
+            "name": "loaded-after-add",
+            "observed": false
+          },
+          {
+            "name": "resume-after-add",
+            "observed": "result thread 01a1186e-0838-7c90-baf1-2712782d930b status {\"type\":\"idle\"} ephemeral false"
+          },
+          {
+            "name": "unloaded-queued-turn",
+            "observed": {
+              "turnId": "01a11870-0790-7fa2-9b4d-83672ccdcad0",
+              "completed": "completed"
+            }
+          },
+          {
+            "name": "turns-list",
+            "observed": "8 turns"
+          },
+          {
+            "name": "archive",
+            "observed": "result {}"
+          },
+          {
+            "name": "queue-add-archived",
+            "observed": "error {\"code\":-32600,\"message\":\"session 01a1186e-0838-7c90-baf1-2712782d930b is archived. Run `codex unarchive 01a1186e-0838-7c90-baf1-2712782d930b` to unarchive it first.\"}"
+          }
+        ],
+        "ignoredRequests": []
+      },
+      "turnsList": {
+        "run": 7,
+        "line": 1040
+      },
+      "injectionsSent": [
+        {
+          "what": "thread/queue/add to the idle thread (client `idleadd`)",
+          "at": "2026-10-07T22:13:39.173Z"
+        },
+        {
+          "what": "the cases (client `cases`)",
+          "at": "2026-10-07T22:13:45.818Z"
+        }
+      ],
+      "divergence": [],
+      "postRun": {
+        "cliOutput": "codex-cli 0.161.0",
+        "cli": "0.161.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.161.0",
+          "appServerVersion": "0.161.0",
+          "managedCodexVersion": "0.161.0"
+        },
+        "wireVersionsSeen": [
+          "0.161.0"
+        ],
+        "matches": true
+      },
+      "sanitizer": {
+        "ownThreadId": "01a1186d-b327-74f2-ac20-e3c5d0a9e81c",
+        "threadListEntriesRemoved": 19,
+        "threadListResultsTouched": 4,
+        "serverNames": 11,
+        "installationIds": 11,
+        "planFields": 19,
+        "creditFields": 9,
+        "unparsedLines": 0
+      },
+      "stoppedAt": null,
+      "codexReady": {
+        "readSeq": 13,
+        "newThreads": 1,
+        "polls": 1,
+        "waitedMs": 321,
+        "observations": [
+          {
+            "atMs": 321,
+            "readSeq": 13,
+            "why": null,
+            "newThreads": 1
+          }
+        ]
+      },
+      "startupSettles": [
+        {
+          "agent": "s3codex",
+          "context": "codex-ready-settle",
+          "what": "the Codex session loaded in the daemon (pane read #13)",
+          "timeoutMs": 300000,
+          "observed": {
+            "seq": 14,
+            "state": "idle",
+            "stateChangeSeq": 1
+          },
+          "settles": [
+            {
+              "floor": 1,
+              "state": "idle",
+              "stateChangeSeq": 1,
+              "waitSeq": 15,
+              "readSeq": 16
+            }
+          ],
+          "rechecks": [
+            {
+              "seq": 17,
+              "state": "idle",
+              "stateChangeSeq": 1
+            }
+          ],
+          "settled": {
+            "state": "idle",
+            "stateChangeSeq": 1,
+            "settleWaitSeq": 15,
+            "recheckSeq": 17
+          },
+          "waitedMs": 3278,
+          "outcome": "settled"
+        }
+      ],
+      "codexStartupSettle": {
+        "agent": "s3codex",
+        "context": "codex-ready-settle",
+        "what": "the Codex session loaded in the daemon (pane read #13)",
+        "timeoutMs": 300000,
+        "observed": {
+          "seq": 14,
+          "state": "idle",
+          "stateChangeSeq": 1
+        },
+        "settles": [
+          {
+            "floor": 1,
+            "state": "idle",
+            "stateChangeSeq": 1,
+            "waitSeq": 15,
+            "readSeq": 16
+          }
+        ],
+        "rechecks": [
+          {
+            "seq": 17,
+            "state": "idle",
+            "stateChangeSeq": 1
+          }
+        ],
+        "settled": {
+          "state": "idle",
+          "stateChangeSeq": 1,
+          "settleWaitSeq": 15,
+          "recheckSeq": 17
+        },
+        "waitedMs": 3278,
+        "outcome": "settled"
+      }
+    }
+  },
+  "findings": [
+    "the driver was started from inside a Claude Code session: 30 of its variables (names in env.serverLaunch.removed) were removed so the harness under test does not run as that session's child or through its relay (#163)",
+    "VERSION WARNING (G2): `codex --version` reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G2): `codex app-server daemon version` cliVersion reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G2): `codex app-server daemon version` appServerVersion reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G2): `codex app-server daemon version` managedCodexVersion reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G2): the wire initialize userAgent reports 0.161.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.160.0 (not the last tested 0.160.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "scratch directory could not be removed after 5 attempts (EPERM); left behind at <SCRATCH> -- unredacted captures may remain there; delete it by hand once released. Possible holder(s) the scenario declared: the shared Codex app-server daemon (left running; the driver never stops it) may hold the directory of a thread it loaded under scratch; it is released on `codex app-server daemon stop`, or when the daemon unloads the thread (documented: no subscribers and no thread activity for 30 minutes). The driver does not call thread/archive or thread/delete, which would unload it sooner, because both write to the operator's Codex thread store (thread/delete destroys the run's rollout) and whether their shutdown releases the directory handle is unverified"
+  ],
+  "manifestRedaction": {
+    "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",
+    "replacements": {
+      "home": 27,
+      "literal <SCRATCH>": 22,
+      "literal <REPO>": 1,
+      "secret-named key value": 2
+    },
+    "withheld": [],
+    "writtenClean": true
+  }
+}

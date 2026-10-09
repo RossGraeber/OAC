@@ -54,12 +54,33 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-01 (issue #216, operator decision: harness versions float; warn,
+**Last updated:** 2026-10-07 (issue #343: the `Codex CLI / app-server` row's last tested
+version is now `@openai/codex@0.161.0`, from the S3 fixture capture herdr run of 2026-10-07.
+Routine record-keeping for a floating harness row (#216): not a pin move, no verdict or
+record is invalidated. The Claude Code row is unchanged: the same day's G1 capture ran on
+`2.1.285`, its last tested version.) Previously 2026-10-06 (issue #49, E9: the ACP row is re-checked against the
+protocol's source repository. Protocol version `1` holds and is no longer UNVERIFIED. Schema
+v2 "alpha" is verified, with no drift: the v2 schemas are published as prereleases
+`v2.0.0-alphaX` (latest `schema-v2.0.0-alpha.7`), and the v2 protocol docs are in Draft. Not
+a pin move: the pinned version is unchanged, ACP affects no gate, and no record or verdict is
+invalidated.) Previously 2026-10-06 (issue #131, PR #304 review: the 2026-10-01 entry below gets
+a dated note that its last tested Codex `0.159.3` was superseded by `0.160.0` on 2026-10-04,
+and the Codex record's version history lists the 2026-10-05 and 2026-10-06 herdr re-records.
+No version changes: minimum and last tested are as before, so this is not a pin move and no
+verdict or record is invalidated.) Previously 2026-10-04 (issue #131: the `Codex CLI / app-server` row's last tested
+version is now `@openai/codex@0.160.0`, from the G4 herdr run of 2026-10-04. Routine
+record-keeping for a floating harness row (#216): not a pin move, no verdict or record is
+invalidated.) Previously 2026-10-03 (issue #252, operator decision: scripted runs are verified, not
+attested. Added the "Expected herdr executable" table under "herdr (test tooling)". The
+herdr tag is unchanged, so this is not a pin move and no record or verdict is invalidated.)
+Previously 2026-10-01 (issue #216, operator decision: harness versions float; warn,
 never gate. The `Claude Code (Channels)` and `Codex CLI / app-server` rows now record a
 **minimum version** and a **last tested version** instead of a "last observed" version.
 Claude Code: minimum `v2.1.282` (first version worked with, G1 2026-09-25), last tested
 `v2.1.285` (L3, 2026-10-01). Codex: minimum `@openai/codex@0.154.0` (first version worked
-with, G2 2026-09-25), last tested `@openai/codex@0.159.3` (L3, 2026-10-01). Citations are
+with, G2 2026-09-25), last tested `@openai/codex@0.159.3` (L3, 2026-10-01; *dated note,
+2026-10-06: superseded on 2026-10-04 by `@openai/codex@0.160.0`, the current last tested
+version; see the 2026-10-04 entry above, the table row and the record's version history*). Citations are
 under "Version policy" in each record. The pin-move checklist no longer applies to these two
 rows, so no gate verdict is invalidated. G1, G2, G4 and G5 keep their recorded verdicts and
 the versions they ran on.) Previously 2026-09-29 (L1, issue #166: added row `Beacon (external memory
@@ -99,7 +120,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
 | Claude Code (Channels) | research preview | **floating** — minimum `v2.1.282`; last tested `v2.1.285` (L3, 2026-10-01); warn on version, never gate; see "Version policy" below | 2026-09-29T19:27:30Z (UTC; the last tested version) | https://github.com/anthropics/claude-code/releases/tag/v2.1.285 | 2026-10-01 | G1; G4 (legacy-MCP negotiation); G5 (a version change invalidates none of them, #216) |
-| Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.159.3` (commit `01fc69f4026735edfdf6789820549727a4867b11`; L3, 2026-10-01); warn on version, never gate; see "Version policy" below | 2026-09-30T22:57:34Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.159.3 | 2026-10-01 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
+| Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.161.0` (commit `979011409de0a60b52f179721948e65531d26144`; S3 fixture capture herdr run, 2026-10-07, #343); warn on version, never gate; see "Version policy" below | 2026-10-07T15:58:45Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.161.0 | 2026-10-07 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
@@ -110,7 +131,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | `serde_jcs` (canonical serialization, RFC 8785 JCS) | supported | `0.2.0` | 2026-03-25 | https://crates.io/api/v1/crates/serde_jcs; https://docs.rs/serde_jcs/0.2.0/serde_jcs/ | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | Rust toolchain | supported | `1.98.1` | 2026-09-03 | https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/ | 2026-09-16 | G3 (build) |
-| ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha) | not stated on source page | https://agentclientprotocol.com/protocol/ | 2026-09-16 | none (not a v0.1 dependency) |
+| ACP (forward-compat only) | supported | protocol version `1` (schema v2 alpha, verified 2026-10-06: prerelease `schema-v2.0.0-alpha.7`; v2 protocol docs in Draft since 2026-07-20; see "ACP" dated note) | not stated on source page | https://agentclientprotocol.com/protocol/; https://github.com/agentclientprotocol/agent-client-protocol at `487ad3ea` | 2026-10-06 | none (not a v0.1 dependency) |
 | herdr (test tooling) | supported | `v0.9.1` (tag object `8544776216a8d28088db59a5344ea21ee2d05d2b` → commit `065ef9d6a531c49fb8bee7e818ef837065b21ee9`); fixed, not floating; live behavior verified on Windows 2026-09-28 (K1 go on Windows), Linux and macOS UNVERIFIED, overall go provisional, see "herdr (test tooling)" below | 2026-09-16 | https://github.com/herdrdev/herdr/releases/tag/v0.9.1 | 2026-09-28 | none (dev/test tooling, never shipped — see note) |
 | Beacon (external memory service) | supported | `v1.3.29` (tag object `72fd6643b5cd5c6ff6741f6016b3577654f61915` → commit `91e92216b79108475ba9b587d49c5ff3f7356fd8`); fixed, not floating; external service each harness connects to natively, never called, launched, configured or shipped by OAC; no fact UNVERIFIED (all four L1 items closed: three by L2, U1 confirmed live by L3, 2026-10-01, L1 §13), see "Beacon (external memory service)" below | 2026-09-28 (tagger date) | https://github.com/Asymptote-Labs/agent-beacon/tree/v1.3.29 | 2026-09-29 | none |
 
@@ -154,7 +175,10 @@ anything:
   invalidates a gate verdict. A gate result still records the version it actually ran
   on.
 - **Recorded verdicts stand.** G1 (PASS, `v2.1.283`), G4 (PASS, `v2.1.283`) and G5 (FAIL,
-  `v2.1.283`) keep their verdicts and the versions they ran on. The invalidation history
+  `v2.1.283`) keep their verdicts and the versions they ran on. *(Dated note, 2026-10-03,
+  #220: G5 is now PASS. Its Codex leg was re-run on Codex `0.160.0`, and its Claude leg is
+  still the `v2.1.283` run. See `docs/planning/gates/G5-result.md`. This note changes no
+  pin.)* The invalidation history
   below (G1 invalidated 2026-09-27, re-run 2026-09-28) is kept as history.
 - **§3.1 facts.** Re-checking the §3.1 facts against a newly tested version
   (`oac-evidence` §7) is still worth doing, and is still open at `v2.1.282` and later
@@ -323,15 +347,33 @@ anything:
   `docs/planning/gates/fixtures/MANIFEST.json`, the `g2-codex-inject/transcript.jsonl`
   entry, `observed_version` `codex_cli` / `codex_daemon` `0.154.0`, `capture_date`
   2026-09-25.
-- **Last tested version: `@openai/codex@0.159.3`** (GitHub release `rust-v0.159.3`,
-  published 2026-09-30T22:57:34Z UTC; tag object
-  `8e46774a94a745ffdf676bd7a8aa36466bbd4f99` → commit
-  `01fc69f4026735edfdf6789820549727a4867b11`; retrieved 2026-10-01 via `gh api
-  repos/openai/codex/releases/tags/rust-v0.159.3` and `gh api
-  repos/openai/codex/git/ref/tags/rust-v0.159.3`). It ran in the L3 Beacon live leg on
-  2026-10-01. The CLI, all three daemon fields and the wire `userAgent` reported `0.159.3`
-  (`docs/planning/decisions/L1-beacon-memory.md` §13, "Live results (L3)"). Update this
-  field, and the version history below, after each live run.
+- **Last tested version: `@openai/codex@0.161.0`** (GitHub release `rust-v0.161.0`,
+  published 2026-10-07T15:58:45Z UTC; tag object
+  `7e21416b38834816c224ea0dfd135c3de94b2f15` → commit
+  `979011409de0a60b52f179721948e65531d26144`; retrieved 2026-10-07 via `gh api
+  repos/openai/codex/releases/tags/rust-v0.161.0`, `gh api
+  repos/openai/codex/git/ref/tags/rust-v0.161.0` and `gh api
+  repos/openai/codex/git/tags/7e21416b38834816c224ea0dfd135c3de94b2f15`). Codex's own
+  auto-updater installed it on 2026-10-07, between the S3 capture's development probe and
+  its first herdr run (#343). It ran in the S3 fixture capture herdr run of 2026-10-07 (run
+  `20261007T221317Z-1a3890`): `codex --version` `codex-cli 0.161.0`, all three daemon
+  version fields and every wire `initialize` `userAgent` `0.161.0`, and the post-run
+  check `0.161.0` (`docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md` and its run
+  manifest, `scenarioData.s3.versions`, `scenarioData.s3.postRun`). Update this field, and
+  the version history below, after each live run.
+- *Previous last tested version (2026-10-04 to 2026-10-07):* `@openai/codex@0.160.0` (GitHub release `rust-v0.160.0`,
+  published 2026-10-01T20:19:13Z UTC; tag object
+  `79b1b666f2e8551f8abbbca34957227f67f3f553` → commit
+  `a956835d020762cb2b570053af06f643a11c0ecc`; retrieved 2026-10-04 via `gh api
+  repos/openai/codex/releases/tags/rust-v0.160.0`, `gh api
+  repos/openai/codex/git/ref/tags/rust-v0.160.0` and `gh api
+  repos/openai/codex/git/tags/79b1b666f2e8551f8abbbca34957227f67f3f553`). It ran in the G4 herdr run on
+  2026-10-04 (run `20261004T093525Z`, the recorded run; also in the superseded run
+  `20261004T085601Z` of the same day): `codex --version` `codex-cli 0.160.0`, the MCP client
+  user-agent and `clientInfo.version` `0.160.0`, and the post-run check `0.160.0`
+  (`docs/planning/gates/herdr-runs/G4-2026-10-04.md` and its run manifest,
+  `scenarioData.g4.versions`, `scenarioData.g4.postRun`). Update this field, and the version
+  history below, after each live run.
 - **Warn, never gate.** A version other than the last tested one, or below the minimum,
   is a `VERSION WARNING` finding (`tools/herdr/lib/pins.mjs` `codexVersionWarning`). This
   applies to `codex --version`, to each `codex app-server daemon version` field and to the
@@ -340,14 +382,34 @@ anything:
   invalidates a gate verdict. A gate result still records the version it actually ran
   on. The daemon's auto-updater may keep moving the version; that is expected.
 - **Recorded verdicts stand.** G2 (PASS, `0.157.1`), G4 (PASS, `0.157.1`) and G5 (FAIL,
-  `0.157.1`) keep their verdicts and the versions they ran on. The 2026-09-26 invalidation
+  `0.157.1`) keep their verdicts and the versions they ran on. *(Dated note, 2026-10-03,
+  #220: G5 is now PASS, from its Codex-leg re-run on `0.160.0`. That is a `VERSION WARNING`
+  against the last tested `0.159.3`, a finding only (#216). Recording `0.160.0` as last
+  tested is a separate change, and this note changes no pin. See
+  `docs/planning/gates/G5-result.md`.)* The 2026-09-26 invalidation
   of G2 is kept as history.
 - **§3.2 facts.** Re-checking the §3.2 facts against a newly tested version
   (`oac-evidence` §7) is still worth doing. It is tracked as a finding and never gates a
   run. The last re-verification is at `0.157.1` (`docs/planning/REVERIFICATION-B2.md`).
 - Version history (dated additions only): `0.158.0` and `0.159.2` in L3 probe runs
   (2026-09-30), and `0.159.3` in the L3 live leg (2026-10-01), all recorded in L1 §13.
-  `0.159.3` is the last tested version from 2026-10-01.
+  `0.159.3` was the last tested version from 2026-10-01. `0.160.0` in the G5 K8 herdr run
+  (2026-10-02, `docs/planning/gates/herdr-runs/G5-2026-10-02.md`, fixtures
+  `docs/planning/gates/fixtures/g5-provenance/k8-2026-10-02/*-0.160.0-herdr*`), the G5 E1
+  Codex re-run (2026-10-02, `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`) and the
+  G4 herdr run
+  (2026-10-04, `docs/planning/gates/herdr-runs/G4-2026-10-04.md`); `0.160.0` is the last
+  tested version from 2026-10-04. `0.160.0` again in the G2 and G4 herdr re-records
+  (2026-10-05, `G2-2026-10-05.md` and `G4-2026-10-05.md`; 2026-10-06, `G2-2026-10-06.md` and
+  `G4-2026-10-06.md`, all under `docs/planning/gates/herdr-runs/`). On 2026-10-06 Codex
+  offered `0.160.1`; it was skipped in Codex's own TUI, not installed or tested
+  (`G4-2026-10-06.md` Findings), so the last tested version stays `0.160.0`. On
+  2026-10-07 the S3 capture's development probe ran on `0.160.0`; Codex then updated itself
+  to `0.161.0`, which both S3 capture herdr runs used: `20261007T220941Z-fe9722` (not
+  recorded: its captures kept `unverified-*` names, a scenario defect fixed before the next
+  run) and `20261007T221317Z-1a3890` (recorded,
+  `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`). `0.161.0` is the last tested
+  version from 2026-10-07.
 
 #### Floating-version policy (operator decision, 2026-09-26)
 
@@ -488,7 +550,9 @@ semver, and are recorded verbatim — never reformatted.
   official extensions "use the `io.modelcontextprotocol` vendor prefix" but does not,
   in the text retrieved, spell out a general reservation rule for any second label of
   `modelcontextprotocol` or `mcp`. This is carried as an open item below — it is a B2
-  re-verification input, not resolved here.
+  re-verification input, not resolved here. *(Dated note, 2026-10-03, #257: the rule is
+  stated in the MCP base specification, "General fields" → "`_meta`", at both revisions;
+  see the dated correction under the open item below.)*
 - Gates affected: **G4** (dual-era server), **G1** (Claude channels require
   negotiating legacy per the Claude Code pin record above).
 
@@ -689,6 +753,19 @@ semver, and are recorded verbatim — never reformatted.
   independently re-confirmed.
 - Cross-check source: https://cursor.com/docs/cli/acp — confirms Cursor CLI runs as an
   ACP agent negotiating `"protocolVersion": 1`; retrieved 2026-09-16.
+- *Dated note, 2026-10-06 (#49): both open items above are re-checked against the
+  protocol's source repository,
+  https://github.com/agentclientprotocol/agent-client-protocol at commit
+  `487ad3eacd30bb19f75f462f815e78d678e393c4` (latest schema release `schema-v1.24.1`),
+  retrieved 2026-10-06. `docs/protocol/v1/initialization.mdx` shows
+  `"protocolVersion": 1` in its request and response examples, so the pin holds and is no
+  longer UNVERIFIED. Schema v2 "alpha" is verified, with no drift:
+  `docs/announcements/acp-v2-draft.mdx` L70 says the v2 JSON schemas are "published in the
+  repository releases as `v2.0.0-alphaX` alongside v1", and the latest is the prerelease
+  `schema-v2.0.0-alpha.7` of 2026-09-30 (https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v2.0.0-alpha.7).
+  Separately, the v2 protocol docs have been "in Draft" since July 20, 2026 (same page,
+  L1-L11). v1 stays the supported version, so the pin does not move. Detail:
+  `docs/planning/decisions/E9-replacement-proofs.md` §1.3.*
 - **ACP is not a v0.1 dependency.** A drift in this pin does not invalidate any gate.
   This row is kept (not dropped) because STATUS.md already carries an ACP row as a
   tracked baseline; dropping it here would lose that baseline.
@@ -736,6 +813,53 @@ semver, and are recorded verbatim — never reformatted.
   new version and requires K3's driver version check to be updated in the same change.
   It also invalidates every herdr equivalence record, in the same commit
   (`docs/planning/gates/README.md` §f, "Scripted runs (herdr)").
+- **Expected herdr executable (#252, 2026-10-03).** The driver hashes the herdr it
+  resolved and compares the hash with this table's row for its platform
+  (`process.platform`-`process.arch`) before it spawns herdr (`tools/herdr/lib/pins.mjs`
+  `checkHerdrExecutable`, run manifest `herdr.executableCheck`). A different hash is
+  `NOT RUN`. A platform with no row is a finding, and the run's herdr identity is UNVERIFIED.
+  A match counts as VERIFIED only on a row whose `First-party` cell is `yes`. A match on a
+  `no` row (none at present) would show only that the binary is a locally observed one, so
+  the record would state herdr UNVERIFIED (first-party source UNVERIFIED).
+  The table is read from HEAD, like the tag. A pin move updates it in the same change.
+  Sources, all retrieved 2026-10-03:
+  - Asset digests: the GitHub release API `digest` field for tag `v0.9.1`
+    (`gh api repos/herdrdev/herdr/releases/tags/v0.9.1`).
+  - Release attestation: herdr publishes a *release* attestation, an in-toto Statement over
+    the release's assets. It does not publish SLSA build provenance. So
+    `gh release verify-asset v0.9.1 <file> --repo herdrdev/herdr` is the check that applies.
+    `gh attestation verify` looks for build provenance by digest, and for herdr it returns
+    `HTTP 404: Not Found`, as it did for the installed `herdr.exe` on 2026-10-03. That 404
+    means there is no build-provenance attestation. It says nothing about the release
+    attestation. `gh api repos/herdrdev/herdr/attestations/sha256:<digest>` returns one
+    attestation for each of the five asset digests.
+  - Windows (verified 2026-10-03 by the orchestrator, with the operator's permission; the
+    downloaded files were deleted afterwards):
+    1. `gh release download v0.9.1 --repo herdrdev/herdr --pattern herdr-windows-x86_64.zip`
+       gave a zip with sha256 `04ce380c…a6e`, equal to the API asset digest.
+    2. `gh release verify-asset v0.9.1 herdr-windows-x86_64.zip --repo herdrdev/herdr`
+       printed "Verification succeeded! herdr-windows-x86_64.zip is present in release
+       v0.9.1". That is the release attestation; the tag `v0.9.1` is sha1
+       `8544776216a8d28088db59a5344ea21ee2d05d2b`.
+    3. `herdr.exe` inside the zip hashes to `007781…9b6`, byte-identical to the installed
+       binary.
+  - All five assets, Linux and macOS included (verified 2026-10-03, no download):
+    `gh release verify v0.9.1 --repo herdrdev/herdr` resolved tag `v0.9.1` to sha1
+    `8544776216a8d28088db59a5344ea21ee2d05d2b`, loaded the release attestation from the
+    GitHub API, and printed "Release v0.9.1 verified!". It lists `herdr-linux-aarch64`
+    `f4ccf4de…`, `herdr-linux-x86_64` `2a02fed1…`, `herdr-macos-aarch64` `5fc7a7e7…`,
+    `herdr-macos-x86_64` `053be063…` and `herdr-windows-x86_64.zip` `04ce380c…`. Each
+    equals that row's asset digest below. For Linux and macOS the asset is the executable,
+    so the expected value is attested directly. No run has yet hashed an installed herdr on
+    those platforms. A mismatch there would be `NOT RUN`, and a finding to look into.
+
+| Platform | Release asset | Asset digest (sha256) | Expected executable sha256 | First-party | Basis |
+|---|---|---|---|---|---|
+| `win32-x64` | `herdr-windows-x86_64.zip` | `04ce380cac5af27bfcf75d0951ac49b7afe4c984aee8852985806d4f71f93a6e` | `007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6` | yes | First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`). |
+| `linux-x64` | `herdr-linux-x86_64` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` | yes | The release's own asset digest, listed under the `v0.9.1` release attestation by `gh release verify v0.9.1 --repo herdrdev/herdr` (2026-10-03, above). The asset name has no archive extension, so it is taken to be the bare executable. No run has yet hashed an installed herdr on this platform; a mismatch there is `NOT RUN` and a finding to look into. |
+| `linux-arm64` | `herdr-linux-aarch64` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | `f4ccf4de745f2cb9a39a983e9ba3703dad50ec2a58dea83026ceab721bbd8d9e` | yes | As `linux-x64`. |
+| `darwin-x64` | `herdr-macos-x86_64` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | `053be0639935fe54ab5efbdb46651054e4f6a753a5b43153c88bd6912bce1e94` | yes | As `linux-x64`. |
+| `darwin-arm64` | `herdr-macos-aarch64` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | `5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de` | yes | As `linux-x64`. |
 
 ### Beacon (external memory service)
 
@@ -891,6 +1015,20 @@ occur; everything else above this line is unchanged from B1.
   **RESOLVED as DRIFT — see REVERIFICATION-B2.md §3.3 carry-over (b) and Drift register
   D2.** No such reservation clause exists in the SEP-2133 text; §3.3's rule is
   unsupported and `oac-spec-authoring` must not rely on it.
+  *Dated correction, 2026-10-03 (#257, from PR #255 / #46): D2 holds for SEP-2133's own
+  text only. The MCP base specification states the reservation for `_meta` key prefixes
+  at both pinned revisions: "Any prefix where the second label is `modelcontextprotocol`
+  or `mcp` is **reserved** for MCP use." Source:
+  https://modelcontextprotocol.io/specification/2025-11-25/basic and
+  https://modelcontextprotocol.io/specification/2026-07-28/basic, section "General
+  fields" → "`_meta`", MCP revisions `2025-11-25` and `2026-07-28`, retrieved
+  2026-10-03. At `2026-07-28` it binds extension identifiers too: "Extension identifiers
+  **MUST** follow the `_meta` key naming rules, with a mandatory prefix." Source:
+  https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning, section
+  "Extension Negotiation", retrieved 2026-10-03. §3.3's rule is therefore supported, with
+  the MCP base specification as its source rather than SEP-2133. No pin moves, and OAC's
+  identifier `io.github.rossgraeber/oac-session-channels` (second label `github`) is
+  unaffected. The `oac-mcp` Pin section carries the same correction.*
 - ACP schema v2 "alpha" status was not independently re-confirmed on
   https://agentclientprotocol.com/protocol/ as fetched today; it is carried forward
   from PLANNING-PROMPT.md §3.5 only (UNVERIFIED — re-check against
@@ -898,6 +1036,9 @@ occur; everything else above this line is unchanged from B1.
   priority since ACP is not a v0.1 dependency).
   **CARRIED — risk item 7, see REVERIFICATION-B2.md "Carried to 11-risks.md".**
   Re-checked in B2 (still absent from the page); low priority, not a v0.1 dependency.
+  *(Dated note, 2026-10-06, #49: closed as verified, no drift. The v2 schemas are
+  `v2.0.0-alphaX` prereleases (latest `schema-v2.0.0-alpha.7`); the v2 protocol docs are
+  Draft. See the "ACP" section's dated note.)*
 - Zenoh crate version/date were read from the GitHub releases page rather than
   directly from crates.io's rendered page, because the crates.io fetch did not return
   page content in this session (UNVERIFIED — re-confirm directly on

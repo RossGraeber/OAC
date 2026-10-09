@@ -1,0 +1,37 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-KEY-041",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "signature made under another domain string",
+  "description": "The record is signed with the envelope domain string. Domain separation makes it fail as a registration record.",
+  "stage": "registration",
+  "context": {
+    "trusted_keys": [
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ]
+  },
+  "input": {
+    "record": {
+      "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "harness_label": "harness-b",
+      "native_id": "native-thread-0001",
+      "working_directory": "/home/test/repo-a",
+      "registered_at": "2026-10-03T11:59:00.000Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "n8QwmgHDAIBgFXiVYK6uvehDjEBRtUgqz4gI33eFqhFeDAo1EKz5l_MEKqrp9Zpkyhs2ru7ht57j1_KnRzNEAw"
+      }
+    }
+  },
+  "expected": {
+    "result": "invalid",
+    "binding_usable": false
+  }
+}

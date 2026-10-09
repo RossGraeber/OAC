@@ -1,0 +1,49 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-EXT-003",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "settings value is not an object",
+  "description": "The value under the identifier is a boolean, not a JSON object.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "resultType": "complete",
+          "supportedVersions": [
+            "2026-07-28",
+            "2025-11-25"
+          ],
+          "capabilities": {
+            "tools": {},
+            "extensions": {
+              "io.github.rossgraeber/oac-session-channels": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

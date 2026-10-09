@@ -1,0 +1,52 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-CLD-003",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "channel server answers the modern probe",
+  "description": "A stdio channel server answers the `server/discover` probe with a result, so a dual-era client stays modern and does not register the channel (G4 fact 3).",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "unestablished",
+    "server_role": "channel-path"
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "supportedVersions": [
+            "2026-07-28",
+            "2025-11-25"
+          ],
+          "capabilities": {
+            "tools": {},
+            "extensions": {
+              "io.github.rossgraeber/oac-session-channels": {}
+            }
+          },
+          "serverInfo": {
+            "name": "oac",
+            "version": "0.1.0"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

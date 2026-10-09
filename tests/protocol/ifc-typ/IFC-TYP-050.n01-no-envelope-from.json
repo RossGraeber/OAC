@@ -1,0 +1,22 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "IFC-TYP-050",
+  "spec": "spec/interfaces.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "missing envelope_from",
+  "description": "The receipt of IFC-TYP-050.p01 with only envelope_from removed. It is discarded.",
+  "stage": "receipt",
+  "context": {},
+  "input": {
+    "receipt": {
+      "envelope_id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+      "state": "handed-to-harness",
+      "observer": "receiver",
+      "observed_at": "2026-10-03T12:00:01.250Z"
+    }
+  },
+  "expected": {
+    "result": "discarded"
+  }
+}

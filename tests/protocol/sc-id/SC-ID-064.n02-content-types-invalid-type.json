@@ -1,0 +1,33 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-064",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "invalid part type in content_types",
+  "description": "`content_types` lists `Text`, which is neither a core type nor an extension type.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "io.github.rossgraeber/oac-session-channels": {
+        "revision": "0.1",
+        "active_inbound": true,
+        "content_types": [
+          "Text"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "result": "no-common-version"
+  }
+}

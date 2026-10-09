@@ -4,7 +4,8 @@ Source: Epic K #123 (non-goals; "Why this stays clear of ADR-001 boundary 4"). B
 `docs/planning/backlog/06-tasks-K.json` K3-K5. Tool record:
 `docs/planning/decisions/K1-herdr-evaluation.md`. This file states the rules the driver
 already enforces (`tools/herdr/run.mjs`, `tools/herdr/lib/herdr.mjs`,
-`tools/herdr/lib/manifest.mjs`, `tools/herdr/lib/g1-report.mjs`) and the rules that sit
+`tools/herdr/lib/manifest.mjs`, `tools/herdr/lib/pins.mjs`, `tools/herdr/lib/g1-report.mjs`,
+`tools/herdr/lib/gate-report-common.mjs`, `tools/herdr/lib/elide.mjs`) and the rules that sit
 outside the code. The evidence-store layout (the `Driver:` field, the `-herdr` fixture
 suffix, `docs/planning/gates/herdr-runs/`, what a herdr pin move invalidates) is
 `docs/planning/gates/README.md` "Scripted runs (herdr)". It is linked here, not restated.
@@ -17,17 +18,21 @@ replaces a supported interface, and it decides nothing.
 any live leg, and the point of herdr (operator decision, #187). The human attends only to
 sign in to the harnesses and grant elevation. Since 2026-09-30 (#196) the driver accepts
 Claude Code's trust, MCP-approval and dev-channels dialogs itself in dev/test runs, G1
-included, and refuses every other dialog. A human accepts a dialog only in a run meant to
+included, and refuses every other dialog. One narrow exception (#271): in the G4 scenario
+only, it answers Codex's MCP tool-approval prompt "1. Allow" for G4's own server and tools. And (#303) it answers Codex's start-up update prompt "2. Skip", never an update. A human accepts a dialog only in a run meant to
 meet a consent-step criterion (G1 criterion 5 under `accept=human`, G11; see
 "Operator-consent dialogs"). No live leg is "operator-typed only". Live runs are not in the default CI suite
-(`oac-testing` §2).
+(`oac-testing` §2). The agent verifies the run from its evidence; the human signs only for
+what they did that the agent could not (#252, "Verification").
 
 ## Status at K5
 
 No scripted run of any gate has run live. K4 built the G1 scenario and tested it against
 test doubles only. K1's live leg is NOT RUN. So no equivalence record exists, and every
 scripted run is non-verdict-bearing. Current state: `docs/planning/STATUS.md` "Open
-UNVERIFIED items" (the K1 and K4 entries).
+UNVERIFIED items" (the K1 and K4 entries). *This section is K5 history:* live runs and
+records since then are under `docs/planning/gates/herdr-runs/` (see "Verification",
+History).
 
 ## Three vocabularies — never mix them
 
@@ -51,6 +56,7 @@ Every scripted run names what drove it, in three places that must agree:
   off), `herdr.agentManifests`; `scenario.file` and `scenario.params`; `launch.argv` and
   `launch.herdrReportedArgv`. Since #140 (`schemaVersion` 2) also `herdr.executable` and
   `harnessExecutables` (see "Executables and capture hashes") and `captures[].sha256`.
+  Since #252 also `herdr.executableCheck` (see "Verification").
 - **Record and gate result:** the `Driver:` line, as `g1-report.mjs` renders it: the
   `herdr --version` output, the PINS.md `herdr (test tooling)` tag, `tools/herdr/run.mjs`,
   the scenario file, and the driver commit.
@@ -59,9 +65,12 @@ Every scripted run names what drove it, in three places that must agree:
   checks the block against the git-tracked run manifest: outcome, clean `tools/herdr/`,
   commit, herdr version, that the fixture is one of the run's written captures, and (for
   a `schemaVersion` 2 run) that the herdr was a hashed native binary, not the test double,
-  and that the fixture's committed bytes hash to the capture's `sha256`.
+  and that the fixture's committed bytes hash to the capture's `sha256`. Since #252 it
+  also refuses a fixture from a run whose `herdr.executableCheck` is not `match`.
 
-The driver refuses to start unless `herdr --version` equals the PINS.md pin. A run whose
+The driver refuses to start unless `herdr --version` equals the PINS.md pin and, since
+#252, the herdr executable's sha256 equals PINS.md's expected one for the platform
+(a platform with no expected value is a finding, not a stop). A run whose
 `driver.toolsHerdrDirty` is not `false` (`true`, or `null` when git could not answer), or
 whose `driver.commit` is `null`, cannot be reproduced. Its run id and outcome may be
 listed as a finding in a later record. Its captures are never committed as fixtures: the
@@ -98,11 +107,33 @@ fake Claude Code on `PATH` is recorded with its own hash and answers `--version`
 the dialog and the screen then changed. It does not prove that a human pressed a key. A
 test double that accepts its own dialog records the same thing. `acceptOrigin: driver`, by
 contrast, is observed: every key the driver sent is a `dialog-accept` command in the run's
-command log (#196). These facts rest on the operator attestation below. A `schemaVersion` 1
+command log (#196). The record states what the evidence shows and marks the rest
+UNVERIFIED; a human accept counts only as a human action that the person who pressed the
+key names (see "Verification"). No attestation fills these gaps. A `schemaVersion` 1
 run manifest (before #140, e.g. `G1-2026-09-29`) records no executables or capture hashes
 at all, and the checker only WARNs on it. A hand edit to `schemaVersion: 1` would downgrade
 every #140 refusal to that WARN; refusing a v1 manifest whose `driver.commit` postdates
 #140 is an optional tightening, not done (any run manifest is forgeable by hand).
+
+**Third-party text in captures (#130).** Fixtures are public. A harness may read a file or
+call a tool on its own initiative while it answers a delivered message, and the wire then
+carries what came back verbatim. G2 run `20261005T020547Z-84b913` is the case: Codex read
+its bundled plugin's skill file and called that plugin's tool. Captures therefore never
+keep such text. In a wire transcript the driver replaces with
+`<ELIDED tool-output bytes=N sha256=…>` each Codex app-server field on its elision list.
+The list was taken from the v2 schema: tool outputs, file reads, file diffs, hook output,
+process output and MCP event streams. Harness-authored instruction text the daemon sends,
+results included, becomes `<ELIDED harness-text …>`: G2 run `20261005T041011Z-bb584c` carried
+some in a `thread/resume` result. It keeps the frame, ids, methods, paths and every
+message text. It elides a pane line only when the same run's wire shows that line is tool
+output. Line numbers hold in both (`tools/herdr/lib/elide.mjs`; each elision is listed in
+the capture's redaction report). The residual scan refuses a listed field that still holds
+a body. Independently of the list, it also refuses any long string in an app-server item,
+notification, or daemon request or response that is not on a keep-list. No gate
+criterion reads a tool-output body. If one ever needs to, that
+is a finding to raise before the run, not a reason to keep the text. A capture made before
+this rule is never committed as it stands. A fixture is hash-bound to its capture
+(`captures[].sha256`), so it cannot be trimmed by hand: re-run instead.
 
 ## Timebox
 
@@ -129,9 +160,14 @@ The run ends `NOT RUN`, never `FAIL` and never a pass, when:
 - the operator aborts (a signal);
 - `herdr --version` differs from the pin, or the pin cannot be read (herdr is test tooling
   with a fixed pin; #216 does not cover it);
+- the herdr executable's sha256 is not PINS.md's expected one for the platform, or a
+  native herdr could not be hashed (#252, `herdr.executableCheck` `mismatch` or
+  `unhashed`). It is checked before herdr is spawned. A platform with no expected value
+  is a finding only;
 - PINS.md has an uncommitted edit to its `herdr (test tooling)` row: the row is missing,
-  unparseable, or its tag differs from HEAD's. The driver reads the pin only as committed
-  at HEAD (#139). Any other uncommitted PINS.md edit is a finding only;
+  unparseable, or its tag differs from HEAD's; or to its expected herdr executable table
+  (#252). The driver reads the pin only as committed at HEAD (#139). Any other uncommitted
+  PINS.md edit is a finding only;
 - a scenario preflight stops the run, for example a harness CLI that cannot be run at all.
 
 **A harness version never stops a run (operator decision on #216, 2026-10-01).** Claude
@@ -196,9 +232,10 @@ scenario that fails after a timeout. A `NOT RUN` run makes every criterion
   came before a dialog read. It is not herdr's classification.
 - A timing claim, such as "sent mid-turn", comes from wire timestamps against timestamped
   pane reads (G1: `midTurnWindow`), with the unobserved window reported.
-- A criterion that needs a human reading of pane text stays `not evaluable` until an
-  operator scores it, with a note citing the pane lines (G1 criteria 2 and 3: `--score`
-  and `--note`).
+- A criterion that needs a reading of pane text stays `not evaluable` until it is scored
+  with a note citing the pane lines (G1 criteria 2 and 3: `--score` and `--note`). The
+  recording agent reads the committed pane capture and scores it; the score rests on the
+  cited lines, not on who gave it (#252). The libs still call these "operator" scores.
 - Input reaches the harness only as an operator would type it. Anything the protocol
   under test must carry comes from the OAC-side endpoint, never typed by herdr: a channel
   notification, an app-server request. If a run only works because herdr injects it,
@@ -236,6 +273,56 @@ checks:
 
 Decision record: `K-196-driver-accepts-dialogs.md` §6.
 
+**Amended 2026-10-04 (#271): a narrow exception to #197 for G4.** Operator decision on #271:
+the driver MAY answer Codex's MCP tool-approval prompt, recorded live in G4 run
+20261004T050646Z (Codex 0.160.0, Codex pane section seq 58): "Allow the g4http MCP server to
+run tool "g4_echo"?", options "1. Allow", "2. Allow for this session", "3. Always allow",
+"4. Cancel", marker `›`, footer "enter to submit | esc to cancel". It answers only when ALL of
+these hold (`CODEX_TOOL_APPROVAL` and `planCodexToolApproval` in `tools/herdr/lib/g2.mjs`):
+
+- the form is the recorded text: header "Field 1/1", the question in the recorded wording, one
+  `<input>: <value>` line per argument, the four options with their recorded descriptions,
+  numbered 1-4, and the recorded footer;
+- the server and tool are exactly ones the G4 scenario registered itself, taken from its
+  committed config and validated launch, never from the pane (`g4CodexToolApproval` in
+  `tools/herdr/lib/g4.mjs`: server `g4http`, tools `g4_echo` and `g4_relay_to_claude`). The
+  launch must register `g4http` once, at exactly the staged server's URL
+  `"http://127.0.0.1:<httpPort>/mcp"`. Each argument is one of that tool's declared inputs;
+- the selection is on "1. Allow" (this call only), shown with exactly one `›`. The driver
+  never moves the selection here and never answers "Allow for this session" or "Always allow".
+  A fresh read must confirm all of the above before Enter (`codexToolApprovalCheck`);
+- the scenario opts in: only `g4-mcp-dual-era` passes an expectation. G2, G5, L3 and every
+  other scenario refuse the prompt, the exact recorded one included.
+
+Anything else (another server or tool, other wording, another selection, another scenario)
+ends the run `NOT RUN` with no key sent, as before. Each answer is recorded on the dialog
+(`toolApproval`: prompt, server, tool, arguments, expected, answer; `acceptKeys`,
+`confirmReadSeq`, `acceptOrigin: driver`). The Verification section's Dialogs line renders it.
+Codex source (`rust-v0.160.0`) shows "Allow" persists nothing. Each run also checks it.
+Immediately before the Enter of the first driver Allow, `run.mjs` hashes the harness config
+(`harnessConfig.beforeFirstAllow`). Teardown's hashes must equal that snapshot
+(`harnessConfig.sinceFirstAllow`). A change since the snapshot is a finding, and a PASS
+becomes FAIL. An earlier write, such as a Codex trust accept at startup, is outside the window.
+The start-to-teardown comparison (`harnessConfig.unchanged`) stays a separate recorded fact.
+Decision record: `K-196-driver-accepts-dialogs.md` §7.
+
+**Amended 2026-10-08 (#303): Codex's start-up update prompt.** Lead decision on #303: the
+driver answers Codex's start-up update prompt "2. Skip" (this launch only), recorded as
+`driver`, in every scenario that launches Codex, or stops at once; it never waits out a
+handshake or attach timeout behind the prompt. Recorded live in G4 run
+20261006T001351Z-5b2e11 (Codex 0.160.0, Codex pane read seq 54): title "Update available ·
+<current> → <latest>", the release-notes line, options "1. Update now (runs `<command>`)",
+"2. Skip", "3. Skip until next version", marker `›` on option 1, footer "enter continue · esc
+skip" (`CODEX_DIALOG_KINDS['update-prompt']` and `planCodexUpdateSkip` in
+`tools/herdr/lib/g2.mjs`). On that exact form the driver sends one `down`, confirmed by a fresh
+read showing "Skip" selected, then Enter. Every other form, or the selection on "3. Skip until
+next version", ends the run `NOT RUN` on its first read, no key sent, with the reason "Codex
+update prompt shown at start-up (Codex <current> → <latest>) … answer it in Codex's own TUI …
+then re-run". The driver never sends "1. Update now" (it runs an installer) or "3. Skip until
+next version" (it writes Codex's updater state), and never runs an update. Codex's non-modal
+"✨ Update available!" box is screen chrome, kept in the capture, and needs no answer. Decision
+record: `K-196-driver-accepts-dialogs.md` §8.
+
 - **Read before any keystroke.** The driver reads the dialog's pane text verbatim
   (`--source visible`) and keeps it in the pane capture before it sends any key.
 - **Recognized dialogs only, and the pane decides the keys.** The kind table
@@ -261,10 +348,12 @@ Decision record: `K-196-driver-accepts-dialogs.md` §6.
 - **Every other dialog is refused (#197 review).** A kind with no option text on record is
   never driver-accepted, whatever is preselected: Claude Code's tool-permission prompt ("Do
   you want to proceed?"), and every Codex dialog other than the trust dialog on record
-  (#199).
+  (#199), the G4 tool-approval exception (#271) and the start-up update prompt's "2. Skip"
+  (#303).
   The run ends `NOT RUN` with no key sent. A run that may meet one uses `accept=human`.
   Tool approval is not in #196's scope. Driver-approving it would need its own recorded
-  decision and a security note (`oac-security-work`, permission relay).
+  decision and a security note (`oac-security-work`, permission relay). #271 is that
+  decision for one prompt only: Codex's MCP tool approval in G4 (above, and K-196 §7).
 - **Recorded truthfully.** Every key is a `dialog-accept` command in the run manifest.
   Each dialog record carries `acceptOrigin: driver`, `acceptKeys` (key, herdr command seq,
   and the read that verified the move), and `acceptSeq` (the Enter). A driver accept is
@@ -294,7 +383,7 @@ accepted the dialog under `accept=human`.
   project directory when it is inside a git repository, otherwise the directory itself
   (`codex-rs/tui/src/onboarding/onboarding_screen.rs` L194-200). For a scratch project it is
   `<tmpdir>/oac-herdr-scratch-XXXXXX/<name>`, where `<name>` is `g2-project`,
-  `g4-codex-project`, `g5-codex-project` or `l3-codex-project` (`tools/herdr/scenarios/`). On
+  `g4-codex-project`, `g5-codex-project`, `l3-codex-project` or `s3-project` (`tools/herdr/scenarios/`). On
   Windows Codex writes the key canonicalized and lowercased (`project_trust_key`,
   `codex-rs/config/src/loader/mod.rs` L1367-1399), so compare it with the temp directory
   case-insensitively. All four files are identical at tags `rust-v0.159.2` and
@@ -326,8 +415,8 @@ accepted the dialog under `accept=human`.
 
 **What a driver accept scores.** None of these three dialogs is named by a G2, G4 or G5
 criterion, so a driver accept costs those gates nothing (see "Verdict eligibility"). A
-criterion that is *about* a human consent step keeps its human accept and its human
-attestation:
+criterion that is *about* a human consent step keeps its human accept, which the record
+names as a human action, with who did it (see "Verification"):
 
 - **G1 criterion 5.** Verbatim: "actually exercised during the spike — not bypassed,
   scripted around, or skipped" (`references/G1-claude-wake.md`, PLANNING-PROMPT.md §4, §7:
@@ -343,13 +432,16 @@ attestation:
   grants no permission to driver-accept it in any test. That stays K8's call and needs a
   recorded operator decision.
 - **Other dialogs.** Tool-permission prompts and Codex dialogs other than its trust dialog
-  are never driver-accepted (above). No G2, G4 or G5 criterion names Codex's trust dialog. If a criterion later names any dialog as a consent step, the human rule above
+  are never driver-accepted (above), except Codex's MCP tool-approval prompt in G4 under
+  #271. No G2, G4 or G5 criterion names Codex's trust dialog or that prompt. If a criterion later names any dialog as a consent step, the human rule above
   applies to it until an operator decision says otherwise.
 
 **The origin `human` is inferred.** Under `accept=human` the driver sends no key and waits
 for the screen to change. `acceptOrigin: human` therefore means only that the driver sent
 nothing and the dialog went away (see "Driver identity"). It counts as a human accept only
-when the person who accepted it attests to it ("Operator attestation").
+when the person who accepted it is named under "Human actions" in the record's
+Verification section. That is a real human sign-off: only that person knows who pressed the
+key (#252).
 
 **Changing the rule** again takes a separately recorded operator decision: a decision
 record under `docs/planning/decisions/` that names the dialog, the criterion and the rule
@@ -365,52 +457,132 @@ when that dialog's accepting option is already preselected." The G1 criterion 5 
 parts are still in force, as above. The preselected-only accept of Codex dialogs and
 tool-permission prompts was withdrawn in the #197 review: those are now refused.
 
-## Operator attestation
+## Verification
 
-Since #140 the herdr half is mechanical: the run manifest records whether herdr was the
-test double and the hash of what ran. A real, logged-in harness and a human accept are
-not (see "Driver identity"). So every equivalence record, and every `G<n>-result.md` whose
-`Driver:` names herdr,
-carries this section. The operator who ran the machine and accepted the dialog writes it
-after the run:
+**Decided 2026-10-03 (#252).** Operator decisions on #252: "My attestation should not be
+your law. If you find differently, it is different and should be looked into. Attestation
+should not be a critical part of this workflow as much as ACTUAL VERIFICATION." and "Sign
+off should be on me for when you NEED me to actually do something you cannot do." This
+section replaces the routine operator attestation (its text is kept, superseded, at the
+end of this section).
+
+**The rule.** Every finding and judgment in a run record or a verdict rests on
+verification from the evidence, cited: run-manifest fields, wire transcripts, pane
+captures, hashes, rule text. What the evidence cannot show is marked UNVERIFIED. "The
+operator confirms at attestation" is never a basis. If the evidence disagrees with what
+anyone says, the operator included, that is a finding to look into, not something a
+signature settles.
+
+**What the driver verifies and records** (`tools/herdr/run.mjs`, run manifest):
+
+- **herdr.** `herdr --version` against the pin, and the sha256 of the executable it
+  resolved against PINS.md "Expected herdr executable" for its platform
+  (`process.platform`-`process.arch`), before herdr is spawned at all. The comparison is
+  `herdr.executableCheck` (`tools/herdr/lib/pins.mjs` `checkHerdrExecutable`): `match`;
+  `mismatch` or `unhashed`, which end the run `NOT RUN` (see "Timeout means NOT RUN");
+  `no-expected-value`, a finding, after which the run goes on with herdr UNVERIFIED; or
+  `test-double`, never compared and never verified. What `run.mjs` does with each result is
+  `herdrCheckDecision` in the same file. It is unit-tested, and the self-test drives
+  `run.mjs` with a native non-herdr binary to check the mismatch, match and
+  no-expected-value paths. A `match` counts as VERIFIED only on a row whose `First-party`
+  cell is `yes` (`executableCheck.firstParty`). A match on a locally observed value (a `no` row)
+  shows only that the binary is that one: the record states herdr UNVERIFIED, first-party
+  source UNVERIFIED. All five rows are first-party since 2026-10-03. The Windows row was
+  checked with `gh release verify-asset` (PINS.md, "Expected herdr executable"). The table is read from PINS.md at HEAD, like
+  the tag. The run manifest is `schemaVersion` 3. The executable is re-hashed at teardown
+  (`unchangedAfterRun`).
+- **Harness versions** from every source the scenario reads (CLI, wire, the Codex daemon,
+  post-run), and the hash of each harness executable that answered `--version`
+  (`harnessExecutables`).
+- **Every dialog accept, with its origin:** `driver`, its keys in the command log, or
+  `human`, inferred (see "Driver identity" and "Operator-consent dialogs"). A driver "Allow"
+  on Codex's MCP tool-approval prompt (#271) also names the prompt, server, tool and answer,
+  and the harness-config hash check against the snapshot taken before the first Allow
+  (`harnessConfig.sinceFirstAllow`) that shows nothing persisted, with start-to-teardown
+  (`harnessConfig.unchanged`) beside it.
+
+**What the recording agent does.** The report libs (`g1-report` … `g5-report`,
+`l3-report`; `verification()` in `tools/herdr/lib/gate-report-common.mjs`) generate the
+section from the run manifest, each line `VERIFIED` or `UNVERIFIED` with the fields it
+rests on. The recording agent re-checks every citation against the committed run manifest
+and captures: the fixture hashes, the herdr hash against the PINS.md row at the driver
+commit, and the versions against the wire. It turns a line to UNVERIFIED, and records a
+finding, wherever a check fails. It fills each `<TO FILL: ...>` slot and the
+`Verified by` line. Where it cannot fill a slot itself, it asks the person who did the
+action.
+
+**Human actions: the only human sign-off.** A person signs only for what the agent cannot
+do itself:
+
+- a criterion that is itself a human consent step: G1 criterion 5's dev-channels accept
+  (`accept=human`) and the G11 confirmation;
+- an interactive sign-in to a harness;
+- anything that needs credentials.
+
+The record names each action and who did it. Under `accept=human` the driver records only
+that it sent no key and the screen changed, so only the person who pressed the key can say
+who did it. Nothing else in the record is signed.
 
 ```markdown
-## Operator attestation
+## Verification
 
-- [x] **herdr:** the real herdr binary ran, not a test double. `herdr --version`: `<output>`; sha256 of the executable: `<64 hex>`
-- [x] **Harness:** the real, logged-in <harness> CLI ran, not a test double. `<harness> --version`: `<output>`
-- [x] **Consent dialog:** <one of the forms below>
-- **Attested by:** <operator>, <YYYY-MM-DD>
+- **herdr:** VERIFIED — <version against the pin; sha256 `<64 hex>` against PINS.md's expected value for `<platform>`; native, not the test double; unchanged at teardown; each with its run-manifest field> | UNVERIFIED — <why>
+- **Harness:** VERIFIED — <each harness: the version from every source, with fields; executable hashes> | UNVERIFIED — <why>
+- **Dialogs:** <each dialog: accepted by the DRIVER (keys and seqs), or recorded as human>
+- **Human actions:** <consent step, sign-in or credentials, and who did each; or "none ...">
+- **Verified by:** <recording agent>, <YYYY-MM-DD>
 ```
 
-The consent line states who accepted each dialog, exactly as the run manifest records it
-(amended 2026-09-30, #196). The report libs generate it that way:
-
-- a gate criterion names a consent step (G1 criterion 5), and a human accepted it:
-  `accepted by me, a human at the keyboard, during this run.`;
-- no criterion of G<n> names a consent step: `none — no criterion of G<n> names a consent
-  step. Dialogs on record: <each dialog, with "accepted by the DRIVER (herdr dialog-accept:
-  <keys and seqs>)" or "recorded as human">; each driver accept above was the driver's, not
-  mine.`;
-- the driver accepted the consent step itself (G1 `accept=driver`, G1's default): the line says so. The
-  record is then not an equivalence record (criterion 5 is `not evaluable`).
-
-An operator never ticks a line that calls a driver accept their own.
-
-- The herdr sha256 is the run manifest's `herdr.executable.sha256`. The report libs fill
-  it in when the manifest records a hashed native herdr that was not the test double; for a
-  test-double run they leave `<64 hex>` and say so, and the line is never ticked. For a
-  `schemaVersion` 1 run, take it by hand from the executable that ran, for example
-  `sha256sum "$(command -v herdr)"`. There is no published herdr hash to check it against;
-  `node scripts/check-fixture-manifest.mjs` checks an equivalence record's attested hash
-  against its run manifest's.
-- An unticked box, or a line the operator cannot truthfully write, means the record is
-  not an equivalence record and the run is not verdict-bearing.
+- A herdr or Harness line that is UNVERIFIED means the record is not an equivalence record
+  and the run is not verdict-bearing. A G1 run whose dev-channels dialog the driver
+  accepted has no human action for criterion 5, so it is neither.
 - `node scripts/check-fixture-manifest.mjs` fails a tracked `herdr-runs/*.md` that carries
   the equivalence callout, and a tracked `G<n>-result.md` whose `- **Driver:**` line
-  starts with `herdr`, unless this section is present with all four lines. That check
-  proves the attestation is complete, and (#140) that an equivalence record's herdr hash is
-  the recorded one, not that the rest is true. That rests on the operator who signed it.
+  starts with `herdr`, unless this section is complete: herdr VERIFIED with a 64-hex hash,
+  Harness VERIFIED, the Dialogs, Human actions and dated Verified by lines, and no
+  `<TO FILL` left. Every such file must be tied to a committed run manifest that parses:
+  - an equivalence record, to its own run manifest;
+  - a gate result, to the run manifest beside the `herdr-runs/` record its Driver line
+    names.
+
+  For a verified file, that manifest must be the #252 driver's (`schemaVersion` 3, or
+  carrying `herdr.executableCheck`). It must record a first-party `match`, and its
+  expected value must equal PINS.md's committed row for the platform, and also the row in
+  PINS.md at the run's `driver.commit`. That commit must resolve in the checkout or the file
+  is refused: a shallow clone must fetch full history first. The CI fixture-manifest job
+  uses `fetch-depth: 0` for this reason. The check applies only to Verification-form
+  files; pre-#252 attestations are not affected. The stated herdr hash must
+  be the manifest's. The script refuses a `-herdr` fixture from a run whose
+  `herdr.executableCheck` is not `match`, or from a `schemaVersion` 3 manifest without
+  one. It proves completeness and those bindings. The rest is the recording agent's
+  check, from the citations.
+- **History.** Records made before #252 carry the `## Operator attestation` of their time:
+  `herdr-runs/G1-2026-09-29.md`, `G5-2026-10-02.md`, `G5-c13-2026-10-02.md` and
+  `G5-result.md`. They stay as written. The checker accepts a complete attestation only
+  when all of these hold:
+  - the run manifest is pre-#252 (`schemaVersion` <= 2, no `executableCheck`);
+  - the run started no later than 2026-10-03, by the date the driver recorded (run
+    manifest `timebox.start`; missing is refused), never the file name;
+  - the file carries the callout `> **Pre-#252 attestation (history).**`, which says it is
+    not a current basis.
+
+  An attested line is history, not verification. `G1-2026-09-29` and `G5-c13-2026-10-02`
+  have `schemaVersion` 1 run manifests, so their herdr hash was taken by hand, not recorded
+  by the driver. Their herdr identity beyond `herdr --version` is UNVERIFIED (dated notes
+  in each, 2026-10-03).
+- **G1-2026-09-29 is not a current equivalence record (2026-10-03).** Under this rule an
+  equivalence record needs herdr VERIFIED, and this one cannot be. It stays on record with
+  its callouts. A G1 run under the #252 driver must re-establish G1 equivalence before
+  any scripted G1 run can carry a verdict. G1's verdict rests on the human-run Box C and
+  is unaffected.
+
+*Superseded #140/#196 text (kept for history; not in force since 2026-10-03):* "every
+equivalence record, and every `G<n>-result.md` whose `Driver:` names herdr, carries this
+section. The operator who ran the machine and accepted the dialog writes it after the run
+… `- [x] **herdr:** the real herdr binary ran, not a test double` … `- [x] **Harness:** the
+real, logged-in <harness> CLI ran` … `- [x] **Consent dialog:**` … `- **Attested by:**`
+… That check proves the attestation is complete … not that the rest is true. That rests on
+the operator who signed it."
 
 ## Verdict eligibility
 
@@ -421,7 +593,8 @@ An operator never ticks a line that calls a driver accept their own.
 - **Equivalence record for G<n>.** This is a `herdr-runs/G<n>-<YYYY-MM-DD>.md` record
   whose run meets all of these:
   - run outcome `PASS`;
-  - `herdr.observedVersionOutput` equals the current PINS.md `herdr (test tooling)` pin;
+  - `herdr.observedVersionOutput` equals the current PINS.md `herdr (test tooling)` pin,
+    and `herdr.executableCheck` is a first-party `match` (#252);
   - `driver.toolsHerdrDirty` is `false`;
   - it records the harness version(s) it ran on, each verified as one version across the
     CLI and the wire (G1: `versionsVerified`). The human run it compares against is the
@@ -432,24 +605,31 @@ An operator never ticks a line that calls a driver accept their own.
     (operator decision on #216, 2026-10-01). Every report lib states this in its
     Findings. (Until 2026-10-01 the same harness version as the human run was required.);
   - every pass criterion of G<n> is scored `equivalent`: none `not equivalent`, none
-    `not evaluable`, and every operator score carries its note;
-  - a criterion that is a consent step (G1 criterion 5) was met by a human accept; other
-    dialogs may be driver-accepted (see "Driver-accepted dialogs" below);
+    `not evaluable`, and every score carries its note citing the evidence;
+  - a criterion that is a consent step (G1 criterion 5) was met by a human accept, named
+    with who did it under "Human actions"; other dialogs may be driver-accepted (see
+    "Driver-accepted dialogs" below);
   - its `-herdr` fixtures are committed with `driver` blocks;
-  - it carries a complete, truthful operator attestation (see above).
+  - it carries a complete Verification section, herdr and Harness `VERIFIED`, every line
+    checked by the recording agent from its citations (see "Verification").
 
-  The operator adds a callout at the top of the record, `> **Equivalence record** for
-  G<n> at herdr <tag>`, when the record is reviewed. The equivalence record is itself
-  non-verdict-bearing: it calibrates the method against the human run.
+  The recording agent adds a callout at the top of the record, `> **Equivalence record**
+  for G<n> at herdr <tag>`, once it has verified every condition above from the record's
+  citations; review re-checks them. The equivalence record is itself non-verdict-bearing:
+  it calibrates the method against the human run. (Before #252 the operator added the
+  callout.)
 - **When a scripted run may carry a verdict.** All of these must hold:
-  - an equivalence record for G<n> exists at the current herdr pin and is not invalidated;
+  - an equivalence record for G<n> exists at the current herdr pin and is not invalidated, and is current under #252 (not marked `Pre-#252 attestation (history)`);
   - `git diff <record's driver commit> <run's driver commit> -- tools/herdr/
     ':!tools/herdr/test/'` is empty, so the driver and scenario code are unchanged;
   - the run used the same `scenario.file`, `launch.argv` and `scenario.params` as the
     equivalence record's run (compare the two run manifests). A different prompt, accept
     policy or timing parameter is a different method, and needs its own equivalence record;
   - `driver.toolsHerdrDirty` is `false`;
-  - the run carries its own complete, truthful operator attestation;
+  - the run carries its own complete Verification section, herdr and Harness `VERIFIED`
+    and checked by the recording agent, naming every human action and who did it (#252);
+  - every criterion is scored from cited evidence (wire transcript, pane text, hashes,
+    rule text), or the result says it is UNVERIFIED; never on the operator's word;
   - the run meets the whole gate procedure in `oac-gates`. That means the box, every pass
     criterion from the gate's reference file evaluated individually on the wire transcript
     and pane text, the closed verdict vocabulary, the fixtures, and `STATUS.md` updated in
@@ -467,11 +647,33 @@ An operator never ticks a line that calls a driver accept their own.
   2. the run manifest records the accept as the driver's: `acceptOrigin: driver`,
      `acceptKeys` and the `dialog-accept` commands.
 
-  A criterion that is *about* a human consent step keeps its human accept and its human
-  attestation: G1 criterion 5, and the G11 confirmation. So an `accept=driver` G1 run
+  **Recorded variant: the multi-select MCP approval form (#267).** Claude Code 2.1.285
+  showed MCP-server approval as a multi-select form ("<N> new MCP servers found in this
+  project / Select any you wish to enable", rows `[✔] <name>`, an "Enable selected" row,
+  footer "Space to select · Esc to reject all"). Per the orchestrator's ruling on #267 it is
+  the same dialog kind, recorded as `DIALOG_KINDS['mcp-server-approval']`'s `multi-select`
+  variant from the 2026-10-04 G4 run's pane capture. It counts as matching the recorded text
+  only when all of these hold:
+  - its heading, intro, body and footer are the recorded text, and nothing else is on screen
+    between them but server rows and the one "Enable selected" row;
+  - the listed servers equal **exactly** the scenario's expected servers (its `.mcp.json`):
+    any extra, missing or duplicate name is refused, `NOT RUN`;
+  - every listed server is shown ticked;
+  - the selection reaches "Enable selected" by `down` keys, each verified by a read, before
+    Enter. The driver never sends Space and never changes a tick.
+
+  The manifest also records the dialog's `variant`, `listedServers` and `expectedServers`.
+  Versions float (#216): the form's first-seen version is noted, never gated on.
+
+  A criterion that is *about* a human consent step keeps its human accept, a human action
+  the record names: G1 criterion 5, and the G11 confirmation. So an `accept=driver` G1 run
   (G1's default since the operator's second #196 decision) is never an equivalence record
   and never verdict-bearing for G1. No other dialog can be driver-accepted at all: the
-  driver refuses it and the run is `NOT RUN`. G2, G4 and G5 name no
+  driver refuses it and the run is `NOT RUN`. The one exception is Codex's MCP
+  tool-approval prompt in G4 (#271, "Operator-consent dialogs"). It counts only when it
+  matched the recorded text and G4's own server and tools, was answered "1. Allow" by the
+  driver as recorded, and the harness config was unchanged from just before the first Allow
+  to teardown. G2, G4 and G5 name no
   consent step, so for them `accept=driver` and `accept=human` are equally eligible. Their
   accept policy is still part of `scenario.params`, so a verdict-bearing run must use the
   policy of its equivalence record.
@@ -481,7 +683,9 @@ An operator never ticks a line that calls a driver accept their own.
   `docs/planning/gates/README.md` "Scripted runs (herdr)". A herdr pin move never
   invalidates a gate verdict, because that row's `Gates affected` is `none`.
 - **Human runs stay authoritative.** A human-operated run of G<n> is always eligible to
-  carry a verdict and needs no equivalence record.
+  carry a verdict and needs no equivalence record. Its findings, like any, rest on cited
+  evidence or are UNVERIFIED (#252); "authoritative" is about the method, not about taking
+  the operator's word.
 - **One-off exception: the C13 G5 Codex re-run (operator decision, 2026-10-02, #220,
   route E1).** Exactly one herdr run of `g5-provenance`, the G5 Codex-leg re-run defined in
   `docs/planning/decisions/C13-codex-provenance-framing.md` §11, may carry G5's Codex
@@ -490,13 +694,17 @@ An operator never ticks a line that calls a driver accept their own.
   - its arm 0 (the old C6 §5 frame) reproduces the 2026-09-27 FAIL, as C13 §11 defines it.
     Otherwise the run is inconclusive and carries no verdict;
   - its `tools/herdr/` diff (excluding `tools/herdr/test/`) from commit
-    `2776e7a89bc3d7f5d7c39bea791a1919dd17119a` (the #217 merge on `main`; `tools/herdr/`
-    is unchanged from there to `main` as of 2026-10-02) is limited to:
+    `2776e7a89bc3d7f5d7c39bea791a1919dd17119a` (the #217 merge on `main`) is limited to
+    the list below. *Corrected 2026-10-02:* `tools/herdr/` on `main` has changed since
+    2776e7a8 (#222, #226, #227), so the run is driven from the PR #231 branch,
+    `herdr/220-c13-g5-codex-framing`, which is based on `74e3e64` (PR #223's head; its
+    `tools/herdr/` equals 2776e7a8's) and never merges `main`. The list:
     - the approved framing in `gate-servers/g5-codex.mjs`;
     - the new cases in `gate-servers/g5-cases.json`;
     - the scoring in `lib/g5-report.mjs`;
     - arm and case selection only in `scenarios/g5-provenance.mjs`;
-  - it carries a complete, truthful operator attestation;
+  - it carries a complete, truthful operator attestation (the rule when E1 was used;
+    E1 is consumed, and #252 replaced attestation for every later run);
   - it meets every other condition of "When a scripted run may carry a verdict", except the
     three waived here:
     - an equivalence record exists;
@@ -521,6 +729,31 @@ An operator never ticks a line that calls a driver accept their own.
   consistency with the standing herdr-first decisions (#187, #196, #216); the record is
   C13 §0/§11.
 
+  **Operator rulings, 2026-10-02 (#220, from the PR #231 review).** These bind the run:
+  1. *Scope.* Arm and case selection includes three things, in arms mode only
+     (`--param arms`): a fresh Codex TUI per arm, handling a refused delivery, and no
+     operator question for a mechanically scored case. The K8 path (no `arms`) stays as it
+     was.
+  2. *Scoring.* The agent scores Codex criteria 2 and 3 for each reply from the captures.
+     For this run that replaces "Evidence"'s operator-scored reading. The operator attests
+     the run, and the record states the basis as agent-scored.
+  3. *Claude leg.* The run skips the Claude leg (`claudeCases=none`). The 2026-09-27
+     Claude results stand. A separate, non-verdict K8 run re-checks Claude for regression.
+  4. *Non-consuming runs.* A run that a tooling problem leaves unscorable does not consume
+     the exception. Examples: a refusal case never attempted, a delivery in the wrong
+     thread, or a dirty `tools/herdr/`. Such a run is `NOT EVALUABLE` in the report. Only
+     a real `PASS` or `FAIL` with arm 0 reproduced consumes it.
+
+  **Consumed, 2026-10-02.** Run `20261002T161612Z` used E1 up. Its C13 outcome was `PASS`,
+  and its arm 0 reproduced the old FAIL. Record: `docs/planning/gates/herdr-runs/
+  G5-c13-2026-10-02.md`.
+  - The earlier run `20261002T160321Z` ended `FAIL` on a scenario race, with C13 `NOT RUN`.
+    It did not consume E1.
+  - The rule that the run never merges `main` bound the run's driver commit, `a86e620`. The
+    branch merged `main` after the run (`078c794`), to land the record. That does not
+    affect the verdict, because the E1 path rule was checked at the driver commit.
+  - No later run may use E1.
+
 ## Checklist: recording a scripted run
 
 - [ ] Box declared before the first herdr command (scenario default or `--timebox-ms`),
@@ -529,9 +762,13 @@ An operator never ticks a line that calls a driver accept their own.
       `not evaluable`, and no fixture is written.
 - [ ] No criterion scored on herdr state. Each score cites the wire transcript, the
       verbatim pane text, or the driver's command log.
-- [ ] Operator scores (G1 criteria 2 and 3) carry a note citing pane lines.
-- [ ] Criterion 5 or the G11 confirmation: human accept only. A driver-sent accept is
-      recorded and left `not evaluable`.
+- [ ] Pane-text scores (G1 criteria 2 and 3) carry a note citing pane lines.
+- [ ] Every finding and judgment cites its evidence or says UNVERIFIED. Nothing rests on
+      "the operator confirms". Evidence that disagrees with anyone's account is a finding.
+- [ ] `herdr.executableCheck` read: a first-party `match`, or the herdr line is UNVERIFIED
+      (a `no-expected-value`, or a match on a locally observed value, is under Findings).
+- [ ] Criterion 5 or the G11 confirmation: human accept only, named under "Human actions"
+      with who did it. A driver-sent accept is recorded and left `not evaluable`.
 - [ ] Every other dialog accept is rendered as the manifest records it: `driver` with
       its keys, or `human` (inferred). Never a driver accept written up as a human's.
 - [ ] Earlier `NOT RUN` or `FAIL` runs at the same pins are listed under Findings.
@@ -542,7 +779,9 @@ An operator never ticks a line that calls a driver accept their own.
       into the repository.
 - [ ] `g1-report.mjs --write` output reviewed. The `manifest-entries.draft.json` entries
       are merged into `MANIFEST.json`, and `node scripts/check-fixture-manifest.mjs` passes.
-- [ ] Equivalence record or verdict-bearing run: the operator attestation is written by
-      the person who ran it, every line true, before the callout or verdict is added.
+- [ ] Verification section re-checked by the recording agent against the committed run
+      manifest and captures, every `<TO FILL: ...>` slot filled, before the callout or
+      verdict is added. A person signs only the human actions: consent steps, sign-ins,
+      credentials. Ask them only for those.
 - [ ] `G<n>-result.md` gains only a pointer, unless the run is verdict-eligible under
       "Verdict eligibility" above.

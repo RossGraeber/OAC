@@ -1,0 +1,30 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-085",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "One copy was passed and the receiver reported `rejected`. The error settles the state; the hand-off deadline has not passed, so no retry yet.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 1,
+    "deadline_passed": false
+  },
+  "input": {
+    "held": [
+      {
+        "state": "accepted-by-adapter",
+        "observer": "sender"
+      },
+      {
+        "state": "rejected",
+        "observer": "receiver",
+        "error": "unauthorized"
+      }
+    ]
+  },
+  "expected": {
+    "state": "rejected",
+    "retry_allowed": false
+  }
+}

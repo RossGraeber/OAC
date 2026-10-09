@@ -1,0 +1,58 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-015",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "bare array instead of sessions object",
+  "description": "A list_sessions result carries the descriptors as a bare JSON array instead of the {\"sessions\": [...]} object.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 65,
+        "method": "tools/call",
+        "params": {
+          "name": "list_sessions",
+          "arguments": {}
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 65,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "[{\"session_id\":\"3m8q2r7t0v4w6x9y1z5a3b8c2d\",\"capabilities\":{\"io.github.rossgraeber/oac-session-channels\":{\"revision\":\"0.1\",\"active_inbound\":true}},\"harness_label\":\"harness-b\"}]"
+            }
+          ],
+          "structuredContent": {
+            "sessions": [
+              {
+                "session_id": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+                "capabilities": {
+                  "io.github.rossgraeber/oac-session-channels": {
+                    "revision": "0.1",
+                    "active_inbound": true
+                  }
+                },
+                "harness_label": "harness-b"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

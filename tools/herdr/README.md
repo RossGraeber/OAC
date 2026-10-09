@@ -15,7 +15,7 @@ never replaces a supported interface and it decides nothing.
   construction (`docs/planning/v0.1/09-test-strategy.md` §4). The only CI entry point is
   `ci.mjs`, run by the opt-in workflow on operator-owned runners (K6).
 - Node built-ins only. No `package.json`.
-- How a scripted run is recorded, what it may conclude, the operator attestation and verdict
+- How a scripted run is recorded, what it may conclude, its verification (#252) and verdict
   eligibility: `.claude/skills/oac-gates/references/scripted-runs.md`. Where its evidence
   lands: `docs/planning/gates/README.md` "Scripted runs (herdr)". Tool record and pin:
   `docs/planning/decisions/K1-herdr-evaluation.md`, `docs/planning/PINS.md` row
@@ -25,19 +25,35 @@ never replaces a supported interface and it decides nothing.
 
 | Path | What |
 |---|---|
-| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). Executable identity (#140, `lib/manifest.mjs`, run-manifest `schemaVersion` 2): herdr is resolved once and spawned only by that path (unresolved: NOT RUN, nothing spawned), and re-hashed at teardown; `herdr.executable` and `harnessExecutables` record basename, sha256, format and (herdr) `testDouble`, never a directory, and each written capture records its `sha256` (`oac-gates` `references/scripted-runs.md` "Executables and capture hashes"). Teardown process accounting (#136, `lib/herdr.mjs` `teardown`, `lib/proc.mjs` `processTable`): every pane `workspaceCreate` returned is queried with `pane process-info` whether or not the scenario asked, and the pane processes' and the herdr server's descendants are recorded from one process table (Linux `/proc`, macOS `ps`, Windows `Get-CimInstance Win32_Process`: pid, parent pid, creation time, argv). After the stop a recorded pid still alive is killed, that pid only and never its tree, only if its creation time is unchanged, it is no older than the driver process, and it is not the Codex app-server (the shared daemon is never stopped). Anything it cannot verify is not killed: it is listed in `teardown.leftoverProcesses` (`unverifiedPids`), and teardown is not clean. This covers a live pid missing from the process table and a creation time that cannot be compared with the driver's. By design, `teardown.protectedProcesses` (an app-server the run's panes started, left running) does not affect `clean`; a scenario that expects no daemon checks `protectedProcesses.length === 0` itself. Known limits: the `app-server` match is UNVERIFIED against a live daemon's argv (the operator's own daemon predates the driver and is excluded before that match; if a pane-started daemon lacks the token, teardown kills that run-started daemon). A GUI process a pane started (a browser opened for a login, if none was running) is a pane descendant created after the driver and is killed, as POSIX group kills already did. The third-signal emergency exit in `run.mjs` still kills the server tree (`taskkill /T` on Windows). No teardown step throws (#239): a herdr call that cannot be started is recorded and teardown goes on to the server kill and the process checks, and if the scratch directory (herdr's working directory) was removed under the run, teardown's herdr calls run in `os.tmpdir()` (`teardown.cwdFallback`), and the run manifest carries a finding that `HERDR_CONFIG_PATH` then names a config inside the removed directory (real herdr's handling of that is UNVERIFIED, #249). A process whose command line could not be read (Windows `Win32_Process.CommandLine` null, Linux `/proc/<pid>/cmdline` unreadable) is unverified and never killed (#249). |
+| `run.mjs` | The driver (K3): isolated herdr session, bounded waits, timebox, redaction, run manifest. `--self-test` runs every test below against test doubles. The manifest is written even when scratch removal fails (#202, `lib/scratch.mjs`): removal is retried with a bounded backoff, and a leftover is recorded (`teardown.clean=false`, `teardown.leftover` redacted, a finding naming any holder the scenario declared, e.g. the shared Codex daemon, released on `codex app-server daemon stop`) without changing the outcome. An escaping driver error is printed with its phase (setup, run, teardown, record). Executable identity (#140, `lib/manifest.mjs`, run-manifest `schemaVersion` 2): herdr is resolved once and spawned only by that path (unresolved: NOT RUN, nothing spawned), its sha256 compared with PINS.md's expected one for the platform before it is spawned (#252, run-manifest `schemaVersion` 3, `herdr.executableCheck`, `lib/pins.mjs` `herdrCheckDecision`: a mismatch is NOT RUN, no expected value or a match on a locally observed, not first-party, value is a finding), and re-hashed at teardown; `herdr.executable` and `harnessExecutables` record basename, sha256, format and (herdr) `testDouble`, never a directory, and each written capture records its `sha256` (`oac-gates` `references/scripted-runs.md` "Executables and capture hashes"). Teardown process accounting (#136, `lib/herdr.mjs` `teardown`, `lib/proc.mjs` `processTable`): every pane `workspaceCreate` returned is queried with `pane process-info` whether or not the scenario asked, and the pane processes' and the herdr server's descendants are recorded from one process table (Linux `/proc`, macOS `ps`, Windows `Get-CimInstance Win32_Process`: pid, parent pid, creation time, argv). After the stop a recorded pid still alive is killed, that pid only and never its tree, only if its creation time is unchanged, it is no older than the driver process, and it is not the Codex app-server (the shared daemon is never stopped). Anything it cannot verify is not killed: it is listed in `teardown.leftoverProcesses` (`unverifiedPids`), and teardown is not clean. This covers a live pid missing from the process table and a creation time that cannot be compared with the driver's. By design, `teardown.protectedProcesses` (an app-server the run's panes started, left running) does not affect `clean`; a scenario that expects no daemon checks `protectedProcesses.length === 0` itself. Known limits: the `app-server` match is UNVERIFIED against a live daemon's argv (the operator's own daemon predates the driver and is excluded before that match; if a pane-started daemon lacks the token, teardown kills that run-started daemon). A GUI process a pane started (a browser opened for a login, if none was running) is a pane descendant created after the driver and is killed, as POSIX group kills already did. The third-signal emergency exit in `run.mjs` still kills the server tree (`taskkill /T` on Windows). No teardown step throws (#239): a herdr call that cannot be started is recorded and teardown goes on to the server kill and the process checks, and if the scratch directory (herdr's working directory) was removed under the run, teardown's herdr calls run in `os.tmpdir()` (`teardown.cwdFallback`), and the run manifest carries a finding that `HERDR_CONFIG_PATH` then names a config inside the removed directory (real herdr's handling of that is UNVERIFIED, #249). A process whose command line could not be read (Windows `Win32_Process.CommandLine` null, Linux `/proc/<pid>/cmdline` unreadable) is unverified and never killed (#249). |
 | `ci.mjs`, `runner-hooks/` | The opt-in CI entry point and runner hooks (K6). |
-| `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). |
-| `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8), `l3-beacon` (L3b; the Beacon live leg, not a gate). |
+| `lib/` | Driver internals, and per-gate helpers and report generators (`g1*.mjs` K4, `g2*.mjs` K7, `g4*.mjs` and `g5*.mjs` K8, `gate-common.mjs` and `gate-report-common.mjs` shared by K8, `l3.mjs` L3a). `redact.mjs` also redacts a home path or caller literal (`<REPO>`, `<SCRATCH>`, ...) that a pane wrap split across lines, keeping the line break, and its residual scan reports one that survives (`(line-wrapped)` labels, #288). Captures never republish third-party text a harness read or a tool returned: see "Capture elision (#130)" below. Report generators write a MANIFEST.json coverage exchange as a range only when its lines are adjacent, otherwise as a list (`gate-report-common.mjs` `lineSpan`, #290). |
+| `scenarios/` | `smoke`, `g1-claude-wake` (K4), `g2-codex-inject` (K7), `g4-mcp-dual-era` and `g5-provenance` (K8), `l3-beacon` (L3b; the Beacon live leg, not a gate), `s3-codex-capture` (#343; the Stage 1 fixture capture for Gate S3 criterion 5, not a gate run: the G2 launch steps with its own quarantined client, `docs/planning/gates/fixtures/s3-codex-capture/`). |
 | `gate-servers/` | K8: the G4 and G5 gate servers, **reconstructed** (see below). |
-| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`, and `fake-rm-eperm.mjs`, which makes scratch removal throw EPERM, #202) and the file-access tracer (`fs-trace.mjs`). |
+| `test/` | The self-test and its test doubles (`fake-herdr.mjs`, `fake-claude.mjs`, `fake-codex.mjs`, `fake-beacon.mjs`, and `fake-rm-eperm.mjs`, which makes scratch removal throw EPERM, #202) and the file-access tracer (`fs-trace.mjs`). `s3-tests.mjs` holds the unit checks of `s3-codex-capture` (#343: its send-once guard, its idle-add precondition stop and its `cases-preinit` version filter, against the scenario source and the recorded S3 transcript; it has no lifecycle case). `wrap-coverage-tests.mjs` holds the #288 and #290 tests, built on the committed G4 Claude pane fixture and run manifest. |
+
+### Capture elision (#130)
+
+Captures never republish third-party text a harness read or a tool returned (#130, `elide.mjs`). In a wire transcript, each Codex app-server field on the elision list becomes `<ELIDED tool-output bytes=N sha256=…>` (hash of the redacted body). The list is the fields that carry tool, file or hook text, found by going through every ThreadItem and ServerNotification of the v2 schema at `rust-v0.160.0`; it is not the whole protocol:
+- the outputs of commandExecution (file reads included), mcpToolCall, functionCallOutput, dynamicToolCall, webSearch and imageGeneration items;
+- file diffs: fileChange `changes[].diff`, `turn/diff/updated`, `item/fileChange/patchUpdated`;
+- hook output (`hook/started` and `hook/completed` entries, hookPrompt fragments);
+- `process/exited` stdout and stderr, MCP event-stream notifications, and the output-delta and progress notifications;
+- requests the daemon sends its client, recognised by the capture record's `direction: "daemon->client"` (#297): an MCP server's elicitation message, schema and url, and the file contents of the legacy patch approval;
+- an MCP server's startup error, a config warning's details and an agent message's memory-citation notes (#297);
+- harness-authored instruction and prompt text, and upstream error detail, anywhere the daemon sends its client, results included: `<ELIDED harness-text …>`. Matched by key name (`elide.mjs` `DAEMON_TEXT_KEYS`), because a response does not name its method: developer, base and user instructions (the collaboration-mode settings of thread/resume and of the `thread/settings/updated` notification, config/read), `instructions`, `compact_prompt`, `additionalDeveloperInstructions`, plugin and skill default prompts, and a turn error's `additionalDetails` and misalignment explanation and steer text. Found by going through every response of the v2 schema at `rust-v0.160.0`. Thread items (the schema's 19 ThreadItem types) are not searched by key. In scope are the responses to what the herdr Codex clients send: `initialize`, `thread/loaded/list`, `thread/list`, `thread/resume`, `thread/turns/list`, `turn/start` and `thread/queue/add`. Every other response is out of scope: it can carry harness- or third-party text on no list, which the residual scan below catches only at 120 characters or more.
+
+Within an elided body, a free-text object key becomes a marker too; only schema keys and enum `type` tags stay. Ids, methods, statuses, paths, the command line, tool arguments and every message text stay, one record per line. A pane line is elided only when the same run's wire shows it is tool output: the line, without its indentation and TUI glyphs, is at least 16 characters, sits inside an elided body, and appears in no text the transcript keeps. Line numbers hold in both. Claude Code's captured wire is OAC's own MCP traffic, and its tools/call results are the OAC server's replies, so nothing in it is elided. The residual scan makes two checks:
+- `un-elided tool output`: a field on the list still carries a body.
+- `unrecognised long text in an app-server frame`: a check that does not depend on the list. It flags any string of 120 or more characters in an app-server item, notification, daemon request or daemon response that is neither elided nor on a keep-list. The keep-lists hold the fields a gate criterion scores or that OAC or its client wrote, plus a few short harness-status lines decided one by one (`elide.mjs` header, #297 NB3). Kept fields include the answers and the delivered messages, so a long scored answer is never flagged; a response's pagination cursors are kept only in the shape Codex writes them (the compact JSON of `HistoryCursor` at rust-v0.160.0: exactly `requestedThreadId` (a UUID), `rolloutOrdinal`, `includeAnchor` and `scope.kind` (a `CursorScope` variant), #299). A field the list misses withholds the capture instead of reaching a fixture. Known limit: text under 120 characters in a field no list names is caught only by the list.
 
 ## Dialogs: the driver accepts them (dev/test runs, #196)
 
 Operator decision of 2026-09-30 (#196, `docs/planning/decisions/K-196-driver-accepts-dialogs.md`):
 in dev/test runs the driver accepts Claude Code's workspace-trust, project-MCP-server and
 `--dangerously-load-development-channels` dialogs itself, and, since #199, Codex's
-workspace-trust dialog: **only those four**. `accept=driver` is the default in every
+workspace-trust dialog: **only those four**, plus one G4-only exception for Codex's MCP tool
+approval (#271, below). `accept=driver` is the default in every
 scenario, `g1-claude-wake` included, and `accept=human` is still available. Each dialog is
 read verbatim before any key. It is accepted only if its options on screen are exactly the
 ones recorded in `lib/g1.mjs` `DIALOG_KINDS` (Claude Code) or `lib/g2.mjs`
@@ -49,6 +65,7 @@ is pressed only on the accepting option:
 |---|---|---|---|---|
 | Claude Code | workspace-trust | "No, exit" | `down` (read shows "Yes, I trust this folder"), `enter` | v2.1.283, 2026-09-29/30 |
 | Claude Code | mcp-server-approval | "Continue without using this MCP server" | `up`, `up` (read shows "Use this MCP server"; never "all future"), `enter` | v2.1.283, 2026-09-29/30 |
+| Claude Code | mcp-server-approval, multi-select form (#267) | the first server row ("❯ [✔] g4spike"; every row ticked) | `down` per row, each read-verified, until a read shows "Enable selected" selected, then `enter`; never `space` | first seen v2.1.285, 2026-10-04 (G4 herdr run) |
 | Claude Code | dev-channels | "1. I am using this for local development" | `enter` | v2.1.283 (G1 Box C; 2026-09-30) |
 | Codex | workspace-trust | "› 1. Trust and continue" (options "1. Trust and continue", "2. Back to Agent Command Center"; marker `›`) | `enter` | 0.159.2, 2026-09-30 (#199) |
 
@@ -65,11 +82,87 @@ absent; when present it must be exactly the recorded text, and it is never an op
 Codex's other variants ("Quit" as option 2; "Open restricted" or "Open existing task" as
 option 1) are not on record and are refused.
 
+Claude Code's **multi-select MCP approval form** (#267; first seen on 2.1.285 when a project
+adds several servers at once) is the same `mcp-server-approval` kind in a newer form,
+recorded as its `multi-select` variant (`lib/g1.mjs` `MCP_MULTISELECT`, from the 2026-10-04
+G4 run's pane capture). The driver accepts it only when:
+
+- the heading ("<N> new MCP servers found in this project", N equal to the rows listed),
+  "Select any you wish to enable.", the "MCP servers may execute code …" paragraph and the
+  footer "Space to select · Esc to reject all" are exactly the recorded text, and every other
+  line is a `[✔] <name>` / `[ ] <name>` row or the single "Enable selected" row;
+- the listed servers are **exactly** the scenario's expected servers (the names in the
+  `.mcp.json` it wrote); an extra, missing or duplicate name is refused;
+- every listed server is ticked;
+- the selection is on the first server (the preselection on record) or on "Enable selected".
+
+It then sends `down` keys, each verified by a read that shows the same rows, all still
+ticked, and exactly one `❯` on the expected row. It sends `enter` only after a read shows
+"Enable selected" selected. It never sends `space` and never changes a tick. The run manifest
+records the dialog's `variant`, `listedServers`, `expectedServers` and `acceptKeys`. How the
+`❯` looks on the "Enable selected" row is not on record. If a read does not show it cleanly
+there, the move does not verify and the run ends `NOT RUN` with no `enter`. Per #216 the
+Claude Code version is recorded, never gated on.
+
 Any other text, an extra option at any indentation, a second selection marker, or a move that
 does not land ends the run `NOT RUN`, with nothing guessed and nothing re-sent. **Every other
 dialog is refused**, whatever is preselected: Claude Code's tool-permission prompt ("Do you
 want to proceed?") and every other Codex dialog (#197 review). The run ends `NOT RUN` with
 no key sent. Use `accept=human` for a run that may meet one. Each accept is recorded as `driver` with its keys, and every report says so.
+
+**One exception: Codex's MCP tool approval, in G4 only (#271).** Operator decision of
+2026-10-04 on #271, a narrow exception to #197. Codex 0.160.0 asks before each MCP tool call,
+which blocked every unattended G4 run (live run 20261004T050646Z, Codex pane section seq 58):
+
+```
+  Field 1/1
+  Allow the g4http MCP server to run tool "g4_echo"?
+
+  text: hello from codex through herdr
+
+  › 1. Allow                   Run the tool and continue
+    2. Allow for this session  Run the tool and remember this choice for this session
+    3. Always allow            Run the tool and remember this choice for future tool calls
+    4. Cancel                  Cancel this tool call
+  enter to submit | esc to cancel
+```
+
+The driver presses `enter` on "1. Allow" (this call only) only when all of these hold
+(`lib/g2.mjs` `CODEX_TOOL_APPROVAL`, `planCodexToolApproval`):
+
+- the form is exactly the recorded text: header, question wording, the four options and
+  their descriptions, numbering, `›` marker and footer. Each argument line names one of the
+  tool's declared inputs;
+- the server and tool are ones `g4-mcp-dual-era` registered itself, taken from its committed
+  config and validated launch, never from the pane (`lib/g4.mjs` `g4CodexToolApproval`:
+  `g4http`; `g4_echo`, `g4_relay_to_claude`). The launch must register `g4http` once, at
+  exactly the staged server's URL `"http://127.0.0.1:<httpPort>/mcp"`;
+- "1. Allow" is selected, with exactly one marker, and a fresh read confirms it before
+  `enter`. The driver never moves the selection here, so it never answers "Allow for this
+  session" or "Always allow".
+
+Anything else, and the same prompt in any other scenario (G2, G5, L3), ends the run
+`NOT RUN` with no key sent. The dialog record holds `toolApproval` (prompt, server, tool,
+arguments, expected, answer), `acceptKeys`, `confirmReadSeq` and `acceptOrigin: driver`.
+The report's Verification "Dialogs" line renders them. Immediately before the Enter of the
+first driver Allow, `run.mjs` hashes the harness config (`harnessConfig.beforeFirstAllow`).
+The teardown hashes must equal that snapshot (`harnessConfig.sinceFirstAllow`). A change
+since then is a finding and turns a PASS into FAIL. An earlier write, such as a Codex trust
+accept at startup, does not count. The start-to-teardown comparison stays a separate fact.
+Per Codex source at `rust-v0.160.0`, "Allow" persists nothing. Rules:
+`scripted-runs.md` "Operator-consent dialogs" (#271); decision record
+`docs/planning/decisions/K-196-driver-accepts-dialogs.md` §7.
+
+**Codex's start-up update prompt: "2. Skip" only (#303).** When a newer Codex is out, Codex
+0.160.0 opens with "Update available · <current> → <latest>" and the options "1. Update now
+(runs `<command>`)", "2. Skip", "3. Skip until next version" (recorded live in G4 run
+20261006T001351Z-5b2e11, which waited 90 s for an MCP handshake behind it). In every scenario
+the driver now answers the recorded form "2. Skip", this launch only: one `down`, verified by a
+fresh read showing "Skip" selected, then `enter` (`lib/g2.mjs` `planCodexUpdateSkip`). Any other
+form, or the selection on option 3, ends the run `NOT RUN` on its first read, no key sent,
+naming the versions and asking you to answer it in Codex's own TUI and re-run. The driver never
+runs an update and never writes Codex's updater state. The dialog record holds `updatePrompt`
+(current, latest, answer). Decision record: K-196 §8.
 
 **Codex startup: verified-ready before the first message (#204).** Codex 0.159.2 shows its
 composer ("› Ask Codex to do anything") *before* its session exists: the startup draft. Text
@@ -147,16 +240,90 @@ new entry per project directory. The driver never writes, edits or prunes these 
 Rules: `.claude/skills/oac-gates/references/scripted-runs.md` "Side effect: trust entries
 accumulate in operator config".
 
+## Waits, settles and turn ordering (#253, #246)
+
+herdr's state is a scheduling signal only, never evidence; these rules make it a safe one.
+
+- **herdr reports the state as `agent_status`.** Every agent response carries an AgentInfo
+  under `result.agent`, its state in `agent_status` (herdr v0.9.1
+  `src/api/schema/agents.rs`). Before #253 the driver read a `state` field that does not
+  exist, so every wait of the 2026-10-02 runs recorded `null` (`lib/herdr.mjs`
+  `agentStatusOf`). A wait whose answer names no documented state now ends the run
+  **NOT RUN** with a finding (`lib/gate-common.mjs` `recordWaitState`); it is never settled.
+- **A wait right after input proves nothing.** herdr: "Standalone `agent wait` returns
+  immediately when the current status matches" (`cli-reference.mdx`), so a wait issued before
+  the agent picked the input up returns the state from before it (the 2026-10-02 C13 run's
+  marker wait, 75 ms). The driver applies herdr's own rule for "the input took effect": an
+  OBSERVED `working` or `blocked` state with `state_change_seq` past the baseline
+  (`src/api/wait.rs` `prompt_agent` L249-275, `prompt_activity_statuses` L515-520, at
+  v0.9.1). Any other change past the baseline (an idle/unknown flicker) is not a turn.
+  - Prompts the driver types go through `herdr agent prompt --wait`, typed only into an agent
+    `agent get` reports idle, done or unknown (never into a running turn), so herdr observes
+    the activity itself, atomically with the submission (`agent_prompt_stalled` ends the run
+    NOT RUN).
+  - Turns a channel push starts (the G5 Claude cases and C6, the G4 wakes and relay turn, L3's
+    probe, G1's wake) get a baseline (`agent get`) and an event-driven
+    `agent wait --until working --until blocked` armed before the push, running beside the
+    scenario (`lib/gate-common.mjs` `armActivityWatch`). If herdr observes no activity, the run
+    ends NOT RUN. A push into a turn already running (C6) needs no watch: that turn's end is
+    the floor.
+  - The settle then needs a settled state whose `state_change_seq` is past the observed
+    activity (`turnFloor`), so a question is never typed while the push's turn still runs.
+  - Wire evidence comes in two kinds. `begun` (a tool call on the wire) only shows that a
+    turn started. `done` (the turn completed on the wire) shows that it is over, and only
+    `done` lets herdr's `unknown` count as settled.
+- **A startup seen on the wire is not a finished startup (#282).** Live G4 run
+  20261004T075757Z (Codex 0.160.0) saw Codex's MCP connect ~13 s after launch, and the
+  pre-prompt `agent get` 1.1 s later read `working`, so the driver refused to type. After such
+  an observation (Codex's MCP connect in G4; its session loaded in the daemon in G2, G5 and L3)
+  the driver settles once more before the first prompt (`lib/gate-common.mjs`
+  `settleAfterObservation`, `makeAgent().startupSettle`): `agent get` right after the
+  observation sets the floor, a settle must be idle at or past it, and a re-check `agent get`
+  after `settleMs` must still be idle at the same `state_change_seq` (a change raises the floor
+  and repeats). Bounded by `turnTimeoutMs`; never settled is NOT RUN with a finding naming the
+  startup settle. It types nothing, and the first prompt keeps its own #253 baseline and
+  refusal: `prompt(text, { wait: true })` in G4, G5 and L3, and since #282 also before G2's
+  plain operator prompt (`refuseRunningTurn`: an `agent get` reporting working or blocked is
+  NOT RUN, nothing typed).
+  Codex startup timing varies widely: the MCP connect came ~2 s after launch in run 050646Z
+  and ~13 s in 075757Z, and in 075322Z the TUI exited unprompted before connecting (cause
+  UNVERIFIED; Codex's own log store, `logs_2.sqlite` under the Codex home, not examined).
+  Claude's handshakes were already followed by a settle (`post-handshake`, G4's
+  `after-startup` settled read), so they are unchanged.
+- **"Turn finished" comes from the wire where one exists.** Codex: `thread/turns/list`
+  showing no turn `inProgress` (`lib/g5.mjs` `threadIdleOnWire`), taken after the thread
+  marker and before every delivery (G5 both paths, L3); G2 already waits for the thread's
+  `idle` status on its watch stream. Claude has no wire turn-end event: the herdr-observed
+  activity and the settle above.
+- **Every full read after a turn is a settled read.** herdr refuses `agent read --lines N` of
+  a full-screen agent's history with `agent_not_idle` while it is working, blocked or
+  unknown. `settledRead` settles first, and on a refusal settles again and retries the read
+  (at most three refusals, then NOT RUN); only reads are retried, nothing is re-sent. If herdr
+  stays `unknown` while the wire shows the turn over, the read falls back to the visible
+  screen (herdr's documented alternative), with a finding.
+
 ## Scripted gate re-runs
 
 Each gate scenario replays the human-run gate spike through herdr and records the run; its
 report generator scores every pass criterion against the human run's committed fixture and
 writes a `docs/planning/gates/herdr-runs/G<n>-<YYYY-MM-DD>.md` record. **None of them is
 verdict-bearing**: a gate's verdict comes only from its human-run procedure unless
-`scripted-runs.md` "Verdict eligibility" says otherwise. **None has run live**: each is
-exercised only against the test doubles, so every harness-facing behavior is UNVERIFIED until
-it runs live (the commands are in each scenario's header comment; an agent runs them,
-see "Operator setup" below).
+`scripted-runs.md` "Verdict eligibility" says otherwise. **Live runs so far:** G1, G2, G4 and
+G5 have run live, and their records are under `docs/planning/gates/herdr-runs/`. The current
+G2 and G4 equivalence records are `G2-2026-10-06.md` (run `20261006T000900Z-51a348`) and
+`G4-2026-10-06.md` (run `20261006T022052Z-00cdd3`), both Codex 0.160.0, run outcome PASS,
+driver commit `c4def66`. The #303 change (Codex's update prompt) is under `tools/herdr/`
+outside `test/`, so neither backs a run at a later driver commit: G2 and G4 need a re-record
+at the new commit. The earlier G2 record, `G2-2026-10-05.md` (run `20261005T052341Z-eb6c5a`,
+driver `efb775f`, PR #300), is kept as history. Two earlier G2 runs on 2026-10-05 were not recorded:
+`20261005T020547Z-84b913`, whose transcript held third-party tool output (#130), and
+`20261005T041011Z-bb584c`, whose transcript held harness-authored text in a daemon response
+that the elision did not then cover. A record holds for its own driver commit: a later
+scripted run relies on it only under `scripted-runs.md` "When a scripted run may carry a
+verdict" (among other conditions, an empty `tools/herdr/` diff, `test/` excluded, against the
+record's driver commit). A harness-facing behavior that no committed record shows stays
+UNVERIFIED until a live run shows it (the commands are in each scenario's header comment; an
+agent runs them, see "Operator setup" below).
 
 ```bash
 node tools/herdr/run.mjs --scenario g4-mcp-dual-era --out <run dir>   # accept=driver (default, #196)
@@ -197,8 +364,11 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
   (C6 mid-turn), Codex cases X1-X6 through the app-server client. **The spoofing bodies reach
   the harness only through the channel server or the app-server client**; herdr types only
   the thread marker, a busy prompt and the fixed question, each checked to carry no body,
-  frame marker or case identity. G5's verdict is FAIL and stays FAIL: the report only says
-  whether a scripted run reproduced the human run's results. The Codex rows are scored per
+  frame marker or case identity. G5's verdict is PASS (2026-10-03, `G5-result.md`: the Codex
+  leg from the C13 E1 re-run of 2026-10-02); a K8 run never changes it: the report only says
+  whether a scripted run reproduced the human run of 2026-09-27's results. The scored answer
+  is always the answer to the question herdr asked; an answer the model volunteers in its
+  reply to a delivery is supporting text only (#246, `lib/g5.mjs` UNPROMPTED_ANSWER_POLICY). The Codex rows are scored per
   case (`--case X2.c2=f`), never as one judgement: X2 is the harness-dependent case, and X5's
   criterion-2 failure is set by the reconstructed client's framing, so it reproduces by
   construction and cannot stand in for the model's behavior. Claude's criteria
@@ -207,8 +377,8 @@ node tools/herdr/lib/g5-report.mjs --run <run dir>
 - Both report generators read the gate's pass criteria from the `oac-gates` reference **as
   committed at HEAD**, bound by a sha256 pin (`G4_CRITERIA_SHA256`, `G5_CRITERIA_SHA256`), and
   refuse to score if the reference was reworded or reordered. `--write` refuses anything but a
-  `PASS` run from a clean, committed `tools/herdr/`, never overwrites, and writes the operator
-  attestation unticked. A version other than PINS.md's last tested one is not refused (#216):
+  `PASS` run from a clean, committed `tools/herdr/`, never overwrites, and writes a
+  Verification section from the run manifest for the recording agent to re-check (#252). A version other than PINS.md's last tested one is not refused (#216):
   it is a `VERSION WARNING` finding and the fixture entry says `version_matches_pin: false`.
   When a harness's sources disagree or a version moves mid-run, the record and run manifest
   are still written with a `VERSION WARNING`, but no fixture (operator decision on #216).
@@ -413,10 +583,65 @@ compares working-tree files with HEAD in git's normalized form, as `git status` 
 **3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
 shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
-self-test needs POSIX `sh` and is skipped on Windows. To loop one lifecycle case (#239), set
+self-test needs POSIX `sh` and is skipped on Windows. CI runs the whole self-test in the
+default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu, macos and
+windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only.
+(macos since #353: its temp directory sits under the symlinked `/var`, which every driver path
+guard now canonicalizes, and the fake Codex daemon's socket lives in a short `/tmp`
+directory.) To loop one lifecycle case (#239), set
 `OAC_HERDR_SELFTEST_ONLY` to part of its name, e.g.
 `OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
 the matching lifecycle cases run, and a filter that matches none fails.
+
+**What the driver reads in a harness home (#353).** The driver reads, under
+`CLAUDE_CONFIG_DIR`/`~/.claude` and `CODEX_HOME`/`~/.codex`, only:
+
+- the harness-config files it hashes (`settings.json`, `config.toml` and `hooks.json`; L3
+  also reads `.claude.json`). A file that is a symlink to a file of another name, such as a
+  credential file, is not read;
+- a harness's managed binary under its home, named for the command after every symlink
+  (Codex's standalone install), which is hashed;
+- with L3 `--param readSessionFile=true` (operator decision 2026-09-30), the scratch probe
+  project's own `projects/<slug>/*.jsonl`. It records entry types and flags only, and reads
+  only plain files in a plain slug directory that are verifiably under `projects/`. Any error
+  in that check means the file is not read (#357). A `*.jsonl` with more than one hard link
+  is not read either, and is recorded as a finding, because it may be another file in the
+  Claude config directory, such as a credential file (#357). Nor is a `*.jsonl` whose `st_dev`
+  differs from its slug directory's, which is a file mounted in from another filesystem
+  (#357).
+
+Every other path is refused by `lib/canonical-path.mjs`. A path is refused when it resolves
+inside a home by spelling (as written, by realpath, or by the OS realpath, which covers
+symlinks, junctions, `..`, 8.3 names and case) or by file identity. File identity is the
+`(dev, ino)` of the home entry against the target and each of its ancestors; it catches a
+UNC admin-share spelling or a bind mount. For a harness home the guard also refuses the same
+`ino` on another device. That covers an overlayfs merged view against its `lowerdir` only,
+because a directory that exists in `lowerdir` reports the `lowerdir` inode in the merged view
+(#357). An executable this rule leaves unhashed is recorded as a run finding. A home that is a
+filesystem or subvolume root (ext4 `ino` 2, btrfs `ino` 256) can make it a false positive,
+and the executable is then UNVERIFIED. The check fails closed on any error. A home whose
+filesystem reports no inode (`ino` 0: FAT/exFAT, some network shares) has no usable
+identity, so nothing is read through that guard. An `ino` 0 entry on a target's path counts
+as an error. A repository checkout on such a filesystem is refused with that reason (#357).
+
+The Linux namespace cases in the self-test need an unprivileged user and mount namespace: the
+bind mount of a home, the overlayfs merged-vs-`lowerdir` case, and the L3 file mounted in from
+a tmpfs. The CI loopback-only sandbox does not allow such a namespace. Where a case is skipped
+under GitHub Actions, the skip is also emitted as a `::warning::` annotation, so it shows on
+the run summary (#357). They run on WSL.
+
+Residuals the guard cannot close (each but the race needs mount privilege or a hard link
+made by the operator's own account):
+- a **hard link** to a credential file, which has no path relation to the home (closed for
+  the L3 session-file read only, by the `nlink > 1` skip);
+- an **overlayfs `upperdir` or `workdir`** spelling of a merged harness home, or the merged
+  view of a home spelled by its `upperdir`. The `upperdir` copy of a directory has an inode of
+  its own, which no merged entry reports, so neither the `(dev, ino)` nor the `ino`-only match
+  sees it (PR #358 review B1);
+- a **same-filesystem bind mount of one file** into the L3 slug directory: it keeps the
+  slug directory's `st_dev` and `nlink` 1;
+- a **check-then-open race (TOCTOU)**: a directory on the path swapped for a link between the
+  check and the open. That needs an active attacker on the operator's own machine.
 
 **4. Claude Code permission rules, when an agent runs the live steps.** Claude Code's
 permission prompts and its auto-mode classifier may refuse a command that launches a real

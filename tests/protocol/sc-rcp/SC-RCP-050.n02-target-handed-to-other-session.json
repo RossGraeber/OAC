@@ -1,0 +1,35 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-050",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "requested target handed off to another session",
+  "description": "msg-a2 was handed off to Dave, not to Bob, the replying session. The reply is sent uncorrelated.",
+  "stage": "reply",
+  "context": {
+    "handed_off": [
+      {
+        "id": "msg-a1",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      },
+      {
+        "id": "msg-a2",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "5mt9x2k7q4w8c1n6b3r0v5z2pd"
+      }
+    ]
+  },
+  "input": {
+    "reply_request": {
+      "from": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "to": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "requested_target": "msg-a2"
+    }
+  },
+  "expected": {
+    "reply_headers": {},
+    "correlation": "uncorrelated"
+  }
+}

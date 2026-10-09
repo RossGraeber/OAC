@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# cli/: the `oac` binary's entry point. It may depend on core/, adapters/* and
+# transports/*, for construction only; nothing may depend on cli/ (07 section 3, #305).
+
+[package]
+name = "oac-cli"
+description = "OAC command-line entry point (the oac binary)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "oac_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "oac"
+path = "src/main.rs"
+
+[dependencies]
+oac-core.workspace = true
+oac-adapter-claude = { path = "../adapters/claude" }
+oac-adapter-codex = { path = "../adapters/codex" }
+oac-transport-zenoh = { path = "../transports/zenoh" }
+# Device-key storage (#52, F3): the OS credential store (C1 section 8, C4 section 10;
+# default feature v1, which builds windows-native-keyring-store on Windows).
+keyring = "=4.2.0"
+zeroize = "=1.9.0"
+
+# The encrypted-file fallback (C4 section 11; default features only) is built on Unix only,
+# where it is used (#315 review N-d). libc gives the effective uid that the file store
+# checks ownership against; it is already in the graph at this version.
+[target.'cfg(unix)'.dependencies]
+age = "=0.12.1"
+libc = "=0.2.190"

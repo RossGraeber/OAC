@@ -1,0 +1,39 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-053",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "values copied from an envelope with the same id from another session",
+  "description": "Alice and Carol both sent an envelope with id msg-x to Bob. Bob replies to Alice; only Alice's record supplies the copied values.",
+  "stage": "reply",
+  "context": {
+    "handed_off": [
+      {
+        "id": "msg-x",
+        "from": "3kp8w2n6c9t4x1b5m7q0r3s8vz",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+        "conversation_id": "conv-carol",
+        "correlation_id": "corr-carol"
+      },
+      {
+        "id": "msg-x",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+      }
+    ]
+  },
+  "input": {
+    "reply_request": {
+      "from": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "to": "01harn7x9k2m4p6q8r0s2t4v6w",
+      "requested_target": "msg-x"
+    }
+  },
+  "expected": {
+    "reply_headers": {
+      "reply_to": "msg-x"
+    },
+    "correlation": "correlated"
+  }
+}

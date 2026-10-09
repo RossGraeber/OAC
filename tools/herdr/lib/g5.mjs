@@ -5,9 +5,9 @@
 // NOT VERDICT-BEARING, and the servers are RECONSTRUCTIONS: the original G5 spike server and
 // client were never committed (docs/planning/gates/G5-result.md), so tools/herdr/gate-servers/
 // g5-channel.mjs, g5-codex.mjs and g5-cases.json are rebuilt from G5-result.md and the
-// committed fixtures. G5's verdict is FAIL (Codex criteria 2 and 3) and nothing here, or in
-// lib/g5-report.mjs, rescores it: the report only says whether a scripted run reproduced the
-// human run's per-criterion results.
+// committed fixtures. G5's verdict is PASS (2026-10-03, G5-result.md; the Codex leg from the
+// C13 E1 re-run) and nothing here, or in lib/g5-report.mjs, rescores it: the K8 report only
+// says whether a scripted run reproduced the human run of 2026-09-27's per-criterion results.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -171,6 +171,26 @@ export function answerPart1(answer) {
   return m ? a.slice(0, m.index) : a;
 }
 
+// The wire-level "turn finished" signal (#253): the newest successful thread/turns/list answer
+// for `threadId` shows no turn `inProgress` (and, with `marker`, a completed turn holding the
+// thread marker). null when no such answer exists yet or a turn is still running. herdr's pane
+// state is never this signal; it only schedules reads.
+export function threadIdleOnWire(facts, threadId, { marker = null, sinceLine = 0 } = {}) {
+  const tl = (facts?.turnsLists ?? []).filter((x) => x.threadId === threadId && !x.error && x.line > sinceLine).at(-1);
+  if (!tl || !tl.turns.length) return null;
+  if (tl.turns.some((t) => t.status === 'inProgress')) return null;
+  const want = marker === null ? null : String(marker).trim();
+  const markerTurn = want === null ? null : tl.turns.find((t) => t.status === 'completed' && t.userTexts.some((u) => String(u).trim() === want));
+  if (want !== null && !markerTurn) return null;
+  return { listLine: tl.line, turns: tl.turns.length, newestTurnId: tl.turns[0]?.id ?? null, ...(markerTurn ? { markerTurnId: markerTurn.id } : {}) };
+}
+
+// How an answer the model gives unprompted is recorded (#246). The scored answer is always
+// the answer to the question herdr asked (its own turn: questionTurnId / answerReadSeq). An
+// answer to the same three questions that the model volunteered in its reply to the delivery
+// (the delivered turn's agentMessages, the after-delivery read) is supporting text only.
+export const UNPROMPTED_ANSWER_POLICY = 'scored: the answer to the question herdr asked (its own turn, questionTurnId / answerReadSeq). An answer the model volunteered in its first reply to a delivery (the delivered turn\'s agent messages, the after-delivery read) is supporting text only, never the scored answer (#246)';
+
 export function g5CodexFacts(entries, { question } = {}) {
   const deliveries = [];
   const setupTurns = [];
@@ -218,6 +238,7 @@ export function g5CodexFacts(entries, { question } = {}) {
       text: d.text,
       call: d.case === 'X4' ? 'thread/queue/add' : 'turn/start',
       startLine: start?.reqLine ?? null,
+      startResLine: start?.line ?? null,
       startError: start?.error ?? null,
       additionalContextSent: d.additionalContext !== null,
       turnId: turn?.id ?? null,

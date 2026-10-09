@@ -6,7 +6,9 @@
 outbound data/control flow, and local and LAN deployment topologies, in text diagrams. It
 does not restate `docs/planning/ADR-001.md` or `docs/planning/DESIGN.md` prose beyond what
 a diagram or flow needs — cite those files by path instead. It does not define interface
-signatures or message shapes (`docs/planning/v0.1/05-interfaces.md`'s job), does not define
+signatures (the frozen `spec/interfaces.md`'s job; it supersedes
+`docs/planning/v0.1/05-interfaces.md` §13-§15) or message shapes
+(`docs/planning/v0.1/05-interfaces.md`'s job), does not define
 the threat model (`docs/planning/v0.1/06-security.md`'s job), and does not define the
 CLI/launch story (`docs/planning/v0.1/08-cli-and-deployment.md`'s job, though §12-§13 below
 name the topology facts that story is built on).
@@ -16,7 +18,10 @@ Per `docs/planning/STATUS.md`'s Gate verdicts table, **gate G3 (Zenoh local peer
 `NOT RUN`**. Every transport-behavior statement below — loopback discovery, presence
 liveliness, local/LAN security profiles — is a **designed** mechanism this file diagrams,
 not a **proven** one. Gate **G5 (Provenance)** has since run and recorded **FAIL**
-(Codex criteria 2/3 f; Claude all criteria x) (`docs/planning/gates/G5-result.md`) —
+(Codex criteria 2/3 f; Claude all criteria x) (`docs/planning/gates/G5-result.md`) (dated
+note, 2026-10-03, #220: G5 is now **PASS** after its Codex-leg re-run under C13 §11; the
+`FAIL` and the Codex half of what follows are history, and the "OAC mitigation still
+designed" point still holds) —
 **harness behaviour confirmed by G5; OAC mitigation still designed**: G5's spike server
 (not OAC's own eventual adapter) sent the Claude `meta` map and built the Codex header
 frame, so what G5 confirmed is that Claude Code's channel rendering cannot be forged
@@ -92,7 +97,7 @@ its repo path (`docs/planning/DESIGN.md`'s Suggested repository shape, lines 136
 | Spec surface | The neutral OAC Session Channels specification text | Implementation code; provider-specific or transport-specific vocabulary | `spec/` | none |
 | Provider adapter A (Claude) | Translating neutral envelopes to/from Claude Code's provider-native wake and reply operations | The transport peer; key material; policy decisions (routes through core, per `docs/planning/DESIGN.md`'s "Adapters should route through core policy/security rather than directly through transports") | `adapters/claude/` | none |
 | Provider adapter B (Codex) | Translating neutral envelopes to/from the Codex app-server's provider-native turn/thread operations | The transport peer; key material; policy decisions; OpenAI model-API credentials | `adapters/codex/` | none |
-| Transport module | Every Zenoh-specific type, identifier, and concept (`docs/planning/decisions/C7-zenoh-transport.md` §2); the `Transport` contract's six operations over neutral types only | Policy/authorization decisions; signature verification; anything visible outside `publish`/`subscribe`/`announce_presence`/`watch_presence`/`health`/`shutdown` | `transports/zenoh/` | none (the daemon holds the key material; the transport module holds the Zenoh session/peer state the daemon starts it with) |
+| Transport module | Every Zenoh-specific type, identifier, and concept (`docs/planning/decisions/C7-zenoh-transport.md` §2); the `Transport` contract's operations over neutral types only (`spec/interfaces.md` Table 6.4) | Policy/authorization decisions; signature verification; anything visible outside the operations of `spec/interfaces.md` Table 6.4 | `transports/zenoh/` | none (the daemon holds the key material; the transport module holds the Zenoh session/peer state the daemon starts it with) |
 
 ---
 
@@ -454,7 +459,8 @@ Every reference below is a repo-relative path; no prior context is assumed.
 - `docs/planning/decisions/C5-envelope-auth.md`
 - `docs/planning/decisions/C6-trust-rendering.md`
 - `docs/planning/v0.1/03-decisions-and-amendments.md`
-- `docs/planning/v0.1/05-interfaces.md`
+- `docs/planning/v0.1/05-interfaces.md` (§13-§15 superseded by `spec/interfaces.md`)
+- `spec/interfaces.md` (frozen: Table 6.4)
 - `docs/planning/v0.1/06-security.md`
 - `docs/planning/v0.1/07-repository-and-dependencies.md`
 - `docs/planning/v0.1/08-cli-and-deployment.md`

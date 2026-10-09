@@ -1,0 +1,104 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-PRS-012",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "the first claimant's records accepted while a conflict is unresolved",
+  "description": "B1 is marked in conflict. Bob's next announcement for B1, valid in every other way, is discarded too.",
+  "stage": "presence-auth",
+  "context": {
+    "consumer_time": "2026-10-03T12:00:01.000Z",
+    "own_key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      },
+      {
+        "principal": "principal-c",
+        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+        "public_key": "LGPN2K_EISaRrzouTAmZRDaX66hHaXyOX0i-x3X0JUE"
+      }
+    ],
+    "sessions": {
+      "01harn7x9k2m4p6q8r0s2t4v6w": {
+        "working_directory_scope": "scope-alice"
+      }
+    },
+    "bindings": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "conflict": [
+          "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+          "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+        ]
+      }
+    },
+    "latest_seq": {},
+    "grants": [
+      {
+        "direction": "outbound",
+        "writer": {
+          "device": true
+        },
+        "target": {
+          "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+        }
+      },
+      {
+        "direction": "outbound",
+        "writer": {
+          "device": true
+        },
+        "target": {
+          "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9"
+        }
+      }
+    ]
+  },
+  "input": {
+    "authenticated_record": {
+      "record": {
+        "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+        "seq": 5,
+        "present": true,
+        "issued_at": "2026-10-03T12:00:00.000Z",
+        "lifetime_ms": 60000,
+        "descriptor": {
+          "session_id": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+          "capabilities": {
+            "io.github.rossgraeber/oac-session-channels": {
+              "revision": "0.1",
+              "active_inbound": true
+            }
+          },
+          "harness_label": "harness-b"
+        }
+      },
+      "audience": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "3DcvH_JeafbmatF-nawpK0i1eUNcYIahMkUXZzgDuiCCWIj3fcU7LmlEWQHqhPzSlmmQNii9NWg68gwT4TZsCw"
+      }
+    }
+  },
+  "expected": {
+    "result": "discarded",
+    "bindings_after": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": {
+        "conflict": [
+          "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+          "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+        ]
+      }
+    },
+    "record": "none"
+  }
+}

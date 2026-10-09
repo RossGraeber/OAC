@@ -1,0 +1,16 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-KEY-010",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The key id is the lower-case hexadecimal SHA-256 of the 32-octet public key.",
+  "stage": "key-id",
+  "context": {},
+  "input": {
+    "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+  },
+  "expected": {
+    "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-085",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The sending implementation never reached a transport. Its own `failed` state settles the envelope.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 0,
+    "deadline_passed": false
+  },
+  "input": {
+    "held": [
+      {
+        "state": "failed",
+        "observer": "sender",
+        "error": "transport-failure"
+      }
+    ]
+  },
+  "expected": {
+    "state": "failed",
+    "retry_allowed": true
+  }
+}

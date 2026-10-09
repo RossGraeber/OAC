@@ -395,8 +395,8 @@ function l3ReportUnit(check) {
   check('l3 report: poll path NOT RUN for a record without the sync --print field (pre-#195 record)', d.includes('`beacon endpoint claude sync --print`) at B2: NOT RUN (this record carries no poll-path result') && d.includes('`beacon endpoint codex sync --print`) at B4: NOT RUN') && d.includes('### Not recorded by the probe record') && /`sync --print` poll-path counts/.test(d));
   check('l3 report: header carries versions, pins, date, box and each phase\'s start and end', d.includes('- **Date:** 2026-09-30') && d.includes('`beacon version 1.3.29`') && d.includes('PINS.md last observed `2.1.284`') && d.includes(`ends ${at(60)}`) && d.includes(`\`${at(10)}\` to \`${at(30)}\``));
   check('l3 report: Driver lines as g1-report renders them, plus toolsHerdrDirty', d.includes('- **Driver (probe):** herdr (`herdr 0.9.1`, PINS.md `herdr (test tooling)` v0.9.1) via `tools/herdr/run.mjs`, scenario `tools/herdr/scenarios/l3-beacon.mjs`, driver commit') && d.includes('`driver.toolsHerdrDirty`: false'));
-  check('l3 report: states herdr-driven, accept=human per phase, not a gate result', /herdr-driven/.test(d) && d.includes('probe `accept=human` (the driver sent no dialog key)') && d.includes('accepted by me, a human at the keyboard') && /not a gate result/.test(d) && /changes no verdict/.test(d));
-  check('l3 report: operator attestation present and unticked, naming Beacon', d.includes('### Operator attestation') && (d.match(/^- \[ \] /gm) ?? []).length === 4 && !/^- \[x\]/im.test(d) && d.includes('**Beacon:**') && d.includes('**Attested by:** <operator>'));
+  check('l3 report: states herdr-driven, accept=human per phase, not a gate result', /herdr-driven/.test(d) && d.includes('probe `accept=human` (the driver sent no dialog key)') && d.includes('recorded as human (the driver sent no keystroke): accepted at the keyboard by <TO FILL') && /not a gate result/.test(d) && /changes no verdict/.test(d));
+  check('l3 report #252: Verification section, naming Beacon against its pin, no operator attestation', d.includes('### Verification') && /^- \*\*Beacon:\*\* VERIFIED — `beacon version` .*carries the L1 §2 pin 1\.3\.29/m.test(d) && /^- \*\*herdr:\*\* (?:UN)?VERIFIED — /m.test(d) && d.includes('**Verified by:** <TO FILL') && !/Operator attestation|Attested by|^- \[[ x]\] /im.test(d), d.split('\n').filter((l) => /\*\*(Beacon|herdr|Harness):/.test(l)).join(' || '));
   check('l3 report: no probe value, raw log text, config content, home path or username in the draft', noValue(d) && !d.includes(LOG_CANARY) && !d.includes(CONFIG_CANARY) && !d.includes(homedir()) && !(userName.length >= 4 && d.toLowerCase().includes(userName.toLowerCase())));
   check('l3 report: the draft scans clean (redactor, placeholders neutralized)', clean(createRedactor(), d));
 
@@ -576,7 +576,7 @@ function l3ReportReviewUnit(check, markers, fx, noValue) {
     ];
     const dd = tryDraft(a, { markers });
     const t = dd.text ?? '';
-    check('l3 report #196: accept=driver runs are stated as driver accepts (header, finding, attestation), never as a human\'s', !dd.err && t.includes('probe `accept=driver` (accepted by the driver, #196)') && t.includes('accepted by the DRIVER, not by a human: claude workspace-trust (read #11; accepted by the DRIVER (herdr dialog-accept: down #12, enter #14))') && /- \[ \] \*\*Consent dialog:\*\* accepted by the DRIVER \(`accept=driver`, #196\), not by me/.test(t) && !t.includes('accepted by me, a human'), dd.err?.message ?? t.split('\n').filter((l) => /DRIVER|accept/.test(l)).join(' || '));
+    check('l3 report #196: accept=driver runs are stated as driver accepts (header, finding, Verification), never as a human\'s', !dd.err && t.includes('probe `accept=driver` (accepted by the driver, #196)') && t.includes('accepted by the DRIVER, not by a human: claude workspace-trust (read #11; accepted by the DRIVER (herdr dialog-accept: down #12, enter #14))') && /^- \*\*Human actions:\*\* none: the driver accepted the probe run's dialogs \(`accept=driver`, #196\)/m.test(t) && !t.includes('accepted at the keyboard'), dd.err?.message ?? t.split('\n').filter((l) => /DRIVER|accept/.test(l)).join(' || '));
   }
 
   // 3. Free text cannot forge a step line.
@@ -1016,7 +1016,10 @@ export async function l3Cases(check, h) {
       const underHome = (t) => t.path && homes.some((x) => within(t.path, x));
       const hashed = new Set(harnessConfigTargets(w.b.env, { home: w.home }).targets.map((t) => t.path));
       const sessionDir = join(w.b.env.CLAUDE_CONFIG_DIR, 'projects');
-      const allowedRead = (t) => hashed.has(t.path) || (within(t.path, sessionDir) && /[\\/]projects[\\/][^\\/]*l3-project(?:[\\/][^\\/]+\.jsonl)?$/.test(t.path));
+      // #353: realpath of a home's own directory entry (executableIdentity canonicalizes it) reads nothing inside it.
+      // #353: the guard resolves and stats the projects directory's own entry too (its containment root).
+      const homeEntry = (t) => /^(?:realpath|stat)(?:Sync)?$/.test(t.op) && [...homes, sessionDir].some((x) => x && resolve(x) === resolve(t.path));
+      const allowedRead = (t) => hashed.has(t.path) || homeEntry(t) || (within(t.path, sessionDir) && /[\\/]projects[\\/][^\\/]*l3-project(?:[\\/][^\\/]+\.jsonl)?$/.test(t.path));
       check('l3 trace: the tracer saw the driver in all three phases', new Set(driver.map((t) => t.pid)).size >= 3 && driver.length > 100, String(driver.length));
       check('l3 trace: the driver wrote nothing under either harness home', driver.filter(underHome).every((t) => t.kind !== 'write'), JSON.stringify([...new Set(driver.filter(underHome).filter((t) => t.kind === 'write').map((t) => `${t.op} ${relative(w.b.base, t.path)}`))]));
       check('l3 trace: the driver read nothing under the harness homes but the hashed config files and the probe project\'s session file', driver.filter(underHome).every((t) => t.kind === 'fs' && allowedRead(t)), JSON.stringify([...new Set(driver.filter(underHome).filter((t) => !allowedRead(t)).map((t) => `${t.op} ${relative(w.b.base, t.path)}`))]));

@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# OAC workspace (#50, F1). Layout and dependency edges:
+# docs/planning/v0.1/07-repository-and-dependencies.md sections 1-3.
+#
+#   cli/              -> core/, adapters/*, transports/*  (construction only)
+#   adapters/*        -> core/ only
+#   transports/*      -> core/ only
+#   core/             -> nothing in-repo
+#   (nothing)         -> cli/
+#   tests/fakes/*     -> core/ only; reached by product crates through dev-dependencies
+#                        only, so never built into the `oac` binary (#57)
+#   tests/protocol/contract/*
+#                     -> core/ and tests/fakes/* only; the contract suites (#59), reached
+#                        by product crates through dev-dependencies only, like the fakes
+#   tests/security    -> core/, tests/fakes/*, transports/* and the contract suites only;
+#                        the security suite (#60), a leaf: nothing depends on it
+#
+# scripts/check-crate-deps.mjs enforces these edges over `cargo metadata`, and keeps
+# provider and transport crates unreachable from core/. Members are listed one by one: no
+# glob, so nothing outside the module layout joins the build by accident.
+
+[workspace]
+resolver = "3"
+members = [
+    "core",
+    "cli",
+    "transports/zenoh",
+    "transports/memory",
+    "adapters/claude",
+    "adapters/codex",
+    "tests/fakes/claude",
+    "tests/protocol/contract/transport",
+    "tests/protocol/contract/adapter",
+    "tests/security",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98.1"
+license = "Apache-2.0"
+repository = "https://github.com/RossGraeber/OAC"
+publish = false
+
+[workspace.dependencies]
+oac-core = { path = "core" }

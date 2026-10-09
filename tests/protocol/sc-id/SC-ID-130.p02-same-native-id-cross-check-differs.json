@@ -1,0 +1,43 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-130",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A's cross-check value differs from N, but A is already bound to N. Case 1 applies before case 3(b).",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-old",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "A"
+    }
+  },
+  "expected": {
+    "result": "unchanged",
+    "attachments": [
+      {
+        "attachment": "A",
+        "cross_check": "native-old",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "3k9m2p7q4r8s1t6v0w5x2y9z3a"
+        }
+      }
+    ],
+    "record": "none"
+  }
+}

@@ -381,6 +381,33 @@ test doubles (`node tools/herdr/run.mjs --self-test`), so no `-herdr` fixture an
 here and changes nothing above: this gate's verdict comes only from the human-run
 procedure (`oac-gates` `references/scripted-runs.md` "Verdict eligibility").
 
+*Dated note, 2026-10-05 (#130):* the scenario has now run live and is recorded. Run
+`20261005T052341Z-eb6c5a` (outcome PASS, driver commit `efb775f`, the #298 merge, with
+`toolsHerdrDirty` false; herdr `v0.9.1` first-party match; Codex `0.160.0` from CLI, daemon
+and wire; scenario defaults, `accept=driver`, no dialog) is recorded at
+`herdr-runs/G2-2026-10-05.md`, with its run manifest beside it and two `-herdr` fixtures
+under `fixtures/g2-codex-inject/`. It is the **equivalence record for G2 at herdr v0.9.1**:
+all four criteria `equivalent` against the `0.157.1` re-run above, from the wire transcript
+and pane capture, with herdr and Harness VERIFIED. The model answered the delivered message
+"OAC G2 RERUN RECEIVED" and the queued one "OAC G2 QUEUED", as in that run. Two earlier
+live runs of the scenario, `20261005T020547Z-84b913` and `20261005T041011Z-bb584c`, are not
+recorded, because their transcripts carried third-party text the driver did not then elide
+(#130). The verdict above is unchanged.
+
+*Dated note, 2026-10-06 (#130, re-record after #301):* the note above is superseded as to
+which record is current. #301 (the #299 fixes) changed `tools/herdr/` outside
+`tools/herdr/test/`, so `herdr-runs/G2-2026-10-05.md` (driver `efb775f`) can back no later
+run. G2 was re-recorded once at the #301 merge: run `20261006T000900Z-51a348` (outcome PASS,
+driver commit `c4def66`, `toolsHerdrDirty` false; herdr `v0.9.1` first-party match; Codex
+`0.160.0` from CLI, daemon and wire; the same scenario file, launch argv and params as
+`20261005T052341Z-eb6c5a`, no dialog) is recorded at `herdr-runs/G2-2026-10-06.md`, with its
+run manifest beside it and two `-herdr` fixtures under `fixtures/g2-codex-inject/`. It is
+now the **equivalence record for G2 at herdr v0.9.1**: all four criteria `equivalent`
+against the `0.157.1` re-run above, from the wire transcript and pane capture, with herdr and
+Harness VERIFIED. The model again answered "OAC G2 RERUN RECEIVED" and "OAC G2 QUEUED", in
+the human run's order, and used no tool. The 2026-10-05 record and fixtures stay committed,
+marked superseded. The verdict above is unchanged.
+
 #### 0.154.0 baseline run (superseded by the current 0.157.1 verdict above; retained for its source-level detail)
 
 - **Pinned version(s):** `@openai/codex` `0.154.0`. The CLI, the managed daemon binary and

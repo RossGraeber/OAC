@@ -1,0 +1,31 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "IFC-TYP-030",
+  "spec": "spec/interfaces.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A SessionCapabilities value keyed by extension identifier, as the capability declaration of spec/session-channels.md §6.4. Version 0 is agreed.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "io.github.rossgraeber/oac-session-channels": {
+        "revision": "0.1",
+        "active_inbound": true
+      }
+    }
+  },
+  "expected": {
+    "result": "agreed",
+    "extension": "io.github.rossgraeber/oac-session-channels",
+    "major": 0
+  }
+}

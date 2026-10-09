@@ -40,10 +40,14 @@ verdict was `NOT RUN` and the project was at Pre-Stage 0. Per the current
 `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code (Channels)
 pin went floating 2026-09-27, last observed `v2.1.283` — see
 `docs/planning/gates/G1-result.md`), G5 is **FAIL** (Codex
-criteria 2/3 f; Claude all criteria x), and G3 stays `NOT RUN` at gate level
+criteria 2/3 f; Claude all criteria x) (dated note, 2026-10-03, #220: G5 is now **PASS**
+after its Codex-leg re-run under C13 §11 — see `docs/planning/gates/G5-result.md`), and G3 stays `NOT RUN` at gate level
 (Windows/Linux PASS, macOS parked) (note 2026-10-02, #219: G3 is now **PASS** at gate level, macOS leg run on a GitHub-hosted VM — see `docs/planning/gates/G3-result.md`); per `docs/planning/STATUS.md` "Current stage," the
 project is still at **Pre-Stage 0** — no stage below is recorded as entered, passed, or
-exited. This file is not re-authored per gate result; only this caveat's own currency is
+exited. *(Dated note, 2026-10-03, #254: the "Pre-Stage 0" statement is stale. Read the
+current stage, and which stages are entered or exited, from `docs/planning/STATUS.md`
+"Current stage" and from this file's own "Current verdict" sections, not from this caveat.)*
+This file is not re-authored per gate result; only this caveat's own currency is
 corrected here. The criteria are the plan, not a report.
 
 ---
@@ -251,7 +255,9 @@ against the evidence as it stands on that date. Each criterion:
    #228.** C1-C4 and C6-C10 are resolved (`RESOLVED-HERE`, `RESOLVED-BY-DECISION`,
    `RESOLVED-BY-EVIDENCE` or `RESOLVED-IN-DECISION`; `docs/planning/ADR-001-AMENDMENTS.md`
    conflict register). C12 is `RESOLVED-HERE`: #228 applied ADR-001-A1 to
-   `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open. C11 is
+   `docs/planning/DESIGN.md`. C13 is `ASSIGNED` to #220, which is open (dated note,
+   2026-10-03, #220: C13 is now `RESOLVED-IN-DECISION`, after G5's Codex-leg re-run
+   passed). C11 is
    `ASSIGNED`; its module name is owned by the Epic F/G adapter implementation (#6, #7,
    both open; `docs/planning/decisions/C4-session-identity.md` §16). C5 is `ASSIGNED`.
    The tasks it named before (D4, C2, C3) are closed, so #228 names live owners, with a
@@ -358,8 +364,39 @@ Pass, fail, and fallback text for each is `docs/planning/v0.1/02-gating-findings
 - **G3 or G4 `FAIL` → take the named fallback and proceed**, recording
   `PASS (FALLBACK TAKEN)`. Neither stops v0.1 on its own.
 
-**Current verdict.** At this document's own landing, all five gates were `NOT RUN` and
-Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and
+**Current verdict (2026-10-03, #40, D7): Gate S1 is met. Go: Stage 1 exits and Stage 2
+opens.** The exit decision, with evidence per criterion, is
+`docs/planning/decisions/D7-stage1-exit.md`. Each gate's result file stays authoritative
+for its verdict.
+
+- G1, G2, G3 and G4 are **PASS**, each on its primary path.
+- G5 is **PASS** (`docs/planning/gates/G5-result.md`, "Verdict"). The Claude leg is carried
+  from 2026-09-27. The Codex leg was re-run on 2026-10-02 under C13 §11 (route E1) with
+  Option C framing (C6 §5.0), and the verdict was written on 2026-10-03 (#220).
+- **No fallback was taken.** No verdict reads `PASS (FALLBACK TAKEN)`. C13 is the design
+  change that this section's G5 go/no-go bullet requires, not a fallback. C13's own
+  Option A fallback was not needed.
+- **The five Gate S1 criteria all hold:**
+  - closed verdicts;
+  - criteria evaluated individually;
+  - no fallback, so criterion 3 holds vacuously;
+  - the D6 fixtures are on record, and `check-fixture-manifest` passes;
+  - no spike code on a later-stage path. The 15 `*.throwaway-quarantined` files sit
+    under `docs/planning/gates/fixtures/`, and `tools/herdr/gate-servers/` is the one
+    documented exception, contained by `oac-boundaries` check 9.
+- **C13 and DESIGN criterion 6.** C13 is `RESOLVED-IN-DECISION`. DESIGN acceptance
+  criterion 6 is re-established for Codex at gate level, which lifts the block on Stage
+  2's interface freeze for Codex provenance framing. The PASS covers the reconstructed
+  gate client, not OAC's own adapter. The caveats in `G5-result.md` "Consequence" and
+  "UNVERIFIED items" carry forward.
+- §6's entry criterion on G5 design changes is met. C6 §5.0 landed before any Stage 2
+  work.
+- **Continuing alongside Stage 2** (operator decision on #40): the herdr re-runs (#130,
+  #131, #124) and the open items #246, #253, #252 and #224. None of them can change a
+  verdict.
+
+*History (pre-D7), kept as history:* At this document's own landing, all five gates were
+`NOT RUN` and Stage 1 was not entered. Per the current `docs/planning/STATUS.md` "Gate verdicts" and
 `docs/planning/v0.1/02-gating-findings.md` §2: G2 and G4 are **PASS**; G1 PASSED on
 Claude Code `v2.1.282` but is now `NOT RUN` for the current environment (the Claude Code
 (Channels) pin went floating 2026-09-27, last observed `v2.1.283` — see
@@ -376,7 +413,11 @@ primary multicast path, so the fallback above was not needed and no gate leg sti
 Stage 1 from exiting. See `docs/planning/gates/G3-result.md`.) (Note 2026-10-02, #228: Gate
 S0 is now declared met (§4), so Stage 1 is recorded as entered and is the current stage.
 Its exit is D7, #40. Every gate leg has a closed verdict; G5's Codex-leg re-run under C13
-(#220) is pending.)
+(#220) is pending.) (Note 2026-10-03, #220: the re-run under C13 §11 passed, route E1,
+attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. **G5 is now PASS**, so every gate G1-G5 reads `PASS`.
+C13 is `RESOLVED-IN-DECISION`, so the go/no-go condition above no longer stops the pipeline
+at Stage 2's interface freeze for Codex provenance. Stage 2 still waits on Stage 1's exit,
+D7. See `docs/planning/gates/G5-result.md`.)
 
 ---
 
@@ -428,10 +469,16 @@ a document, not a demonstration.
   specification (E5).
 - The frozen adapter contract, transport contract, and core types (E7).
 - The conformance fixture set under `tests/protocol/` (E8).
-- The design-for-replacement proofs (E9), which
+- The design-for-replacement proofs (E9): **written**,
+  `docs/planning/decisions/E9-replacement-proofs.md` (#49), argued from the frozen
+  `spec/interfaces.md` §4-§7. All four #49 acceptance items are met (record §7): the ACP
+  adapter proof, the NATS and MQTT transport proofs with the capabilities each lacks, and
+  the second-backend proof for DESIGN criterion 10. Every NATS and MQTT capability cell is
+  cited to first-party sources. No amendment to a frozen item is proposed (record §8).
+  *(Dated note, 2026-10-06, #49: until now this bullet read "which
   `docs/planning/v0.1/05-interfaces.md` §22 currently records as **NOT MET as of the M0
   draft** — every NATS and MQTT capability cell in §17's proof is `UNVERIFIED` (carried
-  from `docs/planning/STATUS.md`, not resolved here).
+  from `docs/planning/STATUS.md`, not resolved here)".)*
 
 **Gate S2 — acceptance criteria.**
 
@@ -455,6 +502,62 @@ if criterion 2 fails**, because an interface that leaks transport or provider vo
 cannot be frozen without freezing the leak; the offending text is corrected and the freeze
 is re-attempted. A failing criterion 4 (a fixture nothing can execute) blocks Stage 3,
 which loads those fixtures as its CI-default spec-conformance tier.
+
+**Current verdict (2026-10-06, #5): Gate S2 is met. Go: Stage 2 exits and Stage 3
+opens.** The exit decision, with evidence per criterion, is
+`docs/planning/decisions/E-5-stage2-exit.md`. The freeze record (E7) and the
+replacement proofs (E9) stay authoritative for their own content.
+
+- **Criteria 1-6 all hold**, re-checked on `main` at `98ad455` (the PR #306 merge):
+  - the interfaces are frozen at revision 0.1 (PR #276, merged by the lead), and nothing
+    under `spec/` has changed since;
+  - the neutral-vocabulary checks over `spec/` are clean;
+  - each `spec/` document separates normative text from labelled reference-implementation
+    notes;
+  - the runner decides 527/527 fixtures, and its index checks are clean;
+  - versioning (`spec/session-channels.md` §5) and unsupported-capability behaviour (§6.6)
+    are normative;
+  - the two Stage 1 contradictions (C13 and #224) were folded in before the freeze.
+- **Every exit artifact exists:** `spec/` (E1-E6), the frozen contracts (E7), the fixture
+  set (E8) and the proofs (E9). All nine Epic E tasks are closed.
+- **#308** (editorial amendments to frozen text, for the next minor version) is outside
+  Epic E's scope. It lands later under the E7 §7 change rule and does not block the exit.
+  The minor bump for a change touching no wire form is the operator's N1 decision,
+  recorded on #47 (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873).
+- **§7's entry conditions are met:** Gate S2, the D6 fixtures, and Gates S0 and S1.
+
+*History (pre-exit), kept as history:* **Gate S2 criterion 1 is met (2026-10-06, #47). The
+operator decided FREEZE at revision 0.1**
+(https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771).
+The freeze record is `docs/planning/decisions/E7-interface-freeze.md`. It holds the
+readiness audit (§2), the blockers and the sign-off re-run (§3), the markers the sign-off
+commit applied (§6), the change-control rule (§7) and the operator's answers (§8). The
+freeze is in force from the merge of PR #276, which carries the sign-off commit and which
+the operator approves.
+
+- **All five blockers are closed:**
+  - the interface text, `spec/interfaces.md` (#273, PR #279);
+  - the #224 no-steering decision (#274, PR #278);
+  - L9 (#174, PR #272), landed before the freeze;
+  - the deciding fixtures for `envelope-too-large` and `transport-failure`, and owners for
+    every MCP binding `TODO(fixture)` row (#275, PR #284, merge `3e4471e`).
+- **Criteria 1-6 hold.** Criterion 4's demonstration covers every error code and delivery
+  state over 527 fixtures. Binding-format fixtures count, by an orchestrator ruling
+  recorded in the freeze record §2. §2 rows 1, 4, 5 and 6 were re-run at sign-off.
+- **Change control (record §7).** A frozen item changes only by a PR containing the change
+  and a version bump, approved by the lead. No separate amendment document is written.
+
+*Dated note, 2026-10-04 (#47): two references above are M0-era.*
+
+- *Criterion 1's "spec-revision event under `docs/planning/v0.1/05-interfaces.md` §11" is
+  now governed by `spec/session-channels.md` §5, which supersedes `05-interfaces.md`, and
+  by the freeze record's §7. (2026-10-06, #47: under the operator's §7 rule, the
+  spec-revision event is the PR itself: the change, a version bump, and the lead's
+  approval. It needs no separate amendment record.)*
+- *The "closed error taxonomy (`05-interfaces.md` §10, ten rows)" in the executable
+  demonstration is now `spec/session-channels.md` Table 8.3, with seventeen codes.*
+
+*The criteria themselves are unchanged.*
 
 ---
 
@@ -547,6 +650,31 @@ fake, never to grant a default-tier waiver. A failing criterion 5 sends the work
 Stage 1 for a fixture capture, because a fake built from the spec proves only that the
 spec agrees with itself.
 
+**Current verdict (2026-10-08, #6): Gate S3 is met. Go: Stage 3 exits and Stage 4
+opens.** The exit decision, with evidence per criterion, is
+`docs/planning/decisions/F-6-stage3-exit.md`. It is in force from the lead's merge of its
+PR, which is the approval (record §5, as E-5 §2).
+
+- **Criteria 1-5 all hold**, re-checked on `main` at `090d2a7` (the PR #346 merge):
+  - the default tier is green on ubuntu, windows and macos with no live provider, no API
+    key and no network beyond loopback (`ci.yml`; loopback-only namespace on ubuntu);
+  - a plain `cargo test --workspace` runs no provider test;
+  - `scripts/check-crate-deps.mjs` is clean;
+  - `contract/adapter/no-polling` passes, in the call-class shape, through both fakes, and
+    its fake Codex half (an add to an idle thread starts a turn) is recorded;
+  - every fake behaviour traces to a recorded Stage 1 fixture.
+- **Criterion 5 history.** The first run found twelve fake behaviours with no fixture
+  (finding F-1). Under the rule above the work went back to Stage 1. The #343 capture
+  (PR #344) recorded every one a documented client request can reach. The lead then
+  decided that the fake stops modelling the rest. PR #346 removed the two subagent
+  refusals and "no queue service", and moved the turned-away checks onto the recorded
+  archived refusal. No departure from this section is recorded, and none is needed.
+- **Every exit artifact exists.** #59 (F10) stays open until Epic G: its real-adapter and
+  Zenoh halves are §8's demonstration 1. #347, a contract-suite gap (`handoff-failed`
+  against not-now), affects no criterion here.
+- **§8's entry conditions are met:** Gate S3, G1 and G2 `PASS`, and G3 `PASS` on the
+  primary multicast path.
+
 ---
 
 ## 8. Stage 4 — Adapters and Zenoh transport
@@ -633,7 +761,8 @@ no `zenohd`), decision 2 (process model, for the daemon and IPC work in G9), dec
 **Gate S4 — acceptance criteria.**
 
 1. The contract suites pass on the real modules **without modification** — a suite edited
-   to make a real module pass is a contract change, therefore a Stage 2 freeze violation.
+   to make a real module pass is a contract change, therefore a Stage 2 freeze violation
+   unless landed under the E7 §7 rule (`docs/planning/decisions/E7-interface-freeze.md`).
 2. Provider integration tests pass, and each records the exact version string it ran
    against: the pin for a fixed row; for the floating Claude Code and Codex rows, the
    installed version, with a `VERSION WARNING` (never a failure) when it differs from the
@@ -730,8 +859,10 @@ clean shutdown on all three platforms (H4).
    `oac-boundaries` CI lint with its scope gap carried
    (`docs/planning/v0.1/09-test-strategy.md` §8), and criterion 10 (transport contract
    documented enough to add a second backend) is proven by the E9 design-for-replacement
-   doc proof, which `docs/planning/v0.1/05-interfaces.md` §22 currently records as **NOT
-   MET**, with every NATS and MQTT capability cell `UNVERIFIED`.
+   doc proof, `docs/planning/decisions/E9-replacement-proofs.md` §6, which records it as
+   **MET** (#49, 2026-10-06). *(Dated note, 2026-10-06, #49: until now this item said
+   `docs/planning/v0.1/05-interfaces.md` §22 recorded the proof as NOT MET, with every NATS
+   and MQTT capability cell `UNVERIFIED`.)*
 
 **Go/no-go condition.** **H1 is the v0.1 go/no-go.** If the end-to-end criterion does not
 pass on any platform, v0.1 does not ship: the ADR's validation criterion is the definition
@@ -830,7 +961,7 @@ verbatim from `docs/planning/DESIGN.md` "v0.1 acceptance criteria". The named te
 | 7 | "Replay/duplicate handling exists." | Stage 3 (§7, F4 against the fakes) | Stage 5 (§9, H2 and H3 across a restart) |
 | 8 | "No cross-provider model API invocation." | Stage 1 (§5, G2's no-credentials criterion) | Stage 5 (§9, H1 clause 3), plus the CI-default boundary lint from Stage 3 on |
 | 9 | "Zenoh-specific types stay inside its transport module." | Stage 3 (§7, the lint exists and passes over an empty tree) | Stage 4 (§8, the lint over a real `transports/zenoh/`) — **lint, not a runtime test**, with the scope gap carried |
-| 10 | "Transport contract is documented enough to independently add a second backend." | Stage 2 (§6, E9) | Stage 2 — **a doc proof, not a test**; currently **NOT MET**, every NATS/MQTT cell `UNVERIFIED` |
+| 10 | "Transport contract is documented enough to independently add a second backend." | Stage 2 (§6, E9) | Stage 2 — **a doc proof, not a test**; **MET** by `docs/planning/decisions/E9-replacement-proofs.md` §6 (#49, 2026-10-06; until then NOT MET, every NATS/MQTT cell `UNVERIFIED`) |
 
 **Two criteria are not proven by a runtime test, and that is recorded rather than
 papered over** — 9 (lint) and 10 (doc proof), per
@@ -902,6 +1033,9 @@ Every reference is a repo-relative path; no prior context is assumed.
 - **No `UNVERIFIED` label is dropped.** Four are carried into this file with their reasons
   intact: the two shim-boundary items (§8), the E9 NATS/MQTT design-for-replacement cells
   (§6, §9, §11), and the Zenoh-containment lint's recorded scope gap (§8, §9).
+  *(Dated note, 2026-10-06, #49: the E9 NATS/MQTT cells are no longer UNVERIFIED. E9
+  re-verified them against first-party sources and promoted them
+  (`docs/planning/decisions/E9-replacement-proofs.md` §9), and §6, §9 and §11 say so.)*
 - **The timebox values in §3 are OAC's own scheduling parameters**, not claims about an
   external system, and carry a stated reversal condition instead of a citation.
 - **No gate verdict is changed.** All five remain `NOT RUN`.

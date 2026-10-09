@@ -114,6 +114,15 @@
         names — though that concern's own premise is itself unconfirmed (`oac-mcp`'s pin
         record: no such reservation clause was found in the SEP-2133 text during B2
         re-verification; this does not change the call here either way).
+        *Dated correction, 2026-10-03 (#257, from the PR #255 review): two errors in the
+        sentence above. The key's second label is `github` (`io` `.` `github` `.`
+        `rossgraeber`), not `session-channels`, which is the name after the `/`. And the
+        reservation premise is confirmed: the MCP base specification states it at both
+        `2025-11-25` and `2026-07-28`, section "General fields" → "`_meta`" ("Any prefix
+        where the second label is `modelcontextprotocol` or `mcp` is **reserved** for MCP
+        use"; https://modelcontextprotocol.io/specification/2026-07-28/basic, retrieved
+        2026-10-03); only SEP-2133's own text lacks it. `github` is neither reserved
+        label, so the key does not collide, and this criterion's verdict is unaffected.*
         - **New observation (not a criterion failure):** Claude Code does not surface
           this `_meta` to the model — confirmed on the wire (line 25) but reported by
           Claude itself as absent when asked (UI observation 3). The criterion is about
@@ -398,6 +407,13 @@ provenance verdict and is recorded here, on G4, because it is G4's own open item
     `content[0].text: "g4 echo: row41 modern probe"` and OAC
     `_meta["io.github.rossgraeber/oac-session-channels"]` provenance
     (`served_by_pid: 26152, surface: "http-modern"`).
+    *Dated correction, 2026-10-03 (#46): the line above under-reports
+    `x-codex-turn-metadata`. On line 17 it also carries `session_id`, `thread_id` and
+    `turn_id` (plus `reasoning_effort`, `thread_source`, `turn_trigger`, sandbox fields
+    and `turn_started_at_unix_ms`). The legacy-era calls in
+    `transcript-2026-09-26.jsonl` lines 48 and 50 carry the same fields. The verdict is
+    unchanged. `spec/bindings/mcp.md` §4.4 records why OAC does not attribute calls by
+    this undocumented, client-asserted field.*
   - **Every request on this leg negotiated the current MCP revision, `2026-07-28`, this
     time** — the first time any Codex client has done so against this server in either
     G4 run.
@@ -454,11 +470,69 @@ fixtures and cannot be verified identical to it. Codex's MCP registration there 
 invocation (the operator's global Codex config is never edited); because this run's own
 global `g4` entry for `127.0.0.1:17448` may still be present, the scenario refuses this run's
 ports and its report requires exactly one Codex HTTP session before attributing any Codex
-traffic to the per-invocation registration. It has **never run live**:
-it is exercised only against test doubles (`node tools/herdr/run.mjs --self-test`), so no
-`-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md` record exist. When one
-does, it is linked here and changes nothing above: this gate's verdict comes only from the
-human-run procedure (`oac-gates` `references/scripted-runs.md` "Verdict eligibility").
+traffic to the per-invocation registration. *Superseded text, kept as history:* "It has
+**never run live**: it is exercised only against test doubles (`node tools/herdr/run.mjs
+--self-test`), so no `-herdr` fixture and no `docs/planning/gates/herdr-runs/G4-<date>.md`
+record exist."
+
+*Dated note, 2026-10-04 (#131):* the scenario ran live. Run `20261004T093525Z` (outcome
+PASS, driver commit `b478f2a`, whose `tools/herdr/` (excluding `test/`) equals `main` after
+#287; herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`) is recorded at `herdr-runs/G4-2026-10-04.md`, with its run manifest beside
+it and three `-herdr` fixtures under `fixtures/g4-mcp-dual-era/`. It is the **equivalence
+record for G4 at herdr v0.9.1**: all five criteria scored `equivalent` to the 2026-09-26
+re-run above, from the wire transcript and pane captures. That includes criterion 5's
+refusal notice, "Channel messages from "g4modern" are unavailable" (UI observation 1). The
+notice was captured after the first typed prompt (the second Claude turn), not at startup. An earlier PASS run of the
+same day, `20261004T085601Z` at driver `b9a9afe`, is superseded: its driver predates #287,
+and the notice was hidden in its captures. Exactly one Codex HTTP session connected, from a Codex
+process launched with the per-invocation `-c mcp_servers.g4http.url=...`, and the Codex user
+config was unchanged through the run (same sha256). That the config registers no other
+entry at the run's port rests on an uncommitted `codex mcp list` read, so it is UNVERIFIED
+from committed evidence. This changes nothing above:
+the record is not verdict-bearing, and this gate's verdict stays PASS from the human-run
+procedure. A later scripted G4 run may carry a verdict only under `oac-gates`
+`references/scripted-runs.md` "Verdict eligibility".
+
+*Dated note, 2026-10-05 (#131, re-record after #292):* the note above is superseded as to
+which record is current. #292 (the #288 wrapped-path redaction fix and the #290
+coverage-span fix) changed `tools/herdr/lib/`, so `herdr-runs/G4-2026-10-04.md` (driver
+`b478f2a`) can back no later run. G4 was re-recorded once at the #292 merge: run
+`20261005T013347Z-6803a7` (outcome PASS, driver commit `de42b54`, `toolsHerdrDirty` false;
+herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`; same scenario file,
+launch argv and params as `20261004T093525Z`) is recorded at `herdr-runs/G4-2026-10-05.md`,
+with its run manifest beside it and three `-herdr` fixtures under `fixtures/g4-mcp-dual-era/`.
+It is now the **equivalence record for G4 at herdr v0.9.1**: all five criteria `equivalent`,
+from the wire transcript and pane captures, with herdr and Harness VERIFIED. Criterion 5
+holds on both halves again. In this run the "g4modern ... unavailable" notice showed after
+the first Claude turn (wake g4-1), not at startup. The wrapped worktree path in the Claude
+pane fixture is now redacted to `<REPO>`, and the transcript's `MANIFEST.json` coverage is
+generated, with no hand fix. One earlier run at `de42b54`, `20261005T013103Z-b6b2cb`, ended
+FAIL: the Codex TUI exited at startup ("workspace routing discovery timed out"). The record
+lists it under Findings. The Codex-config caveat is unchanged: that the Codex user config
+registers no other entry at the run's port is UNVERIFIED from committed evidence. The
+2026-10-04 record and fixtures stay committed, marked superseded. G4's verdict stays PASS
+from the human-run procedure.
+
+*Dated note, 2026-10-06 (#131, re-record at the #301 merge):* the note above is superseded
+as to which record is current. #295, #298 (capture elision) and #301 (the #299 fixes)
+changed `tools/herdr/` outside `tools/herdr/test/`, so `herdr-runs/G4-2026-10-05.md` (driver
+`de42b54`) can back no later run. G4 was re-recorded at the #301 merge: run
+`20261006T022052Z-00cdd3` (outcome PASS, driver commit `c4def66`, `toolsHerdrDirty` false;
+herdr `v0.9.1` first-party match; Claude Code `2.1.285`; Codex `0.160.0`; same scenario file,
+launch argv and params as `20261005T013347Z-6803a7`) is recorded at
+`herdr-runs/G4-2026-10-06.md`, with its run manifest beside it and three `-herdr` fixtures
+under `fixtures/g4-mcp-dual-era/`. It is now the **equivalence record for G4 at herdr
+v0.9.1**: all five criteria `equivalent`, from the wire transcript and pane captures, with
+herdr and Harness VERIFIED, after 9 driver dialog accepts and with the harness config
+unchanged since the snapshot before the first Allow. In this run the "g4modern ...
+unavailable" notice showed after the first typed Claude prompt, not at startup. One earlier
+run at `c4def66`, `20261006T001351Z-5b2e11`, ended NOT RUN: Codex 0.160.0 opened with an
+"Update available 0.160.0 → 0.160.1" prompt the scenario does not recognise (#303), so its MCP
+connect timed out after 90 s. Before the retry, the recording agent answered that prompt
+once in Codex's own TUI, outside any scenario, with "Skip until next version"
+(operator-authorized); Codex was not updated. The record lists both under Findings. The
+Codex-config caveat is unchanged. The 2026-10-05 record and fixtures stay committed, marked
+superseded. G4's verdict stays PASS from the human-run procedure.
 
 ---
 

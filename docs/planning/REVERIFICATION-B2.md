@@ -497,6 +497,21 @@ does not exist in the SEP-2133 text.** See Drift register below. `oac-spec-autho
 stop relying on this rule as stated and instead cite only the domain-ownership SHOULD
 clause actually present.
 
+*Dated correction, 2026-10-03 (#257, from PR #255 / #46): this verdict is right about the
+SEP-2133 text and too broad about MCP. This re-verification read SEP-2133 only. The MCP
+base specification states the reservation for `_meta` key prefixes at both pinned
+revisions: "Any prefix where the second label is `modelcontextprotocol` or `mcp` is
+**reserved** for MCP use." Source: https://modelcontextprotocol.io/specification/2025-11-25/basic
+and https://modelcontextprotocol.io/specification/2026-07-28/basic, section "General fields"
+→ "`_meta`", MCP revisions `2025-11-25` and `2026-07-28`, retrieved 2026-10-03. At
+`2026-07-28` it binds extension identifiers too: "Extension identifiers **MUST** follow the
+`_meta` key naming rules, with a mandatory prefix." Source:
+https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning, section
+"Extension Negotiation", retrieved 2026-10-03. §3.3's sentence is therefore supported, with
+the base specification as its source; spec work may cite the reservation from there. OAC's
+identifier `io.github.rossgraeber/oac-session-channels` has second label `github` and is
+unaffected. D2 below is corrected the same way.*
+
 **(c) Terminology note (not drift, already decided in PINS.md).** The SEP page uses
 "vendor-prefix"; §3.3 uses "reverse-dns-prefix". Both describe the same reversed-domain
 convention. Carried forward as a terminology pointer only, per PINS.md.
@@ -579,6 +594,18 @@ build artifact, task D3." Carried to `11-risks.md` unchanged.
 
 ACP is not a v0.1 dependency; neither open item here blocks a gate.
 
+*Dated note, 2026-10-06 (#49): both open rows are re-checked against the protocol's source
+repository, `agentclientprotocol/agent-client-protocol` at commit `487ad3ea` (latest schema
+release `schema-v1.24.1`), retrieved 2026-10-06. Protocol version `1`: the v1 initialization
+page shows `"protocolVersion": 1` in its request and response examples, so the row holds.
+Schema v2 "alpha": verified, no drift. `docs/announcements/acp-v2-draft.mdx` L70 says the
+v2 JSON schemas are "published in the repository releases as `v2.0.0-alphaX` alongside v1",
+and the latest is the prerelease `schema-v2.0.0-alpha.7` of 2026-09-30
+(https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v2.0.0-alpha.7). The v2 protocol docs are separately "in Draft" since
+2026-07-20, and v1 stays the supported version. The C7 framing row still holds. Detail and paths:
+`docs/planning/decisions/E9-replacement-proofs.md` §1.3 (A4, A8) and §2.2. The rows above
+keep their 2026-09-16 wording as history.*
+
 ## Drift register
 
 | # | Old value (verbatim) | New value (verbatim/quoted) | Source | Invalidates a decision? |
@@ -602,6 +629,13 @@ DESIGN.md and §5's text are unchanged, so no `ADR-001-A*` amendment is proposed
 
 (Dated note, 2026-10-02, #236: D5 is resolved by a C4 revision, not an ADR-001
 amendment. See the D5 row above and `docs/planning/decisions/C4-session-identity.md` §3.)
+
+(Dated note, 2026-10-03, #257: D2 holds for the SEP-2133 text only. The MCP base
+specification, section "General fields" → "`_meta`", states the reservation at both
+`2025-11-25` and `2026-07-28`, and at `2026-07-28` extension identifiers must follow the
+same key rules. See the dated correction under §3.3 carry-over (b) for the quotes and
+sources. The D2 row's "No such clause exists" is true of SEP-2133 and not of MCP; no
+decision changes, and OAC's identifier is unaffected.)
 
 ## Closed UNVERIFIED items
 
@@ -647,6 +681,8 @@ Every item below stays UNVERIFIED and is not resolvable by B2. Each states its o
 7. **ACP schema v2 "alpha" status** — UNVERIFIED, not independently re-confirmed on
    `agentclientprotocol.com/protocol/`. Low priority, ACP is not a v0.1 dependency. Owner:
    whichever task first depends on ACP forward-compatibility (none currently open).
+   *(Dated note, 2026-10-06, #49: closed as verified, no drift. The v2 schemas are
+   `v2.0.0-alphaX` prereleases; the v2 protocol docs are Draft. See the §3.5 dated note.)*
 8. **Zenoh crate version/date via crates.io directly** — UNVERIFIED, crates.io did not
    return page content when checked in B1; not re-attempted in B2 (GitHub Releases is
    first-party for the same project and is not expected to disagree). Owner: any future
@@ -720,7 +756,9 @@ against the pin in B2`, unless the row says otherwise:
   application-layer message signing. The `#iface=` sub-fact already has its own ledger
   entry.
 - §3.5 ACP protocol version `1` (the literal `protocolVersion` field was not observed on
-  the fetched page; `PINS.md` "ACP" already labels it UNVERIFIED).
+  the fetched page; `PINS.md` "ACP" already labels it UNVERIFIED). *(Dated note,
+  2026-10-06, #49: closed. Observed on the v1 initialization page; see the §3.5 dated note
+  above.)*
 
 All of these are listed in `docs/planning/STATUS.md` "Open UNVERIFIED items" under one
 grouped entry dated 2026-10-02 (#228), which satisfies S0 criterion 3. No verdict above is

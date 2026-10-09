@@ -42,7 +42,12 @@ Per `.claude/skills/oac-spec-authoring/SKILL.md` §1-§2, applied throughout thi
   Every `MUST`/`MUST NOT` below that has no accompanying Stage 2 conformance fixture is
   marked **`TODO(fixture)`** — fixtures land under `tests/protocol/` (Stage 2 task E8);
   none exist yet (Pre-Stage 0, `docs/planning/STATUS.md`), so **every** `MUST`/`MUST NOT`
-  in this file carries that marker. This satisfies the "separated in every section"
+  in this file carries that marker. *(Dated note, 2026-10-03, #254: "Pre-Stage 0" here
+  and in the closing `TODO(fixture)` paragraph is stale; read the current stage from
+  `docs/planning/STATUS.md` "Current stage". Stage 2 fixtures now exist under
+  `tests/protocol/` for `spec/session-channels.md`, `spec/security.md` and
+  `spec/bindings/mcp.md`, which supersede this file's spec surface; this file's own markers
+  are unchanged.)* This satisfies the "separated in every section"
   acceptance requirement mechanically, by the marker's presence, not by prose tone.
 - `SHOULD`/`SHOULD NOT` is a deviation-permitted recommendation; what "deviated" means is
   stated at each such sentence.
@@ -460,6 +465,13 @@ hand-waved:**
 
 ## 13. Provider adapter contract
 
+**Superseded, 2026-10-04 (#273).** This section is superseded by `spec/interfaces.md` §5
+(the provider adapter contract, requirement area `IFC-ADP`). That text
+is written from the merged Stage 2 specifications and replaces the shape below, which
+contradicts them (E7 freeze record, blocker B1, #273). What changed, and why, is
+`spec/interfaces.md` §9. Gate S2 freezes `spec/interfaces.md`, not this section, which
+stays as the historical planning record.
+
 **Source.** `docs/planning/DESIGN.md` lines 37-49; issue #26 task 14. Frozen at the Stage
 2 interface freeze (task E7, `oac-spec-authoring` §7) — this M0 draft is the pre-freeze
 shape that freeze will act on, not the freeze itself.
@@ -515,6 +527,13 @@ here as normative for this file's purposes: an adapter implementation `MUST NOT`
 ---
 
 ## 14. Core neutral types
+
+**Superseded, 2026-10-04 (#273).** This section is superseded by `spec/interfaces.md` §4
+(the core neutral types, requirement area `IFC-TYP`). That text
+is written from the merged Stage 2 specifications and replaces the shape below, which
+contradicts them (E7 freeze record, blocker B1, #273). What changed, and why, is
+`spec/interfaces.md` §9. Gate S2 freezes `spec/interfaces.md`, not this section, which
+stays as the historical planning record.
 
 **Source.** `docs/planning/DESIGN.md` line 28; field-level definitions drawn from §3-§13
 above, `docs/planning/decisions/C4-session-identity.md`, `C5-envelope-auth.md`,
@@ -596,6 +615,14 @@ per §6's recorded gap, this type does not yet carry them; a future non-breaking
 
 ## 15. Transport contract
 
+**Superseded, 2026-10-04 (#273).** This section is superseded by `spec/interfaces.md` §6
+and §7 (the transport contract and containment, requirement areas `IFC-TRN` and
+`IFC-NEU`). That text
+is written from the merged Stage 2 specifications and replaces the shape below, which
+contradicts them (E7 freeze record, blocker B1, #273). What changed, and why, is
+`spec/interfaces.md` §9. Gate S2 freezes `spec/interfaces.md`, not this section, which
+stays as the historical planning record.
+
 **Source.** `docs/planning/DESIGN.md` lines 55-67; task E7 freezes this shape at Stage 2.
 
 **Member list — `TODO(fixture)` for the required-semantics statements below.**
@@ -667,6 +694,12 @@ states).
 
 ## 16. ACP-adapter proof
 
+**Superseded, 2026-10-06 (#49).** E9 re-argues this proof from the frozen interfaces
+(`spec/interfaces.md` §5), not from §13 below, in
+`docs/planning/decisions/E9-replacement-proofs.md` §2. That record keeps this section's
+finding (no active inbound) and its characterization of ACP, and re-verifies the ACP facts
+against first-party sources. The text below is the M0 planning record.
+
 **Claim.** A third provider adapter, over the Agent Client Protocol (ACP), implements the
 same seven `ProviderAdapter` members (§13) over the same core types (§14), calls no
 `Transport` operation (§15) directly, and therefore changes no line of the `Transport`
@@ -718,6 +751,12 @@ Claude/Codex channels are attached.
 ---
 
 ## 17. NATS/MQTT replacement proof
+
+**Superseded, 2026-10-06 (#49).** E9 re-argues this proof from the frozen transport contract
+(`spec/interfaces.md` §6) in `docs/planning/decisions/E9-replacement-proofs.md` §3-§6. Every
+NATS and MQTT cell of the table below is resolved there from first-party sources (§5 of that
+record replaces this table). The cells below stay as they were written, UNVERIFIED, as the M0
+planning record.
 
 **Claim.** Either NATS or MQTT replaces Zenoh by implementing the same seven `Transport`
 operations (§15), with no change to any adapter and no change to the spec.
@@ -935,6 +974,10 @@ not yet met (below):
       this box requires a follow-up pass citing first-party NATS/MQTT documentation for at
       least the capabilities claimed lost, tracked as an open item alongside the six
       `UNVERIFIED` entries this file adds to `docs/planning/STATUS.md` (§17, §20).
+      *(Dated note, 2026-10-06, #49: met by E9,
+      `docs/planning/decisions/E9-replacement-proofs.md` §3-§7, argued from the frozen
+      `spec/interfaces.md` §6. All twelve NATS/MQTT cells are cited to first-party sources
+      there, and the two STATUS.md items are closed in the same change.)*
 - [x] **No neutral interface mentions Zenoh, Claude, Codex, MCP method names, or key
       expressions** — §2 (the rule), §21 (the mechanical check run and read against this
       file, every hit accounted for and confined to §15/§16/§17/§19/§21 themselves).

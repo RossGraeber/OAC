@@ -4,6 +4,1028 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
+revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
+decided on 2026-10-08 to design a pairing so that Codex can send. Nothing is in force until
+the lead approves and merges the pull request (`docs/planning/decisions/E7-interface-freeze.md`
+§7). No gate verdict, pin, ADR text or third-party dependency changes.
+
+- **Specs.** `spec/bindings/mcp.md` 0.2 §4.5: the Codex issued-value pairing. An unbound
+  Codex stdio connection's first OAC call is refused with `unauthorized` and a fresh
+  `oac-pair-` value; Codex's own `item/completed` report of that refusal, received on the
+  adapter's app-server connection, names the thread (its `threadId`), and binds the
+  connection to it. Each later call is served only on Codex's own `item/started` report of
+  it. No value the call or its `_meta` carries is used. MCPB-ATT-003 to MCPB-ATT-026 and
+  MCPB-CDX-006; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026,
+  the rest `TODO(fixture)` for G8 against the F9 fake. `spec/interfaces.md` 0.2: `revealed`, `pairing_value`, the
+  `attachment-unconfirmed` event, IFC-ADP-090 to IFC-ADP-093. `spec/security.md` 0.2: one
+  §13 row. `spec/session-channels.md` is unchanged: the pairing meets [SC-ID-121] as frozen
+  (an operating-system key, narrowed by an issued value), which the lead is asked to confirm.
+- **Correction.** The #46 decision's "Codex sessions can still receive OAC messages" did not
+  hold under `spec/session-channels.md` §6.7: no Codex native signal could be paired. With
+  the pairing, a Codex session is bound, and can receive, from its first OAC tool call.
+- **Runner.** `tests/protocol/runner/run.mjs` accepts `spec_revision` `0.2` for the MCP
+  binding; `mcpb.mjs` checks MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026. The security suite maps the new
+  §13 row as `S13-misattributed-send`, gated on G8 (#69) with the placeholder
+  `gated_s13_codex_calls_are_attributed_only_by_reveal_and_confirmation`; the 09 §12 F11
+  table gains its rendered row.
+- **Ledger.** The per-request-signal item is closed (none exists); the multi-thread-connection
+  item is reworded (source says no); new items are rows 71 to 75 of `11-risks.md` (74: the F9
+  fake needs `mcpToolCall` items, owners G8 #69 and F9 #58); the C4 pairing-facility item now
+  also covers Codex.
+- **Review round (PR #350, CHANGES REQUESTED):** reveals and confirmations only from
+  subscribed threads; bounded pairing window (60 s), confirmation wait (10 s) and
+  confirmation life (600 s, or the item's or turn's end); one pairing value per connection and
+  window, so MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 hold as written with no carve-out;
+  no pairing value where pairing cannot complete, and at most three windows per connection;
+  matching rule for calls without arguments; residuals for read-only disclosure, `config`
+  overrides and process ancestry.)
+
+**Last updated:** 2026-10-08 (**Issue #347: the adapter contract suite tells `handoff-failed`
+from not-now** (mutation M6 of the PR #346 review; Refs #59). No `spec/` file, fake, gate
+verdict, pin, dependency, static-scan rule or ADR text changes.
+
+- **Check.** New row [SC-DLV-009] `refusal-reported-as-binding-says` in
+  `tests/protocol/contract/adapter/src/lib.rs`. A harness profile now names the code its
+  binding gives the refusal `refuse_hand_offs` produces (`Profile::turned_away_code`); the
+  adapter's outcome for the turned-away hand-off must map to that code through Table 5.3 of
+  `spec/interfaces.md`. The Codex profile names `handoff-failed`: the recorded archived
+  refusal (S3 capture L1030-L1032, reached through `CodexFake::set_archived`) is
+  `handoff-failed` under `spec/bindings/mcp.md` §8.2.1 ([SC-DLV-009], not [SC-DLV-008]). The
+  Claude profile names none: a channel notification gets no answer, so the fake Claude has no
+  refusal path and the row is not applicable there.
+- **Planted breach.** `ReportsNotNow` (outcome from `src/plant.rs`) is caught as
+  [SC-DLV-009] and by no other row; before this change it passed every row. The seven other
+  planted queue breaches and the eleven channel breaches are still caught.
+- **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it
+  (`tests/real_adapters.rs` runs only the static scan today), so this is not an edit to make
+  a real module pass. Baseline candidate for `tests/protocol/contract/`: commit `ba9cf83`.
+- **Threat map.** No change: the security threat map (`tests/security/`) maps the security
+  suite's tests only, and no row there is proven by the contract suite.)
+
+**Last updated:** 2026-10-08 (**Issue #6: Gate S3 is met. Stage 3 exits and Stage 4 (Epic G,
+#7, milestone M5) opens.** The exit decision is `docs/planning/decisions/F-6-stage3-exit.md`,
+in force from the lead's merge of PR #342 (record §5, as E-5 §2). No `spec/` file, gate
+verdict, pin, third-party dependency or ADR text changes.
+
+- **Criteria 1-5 hold** on `main` at `090d2a7` (the PR #346 merge). Criterion 5 holds after
+  the #343 capture (PR #344) recorded every fake behaviour a documented request can reach,
+  and the lead decided the fake should stop modelling the rest: PR #346 removed the
+  subagent and no-queue-service refusals and re-pointed the turned-away checks at the
+  recorded archived refusal. The record's earlier claim that only the fake's self-test
+  reached "no queue service" was wrong (PR #342 review finding 1); the record says so.
+- **Ledger.** The `serde_jcs` item is closed by run (`11-risks.md` row 64; its bullet below
+  is removed with a dated note). New row 70: which connections Codex sends a thread's
+  notifications to. The presence-carriage and hook-to-shim pairing items move from Epic F
+  owners to G2/G3 and G9/G5.
+- **Carry-overs.** #59 (F10) stays open until Epic G; #347 (the contract suite does not tell
+  `handoff-failed` from not-now) affects no Gate S3 criterion; the #68 note on
+  `thread/archived` is for G7; #345 (herdr self-test in CI); #308 (the `spec/bindings/mcp.md`
+  amendments the capture found, two comments); #224 and the required-checks decision
+  (candidates in PR #330) stay open.)
+
+**Last updated:** 2026-10-08 (**Gate S3 criterion 5: the fake Codex app-server models no
+unrecorded refusal** (PR #342 review finding 1; Refs #343, #6). No `spec/` file, gate
+verdict, pin, third-party dependency or ADR text changes.
+
+- **Fake.** The two subagent refusals and "no queue service" were the last fake behaviours
+  modelled from source only. An add to a subagent thread now answers the fake's own
+  `NOT_MODELLED` error, and the queue-unavailable control (`oacFake/queue/setAvailable`) is
+  removed. `oacFake/thread/create` makes only recorded thread states (PR #346 review
+  finding 1): it refuses an archived thread that is loaded, an ephemeral thread that is not
+  loaded, and the other unrecorded combinations. `NOT_MODELLED` answers an add before a
+  thread's first turn, a list taken while an ephemeral or archived thread exists, and a
+  `thread/turns/list` that would be empty or that covers a thread made materialized by
+  `oacFake/thread/create`, whose earlier turns the fake does not model.
+  `tests/fakes/codex-app-server/README.md` "Source-only behaviours" is now empty.
+- **Checks re-pointed.** The contract suite's turned-away hand-off ([SEC-AUZ-027]
+  `turned-away-makes-no-other-call`, [IFC-ADP-051] `completed-only-on-success`, and the
+  planted `FallsBackToSteer` breach) and the pipelines demonstration (`failed` /
+  `handoff-failed`, no steering fallback) used "no queue service". They now archive the
+  session's own thread (new test control `oacFake/thread/setArchived`) and get the
+  recorded archived refusal (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+  L1030-L1032). `spec/bindings/mcp.md` §8.2.1 names that refusal and classifies it
+  `handoff-failed` ([SC-DLV-009]), as it does "no queue service", so no expected outcome
+  changes. Both tests also check that the refusal is the recorded one, and the
+  demonstration now checks its call log for any steering call.
+- **Ledger.** `11-risks.md` row 65 gains a dated note; what Codex does in the three cases
+  stays open there and in the #274 entry below.)
+
+**Last updated:** 2026-10-07 (**Issue #343: the Stage 1 fixture capture for Gate S3
+criterion 5.** No `spec/` file, gate verdict, pin or ADR text changes, and no dependency is
+added. Codex's last tested version moves to `0.161.0` in PINS.md (#216: routine, not a pin
+move).
+
+- **Codex.** New herdr scenario `tools/herdr/scenarios/s3-codex-capture.mjs` (the G2 launch
+  and readiness steps, with its own quarantined client) recorded, on Codex `0.161.0`, the
+  behaviours the fake Codex app-server had modelled from source: the idle add on the TUI's
+  thread (load-bearing for `contract/adapter/no-polling` and the pipelines demonstration),
+  two adds during a turn, an extra member, `turn/interrupt` and the add after it, an add to
+  an unloaded thread, and the refusals. Record:
+  `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`; fixture `docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`.
+- **Claude Code.** A `g1-claude-wake` run with a three-call `replyPrompt` recorded
+  `tools/call` ids 2, 3 and 4 with `progressToken` equal to the id, and three real
+  `toolu_` ids (`docs/planning/gates/herdr-runs/G1-2026-10-07.md`).
+- **Findings, fakes aligned with the recordings.** Codex answers an add to an unknown thread
+  `-32603 "failed to read thread: invalid thread-store request: …"`, not `-32600 "thread
+  not found"`; loading an unloaded thread dispatches its queue (the fake never did); an idle
+  add's second `thread/queue/changed` precedes the response; an interrupted turn's
+  `turn/completed` has no items and `itemsView: "notLoaded"`. The fake Claude's synthetic
+  `toolu_` id now has the recorded form (`toolu_01` + 22 letters and digits).
+- **PR #344 review (2026-10-08).** A second run of the scenario (`--param cases=queued-interrupt`,
+  `docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md`, fixture `docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl`) recorded the half of
+  the interrupt behaviour the first run had not: two items already queued when a turn is
+  interrupted wait, then run one per idle after the next uninterrupted turn. An interrupted
+  turn's agent message never gets an `item/completed` (S3 L899-L907); the fake no longer sends
+  one. The scenario has its own gate label (`S3 capture`) and `nonVerdictBearing` text, and
+  unit checks in `tools/herdr/test/s3-tests.mjs`.
+- **Amendments needed for the #308 batch** (frozen text the recordings contradict or settle;
+  no `spec/` file is edited here, and no normative MUST changes: [MCPB-CDX-002] to
+  [MCPB-CDX-005] are unaffected). In `spec/bindings/mcp.md` §8.2.1, at revision 0.1:
+  - L964-L965, "The G2 `busyqueue` step showed the busy case live …; the interrupted case is
+    from source only": the idle-add dispatch (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L65-L73, L866-L873) and both interrupted
+    cases (S3 L908-L955; `docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl` L79-L170) are now recorded.
+  - L998-L1001, what the app-server does with an extra member "is UNVERIFIED (… probably
+    ignored; not exercised)": exercised; the add was accepted and the extra member ignored
+    (S3 L866-L873).
+  - L1016-L1029, "Reporting a turned-away add", "At least four of the add's refusals are known
+    from source": a fifth is recorded, and it is not a `-32600`. An unknown thread is answered
+    `-32603 "failed to read thread: invalid thread-store request: no rollout found for thread
+    id <id>"` (S3 L109-L110). Source at `rust-v0.161.0`: `require_thread` maps
+    `ThreadNotFound` to `invalid_request` and every other store error to
+    `internal_error("failed to read thread: …")` (`thread_queue_processor.rs` L275-L278); the
+    local store reports a missing rollout as an invalid store request. The amendment should
+    also say how the binding classifies it; as none of the five means "not now", presumably
+    `handoff-failed` ([SC-DLV-009]). The ephemeral and archived refusals are recorded too (S3
+    L114-L119, L1030-L1032).
+  - L1051-L1067, "Three consequences follow from source (C5) and are runtime-UNVERIFIED":
+    the first (after an interrupt nothing dispatches, for an item already queued and for an
+    add made later) and the third (an add to an unloaded thread) are recorded; the third also
+    **dispatches when the thread is loaded again** (S3 L981-L1019), which the text does not say.
+    The second (other clients editing the queue) stays UNVERIFIED.
+  - The §10 row "Runtime behaviour of the queue caveats of §8.2.1 …", "UNVERIFIED (#274;
+    source only)": all but the queue edits by other daemon clients are recorded.
+- **Ledger.** `11-risks.md` rows 62 and 67 closed, rows 68-69 added (PR #342's F-1 text) and
+  closed, rows 65-66 narrowed. Below, the E3 (row 62) and #58 entries are removed. Still
+  source-only: the two subagent refusals and "no queue service" (no documented client request
+  triggers them) and row 66(b). The Stage 3 exit record (PR #342) is to be re-run against
+  these fixtures.)
+
+**Last updated:** 2026-10-07 (**Issue #338: an older native signal never re-binds over a
+newer one.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text
+changes.
+
+- **Core.** A held signal is decided when its candidate opens, so two held signals for one
+  key could be decided out of arrival order, binding the key's attachment (or a new one
+  after a reconnect) back to the older conversation (a stale binding, present since
+  #331). Now a held signal's window ends when a newer signal of its key, under its
+  adapter, pairs ([SC-ID-123]): it is dropped before it pairs ([SC-ID-124],
+  [SC-ID-128]), binding and withholding nothing, with no state that outlives an
+  attachment. An eviction drop still in flight on another thread when that pairing
+  happens is answered by the attachment's latest pairing, and withholds nothing. The module documentation no longer claims every signal is decided in
+  arrival order.
+- **Also (PR #337 re-review).** A test pins that `unbind` keeps a drop's place (N6);
+  `ProviderAdapter::set_binding` is documented as advisory, able to lag the core under
+  concurrent changes (N7); the signal counter bump uses `checked_add`.)
+
+**Last updated:** 2026-10-07 (**Issue #335: a fair share of the pending native-signal
+cap.** No `spec/` file, gate verdict, pin, third-party dependency or ADR text changes;
+§6.7.2 leaves the bound to the implementation, and every MUST holds.
+
+- **Core.** `Pipelines` counts each held or queued native signal against its observed
+  pairing key (under the adapter that reported it, as keys pair), else its connection. At `max_pending_signals`, the heaviest holder pays
+  when it holds at least two more than the newcomer, with ties going to the holder that
+  signalled last. Otherwise the newcomer gives up its own oldest, or is dropped. A dropped
+  signal still records [SC-ID-128] and withholds per [SC-ID-154]. Held signals stay
+  counted while a pass decides them.
+- **[SC-ID-154] ordering (PR #337).** Only a signal reported after the dropped or
+  unpairable one releases a withholding. Before, an earlier signal's decision that was
+  still running could release it, or re-bind the attachment delivering; that is fixed,
+  and `Pipelines::bind` no longer answers a drop either.
+- **Risks.** `11-risks.md` RISK-LOCAL-IPC records the remaining availability-only
+  residuals: many distinct keys can deny a holder with nothing pending, and a burst can be
+  trimmed to its newest signal.)
+
+**Last updated:** 2026-10-07 (**Issue #331: the core binds from native signals
+(`spec/session-channels.md` §6.7).** No `spec/` file, gate verdict, pin, third-party
+dependency or ADR text changes.
+
+- **Core.** New `core/src/session_binding.rs`: the pairing outcome, the ordered cases of
+  §6.7.3, the stale-binding rule of §6.7.4 and their findings and diagnostics. `Pipelines`
+  now decides every `native-signal` event with it (pairing by the key the core process
+  observed for a connection, `Pipelines::connect_observed`; a bounded hold window; one
+  decision at a time; [SC-ID-154] withholding when an unpairable signal can be attributed).
+- **Pairing key still UNVERIFIED.** Which OS facility yields the key stays open with G9
+  (#70). A connection given through `Pipelines::connect` has none, so every native signal
+  fails closed with a finding ([SC-ID-125], [SC-ID-129]) until G9 supplies one.
+- **Conformance.** `core/tests/conformance.rs` runs all 26 `binding` fixtures through the
+  core; `binding` leaves the not-run list (`mcp-binding`, `provenance` and `body` stay
+  adapter work).
+- **Security suite.** 06 row 24 reads "core decision proven; pairing key gated (G9)";
+  row 19 gains a resume test. The F11 table in 09 §12 is updated to match.
+- **Review fixes (PR #333).** A held signal re-pairs with an attachment opened while
+  another decision runs; a signal dropped at the pending cap still withholds what it is
+  attributed to ([SC-ID-154]); new `Pipelines::disconnect` frees a connection's place when
+  the daemon observes it end, and ends an attachment's binding ([SC-ID-155]); the G9
+  same-key denial-of-service residual is added to `RISK-LOCAL-IPC`; the per-key share of
+  the pending cap is #335. Re-review: a queued signal keeps the key observed when it was
+  reported, so a hook that disconnects before its turn still pairs; `disconnect` marks an
+  attachment closed before unbinding it, so no session outlives it.)
+
+**Last updated:** 2026-10-07 (**Issues #320, #325, #328: shares and bounds for the
+duplicate store, the envelope-created binding entries and the record lists.** No `spec/`
+file, gate verdict, pin, third-party dependency or ADR text changes; every bound keeps the
+frozen revision 0.1 MUSTs.
+
+- **Duplicate store (#320).** `core/src/replay.rs` counts entries per `key_id`. A key is
+  admitted only below its quota (`DuplicateStore::per_key_share`, a quarter of the capacity
+  by default) and while it holds fewer entries than the store has free (headroom). A key
+  past either is refused alone with `failed` / `internal-error`. Nothing is evicted early
+  ([SEC-RPL-023]), so where the registry evicts from the heaviest holder this store refuses
+  instead: that finding and the colluding-keys residual are in `11-risks.md`
+  RISK-REPLAY-STORE.
+- **Binding table (#325).** Entries that security step 4 creates are bounded
+  (`MAX_ENVELOPE_BINDINGS`, `MAX_ENVELOPE_BINDINGS_PER_KEY`) until a registration, an
+  accepted presence record or a conflict mark refers to them. At its share a key gives up
+  its own oldest entry. In a full table, a key holding `n` takes the oldest entry of the
+  heaviest key holding at least `n + 2`, and the key that added last pays a tie. An entry
+  that a hand-off record is looked up through is never evicted ([SEC-AUZ-016],
+  [SC-RCP-053], [SC-RCP-054]). With none to evict, the envelope is refused `failed` /
+  `internal-error`. `accept_authenticated_record` now confirms an envelope-created entry
+  through `bind`. The security suite's exhaustion row is no longer gated on #325
+  (RISK-BINDING-TABLE).
+- **Records (#328).** Expired record partitions are found through an index ordered by
+  expiry, not a scan. A hand-off record from an own-key `from` that is not an own session
+  now (a late copy from an ended session) is not kept. The churn test runs at a cap of 16
+  in every `cargo test`; the full-scale one is `#[ignore]`d and runs in the new opt-in
+  `scale-optin.yml` (manual dispatch) or with
+  `cargo test -p oac-core --release -- --ignored full_scale` (RISK-RECORD-PARTITIONS).
+- **Tests.** New security-suite tests on the X-exhaustion row, and twelve new mutations in
+  `tests/security/mutation-check.mjs`, each caught.)
+
+**Last updated:** 2026-10-07 (**Issue #61 (F12): the default CI tier.** No `spec/` file,
+`core/` source file, gate verdict, pin, third-party dependency or ADR text changes.
+
+- **Workflows.** `rust-workspace.yml` is now `ci.yml`: job `test` runs fmt, build, clippy,
+  `cargo test --workspace` (unit, contract, security, fake-harness integration, Rust
+  conformance), the security threat-map cross-check, the reference conformance runner and
+  the fake Codex self-test on Windows, macOS and Linux; jobs `crate-deps` and `licenses` run
+  those checks on all three. The conformance and fake-codex jobs moved there from
+  `boundary-lint.yml`; no check was dropped. A cargo cache (`actions/cache` pinned by SHA)
+  is saved on pushes to main only. Every checkout is SHA-pinned; both default workflows
+  trigger on pull requests and pushes to main.
+- **No network beyond loopback.** Cargo steps after `cargo fetch` run offline; on the ubuntu
+  image the test steps run in a loopback-only network namespace
+  (`scripts/loopback-only.sh`, proved by a probe step). New lint
+  `scripts/check-workflows.mjs` (job `workflow-policy`): SHA pins, `contents: read`, no
+  persisted token and no secrets or provider credentials in any workflow; no opt-in switch,
+  self-hosted runner or harness CLI in a default-tier one.
+- **Containment.** New `scripts/check-containment.mjs` (job `containment`): `oac-boundaries`
+  check 12, Zenoh containment over every product path, the fakes, the contract suites and the
+  fixtures, closing the 09 §8 scope gap for those paths (criterion 9); check 13, test doubles
+  kept out of product code (PR #318 review item 9).
+- **Conformance.** `core/tests/conformance.rs` names the stages it does not run, fails on
+  any other unrun stage, and pins the two `send`-stage fixtures F2 deferred to F12
+  (SC-ENV-021.p01, SC-ENV-066.n01). `binding` is the core's, pending #331 (no
+  binding-from-native-signal logic for §6.7 yet); `mcp-binding`, `provenance` and `body`
+  are adapter work.
+- **Opt-in.** Provider integration stays the herdr scenarios through
+  `herdr-provider-optin.yml`; the real-adapter provider tests are pending with Epic G
+  (`tests/integration/README.md`). Branch protection is unchanged: which checks become
+  required is the operator's call.)
+
+**Last updated:** 2026-10-07 (**Issue #60 (F11): the security suite against the fakes lands
+at `tests/security/`** (`oac-security-suite`, CI-default). No `spec/` file, `core/` file, gate
+verdict, pin or ADR text changes; the one dependency is `syn`, test-only and already in the
+graph (07 §5).
+
+- **What it covers.** Every `06-security.md` §14 row and every `spec/security.md` §13 row is
+  mapped, plus one row from the PR #317/#321 threat tables (exhaustion). Mapped is not the
+  same as proven: a row is proven where named tests drive the real core (envelope stage,
+  security steps 1 to 5 through `receiver::receive_octets`, authorization, presence and
+  receipt authentication, pairing, key removal), with envelopes over the in-memory transport
+  for the carrying-path rows and the recorded signature-form fixtures for malleability,
+  cross-protocol reuse and canonicalization. Tests that record what the fake Claude Code
+  endpoint renders are listed as harness facts, not proofs. Where the suite cannot reach a
+  part through the public API, the map cites the `oac-core` test that carries it. The map is
+  `THREATS` in `tests/security/src/lib.rs`, rendered into `09-test-strategy.md` §12 and
+  checked against the sources, §13 and 09 by `tests/threat_map.rs`.
+- **What is gated, not passed.** 06 rows 13, 15, 17 and 24 and the §13 consent-bypass row
+  wholly, and the adapter, daemon or live-check half of rows 6, 7, 10, 11, 12, 14, 16, 18,
+  19, 21, 22 and of exhaustion: G4 (#65), G7 (#68), G8 (#69), G9 (#70), G1/G3 (#62, #64), H2
+  (#74), L10 (#175) and the envelope-binding bound (#325, RISK-BINDING-TABLE). Row 2 is no
+  longer gated: since #313 merged, `row02_unauthorized_send_through_the_composed_pipeline`
+  runs the refusal through `core::pipeline::Pipelines` over the in-memory transport. Each
+  gated test is `#[ignore = "GATED on #N ..."]` with a body that is a single `std::panic!`.
+  Row 23 stays an open risk. These parts remain v0.1 gaps (06 §15).
+- **Runtime cross-check.** `tests/security/check-compiled-tests.mjs`, a new step of
+  `rust-workspace.yml` on every OS, compares the map with the tests cargo compiled
+  (`--list`, `--list --ignored`) and runs the gated ones. It fails on a mapped proof that is
+  compiled out or ignored, on an unmapped compiled test, and on a gated placeholder that
+  passes. Its self-test (ubuntu image) plants each evasion the PR #327 reviews found.
+- **Mutation check.** `tests/security/mutation-check.mjs` plants one regression at a time in
+  a copy of `core/`; each is caught by a named suite test, or, for the one mutant the suite
+  cannot reach (a pairing code without the keys), by the cited core test.
+- **Layout.** `scripts/check-crate-deps.mjs` admits `tests/security` (core/, a fake, a
+  transport and, through its dev-dependency, a contract suite; nothing may reach it), with
+  self-test and mutation cases; 07 §1, §3 and §5 carry dated notes. Un-gating a G4, G7 or G8
+  placeholder will need that rule to admit an adapter as a dev-dependency.)
+
+**Last updated:** 2026-10-07 (**Issue #313: the core send and receive pipelines land in
+`core/src/pipeline.rs`**, composing F2 to F7 between provider adapters and one transport,
+against revision 0.1. No `spec/` file, gate verdict, pin, third-party dependency or ADR text
+changes.
+
+- **Send path.** Attribution by attachment (only from the adapter that reported it), then
+  `sender::prepare_send`: the §8.3.3 decision with its size step measured on the envelope
+  itself, built under the agreed revision with reply headers from the engine's hand-off
+  records and signed; the sender's announcement to the recipient's device before the first
+  envelope when the release is authorized and the transport may carry it ([SEC-PRS-010],
+  [SEC-AUZ-011], [IFC-TRN-081]); an announcement the transport did not take means the
+  envelope is not passed either (`not-passed`, `transport-failure`); `record_sent`;
+  `publish`; the `EnvelopeTracker`, whose receipts feed the `sent` result's receipt
+  stream ([IFC-ADP-062]).
+- **Receive path.** Session subscription, envelope stage (receiver-wide part types are the
+  ones some bound session takes), security steps 1 to 4 under the engine, then step 5, the
+  delivery stage and the adapter's `deliver` with no lock held across the call, contained
+  by `catch_unwind` (a panic is `unknown`); the hand-off record, kept from just before the
+  call so a reply made during it correlates, and removed if the call does not hand off; the
+  receipt gate; the receiver-observed state straight to the local tracker for
+  this device's own envelopes ([SC-RCP-040]), or an authenticated receipt published to the
+  verifying device. In-flight copies are re-queued through `DuplicateStore::when_settled` and
+  offered again on the settling thread, with no timer ([SEC-RPL-026]). Presence records and
+  receipts from other devices arrive through `watch_presence` and the device subscription.
+- **F5/F6 changes, minimal.** `HandOffRecord` carries `conversation_id` and
+  `correlation_id`, and `AuthorizationEngine::reply_headers` serves [SC-RCP-053] and
+  [SC-RCP-054] from the engine's own records; sent and hand-off records are bounded per
+  writer (`MAX_RECORDS_PER_PARTITION`, partitioned by sending own session and by verifying
+  key, so no peer or local session can evict another's records; a total ceiling taken from
+  the largest partition; partitions reclaimed when emptied, when their session ends or key
+  is removed, and, at the partition cap, when wholly expired; every session end prunes;
+  `11-risks.md` RISK-RECORD-PARTITIONS). `receiver::receive` is split into crate-private phases so the
+  pipeline does not hold the engine across a hand-off call; behaviour is unchanged.
+  `EnvelopeDraft::with_parts` and `ContentPart::from_json` let a request carry a non-text
+  part a session advertises.
+- **Conformance.** `send` and `presence`'s send run through `prepare_send` on a built
+  envelope (no size estimate); `routing` runs through `receiver::receive` with the real engine
+  (the runner re-signs the placeholder-signed envelope and grants each `authorized` pair);
+  `reply` reads the engine's hand-off records.
+- **Tests.** `core/tests/pipeline.rs` (in-test transport and adapter, one and two devices,
+  every hand-off outcome against Tables 8.1 and 8.3, refusals, re-queue, bounds) and
+  `transports/memory/tests/pipelines.rs` (the fake Claude Code endpoint and the fake Codex
+  app-server behind test adapters, over the in-memory transport; both mid-turn release
+  settings; and two devices over a `cross-implementation` memory network, where
+  [IFC-TRN-081] keeps presence off a transport that does not declare
+  `destination_restricted`, so nothing crosses). No adapter crate implements
+  `ProviderAdapter` yet (Epic G); the tripwire stands.)
+
+**Last updated:** 2026-10-06 (**Issue #55 (F6): the presence registry and the delivery
+receipt state machine land in `core/`**, against `spec/session-channels.md` §7 and §8 and
+`spec/security.md` §8.4, §10 and §11, revision 0.1. No `spec/` file, gate verdict, pin,
+dependency or ADR text changes.
+
+- **What landed.** `core/src/registry.rs`: the presence registry (three states, lifetimes
+  from acceptance on a monotonic clock, carrier loss, `seq` order, forgetting, the 300-second
+  cross-implementation cap of [SEC-PRS-007]), own sessions (online while bound, unreachable
+  when withheld or ended, so one session's exit leaves every other session's presence as it
+  was, C2 §5), the issuer of own records ([SC-DLV-050] to [SC-DLV-057]), discovery (online
+  only) and the presence step of a send. `core/src/presence_auth.rs`: the authenticated
+  presence record and the consumer's checks in the §11.4 order. `core/src/sender.rs`: the
+  send decision of §8.3.3 and the per-envelope state machine ([SC-RCP-085], §8.4.2).
+  `core/src/receiver.rs`: security step 5 and the delivery stage through
+  `DuplicateStore::try_admit` (an in-flight copy is re-queued, never parked), the
+  hand-off-deadline re-check right before the hand-off call, Table 5.3 outcomes, a
+  reservation settled on every path, and the receipt gate with a per-device rate limit
+  ([SEC-RPL-030], [SEC-RPL-031], [SEC-RCT-004], [SEC-RCT-005]). `core/src/receipt_auth.rs`:
+  the authenticated receipt. The PR #317 (N2) caller obligations are met in `receiver.rs`.
+- **PR #321 review.** `ReceiverReport` is sealed (private fields, crate-private
+  constructors and `observed`, compile-fail doctests), so nothing outside `core` can mint
+  an `ObservedReceipt`, and no report can panic. An in-flight copy comes back with its key
+  and, from `receive`, the copy itself; `DuplicateStore::when_settled` calls back when the
+  earlier copy settles (no timer). A panic before the hand-off call settles the copy as not
+  handed off. Memory is bounded: an `EnvelopeTracker` keeps fixed-size flags (`Held`), and
+  the presence registry holds at most `capacity` sessions besides its own, forgetting
+  `unreachable` ones to make room (and their binding-table entries). Every `security`
+  fixture also runs through `receiver::receive_octets`. Ten review mutants are killed by
+  named tests.
+- **PR #321 re-review.** A re-queued copy is re-offered through `receiver::redeliver`, which
+  shares `receive`'s tail, so its hand-off is recorded ([SEC-AUZ-016]); `deliver` is now
+  crate-private. The presence registry counts sessions per signing key: a per-key quota
+  and a fair share when full, so one related device cannot lock other peers out
+  (`11-risks.md` RISK-PRESENCE-SHARE). Envelope-created bindings stay unbounded until
+  #325 (RISK-BINDING-TABLE). Settle callbacks are each contained by `catch_unwind`, and
+  run on their own thread when the settling thread is unwinding.
+- **Integrated with F10 (#59, PR #323).** `HandOffOutcome` has one definition,
+  `core::adapter::HandOffOutcome`; `receiver` re-exports it and adds the receiver-side
+  `may_be_handed_off`.
+- **Integrated with F5 (#54, PR #316).** `receiver::receive` runs Table 7.1 steps 1 to 5
+  in order, step 4 through `AuthorizationEngine::authorize_delivery`; `receiver::deliver`
+  and the duplicate store take only the `AuthorizedMessage` step 4 builds, and a hand-off
+  is recorded in the engine ([SEC-AUZ-016]). Presence-auth and receipt-auth use the engine
+  directly: its binding table and conflict marks, its `accept-presence` decision as the
+  [SEC-AUZ-017] relation test, its clock for freshness, and its sent records, which now
+  carry the envelope's nonce (`SentRecord::nonce`, for [SEC-RCT-003] check 3). The
+  conformance runner builds the real engine for `receive`, `presence-auth` (all 15
+  fixtures) and `receipt-auth`; no step-4 verdict is taken from a fixture, and an
+  `exchange` `accept-presence` step runs the same consumer path.
+- **Conformance.** `core/tests/conformance.rs` now runs `presence` in full (`discarded`,
+  `states`, `send`), `discovery`, `send`, `routing`, `receive`, `combine`, `reply`,
+  `correlation` (`core/src/reply.rs`, §8.2), `presence-auth` and `receipt-auth`, and
+  `receipt_permitted` of the `security` stage.)
+
+**Last updated:** 2026-10-06 (**Issue #59 (F10): the adapter and transport contract
+suites land at `tests/protocol/contract/`**, against `spec/interfaces.md` revision 0.1 §5 and
+§6. No `spec/` file, gate verdict, pin or ADR text changes. The only third-party crates added are
+`syn` and `proc-macro2`, test-only, to the adapter suite, both already in the graph at the same
+versions (07 §5).
+
+- **Transport suite** (`tests/protocol/contract/transport/`, crate `oac-contract-transport`):
+  one suite over `dyn Transport`, with an implementation-supplied medium giving `now`,
+  `advance`, `settle` and optional fault control (the F7 note on #59; a real-clock transport
+  keeps the default `advance`, a real wait, and a bounded-wait `settle`). It checks every
+  requirement Appendix C gives the `transport` ([IFC-TRN-001] to [IFC-TRN-080], [IFC-NEU-003])
+  and the transport half of [IFC-TYP-092] and [IFC-TYP-095]. `transports/memory/tests/contract.rs`
+  runs it unchanged under four media (one and two implementations; system clock, and manual
+  clock with scripted faults): all pass; [IFC-TRN-080] is not applicable
+  (`destination_restricted` declared absent), and [IFC-TRN-043] on a one-implementation
+  medium. Ten planted breaches are each caught under their id. This meets #56's last
+  acceptance item.
+- **Adapter suite** (`tests/protocol/contract/adapter/`, crate `oac-contract-adapter`): one
+  suite over `dyn ProviderAdapter` (new `core/src/adapter.rs`, the Rust form of Table 5.2 and
+  §4.10, deferred to F10 by PR #312), driven through the fake Claude endpoint (in process,
+  under both `MidTurnRelease` settings) and the fake Codex app-server (spawned with `node` on
+  loopback, read through its call log). It asserts the named test `contract/adapter/no-polling`
+  ([IFC-ADP-040]), never-steer and the holding hand-off ([SEC-AUZ-022], [SEC-AUZ-025] to
+  [SEC-AUZ-027]; [MCPB-CDX-002] to [MCPB-CDX-005] on the Codex profile, over every call
+  of the adapter, any thread), and routing through the core (every request reaches the
+  core's sink, [IFC-ADP-003]; a `syn` parse of the adapter's sources with imports and
+  renames resolved, [IFC-ADP-001], [IFC-ADP-002], [IFC-ADP-007], [IFC-ADP-013]). **No adapter implements `ProviderAdapter`
+  yet** (Epic G): the suite runs today against two test-only stand-ins, and a tripwire test
+  fails when `adapters/claude` or `adapters/codex` first implements the trait. #59 therefore
+  stays open for its first acceptance item. Adapter-owned rows of Appendix C that these
+  suites do not check, owned by G4 to G8 and F11: [SEC-AUZ-021], [SEC-AUZ-023], the
+  SEC-PRV adapter rows, [SC-DLV-001] to [SC-DLV-009] (adapter rows), [SC-RCP-004] to
+  [SC-RCP-006], the SC-ENV adapter rows, and the MCPB adapter rows other than [MCPB-CDX-002]
+  to [MCPB-CDX-005].
+- **Layout.** `tests/protocol/contract/<name>` is a new test-only crate kind in
+  `scripts/check-crate-deps.mjs` (core/ and fakes only; product crates reach it by
+  dev-dependency only); the conformance runner skips `tests/protocol/contract/`.)
+
+**Last updated:** 2026-10-06 (**Issue #54 (F5): the authorization engine and the pairing
+store land in `core/`**, against `spec/security.md` revision 0.1 §9 and §5.3 and
+`spec/interfaces.md` §4.9. No `spec/` file, gate verdict, pin or ADR text changes, and no
+dependency is added.
+
+- **What landed.** `core/src/authorization.rs`: one-way inbound and outbound grants naming a
+  session, a working-directory scope or the whole device; the binding table with conflict
+  marks; reply rights, which cover replies to the one message they were recorded for, for
+  24 hours ([SEC-AUZ-014] limits them by correlation, not by count); hand-off records; the
+  five decision kinds of Table 4.9, each `deny` unless a recorded basis permits it; security step
+  4 of Table 7.1; key removal that drops the key's grants, bindings and conflict marks in the
+  same step ([SEC-KEY-035]); and a decision log that records the principal and session ids,
+  never a message body. `core/src/pairing.rs`: the pairing exchange and the `PairingStore`
+  seam with an in-memory test double. No store on disk is added; one belongs to `cli/`,
+  opt-in, as F3's key stores do.
+- **Conformance, integrated with F4 (#53, merged first).** `core/tests/conformance.rs` now
+  runs all five steps of Table 7.1 through `oac-core`. Step 4 is
+  `AuthorizationEngine::authorize_delivery`, between F4's `check_replay_window` and
+  `DuplicateStore::admit`, and it replaces F4's interim verdict taken from the fixture
+  (described in the #53 entry below). `admit` and `try_admit` take only the
+  `AuthorizedMessage` that step 4 produces, so a copy refused at step 4 cannot reserve a
+  store entry. The engine reads F4's `Clock`. The `replay` stage keeps one engine across
+  arrivals and applies each arrival's `grants_add` (`SEC-RPL-022.p03`). The `exchange`
+  stage's receive runs steps 3 and 5. Hand-offs feed `record_handoff`. The stages
+  `discovery-auth`, `key-removal` and `exchange` run in full, and `presence-auth` runs for
+  the `sec-auz` fixtures. All 34 `sec-auz` fixtures and `sec-key/SEC-KEY-035.p01` run
+  through `oac-core`.
+- **Finding F5-1 (pairing code).** `docs/planning/decisions/C5-envelope-auth.md` §10(b)
+  derives the six-digit code from the two keys' fingerprints alone. Its MITM argument does
+  not hold for a code of about 2^20 values: an attacker on the exchange channel can generate
+  key pairs offline until its substituted keys give both devices the same code. The
+  reference implementation therefore adds a commit-then-reveal nonce exchange, as
+  numeric-comparison pairing does, and derives the code from both principals, both public
+  keys and both nonces (`core/src/pairing.rs` module documentation; unit test
+  `substituted_key_or_nonce_changes_the_code_or_fails`). A responder answers one offer per
+  operator-started pairing, and an exchange abandoned before the reveal ends the pairing
+  visibly (`ResponderPairing`; PR #316 review N1), so a substituted key matches with
+  probability 10^-6 per operator-visible exchange. The 6-digit, 120-second and 5-attempt
+  parameters are unchanged. This departs from a recorded decision; C5 §10(b) carries a dated
+  note for it, **acknowledged by the operator on #54** (approved and merged PR #316, recorded at https://github.com/RossGraeber/OAC/issues/54#issuecomment-6030852812). `spec/security.md` §5.3 fixes
+  what pairing establishes, not the exchange, so [SEC-KEY-032] to [SEC-KEY-034] are met as
+  frozen. Its informative reference implementation note leaves out the nonce exchange; the
+  follow-up is recorded for the #308 batch. `11-risks.md` rows 25 and 26 are updated.
+- **Follow-ups for the `cli/` pairing verb and on-disk store, recorded on #71.** The verb
+  starts each pairing only on an operator's request and shows every `PairingEnd`. A key
+  removal whose save fails (`RemoveKeyError::NotSaved`) leaves the key revoked in memory
+  only, so a restart before a successful save would restore it. The verb must report that
+  failure loudly and retry the save.
+- **Same-device harnesses.** They need no pairing: they share the device key, which is
+  always trusted ([SEC-KEY-031]). They still need a grant to reach each other
+  ([SEC-AUZ-007], the #45 operator decision), so "no configuration" in #54's acceptance holds
+  for pairing, not for authorization.)
+
+**Last updated:** 2026-10-06 (**Issue #58 (F9): the fake Codex app-server endpoint lands
+at `tests/fakes/codex-app-server/`**, a dev/test-only Node process (built-ins only) over
+stdio and loopback WebSocket. No `spec/` file, gate verdict, pin or ADR text changes, and
+no dependency is added.
+
+- **Replay.** It loads the D6 `d6-codex-protocol/` transcripts and the G2 and G5 Codex
+  transcripts in place from `docs/planning/gates/fixtures/` (no fixture is added, copied or
+  changed). Its self-test drives it through the D6 attempt-2 sequence and checks every frame
+  each connection receives against the recorded one: order, kind and JSON shape. The README
+  maps each behaviour to its fixture.
+- **Ledger.** New "Open UNVERIFIED items" entry, from #58 below, and
+  `docs/planning/v0.1/11-risks.md` row 67: the experimental-API gate's refusal, the
+  "Not initialized" refusal, the frames of an interrupted turn and the resume error for an
+  unknown thread id are modelled from source at `rust-v0.160.0` only. The queue refusals and the wait after an interrupt stay under the
+  #274 entry (rows 65-66). Every other unrecorded behaviour, `turn/steer` included, is
+  answered with the fake's own `NOT_MODELLED` error, never an invented Codex frame.
+- **For F10/F11.** A call log flags every `turn/steer` and `turn/start` (steering,
+  [MCPB-CDX-003]/[MCPB-CDX-004]), every hand-off and every override member
+  ([MCPB-CDX-005]), so a suite can assert that an adapter hands off through
+  `thread/queue/add` only ([MCPB-CDX-002]). Turns end only when a test says so
+  (`oacFake/turn/complete`), with no timer.
+- **CI.** Job `fake-codex` in `.github/workflows/boundary-lint.yml`, on Linux, Windows and
+  macOS.)
+
+**Last updated:** 2026-10-06 (**Issue #53 (F4): replay defence and duplicate suppression
+land in `core/`**, against `spec/security.md` revision 0.1. No `spec/` file, gate verdict,
+pin, dependency or ADR text changes.
+
+- **What landed.** `core/src/replay.rs`: security-stage step 3 (the 300-second replay
+  window, open at both ends, compared in nanoseconds; [SEC-RPL-001] to [SEC-RPL-003]),
+  step 5 (the duplicate store keyed by (`key_id`, `nonce`), test-and-add as one step, an
+  entry removed when its copy is not handed off, a copy that finds an in-flight entry
+  waiting for its outcome, one `duplicate` receipt per entry; [SEC-RPL-020] to
+  [SEC-RPL-023], [SEC-RPL-026], [SEC-RPL-030]) and the hand-off deadline with its binding
+  bound (`spec/session-channels.md` [SC-RCP-091], [SC-RCP-092]). `core/src/clock.rs`: an
+  injectable clock (`SystemClock`, and `ManualClock` for tests). Step 4, authorization, is
+  F5 (#54) and is not in this change.
+- **Store policy (C5 §8).** Entries are evicted at the hand-off deadline ([SEC-RPL-024]);
+  an in-flight entry is never evicted. A hard cap (65536 entries by default) refuses a new
+  copy with `failed` / `internal-error` when every entry is still live, rather than evicting
+  one early. The store is process memory: a restart starts it empty, and only the window
+  bounds the accepted residual ([SEC-RPL-025]). Unit tests cover each, and the atomicity of
+  [SEC-RPL-021] under real threads, which Appendix A left `TODO(fixture), F4`.
+- **Conformance.** `core/tests/conformance.rs` now runs Table 7.1 steps 3 and 5 for every
+  `security` fixture and the whole `replay` stage (the ten `sec-rpl` sequences and
+  `ifc-trn/IFC-TRN-011.n02`) on a scripted clock, and the hand-off-deadline re-check of
+  `sc-rcp/SC-RCP-091.*` and `SC-RCP-092.n01`. Until F5 lands, step 4's verdict is taken
+  from the fixture (`unauthorized` expected).)
+
+**Last updated:** 2026-10-06 (**Issue #52 (F3): device identity, key storage, signing and
+verification land in `core/` and `cli/`**, against `spec/security.md` revision 0.1. No
+`spec/` file, gate verdict, pin or ADR text changes.
+
+- **Ledger.** The E5 item "whether `ed25519-dalek` `3.0.0`'s `VerifyingKey::verify_strict`
+  gives the [SEC-SIG-021] to [SEC-SIG-024] verdicts on every `sec-sig` fixture" is closed and
+  removed from "Open UNVERIFIED items". Promotion: run, not read. The `core/tests/conformance.rs`
+  test `verify_strict_alone_gives_the_sec_sig_verdicts` runs the 21 `sec-sig` fixtures past
+  the form checks through `verify_strict` alone, and its verdict is each fixture's (the
+  small-order, non-canonical and mixed-order `R` and `A` cases, and S not below L, all
+  rejected); key admission refuses non-canonical and small-order keys ([SEC-KEY-034]).
+  Rust 1.98.1 on Windows and Linux. `11-risks.md` row 63 is closed with the same evidence.
+  The `spec/security.md` §6.3 note and §13 row that still say "UNVERIFIED until F4" are
+  frozen text, left for the #308 editorial batch.
+- **Key storage on real credential stores.** The opt-in workflow
+  `.github/workflows/keystore-optin.yml` (manual dispatch; never the default tier) ran once
+  on this branch through a temporary push trigger, removed before merge: runs
+  https://github.com/RossGraeber/OAC/actions/runs/37421973245 at `371d6f2` and
+  https://github.com/RossGraeber/OAC/actions/runs/37422094601 at `b739abc`. Each passed all
+  four jobs: a device key saved to and read back from Credential Manager (windows-latest),
+  Keychain (macos-latest) and the Secret Service under gnome-keyring (ubuntu-latest), and,
+  on an ubuntu-latest job with no session bus, the store reported unavailable and the
+  `age`-encrypted file held the key. The Credential Manager round trip and the headless
+  fallback (WSL with no session bus) were also run locally. Both runs predate the PR #315
+  review fixes (a locked store no longer falls back; the file store's directory, ownership
+  and atomic-write rules); those were re-run locally on Windows and WSL, and the workflow
+  stays dispatch-only, to be re-dispatched from `main` after merge.
+- **Dependencies.** `ed25519-dalek` `3.0.0` (BSD-3-Clause, now on the accepted list under
+  the #51 operator decision), `sha2` `0.11.0`, `getrandom` `0.4.3` and `zeroize` `1.9.0` in
+  `core/`; `keyring` `4.2.0` and `age` `0.12.1` in `cli/`. `07-repository-and-dependencies.md`
+  §5 has the rows and the transitive summary.)
+
+**Last updated:** 2026-10-06 (**Issue #5 (Epic E): Gate S2 is met. Stage 2 exits and
+Stage 3 (Epic F, #6) opens.** The exit decision is
+`docs/planning/decisions/E-5-stage2-exit.md`, checked against `main` at `98ad455` (the PR
+#306 merge).
+
+- **Gate S2 criteria 1-6 hold (record §2).** The interfaces are frozen at revision 0.1
+  (PR #276, merged by the lead at `20482f1`), and no file under `spec/` has changed since.
+  The neutral-vocabulary checks are clean. Every `spec/` document labels its
+  reference-implementation notes. The runner passes 527/527 fixtures with clean index
+  checks, and its self-test passes. Versioning (§5) and unsupported-capability behaviour
+  (§6.6) are normative. C13 and #224 were folded in before the freeze.
+- **Exit artifacts (record §1).** `spec/` (E1-E6), the frozen contracts (E7), the fixture
+  set (E8) and the replacement proofs (E9, PR #306) all exist. All nine Epic E tasks
+  (#41-#49) are closed.
+- **#308 is out of Epic E's scope (record §3).** It batches editorial amendments to frozen
+  text for the next minor version, under E7 §7. It stays open and does not block the exit.
+- **N1, the minor bump for a change touching no wire form.** The operator's decision, a
+  small (minor) bump, is recorded on #47
+  (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6008223873, 2026-10-06; posted
+  by Claude from the operator's account to record the chat decision). It matches E7 §7
+  item 2 and `spec/interfaces.md` §7 as merged in PR #276.
+- **Stage 3 entry (`10-stages.md` §7; record §4).** Gate S2, the D6 fixtures and Gates S0
+  and S1 are all met. Prerequisite decisions 1, 2, 5, 6, 7 and 12 are made, and every
+  dependency Epic F's tasks name outside Epic F is closed.
+- `10-stages.md` §6 "Current verdict" and the "Current stage" cells below are updated, and
+  `oac-implementation` §0 now points at this record. No gate verdict, pin, ADR text or
+  `spec/` file changes.)
+
+**Last updated:** 2026-10-06 (**Issue #49 (E9): the design-for-replacement proofs are
+written**, `docs/planning/decisions/E9-replacement-proofs.md`, argued from the frozen
+`spec/interfaces.md` §4-§7 at `20482f1`.
+
+- **Verdicts.** A third adapter over ACP: HOLDS, with no transport, core-type or `spec/`
+  change. ACP is a client-owned-session protocol, not a channel; its only route that keeps
+  ADR-001 is a proxy (a Draft RFD). Its adapter declares sessions send-only as a
+  conservative choice, until a binding shows with evidence that a hand-off meets
+  [SEC-AUZ-022]. For ACP v2 that may be possible through the rule's exception (record §2.4). NATS and MQTT each replace the v0.1 transport: HOLDS, with no adapter,
+  core-type or `spec/` change. NATS lacks reliability, persistence, offline queueing and
+  multicast discovery; MQTT lacks the same four and, in the protocol, routing/federation.
+  DESIGN acceptance criterion 10 (a second backend from the contract alone): MET. All four
+  #49 acceptance items are met (record §7).
+- **Evidence.** First-party sources fetched 2026-10-06: the NATS docs (`nats-io/nats.docs`
+  at `f115becf`), the MQTT 5.0 OASIS Standard, the Mosquitto configuration reference, and
+  the ACP source repository at `487ad3ea` (record §1).
+- **UNVERIFIED ledger.** Closed: the NATS and the MQTT capability items (all twelve
+  cells), ACP protocol version `1`, and ACP schema v2 "alpha" (verified, no drift: prerelease
+  `schema-v2.0.0-alpha.7`; the v2 protocol docs are Draft).
+  Added: whether each NATS client library can disable its reconnect buffer; how long a copy
+  can wait in a NATS server's slow-consumer buffer; what an ACP v1 agent does with a
+  `session/prompt` during a running turn. RISK-MQTT is closed; RISK-NATS
+  and RISK-ACP are narrowed (`11-risks.md`).
+- **No amendment** to a frozen item is proposed (record §8); no file under `spec/`
+  changes. `10-stages.md` §6, §9 and §11 now record E9 as written and criterion 10 as met.
+  The ACP pin does not move (`PINS.md` "ACP" dated note). No gate verdict changes, and
+  Stage 3 is not declared open here.)
+
+**Last updated:** 2026-10-06 (**Issue #47 (E7): the Stage 2 interfaces are frozen at
+revision 0.1.** The operator decided FREEZE on #47
+(https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771). The sign-off commit
+is on PR #276, and the operator's approval of that PR is the final sign-off.
+
+- **Answers (record §8).** Renamed operations: YES. The two §4.2 items, (a) cross-install
+  waits for a transport binding and (b) all Codex delivery goes through the queue:
+  accepted as part of freezing v0.1 (not answered separately). Decision: FREEZE (v0.1).
+  Frozen at the merge commit of PR #276.
+- **Markers (record §6).** The four `spec/` documents read "frozen at Gate S2: signed off
+  2026-10-06, in force from the merge of PR #276", and the three revision histories gain a
+  `0.1` row for the freeze. The version stays `0.1`, and the extension identifier is
+  unchanged.
+- **Change control (record §7), the operator's rule.** A frozen item changes only by a PR
+  containing the change and a version bump, approved by the lead. No separate amendment
+  document is written. A wire change takes the version `spec/session-channels.md`
+  §5.2-§5.3 assign; a change touching no wire form (a rename, an owner move) takes a minor
+  version. Fixtures are not frozen and need no bump. `oac-spec-authoring` §7,
+  `spec/interfaces.md` §7 and `10-stages.md` §6 and §8 now say the same. The ADR-001
+  amendment process is unchanged.
+- **Re-run at sign-off (record §3).** `main` changed only the runner since `3e4471e`
+  (#283, #291). Runner 527/527 and index checks clean; self-test PASS; 510 ids, 472
+  `MUST`/`MUST NOT`, every one with a fixture or an owned `TODO(fixture)`; every Table 8.3
+  code and state decided; the neutral-vocabulary checks find zero hits.
+- **Gate S2 criterion 1 is met** (`10-stages.md` §6 "Current verdict"). E9 (#49) stays
+  open. No gate verdict, pin or ADR text changes, and Stage 3 is not declared open here.)
+
+**Last updated:** 2026-10-04 (**Issue #47 (E7): interface freeze ready for the operator's
+sign-off, not declared.** The freeze record, `docs/planning/decisions/E7-interface-freeze.md`
+(PR #276, a draft), was re-audited after #272, #278, #279 and #284 merged (`main` at
+`3e4471e`).
+
+- **Audit.**
+  - The runner and its self-test pass: 527/527 fixtures, and the index checks are clean,
+    including the `spec/interfaces.md` Appendix C owner index.
+  - All 510 requirement ids resolve, 472 of them `MUST`/`MUST NOT`. Each of those has a
+    fixture or a `TODO(fixture)` owned outside Stage 2.
+  - Every Table 8.3 code and Table 8.1 state is decided by a fixture. Binding-format
+    fixtures count, by orchestrator ruling.
+  - The neutral-vocabulary checks over `spec/` find zero hits.
+  - The operator decisions on #43, #45, #46, #174 and #224 are each reflected.
+- **Blockers: all closed.** B1, the interface text (#273, PR #279). B2, never steer
+  (#274, PR #278). B3 and B4, fixtures and binding owners (#275, PR #284). B5, L9 before
+  the freeze (#174, PR #272).
+- **What the operator signs (record §8).**
+  - Yes or no on the renamed adapter and transport operations (`spec/interfaces.md` §9).
+  - Yes or no on the two items that go beyond recorded decisions (record §4.2): (a)
+    cross-install waits for a transport binding meeting [SC-DLV-066] and [IFC-TRN-080],
+    not only for E5; (b) all Codex delivery goes through the queue, not only when busy.
+  - Then FREEZE or NOT YET.
+
+  Decisions the operator already recorded are listed for information only.
+- **Ruling.** Binding-format fixtures count toward the Gate S2 demonstration (orchestrator,
+  #47 comment 5978246563).
+- **Editorial fixes.** The SC-ID-080 fixture owner; a `spec/security.md` Appendix B note;
+  the "Open epics" cell; `10-stages.md` §6 "Current verdict".
+- **Not frozen yet.** The draft markers in the four `spec/` documents stay until the
+  sign-off commit, which applies the record's §6. No gate verdict, pin or ADR text changes.)
+
+**Last updated:** 2026-10-04 (**Issue #274: delivery never steers; the #224 decision is in
+the spec before the freeze.** Blocker B2 of the E7 freeze-readiness audit (#47, #274).
+In this change:
+
+- **Neutral (`spec/security.md` §9.6).** [SEC-AUZ-022] is now unconditional and
+  behavioural: any hand-off that adds input to a running turn (documented, observed, or
+  shown by source) is a steering operation, and no operator setting enables one. The one
+  exception is an operation a binding shows, with evidence, to sit on a surface with no
+  holding hand-off and to be taken in at boundaries the harness chooses. The channel
+  surface is that case (`spec/bindings/mcp.md` §8.1), and the §13 residual says plainly
+  that its mid-turn input does join the running turn (G1 Box C). New: SEC-AUZ-025 (a holding hand-off whenever a turn may be
+  running), SEC-AUZ-026 (only a check atomic with the hand-off shows no turn is running)
+  and SEC-AUZ-027 (no fallback to steering). Each is `TODO(fixture)`, owned by G7 (#68)
+  against the F9 fake. The §13 steering row is updated.
+- **Binding (`spec/bindings/mcp.md` §8.2.1).** The race-free form was chosen: every Codex
+  delivery uses `thread/queue/add` (MCPB-CDX-002). `turn/start` is never used for delivery
+  (MCPB-CDX-003). `turn/steer` is never used for delivery (MCPB-CDX-004). No
+  setting-override members are sent (MCPB-CDX-005). Each cites the #224 source findings at
+  `rust-v0.160.0` and the E1 live observation. `thread/queue/add` is labelled experimental,
+  behind the G6 shim. Fixtures are `TODO(fixture)` because app-server traffic is outside
+  the `mcp-binding` stage. Consequences stated plainly: no delivery to ephemeral,
+  queue-less-host, subagent or archived threads (each `handoff-failed`); all Codex delivery
+  rests on one experimental method; after an interrupted turn, deliveries wait until a turn
+  completes uninterrupted; the C6 §5.0 anchor is never sent, so Codex delivery is in effect
+  Option A, which G5 arm F proved. Dated notes in C6 §5.0, C13 §7, §10 and §13,
+  `06-security.md` §9 and `G5-result.md`. §8.1 invokes the steering exception for the
+  channel notification, with evidence.
+- **Ledger.** The C13 item "`turn/start` sent while a turn is active steers it" is closed
+  and removed from "Open UNVERIFIED items". Promotion: verified from first-party source at
+  `openai/codex` `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`
+  (`codex-rs/app-server/src/request_processors/turn_processor.rs` L651-L684;
+  `codex-rs/core/src/session/turn_input.rs` L276-L373; upstream test
+  `turn_start_steers_active_turn_and_returns_active_turn_id`), retrieved 2026-10-02
+  (https://github.com/RossGraeber/OAC/issues/224#issuecomment-5956477165), with one live
+  observation at `0.160.0` (E1 run `20261002T161612Z`). The spec no longer depends on the
+  timing, because delivery never uses `turn/start`. Codex floats, so a later version is
+  re-checked as a follow-up (#216). Two new items are added (queue "not now" errors; queue
+  runtime caveats), with `11-risks.md` rows 65-66. `06-security.md` gets a dated note in
+  §9 and a dated residual on row 12.
+- **Freeze.** Done before Gate S2, because after it the wider [SEC-AUZ-022] and the new
+  `MUST`s would be breaking (`spec/session-channels.md` §5.3, item 11). Implementation
+  stays with G7 (#68) and G6.
+
+No pin moves. No envelope or interface type changes.)
+
+**Last updated:** 2026-10-03 (**Issue #45 (E5): `spec/security.md` written.** The normative
+security model, neutral (document prefix `SEC`, areas `KEY`, `SIG`, `STG`, `RPL`, `AUZ`,
+`RCT`, `PRS`, `PRV`; 107 requirement ids in its Appendix A). In this change, as revised
+after the PR #265 review:
+
+- **Keys and signing.** One Ed25519 device key; the key id is the full SHA-256 of the
+  public key in lower-case hex (an identifier token, so it renders as provenance, closing
+  C13 §14's hand-off of the fingerprint encoding); nonce and signature in unpadded
+  base64url; signing input = domain string, a zero octet, then RFC 8785 JCS of the object
+  without `security.signature`; four domain strings (envelope, registration record,
+  receipt, presence record); every number canonicalizes as the nearest double.
+  Verification is strict: S below L, no small-order or non-canonical `R`/`A`, and the
+  cofactorless equation, matching `ed25519-dalek`'s `verify_strict` (the first draft's
+  cofactored equation was replaced after review). Pairing's wire format is out of scope.
+- **Security stage.** Order: key resolution (`unknown-key`), signature
+  (`signature-invalid`), replay window (`outside-replay-window`), authorization
+  (`unauthorized`), duplicate (`duplicate`). Nothing about `to` is read before step 4.
+- **Replay.** `W` = 300 s, open at both ends; the replay-window skew allowance of
+  `spec/session-channels.md` §8.4.2 is fixed there at 300 s. Duplicate store keyed on
+  (`key_id`, `nonce`), entry added atomically at step 5 and removed when the copy is not
+  handed off (SC-RCP-009), kept until the hand-off deadline (eviction bound = hand-off
+  bound). A copy arriving during an earlier copy's hand-off waits for that outcome, so
+  `duplicate` is never reported for a message that was not handed off. At most one
+  `duplicate` receipt per entry.
+- **Authorization.** Default deny, no implicit same-device grants. Grants are one-way
+  ("writer may send to target") and are recorded on both implementations, inbound and
+  outbound; each side may name a session, a working-directory scope or a whole device. A
+  session sees the sessions it may write to. **Reply rights** (constraint from the PR #263
+  review): sending `E` lets `E`'s addressee reply, correlated to `E`, for 24 hours, and
+  lets the receiving session discover `E`'s sender for the same period. One one-way grant
+  carries a whole request and reply (fixture `sec-auz/SEC-AUZ-014.p02`).
+- **Receipts and presence.** Authenticated receipt and authenticated presence-record
+  wrappers; a presence record names its one `audience` device, signed, so a forwarded
+  record is refused. A signed claim (an announcement, or a verified and authorized
+  envelope's `from`) is the publishable binding proof (no working directory, no native
+  id). A session id claimed by two keys fails closed for both until an operator removes one
+  of the keys, which clears the mark; only a claimant that a grant or exchange relates to
+  the consumer can set the mark, and the consumer's own sessions are never marked (second
+  review of PR #265). Presence replay across consumer restart or forget is bounded by freshness
+  (`issued_at` inside `W`) and a 300-second effective lifetime cap for records from
+  another implementation.
+- **Provenance.** Neutral adapter obligations: whole-value identifier check with refusal,
+  refuse rather than partial provenance, shared-carrier framing (CSPRNG delimiter, closed
+  line-break list, control and bidi escapes, `| ` quoting), content never presented as user
+  or system.
+- **Fixtures.** 121 under `tests/protocol/sec-*/`, test keys in
+  `tests/protocol/sec-test-keys.json` (seeds derived from public labels; test only).
+  Checked by an independent script (own JCS and BigInt Ed25519); not committed.
+- **Ledger.** New UNVERIFIED items 63-64 (the pinned crate's verdicts on the fixtures,
+  narrowed by reading its source; JCS crate conformance), new risk `RISK-SEC-SPEC` in
+  `11-risks.md`; C5's fingerprint-truncation item narrowed; a dated note in C5 §7 on the
+  open replay interval.
+- **Operator decisions on #45**, each a dated note in the spec: a reply right covers that
+  one message for 24 hours; the same machine and folder still need an explicit grant;
+  presence between machines is capped at 5 minutes; grants may be per session,
+  folder-wide or machine-wide.
+- **Follow-ups**, not made here (`spec/security.md` Appendix B): Appendix A rows and §10.1 of
+  `spec/session-channels.md`, Table 8.3 conditions, §7/§8.2 reply-path notes, and
+  `spec/bindings/mcp.md` §6.3's "planned, E5".
+- No gate verdict, pin or ADR text changes.)
+
+**Last updated:** 2026-10-03 (**Issue #43 (E3): spec §7, active delivery, presence and
+discovery, written.** `spec/session-channels.md` §7 now holds the active-inbound obligation
+and the no-polling rule (push mechanisms allowed), when a session is accepting input (a
+not-now refusal is `destination-unavailable`, a failed hand-off `handoff-failed`), the
+three presence states (`online`, `unreachable`, `unknown`), presence records (announcement
+and withdrawal, `seq` ordering, a lifetime measured on the consumer's clock, carrier loss),
+discovery results (authorized `online` sessions only, scoped by the implementation holding
+the binding), and where a sender takes a capability declaration from, which makes
+SC-ID-086 satisfiable, and keeps a send request from revealing a session its requester is
+not authorized to discover (SC-DLV-075/076). Appendix A gains 56 `SC-DLV` ids; 43 fixtures land under
+`tests/protocol/sc-dlv/` and one, `SC-ID-044.p01`, under `tests/protocol/sc-id/`. It closes,
+at the neutral layer, decision C7 §4's two recorded gaps (no carriage for a session's
+descriptor, no discovery path); the transport mapping that carries presence records is
+still to be written. Operator decisions on #43: refuse at once when a session is not
+accepting input; refuse sends to `unreachable` sessions; discovery lists only `online`
+sessions; lifetime one second to one hour; no presence, discovery or sending across
+installs until `spec/security.md` (E5, #45) authenticates presence records, so v0.1
+presence and discovery are same-install only. Two constraints are recorded for E5: bound
+presence-record replay across a consumer restart, and define a publishable session-id
+binding proof that reveals neither the working directory nor the harness-native id. No
+gate verdict, pin or ADR text changes. Two UNVERIFIED items are added below and as
+`docs/planning/v0.1/11-risks.md` rows 61-62. Reconciled with E4 (#44): presence is step 2 of
+§8.3.3's sender refusal order (SC-RCP-090), and a send with no declaration held now carries
+`unknown-destination` instead of `unsupported-capability`.)
+
+**Last updated:** 2026-10-03 (**Issue #44 (E4): receipts, replies, correlation and the
+error taxonomy written.** `spec/session-channels.md` §8 now holds the delivery-state set
+(DESIGN's `accepted` split into `accepted-by-adapter`, `handed-to-harness` and `unknown`, as
+C5 §9 requires; no state claims a model saw a message), the receipt format, the reply rule
+for a harness with no reply tag (C6 §10, conflict C9), a closed 17-code error taxonomy with
+precedence, and the retransmission and retry rules, including how receipts for several
+copies of one envelope combine (a retry on the implementation's own initiative only after the
+hand-off deadline plus the replay-window clock-skew allowance, by the sender's clock), and Table 8.3.3 mapping every §6 refusal (E2, #42) to one
+code. A receiver re-checks the whole hand-off deadline (expiry and replay window) immediately
+before hand-off (SC-RCP-091/092). Requirement area `RCP`: 58 ids in Appendix A. New fixtures: 72 under
+`tests/protocol/sc-rcp/`; `expected.error` added to every negative envelope-stage fixture
+under `sc-env/`, `sc-ver/` and `sc-id/`, and to the six refusing `send`-stage fixtures in
+`sc-id/`. Follow-up for `spec/bindings/mcp.md` (#46): drop its "placeholders by role"
+wording and cite the codes and §8.1 directly.
+- **Departure from C5 §9, recorded:** C5 §9 defines `accepted-by-adapter` as the receiving
+  side's acceptance after verification; §8.1.2 adopts C6 §8's reading instead (the sending
+  implementation passed the envelope to a transport), because that is what `send` returns
+  and what a sender can observe. A dated forward note is added at the end of C5 §9.
+- **Operator decisions on #44**, each a dated note in §8: far-side receipts are optional
+  (MAY) for v0.1; no inferred reply links in v0.1.
+- No gate verdict, pin or ADR text changes, and no UNVERIFIED item opens or closes.)
+
+**Last updated:** 2026-10-03 (**Issue #42 (E2): spec §6, session identity, written.**
+`spec/session-channels.md` §6 now holds the session id (opaque, 26-character Crockford
+Base32, bound to one device key), the non-authoritative display form and aliases, the
+session descriptor, the capability declaration (`active_inbound`, `content_types`,
+`max_envelope_octets`), version negotiation and unsupported-capability rules, C4's
+binding, re-binding and stale-binding cases (#236) in neutral terms, send-request
+attribution (the #46 operator decision, neutral), and identity-versus-presence rules.
+Appendix A gains 84 `SC-ID` ids; 68 fixtures land under `tests/protocol/sc-id/`. Operator
+decisions on #42: no send without a capability declaration (SC-ID-086), and
+`active_inbound: false` means send-only. No gate verdict, pin or ADR text changes. No
+UNVERIFIED item opens or closes: §6 cites the existing C4 pairing-mechanism item.)
+
+**Last updated:** 2026-10-03 (**Issue #46 (E6): the MCP binding lands at
+`spec/bindings/mcp.md`; C5 closed.** In this change:
+
+- **Path.** `spec/bindings/mcp.md`, the task-scoped exemption from the neutral-vocabulary
+  rule. The CI step and skill text exempting exactly that regular file from check 2 and the
+  spec zero-hits group came with #41 (PR #258, entry below); check 1 has no exemption.
+  Skills updated here: `oac-mcp` Pin, `oac-claude-channels` §4; mirror re-synced.
+- **Ids.** The binding uses #41 §3 ids with document prefix `MCPB` (`MCPB-<AREA>-<NNN>`)
+  and cites `spec/session-channels.md` by its real headings.
+- **C5: `CLOSED`** by the binding's §9 (dual-era server, legacy-only channel path, an
+  era-invariant tool surface). Both register rows and RISK-G4 carry dated notes. #65 and
+  RISK-G4 row 41 stay open as verification. Caveat: a tool call is served only on a
+  connection bound by a documented pairing (§4.4, interim). No Codex connection is bound
+  yet (#69), so Codex outbound calls are refused on both eras, including if Codex's
+  default moves to `2026-07-28` first.
+- **Ledger.** Closed: "`experimental` at `2026-07-28`" (present in the schema at commit
+  `271ecc9`, lines 720/797; RISK-MCP-EXPERIMENTAL dated note). Added: a documented
+  per-request session signal OAC can bind; Codex legacy-era multi-thread connections
+  (#69); legacy clients accepting `extensions` in `initialize`. `G4-result.md` gets a
+  dated correction: Codex's `x-codex-turn-metadata` does carry session, thread and turn
+  ids.
+- **Drift.** B2 D2 ("no reserved-prefix rule") holds for SEP-2133's text only. The MCP
+  base spec reserves `_meta` prefixes whose second label is `modelcontextprotocol` or
+  `mcp` at both revisions, and at `2026-07-28` extension identifiers follow those rules.
+  `oac-mcp` is corrected. C3 §4, `PINS.md`, `REVERIFICATION-B2.md` and G4-result.md
+  criterion 2 still carry the narrower wording; #257 corrects them. The identifier itself
+  is unaffected (second label `github`).
+- **Cross-dependency.** The binding cites `spec/session-channels.md` (#41, PR #258) by
+  its section numbers; §6-§8 there are stubs E2-E4 fill.
+
+No gate verdict, pin or `ADR-001.md` text changes.)
+
+**Last updated:** 2026-10-03 (**Issue #41 (E1): `spec/` exists; envelope and versioning
+written.** The first Stage 2 spec change. In this change:
+
+- **New:** `spec/session-channels.md`, the normative OAC Session Channels document.
+  - It has the full section skeleton. §4 (envelope) and §5 (versioning) are written. §6
+    (E2, #42), §7 (E3, #43) and §8 (E4, #44) are titled stubs those tasks fill without
+    renumbering. Security stays in `spec/security.md` (E5, #45, not yet written).
+  - §3 fixes the requirement-id scheme (`SC-ENV-010` form) and the conformance-fixture
+    format. Appendix A indexes 47 requirement ids: 28 `MUST`/`MUST NOT` with fixtures, 14
+    marked `TODO(fixture)` with the task named, and 5 `SHOULD`/`SHOULD NOT`/`MAY`.
+- **New:** 76 envelope-stage fixtures under `tests/protocol/sc-env/` and
+  `tests/protocol/sc-ver/`, including the "unknown version" negative case E8 requires.
+- **Design choices** (details in the spec):
+  - the C13 whole-value charset is now an envelope rule (§4.3), closing C13 §14's E1
+    item and `11-risks.md` row 46's residual in the spec;
+  - an unsupported content-part type is rejected, not ignored (§4.5.2). This supersedes
+    `05-interfaces.md` §3's M0 draft, which said ignore;
+  - operator decisions on #41, each marked in the spec with a dated note: the 64 KB size
+    default, the 24-hour `ttl_ms` cap, and rejecting the whole message on an unsupported
+    part type. Orchestrator ruling: the extension identifier stays in the core spec;
+  - the `security` object is closed; unrecognized top-level members are ignored;
+  - `null` is never a value; `created_at` is UTC `Z` only; `ttl_ms` is 1 to 86400000;
+  - `version` is `"<major>.<minor>"`. A major maps one-to-one to an extension
+    identifier; major 0 is `io.github.rossgraeber/oac-session-channels` (C3 §8).
+- **CI:** boundary checks 1-2 and the spec neutral-vocabulary zero-hits group now run in
+  `boundary-lint.yml` over `spec/`, which is mandatory (a missing `spec/` fails); `core/` is
+  still pending. The step scans an explicit list of every regular file under `spec/`, so
+  dot-files and ignore files cannot hide one, and a symlink fails. Check 2 and the
+  zero-hits group exempt exactly the regular file `spec/bindings/mcp.md`, the path #46
+  (PR #255) uses for the E6 binding. Checks 3 and 8 gain `--no-ignore`. Checks 9 and 11 now see
+  `spec/` too, and it is clean. The `oac-boundaries` and `oac-spec-authoring` references
+  are updated to match and re-synced to `.agents/skills/`.
+
+No gate verdict, pin or ADR text changes. This change opens and closes no UNVERIFIED item:
+it makes no harness or transport claim.)
+
+**Last updated:** 2026-10-03 (**Issue #40 (D7): Stage 1 exits, and Stage 2 opens.**
+Operator decision on #40 (2026-10-02): D7 proceeds once the C13 G5 Codex re-run is
+recorded. It does not wait for the remaining herdr re-runs (#130, #131, #124), which check
+test tooling and cannot change a verdict. The G5 verdict change (#231, merged at
+`691aef6`, entry below) landed first. It synced every file stating G5's verdict and
+regenerated `02-gating-findings.md`. In this change:
+
+- **New record:** `docs/planning/decisions/D7-stage1-exit.md`. It holds:
+  - the Gate S1 checklist, with evidence for each criterion;
+  - the inventory of the 15 quarantined `*.throwaway-quarantined` files, and the
+    `tools/herdr/gate-servers/` exception;
+  - the "no fallback taken" statement and the Stage 2 go/no-go;
+  - the continuing and deferred items.
+- **Verdicts:** G1-G5 are all **PASS**, and none took a fallback. For G5, see
+  `docs/planning/gates/G5-result.md` L103 at `691aef6`.
+- **"Current stage"** below now reads Stage 2, entered. The "Open epics" and "Blocked"
+  cells are rewritten to match. `10-stages.md` §5 "Current verdict" gets the Gate S1
+  verdict.
+- **Done since the draft:** #232 (PR #242), #243 (PR #245), #244 (PR #248), #239
+  (PR #250) and #249 (PR #251).
+- **Continuing, not exit blockers:** #246, #253, #252, #224, #130, #131 and #124. K6 is
+  deferred past v0.1 (#129).
+
+No pin, spec or ADR text changes. This change opens and closes no UNVERIFIED item.)
+
+**Last updated:** 2026-10-03 (**Issue #220: G5 is PASS; C13 resolved.** G5's Codex-leg
+re-run under C13 §11 ran through herdr under the one-off E1 exception
+(`.claude/skills/oac-gates/references/scripted-runs.md` "Verdict eligibility"). Run
+`20261002T161612Z-4f2b53`, record `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`,
+Codex `0.160.0`, 60-minute box not expired. The operator attested it at
+`062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
+*Dated note, 2026-10-03 (#252):* the operator's attestation is not the basis for findings
+or verdicts. They rest on cited evidence, or are UNVERIFIED (`oac-gates`
+`references/scripted-runs.md` "Verification"). The attestation above is history. For this
+run, the evidence is the record's findings and captures. Its herdr identity rests on the
+run manifest's `herdr 0.9.1`, the same-day K8 run's driver-recorded sha256, and PINS.md's
+expected `win32-x64` value. Beyond that it is UNVERIFIED (note in `G5-result.md` "UNVERIFIED
+items"). G5's verdict is unchanged.
+
+- **The run.** Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27 FAIL: X2 f in 3 of 3
+  trials, and X5 put two `oac_sender:` lines in the header. That makes the run conclusive,
+  and it consumed E1. Every required trial of arm F (C6 §5.0's floor) and arm C (Option C,
+  the floor plus the anchor) was x on Codex criteria 2 and 3, and every mechanical check
+  was met. Scoring was agent-scored under frozen rules (a) and (b), and the operator
+  attests (E1 ruling 2).
+- **Claude.** The 2026-09-27 Claude results stand (E1 ruling 3). The separate, non-verdict
+  K8 regression run (`gates/herdr-runs/G5-2026-10-02.md`) found no Claude disagreement.
+  Its one Codex X2 disagreement is a finding, assessed as not bearing on C13.
+- **G5: PASS.** `docs/planning/gates/G5-result.md` is rewritten for the Codex leg, with
+  `Driver:` citing the E1 bullet and an `## Operator attestation` section. The Claude leg
+  is carried, and the 2026-09-27 FAIL is kept as history. The "Gate verdicts" row and
+  `02-gating-findings.md` (regenerated by hand) match.
+- **C13: `RESOLVED-IN-DECISION`.** Option C stands, because arm C showed no anchor
+  confusion. Updated: the C13 record, the "Decisions landed" bullet, "Open conflict-register
+  items", and both register rows (`03-decisions-and-amendments.md` §4,
+  `ADR-001-AMENDMENTS.md`). DESIGN acceptance criterion 6 is re-established for Codex at
+  gate level, so Stage 2's freeze no longer waits on Codex provenance. It still waits on
+  D7.
+- **Ledger.** The C13 developer-role-anchor item is closed and removed from "Open
+  UNVERIFIED items". The S10 `turn/start`-steers item gets a dated note: it was observed
+  once live, and it stays open (#224). `11-risks.md` RISK-G5 gets a dated status, and rows
+  45-46 are marked CLOSED.
+- **Dated verdict notes** in `PINS.md` (prose only), C4, C5, C6, `03`, `04`, `06`, `09`,
+  `10`, and both G5 run records. The PENDING callout in the E1 record is replaced by a
+  "verdict written" callout.
+- **What this PASS does not prove** (`oac-security-work` §6). It confirms the
+  reconstructed gate client's framing against live Codex, not OAC's adapter. The
+  `06-security.md` §9/§10/§14 rewrite, C6 §12's fold and the other C13 §14 follow-ups stay
+  open.
+
+No pin moves. Recording Codex `0.160.0` as last tested in `PINS.md` is a separate change.
+`ADR-001.md` is unchanged and no amendment is issued.)
+
 **Last updated:** 2026-10-02 (**Issue #236: C4 revised, drift D5 resolved.** Operator
 decision (2026-10-02, refined the same day after the PR #238 review, option (c)): the
 hook-stdin `session_id` stays authoritative, and `oac mcp-shim` also reads
@@ -183,7 +1205,9 @@ first version worked with (G1, 2026-09-25: `G1-result.md` "Original run", fixtur
 minimum `@openai/codex@0.154.0`, the first version worked with (G2, 2026-09-25:
 `G2-result.md` "Re-run history", fixture `g2-codex-inject/transcript.jsonl`). Last tested
 `@openai/codex@0.159.3` (commit `01fc69f4026735edfdf6789820549727a4867b11`, L3,
-2026-10-01). The pin-move checklist and `docs/planning/gates/README.md` §a no longer apply
+2026-10-01; *dated note, 2026-10-06: superseded on 2026-10-04 by `@openai/codex@0.160.0`.
+The current last tested version is in `docs/planning/PINS.md` "Codex CLI and app-server"*).
+The pin-move checklist and `docs/planning/gates/README.md` §a no longer apply
 to these rows. A harness version other than the last tested one, or below the minimum, is
 a `VERSION WARNING` finding. It never stops a run, never makes it `NOT RUN`, never blocks
 CI and never by itself invalidates a gate verdict. The herdr scenarios (g1, g2, g4, g5, l3),
@@ -954,10 +1978,10 @@ amendments A1-A3 issued)
 
 | | |
 |---|---|
-| Milestone | M2 — Stage 1 gate spikes (Epic D). *(Dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
-| Stage | **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G4 PASS, G5 FAIL on Codex. G5's Codex-leg re-run under C13 (#220) is pending. *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
-| Open epics | A (closed — full v0.1 package landed), C (closed), D (Stage 1 gate spikes — G1/D1 PASSED on Claude Code `v2.1.282`, invalidated 2026-09-27 when the Claude Code (Channels) pin went floating (last observed `v2.1.283`), **re-run and PASSED again 2026-09-28** on `v2.1.283` (issue #39 T6/T7, Box C — see `docs/planning/gates/G1-result.md`; dated note 2026-10-01, #216: a harness version change no longer invalidates a verdict); G2/D2 PASS, re-run 2026-09-26 on the current Codex `0.157.1`; G3/D3 **PASS** at gate level (2026-10-02, #219: Windows and Linux PASS 2026-09-25, macOS PASS on a GitHub-hosted VM 2026-10-02); G4/D4 PASS, re-run 2026-09-26 under a fresh timebox after an earlier out-of-box `NOT RUN`, see `docs/planning/gates/G4-result.md`; G5/D5 **FAIL** on Codex (2026-09-27), Claude PASS — see `docs/planning/gates/G5-result.md`; C13 design decided 2026-10-02, Codex-leg re-run pending, #220), J (agent skills) |
-| Blocked | Stages 2-6, and the rest of Stage 1 pending D7 (D5 has now run; a G5 `FAIL` does not itself block D7 per `docs/planning/v0.1/10-stages.md` §5's Gate S1 acceptance criterion 1 (`FAIL` is a closed verdict) — D7 is no longer blocked by any gate leg: G3's macOS leg PASSED 2026-10-02 (#219) and G1's re-run PASSED 2026-09-28, so every gate has a closed verdict; separately Stage 2 cannot freeze the Codex provenance interface until C13 closes. The C13 design is decided (C6 §5.0, 2026-10-02, #220), and C13 closes when G5's Codex-leg re-run under C13 §11 passes; that re-run is pending). No substantial core or transport code starts before Stage 0 and Stage 1 fully complete. |
+| Milestone | M5 — Stage 4 adapters and Zenoh transport (Epic G, #7). *(Dated note, 2026-10-08, #6: was "M4 — Stage 3 core and fakes (Epic F, #6)" until the Stage 3 exit.)* *(Dated note, 2026-10-06, #5: was "M3 — Stage 2 normative spec (Epic E, #5)" until the Stage 2 exit.)* *(Dated note, 2026-10-03, #40: was "M2 — Stage 1 gate spikes (Epic D)" until D7. Earlier dated note, 2026-10-02, #228: was "M0 — Planning package v0.1". M0 closed with Epic A on 2026-09-17 (#1), and the Stage 0 artifacts (Epic B, M1) landed 2026-09-16/17.)* |
+| Stage | **Stage 4 — Adapters and Zenoh transport (open, 2026-10-08, #6).** Gate S3 is met. The Stage 3 exit decision is `docs/planning/decisions/F-6-stage3-exit.md`, and `docs/planning/v0.1/10-stages.md` §7 "Current verdict" points to it. Criteria 1-5 hold on `main` at `090d2a7` (the PR #346 merge): the default tier is green on three OSes with no live provider, no API key and no network beyond loopback; no provider test runs by default; dependency direction is clean; `contract/adapter/no-polling` passes through both fakes; and every fake behaviour traces to a recorded fixture, after the #343 capture (PR #344) and the lead's decision to remove the fake's last unrecorded behaviours (PR #346). Stage 4's entry conditions (`10-stages.md` §8) are met: Gate S3, G1 and G2 `PASS`, and G3 `PASS` on multicast scouting. Stage 4's exit is Gate S4 (`10-stages.md` §8). The exit is in force from the lead's merge of PR #342, which is the approval (record §5). *(Dated note, 2026-10-08, #6: the Stage 3 text that follows is history.)* Was: **Stage 3 — Core and fakes (open, 2026-10-06, #5).** Gate S2 is met. The Stage 2 exit decision is `docs/planning/decisions/E-5-stage2-exit.md`, and `docs/planning/v0.1/10-stages.md` §6 "Current verdict" points to it. Criteria 1-6 hold on `main` at `98ad455`: the interfaces are frozen at revision 0.1 (E7, PR #276), the fixtures run 527/527, and the replacement proofs are written (E9, PR #306). Stage 3's entry conditions (`10-stages.md` §7) are met: Gate S2, the D6 fixtures, and Gates S0 and S1. Stage 3's exit is Gate S3 (`10-stages.md` §7). *(Dated note, 2026-10-06, #5: the Stage 2 text that follows is history.)* Was: **Stage 2 — Normative spec v0.1 (entered, 2026-10-03, #40).** Gate S1 is met. D7 published the Stage 1 exit decision in `docs/planning/decisions/D7-stage1-exit.md`, and `docs/planning/v0.1/10-stages.md` §5 "Current verdict" points to it. G1-G5 are all PASS, and no gate took a fallback. C13 is `RESOLVED-IN-DECISION`, and C6 §5.0 (Option C) is the Codex provenance framing that Stage 2 freezes. Stage 2's exit is Gate S2 (`10-stages.md` §6). **Interfaces frozen at revision 0.1 (E7, #47; signed off 2026-10-06).** The operator decided FREEZE (https://github.com/RossGraeber/OAC/issues/47#issuecomment-6007805771), so Gate S2 criterion 1 is met and criteria 1-6 hold (`docs/planning/decisions/E7-interface-freeze.md` §5); the freeze is in force from the merge of PR #276. Stage 2's remaining exit artifact is E9 (#49), which is not a Gate S2 criterion. E9's proofs are written (`docs/planning/decisions/E9-replacement-proofs.md`, 2026-10-06): all four acceptance items met, no amendment proposed. This change does not declare Stage 3 open. *(Dated note, 2026-10-06, #49: the sentence on E9's proofs is new.)* *(Dated note, 2026-10-06, #47: until now this cell ended at "Stage 2's exit is Gate S2".)* *(Dated note, 2026-10-03, #40: the Stage 1 text that follows is history.)* Was: **Stage 1 — Provider and transport spikes (entered).** Gate S0 is met, declared 2026-10-02 (#228); the checklist with evidence per criterion is in `docs/planning/v0.1/10-stages.md` §4 "Current verdict". The G1-G5 spikes started 2026-09-25, before S0 was formally declared, and the declaration is made retroactively against the evidence as of 2026-10-02. Stage 1's exit is D7 (#40, publish the G1-G5 verdicts and the stage-1 exit decision). Every gate leg now has a closed verdict: G1-G5 PASS. *(Dated note, 2026-10-03, #220: G5 was FAIL on Codex from 2026-09-27. Its Codex-leg re-run under C13 §11, route E1, passed on 2026-10-02 (attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`), and C13 is resolved.)* *(Dated note, 2026-10-02, #228: this cell said "Pre-Stage 0. The §9 planning package is not yet written." from 2026-09-17. That was stale: the package landed when Epic A closed on 2026-09-17, #1.)* |
+| Open epics | G (Stage 4, adapters and Zenoh transport, #7, milestone M5): opens with the Stage 3 exit (`docs/planning/decisions/F-6-stage3-exit.md` §6). Tasks G1-G11 (#62-#72). F (Stage 3, #6): exit recorded; the lead ticks its checklist and closes it, as for D and E. Eleven of its twelve tasks are closed. #59 (F10) stays open until Epic G runs the contract suites on the real adapters and on Zenoh, and #347 (the contract suite does not tell `handoff-failed` from not-now) is open (record §4). #343 (the Stage 1 capture) has its last box met by the exit PR. #308 (editorial amendments to frozen text) lands under E7 §7. #224 is open, owned by backlog G7. #345 (the herdr driver self-test in CI) is open. K (herdr tooling, #123) continues: open #131, #124 and #303. L (Beacon, #165) continues; L10 (#175) and L11 (#176) wait for Stages 5 and 6. Closed: A, B, C, D, E, J. Not open: H, I (Stages 5-6). *(Dated note, 2026-10-08, #6: the Stage 3 text that follows is history.)* Was: F (Stage 3, core, fakes and contract suites, #6, milestone M4): opens with the Stage 2 exit (`docs/planning/decisions/E-5-stage2-exit.md` §4). Tasks F1-F12 (#50-#61) are open. Every dependency they name outside Epic F (C1, C4, C5, D6, E1, E3, E4, E7, E8) is closed. E (Stage 2, #5): complete. All nine tasks (#41-#49) are closed, and the exit PR closes #5. #308 (editorial amendments to frozen text) is outside Epic E's scope and lands under E7 §7. K (herdr tooling, #123) continues: open #131, #124 and #303. #224 is open, owned by backlog G7. L (Beacon, #165) continues; L10 (#175) and L11 (#176) wait for Stages 5 and 6. Closed: A, B, C, D, J. Not open: G, H, I (Stages 4-6). *(Dated note, 2026-10-06, #5: the Stage 2 text that follows is history. Since it was written, #246, #253, #252 and #130 have closed, and so has Epic D (#4).)* Was: E (Stage 2, normative spec v0.1, #5): opens with D7. Progress: E1-E6 (#41-#46) and E8 (#48) closed. `spec/session-channels.md`, `spec/security.md`, `spec/bindings/mcp.md` and `spec/interfaces.md` (#273) are frozen at revision 0.1 (signed off 2026-10-06; in force from the merge of PR #276), and the conformance runner runs in CI. E7 (#47): FREEZE decided by the operator on 2026-10-06 (`docs/planning/decisions/E7-interface-freeze.md` §8, PR #276; closes on that PR's merge). Changes to frozen items follow record §7: a PR with the change and a version bump, approved by the lead. E9 (#49): design-for-replacement proofs written, `docs/planning/decisions/E9-replacement-proofs.md` (2026-10-06); closes on its PR's merge. *(Dated note, 2026-10-06, #49: until now this read "E9 (#49) is open and follows E7.")* *(Dated note, 2026-10-06, #47: until now this cell read "merged at revision 0.1 (draft) ... E7 (#47): freeze prepared, not declared ... the freeze is ready for the operator's sign-off (record §8)".)* *(Dated note, 2026-10-04, #47: until now this cell read "E1 (#41) in review, ... E2-E9 open".)* D (Stage 1, #4): D7 publishes its exit decision (`docs/planning/decisions/D7-stage1-exit.md`, #40). The operator ticks Epic D's checklist and closes #40; the D7 change does neither. K (herdr tooling, #123) continues alongside Stage 2. Open: #246, #253, #252, #130 (G2 scenario), #131 (G4/G5 scenarios), #124 (K1 Linux and macOS legs). Done: #232, #239, #243, #244, #249. K6 (#129) is deferred past v0.1. #224 (Codex `turn/start` steering) is open, owned by backlog G7. L (Beacon, #165). Closed: A, B, C, J. *(Dated note, 2026-10-03, #40: until D7 this cell listed D with a per-gate summary, which is now in "Gate verdicts" below and in the D7 record §1. It also listed J as open, although Epic J (#10) is closed.)* |
+| Blocked | Stages 5-6. Stage 5 starts only after Gate S4, Stage 4's exit (`docs/planning/v0.1/10-stages.md` §8), and Stage 6 after its own gate. Gate S3 is met (`docs/planning/decisions/F-6-stage3-exit.md`), so Stage 4 is no longer blocked. Tasks G4 (#65), G6 (#67) and G7 (#68) carry `gate:*` labels and check that gate's verdict below before starting. *(Dated note, 2026-10-08, #6: until now this cell began "Stages 4-6. Stage 4 starts only after Gate S3". The text that follows is history.)* Stages 4-6. Stage 4 starts only after Gate S3, Stage 3's exit (`docs/planning/v0.1/10-stages.md` §7), and each later stage after its own gate. Gate S2 is met (`docs/planning/decisions/E-5-stage2-exit.md`), so Stage 3 is no longer blocked. Stage 3 work implements against the frozen `spec/` text and does not renegotiate it (E7 §7 item 4). *(Dated note, 2026-10-06, #5: until now this cell began "Stages 3-6. Stage 3 starts only after Gate S2, Stage 2's exit (`docs/planning/v0.1/10-stages.md` §6), and each later stage after its own gate." The rest is history.)* Stage 0 (Gate S0, #228) and Stage 1 (Gate S1, D7 #40) are complete. That meets the rule that no substantial core or transport code starts before both complete. The risk-first ordering (`10-stages.md` §2) still applies. No gate verdict blocks Stage 2: G5 is PASS and C13 is closed. *(Dated note, 2026-10-03, #40: until D7 this cell read "Stages 2-6, and the rest of Stage 1 pending D7"; C13 had closed on 2026-10-02, #220.)* |
 
 ## ADR amendments
 
@@ -967,7 +1991,10 @@ ADR amendments: A1-A3 issued, see `docs/planning/ADR-001-AMENDMENTS.md`
 conflict register entries C1-C3 directly (`RESOLVED-HERE`); C5, C7 assigned or
 resolved-by-evidence per that file's conflict register table; new entries C11-C13 added,
 all open (see below). (Dated note, 2026-10-02, #228: C12 is now closed, `RESOLVED-HERE`
-applied by #228. C11 and C13 stay open.) C8 is closed separately, by `docs/planning/decisions/
+applied by #228. C11 and C13 stay open.) (Dated note, 2026-10-03, #220: C13 is now
+closed, `RESOLVED-IN-DECISION`, by `docs/planning/decisions/C13-codex-provenance-framing.md`
+after G5's Codex-leg re-run passed. No A-amendment, because ADR-001 states no Codex framing
+detail. C11 stays open.) C8 is closed separately, by `docs/planning/decisions/
 C4-session-identity.md` §8 (issue #17), with status `RESOLVED-IN-DECISION` — no A-
 amendment, because that document found no `ADR-001.md` text needing correction. C4 and
 C6 are likewise closed separately, by `docs/planning/decisions/C5-envelope-auth.md` §6
@@ -1008,7 +2035,12 @@ issue #35/D2), was invalidated when the Codex row went floating, and has been **
 PASSED on `0.157.1`** (2026-09-26, same issue/task) — the row's last-observed version and
 the environment both report `0.157.1`, so the verdict is current. (Dated note, 2026-10-01,
 #216: currency no longer depends on the environment's version; the last tested Codex
-version is now `0.159.3`, and G2 stands on `0.157.1`.) G3 has run on two of its three platforms
+version is now `0.159.3`, and G2 stands on `0.157.1`.) (Dated note, 2026-10-06, #130: G2's
+herdr equivalence record is now `gates/herdr-runs/G2-2026-10-06.md`, run
+`20261006T000900Z-51a348` at driver `c4def66` (the #301 merge), Codex `0.160.0`, all four
+criteria `equivalent`, herdr and Harness VERIFIED. It supersedes `G2-2026-10-05.md` (driver
+`efb775f`), kept as history. Neither record is verdict-bearing; G2's verdict is unchanged.)
+G3 has run on two of its three platforms
 (2026-09-25, issue #36/D3): Windows and Linux (WSL2) PASS. macOS is NOT RUN, so the
 gate-level verdict stays `NOT RUN` until the macOS leg runs. (Note 2026-10-02, #219: the
 macOS leg ran on a GitHub-hosted VM and passed; **G3 is now PASS** at gate level.) G4 spiked on 2026-09-25/26
@@ -1026,7 +2058,17 @@ peer-controlled header-value injection produced two `oac_sender:` lines the mode
 not resolve — case X5) and criterion 3 (case X2 alone). A forged block replaying a real,
 already-sent delimiter (case X3) caused ambiguity, not acceptance — the model named
 neither id — so it is not failing evidence for either criterion. No fallback exists for
-G5. See `docs/planning/gates/G5-result.md`.
+G5. See `docs/planning/gates/G5-result.md`. **G5's Codex leg was re-run on 2026-10-02 under
+C13 §11 (route E1) and G5 is now PASS.** The run was herdr-driven and Codex-only, on
+`0.160.0`; it is recorded in `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` and was
+attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`. Arm 0 (the old C6 §5 frame) reproduced the 2026-09-27
+FAIL, which is E1's calibration. Every required trial of arm F (C6 §5.0's floor) and arm C
+(the floor plus the anchor, Option C) scored x on Codex criteria 2 and 3, agent-scored under
+frozen rules (a) and (b), with every mechanical check met. The Claude results of 2026-09-27
+stand. A separate, non-verdict K8 run (`herdr-runs/G5-2026-10-02.md`) found no Claude
+disagreement. The 2026-09-27 FAIL is kept as history in `G5-result.md`'s "Re-run history".
+This PASS confirms the reconstructed gate client's framing against live Codex, not OAC's
+own adapter (`oac-security-work` §6).
 Every task labelled `gate:G1`, `gate:G2`, `gate:G3`, `gate:G4` or `gate:G5` stays blocked until its
 gate has a current gate-level verdict. Per `docs/planning/v0.1/10-stages.md` §5's Gate S1
 acceptance criterion 1, a `FAIL` is a closed verdict, so this does not itself block
@@ -1034,7 +2076,10 @@ acceptance criterion 1, a `FAIL` is a closed verdict, so this does not itself bl
 2026-10-02 (#219), and G1's re-run PASSED 2026-09-28); per §5's
 go/no-go condition and §2, it blocks the pipeline from proceeding past **Stage 2's
 interface freeze** for Codex's provenance framing until conflict-register entry C13
-lands and DESIGN acceptance criterion 6 is re-established for Codex.
+lands and DESIGN acceptance criterion 6 is re-established for Codex. (Dated note,
+2026-10-03, #220: that condition is met. G5 is PASS, C13 is `RESOLVED-IN-DECISION`, and
+DESIGN acceptance criterion 6 is re-established for Codex at gate level. Stage 2 still waits
+on Stage 1's exit, D7.)
 
 | Gate | Verdict | Decides | Pins relied on | Result file |
 |---|---|---|---|---|
@@ -1042,7 +2087,7 @@ lands and DESIGN acceptance criterion 6 is re-established for Codex.
 | G2 Codex live inject | **PASS** (re-run 2026-09-26 on `0.157.1`, the Codex row's current last-observed version; primary path: implicit daemon attach). Previously invalidated 2026-09-26 when the Codex row went floating; was **PASS** on `0.154.0` before that. | Codex adapter viability. Fallback: OAC-owned app-server with `codex --remote`. | Codex CLI / app-server | `docs/planning/gates/G2-result.md` |
 | G3 Zenoh local peer | **PASS** (2026-10-02, #219; primary multicast path on all three platforms, no fallback needed) — Windows 11 **PASS**, Linux (WSL2) **PASS** (2026-09-25), macOS 26.6.2 **PASS** on a GitHub-hosted VM, not physical hardware (2026-10-02, run 36968235427). Was NOT RUN at gate level 2026-09-25 to 2026-10-02 (macOS parked). | Loopback peer discovery on Windows, macOS, Linux. Fallback: fixed local endpoint, no scouting. | Zenoh; Rust toolchain | `docs/planning/gates/G3-result.md` |
 | G4 MCP dual-era server | **PASS** (re-run 2026-09-26, fresh 60-min timebox, not expired; primary single-process design, no fallback needed). An earlier attempt (timebox declared 2026-09-25, evidence gathered 2026-09-26) recorded `NOT RUN` — all five criteria confirmed then too, but after its own timebox had expired. A 2026-09-27 row-41 probe addendum (separate 20-min box) does not change this verdict. | One process serving both MCP eras. Fallback: two entry points, one core. | Claude Code (Channels); MCP — current era; MCP — legacy era; Rust MCP SDK (rmcp); Codex CLI / app-server (Codex leg) | `docs/planning/gates/G4-result.md` |
-| G5 Provenance | **FAIL** (Codex criteria 2/3 f; Claude all criteria x) (2026-09-27, 60-min timebox, not expired; no fallback exists). | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
+| G5 Provenance | **PASS** (2026-10-02, Codex-leg re-run under C13 §11, route E1: herdr-driven, agent-scored, operator-attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`; Codex `0.160.0`, 60-min timebox, not expired; arm 0 reproduced the old FAIL, arms F and C all criteria x; Claude all criteria x, carried from 2026-09-27 on `v2.1.283`; no fallback exists). Was **FAIL** (Codex criteria 2/3 f; Claude all criteria x) from 2026-09-27, kept as history. | Machine-set provenance contradicts a spoofing claim on both providers. | Codex CLI / app-server; Claude Code (Channels) | `docs/planning/gates/G5-result.md` |
 
 Re-run/invalidation policy (what moves a verdict back to `NOT RUN`, and the pin-move
 checklist): `docs/planning/gates/README.md`. Since #216 (2026-10-01) a Claude Code or Codex
@@ -1056,9 +2101,9 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 |---|---|---|
 | Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.285` (2026-09-29T19:27:30Z UTC; L3, 2026-10-01). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied. §3.1 facts re-checked at `2.1.285` on 2026-10-02 (#122, REVERIFICATION-B2.md) | PINS.md — Claude Code Channels ("Version policy") |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
-| Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.159.3`, commit `01fc69f4026735edfdf6789820549727a4867b11` (2026-09-30T22:57:34Z UTC; L3, 2026-10-01). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
+| Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc` (2026-10-01T20:19:13Z UTC; G4 herdr run, 2026-10-04). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |
-| ACP | protocol version `1` (schema v2 alpha); not a v0.1 dependency | PINS.md — ACP |
+| ACP | protocol version `1` (schema v2 alpha, verified 2026-10-06, #49: prerelease `schema-v2.0.0-alpha.7`; v2 protocol docs in Draft); not a v0.1 dependency | PINS.md — ACP |
 | Rust toolchain | `1.98.1` (2026-09-03); `rust-toolchain.toml` enforces it | PINS.md — Rust toolchain |
 | Rust MCP SDK | `rmcp` `3.4.0` (2026-09-15); legacy revision `2025-11-25` supported and is the SDK's default | PINS.md — Rust MCP SDK (`rmcp`) |
 | `ed25519-dalek` | `3.0.0`; envelope signature algorithm; BSD-3-Clause (flagged, not the usual `MIT OR Apache-2.0` shape) | PINS.md — `ed25519-dalek` |
@@ -1170,7 +2215,13 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   Full record: `docs/planning/decisions/L1-beacon-memory.md`. Not folded into
   `docs/planning/v0.1/03-decisions-and-amendments.md`.
 - **C13 — Codex provenance framing after G5's Codex FAIL** (issue #220): **decided
-  (operator, 2026-10-02); G5 Codex re-run pending.**
+  (operator, 2026-10-02); resolved, `RESOLVED-IN-DECISION`, 2026-10-03.** *(Until the
+  re-run was recorded this read "G5 Codex re-run pending".)*
+  - The G5 Codex-leg re-run (C13 §11, route E1, run `20261002T161612Z-4f2b53`, attested
+    at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`) passed. Arm 0 reproduced the old FAIL, and every required
+    trial of arms F and C was x. G5 is PASS.
+  - Arm C showed no anchor confusion, so Option C stands and the Option A fallback is not
+    taken.
   - Option C amends C6 §5 as the new normative §5.0, with three parts:
     - whole-value validation of peer-controlled provenance values, with refusal on a
       mismatch;
@@ -1230,7 +2281,13 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
   though ADR-001.md line 61 puts presence/discovery in v0.1 scope. Neither is fixed by
   this document; a future decision must close them. Restated (not copied) in
   `docs/planning/v0.1/03-decisions-and-amendments.md` decision 10 (Epic A task A4,
-  landed), citing C7 §4.
+  landed), citing C7 §4. **Update, 2026-10-04 (#273):** the neutral layer now closes both
+  at the contract level. `spec/session-channels.md` §7.2-§7.3 define the full presence
+  record and discovery, and `spec/interfaces.md` §6.5 requires a transport to carry the
+  whole authenticated presence record, not reachability alone ([IFC-TRN-050]), and gates
+  cross-implementation traffic on a destination-restricted transport ([IFC-TRN-081]). The
+  v0.1 transport binding (C7) meets neither yet, so the gap stays open for the binding
+  (G1, G2).
 
 ## Open conflict-register items
 
@@ -1263,6 +2320,10 @@ states or that are inferred/stale). Closed when the named resolution lands.
   with the G4 result cited) for the resolution, and #65 (G4) for the first `rmcp`-based
   legacy-era channel run against real Claude Code. Codex's default client era stays under
   RISK-G4 (`docs/planning/v0.1/11-risks.md` row 41).
+  **Dated note, 2026-10-03 (#46): closed.** `spec/bindings/mcp.md` §9 resolves it; both
+  register rows read `CLOSED (2026-10-03, #46)`. #65 and RISK-G4 row 41 stay open as
+  verification items, not as a conflict. Caveat: Codex outbound calls are refused
+  (interim, fail-closed) on both eras until a Codex pairing exists (#69).
 - C13 (new, from G5, issue #38/D5, 2026-09-27): `docs/planning/decisions/
   C6-trust-rendering.md` §5's Codex header-and-delimiter framing got the model to name
   the forged id as the sender in part (1) of its answer against a forged block using a
@@ -1292,12 +2353,53 @@ states or that are inferred/stale). Closed when the named resolution lands.
   - The register rows now read "ASSIGNED — owner #220; design decided, G5 Codex re-run
     pending". C13 closes when G5's Codex-leg re-run (C13 §11) passes. G5 stays `FAIL` until
     then.
+  **Dated note, 2026-10-03 (#220): closed, `RESOLVED-IN-DECISION`.**
+  - The G5 Codex-leg re-run passed. It ran under route E1, run `20261002T161612Z-4f2b53`,
+    record `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, and the operator attested
+    it at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`.
+  - Arm 0 reproduced the 2026-09-27 FAIL. Every required trial of arm F (the floor) and
+    arm C (Option C) was x on Codex criteria 2 and 3, and every mechanical check was met.
+  - G5 is now PASS (`docs/planning/gates/G5-result.md`). Option C stands.
+  - Both register rows (`03-decisions-and-amendments.md` §4, `ADR-001-AMENDMENTS.md`) read
+    `RESOLVED-IN-DECISION`. No `ADR-001-A` amendment is issued.
+  - C13 §14's remaining follow-ups (the `06-security.md` §9/§10/§14 rewrite, C6 §12's fold,
+    skills, backlog E1/E5/G7/F11, and §10's own issue) are separate work items. They do
+    not keep C13 open.
 
 ## Open UNVERIFIED items
 
 Carried from PLANNING-PROMPT.md §3, re-verified against the B1 pins in B2
 (`docs/planning/REVERIFICATION-B2.md`). Until closed, no plan or skill may rely on them
 without an UNVERIFIED label.
+
+*(Removed 2026-10-07, #6: the E5 (#45) entry on whether `serde_jcs` `0.2.0` reproduces the
+`expected.canonical` values of the `sec-*` fixtures (RFC 8785), owner F4. Closed by run
+(`oac-evidence` §5): `core/tests/conformance.rs` `conformance_fixtures` runs `run_canonical`
+(L854-L876, called at L930-L935) on all 10 fixtures that carry an `expected.canonical`, all
+`sec-*`, through `core::canonical::signed_text`, which writes every name, string and number
+with `serde_jcs` `0.2.0` and sorts members by UTF-16 code units (`core/src/canonical.rs`
+L1-L14, L83-L130). `cargo test -p oac-core --test conformance` at `5877b39` reported
+`"canonical": 10` and passed; CI runs it on all three OSes. `11-risks.md` row 64 is
+CLOSED. No pin row changes. Record: `docs/planning/decisions/F-6-stage3-exit.md` §7.)*
+
+- **New, from E3 (#43, 2026-10-03):** whether the v0.1 transport carries presence records
+  (announcement, withdrawal, staleness, carrier loss; `spec/session-channels.md` §7.2) as
+  §7 requires, and how it would meet SC-DLV-066 (records only to authorized peers, or
+  unreadable to others) once records cross installs. Gate G3 verified only peer discovery
+  (`docs/planning/gates/G3-result.md`); presence records were not exercised. C7 §7's local
+  mode has no transport-layer authorization, so v0.1 presence and discovery are
+  same-install only (operator decision on #43). Owner: G2 (#63, Zenoh presence via
+  liveliness tokens) for carriage, and G3 (#64, local and LAN mode security) for
+  SC-DLV-066 across installs. *(Dated note, 2026-10-07, #6: was "the transport binding,
+  F6/F10, E5". E5 (#45), F6 (#55) and the Stage 3 part of F10 are closed. The in-memory
+  transport carries presence under the transport contract suite, but the v0.1 transport is
+  Zenoh, which is Stage 4's.)* `11-risks.md` row 61.
+*(Removed 2026-10-08, #343 / PR #344 review nit 6: the E3 (#43) entry on whether Codex's
+`thread/queue/add` keeps the order of several inputs queued during a running turn. Two adds
+during one running turn on Codex `0.161.0` ran as two turns, one per idle, in the order added
+(`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+L135-L139, L826-L865), and `11-risks.md` row 62 is closed. One observation, not a
+first-party guarantee.)*
 
 - **New, from the C4 revision (#236, 2026-10-02):** the hook-to-shim pairing mechanism
   that `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement" needs is
@@ -1309,12 +2411,19 @@ without an UNVERIFIED label.
     run under an intermediate shell, an MCP server under a launcher);
   - which call yields the peer PID on macOS (`getpeereid()` reports only UID/GID);
   - which call yields a parent PID from a peer PID on each OS.
+  - *(Added 2026-10-08, #69:)* the Codex issued-value pairing (`spec/bindings/mcp.md` §4.5.3)
+    needs the same facility, to see that a Codex connection's process descends from the
+    Codex process at the other end of the adapter's app-server connection.
 
   Until it is established, the daemon does not bind a hook payload it cannot pair, so
   this costs availability, not authority. One residual depends on the same mechanism: a
   transition payload that is dropped or unpairable cannot be attributed to a shim, so
   the shim's old binding can survive. C4 §3 requires Stage 3/4 to close this, and
-  whether the mechanism allows it is UNVERIFIED. Owner: Epic F Claude adapter work and G9. Risk
+  whether the mechanism allows it is UNVERIFIED. Owner: G9 (#70, daemon, MCP shims and
+  authenticated local IPC) and G5 (#66, Claude session registration from hook input).
+  *(Dated note, 2026-10-07, #6: was "Epic F Claude adapter work and G9". The Claude
+  adapter is Epic G work, and Stage 3 left the pairing key with G9: the #331 "Last
+  updated" entry.)* Risk
   entry: RISK-LOCAL-IPC in `docs/planning/v0.1/11-risks.md` (traceability row 58).
 
 - **New, from the Gate S0 check (#228, 2026-10-02):** B2 rows that carried a §3 fact
@@ -1332,24 +2441,89 @@ without an UNVERIFIED label.
   - the loopback fix's attribution to PR #2671 (the behavior itself is confirmed by G3);
   - the §3.4 multi-fact row (Windows scouting bind, dynamic listen ports, liveliness
     history, storage/plugins in `zenohd`, `zenoh-ext` `unstable`, TLS/mTLS and QUIC
-    certificates, ACL subjects, `zid` unauthenticated, no message signing);
-  - ACP protocol version `1`, since the literal `protocolVersion` field was not observed
-    (`PINS.md` "ACP").
+    certificates, ACL subjects, `zid` unauthenticated, no message signing).
+
+  *(Dated note, 2026-10-06, #49: this list also held "ACP protocol version `1`, since the
+  literal `protocolVersion` field was not observed (`PINS.md` "ACP")". It is closed: the
+  v1 initialization page of the protocol's source repository, commit `487ad3ea`, shows
+  `"protocolVersion": 1`, retrieved 2026-10-06
+  (`docs/planning/decisions/E9-replacement-proofs.md` §1.3 A4; `PINS.md` "ACP").)*
 
   None of these is a G1-G5 pass criterion, and ACP is not a v0.1 dependency. They stay
   open until re-checked against a pin. This entry gates nothing. Risk entry:
   RISK-B2-CARRIED in `docs/planning/v0.1/11-risks.md` (`oac-evidence` §5).
 
-- **New, from C13 (issue #220, 2026-10-02):** at `openai/codex` `rust-v0.159.3`, a
-  `turn/start` sent while a turn is active steers that turn (`start_or_steer_turn` →
-  `TurnInputSubmission::Steered`, `codex-rs/app-server/src/request_processors/
-  turn_processor.rs` L652-675). So C6 §5's "never `turn/steer`" is not ensured by
-  choosing `turn/start` (UNVERIFIED — source read only, not exercised live; an adjacent
-  finding for backlog G7, `docs/planning/decisions/C13-codex-provenance-framing.md` §10).
-- **New, from C13 (issue #220, 2026-10-02):** whether the live Codex model consistently
-  weighs the developer-role `oac_provenance` anchor (C6 §5.0 step 4), including a stale
-  one, over conflicting user-role text (UNVERIFIED — only G5's exploratory X6, one trial,
-  bears on it; closed by C13 §11 arm C).
+- **New, from #274 (2026-10-04):** two Codex queue items that `spec/bindings/mcp.md`
+  §8.2.1 relies on, from source at `rust-v0.160.0` only (#224 step-1 findings C5).
+  Owner: backlog G7 (#68). Risk rows: `docs/planning/v0.1/11-risks.md` rows 65-66,
+  RISK-CODEX-EXPERIMENTAL.
+  - Which `thread/queue/add` errors, if any, mean "not now"
+    (`spec/session-channels.md` [SC-DLV-008]). The at least four known refusals (ephemeral
+    thread, no queue service, subagent thread without direct input, archived thread) are
+    failed hand-offs, and OAC cannot deliver to those threads at all.
+  - Runtime behaviour of the queue: after an interrupted turn nothing dispatches until a
+    turn completes uninterrupted, including adds made later to an idle thread
+    (`wake_if_loaded`, `service.rs` L477); other daemon clients can reorder, update or
+    delete a queued item; an add to an unloaded thread waits; an extra member in a
+    `thread/queue/add` request is probably ignored.
+  - *Narrowed 2026-10-07 and 2026-10-08 (#343), by run on Codex `0.161.0`* (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`;
+    `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`): the ephemeral and archived
+    refusals are recorded, and an unknown thread is `-32603`, not a `-32600` refusal; the
+    wait after an interrupt (for items queued at the interrupt and for a later add; the
+    first half in `docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md`), the unloaded add
+    (which runs once the thread is loaded) and the ignored extra member are confirmed. Still open: whether any refusal means "not now", the
+    subagent and no-queue-service refusals (no documented client request triggers them), and
+    other clients reordering, updating or deleting a queued item.
+  - *Dated note, 2026-10-08 (Gate S3 criterion 5):* the fake Codex app-server no longer
+    models the subagent and no-queue-service refusals (it answers `NOT_MODELLED`), and no
+    test rests on them; they stay open here as Codex behaviour only.
+- **New, from the Stage 3 exit re-run (#6, 2026-10-08):** which connections live Codex
+  sends a thread's notifications to. The S3 capture on Codex `0.161.0` saw
+  `thread/status/changed`, `thread/closed`, `thread/goal/cleared` and `thread/archived` for
+  a thread reach a connection subscribed only to another thread, and a connection after its
+  `thread/unsubscribe`; a connection that subscribed to nothing received none
+  (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+  L63-L69, L829, L959-L997; `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md` "Also
+  recorded"). The fake Codex app-server sends them to the thread's subscribers only
+  (`tests/fakes/codex-app-server/README.md` "Not modelled"). Which connections Codex chooses
+  is UNVERIFIED; until then a fake-backed test sees fewer notifications than a live one.
+  Owner: G6 (#67, app-server client and thread/turn mapping). `11-risks.md` row 70.
+
+*(Removed 2026-10-07, #343: the #58 (F9) entry for four app-server behaviours the fake
+Codex app-server modelled from source only, the experimental-API refusal, "Not initialized",
+the frames of an interrupted turn and the resume error for an unknown thread. All four are
+recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L92-L93, L99-L100, L106-L108, L901-L907), and
+`11-risks.md` row 67 is closed.)*
+
+- **New, from verifying the G5 E1 findings (#220, 2026-10-03):**
+  - The old C6 §5 frame's X2 failure was not reproduced across runs. The K8 run
+    k8-20261002T184542Z scored X2 x on Codex `0.160.0`. It used 2026-09-27's frame
+    (apart from per-delivery tokens), X1 then X2 in one thread, and `gpt-6-luna` at
+    effort `medium`, but 2026-09-27 ran on Codex `0.157.1` and scored f. E1 arm 0 scored f
+    three times on `0.160.0`, in a fresh thread. The cause is UNVERIFIED: model variance,
+    or Codex `0.160.0` combined with the shared-thread history. Neither factor alone
+    explains it. If it is model variance, the old frame fails at an unmeasured rate, and
+    arms F and C's three x per case discriminate less than a control that always fails
+    would make them. This does not change the C13 §11 pass rule's result (C13 §9 dated
+    note; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings; RISK-G5,
+    `docs/planning/v0.1/11-risks.md` row 59).
+  - The October 2 G5 runs' hashes cannot exclude a write to `~/.codex/config.toml` that
+    was reverted to the same bytes inside one run (UNVERIFIED — the driver hashes the
+    file only at run start and teardown). The same sha256 was recorded at all eight
+    snapshots of the four runs (16:03:22Z-18:51:47Z), and no Codex dialog was seen or
+    accepted (`G5-c13-2026-10-02.md` findings; RISK-HERDR, `11-risks.md` row 60). This
+    gates nothing.
+
+- **Closed by the G5 Codex-leg re-run of 2026-10-02 (C13 §11; closed 2026-10-03, #220):** whether the live
+  Codex model consistently weighs the developer-role `oac_provenance` anchor (C6 §5.0
+  step 4), including a stale one, over conflicting user-role text. It was an open item
+  here until this change (`oac-evidence` §5). Verification: in arm C of run
+  `20261002T161612Z-4f2b53` on Codex `0.160.0`, X3-anchored×3, X4-after-anchor and X9
+  were all x on criteria 2 and 3, and X6′'s first reply did not obey the body
+  (`docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md`, "Codex deliveries, per arm",
+  retrieved 2026-10-02; attested at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`). Residual: three trials per
+  case on one Codex version, so the error rate is bounded, not shown to be zero (C13 §9).
+  No pin row changes: Codex floats (#216).
 
 - **New, from G1:** the exact wire framing for Claude Code's MCP stdio transport
   (newline-delimited JSON, not `Content-Length`-prefixed) — confirmed directly during
@@ -1419,9 +2593,18 @@ without an UNVERIFIED label.
   decision or a DESIGN.md update; see REVERIFICATION-B2.md "Carried to 11-risks.md").
 - The named compatibility shim boundary for the Codex experimental live-inject surface
   (UNVERIFIED — same reason; see REVERIFICATION-B2.md "Carried to 11-risks.md").
-- ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md §3.5 only,
-  not independently re-confirmed on agentclientprotocol.com in B1 or B2; low priority,
-  ACP is not a v0.1 dependency).
+- **New, from E9 (#49, 2026-10-06):** what an ACP v1 agent does with a `session/prompt`
+  received while a turn is running: rejects it, holds it, or adds it to the running turn
+  (UNVERIFIED — the v1 protocol pages say nothing about it,
+  `docs/planning/decisions/E9-replacement-proofs.md` §1.3 A6, finding F-A2; it decides
+  whether a v1 binding could make the exception statement of [SEC-AUZ-022]; until a binding
+  does, the ACP adapter declares its sessions send-only as a conservative choice; ACP is
+  not a v0.1 dependency). Risk entry: RISK-ACP. *(Dated note, 2026-10-06, #49: this bullet
+  replaces "ACP schema v2 "alpha" status (UNVERIFIED — carried from PLANNING-PROMPT.md
+  §3.5 only, not independently re-confirmed ...)". That item is closed as verified, with no
+  drift: the v2 JSON schemas are published as `v2.0.0-alphaX` prereleases, latest
+  `schema-v2.0.0-alpha.7` (2026-09-30), and the v2 protocol docs are separately in Draft
+  (record §1.3 A8; `PINS.md` "ACP").)*
 - Zenoh crate version/date read from GitHub releases rather than crates.io directly,
   because the crates.io page did not return content in B1 and was not re-attempted in B2
   (UNVERIFIED — re-confirm on crates.io when reachable; see PINS.md).
@@ -1453,11 +2636,43 @@ without an UNVERIFIED label.
   unchanged from PLANNING-PROMPT.md §3.3, not independently re-searched against the SEP
   index in B1 or B2; see REVERIFICATION-B2.md §3.3 table and "Carried to 11-risks.md"
   item 12).
-- Whether MCP `experimental` capabilities still exist at the current era `2026-07-28`
-  (UNVERIFIED — re-labelled from HOLDS in B2; the prior inference cited Claude Code's own
-  client capability, not the `2026-07-28` schema itself, and Claude Code does not
-  register a channel server negotiating `2026-07-28`; see REVERIFICATION-B2.md §3.3
-  table and "Carried to 11-risks.md" item 13).
+*(Removed 2026-10-08, #69: the E6 (#46) entry on whether a documented per-request session
+signal exists that OAC can bind to a paired session. Closed by first-party evidence
+(`oac-evidence` §5): none exists. The app-server documentation
+(https://learn.chatgpt.com/docs/app-server, unversioned, retrieved 2026-10-08) names no
+`_meta` member Codex sends to an MCP server, and the source at `rust-v0.161.0` (commit
+`979011409de0a60b52f179721948e65531d26144`, `codex-rs/core/src/mcp_tool_call.rs`
+L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
+`x-codex-turn-metadata`, all undocumented and client-asserted. `spec/bindings/mcp.md` 0.2
+§4.4 records it, and §4.5 pairs Codex without them.)*
+- **New, from E6 (#46, 2026-10-03), reworded 2026-10-08 (#69):** whether one Codex
+  legacy-era MCP connection carries calls from several threads (UNVERIFIED at runtime — a
+  thread id is sent per call; the source at `rust-v0.161.0` says no, each thread owns its MCP
+  runtime, `codex-rs/core/src/session/session.rs` L1606-L1608). Owner: #69. The pairing of
+  `spec/bindings/mcp.md` §4.5 does not depend on it for attribution: a connection that
+  carried another thread's calls would see them refused for want of a confirmation.
+- **New, from #69 (2026-10-08):** the order the Codex pairing relies on for availability:
+  a call's `item/started` before the MCP call, its `item/completed` with the returned result
+  before the model sees it (UNVERIFIED — source only at `rust-v0.161.0`,
+  `codex-rs/core/src/mcp_tool_call.rs` L259-L265, L466, L623-L632;
+  `spec/bindings/mcp.md` §4.5.1 fact C5). Owner G8 (#69). `11-risks.md` row 71.
+- **New, from #69 (2026-10-08):** whether a carrier subscribed to a TUI-hosted thread with
+  `thread/resume` receives its `mcpToolCall` items (UNVERIFIED — other item types, with
+  `threadId`, recorded at `0.154.0`, G2 `transcript.jsonl` L51, L63;
+  `spec/bindings/mcp.md` §4.5.1 fact C6). Owner G8 (#69). `11-risks.md` row 72.
+- **New, from #69 (2026-10-08):** whether the app-server applies `thread/resume` setting
+  overrides to a thread that is already loaded (UNVERIFIED; `spec/bindings/mcp.md`
+  [MCPB-CDX-006] forbids sending them either way). Owner G7 (#68). `11-risks.md` row 73.
+- **New, from #69 (2026-10-08, PR #350 review):** that a Codex call with no arguments is
+  reported as `arguments: null` and sent without an `arguments` member, so the two match
+  (UNVERIFIED — source only at `rust-v0.161.0`; `spec/bindings/mcp.md` §4.5.1 fact C9).
+  Availability only. Owner G8 (#69). `11-risks.md` row 75.
+- **Prerequisite, from #69 (2026-10-08, PR #350 review):** the F9 fake app-server emits no
+  `mcpToolCall` items, so the `TODO(fixture)` items of `spec/bindings/mcp.md` §4.5 wait for
+  them. Owners G8 (#69) and F9 (#58). `11-risks.md` row 74.
+- **New, from E6 (#46, 2026-10-03):** whether legacy clients other than Codex `0.157.1`,
+  Claude Code's channel path included, accept an `extensions` member in an `initialize`
+  result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).
 
 - Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
   from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own
@@ -1569,23 +2784,39 @@ without an UNVERIFIED label.
 - The exact byte-truncation length for the device-key-fingerprint hash used in LAN
   pairing and Zenoh certificate common names, above the 128-bit minimum floor C5 §10(b)
   fixes (UNVERIFIED — deliberately left as a Stage 3 implementation detail above that
-  floor; see `docs/planning/decisions/C5-envelope-auth.md` §10, §12, §16).
+  floor; see `docs/planning/decisions/C5-envelope-auth.md` §10, §12, §16). *(Dated note,
+  2026-10-03, #45: narrowed. `spec/security.md` §5.2 fixes the key id, the envelope's
+  `security.key_id` and the rendered device provenance, as the full 256-bit SHA-256 in
+  lower-case hex, so no truncation applies there. The pairing-code and certificate uses
+  stay open.)* *(Dated note, 2026-10-06, #54: narrowed again. The pairing code hashes the
+  full 32-octet public keys, not a truncated fingerprint (`core/src/pairing.rs`), and the
+  key-id comparison flow compares the full key id. The certificate use stays open.)*
 - Whether the 6-digit/120-second/5-attempt LAN pairing-code parameters hold up against a
   live implementation's actual network conditions (UNVERIFIED — these are OAC's own
   design parameters, not a claim about an external system; runtime validation is a Stage
-  3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16).
+  3/4 task; see `docs/planning/decisions/C5-envelope-auth.md` §10, §16). *(Dated note,
+  2026-10-06, #54: narrowed. `core/src/pairing.rs` implements the three parameters, and
+  its unit tests show the expiry at 120 seconds and the abort after five wrong entries.
+  Brute force is bounded by a commit-then-reveal exchange (finding F5-1, in the #54
+  entry above): five online guesses per session, against 10^6 codes. What stays open is
+  the network half: no live LAN pairing has run, because the `cli/` pairing verb does
+  not exist yet.)*
 
-- NATS reliability, persistence, offline queueing, ordering, multicast discovery, and
-  routing/federation capability claims, for the `05-interfaces.md` transport
-  design-for-replacement proof (task A6, issue #26) (UNVERIFIED — not independently
-  checked against first-party NATS specification/documentation this pass; see
-  `docs/planning/v0.1/05-interfaces.md` §17).
-- MQTT reliability, persistence, offline queueing, ordering, multicast discovery, and
-  routing/federation capability claims, for the same proof (UNVERIFIED — not
-  independently checked against first-party MQTT specification/broker documentation
-  this pass; the multicast-discovery cell additionally carries a structural, unverified
-  observation about MQTT's broker-based client model; see
-  `docs/planning/v0.1/05-interfaces.md` §17).
+- **New, from E9 (#49, 2026-10-06):** whether each NATS client library can disable its
+  reconnect buffer, not only resize it (UNVERIFIED — the first-party page documents the
+  buffer size only, `nats-io/nats.docs` at `f115becf`,
+  `using-nats/developing-with-nats/reconnect/buffer.md`; a NATS transport needs it off to
+  meet [IFC-TRN-036]; `docs/planning/decisions/E9-replacement-proofs.md` F-T3; NATS is not
+  a v0.1 dependency). Also UNVERIFIED: how long a copy can wait in a NATS server's buffer
+  for a slow subscriber. `write_deadline` bounds one blocked write and `max_pending` the
+  buffered bytes (`running-a-nats-service/configuration/README.md` L308, L317), but neither
+  bounds a copy's age; a binding has to state a time bound (record F-T5). Risk entry:
+  RISK-NATS (narrowed to these two items).
+  *(Dated note, 2026-10-06, #49: two items stood here: "NATS reliability, persistence,
+  offline queueing, ordering, multicast discovery, and routing/federation capability
+  claims" and the same six for MQTT, both for the `05-interfaces.md` §17 proof. Both are
+  closed. E9 checked all twelve cells against the NATS docs and the MQTT 5.0 OASIS
+  Standard, retrieved 2026-10-06 (record §1.1, §1.2, §5).)*
 - **New, from G1 Box C (issue #39, 2026-09-28):** whether mid-turn `notifications/
   claude/channel` deliveries are batched together at a single tool-call boundary, or can
   arrive at separate boundaries one at a time, is UNVERIFIED as a guarantee — it may
@@ -1645,6 +2876,14 @@ without an UNVERIFIED label.
   `docs/planning/gates/herdr-runs/G1-2026-09-29.md`, with its run manifest beside it, the
   operator attestation (commit `0bcdf75`) and the `-herdr` fixtures it names. #127 closed
   2026-10-02. The record is not verdict-bearing, so G1's verdict is unchanged.
+  *Dated note, 2026-10-03 (#252):* that attestation is history, not verification. The run
+  manifest is `schemaVersion` 1, so the driver recorded no herdr executable hash for this
+  run. The record's herdr identity beyond `herdr.observedVersionOutput` is UNVERIFIED.
+  So under #252 it is **not a current equivalence record**: it stays on record, marked
+  with a `Pre-#252 attestation (history)` callout, until a G1 run under the #252 driver
+  re-establishes equivalence. G1's verdict rests on the human-run Box C
+  (`gates/G1-result.md`) and is unaffected. New records carry a `## Verification` section
+  instead.
 - **New, from K6 (issue #129, 2026-09-28):** the opt-in CI workflow
   `.github/workflows/herdr-provider-optin.yml` and its entry point `tools/herdr/ci.mjs`
   are built but have **never run on GitHub Actions**. No self-hosted runner with label
@@ -1677,6 +2916,44 @@ without an UNVERIFIED label.
   `-c mcp_servers.<name>.url=...` override for an HTTP MCP server (the G4 scenario's Codex
   registration), and every pane-text pattern. No `-herdr` fixture and no G4/G5
   `herdr-runs/` record exist. Neither verdict changes: G4 stays PASS, G5 stays FAIL.
+  *Dated note, 2026-10-03 (#220):* the G5 scenario has now run live twice: the E1 run
+  (`gates/herdr-runs/G5-c13-2026-10-02.md`) and the non-verdict K8 Claude regression run
+  (`gates/herdr-runs/G5-2026-10-02.md`). Both have `-herdr` fixtures. The E1 run carried
+  G5's Codex verdict under its one-off exception, and G5 is now PASS. The G4 scenario has
+  still not run live, and neither G5 record is a G5 equivalence record, so the rest of this
+  item stands for G4 and for any later G5 run.
+  *Dated note, 2026-10-04 (#131):* the G4 scenario has now run live. Run
+  `20261004T093525Z` (PASS, driver `b478f2a`, Claude Code 2.1.285, Codex 0.160.0) is recorded at
+  `gates/herdr-runs/G4-2026-10-04.md` with three `-herdr` fixtures, and it is the
+  equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
+  Harness VERIFIED. Closed for G4 by that run: the G4 dialog texts and the in-progress
+  indicator match. Partly closed: whether the per-invocation `-c mcp_servers.<name>.url=...`
+  override works for an HTTP MCP server on Codex 0.160.0. Exactly one Codex HTTP session
+  connected, from a Codex launched with the `-c` override, and the Codex user config was
+  unchanged through the run. Still open on it: that the user config holds no other entry at
+  the run's port is UNVERIFIED from committed evidence. It rests on an uncommitted read-only
+  `codex mcp list`. Criterion 5 holds on both halves:
+  non-delivery, and the "g4modern ... unavailable" notice. Still open: the reconstruction
+  caveat (the server is not the original). G4's verdict is unchanged (PASS).
+  *Dated note, 2026-10-05 (#131):* #292 changed `tools/herdr/lib/`, so G4 was re-recorded.
+  Run `20261005T013347Z-6803a7` (PASS, driver `de42b54`, Claude Code 2.1.285, Codex 0.160.0)
+  is recorded at `gates/herdr-runs/G4-2026-10-05.md` with three `-herdr` fixtures. It is now
+  the equivalence record for G4 at herdr v0.9.1: all five criteria `equivalent`, herdr and
+  Harness VERIFIED. `G4-2026-10-04.md` is superseded and kept as history. The dialog texts
+  match again. Claude's in-progress indicator did not appear in this run's kept Claude reads; the
+  2026-10-04 capture still shows it. The Codex-config part above stays open, unchanged.
+  G4's verdict is unchanged (PASS).
+  *Dated note, 2026-10-06 (#131):* #295, #298 and #301 changed `tools/herdr/`, so G4 was
+  re-recorded at driver `c4def66` (the #301 merge). Run `20261006T022052Z-00cdd3` (PASS,
+  Claude Code 2.1.285, Codex 0.160.0) is recorded at `gates/herdr-runs/G4-2026-10-06.md` with
+  three `-herdr` fixtures. It is now the equivalence record for G4 at herdr v0.9.1: all five
+  criteria `equivalent`, herdr and Harness VERIFIED. `G4-2026-10-05.md` is superseded and
+  kept as history. The dialog texts match again. Neither pane's kept reads show the
+  in-progress indicator. An earlier attempt at the same commit was NOT RUN because Codex's
+  start-up "Update available" prompt is not recognised by the scenario (#303); it was
+  answered once in Codex's own TUI with "Skip until next version" before the retry, and
+  Codex was not updated. The Codex-config part above stays open, unchanged. G4's verdict is
+  unchanged (PASS).
   Owner: a local herdr run per each scenario's header comment, started by an agent; the
   operator signs in and accepts consent dialogs (#187).
 - **New, from D6/T5-T7 (issue #39):** whether `turn/start` and `thread/queue/add`

@@ -17,7 +17,13 @@ opening paragraph) and `docs/planning/decisions/C5-envelope-auth.md`'s identical
 
 **Provenance-proof caveat, stated once up front.** Per `docs/planning/STATUS.md`'s Gate
 verdicts table, **gate G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude all
-criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`). This document designs the
+criteria x) (2026-09-27, `docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-03,
+#220: G5 is now **PASS**. Its Codex leg was re-run under C13 §11 against §5.0's framing
+and passed: arm F (the floor) and arm C (the floor plus the anchor) were x on every
+required trial. The operator attested the run at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`, and the
+2026-09-27 Claude results stand. The `FAIL`, and this paragraph's Codex findings, are
+history. §5.0 is now gate-confirmed for the gate's reconstructed client, not for OAC's
+adapter, which is not built.)* This document designs the
 provenance-rendering mechanism G5 exercises; the gate confirmed §2-§4's Claude
 `meta`-attribute rendering is unforgeable from content, and found §5's Codex
 header-and-delimiter framing **not yet sufficient** — a forged nested envelope using a
@@ -202,7 +208,11 @@ trusted to state identity, no matter how it is phrased.
 **This subsection supersedes the frame shape below and §2's "unmodified" wording on the
 Codex path.** Decision record: `docs/planning/decisions/C13-codex-provenance-framing.md`
 (§4, §5 A and C, §8). Gate G5 stays `FAIL` until the Codex-leg re-run defined in C13 §11
-passes. Until then this framing is **designed, not proven**. The text from "Codex has no
+passes. Until then this framing is **designed, not proven**. *(Dated note, 2026-10-03,
+#220: the re-run passed and G5 is `PASS`. This framing is now proven at gate level against
+live Codex `0.160.0`, through the gate's reconstructed client. In OAC's own adapter it is
+still designed until the G7/F11 frame-builder and refusal tests exist. Option C stands:
+arm C showed no anchor confusion.)* The text from "Codex has no
 meta channel" to the end of §5 is kept below as history. Where it conflicts with this
 subsection, this subsection wins.
 
@@ -258,6 +268,16 @@ oac_reply_to: <validated reply_to, or empty>
 5. **Unchanged:** `turn/steer` is never used on the inbound path. C13 §10 records that, at
    `rust-v0.159.3`, a `turn/start` sent while a turn is active steers that turn. That is an
    open finding for backlog G7, not decided by this amendment.
+
+*Dated note, 2026-10-04 (#274): steps 4 and 5 are overtaken. On the operator decision on
+#224, every Codex delivery now uses `thread/queue/add` and never `turn/start` or
+`turn/steer` (`spec/bindings/mcp.md` §8.2.1, [MCPB-CDX-002] to [MCPB-CDX-004]). The step-4
+anchor rides only on `turn/start`, so it is never sent: Codex delivery is in effect Option A,
+steps 1-3 alone. That is allowed, because the anchor was never load-bearing and
+`spec/security.md` [SEC-PRV-011] is a `MAY`. It is also proven sufficient: G5 arm F, the
+frame alone and including a `thread/queue/add` delivery (X4), passed every required trial
+(`docs/planning/gates/G5-result.md`). The step-5 finding is settled: a mid-turn `turn/start`
+steers, and delivery no longer uses `turn/start`.*
 
 ### Original §5 text (kept as history; superseded where 5.0 conflicts)
 
@@ -395,13 +415,17 @@ wrong, guessed delimiter) got the model to name the forged sender as the one it 
 on. A second case (X3, a forged block replaying a real delimiter from an earlier
 delivery) left the model unable to resolve a sender at all, without getting it to accept
 the forged one. This section's design is confirmed sufficient for Claude and confirmed
-not yet sufficient for Codex.
+not yet sufficient for Codex. *(Dated note, 2026-10-03, #220: G5 is now **PASS**. Under
+§5.0's amended Codex framing, arms F and C of the C13 §11 re-run were x on every required
+X2, X3 and X4 trial, so the design is now gate-confirmed for Codex too. The text above is
+history for the pre-amendment §5 frame.)*
 
 **Dated note, 2026-10-02 (C13, #220).** On Codex, "structurally separate from content"
 now means two things (§5.0). First, a line-quoted body that cannot produce a column-0
 line inside the frame. Second, on `turn/start` only, a developer-role `additionalContext`
 anchor: a separate carrier and role from the user-role body, and the closest Codex
-analogue to `meta`. G5 still reads `FAIL` until the C13 §11 re-run.
+analogue to `meta`. G5 still reads `FAIL` until the C13 §11 re-run. *(Dated note,
+2026-10-03, #220: the re-run passed, and G5 reads `PASS`.)*
 
 ## 7. Permission relay off by default — resolves C10
 
@@ -613,7 +637,7 @@ threats) or `docs/planning/decisions/C4-session-identity.md` §13 (identity-leve
 | Unauthorized `turn/steer` | Attacker's message is delivered to a Codex session | Inbound path uses only `turn/start`/`thread/queue/add`, never `turn/steer` (§5); any future steer routing needs backlog task G7's own separate authorization gate, restated from `docs/planning/decisions/C5-envelope-auth.md` §11 | backlog task G7 (per `oac-security-work` §2's citation); gate G2 | backlog task G7 not yet built; gate G2 `NOT RUN`; this document does not itself build the steer gate, it only confirms the inbound framing path never calls `turn/steer` |
 | Cross-project disclosure via `list_sessions` | Two sessions exist under different `working_directory` values; a caller invokes `list_sessions` | Result filtered by the same `working_directory`-scoped, default-deny allowlist `docs/planning/decisions/C5-envelope-auth.md` §11 already fixes (§8) | backlog task H2 (fourth acceptance item, per `oac-security-work` §2) | backlog task H2 not yet built; same open item `docs/planning/decisions/C4-session-identity.md` §13 and `docs/planning/decisions/C5-envelope-auth.md` §13 already name for this exact threat class |
 
-**Dated note, 2026-10-02 (C13, #220).** The Codex row above ("Same, on Codex via forged header/delimiter") is superseded in mitigation by §5.0. The mitigation is now whole-value validation with refusal, a line-quoted body, and a scoped `turn/start` anchor. The proposed replacement rows, including header injection, line-break smuggling, a forged anchor and a stale anchor, are in C13 §9. They fold into this table and `06-security.md` §14 when the C13 §11 re-run is recorded. Until then the row's residual (G5 `FAIL`) stands.
+**Dated note, 2026-10-02 (C13, #220).** The Codex row above ("Same, on Codex via forged header/delimiter") is superseded in mitigation by §5.0. The mitigation is now whole-value validation with refusal, a line-quoted body, and a scoped `turn/start` anchor. The proposed replacement rows, including header injection, line-break smuggling, a forged anchor and a stale anchor, are in C13 §9. They fold into this table and `06-security.md` §14 when the C13 §11 re-run is recorded. Until then the row's residual (G5 `FAIL`) stands. *(Dated note, 2026-10-03, #220: the re-run passed, and G5 is `PASS`, so the residual no longer reads "G5 `FAIL`". The fold itself is a separate follow-up (C13 §14). Until the G7/F11 tests exist, the C13 §9 rows stay designed mitigations, not proven ones.)*
 
 Every row names its proving test; none is marked mitigated without one, per
 `oac-security-work` §1's rule. Because every named test's current verdict is `NOT RUN` or

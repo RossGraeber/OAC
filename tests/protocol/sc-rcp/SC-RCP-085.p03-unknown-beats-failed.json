@@ -1,0 +1,34 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-RCP-085",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "One copy had an indeterminate hand-off and another failed. The content may have been handed off.",
+  "stage": "combine",
+  "context": {
+    "copies_passed": 2,
+    "deadline_passed": true
+  },
+  "input": {
+    "held": [
+      {
+        "state": "accepted-by-adapter",
+        "observer": "sender"
+      },
+      {
+        "state": "failed",
+        "observer": "receiver",
+        "error": "handoff-failed"
+      },
+      {
+        "state": "unknown",
+        "observer": "receiver"
+      }
+    ]
+  },
+  "expected": {
+    "state": "unknown",
+    "retry_allowed": false
+  }
+}

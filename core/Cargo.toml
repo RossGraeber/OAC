@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# core/: neutral types and policy/authorization. It depends on nothing in-repo, and no
+# provider or transport crate may be reachable from it (07 section 3;
+# scripts/check-crate-deps.mjs).
+
+[package]
+name = "oac-core"
+description = "OAC neutral core: session types, policy and authorization"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_jcs = "=0.2.0"
+# Device identity, signing and verification (#52, F3): Ed25519 per C5 section 2, SHA-256
+# key ids (spec/security.md section 5.2), the OS random source for seeds and nonces, and
+# zeroizing seed buffers. Inventory: 07 section 5.
+ed25519-dalek = "=3.0.0"
+sha2 = "=0.11.0"
+getrandom = "=0.4.3"
+zeroize = "=1.9.0"
+# Constant-time comparison of seeds; already in the graph under ed25519-dalek.
+subtle = "=2.6.1"
+
+[dev-dependencies]
+# Scalar arithmetic for constructing malleable and small-order signatures in signing.rs's
+# tests; already in the graph as ed25519-dalek's curve crate, same version.
+curve25519-dalek = "=5.0.0"

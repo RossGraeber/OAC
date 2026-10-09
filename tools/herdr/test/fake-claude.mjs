@@ -27,8 +27,13 @@
 //   FAKE_CLAUDE_VERSION         clientInfo.version on the wire (default 2.1.283)
 //   FAKE_CLAUDE_DIALOG          dev-channels (default) | unknown | wrong-selection | none |
 //                               workspace-trust | mcp-server-approval | mcp-unknown-options |
-//                               tool-permission,
+//                               tool-permission | mcp-multiselect (#267),
 //                               or a comma-separated sequence of these (#196)
+//   FAKE_CLAUDE_MCP_SERVERS     mcp-multiselect: the servers listed (default: .mcp.json's)
+//   FAKE_CLAUDE_MCP_UNTICKED    mcp-multiselect: listed servers shown unticked
+//   FAKE_CLAUDE_MCP_CURSOR      mcp-multiselect: the row selected first (default 0)
+//   FAKE_CLAUDE_MCP_DOUBLE_MARK mcp-multiselect: 1 = ❯ also stays on the last server row
+//                               while "Enable selected" is selected
 //   FAKE_CLAUDE_IGNORE_KEYS     1 = up/down never move an option dialog's selection
 //   FAKE_CLAUDE_SELF_ACCEPT_MS  dismiss the dialog by itself after N ms (stands in for an
 //                               operator pressing Enter outside the driver)
@@ -42,7 +47,7 @@
 // L3b also adds, in multi mode: a prompt asking for the reply tool calls the channel server's
 // `reply` tool with the probe code found in the last channel message (test double behavior).
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -58,7 +63,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MODERN = '2026-07-28';
 const PV = 'io.modelcontextprotocol/protocolVersion';
 
-const setState = (s) => writeFileSync(join(dir, 'state'), s);
+// herdr AgentInfo.state_change_seq (#253): bumped on every state change, with its time, so
+// fake-herdr can report it (and its linger-working mode can tell how recently it changed).
+let stateSeq = 0;
+let lastState = null;
+const setState = (s) => {
+  if (s !== lastState) {
+    lastState = s;
+    writeFileSync(join(dir, 'state-seq'), `${++stateSeq} ${Date.now()}`);
+    appendFileSync(join(dir, 'state-log'), `${stateSeq} ${s}\n`); // every transition, as herdr's event stream sees it
+  }
+  writeFileSync(join(dir, 'state'), s);
+  // One atomic snapshot (state, seq, time) for fake-herdr: herdr's AgentInfo is never torn.
+  writeFileSync(join(dir, 'status.tmp'), `${s} ${stateSeq} ${Date.now()}`);
+  renameSync(join(dir, 'status.tmp'), join(dir, 'status'));
+};
 const setScreen = (s) => writeFileSync(join(dir, 'screen.txt'), `${s}\n`);
 const hist = (s) => appendFileSync(buf, `${s}\n`);
 const IDLE_SCREEN = '╭──────────────────────────────╮\n│ >                            │\n╰──────────────────────────────╯\n  ? for shortcuts';
@@ -185,11 +204,71 @@ async function optionDialog(kind) {
   await sleep(200);
 }
 
+// #267: the multi-select MCP approval form, as seen live on Claude Code 2.1.285 (lib/g1.mjs
+// MCP_MULTISELECT). The listed servers (FAKE_CLAUDE_MCP_SERVERS, default: every server in
+// .mcp.json), the unticked ones (FAKE_CLAUDE_MCP_UNTICKED) and the first selected row
+// (FAKE_CLAUDE_MCP_CURSOR, default 0, the first server; the last row is "Enable selected")
+// are configurable. up/down move the selection, space toggles a tick, Enter on "Enable
+// selected" confirms; Enter on a server row exits the fake, so a wrong Enter fails the run.
+// How the selection marker looks on the "Enable selected" row is this file's invention.
+async function mcpMultiSelect() {
+  const list = (v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : null);
+  const servers = list(env.FAKE_CLAUDE_MCP_SERVERS) ?? Object.keys(MCP);
+  const unticked = new Set(list(env.FAKE_CLAUDE_MCP_UNTICKED) ?? []);
+  const ticked = servers.map((s) => !unticked.has(s));
+  let sel = Number(env.FAKE_CLAUDE_MCP_CURSOR || 0);
+  const DOUBLE_MARK = env.FAKE_CLAUDE_MCP_DOUBLE_MARK === '1';
+  const render = () => [
+    `  ${servers.length} new MCP servers found in this project`,
+    '  Select any you wish to enable.',
+    '',
+    '  MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP',
+    '  documentation.',
+    '',
+    // FAKE_CLAUDE_MCP_DOUBLE_MARK=1: with "Enable selected" selected, the last server row keeps
+    // its ❯ too (a torn redraw; the driver must never take it as a verified move).
+    ...servers.map((s, i) => `${i === sel || (DOUBLE_MARK && sel === servers.length && i === servers.length - 1) ? '  ❯ ' : '    '}[${ticked[i] ? '✔' : ' '}] ${s}`),
+    `${sel === servers.length ? '  ❯    ' : '       '}Enable selected`,
+    ' Space to select · Esc to reject all',
+  ].join('\n');
+  setScreen(render());
+  hist(render());
+  setState('blocked');
+  for (;;) {
+    let done = false;
+    for (const k of newKeys().map((x) => x.trim())) {
+      if (k === 'enter') {
+        done = true;
+        break;
+      }
+      if (IGNORE_KEYS) continue;
+      if (k === 'down') sel = Math.min(servers.length, sel + 1);
+      if (k === 'up') sel = Math.max(0, sel - 1);
+      if (k === 'space' && sel < servers.length) ticked[sel] = !ticked[sel];
+      setScreen(render());
+    }
+    if (done) break;
+    await sleep(50);
+  }
+  if (sel !== servers.length) {
+    hist(`[mcp-multiselect: Enter on "${servers[sel]}"; exiting]`);
+    process.exit(0);
+  }
+  hist(`[mcp-multiselect: enabled ${JSON.stringify(servers.filter((_, i) => ticked[i]))}]`);
+  setState('working');
+  setScreen('Starting…');
+  await sleep(200);
+}
+
 async function dialog() {
   // FAKE_CLAUDE_DIALOG may list several dialogs, shown in turn (e.g.
   // workspace-trust,mcp-server-approval,dev-channels, the order Claude Code showed live).
   for (const kind of DIALOG.split(',').map((x) => x.trim())) {
     if (kind === 'none') continue;
+    if (kind === 'mcp-multiselect') {
+      await mcpMultiSelect();
+      continue;
+    }
     if (OPTION_DIALOGS[kind]) {
       await optionDialog(kind);
       continue;
@@ -304,15 +383,36 @@ const render = (source, n) => {
   const content = MULTI ? String(n.params.content).replace(/<\/channel>/g, '<\\/channel>') : n.params.content;
   return `⏺ <channel source="${source}" ${meta.map(([k, v]) => `${k}="${MULTI ? esc(v) : v}"`).join(' ')}>${content}</channel>`;
 };
+// A push into an idle session starts a turn (#253): working for FAKE_CLAUDE_PUSH_TURN_MS (default
+// 600) with the busy screen, then idle; pushes arriving meanwhile are taken in the same turn,
+// and a prompt typed meanwhile waits for it (main loop).
+const PUSH_TURN_MS = Number(env.FAKE_CLAUDE_PUSH_TURN_MS || 600);
+const received = (source, n) => {
+  const tag = render(source, n);
+  return [tag, `Received channel message ${lastChannel.oac_message_id} as a new turn.`];
+};
 function onChannel(source, n) {
   if (n.method !== 'notifications/claude/channel') return;
   if (state === 'working') queued.push([source, n]);
   else {
-    const tag = render(source, n);
-    const said = `Received channel message ${lastChannel.oac_message_id} as a new turn.`;
+    const [tag, said] = received(source, n);
+    state = 'working';
+    setState('working');
     hist(tag);
     hist(said);
-    setScreen(`${tag}\n${said}\n${IDLE_SCREEN}`);
+    setScreen(`${tag}\n${said}\n\n✻ Working… (esc to interrupt)`);
+    setTimeout(() => {
+      let shown = `${tag}\n${said}`;
+      while (queued.length) {
+        const [t2, s2] = received(...queued.shift());
+        hist(t2);
+        hist(s2);
+        shown = `${t2}\n${s2}`;
+      }
+      state = 'idle';
+      setState('idle');
+      setScreen(`${shown}\n${IDLE_SCREEN}`);
+    }, PUSH_TURN_MS);
   }
 }
 
@@ -385,7 +485,7 @@ async function main() {
   for (;;) {
     const f = join(dir, 'inbox.log');
     const lines = existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];
-    if (lines.length > promptsSeen) await turn(JSON.parse(lines[promptsSeen++]).text);
+    if (state !== 'working' && lines.length > promptsSeen) await turn(JSON.parse(lines[promptsSeen++]).text);
     else await sleep(50);
   }
 }

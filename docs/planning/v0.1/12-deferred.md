@@ -90,6 +90,20 @@ undocumented-RPC) live-session-injection surface analogous to Claude Channels
 or the Codex app-server, satisfying the `docs/planning/ADR-001.md` line 24
 boundary against undocumented private RPCs.
 
+### ACP adapter
+
+**Not in v0.1.** *(Added 2026-10-06, #49.)* Reason: ACP is not a v0.1 dependency
+(PLANNING-PROMPT.md §3.5; `docs/planning/PINS.md` "ACP"), and `docs/planning/ADR-001.md`
+line 61 names only the Claude and Codex adapters. The E9 proof
+(`docs/planning/decisions/E9-replacement-proofs.md` §2) shows an ACP adapter fits the
+frozen adapter contract with no transport, core-type or spec change. It also shows that
+ACP is a client-owned-session protocol whose only route that keeps ADR-001 is an ACP proxy,
+a Draft RFD, so the adapter would rest on an experimental surface (record F-A1). Until a
+binding shows, with evidence, that a hand-off meets [SEC-AUZ-022], it would declare its
+sessions send-only (record §2.4, F-A2). Reconsider once the proxy RFD is completed, or ACP
+offers another supported route into a client-owned session, and a binding can make the
+[SEC-AUZ-022] statement.
+
 ### Alternative transports (NATS, MQTT)
 
 **Not in v0.1.** Reason: `docs/planning/ADR-001.md` line 63 names NATS and MQTT
@@ -102,6 +116,17 @@ change, but neither is built. Reconsider once a concrete deployment need names
 a capability Zenoh's peer-mode profile lacks (routing/federation, broker-backed
 offline queueing) — see `docs/planning/v0.1/11-risks.md` RISK-NATS and
 RISK-MQTT for the open evidence gap that must close first.
+*(Dated note, 2026-10-06, #49: the proof now argues from the frozen `spec/interfaces.md` §6,
+in `docs/planning/decisions/E9-replacement-proofs.md` §3-§6, and RISK-NATS is
+narrowed and RISK-MQTT closed. Neither candidate provides offline queueing in a profile the contract
+allows ([IFC-TRN-026]), so that reason to reconsider is gone. Alternative transports stay
+deferred by ADR-001 "v0.1 scope" (L63). A broker transport needs a server someone runs, and
+ADR-001 "Decision" (L21) rules that out for normal local use. Local use need not touch one:
+an implementation may keep its own sessions' traffic on a transport that stays inside it
+([IFC-TRN-002]), and [IFC-TRN-081] keeps presence records, and so all cross-implementation
+traffic, off any transport that is not cross-implementation and destination-restricted. A
+broker would therefore serve only cross-installation traffic, and adding one is a deployment
+decision under ADR-001 (record F-T1).)*
 
 ## 2. Boundary, not backlog — permanent, never a v0.2 candidate
 
@@ -127,7 +152,7 @@ model router").
 - **Shared context management.** OAC MUST NOT implement context management
   (`docs/planning/ADR-001.md` line 24, `docs/planning/DESIGN.md` line 15). Each
   harness keeps its own context; OAC's neutral types
-  (`docs/planning/v0.1/05-interfaces.md` §14) carry no session-context payload,
+  (`spec/interfaces.md` §4) carry no session-context payload,
   only messages, identity, and delivery state. OAC as a shared memory layer
   (storing, fetching, attaching or injecting memory such as Beacon's) is
   boundary, not backlog: each harness reaches such a service natively, and OAC

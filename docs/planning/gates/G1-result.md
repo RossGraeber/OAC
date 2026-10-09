@@ -218,6 +218,12 @@ issue #127): `tools/herdr/scenarios/g1-claude-wake.mjs`, compared against Box C 
 `20260929T034856Z-05b135`, herdr 0.9.1, Claude Code 2.1.283, human accept; all five
 criteria scored equivalent to Box C), with its run manifest beside it.
 
+*Dated note, 2026-10-07 (#343):* [`herdr-runs/G1-2026-10-07.md`](herdr-runs/G1-2026-10-07.md)
+(run `20261007T220336Z-987f80`, Claude Code 2.1.285, accept=driver, a three-call
+`replyPrompt`) is a fixture capture for Gate S3 criterion 5, not an equivalence record: it
+records `tools/call` ids 2, 3 and 4 in one session for the fake Claude endpoint. The verdict
+above is unchanged.
+
 ### Original run (2026-09-25, v2.1.282) — superseded
 
 - **Pinned version(s):** Claude Code `v2.1.282` (the version actually observed connecting

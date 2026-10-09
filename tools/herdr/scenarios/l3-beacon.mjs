@@ -103,7 +103,7 @@
 // harness config (oac-boundaries check 10), reads no credential file and asks no OS credential
 // store for anything; the harnesses serve every model turn from their own sign-in.
 
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -114,10 +114,11 @@ import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVers
 import { harnessVersions } from '../lib/manifest.mjs';
 import { runBounded, descendants, killTree } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
-import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
+import { canonicallyInside } from '../lib/canonical-path.mjs';
+import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS } from '../lib/g1.mjs';
 import { G2_LAUNCH, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { makeAgent, stopper, stageGateFiles, GATE_SERVERS_DIR } from '../lib/gate-common.mjs';
-import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts } from '../lib/g5.mjs';
+import { G5_LAUNCH, G5_SERVER_FILES, G5_CLIENT_FILES, PINS_PATH, assertNoSpoof, parseJsonl, g5ClaudeFacts, g5CodexFacts, threadIdleOnWire } from '../lib/g5.mjs';
 import {
   L3_RECORD_VERSION, makeProbeMarkers, markerRecords, augmentCaseTable, scanRuntimeLog, redactedExcerpt, harnessConfigTargets, hashConfig, compareSections,
   assertNoMarkerLeak, findMarkerLeaks, sha256, L3_CLAUDE_CASE, L3_CODEX_CASE, PLACEHOLDER_RE,
@@ -293,6 +294,80 @@ export function boxState(start, now = Date.now(), budgetMs = L3_BOX_MS) {
 // [A-Za-z0-9] becomes '-'. Observed on this machine's own ~/.claude/projects naming; UNVERIFIED
 // as a documented rule, so both the path and its realpath are tried.
 export const claudeProjectSlug = (dir) => String(dir).replace(/[^A-Za-z0-9]/g, '-');
+
+/**
+ * Why a session-file entry (its lstat `st`) is not read, or null: 'symlink', 'not-plain' (not
+ * a regular file / directory as `want`), 'hard-linked' (a file with nlink > 1, #357) or
+ * 'other-device' (a file whose st_dev differs from its slug directory's lstat `parent`, #357).
+ */
+export function sessionEntrySkip(st, want, parent = null) {
+  if (st.isSymbolicLink()) return 'symlink';
+  if (!(want === 'dir' ? st.isDirectory() : st.isFile())) return 'not-plain';
+  if (want === 'file' && st.nlink > 1) return 'hard-linked';
+  if (want === 'file' && parent && st.dev !== parent.dev) return 'other-device';
+  return null;
+}
+
+/** The run findings a readProjectSessionFiles() result carries (#353, #357). */
+export function sessionFileFindings(sf) {
+  const out = [];
+  if (sf.skipped) out.push(`B2 session file: ${sf.skipped} session entr${sf.skipped === 1 ? 'y' : 'ies'} skipped, not read: a symlink, not a plain file or directory, hard-linked, on another device, or not verifiably inside the projects directory (#353, #357)`);
+  if (sf.hardLinked) out.push(`B2 session file: ${sf.hardLinked} *.jsonl file${sf.hardLinked === 1 ? '' : 's'} with more than one hard link skipped, not read: a hard link may be another file in the Claude config directory (#357)`);
+  if (sf.otherDevice) out.push(`B2 session file: ${sf.otherDevice} *.jsonl file${sf.otherDevice === 1 ? '' : 's'} on another device than the slug directory skipped, not read: a file mounted in from another filesystem (#357)`);
+  if (!sf.dirsFound) out.push('B2 session file: no Claude project directory was found for the scratch probe project (slug rule UNVERIFIED); session-file shape not recorded');
+  return out;
+}
+
+/**
+ * The probe project's Claude session files, entry shapes only (readSessionFile, operator
+ * decision 2026-09-30). This is a deliberate read inside the Claude config directory, limited
+ * (#353, PR #356 review) to plain entries that stay under `projectsRoot`: a slug directory or a
+ * `*.jsonl` that is a symlink, is not a regular file/directory, or is not verifiably (by
+ * spelling or by file identity) under `projectsRoot` is skipped and counted, never read. The
+ * containment check allows a read, so any error answers "not under it" (fail closed, #357:
+ * canonicallyWithin, a refusing guard, answered "inside" on error and so allowed the read). A
+ * `*.jsonl` with more than one hard link (nlink > 1) may be another file in the Claude config
+ * directory, such as a credential file: it is skipped and counted in `hardLinked` (#357). A
+ * `*.jsonl` on another device than its slug directory (a file bind-mounted in from another
+ * filesystem) is skipped and counted in `otherDevice` (#357, PR #358 review); a bind mount
+ * from the same filesystem keeps st_dev and is a documented residual.
+ */
+export function readProjectSessionFiles(dirs, projectsRoot, markers) {
+  const sf = { dirsFound: 0, files: 0, lines: 0, entries: [], skipped: 0, hardLinked: 0, otherDevice: 0 };
+  const plain = (p, want, parent = null) => {
+    try {
+      const st = lstatSync(p);
+      const why = sessionEntrySkip(st, want, parent);
+      if (why === 'hard-linked') sf.hardLinked += 1;
+      if (why === 'other-device') sf.otherDevice += 1;
+      return why === null && canonicallyInside(p, projectsRoot) ? st : null;
+    } catch {
+      return null;
+    }
+  };
+  for (const d of dirs) {
+    if (!existsSync(d)) continue;
+    const dst = plain(d, 'dir');
+    if (!dst) {
+      sf.skipped += 1;
+      continue;
+    }
+    sf.dirsFound += 1;
+    for (const n of readdirSync(d).filter((x) => x.endsWith('.jsonl'))) {
+      const f = join(d, n);
+      if (!plain(f, 'file', dst)) {
+        sf.skipped += 1;
+        continue;
+      }
+      const shapes = sessionEntryShapes(readFileSync(f, 'utf8'), markers);
+      sf.files += 1;
+      (sf.sessionIds ??= []).push(n.replace(/\.jsonl$/, ''));
+      sf.lines += shapes.lines;
+      sf.entries.push(...shapes.entries);
+    }
+  }
+  return sf;
+}
 
 const ENUM = /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/;
 const enumOrNull = (v, markers) => (typeof v === 'string' && ENUM.test(v) && !findMarkerLeaks(v, markers).length ? v : v == null ? null : '<non-enum>');
@@ -684,7 +759,8 @@ export default {
       };
       const projectDir = ctx.dir('l3-project');
       const codexProjectDir = ctx.dir('l3-codex-project');
-      writeFileSync(join(projectDir, '.mcp.json'), `${JSON.stringify({ mcpServers: { g5spike: { command: process.execPath, args: [join(serverDir, 'g5-channel.mjs')] } } }, null, 2)}\n`);
+      const projectMcp = { mcpServers: { g5spike: { command: process.execPath, args: [join(serverDir, 'g5-channel.mjs')] } } };
+      writeFileSync(join(projectDir, '.mcp.json'), `${JSON.stringify(projectMcp, null, 2)}\n`);
 
       // Operator texts: never a probe value, a spoofing body or a frame marker.
       const g5cases = JSON.parse(committedCases.toString('utf8'));
@@ -750,7 +826,7 @@ export default {
       // herdr launch waits are bounded by the L3 box too (#195 review).
       const startupBound = () => Math.max(1000, Math.min(num('startupTimeoutMs'), Math.max(1, remaining())));
       const agentArgs = { ctx: bctx, g: l3, accept, num, stop };
-      claude = makeAgent({ ...agentArgs, name: 'l3claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept });
+      claude = makeAgent({ ...agentArgs, name: 'l3claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => Object.keys(projectMcp.mcpServers)) });
       codex = makeAgent({ ...agentArgs, name: 'l3codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex });
       const serverFacts = () => g5ClaudeFacts(existsSync(join(serverDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(serverDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
       const clientEntries = () => (existsSync(join(clientDir, 'transcript.jsonl')) ? parseJsonl(readFileSync(join(clientDir, 'transcript.jsonl'), 'utf8'), { completeLinesOnly: true }) : []);
@@ -818,6 +894,8 @@ export default {
       boxCheck('B2 trigger');
       const pre = await claude.read('pre-L3C-idle-check');
       if (pre.screen.busy || pre.screen.dialog) stop('the Claude session was not visibly idle before the probe case');
+      // #253: a baseline and an activity watch before the push (the settle waits for its turn).
+      const pushTurn = await claude.watch('L3C-push');
       sendOnce(`Claude case ${L3_CLAUDE_CASE} (case.trigger)`);
       writeFileSync(join(serverDir, 'case.trigger'), `${L3_CLAUDE_CASE}\n`);
       const w = await claude.waitFor(`case ${L3_CLAUDE_CASE} on the wire`, () => {
@@ -827,9 +905,8 @@ export default {
         return n ? { notification: n } : r ? { refused: r } : null;
       }, num('wireTimeoutMs'), { lbl: 'L3C-wait' });
       if (w.refused) stop(`the channel server refused case ${L3_CLAUDE_CASE} before sending it (pre-send check)`);
-      await sleep(num('settleMs'));
-      await claude.settle('L3C-turn', num('turnTimeoutMs'));
-      const afterB2 = await claude.read('after-L3C', { source: 'recent-unwrapped', lines: num('readLines') });
+      // #246/#253: every full read after a turn is a settled read (gate-common settledRead).
+      const afterB2 = await claude.settledRead('after-L3C', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'L3C-turn', timeoutMs: num('turnTimeoutMs'), since: pushTurn });
       const b2Log = await pollLog('claude-channel', 'B2');
       l3.steps.B2 = { status: 'recorded', wire: { line: w.notification.line, t: w.notification.t }, afterReadSeq: afterB2.seq, dialogs: l3.dialogs.filter((d) => d.agent === 'claude').map((d) => ({ kind: d.kind, acceptOrigin: d.acceptOrigin, acceptKeys: (d.acceptKeys ?? []).map((k) => k.key) })), log: b2Log };
       l3.beacon.sync.B2 = await syncHits('claudeSync', 'B2');
@@ -837,9 +914,9 @@ export default {
       // 6. B3: Claude answers through the reply tool. The typed text carries no probe value.
       boxCheck('B3 prompt');
       const repliesBefore = serverFacts().replyCalls.length;
-      const q = await claude.prompt(operator.replyPrompt);
-      await claude.settle('B3-turn', num('turnTimeoutMs'));
-      const afterB3 = await claude.read('after-B3', { source: 'recent-unwrapped', lines: num('readLines') });
+      const q = await claude.prompt(operator.replyPrompt, { wait: true });
+      // #253: typed with `herdr agent prompt --wait` (herdr observed the prompt's own turn).
+      const afterB3 = await claude.settledRead('after-B3', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'B3-turn', timeoutMs: num('turnTimeoutMs'), since: q });
       const replies = serverFacts().replyCalls.slice(repliesBefore);
       const cm = markers.find((m) => m.id === 'claude-channel');
       const b3Log = await pollLog('claude-channel', 'B3', { actions: TOOL_INVOKED_ACTIONS });
@@ -948,10 +1025,12 @@ export default {
       }
       l3.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
       if (ready.newThreads.length > 1) finding(multipleNewThreadsFinding(ready.newThreads.length));
-      const tm = await codex.prompt(operator.threadMarker);
-      await codex.waitState('thread-marker-turn', num('turnTimeoutMs'));
-      const mr = await codex.read('after-thread-marker');
-      if (mr.screen.dialog) await codex.handleDialog(mr, 'thread-marker');
+      // #282: the session loaded on the wire is not the end of Codex's startup; settle first.
+      l3.codexStartupSettle = await codex.startupSettle('codex-ready-settle', `the Codex session loaded in the daemon (pane read #${ready.readSeq})`, num('turnTimeoutMs'));
+      const tm = await codex.prompt(operator.threadMarker, { wait: true });
+      // #253: typed with `herdr agent prompt --wait`, so herdr observed the marker's own turn;
+      // never a wait that returns at once with the state from before the prompt.
+      const mr = await codex.settle('thread-marker-turn', num('turnTimeoutMs'), { since: tm });
       const projectDirs = [...new Set([codexProjectDir, realpathSync(codexProjectDir)])];
       const attachDeadline = Date.now() + Math.min(num('attachTimeoutMs'), Math.max(0, remaining()));
       let found;
@@ -967,7 +1046,18 @@ export default {
         await sleep(num('listPollMs'));
       }
       threadId = found.threadId;
-      l3.thread = { id: threadId, markerPromptSeq: tm.seq };
+      l3.thread = { id: threadId, markerPromptSeq: tm.seq, markerSettledSeq: mr.seq, markerSettledBy: mr.settled?.turnBegunBy ?? null };
+      // #253: the marker's turn must be over on the wire (thread/turns/list: no turn in
+      // progress, the marker's turn completed) before B4's turn/start, or it joins that turn.
+      {
+        let next = 0;
+        l3.thread.markerIdle = await codex.waitFor('the thread-marker turn to complete (thread/turns/list)', async () => {
+          if (Date.now() < next) return null;
+          next = Date.now() + num('listPollMs');
+          const { linesBefore } = await runClient('turns', [threadId]);
+          return threadIdleOnWire(clientFacts(), threadId, { marker: operator.threadMarker, sinceLine: linesBefore });
+        }, num('turnTimeoutMs'), { lbl: 'codex-idle-wait' });
+      }
       const turnDone = (caseId, what) => {
         let next = 0;
         return codex.waitFor(what, async () => {
@@ -986,8 +1076,7 @@ export default {
       sendOnce('Codex case X4 (setup turn/start + thread/queue/add, client)');
       await runClient('x4', [threadId]);
       const t2 = await turnDone('X4', 'the queued X4 input\'s turn to complete (thread/turns/list)');
-      await codex.settle('B4-turns', num('turnTimeoutMs'));
-      const afterB4 = await codex.read('after-B4', { source: 'recent-unwrapped', lines: num('readLines') });
+      const afterB4 = await codex.settledRead('after-B4', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'B4-turns', timeoutMs: num('turnTimeoutMs'), done: async () => `the X4 queued turn ${t2.turnId} completed on the wire (thread/turns/list)` });
       const b4Log = await pollLog('codex-queue-add', 'B4');
       l3.steps.B4 = { status: 'recorded', turnStart: { turnId: t1.turnId, status: t1.turnStatus, recordedByteIdentical: t1.recordedByteIdentical }, queueAdd: { turnId: t2.turnId, status: t2.turnStatus, recordedByteIdentical: t2.recordedByteIdentical }, afterReadSeq: afterB4.seq, log: b4Log };
       l3.beacon.sync.B4 = await syncHits('codexSync', 'B4');
@@ -1021,19 +1110,8 @@ export default {
       if (params.readSessionFile === 'true') {
         const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
         const dirs = [...new Set([projectDir, realpathSync(projectDir)].map((d) => join(claudeHome, 'projects', claudeProjectSlug(d))))];
-        const sf = { read: true, source: process.env.CLAUDE_CONFIG_DIR ? '$CLAUDE_CONFIG_DIR/projects/<slug>' : '~/.claude/projects/<slug>', dirsFound: 0, files: 0, lines: 0, entries: [] };
-        for (const d of dirs) {
-          if (!existsSync(d)) continue;
-          sf.dirsFound += 1;
-          for (const n of readdirSync(d).filter((x) => x.endsWith('.jsonl'))) {
-            const shapes = sessionEntryShapes(readFileSync(join(d, n), 'utf8'), markers);
-            sf.files += 1;
-            (sf.sessionIds ??= []).push(n.replace(/\.jsonl$/, ''));
-            sf.lines += shapes.lines;
-            sf.entries.push(...shapes.entries);
-          }
-        }
-        if (!sf.dirsFound) finding('B2 session file: no Claude project directory was found for the scratch probe project (slug rule UNVERIFIED); session-file shape not recorded');
+        const sf = { read: true, source: process.env.CLAUDE_CONFIG_DIR ? '$CLAUDE_CONFIG_DIR/projects/<slug>' : '~/.claude/projects/<slug>', ...readProjectSessionFiles(dirs, join(claudeHome, 'projects'), markers) };
+        for (const f of sessionFileFindings(sf)) finding(f);
         l3.sessionFile = sf;
       } else {
         l3.sessionFile = { read: false, note: 'not read (--param readSessionFile is not true); the poll path (`sync --print`) is the B2 session-file evidence' };

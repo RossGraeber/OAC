@@ -1,0 +1,45 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-086",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "no capability declaration",
+  "description": "The sender holds no capability declaration for the addressed session.",
+  "stage": "send",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ],
+    "attachments": [
+      {
+        "attachment": "A",
+        "binding": {
+          "native_id": "native-a",
+          "session_id": "01harn7x9k2m4p6q8r0s2t4v6w"
+        }
+      }
+    ],
+    "declarations": {}
+  },
+  "input": {
+    "request": {
+      "attachment": "A",
+      "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+      "content": [
+        {
+          "type": "text",
+          "text": "Please review the scheduler module."
+        }
+      ]
+    }
+  },
+  "expected": {
+    "result": "refused",
+    "error": "unknown-destination"
+  }
+}

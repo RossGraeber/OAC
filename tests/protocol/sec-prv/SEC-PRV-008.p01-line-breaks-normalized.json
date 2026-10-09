@@ -1,0 +1,25 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SEC-PRV-008",
+  "spec": "spec/security.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "CR LF, CR, VT, FF, NEL, LS and PS each become one line feed before quoting.",
+  "stage": "body",
+  "context": {},
+  "input": {
+    "body": "a\r\nb\rc\u000bd\fef g h"
+  },
+  "expected": {
+    "quoted_lines": [
+      "| a",
+      "| b",
+      "| c",
+      "| d",
+      "| e",
+      "| f",
+      "| g",
+      "| h"
+    ]
+  }
+}

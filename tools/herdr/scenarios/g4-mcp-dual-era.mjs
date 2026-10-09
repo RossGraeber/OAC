@@ -10,11 +10,21 @@
 // committed fixture's wire shapes. It is not the server that produced the human-run fixture
 // and cannot be verified identical to it; every comparison says so.
 //
-// LIVE STATUS: UNVERIFIED. Exercised only against the test doubles in tools/herdr/test/ (a
-// fake herdr, a fake Claude Code and a fake Codex); it has never driven a real herdr, Claude
-// Code or Codex. Every pane-text pattern it schedules on (lib/g1.mjs, lib/g2.mjs) is a guess
-// except the dev-channels dialog, and whether Codex honors a per-invocation MCP-server `-c`
-// override for an HTTP server is itself UNVERIFIED.
+// LIVE STATUS: RECORDED. docs/planning/gates/herdr-runs/G4-2026-10-06.md (an equivalence
+// record, not verdict-bearing): run 20261006T022052Z-00cdd3, a real herdr (v0.9.1), Claude
+// Code 2.1.285 and Codex 0.160.0, run outcome PASS, driver commit c4def66. It replaces
+// G4-2026-10-05.md (run 20261005T013347Z-6803a7, driver de42b54) and G4-2026-10-04.md (driver
+// b478f2a), kept as history. The record holds for its driver commit only: a later run relies
+// on it only under oac-gates references/scripted-runs.md "When a scripted run may carry a
+// verdict" (among other conditions, an empty tools/herdr/ diff, test/ excluded, against
+// c4def66). The #303 change (Codex's start-up update prompt, answered "2. Skip" or stopped at
+// once; before it, run 20261006T001351Z-5b2e11 waited 90 s for an MCP handshake behind the
+// prompt) is such a diff, so G4 needs a re-record at the new driver commit. In the recorded
+// run the driver accepted all five dialogs on an exact match to their recorded text (the
+// record's findings). Whether Codex honors a per-invocation MCP-server `-c` override for an HTTP
+// server is partly answered there for Codex 0.160.0 (one Codex HTTP session, the override in
+// the process argv); that no other Codex user-config entry points at the run's port is still
+// UNVERIFIED from committed evidence.
 //
 // Operator command (herdr at the PINS.md pin; Claude Code and Codex at any version, since
 // versions float and a difference from PINS.md's last tested versions is a VERSION WARNING
@@ -56,9 +66,17 @@
 //      both copies push; the Claude pane is read.
 //   4. Claude's modern HTTP `tools/call` (an operator prompt).
 //   5. Codex starts in a second pane, CONCURRENTLY with the live Claude session. Its MCP
-//      client's `initialize` user-agent must equal the pinned Codex version. An operator
+//      client's `initialize` user-agent must equal the pinned Codex version. Once that MCP
+//      connect is seen, the driver settles Codex again before typing (#282: idle at or past
+//      herdr's state at the connect, still idle on a re-check; never settled within
+//      turnTimeoutMs -> NOT RUN with a startup-settle finding). An operator
 //      prompt asks it to call g4_echo, then g4_relay_to_claude; the relay reaches Claude only
-//      as the server's own channel push.
+//      as the server's own channel push. Codex asks to approve each call (seen live on 0.160.0,
+//      #271): under accept=driver the driver answers "1. Allow" (this call only) when the prompt
+//      is the recorded text and names g4http (registered at exactly this run's staged server
+//      URL) and one of its two tools (lib/g4.mjs g4CodexToolApproval); anything else ends the
+//      run NOT RUN. run.mjs hashes the harness config just before the first Allow and requires
+//      the teardown hashes to equal that snapshot (no persistent approval written).
 //   6. Claude's modern `tools/call` again, after the Codex traffic (no-degradation check).
 //   7. Wake 2.
 //   8. Post-run versions.
@@ -77,13 +95,13 @@ import { fileURLToPath } from 'node:url';
 import { DriverError } from '../lib/herdr.mjs';
 import { parseClaudeVersions, pinsReadWarning, parseClaudeCliVersion, claudeVersionWarning, parseCodexVersions, parseCodexCliVersion, codexVersionWarning, CLAUDE_PIN_ROW, CODEX_PIN_ROW } from '../lib/pins.mjs';
 import { harnessVersions } from '../lib/manifest.mjs';
-import { committedFile, classifyScreen, driverMayAccept, DIALOG_KINDS } from '../lib/g1.mjs';
-import { classifyCodexScreen, driverMayAcceptCodex, CODEX_DIALOG_KINDS, paneArgv } from '../lib/g2.mjs';
+import { committedFile, classifyScreen, driverMayAcceptExpecting, mcpServerNames, DIALOG_KINDS } from '../lib/g1.mjs';
+import { classifyCodexScreen, driverMayAcceptCodexExpecting, CODEX_DIALOG_KINDS, paneArgv } from '../lib/g2.mjs';
 import { descendants } from '../lib/proc.mjs';
 import { makeAgent, stopper, stageGateFiles, loopbackPortFree } from '../lib/gate-common.mjs';
 import {
   G4_LAUNCH, G4_SERVER_FILES, PINS_PATH, DEFAULT_PORTS, DEFAULT_PROMPTS, g4McpJson, defaultCodexLaunch, validateCodexLaunch, codexLaunchParamProblem, validatePaneEnv, assertNotInjected,
-  fixtureNames, unverifiedNames, parseG4Transcript, g4Facts, roles, sanitizeG4Transcript, sanitizeG4Text, MODERN, LEGACY, HUMAN_RUN_PORTS, codexSessions,
+  fixtureNames, unverifiedNames, parseG4Transcript, g4Facts, roles, sanitizeG4Transcript, sanitizeG4Text, MODERN, LEGACY, HUMAN_RUN_PORTS, codexSessions, g4CodexToolApproval,
 } from '../lib/g4.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -178,8 +196,11 @@ export default {
     const stop = stopper(herdr, g4);
     let serverDir = null;
 
-    const claude = makeAgent({ ctx, g: g4, name: 'g4claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept, accept, num, stop });
-    const codex = makeAgent({ ctx, g: g4, name: 'g4codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodex, accept, num, stop });
+    const claude = makeAgent({ ctx, g: g4, name: 'g4claude', label: 'claude', classify: (t) => classifyScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => mcpServerNames(g4.mcpJson)), accept, num, stop });
+    // #271: the only scenario that opts in to answering Codex's MCP tool-approval prompt, and only
+    // "1. Allow" for the server and tools it registered itself (lib/g4.mjs g4CodexToolApproval:
+    // its committed config and validated launch, never the pane).
+    const codex = makeAgent({ ctx, g: g4, name: 'g4codex', label: 'codex', classify: (t) => classifyCodexScreen(t, { busyIndicator: params.busyIndicator }), dialogKinds: CODEX_DIALOG_KINDS, driverMayAccept: driverMayAcceptCodexExpecting(() => g4CodexToolApproval(g4.codexLaunch.validation, { httpPort })), accept, num, stop });
 
     const transcriptPath = () => join(serverDir, 'transcript.jsonl');
     const facts = () => g4Facts(serverDir && existsSync(transcriptPath()) ? parseG4Transcript(readFileSync(transcriptPath(), 'utf8'), { completeLinesOnly: true }) : []);
@@ -192,9 +213,10 @@ export default {
       g4.triggers.push(rec);
       return rec;
     };
+    // #253: typed with `herdr agent prompt --wait` (herdr observes the prompt's own turn).
     const prompt = async (agent, label, text) => {
       assertNotInjected(label, text);
-      return agent.prompt(text);
+      return agent.prompt(text, { wait: true });
     };
 
     try {
@@ -288,29 +310,29 @@ export default {
       };
       g4.versions.wire.claude = hs.init.clientInfo?.version ?? null;
       warn(claudeVersionWarning({ observed: /^\d+\.\d+\.\d+$/.test(String(g4.versions.wire.claude ?? '')) ? g4.versions.wire.claude : null, lastTested: cpin.lastTested, minimum: cpin.minimum, source: 'the wire initialize clientInfo.version', gate: 'G4' }));
-      await claude.settle('post-handshake', num('startupTimeoutMs'));
-      g4.afterStartupReadSeq = (await claude.read('after-startup', { source: 'recent-unwrapped', lines: num('readLines') })).seq;
+      // #246/#253: every full read after a turn is a settled read (gate-common settledRead).
+      g4.afterStartupReadSeq = (await claude.settledRead('after-startup', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'post-handshake', timeoutMs: num('startupTimeoutMs') })).seq;
 
       const wake = async (n) => {
         const pre = await claude.read(`pre-wake-${n}-idle-check`);
         if (pre.screen.busy || pre.screen.dialog) stop(`the Claude session was not visibly idle before wake ${n}`);
         const before = facts().pushes.length;
+        const pushTurn = await claude.watch(`wake-${n}-push`); // #253: baseline + activity watch before the push
         const trig = fire();
         const pushes = await claude.waitFor(`wake ${n} on the wire (both copies)`, () => {
           const p = facts().pushes.slice(before).filter((x) => x.meta.g4_stdio_era);
           return p.some((x) => x.pid === g4.handshake.legacyPid) && p.some((x) => x.pid === g4.handshake.modernPid) ? p : null;
         }, num('wireTimeoutMs'), { lbl: `wake-${n}-wait` });
-        await sleep(num('settleMs'));
-        await claude.settle(`wake-${n}-turn`, num('turnTimeoutMs'));
-        const r = await claude.read(`after-wake-${n}`, { source: 'recent-unwrapped', lines: num('readLines') });
+        const r = await claude.settledRead(`after-wake-${n}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: `wake-${n}-turn`, timeoutMs: num('turnTimeoutMs'), since: pushTurn });
         g4.wakes.push({ n, trigger: trig, preReadSeq: pre.seq, pushes: pushes.map((x) => ({ pid: x.pid, era: x.era, line: x.line, t: x.t, id: x.meta.oac_message_id })), afterReadSeq: r.seq });
       };
       const claudeEcho = async (key, label, text) => {
         const before = facts().toolCalls.length;
         const p = await prompt(claude, label, text);
         const call = await claude.waitFor(`Claude's modern tools/call (${label})`, () => facts().toolCalls.slice(before).find((c) => c.era === 'modern' && c.name === 'g4_echo' && c.resLine) ?? null, num('turnTimeoutMs'), { lbl: `${label}-wait` });
-        await claude.settle(label, num('turnTimeoutMs'));
-        const r = await claude.read(`after-${label}`, { source: 'recent-unwrapped', lines: num('readLines') });
+        // #253: the prompt's own turn (since). The tools/call on the wire shows only that the turn
+        // began (`begun`), never that it is over, so it does not let `unknown` count as settled.
+        const r = await claude.settledRead(`after-${label}`, { source: 'recent-unwrapped', lines: num('readLines') }, { context: label, timeoutMs: num('turnTimeoutMs'), since: p, begun: async () => `the modern tools/call at transcript line ${call.reqLine}` });
         g4[key] = { prompt: p, call: { reqLine: call.reqLine, resLine: call.resLine, pid: call.pid, text: call.text }, afterReadSeq: r.seq };
       };
 
@@ -350,8 +372,16 @@ export default {
         ctx.finding(`a harness's CLI and wire versions differ (CLI ${JSON.stringify(g4.versions.cliOutput)}, wire ${JSON.stringify(g4.versions.wire)}); the run continues, but its captures stay unverified-* because they cannot name one version per harness`);
       }
 
+      // #282: Codex's MCP connect shows only that its startup reached the server, not that the
+      // startup is over (live run 20261004T075757Z: connect ~13 s after launch, `working` 1.1 s
+      // later). Settle (idle at or past herdr's state at this observation, then idle on a
+      // re-check) before the first prompt; never settled within the turn bound -> NOT RUN.
+      g4.codexStartupSettle = await codex.startupSettle('codex-mcp-settle', `Codex's MCP connect (initialize at transcript line ${cinit.reqLine})`, num('turnTimeoutMs'));
+
       const callsBefore = facts().toolCalls.length;
       const pushesBefore = facts().pushes.length;
+      // #253: Claude's relay turn is started by a push during Codex's turn: watch for it first.
+      const relayTurn = await claude.watch('relay-push');
       const cp = await prompt(codex, 'codexToolsPrompt', prompts.codexToolsPrompt);
       const codexCalls = await codex.waitFor('Codex\'s g4_echo and g4_relay_to_claude calls and the relay push', () => {
         const f = facts();
@@ -361,10 +391,8 @@ export default {
         const push = f.pushes.slice(pushesBefore).find((x) => x.meta.relay_from);
         return echo && relay && push ? { echo, relay, push } : null;
       }, num('turnTimeoutMs'), { lbl: 'codex-tools-wait' });
-      await codex.settle('codex-tools', num('turnTimeoutMs'));
-      const cr = await codex.read('after-codex-tools', { source: 'recent-unwrapped', lines: num('readLines') });
-      await claude.settle('relay-turn', num('turnTimeoutMs'));
-      const rr = await claude.read('after-relay', { source: 'recent-unwrapped', lines: num('readLines') });
+      const cr = await codex.settledRead('after-codex-tools', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'codex-tools', timeoutMs: num('turnTimeoutMs'), since: cp, begun: async () => `Codex's tools/call at transcript line ${codexCalls.echo.reqLine}` });
+      const rr = await claude.settledRead('after-relay', { source: 'recent-unwrapped', lines: num('readLines') }, { context: 'relay-turn', timeoutMs: num('turnTimeoutMs'), since: relayTurn });
       const sessions = codexSessions(facts(), g4.handshake.legacyPid);
       if (sessions.length !== 1) ctx.finding(`${sessions.length} Codex HTTP MCP sessions reached the server (initialize at lines ${sessions.map((x) => x.reqLine).join(', ')}); only one per-invocation registration was passed, so another Codex registration (for example a leftover entry in the operator's own Codex config) also connected, and the Codex traffic cannot be attributed to the per-invocation registration alone`);
       g4.codex = {

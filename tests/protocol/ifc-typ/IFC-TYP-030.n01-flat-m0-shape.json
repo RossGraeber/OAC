@@ -1,0 +1,32 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "IFC-TYP-030",
+  "spec": "spec/interfaces.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "flat capability record",
+  "description": "The M0 draft shape: active_inbound, spec_revision, extension_id and negotiated_capabilities side by side. No member is named by an extension identifier, so no version is agreed.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "active_inbound": true,
+      "spec_revision": "0.1",
+      "extension_id": "io.github.rossgraeber/oac-session-channels",
+      "negotiated_capabilities": [
+        "text"
+      ]
+    }
+  },
+  "expected": {
+    "result": "no-common-version"
+  }
+}

@@ -15,7 +15,11 @@ note. `docs/planning/STATUS.md` carries a one-line pointer to this file until th
 **Provenance-proof caveat, stated once up front.** Per `docs/planning/STATUS.md`'s Gate
 verdicts table, **gate G5 (Provenance) is `FAIL`** (Codex criteria 2/3 f; Claude all
 criteria x) (2026-09-27,
-`docs/planning/gates/G5-result.md`). This document designs the envelope-authenticity
+`docs/planning/gates/G5-result.md`). *(Dated note, 2026-10-03, #220: G5 is now **PASS**.
+Its Codex leg was re-run under C13 §11 against C6 §5.0's amended framing and passed, with
+the operator attestation at `062a67c27b7d5a332dedfe3cb392f9ccfe77393a`, and the 2026-09-27 Claude results
+stand. The `FAIL` is history. This changes nothing below: G5 still tests the rendering
+layer, not signature verification.)* This document designs the envelope-authenticity
 mechanism G5 exercises; envelope-authenticity itself (signature verification) is not what
 G5 tests or failed — G5 tests the separate rendering layer `docs/planning/decisions/
 C6-trust-rendering.md` §2-§5 and `oac-security-work` §5 own, not §9-§10 of this document
@@ -402,6 +406,13 @@ verifying daemon's own clock, where the `+300s` half (an envelope claiming a tim
 up to 5 minutes in the *future*) exists specifically to absorb clock skew between the
 sending and receiving devices, not to extend the sender's own intended validity window.
 
+*Dated note, 2026-10-03 (#45, PR #265): `spec/security.md` §8.1 makes the window open at both
+ends: an envelope is inside it when `now - 300s < created_at < now + 300s`. The closed
+interval above is replaced so that "outside the window from `created_at + 300s` on" agrees
+with `spec/session-channels.md` [SC-RCP-091], which forbids hand-off at or after the
+deadline. The difference is one instant at each edge. The width (300 s) and the skew
+allowance (300 s) are unchanged. The spec governs (C3 §1).*
+
 **Outside the window: reject as `expired`.** An envelope whose `created_at` falls
 outside the accept-window is rejected using DESIGN's existing `expired` delivery state
 (`docs/planning/DESIGN.md` line 108's list: `accepted`, `rejected`, `unreachable`,
@@ -552,6 +563,15 @@ C6 ("No Claude acknowledgement vs DESIGN `accepted` delivery state") moves from
 `ASSIGNED` to `RESOLVED-IN-DECISION`, pointing at this section — the cross-file update
 is recorded in §18.
 
+*Dated forward note, 2026-10-03 (#44, PR #261): `spec/session-channels.md` §8.1.2 departs
+from this section in one respect. Here, `accepted-by-adapter` is the receiving side's
+acceptance, after verification, replay, duplicate and authorization checks. The spec instead
+adopts the reading of `docs/planning/decisions/C6-trust-rendering.md` §8: the sending
+implementation built the envelope and passed it to a transport, which is the state a `send`
+returns. Receiver-side acceptance is not reported as a state of its own; a receiver reports
+`handed-to-harness`, `unknown` or an error state. The honesty rule of this section is
+unchanged: no state claims a model saw a message. The spec governs (C3 §1).*
+
 ## 10. Pairing model, two flows
 
 ### (a) Same-user multi-harness on one device — zero-config
@@ -647,6 +667,24 @@ devices is the lowest-friction "explicit" step available.
   numeric-comparison pairing defeat of a LAN MITM: the attacker can intercept the key
   exchange, but cannot make its substituted key produce the same fingerprint-derived
   code as the legitimate key without breaking the hash function the fingerprint uses.
+
+  *Dated note, 2026-10-06 (#54, PR #316; acknowledged by the operator, who approved and merged PR #316 on 2026-10-06, recorded at https://github.com/RossGraeber/OAC/issues/54#issuecomment-6030852812): finding
+  F5-1. The argument of the "MITM defeat" bullet above does not hold for a code of 10^6
+  values (about 20 bits). The attacker needs only a match on the six-digit code, not a
+  fingerprint collision. It can generate key pairs offline, about 2^20 of them, which takes
+  seconds, until its substituted keys give both devices the same code. The reference
+  implementation therefore adds a commit-then-reveal nonce exchange before the code exists,
+  as numeric-comparison pairing does (`core/src/pairing.rs`). The initiator commits to a
+  32-octet random nonce before it sees the responder's nonce. The responder sends its nonce
+  before it sees the initiator's. The code is derived from both principals, both public keys
+  and both nonces. Neither side, and no one between them, can then choose keys or nonces to
+  reach a given code. A substituted key matches with probability 10^-6 per operator-visible
+  exchange. One rule falls to the caller, so that an attacker cannot simply restart
+  exchanges until its code matches: a responder answers one offer per operator-started
+  pairing, and an exchange abandoned before the code is shown ends that pairing visibly. The
+  6-digit, 120-second and 5-attempt parameters are unchanged.
+  `spec/security.md` [SEC-KEY-032] to [SEC-KEY-034] are met as frozen. The §5.3 informative
+  note's follow-up is recorded for the #308 batch.*
 - **Where LAN certificates come from, and the common-name link (forward reference to
   §12).** Where pairing issues LAN certificates for the Zenoh TLS/QUIC transport, the
   certificate's common name is **derived from the device public key fingerprint** —
@@ -825,6 +863,11 @@ or the underlying task is not yet built (`docs/planning/STATUS.md`, Pre-Stage 0)
 row above describes a **designed** mitigation, matching the caveat stated at the top of
 this document and the identical precedent `docs/planning/decisions/
 C4-session-identity.md` §13 sets.
+
+*Dated note, 2026-10-03 (#220):* the prompt-injection row's "G5 **FAIL**" is history. G5 is
+now **PASS** after its Codex-leg re-run under C13 §11 (`docs/planning/gates/G5-result.md`).
+The row's mitigation stays doctrine, and F11 stays `NOT RUN`, so the row is unchanged in
+substance.
 
 ## 14. Rejected alternatives
 

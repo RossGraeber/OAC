@@ -1,0 +1,37 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-139",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "B has no cross-check value. A fresh signal binds N, with a diagnostic.",
+  "stage": "binding",
+  "context": {
+    "attachments": [
+      {
+        "attachment": "B"
+      }
+    ]
+  },
+  "input": {
+    "signal": {
+      "native_id": "native-x",
+      "start_kind": "fresh",
+      "pairing": "paired",
+      "attachment": "B"
+    }
+  },
+  "expected": {
+    "result": "bound",
+    "attachments": [
+      {
+        "attachment": "B",
+        "binding": {
+          "native_id": "native-x",
+          "session_id": "new"
+        }
+      }
+    ],
+    "record": "diagnostic"
+  }
+}

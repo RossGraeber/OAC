@@ -1,0 +1,57 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-019",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The server sends no other message before refusing a send to an undiscoverable session, as for an unknown session id.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "general",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_messages": []
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 102,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 102,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown-destination: no session with that id is known."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

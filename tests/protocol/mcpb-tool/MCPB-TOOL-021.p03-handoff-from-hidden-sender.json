@@ -1,0 +1,39 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-021",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "A message from a session the bound session is not authorized to discover is handed off on the bound channel-path connection, with its provenance; the hidden sender revealed itself by sending.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "legacy",
+    "server_role": "channel-path",
+    "legacy_initialized": true,
+    "bound": true,
+    "addressed": {
+      "presence": "online",
+      "discoverable": false
+    },
+    "unknown_session_subsequent_messages": [],
+    "server_message_kind": "handoff"
+  },
+  "input": {
+    "mcp_exchange": {
+      "server_message": {
+        "jsonrpc": "2.0",
+        "method": "notifications/claude/channel",
+        "params": {
+          "content": "Build finished; please review.",
+          "meta": {
+            "oac_sender": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "oac_message_id": "msg-01hzx3k8q2v6w9m4t7p0r5s1yd"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "conformant"
+  }
+}

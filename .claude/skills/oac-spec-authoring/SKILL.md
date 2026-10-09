@@ -53,7 +53,7 @@ This skill adds only the spec-specific words (bare `claude`, `mqtt`, `nats`, `sc
 Any hit in normative text or a neutral interface signature is a boundary violation — stop and
 follow the `oac-boundaries` "Stop, cite the boundary" protocol, citing `[ADR-001 Boundary]` or
 `[DESIGN §MCP Session Channels extension]`. The one exemption is task-scoped, not
-filename-scoped: the task E6 binding document (path not yet fixed) may quote MCP and provider
+filename-scoped: the task E6 binding document, `spec/bindings/mcp.md`, may quote MCP and provider
 identifiers by design, since it carries provider-facing binding detail out of the neutral
 spec — the neutral spec and frozen interfaces (§7) stay clean.
 
@@ -83,7 +83,7 @@ A fixture is a data file, not code, proving exactly one normative requirement, r
 second independent implementation (task E8 acceptance). Fixtures live under `tests/protocol/`
 (DESIGN §Suggested repository shape); a conformance runner (Stage 3, task F12) executes them
 in CI. Content shape, the required negative-fixture set, and the requirement-id scheme (fixed
-by task E1 — no fixture cites an id before E1 lands): `references/conformance-fixtures.md`.
+by task E1 in `spec/session-channels.md` §3): `references/conformance-fixtures.md`.
 
 **The rule, restated from §1:** a `MUST` with no fixture is not yet specified. Treat a missing
 fixture as a blocking gap in the same change that adds the `MUST` — mark it `TODO(fixture)`.
@@ -105,18 +105,22 @@ Per PLANNING-PROMPT.md §3.3 (MCP extension model, SEP-2133): extension identifi
 
 ## 7. The interface freeze
 
-At the end of Stage 2 (task E7), the adapter contract (`ProviderAdapter`), the transport
-contract (`Transport`), and the core neutral types freeze — see DESIGN §Provider adapter
-contract / §Transport contract / §Core for the member lists; not restated here.
+Gate S2 froze the four `spec/` documents at revision 0.1 (task E7, #47; signed off
+2026-10-06, in force from the merge of PR #276): the protocol, security, the MCP binding,
+and `spec/interfaces.md` (core neutral types, `ProviderAdapter`, `Transport`, owner index).
+What is frozen, and the change rule: `docs/planning/decisions/E7-interface-freeze.md` §1
+and §7; not restated here.
 
 What "frozen" obliges an agent to do afterwards:
 - Stage 3/4 work (Epics F, G) implements against the frozen signatures; it does not
   renegotiate them.
-- A later change to a frozen interface is a recorded amendment, not a silent edit — same
-  procedure as an ADR-001 amendment (`oac-evidence` §6): old signature, new signature,
-  rationale, and which stage's output it invalidates.
-- A `type:code` work item that finds a frozen interface doesn't fit its need is a finding, not
-  license to change the interface unilaterally (`oac-boundaries` boundary 10 applies here).
+- A frozen item changes only by a PR containing the change and a version bump, approved by
+  the lead (E7 §7). No separate amendment document. A wire change takes the version
+  `spec/session-channels.md` §5.2-§5.3 assign; a change touching no wire form (a rename, an
+  owner move) takes a minor bump. Fixtures are not frozen and need no bump.
+- A `type:code` work item that finds a frozen interface doesn't fit its need records a
+  finding, not a workaround (`oac-boundaries` "Stop, cite the boundary"); it does not change
+  the interface unilaterally.
 
 ## 8. Known spec-shaping conflicts — resolve, do not gloss
 
@@ -152,7 +156,8 @@ Each is a requirement on the author of the relevant spec section, not an open qu
 - [ ] The zero-hits group (§3, `references/neutral-vocabulary-check.md`) is zero hits outside
       the task E6 binding document; read-the-hit group hits are read, not assumed guilty.
 - [ ] The section's coverage matches its slot in §4 — no item merged into another document.
-- [ ] A frozen-interface change (post-E7) is a recorded amendment (§7), not a silent edit.
+- [ ] A frozen-item change (post-E7) carries a version bump and lead approval (§7), never a
+      silent edit.
 - [ ] Any §8 conflict touched by this change is a stated requirement, not an open question.
 - [ ] `oac-boundaries` pre-commit self-check has run against the changed files.
 

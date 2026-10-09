@@ -1,0 +1,32 @@
+{
+  "fixture_format": "oac-conformance-fixture/1",
+  "requirement": "SC-ID-082",
+  "spec": "spec/session-channels.md",
+  "spec_revision": "0.1",
+  "kind": "positive",
+  "description": "The declaration has a member whose name is not an extension identifier. It is ignored.",
+  "stage": "negotiation",
+  "context": {
+    "implemented": [
+      {
+        "extension": "io.github.rossgraeber/oac-session-channels",
+        "major": 0,
+        "revision": "0.1"
+      }
+    ]
+  },
+  "input": {
+    "declaration": {
+      "comment": "not an identifier",
+      "io.github.rossgraeber/oac-session-channels": {
+        "revision": "0.1",
+        "active_inbound": true
+      }
+    }
+  },
+  "expected": {
+    "result": "agreed",
+    "extension": "io.github.rossgraeber/oac-session-channels",
+    "major": 0
+  }
+}

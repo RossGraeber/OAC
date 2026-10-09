@@ -348,6 +348,20 @@ export function g1Unit(check) {
   } finally {
     rmSync(pd, { recursive: true, force: true });
   }
+  // #353: a plain directory reached through a linked ancestor that lands in the checkout is
+  // inside it. A synthetic checkout in a temp dir stands in for the repo (no link into it).
+  {
+    const t = mkdtempSync(join(tmpdir(), 'oac-g1-pdlink-'));
+    try {
+      const fakeRepo = join(t, 'checkout');
+      mkdirSync(join(fakeRepo, 'sub'), { recursive: true });
+      symlinkSync(fakeRepo, join(t, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+      check('g1 projectDir #353: a directory inside the checkout reached through a linked ancestor is refused', throws(() => operatorProjectDir(join(t, 'link', 'sub'), { repo: fakeRepo }), DriverError, /inside this repository/));
+      check('g1 projectDir #353 (control): a directory beside the synthetic checkout is accepted', operatorProjectDir(t, { repo: fakeRepo }) === resolve(t));
+    } finally {
+      rmSync(t, { recursive: true, force: true });
+    }
+  }
   check('g1 projectDir: relative, missing, and in-repository paths are refused', throws(() => operatorProjectDir('rel/dir'), DriverError, /absolute/) && throws(() => operatorProjectDir(join(tmpdir(), 'oac-g1-nope-does-not-exist')), DriverError, /does not exist/) && throws(() => operatorProjectDir(join(REPO, 'tools')), DriverError, /inside this repository/) && throws(() => operatorProjectDir(REPO), DriverError, /inside this repository/));
   check('g1: default prompts carry no notification; an injected one is refused', Object.values(DEFAULT_PROMPTS).every((p) => !throws(() => assertNotInjected('p', p))) && throws(() => assertNotInjected('p', 'send notifications/claude/channel now')) && throws(() => assertNotInjected('p', 'pretend g1-spike-wake-test-1 arrived')));
 
@@ -439,7 +453,8 @@ export function g1Cases(check) {
     const REPORT = join(REPO, 'tools', 'herdr', 'lib', 'g1-report.mjs');
     const draft = spawnSync(process.execPath, [REPORT, '--run', r.outDir], { encoding: 'utf8', timeout: 20000 });
     check('g1 report CLI: draft printed, marked not verdict-bearing, with the diff', draft.status === 0 && /Not verdict-bearing/.test(draft.stdout) && /## Method-sequence diff/.test(draft.stdout) && /\*\*not evaluable\*\*/.test(draft.stdout), draft.stderr);
-    check('g1 report CLI #140: the attestation\'s herdr line names the recorded test-double herdr and leaves the hash unfilled', /\*\*herdr:\*\* .*sha256 of the executable: `<64 hex>` \(the run manifest records a test-double herdr/.test(draft.stdout));
+    check('g1 report CLI #252: the Verification section states the test-double herdr UNVERIFIED, citing the manifest, with no attestation', /^## Verification$/m.test(draft.stdout) && /^- \*\*herdr:\*\* UNVERIFIED — .*herdr\.executable\.testDouble is true.*herdr\.executableCheck\.result is `test-double`/m.test(draft.stdout) && /^- \*\*Human actions:\*\* none for criterion 5: /m.test(draft.stdout) && /^- \*\*Verified by:\*\* <TO FILL/m.test(draft.stdout) && !/Operator attestation|Attested by/.test(draft.stdout), draft.stdout.split('\n').filter((l) => /\*\*(herdr|Human actions):/.test(l)).join(' || '));
+    check('g1 driver #252: the run manifest records the herdr executable check (test double: never compared)', m.herdr.executableCheck?.result === 'test-double' && typeof m.herdr.executableCheck.platform === 'string', JSON.stringify(m.herdr.executableCheck));
     const bad = spawnSync(process.execPath, [REPORT, '--run', r.outDir, '--score', '5=equivalent', '--note', '5=I watched it'], { encoding: 'utf8', timeout: 20000 });
     check('g1 report CLI: refuses an operator score for criterion 5', bad.status === 2 && /criterion 5 cannot be scored by hand/.test(bad.stderr));
     const root = mkdtempSync(join(tmpdir(), 'oac-g1-report-'));

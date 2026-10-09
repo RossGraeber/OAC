@@ -1,0 +1,54 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-005",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "schema failure served",
+  "description": "The server accepts a send that fails its inputSchema instead of returning a tool execution error.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general",
+    "bound": true
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 23,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "content": [
+              {
+                "type": "text",
+                "text": "No recipient."
+              }
+            ]
+          },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 23,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"id\":\"msg-01hzx3k8q2v6w9m4t7p0r5s1yb\",\"state\":\"accepted-by-adapter\"}"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

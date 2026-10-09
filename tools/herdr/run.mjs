@@ -22,11 +22,18 @@
 // Outcome and exit code: PASS 0, FAIL 1, usage error 2, NOT RUN 3. A timeout, an expired
 // timebox, an operator abort, or a herdr version other than the PINS.md pin is NOT RUN --
 // never a failure and never a fabricated pass. The pin is read from PINS.md as committed at
-// HEAD; an uncommitted edit to its herdr row is NOT RUN too, never applied (#139).
+// HEAD; an uncommitted edit to its herdr row is NOT RUN too, never applied (#139). So is a
+// native herdr whose sha256 is not PINS.md's expected one for this platform (#252,
+// herdr.executableCheck); no expected value for the platform is a finding only.
 //
 // The manifest records which executables ran (#140): herdr.executable and
 // harnessExecutables (basename, sha256, format; never a directory), and each written
 // capture's sha256.
+//
+// Captures never republish third-party text a harness read or a tool returned (#130): each
+// tool-output body on a wire transcript is elided to `<ELIDED tool-output bytes=N sha256=...>`
+// (lib/redact.mjs, lib/elide.mjs), and a pane line is elided only when that wire shows it is
+// tool output. Each elision is listed in the capture's redaction report.
 //
 // Test tooling only. Node built-ins only; no package.json. herdr is an external process,
 // never linked. The driver never reads harness credentials, never writes harness config
@@ -41,16 +48,18 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
-import { readCommittedHerdrPin, versionMatches, PIN_ROW } from './lib/pins.mjs';
+import { readCommittedHerdrPin, versionMatches, checkHerdrExecutable, herdrCheckDecision, PIN_ROW } from './lib/pins.mjs';
 import { HerdrSession, NotRunError, DriverError, makeSessionName } from './lib/herdr.mjs';
 import {
   MANIFEST_SCHEMA_VERSION, HERDR_RUN_CONFIG, driverInfo, osInfo, hashHarnessConfig, compareHashes,
-  probeHarnesses, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV, resolveHerdr, herdrIdentity, sha256Text,
+  probeHarnesses, herdrLaunchEnv, paneEnvDelta, HOST_HARNESS_ENV, resolveHerdr, herdrIdentity, sha256Text, identityFindings,
 } from './lib/manifest.mjs';
 import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './lib/redact.mjs';
+import { redactCaptures } from './lib/elide.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
 import { removeScratch } from './lib/scratch.mjs';
+import { isMainModule, canonicallyWithin, rootGuardProblem } from './lib/canonical-path.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
@@ -117,10 +126,9 @@ export function herdrCommand(bin = 'herdr') {
   return /\.m?js$/i.test(bin) ? [process.execPath, resolve(bin)] : [bin];
 }
 
-export function isInside(dir, root) {
-  const rel = relative(realpathSync(root), realpathSync(dir));
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
+// Canonical on both sides, fail closed (a path that cannot be canonicalized is inside), and a
+// child named `..x` is inside (#353; tested as canonicallyWithin in test/identity-tests.mjs).
+export const isInside = canonicallyWithin;
 
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -171,6 +179,8 @@ async function runScenarioInner(opts, state) {
   const timebox = { remainingMs: () => timeboxStart + timeboxMs - Date.now() };
   const sessionName = makeSessionName(scenario.name);
   try {
+    const repoProblem = rootGuardProblem(REPO_ROOT);
+    if (repoProblem) throw new DriverError(`the repository checkout ${repoProblem}; refusing to run (fail closed)`);
     if (isInside(scratch, REPO_ROOT)) throw new DriverError('scratch directory resolved inside the repository; refusing to run');
     mkdirSync(join(scratch, 'captures'));
     outDir = resolve(opts.out ?? join(tmpdir(), 'oac-herdr-runs', runId));
@@ -209,6 +219,7 @@ async function runScenarioInner(opts, state) {
       herdr: {
         pinRow: PIN_ROW,
         executable: null,
+        executableCheck: null,
         pinnedTag: null,
         pinsSource: null,
         expectedVersionOutput: null,
@@ -222,7 +233,7 @@ async function runScenarioInner(opts, state) {
       os: osInfo(),
       session: { name: sessionName, serverPid: null, panePids: [] },
       env: { serverLaunch: launchEnv.delta, pane: null },
-      harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [] },
+      harnessConfig: { before: hashHarnessConfig(), after: null, unchanged: null, changed: [], mustStayUnchanged: [] },
       timebox: { budgetMs: timeboxMs, start: iso(timeboxStart), end: null, elapsedMs: null, expired: null, teardownEnd: null },
       commands,
       teardown: null,
@@ -292,6 +303,18 @@ async function runScenarioInner(opts, state) {
       finding(text) {
         manifest.findings.push(text);
       },
+      // #271: called immediately BEFORE a step after which the harness config must not change
+      // (the Enter of a driver "Allow" on Codex's MCP tool-approval prompt: proof that no
+      // approval was persisted). The first call hashes the harness config then
+      // (harnessConfig.beforeFirstAllow); teardown compares its own hashes with that snapshot,
+      // not with the run's start, so a legitimate earlier write (a Codex trust accept at
+      // startup) does not count (PR #277 review). A change since the snapshot downgrades a
+      // PASS to FAIL and is always a finding.
+      requireHarnessConfigUnchanged(why) {
+        const hc = manifest.harnessConfig;
+        if (!hc.beforeFirstAllow) hc.beforeFirstAllow = { at: iso(Date.now()), hashes: hashHarnessConfig() };
+        hc.mustStayUnchanged.push({ why: String(why), at: iso(Date.now()) });
+      },
       // A process outside the driver's control (e.g. the operator's shared Codex app-server
       // daemon, which the driver never stops) may keep a handle under scratch past the run.
       // Recorded; named in the finding if scratch removal then fails (#202).
@@ -344,14 +367,17 @@ async function runScenarioInner(opts, state) {
   const body = async () => {
     // Which herdr executable runs (#140): recorded first, whatever the run's outcome.
     manifest.herdr.executable = await herdrIdentity(herdrResolved, { env: herdrEnv });
+    manifest.findings.push(...identityFindings([manifest.herdr.executable]));
     if (!herdrResolved.path) throw new NotRunError('herdr executable not resolved (on PATH, absolute entries only, or --herdr-bin); nothing spawned');
     // The pin comes from PINS.md as committed at HEAD, never the working tree. An uncommitted
     // edit to the herdr row refuses the run; any other uncommitted PINS.md edit is a finding
     // only (#139; harness versions are never gated, #216).
     let pin;
+    let expectedExecutables;
     try {
       const committed = readCommittedHerdrPin(REPO_ROOT);
       pin = committed.pin;
+      expectedExecutables = committed.expectedExecutables;
       manifest.herdr.pinsSource = committed.source;
       if (committed.finding) manifest.findings.push(committed.finding);
     } catch (err) {
@@ -360,6 +386,14 @@ async function runScenarioInner(opts, state) {
     }
     manifest.herdr.pinnedTag = pin.tag;
     manifest.herdr.expectedVersionOutput = pin.expectedVersionOutput;
+    // #252: which herdr runs is verified here, not attested. The hash taken above is compared
+    // with PINS.md's expected sha256 for this platform before herdr is spawned at all. A
+    // different or unhashable native herdr is NOT RUN, like a version off the pin; no
+    // expected value for this platform is a finding, and the record states herdr UNVERIFIED.
+    manifest.herdr.executableCheck = checkHerdrExecutable(manifest.herdr.executable, expectedExecutables);
+    const xd = herdrCheckDecision(manifest.herdr.executableCheck);
+    if (xd.notRun) throw new NotRunError(xd.notRun);
+    if (xd.finding) manifest.findings.push(xd.finding);
     let observed;
     try {
       observed = await herdr.version();
@@ -377,6 +411,7 @@ async function runScenarioInner(opts, state) {
       const probe = await probeHarnesses(harnesses);
       manifest.harnessVersions = probe.versions;
       manifest.harnessExecutables = probe.executables;
+      manifest.findings.push(...identityFindings(Object.values(probe.executables)));
     } else {
       manifest.harnessVersions = { note: 'N/A: this scenario launches no harness' };
       manifest.harnessExecutables = { note: 'N/A: this scenario launches no harness' };
@@ -477,6 +512,15 @@ async function runScenarioInner(opts, state) {
       }
     };
     if (!manifest.teardown.clean) downgrade(`teardown was not clean: ${JSON.stringify({ ...manifest.teardown, clean: undefined })}`);
+    // #271: the teardown hashes against the snapshot taken just before the first driver Allow.
+    // The start-to-teardown comparison above stays recorded as its own fact.
+    const hc = manifest.harnessConfig;
+    if (hc.mustStayUnchanged.length) {
+      hc.sinceFirstAllow = hc.beforeFirstAllow ? compareHashes(hc.beforeFirstAllow.hashes, hc.after) : { unchanged: null, changed: [] };
+      if (hc.sinceFirstAllow.unchanged !== true) {
+        downgrade(`harness config changed after the first driver "Allow" (#271: ${hc.mustStayUnchanged.map((x) => x.why).join('; ')}; changed since the snapshot at ${hc.beforeFirstAllow?.at ?? 'unknown'}: ${hc.sinceFirstAllow.changed.join(', ') || 'unknown'}): that no persistent tool approval was written is not shown`);
+      }
+    }
 
     // Redaction literals first: realpath needs the scratch dir to still exist.
     const literals = [{ value: scratch, placeholder: '<SCRATCH>' }, { value: REPO_ROOT, placeholder: '<REPO>' }, { value: outDir, placeholder: '<OUT>' }, ...extraLiterals];
@@ -514,8 +558,10 @@ async function runScenarioInner(opts, state) {
     state.phase = 'record';
 
     const redactor = createRedactor({ literals });
+    const redactedCaptures = redactCaptures(redactor, captures);
     for (const c of captures) {
-      const { text, report } = c.format === 'jsonl' ? redactor.redactJsonl(c.text) : redactor.redactText(c.text);
+      const res = redactedCaptures.get(c);
+      const { text, report } = res;
       const ok = reportIsClean(report);
       if (ok) writeFileSync(join(outDir, c.name), text);
       // sha256 of the bytes written (#140): binds a committed fixture to this capture.
@@ -578,7 +624,7 @@ async function main(argv) {
   return res.exitCode;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isMainModule(import.meta.url)) {
   const code = await main(process.argv.slice(2));
   // Exit explicitly once the run is recorded: a scenario abandoned at its timebox or on an
   // operator abort may still hold timers or handles that would keep the process alive.

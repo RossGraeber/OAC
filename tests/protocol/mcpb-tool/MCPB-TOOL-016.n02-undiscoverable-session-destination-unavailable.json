@@ -1,0 +1,60 @@
+{
+  "fixture_format": "oac-mcpb-fixture/1",
+  "requirement": "MCPB-TOOL-016",
+  "spec": "spec/bindings/mcp.md",
+  "spec_revision": "0.1",
+  "kind": "negative",
+  "failure_mode": "undiscoverable session treated by its true presence",
+  "description": "A send to an unreachable session the calling session is not authorized to discover carries destination-unavailable, the code for the presence the requester may not see.",
+  "stage": "mcp-binding",
+  "context": {
+    "era": "modern",
+    "server_role": "general",
+    "bound": true,
+    "addressed": {
+      "presence": "unreachable",
+      "discoverable": false
+    }
+  },
+  "input": {
+    "mcp_exchange": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 75,
+        "method": "tools/call",
+        "params": {
+          "name": "send",
+          "arguments": {
+            "to": "3m8q2r7t0v4w6x9y1z5a3b8c2d",
+            "content": [
+              {
+                "type": "text",
+                "text": "Build finished; please review."
+              }
+            ]
+          },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "server_message": {
+        "jsonrpc": "2.0",
+        "id": 75,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "destination-unavailable: the addressed session is not accepting input now."
+            }
+          ],
+          "isError": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "result": "nonconformant"
+  }
+}

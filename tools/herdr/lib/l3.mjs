@@ -30,6 +30,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { keepsBasename } from './canonical-path.mjs';
 
 import { crockford128 } from '../gate-servers/g5-codex.mjs';
 import { SECURITY_KEYS } from '../gate-servers/g5-channel.mjs';
@@ -511,6 +512,8 @@ export function harnessConfigTargets(env = process.env, { home = homedir() } = {
 export function hashConfig(targets) {
   return targets.map(({ label, kind, path }) => {
     if (!existsSync(path)) return { label, kind, present: false, sha256: null, sections: null };
+    // #353: a config file linked to a file of another name (a credential file) is not read.
+    if (!keepsBasename(path)) return { label, kind, present: true, sha256: null, sections: null, error: 'not read: resolves to a file of another name (#353)' };
     let buf;
     try {
       buf = readFileSync(path);
