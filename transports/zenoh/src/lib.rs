@@ -24,6 +24,11 @@
 //!
 //! # Transport binding document
 //!
+//! **Not for real traffic yet.** Until per-recipient frame encryption (the spec PR #367) and
+//! the core's sealing work that uses it have landed, this transport must not carry real
+//! traffic: every peer of a partition, and the rendezvous holder, can read every frame
+//! (PR #364, lead's condition of 2026-10-09; C7 §3 dated note).
+//!
 //! This section is the transport binding document that [IFC-TRN-090] requires, for the
 //! publish, subscribe and presence-carriage half (G1). G2 (#63) adds carrier loss, and G3
 //! (#64) the TLS listener and LAN mode. It states the mapping that
@@ -41,7 +46,28 @@
 //! it about. If the first transport shuts down, the later ones are cut off until another
 //! transport takes the port; they then reconnect to it. That is the cost of failing closed:
 //! the first transport on a host is the relay for the others (in the daemon model of C2 the
-//! host has one). Multicast scouting was the earlier default; it reached
+//! host has one).
+//!
+//! **The rendezvous holder is not authenticated (port squatting).** Whatever binds the
+//! loopback rendezvous port first, or first after the holder exits, is the relay every
+//! other transport on the host uses. Nothing proves it is an OAC transport. So:
+//!
+//! - a squatting program, run by any local user, receives every frame and can drop, delay
+//!   or withhold any of them, silently (envelope signatures and replay protection still
+//!   hold);
+//! - any program on the port that is not a Zenoh session stops OAC from starting at all
+//!   (`start` names the port and says it is held by something else);
+//! - one process, possibly another OS user's, relays the whole host, since every install
+//!   uses the same default port and partition;
+//! - between holders, transports are cut off;
+//! - [`DEFAULT_RENDEZVOUS_PORT`] (`17447`) is fixed and unregistered, so other software may
+//!   use it.
+//!
+//! The lead ratified this design on 2026-10-09 on condition that G3 (#64) authenticates the
+//! relay with a per-user pinned TLS certificate before OAC carries real traffic
+//! (`11-risks.md` row 81; C7 §9 threat row; C7 §5 dated note).
+//!
+//! Multicast scouting was the earlier default; it reached
 //! the LAN (PR #364 review, finding 1), and confining it to loopback cannot be guaranteed
 //! with the stable configuration (see `config.rs`), so it is not used. Only the
 //! `transport_tcp` link is compiled in. No `unstable` or `shared-memory` feature is used.

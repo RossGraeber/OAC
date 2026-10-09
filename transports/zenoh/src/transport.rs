@@ -291,7 +291,11 @@ impl PeerTransport {
     /// Open the native session: the session and the loopback port it listens on.
     fn open(conf: &PeerConfiguration) -> Result<(zenoh::Session, u16), TransportError> {
         let mut last = String::new();
-        for role in conf.roles() {
+        let roles = conf.roles();
+        // Something already accepts connections on the port when the joiner side is tried
+        // first (`PeerConfiguration::roles`).
+        let port_answers = roles[0] == Role::Joiner;
+        for role in roles {
             let own = free_loopback_port().ok_or_else(|| {
                 TransportError::InvalidConfiguration("no free loopback port".into())
             })?;
@@ -308,6 +312,16 @@ impl PeerTransport {
                     }
                 }
             }
+        }
+        if port_answers {
+            // The port accepts connections, yet neither joining it nor holding it worked:
+            // what holds it is not an OAC transport. Name the port (no address: the error
+            // may reach a health detail).
+            last = format!(
+                "the loopback rendezvous port {} is held by a program that is not an OAC transport; \
+                 stop that program or configure another rendezvous port",
+                conf.rendezvous_port()
+            );
         }
         Err(TransportError::InvalidConfiguration(last))
     }

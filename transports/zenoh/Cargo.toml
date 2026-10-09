@@ -26,8 +26,13 @@ sha2 = "=0.11.0"
 
 [features]
 # Test support only: `PeerTransport::identifiers_for_leak_checks`, the native strings a
-# leak test checks for. Off by default, so no peer id or locator reaches a dependent; this
-# crate's own tests turn it on through the dev-dependency below.
+# leak test checks for. Off by default; this crate's own tests turn it on through the
+# dev-dependency below. A dependent that turned it on explicitly would gain nothing that
+# crosses the boundary: the method exists only on the concrete `PeerTransport`, which only
+# cli/ constructs (the core holds a `dyn Transport` and cannot call it), and it returns this
+# process's own peer ids, loopback ports and key prefix, which hold no secret and no other
+# user's data. It feeds no health detail or error (IFC-TYP-092). Turning it on in a
+# product crate is still a review finding.
 test-support = []
 
 [dev-dependencies]

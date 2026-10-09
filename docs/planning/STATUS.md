@@ -4,6 +4,22 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-09 (**Issue #62 (G1): the lead's rulings on PR #364.** No gate
+verdict, pin or ADR text changes.
+
+- **No real traffic yet.** The partition-wide subscriber is ratified on condition of
+  per-recipient frame encryption: a frozen-spec addition, PR #367. Until that addition and
+  the core's sealing work have landed, the Zenoh transport must not carry real traffic
+  (C7 §3 dated note; binding document).
+- **Local mode ratified, with a condition.** The fixed loopback rendezvous (`17447`), with
+  the first transport as the in-process relay, is ratified on condition that G3 (#64)
+  authenticates the relay with a per-user pinned TLS certificate before real traffic.
+  Rendezvous port squatting is recorded in C7 §5 and §9 and in 11-risks.md row 81, owner
+  #64. The cases: an unauthenticated relay that can read, drop or delay frames; denial of
+  service by any program on the port; one process, possibly another user's, relaying the
+  host; a cut-off between holders; a fixed, unregistered port. `start` now names the port
+  when something else holds it.
+
 **Last updated:** 2026-10-09 (**Issue #62 (G1): the Zenoh reference transport, after the
 PR #364 review.** No gate verdict, pin or ADR text changes.
 
@@ -2665,6 +2681,9 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   it to a link; G2 #63 must use its own link or liveliness observations; 11-risks.md row 76).
 - Frame expiry under clock skew between hosts (UNVERIFIED for LAN mode — exact on one host,
   unbounded across hosts until G3 #64 bounds it; C7 §6 dated note; 11-risks.md row 77).
+- The identity of the local-mode rendezvous holder (UNVERIFIED — nothing authenticates it,
+  so any local program on the port is the relay; G3 #64 must pin it with a per-user TLS
+  certificate before real traffic; C7 §5 dated note; 11-risks.md row 81).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.157.1` (UNVERIFIED — G2
   has exercised Windows only, on both `0.154.0` and the `0.157.1` re-run; see
   `docs/planning/gates/G2-result.md`).

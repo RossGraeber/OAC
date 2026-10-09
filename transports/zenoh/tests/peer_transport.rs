@@ -276,6 +276,30 @@ fn local_mode_reaches_nothing_beyond_loopback() {
     let _ = probe.close().wait();
 }
 
+/// A rendezvous port held by a program that is not an OAC transport (here a plain TCP
+/// listener) makes `start` fail with an error that names the port and says so.
+#[test]
+fn a_port_held_by_something_else_is_named_in_the_start_error() {
+    let squatter = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = squatter.local_addr().unwrap().port();
+    let t = PeerTransport::new();
+    let e = t
+        .start(
+            &key('a'),
+            PeerConfiguration::rendezvous(port)
+                .with_partition(format!("squat-{port}"))
+                .wrap(),
+        )
+        .unwrap_err();
+    let TransportError::InvalidConfiguration(why) = e else {
+        panic!("unexpected error {e:?}");
+    };
+    assert!(why.contains(&port.to_string()), "{why}");
+    assert!(why.contains("not an OAC transport"), "{why}");
+    assert!(!why.contains("127.0.0.1"), "{why}");
+    drop(squatter);
+}
+
 /// With gossip off, a later peer links only to the peer holding the rendezvous port; two
 /// later peers still reach each other, routed through it.
 #[test]
